@@ -17,6 +17,8 @@
 
 #include "load/channel/load_stream.h"
 
+#include <errno.h>
+
 #include <brpc/stream.h>
 #include <bthread/bthread.h>
 #include <bthread/condition_variable.h>
@@ -45,6 +47,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet_info.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 
@@ -74,6 +77,38 @@ inline std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_s
     ostr << "load_id=" << print_id(tablet_stream._load_id) << ", txn_id=" << tablet_stream._txn_id
          << ", tablet_id=" << tablet_stream._id << ", status=" << tablet_stream._status.status();
     return ostr;
+}
+
+Status TabletStream::_wait_for_task_slot(size_t max_tasks, int64_t timeout_ms) {
+    DCHECK_GT(timeout_ms, 0);
+    std::unique_lock<bthread::Mutex> lock(_flush_task_lock);
+
+    while (_pending_flush_tasks >= max_tasks) {
+        int ret = _flush_task_cv.wait_for(lock, timeout_ms * 1000);
+
+        if (ret == ETIMEDOUT) {
+            return Status::Error<true>(
+                    ErrorCode::INTERNAL_ERROR,
+                    "wait flush token back pressure time is more than "
+                    "load_stream_max_wait_flush_token_time {}, pending_flush_tasks={}, "
+                    "flush_token_max_tasks={}",
+                    timeout_ms, _pending_flush_tasks, max_tasks);
+        }
+        if (ret != 0) {
+            return Status::Error<true>(ErrorCode::INTERNAL_ERROR,
+                                       "wait flush task slot failed, ret={}", ret);
+        }
+    }
+    ++_pending_flush_tasks;
+    return Status::OK();
+}
+
+void TabletStream::_release_task_slot() {
+    DCHECK_GT(_pending_flush_tasks, 0);
+
+    std::lock_guard<bthread::Mutex> lock(_flush_task_lock);
+    --_pending_flush_tasks;
+    _flush_task_cv.notify_one();
 }
 
 Status TabletStream::init(std::shared_ptr<OlapTableSchemaParam> schema, int64_t index_id,
@@ -149,6 +184,9 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     auto flush_func = [this, new_segid, eos, buf, header, file_type]() mutable {
         signal::set_signal_task_id(_load_id);
         g_load_stream_flush_running_threads << -1;
+        Defer defer {[this]() {
+            _release_task_slot();
+        }};
         auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
         if (!st.ok() && !config::is_cloud_mode()) {
             auto res = ExecEnv::get_tablet(_id);
@@ -186,15 +224,11 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     });
     MonotonicStopWatch timer;
     timer.start();
-    while (_flush_token->num_tasks() >= load_stream_flush_token_max_tasks) {
-        if (timer.elapsed_time() / 1000 / 1000 >= load_stream_max_wait_flush_token_time_ms) {
-            _status.update(
-                    Status::Error<true>("wait flush token back pressure time is more than "
-                                        "load_stream_max_wait_flush_token_time {}",
-                                        load_stream_max_wait_flush_token_time_ms));
-            return _status.status();
-        }
-        bthread_usleep(2 * 1000); // 2ms
+    auto wait_st = _wait_for_task_slot(load_stream_flush_token_max_tasks,
+                                       load_stream_max_wait_flush_token_time_ms);
+    if (!wait_st.ok()) {
+        _status.update(wait_st);
+        return _status.status();
     }
     timer.stop();
     int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
@@ -207,6 +241,8 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         st = _flush_token->submit_func(flush_func);
     }
     if (!st.ok()) {
+        _release_task_slot();
+        g_load_stream_flush_running_threads << -1;
         _status.update(st);
     }
     return _status.status();
@@ -248,6 +284,7 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
 
     auto add_segment_func = [this, new_segid, stat]() {
         signal::set_signal_task_id(_load_id);
+        Defer defer {[this]() { _release_task_slot(); }};
         auto st = _load_stream_writer->add_segment(new_segid, stat);
         DBUG_EXECUTE_IF("TabletStream.add_segment.add_segment_failed",
                         { st = Status::InternalError("fault injection"); });
@@ -256,6 +293,12 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
             LOG(INFO) << "add segment failed " << *this;
         }
     };
+    auto wait_st = _wait_for_task_slot(config::load_stream_flush_token_max_tasks,
+                                       config::load_stream_max_wait_flush_token_time_ms);
+    if (!wait_st.ok()) {
+        _status.update(wait_st);
+        return _status.status();
+    }
     Status st = Status::OK();
     DBUG_EXECUTE_IF("TabletStream.add_segment.submit_func_failed",
                     { st = Status::InternalError("fault injection"); });
@@ -263,6 +306,7 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
         st = _flush_token->submit_func(add_segment_func);
     }
     if (!st.ok()) {
+        _release_task_slot();
         _status.update(st);
     }
     return _status.status();
