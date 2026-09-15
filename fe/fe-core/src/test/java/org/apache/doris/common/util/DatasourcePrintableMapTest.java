@@ -48,6 +48,30 @@ public class DatasourcePrintableMapTest {
     }
 
     @Test
+    public void testAzureAdlsFileIOSecretsStayMasked() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.loadBuiltins();
+        Map<String, String> secrets = Map.of(
+                "adls.auth.shared-key.account.key", "shared-key-test-secret",
+                "adls.token", "token-test-secret",
+                "adls.sas-token.account.dfs.core.windows.net:8443", "sas-test-secret",
+                "AdLs.Sas-Token.account.blob.core.windows.net", "mixed-case-test-secret");
+        Map<String, String> properties = new HashMap<>(secrets);
+        properties.put("adls.connection-string.account.dfs.core.windows.net", "https://endpoint");
+        properties.put("adls.sas-token-expires-at-ms.account.dfs.core.windows.net", "4102444800000");
+
+        String rendered = new DatasourcePrintableMap<>(properties, "=", false, false, true).toString();
+        secrets.forEach((key, value) -> {
+            Assertions.assertFalse(rendered.contains(value), rendered);
+            Assertions.assertTrue(rendered.contains(key + " = " + DatasourcePrintableMap.PASSWORD_MASK));
+        });
+        Assertions.assertTrue(rendered.contains("https://endpoint"));
+        Assertions.assertTrue(rendered.contains("4102444800000"));
+        String unmasked = new DatasourcePrintableMap<>(properties, "=", false, false, false).toString();
+        secrets.values().forEach(value -> Assertions.assertTrue(unmasked.contains(value)));
+    }
+
+    @Test
     public void testSensitiveKeysContainAliyunDLFProperties() {
         // Verify that SENSITIVE_KEY contains sensitive keys from AliyunDLFBaseProperties
         // These keys are added via ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class)

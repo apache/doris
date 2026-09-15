@@ -52,6 +52,12 @@ class AzureBackendViewTest {
         switch (authType) {
             case "SHARED_KEY":
                 expected.put("AZURE_ACCOUNT_KEY", "shared-key");
+                expected.put("AWS_ENDPOINT", "https://account.blob.core.windows.net");
+                expected.put("AWS_REGION", "dummy_region");
+                expected.put("AWS_ACCESS_KEY", "account");
+                expected.put("AWS_SECRET_KEY", "shared-key");
+                expected.put("AWS_NEED_OVERRIDE_ENDPOINT", "true");
+                expected.put("use_path_style", "true");
                 break;
             case "SAS":
                 expected.put("AZURE_SAS_TOKEN", TOKEN);

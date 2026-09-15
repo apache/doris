@@ -78,20 +78,31 @@ int64_t azure_client_time_millis() {
     return now;
 }
 
+Status azure_sas_expired_status(const AzureCredentialOptions& credential, std::string_view endpoint,
+                                int64_t effective_expiry_ms) {
+    return Status::InvalidArgument(
+            "Azure SAS credential is expired (account={}, endpoint={}, expires_at_ms={})",
+            credential.account_name, endpoint, effective_expiry_ms);
+}
+
 Status validate_azure_credentials_for_access(const AzureCredentialOptions& credential,
-                                             int64_t now_ms, int64_t* effective_expiry_ms) {
+                                             std::string_view endpoint, int64_t now_ms,
+                                             int64_t* effective_expiry_ms) {
     *effective_expiry_ms = 0;
     // Explicit expiry has no SDK dependency. Reject it before test creators as
     // well, including builds without Azure support.
     if (credential.type == AzureCredentialType::SAS) {
         *effective_expiry_ms = credential.sas_expiration_time_ms;
         if (*effective_expiry_ms > 0 && *effective_expiry_ms <= now_ms) {
-            return Status::InvalidArgument("Azure SAS credential is expired");
+            return azure_sas_expired_status(credential, endpoint, *effective_expiry_ms);
         }
     }
 #ifdef USE_AZURE
     if (auto error = AzureAuthFactory::validate(credential, now_ms, effective_expiry_ms);
         !error.empty()) {
+        if (error == "Azure SAS credential is expired") {
+            return azure_sas_expired_status(credential, endpoint, *effective_expiry_ms);
+        }
         return Status::InvalidArgument("{}", error);
     }
 #endif
@@ -335,8 +346,7 @@ Status convert_legacy_azure_properties(const StringCaseMap<std::string>& propert
     // incomplete native map must not be mistaken for that old protocol.
     for (const auto& [key, value] : properties) {
         const auto lower = to_lower(key);
-        if (lower.starts_with("azure") || lower.starts_with("fs.azure.") ||
-            (lower == "aws_token" && !value.empty())) {
+        if (lower.starts_with("azure") || (lower == "aws_token" && !value.empty())) {
             return Status::InvalidArgument("Azure native credentials require AZURE_AUTH_TYPE");
         }
     }
@@ -361,13 +371,39 @@ Status convert_legacy_azure_properties(const StringCaseMap<std::string>& propert
     return Status::OK();
 }
 
+Status validate_native_azure_shared_key_compatibility(const StringCaseMap<std::string>& properties,
+                                                      const AzureCredentialOptions& credential) {
+    const auto* legacy_endpoint = find_property(properties, {S3_ENDPOINT});
+    const auto* legacy_account = find_property(properties, {S3_AK});
+    const auto* legacy_key = find_property(properties, {S3_SK});
+    const auto* native_endpoint = find_property(properties, {AZURE_ENDPOINT});
+    const auto* legacy_override = find_property(properties, {"AWS_NEED_OVERRIDE_ENDPOINT"});
+    const bool has_legacy_fields =
+            legacy_endpoint != nullptr || legacy_account != nullptr || legacy_key != nullptr ||
+            find_property(properties, {S3_REGION}) != nullptr || legacy_override != nullptr;
+    if (has_legacy_fields &&
+        (legacy_endpoint == nullptr || legacy_account == nullptr || legacy_key == nullptr ||
+         native_endpoint == nullptr || *legacy_endpoint != *native_endpoint ||
+         *legacy_account != credential.account_name || *legacy_key != credential.account_key)) {
+        return Status::InvalidArgument(
+                "Azure native SharedKey compatibility fields conflict with native fields");
+    }
+    return Status::OK();
+}
+
 Status convert_native_azure_properties(const StringCaseMap<std::string>& properties,
                                        const S3URI& uri, const std::string& auth_type,
                                        S3ClientConf* client_conf) {
     auto& client = *client_conf;
+    const auto is_legacy_shared_key_field = [&](const std::string& key) {
+        return auth_type == "SHARED_KEY" &&
+               (iequal(key, S3_ENDPOINT) || iequal(key, S3_REGION) || iequal(key, S3_AK) ||
+                iequal(key, S3_SK) || iequal(key, "AWS_NEED_OVERRIDE_ENDPOINT"));
+    };
     for (const auto& [key, value] : properties) {
         const auto lower = to_lower(key);
-        if (lower.starts_with("aws_") || lower.starts_with("azure.")) {
+        if ((lower.starts_with("aws_") || lower.starts_with("azure.")) &&
+            !is_legacy_shared_key_field(key)) {
             return Status::InvalidArgument(
                     "Azure native credentials cannot use AWS or catalog property aliases");
         }
@@ -398,6 +434,9 @@ Status convert_native_azure_properties(const StringCaseMap<std::string>& propert
     set(AZURE_CLIENT_SECRET, &credential.oauth_client_secret);
     set(AZURE_TENANT_ID, &credential.oauth_tenant_id);
     set(AZURE_OAUTH_SERVER_URI, &credential.oauth_server_uri);
+    if (auth_type == "SHARED_KEY") {
+        RETURN_IF_ERROR(validate_native_azure_shared_key_compatibility(properties, credential));
+    }
     if (const auto* expiry = find_property(properties, {AZURE_SAS_EXPIRY_MS}); expiry != nullptr) {
         if (!to_int64(*expiry, credential.sas_expiration_time_ms) ||
             credential.sas_expiration_time_ms <= 0) {
@@ -617,8 +656,8 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3Cl
             std::lock_guard l(_lock);
             _prune_azure_clients(now_ms);
         }
-        RETURN_IF_ERROR_RESULT(validate_azure_credentials_for_access(s3_conf.azure_credentials,
-                                                                     now_ms, &azure_expiry_ms));
+        RETURN_IF_ERROR_RESULT(validate_azure_credentials_for_access(
+                s3_conf.azure_credentials, s3_conf.endpoint, now_ms, &azure_expiry_ms));
     }
 
 #ifdef BE_TEST
@@ -712,8 +751,8 @@ Status S3ClientFactory::validate_credentials_for_access(const S3ClientConf& conf
         return Status::OK();
     }
     int64_t effective_expiry_ms = 0;
-    return validate_azure_credentials_for_access(conf.azure_credentials, azure_client_time_millis(),
-                                                 &effective_expiry_ms);
+    return validate_azure_credentials_for_access(conf.azure_credentials, conf.endpoint,
+                                                 azure_client_time_millis(), &effective_expiry_ms);
 }
 
 void S3ClientFactory::_prune_azure_clients(int64_t now_ms) {

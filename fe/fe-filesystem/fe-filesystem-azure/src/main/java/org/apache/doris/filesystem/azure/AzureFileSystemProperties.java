@@ -194,6 +194,11 @@ public final class AzureFileSystemProperties
     private volatile Map<String, String> cachedHadoopBackendProperties;
 
     private AzureFileSystemProperties(Map<String, String> rawProperties, Clock clock) {
+        this(rawProperties, clock, false);
+    }
+
+    private AzureFileSystemProperties(Map<String, String> rawProperties, Clock clock,
+            boolean providerSelected) {
         this.clock = clock;
         // Defensive copy before wrapping: unmodifiableMap alone is only a read-only view,
         // so without the copy later mutations of the caller's map would leak through.
@@ -202,16 +207,18 @@ public final class AzureFileSystemProperties
         Map<String, String> matched = collectMatchedProperties(bindingProperties);
         ConnectorPropertiesUtils.bindConnectorProperties(this, bindingProperties);
         this.authType = resolveAuthType();
-        // S3/generic endpoint aliases belong to the legacy SharedKey compatibility path. Native
-        // SAS/OAuth2 bindings must derive the endpoint from the Azure account unless the caller
-        // supplied the provider-owned azure.endpoint; otherwise a sibling S3 provider can silently
-        // redirect Azure requests to its endpoint.
+        // S3/generic endpoint aliases may belong to a sibling provider. Retain them only for a
+        // selected Azure provider, a recognized Azure endpoint, or the legacy SharedKey path.
+        // Otherwise derive the endpoint from the provider-owned Azure account instead.
+        boolean legacyEndpointIsAzure = StringUtils.isNotBlank(endpoint)
+                && (providerSelected || AzureBlobEndpointSignals.isAzureBlobEndpoint(endpoint, rawProperties));
         if ((authType != AzureAuthType.SHARED_KEY || hasModernAzureCredentialField(matched))
-                && !hasMatchedProperty(matched, PROVIDER_ENDPOINT_ALIASES)) {
+                && !hasMatchedProperty(matched, PROVIDER_ENDPOINT_ALIASES)
+                && !legacyEndpointIsAzure) {
             endpoint = "";
         }
         this.explicitEndpoint = StringUtils.isNotBlank(endpoint);
-        bindLegacySharedKey(rawProperties, matched);
+        bindLegacySharedKey(rawProperties, matched, providerSelected);
         this.matchedProperties = Collections.unmodifiableMap(matched);
         azureAuthType = authType.propertyValue();
         this.accountHost = resolveAccountHostModel();
@@ -230,6 +237,12 @@ public final class AzureFileSystemProperties
 
     static AzureFileSystemProperties of(Map<String, String> properties, Clock clock) {
         AzureFileSystemProperties props = new AzureFileSystemProperties(properties, clock);
+        props.validate();
+        return props;
+    }
+
+    static AzureFileSystemProperties ofProvider(Map<String, String> properties) {
+        AzureFileSystemProperties props = new AzureFileSystemProperties(properties, Clock.systemUTC(), true);
         props.validate();
         return props;
     }
@@ -309,7 +322,7 @@ public final class AzureFileSystemProperties
         if (StringUtils.isNotBlank(endpoint)) {
             AzureAccountHost configuredHost = AzureAccountHost.parse(endpoint);
             if (AzureBlobEndpointSignals.isAzureBlobEndpoint(endpoint, catalogProperties)
-                    && !configuredHost.blobHost().equalsIgnoreCase(accountHost.blobHost())) {
+                    && !sameAzureAccount(configuredHost, accountHost)) {
                 throw new StoragePropertiesException("Azure vended SAS account does not match the catalog endpoint");
             }
         }
@@ -411,7 +424,7 @@ public final class AzureFileSystemProperties
             // Standard Azure endpoints identify the account as well as the transport. A custom
             // proxy does not: its exact HTTP origin is checked when binding a location instead.
             if (explicitEndpoint && AzureBlobEndpointSignals.isAzureBlobEndpoint(endpoint, rawProperties)
-                    && !accountHost.blobHost().equalsIgnoreCase(AzureAccountHost.parse(endpoint).blobHost())) {
+                    && !sameAzureAccount(accountHost, AzureAccountHost.parse(endpoint))) {
                 throw new StoragePropertiesException("Azure OAuth2 account host does not match the storage endpoint");
             }
         }
@@ -434,7 +447,8 @@ public final class AzureFileSystemProperties
         }
     }
 
-    private void bindLegacySharedKey(Map<String, String> properties, Map<String, String> matched) {
+    private void bindLegacySharedKey(Map<String, String> properties, Map<String, String> matched,
+            boolean providerSelected) {
         if (authType != AzureAuthType.SHARED_KEY) {
             return;
         }
@@ -456,7 +470,8 @@ public final class AzureFileSystemProperties
                                 .anyMatch(key -> StringUtils.isNotBlank(properties.get(key))))
                 || Set.of("s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "AZURE_ENDPOINT").stream()
                         .map(properties::get).filter(StringUtils::isNotBlank)
-                        .anyMatch(value -> AzureBlobEndpointSignals.isAzureBlobEndpoint(value, properties));
+                        .anyMatch(value -> providerSelected
+                                || AzureBlobEndpointSignals.isAzureBlobEndpoint(value, properties));
         if (!legacyAzure) {
             return;
         }
@@ -484,7 +499,7 @@ public final class AzureFileSystemProperties
         // Only canonical azure.* fields are modern bindings. Uppercase AZURE_* names are
         // historical aliases and must continue to participate in the legacy SharedKey fallback
         // when paired with an old s3.secret_key.
-        return Set.of(ENDPOINT, ACCOUNT_NAME, ACCOUNT_KEY, AUTH_TYPE).stream()
+        return Set.of(ENDPOINT, ACCOUNT_NAME, ACCOUNT_KEY).stream()
                 .anyMatch(matched::containsKey);
     }
 
@@ -546,8 +561,7 @@ public final class AzureFileSystemProperties
     private static boolean hasProviderOwnedAzureIdentity(Map<String, String> properties) {
         return firstNonBlankKey(properties, PROVIDER_ACCOUNT_ALIASES) != null
                 || firstNonBlankKey(properties, PROVIDER_ENDPOINT_ALIASES) != null
-                || StringUtils.isNotBlank(properties.get(ACCOUNT_KEY))
-                || StringUtils.isNotBlank(properties.get(AUTH_TYPE));
+                || StringUtils.isNotBlank(properties.get(ACCOUNT_KEY));
     }
 
     private static String firstNonBlankKey(Map<String, String> properties, Iterable<String> names) {
@@ -715,6 +729,7 @@ public final class AzureFileSystemProperties
     @Override
     public Map<String, String> toMap() {
         validateForAccess();
+        validateSasAccountScope();
         // Keep Azure's native credential vocabulary at the FE→BE boundary. The BE still receives
         // FILE_S3, but its provider marker dispatches this map to the Azure SDK. In particular,
         // an Azure SAS is not an AWS session token.
@@ -724,6 +739,16 @@ public final class AzureFileSystemProperties
         switch (authType) {
             case SHARED_KEY:
                 azureProps.put(BACKEND_ACCOUNT_KEY, accountKey);
+                // Keep the old SharedKey wire fields during rolling upgrades. Old BEs do not
+                // understand AZURE_*, but they already consume this exact group. New BEs verify
+                // that the compatibility values agree with the native values before accepting
+                // them, so this does not create a second credential source.
+                azureProps.put("AWS_ENDPOINT", endpoint);
+                azureProps.put("AWS_REGION", "dummy_region");
+                azureProps.put("AWS_ACCESS_KEY", accountName);
+                azureProps.put("AWS_SECRET_KEY", accountKey);
+                azureProps.put("AWS_NEED_OVERRIDE_ENDPOINT", "true");
+                azureProps.put("use_path_style", usePathStyle);
                 break;
             case SAS:
                 azureProps.put(BACKEND_SAS_TOKEN, sasCredential.value());
@@ -753,6 +778,7 @@ public final class AzureFileSystemProperties
     @Override
     public Map<String, String> toHadoopConfigurationMap() {
         validateForAccess();
+        validateSasAccountScope();
         Map<String, String> cfg = new HashMap<>();
         // No blanket ABFS/WASB cache disabling: the Doris-patched FileSystem keys its cache by the
         // per-scheme credential fingerprint below, so different credentials never share an
@@ -775,6 +801,10 @@ public final class AzureFileSystemProperties
                 if (StringUtils.isNotBlank(accountHost)) {
                     cfg.put("fs.azure.account.auth.type." + accountHost, SAS_AUTH);
                     cfg.put("fs.azure.sas.fixed.token." + accountHost, sasCredential.value());
+                }
+                if (accountHost != null && StringUtils.isNotBlank(container)) {
+                    String blobHost = this.accountHost.blobHost();
+                    cfg.put("fs.azure.sas." + container + "." + blobHost, sasCredential.value());
                 }
                 break;
             case OAUTH2:
@@ -1144,6 +1174,13 @@ public final class AzureFileSystemProperties
         }
     }
 
+    private void validateSasAccountScope() {
+        if (isSasAuth() && accountHost == null) {
+            throw new StoragePropertiesException(
+                    "Azure SAS credential requires an account name or endpoint");
+        }
+    }
+
     private static Long parseSasExpiry(String expiry) {
         if (StringUtils.isBlank(expiry)) {
             return null;
@@ -1153,6 +1190,11 @@ public final class AzureFileSystemProperties
         } catch (NumberFormatException e) {
             throw new StoragePropertiesException("Invalid Azure SAS expiry value");
         }
+    }
+
+    private static boolean sameAzureAccount(AzureAccountHost first, AzureAccountHost second) {
+        return first.accountName().equalsIgnoreCase(second.accountName())
+                && first.cloudSuffix().equalsIgnoreCase(second.cloudSuffix());
     }
 
     private static String formatAzureEndpoint(String endpoint, AzureAccountHost accountHost) {

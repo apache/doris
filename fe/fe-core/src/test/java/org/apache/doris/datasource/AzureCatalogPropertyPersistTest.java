@@ -108,6 +108,15 @@ class AzureCatalogPropertyPersistTest {
     }
 
     @Test
+    void lowercaseOAuthInputRetainsLegacyReplayCompatibility() {
+        Map<String, String> input = new HashMap<>(oauthProperties());
+        input.put("azure.auth_type", "oauth2");
+        input.put("type", "hms");
+
+        Assertions.assertDoesNotThrow(() -> StorageAdapter.ofProvider("AZURE", input));
+    }
+
+    @Test
     void canonicalOAuthInputRetainsTheIcebergRestRestriction() {
         Map<String, String> input = new HashMap<>(oauthProperties());
         input.put("type", "hms");
@@ -123,10 +132,14 @@ class AzureCatalogPropertyPersistTest {
                 Arguments.of(Map.of(
                         "AZURE_ENDPOINT", "https://account.blob.core.windows.net",
                         "AZURE_ACCOUNT_NAME", "account", "AZURE_ACCOUNT_KEY", "legacy-key",
-                        "AZURE_CONTAINER", "container"), Map.of(
-                        "provider", "azure", "AZURE_AUTH_TYPE", "SHARED_KEY",
-                        "AZURE_ENDPOINT", "https://account.blob.core.windows.net",
-                        "AZURE_ACCOUNT_NAME", "account", "AZURE_ACCOUNT_KEY", "legacy-key")),
+                        "AZURE_CONTAINER", "container"), Map.ofEntries(
+                        Map.entry("provider", "azure"), Map.entry("AZURE_AUTH_TYPE", "SHARED_KEY"),
+                        Map.entry("AZURE_ENDPOINT", "https://account.blob.core.windows.net"),
+                        Map.entry("AZURE_ACCOUNT_NAME", "account"), Map.entry("AZURE_ACCOUNT_KEY", "legacy-key"),
+                        Map.entry("AWS_ENDPOINT", "https://account.blob.core.windows.net"),
+                        Map.entry("AWS_REGION", "dummy_region"), Map.entry("AWS_ACCESS_KEY", "account"),
+                        Map.entry("AWS_SECRET_KEY", "legacy-key"),
+                        Map.entry("AWS_NEED_OVERRIDE_ENDPOINT", "true"), Map.entry("use_path_style", "false"))),
                 Arguments.of(Map.of(
                         "azure.account_name", "account", "azure.auth_type", "SAS",
                         "azure.sas_token", "sig=test-signature", "azure.sas_expiry_ms", "4102444800000"), Map.of(

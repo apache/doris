@@ -73,23 +73,12 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
             List<FileEntry> rfiles = globListing.getFiles();
             if (!rfiles.isEmpty()) {
-                String bucket = globListing.getBucket();
-                String prefix = globListing.getPrefix();
-
-                String bucketBase = "s3://" + bucket + "/";
-                // Get the path of the last directory
-                int lastSlash = prefix.lastIndexOf('/');
-                String basePrefix = (lastSlash >= 0) ? prefix.substring(0, lastSlash + 1) : "";
-                String filePathBase = bucketBase + basePrefix;
-                String joined = rfiles.stream()
-                        .map(entry -> entry.location().uri().replace(filePathBase, ""))
-                        .collect(Collectors.joining(","));
-
-                String normalizedPrefix = basePrefix.endsWith("/")
-                        ? basePrefix.substring(0, basePrefix.length() - 1) : basePrefix;
-                String finalFileLists = String.format("s3://%s/%s/{%s}", bucket, normalizedPrefix, joined);
-                String beginFile = rfiles.get(0).location().uri().replace(bucketBase, "");
-                String lastFile = rfiles.get(rfiles.size() - 1).location().uri().replace(bucketBase, "");
+                // Offsets are object keys, not full URIs. The previous implementation used a
+                // hard-coded s3:// prefix when stripping the key, so abfs/wasb locations retained
+                // their complete URI and every subsequent page started from the wrong cursor.
+                String finalFileLists = buildFileLists(rfiles, globListing.getPrefix());
+                String beginFile = objectKey(rfiles.get(0).location().uri());
+                String lastFile = objectKey(rfiles.get(rfiles.size() - 1).location().uri());
                 offset.setFileLists(finalFileLists);
                 offset.setStartFile(beginFile);
                 offset.setEndFile(lastFile);
@@ -103,6 +92,40 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             throw new RuntimeException(e);
         }
         return offset;
+    }
+
+    static String objectKey(String location) {
+        int schemeEnd = location.indexOf("://");
+        if (schemeEnd < 0) {
+            return location;
+        }
+        int pathStart = location.indexOf('/', schemeEnd + 3);
+        return pathStart < 0 ? "" : location.substring(pathStart + 1);
+    }
+
+    static String buildFileLists(List<FileEntry> files, String prefix) {
+        int lastSlash = prefix.lastIndexOf('/');
+        String basePrefix = (lastSlash >= 0) ? prefix.substring(0, lastSlash + 1) : "";
+        String locationBase = locationAuthority(files.get(0).location().uri());
+        String joined = files.stream()
+                .map(entry -> relativeObjectKey(entry.location().uri(), basePrefix))
+                .collect(Collectors.joining(","));
+        return locationBase + basePrefix + "{" + joined + "}";
+    }
+
+    private static String locationAuthority(String location) {
+        int schemeEnd = location.indexOf("://");
+        int pathStart = location.indexOf('/', schemeEnd < 0 ? 0 : schemeEnd + 3);
+        return pathStart < 0 ? location + "/" : location.substring(0, pathStart + 1);
+    }
+
+    private static String relativeObjectKey(String location, String basePrefix) {
+        String key = objectKey(location);
+        if (!key.startsWith(basePrefix)) {
+            throw new IllegalStateException("Glob listing prefix is not an object-key prefix: "
+                    + basePrefix + " for " + location);
+        }
+        return key.substring(basePrefix.length());
     }
 
     @Override

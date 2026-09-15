@@ -70,7 +70,7 @@ class AzureAccountHostTest {
         AzureAccountHost host = AzureAccountHost.parse(
                 "http://account.dfs.core.chinacloudapi.cn:10000/proxy%2Fpath//a+b");
 
-        Assertions.assertEquals("account.blob.core.chinacloudapi.cn", host.blobHost());
+        Assertions.assertEquals("account.blob.core.chinacloudapi.cn:10000", host.blobHost());
         Assertions.assertEquals("http://account.blob.core.chinacloudapi.cn:10000/proxy%2Fpath//a+b",
                 host.blobEndpoint());
     }

@@ -117,11 +117,17 @@ public final class AzureAccountHost {
     }
 
     public String dfsHost() {
-        return cloudSuffix.isEmpty() ? endpoint.getHost() : accountName + DFS_MARKER + cloudSuffix;
+        String host = cloudSuffix.isEmpty() ? endpoint.getHost() : accountName + DFS_MARKER + cloudSuffix;
+        return withPort(host);
     }
 
     public String blobHost() {
-        return cloudSuffix.isEmpty() ? endpoint.getHost() : accountName + BLOB_MARKER + cloudSuffix;
+        String host = cloudSuffix.isEmpty() ? endpoint.getHost() : accountName + BLOB_MARKER + cloudSuffix;
+        return withPort(host);
+    }
+
+    private String withPort(String host) {
+        return endpoint.getPort() < 0 ? host : host + ":" + endpoint.getPort();
     }
 
     public String blobEndpoint() {
@@ -129,10 +135,10 @@ public final class AzureAccountHost {
             return endpoint.toString();
         }
         String value = endpoint.toString();
-        int hostStart = value.indexOf("://") + 3;
-        // Replace only the authority host: URI reconstruction would decode/re-encode paths.
-        return value.substring(0, hostStart) + blobHost()
-                + value.substring(hostStart + endpoint.getHost().length());
+        int authorityStart = value.indexOf("://") + 3;
+        // Replace only the authority: URI reconstruction would decode/re-encode paths.
+        return value.substring(0, authorityStart) + blobHost()
+                + value.substring(authorityStart + endpoint.getRawAuthority().length());
     }
 
     public boolean isDfsHost() {

@@ -219,10 +219,10 @@ class AzureVendedCredentialsTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"adls.token", "ADLS.TOKEN"})
-    void bindVended_rejectsUnsupportedVendedAccessToken(String key) {
-        StoragePropertiesException error = assertRejected(Map.of(key, "secret-signature"));
-
-        Assertions.assertTrue(error.getMessage().contains("access tokens are not supported"));
+    void bindVended_ignoresIcebergAccessTokenDialect(String key) {
+        Assertions.assertTrue(provider.bindVended(Map.of(key, "secret-signature"),
+                Map.of("azure.account_name", "account", "azure.account_key", "old-shared-key"))
+                .isEmpty());
     }
 
     @ParameterizedTest

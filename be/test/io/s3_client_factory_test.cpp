@@ -677,6 +677,22 @@ TEST_F(S3ClientFactoryTest, ConvertsNativeAzureSharedKeyWithoutAwsFields) {
 #endif
 }
 
+TEST_F(S3ClientFactoryTest, ConvertsNativeAzureSharedKeyWithRollingUpgradeFields) {
+    auto properties = native_azure_shared_key_properties();
+    properties.insert({"AWS_ENDPOINT", "https://account.blob.core.windows.net"});
+    properties.insert({"AWS_REGION", "dummy_region"});
+    properties.insert({"AWS_ACCESS_KEY", "account"});
+    properties.insert({"AWS_SECRET_KEY", "c2hhcmVkLWtleQ=="});
+    properties.insert({"AWS_NEED_OVERRIDE_ENDPOINT", "true"});
+    S3URI uri("abfss://container@account.dfs.core.windows.net/path/file");
+    ASSERT_TRUE(uri.parse().ok());
+
+    S3Conf conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok());
+    EXPECT_EQ(conf.client_conf.azure_credentials.account_name, "account");
+    EXPECT_EQ(conf.client_conf.azure_credentials.account_key, "c2hhcmVkLWtleQ==");
+}
+
 TEST_F(S3ClientFactoryTest, LegacyAzureSharedKeyRetainsCustomEndpointAndS3Uri) {
     std::map<std::string, std::string> properties {
             {"provider", "azure"},
@@ -684,6 +700,8 @@ TEST_F(S3ClientFactoryTest, LegacyAzureSharedKeyRetainsCustomEndpointAndS3Uri) {
             {"AWS_ACCESS_KEY", "original-account"},
             {"AWS_SECRET_KEY", "c2hhcmVkLWtleQ=="},
             {"AWS_REGION", "legacy-region"},
+            // Old FE versions may attach Hadoop Azure overrides to the same legacy map.
+            {"fs.azure.account.key.account.blob.core.windows.net", "hadoop-key"},
             {"AWS_TOKEN", ""}};
     S3URI uri("s3://container/path%20with+encoding");
     ASSERT_TRUE(uri.parse().ok());
@@ -899,6 +917,8 @@ TEST_F(S3ClientFactoryTest, NativeAzureRejectsExpiredSasBeforeClientCreation) {
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(creates, 0);
     EXPECT_NE(result.error().to_string().find("expired"), std::string::npos);
+    EXPECT_NE(result.error().to_string().find("account=account"), std::string::npos);
+    EXPECT_NE(result.error().to_string().find("expires_at_ms=1"), std::string::npos);
     EXPECT_EQ(result.error().to_string().find("do-not-log"), std::string::npos);
 #ifdef USE_AZURE
     conf.azure_credentials.sas_expiration_time_ms = 0;
