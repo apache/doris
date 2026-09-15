@@ -36,6 +36,7 @@ import org.apache.doris.thrift.TResultSinkType;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.logging.log4j.LogManager;
@@ -43,7 +44,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -58,6 +61,25 @@ import java.util.concurrent.locks.ReentrantLock;
  * arrive on its own thread, and nothing in the transport serializes them. {@link #runCommand}
  * does, so that a session's {@link ConnectContext}, which is not thread-safe, is only ever used
  * by one command at a time.
+ *
+ * <p>Nor does a query end where the frontend's command does. The client pulls the results from the
+ * backends by itself (DoGet), and the frontend hears nothing of it -- not when it starts, not when
+ * it is done -- so a query may still be running on the backends while the session runs its next
+ * command here. Two things of a request therefore outlive the command that made them, and the
+ * contract for both is that the command stream owns them and nothing else does: the result a
+ * statement materialized on this frontend, cached on the channel until the client's DoGet takes it
+ * or the next request drops it; and the executors of queries whose coordinator must stay alive
+ * until the backends are done with it, the {@link #deferredExecutors}. A deferred executor is a
+ * closed object from the moment it is deferred: it carries what finalizing it needs and reads
+ * nothing of the session's live state afterwards, since the session moves on without it (a session
+ * option's SET, a metadata request, the next request) and since it may be finalized from a thread
+ * that runs no command of the session (the timeout checker, a token expiry). It is finalized
+ * exactly once, by whoever takes it out of the list under the list's lock -- the next request
+ * ({@link #beginRequest}), the timeout checker ({@link #takeExpiredDeferredExecutors}, each
+ * executor by its own deadline) or teardown ({@link #closeDeferredExecutors}) -- deciding and
+ * taking in one critical section, finalizing outside it. The frontend has no signal for the moment
+ * a query is done on the backends; the next request stands in for it, as it has since #62259,
+ * and the deadline bounds the wait when no request comes.
  */
 public class FlightProtocolAdapter implements ProtocolAdapter {
     private static final Logger LOG = LogManager.getLogger(FlightProtocolAdapter.class);
@@ -83,8 +105,10 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     // GetFlightInfo would release the SplitSource too early and make the BE's fetchSplitBatch fail
     // with "Split source X is released". These executors are finalized when the next query starts
     // on this connection, when the connection is torn down, or by the idle reaper in
-    // ConnectContext.checkTimeout once arrow_flight_deferred_query_idle_timeout_second has passed
-    // since the query started. See #62259 and #67503.
+    // ConnectContext.checkTimeout once each one's own bound has passed since its query started.
+    // See #62259 and #67503, and the class comment for who owns them. Guarded by its own monitor:
+    // the commands of the session add and take under the command lock, the timeout checker and
+    // teardown take without it.
     private final List<StmtExecutor> deferredExecutors = new ArrayList<>();
     // Serializes the commands of this session, see runCommand.
     private final ReentrantLock commandLock = new ReentrantLock();
@@ -356,16 +380,74 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         }
     }
 
+    /**
+     * Takes every deferred executor out of the list and finalizes it: the next request of the
+     * session ({@link #beginRequest}), which stands in for the end of the previous query's DoGet, and
+     * the session's teardown.
+     */
     public void closeDeferredExecutors() {
-        List<StmtExecutor> toClose;
+        List<StmtExecutor> taken;
         synchronized (deferredExecutors) {
             if (deferredExecutors.isEmpty()) {
                 return;
             }
-            toClose = new ArrayList<>(deferredExecutors);
+            taken = new ArrayList<>(deferredExecutors);
             deferredExecutors.clear();
         }
-        for (StmtExecutor deferredExecutor : toClose) {
+        finalizeDeferredExecutors(taken);
+    }
+
+    /**
+     * Takes out of the list the deferred executors whose own bound has passed by {@code now} and
+     * returns them for the caller to finalize: the timeout checker's half of the exactly-once rule
+     * in the class comment. Each executor is judged and removed in the same critical section, by
+     * its own deadline -- when its query started plus {@link #deferredBoundMs} -- so that of the
+     * executors of one multi-statement request, each with a start and an execution timeout of its
+     * own, only the overdue ones go, and an executor added while the checker runs, which it never
+     * judged, stays. Takes nothing when the bound is disabled
+     * (Config.arrow_flight_deferred_query_idle_timeout_second is 0).
+     */
+    public List<StmtExecutor> takeExpiredDeferredExecutors(long now) {
+        int configTimeoutS = Config.arrow_flight_deferred_query_idle_timeout_second;
+        if (configTimeoutS <= 0) {
+            return Collections.emptyList();
+        }
+        List<StmtExecutor> expired = new ArrayList<>();
+        synchronized (deferredExecutors) {
+            Iterator<StmtExecutor> iterator = deferredExecutors.iterator();
+            while (iterator.hasNext()) {
+                StmtExecutor deferredExecutor = iterator.next();
+                long deferredMs = now - deferredExecutor.getDeferredStartTimeMs();
+                if (deferredMs > deferredBoundMs(deferredExecutor, configTimeoutS)) {
+                    expired.add(deferredExecutor);
+                    iterator.remove();
+                }
+            }
+        }
+        return expired;
+    }
+
+    /**
+     * How long, in milliseconds, a deferred executor may be kept after its query started before the
+     * timeout checker finalizes it without killing the session: {@code configTimeoutS}
+     * (Config.arrow_flight_deferred_query_idle_timeout_second) floored at the execution timeout the
+     * query ran with -- the client may still be pulling its results from the BE, which still needs
+     * the batch split source the coordinator holds. It counts from the query's own start, not from
+     * the session's last command: a session option or a metadata request that came since neither
+     * finished the query nor may keep its coordinator alive for another bound. A Flight client that
+     * opens a session per query and never closes it would otherwise pin each deferred query's query
+     * queue slot and query registration until wait_timeout (8h by default).
+     */
+    public static long deferredBoundMs(StmtExecutor deferredExecutor, int configTimeoutS) {
+        return Math.max(configTimeoutS, deferredExecutor.getDeferredExecTimeoutS()) * 1000L;
+    }
+
+    /**
+     * Finalizes executors taken out of the list (see {@link StmtExecutor#finalizeArrowFlightQuery}).
+     * One failing does not keep the next from being finalized.
+     */
+    public static void finalizeDeferredExecutors(List<StmtExecutor> takenExecutors) {
+        for (StmtExecutor deferredExecutor : takenExecutors) {
             try {
                 deferredExecutor.finalizeArrowFlightQuery();
             } catch (Throwable t) {
@@ -374,50 +456,12 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         }
     }
 
-    /**
-     * When the oldest deferred query started, in epoch milliseconds; -1 when nothing is deferred.
-     * The bound of {@link #getDeferredExecutorsIdleTimeoutS} counts from here, not from the
-     * session's last command: a session option or a metadata request that comes while the client
-     * is still pulling the query's results neither says it is done nor may keep the coordinator
-     * alive for another bound.
-     */
-    public long getDeferredExecutorsStartTimeMs() {
-        long startTimeMs = -1;
+    /** A snapshot of the deferred executors, in the order they were deferred. */
+    @VisibleForTesting
+    public List<StmtExecutor> getDeferredExecutors() {
         synchronized (deferredExecutors) {
-            for (StmtExecutor deferredExecutor : deferredExecutors) {
-                long deferredStartTimeMs = deferredExecutor.getDeferredStartTimeMs();
-                startTimeMs = startTimeMs < 0 ? deferredStartTimeMs : Math.min(startTimeMs, deferredStartTimeMs);
-            }
+            return ImmutableList.copyOf(deferredExecutors);
         }
-        return startTimeMs;
-    }
-
-    /**
-     * How long, in seconds, a sleeping connection may keep its deferred executors before the
-     * timeout checker finalizes them without killing the connection
-     * (Config.arrow_flight_deferred_query_idle_timeout_second), counted from when the deferred
-     * query started ({@link #getDeferredExecutorsStartTimeMs}). A Flight client that opens a
-     * session per query and never closes it would otherwise pin each deferred query's query queue
-     * slot and query registration until wait_timeout (8h by default). The bound is never shorter
-     * than the execution timeout the deferred query was run with: the client may still be pulling
-     * that query's results from the BE, which still needs the batch split source the coordinator
-     * holds. Returns -1 when the bound is disabled or nothing is deferred.
-     */
-    public long getDeferredExecutorsIdleTimeoutS() {
-        int configTimeoutS = Config.arrow_flight_deferred_query_idle_timeout_second;
-        if (configTimeoutS <= 0) {
-            return -1;
-        }
-        long execTimeoutS = -1;
-        synchronized (deferredExecutors) {
-            if (deferredExecutors.isEmpty()) {
-                return -1;
-            }
-            for (StmtExecutor deferredExecutor : deferredExecutors) {
-                execTimeoutS = Math.max(execTimeoutS, deferredExecutor.getDeferredExecTimeoutS());
-            }
-        }
-        return Math.max(configTimeoutS, execTimeoutS);
     }
 
     /** The body of a command run by {@link #runCommand}. */

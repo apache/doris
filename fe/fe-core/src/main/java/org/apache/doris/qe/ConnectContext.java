@@ -87,6 +87,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -812,8 +813,7 @@ public class ConnectContext {
      * The client was active just now: wait_timeout counts from here. Unlike {@link #setStartTime},
      * which starts a statement, this leaves what the last statement recorded (its rows, its backend
      * selection) as it is, for a command that runs no statement of its own -- an Arrow Flight SQL
-     * session option or metadata request -- while a deferred query of the session may still be
-     * finished later from that record.
+     * session option or metadata request.
      */
     public void refreshStartTime() {
         startTimeInstant = Instant.now();
@@ -1049,35 +1049,34 @@ public class ConnectContext {
         }
     }
 
-    // Returns -1 when the connection has nothing deferred or the bound is disabled.
-    public long getFlightSqlDeferredExecutorsIdleTimeoutS() {
+    // A snapshot; empty for a connection of any other protocol.
+    @VisibleForTesting
+    public List<StmtExecutor> getFlightSqlDeferredExecutors() {
         return protocolAdapter instanceof FlightProtocolAdapter
-                ? ((FlightProtocolAdapter) protocolAdapter).getDeferredExecutorsIdleTimeoutS() : -1;
+                ? ((FlightProtocolAdapter) protocolAdapter).getDeferredExecutors() : Collections.emptyList();
     }
 
-    // When the oldest deferred query started; -1 when the connection has nothing deferred.
-    public long getFlightSqlDeferredExecutorsStartTimeMs() {
-        return protocolAdapter instanceof FlightProtocolAdapter
-                ? ((FlightProtocolAdapter) protocolAdapter).getDeferredExecutorsStartTimeMs() : -1;
-    }
-
-    // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet.
-    // The bound counts from when the deferred query started, not from startTime: the session's
-    // later commands (a session option, a metadata request) move startTime on without finishing
-    // that query, and must not keep its coordinator alive either.
+    // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet:
+    // finalizes each deferred query whose own bound has passed since it started (see
+    // FlightProtocolAdapter.takeExpiredDeferredExecutors), not the ones whose bound has not, and
+    // not the connection. The bound counts from the query's start, not from startTime: the
+    // session's later commands (a session option, a metadata request) move startTime on without
+    // finishing that query, and must not keep its coordinator alive either.
     private void reapIdleFlightSqlDeferredExecutors(long now) {
-        long timeoutS = getFlightSqlDeferredExecutorsIdleTimeoutS();
-        if (timeoutS < 0) {
+        if (!(protocolAdapter instanceof FlightProtocolAdapter)) {
             return;
         }
-        long deferredMs = now - getFlightSqlDeferredExecutorsStartTimeMs();
-        if (deferredMs <= timeoutS * 1000L) {
-            return;
+        List<StmtExecutor> expired = ((FlightProtocolAdapter) protocolAdapter).takeExpiredDeferredExecutors(now);
+        for (StmtExecutor deferredExecutor : expired) {
+            LOG.warn("release deferred arrow flight query {} of idle connection, connectionId: {}, remote: {}, "
+                            + "deferred for: {}ms, bound: {}ms",
+                    deferredExecutor.getDeferredQueryId() == null
+                            ? "unknown" : DebugUtil.printId(deferredExecutor.getDeferredQueryId()),
+                    connectionId, getRemoteHostPortString(), now - deferredExecutor.getDeferredStartTimeMs(),
+                    FlightProtocolAdapter.deferredBoundMs(deferredExecutor,
+                            Config.arrow_flight_deferred_query_idle_timeout_second));
         }
-        LOG.warn("release deferred arrow flight query of idle connection, connectionId: {}, remote: {}, "
-                        + "deferred for: {}ms, idle timeout: {}s",
-                connectionId, getRemoteHostPortString(), deferredMs, timeoutS);
-        closeFlightSqlDeferredExecutors();
+        FlightProtocolAdapter.finalizeDeferredExecutors(expired);
     }
 
     /**

@@ -81,7 +81,7 @@ public class MysqlProtocolAdapterTest {
         // What only an Arrow Flight SQL session has is absent, not stubbed.
         Assertions.assertNull(ctx.getPeerIdentity());
         Assertions.assertTrue(ctx.isReturnResultFromLocal());
-        Assertions.assertEquals(-1L, ctx.getFlightSqlDeferredExecutorsIdleTimeoutS());
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
         ctx.closeFlightSqlDeferredExecutors();
         Assertions.assertThrows(IllegalStateException.class, ctx::getFlightSqlChannel);
         Assertions.assertThrows(IllegalStateException.class, () -> FlightProtocolAdapter.of(ctx));

@@ -116,7 +116,7 @@ public class FlightProtocolAdapterTest {
         Assertions.assertEquals("test-peer-identity", ctx.getPeerIdentity());
         Assertions.assertSame(adapter.getChannel(), ctx.getFlightSqlChannel());
         Assertions.assertTrue(ctx.isReturnResultFromLocal());
-        Assertions.assertEquals(-1L, ctx.getFlightSqlDeferredExecutorsIdleTimeoutS());
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
 
         // There is no MySQL side to such a session.
         Assertions.assertThrows(IllegalStateException.class, ctx::getMysqlChannel);
@@ -307,11 +307,10 @@ public class FlightProtocolAdapterTest {
         // result nobody pulled, the endpoints, and the result is on this frontend again.
         adapter.beforeQuery(ctx);
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
-        Mockito.when(deferred.getDeferredStartTimeMs()).thenReturn(1_000L);
         ctx.addFlightSqlDeferredExecutor(deferred);
-        Assertions.assertEquals(1_000L, ctx.getFlightSqlDeferredExecutorsStartTimeMs());
+        Assertions.assertEquals(Lists.newArrayList(deferred), ctx.getFlightSqlDeferredExecutors());
         adapter.beginRequest();
-        Assertions.assertEquals(-1L, ctx.getFlightSqlDeferredExecutorsStartTimeMs());
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
         Mockito.verify(deferred).finalizeArrowFlightQuery();
         Assertions.assertEquals(0, adapter.getChannel().resultNum());
         Assertions.assertTrue(ctx.getFlightSqlEndpointsLocations().isEmpty());

@@ -192,23 +192,32 @@ public class StmtExecutor {
     // were actually in effect for this statement. Null when no SET_VAR hint was used.
     private List<List<String>> changedSessionVarsForAudit;
     private ProfileType profileType = ProfileType.QUERY;
+    // Whether this statement's profile is reported: decided once, the first time the profile is
+    // updated (see reportsProfile), and followed by every later update. Read again at the final
+    // update, the session variable may say otherwise -- a SET_VAR hint is reverted when execute()
+    // ends, before an Arrow Flight query is finalized, and a SetSessionOptions action may SET
+    // enable_profile while a deferred query waits -- and the profile published as RUNNING would
+    // never be finished. Null until decided.
+    private volatile Boolean profileEnabled;
 
     @Setter
     private volatile Coordinator coord = null;
     private volatile Coordinator externalDmlAuditCoordinator = null;
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
-    // is skipped.
+    // is skipped. From that moment the executor is a closed object (see FlightProtocolAdapter): it
+    // is finalized after the session has moved on -- to a SET of the SetSessionOptions action, to a
+    // metadata request, to the next request -- and possibly from the timeout checker's thread, so
+    // everything finalizing it needs is captured below and nothing of the context is read later.
     private volatile boolean deferredForArrowFlight = false;
     // The execution timeout in effect when the coordinator was deferred. Captured at that moment
     // because per-statement SET_VAR values are reverted at the end of execute(), so reading
     // ConnectContext.getExecTimeoutS() later would report the session value instead.
     private volatile int deferredExecTimeoutS = -1;
     // The query id and the start time of the deferred query, captured for the same reason: a
-    // statement the session runs before the query is finalized (a SET of the SetSessionOptions
-    // action) gives the context a new query id and start time, while the query is unregistered
-    // and its profile reported under its own id, the idle reaper's bound and the profile's times
-    // counted from its own start.
+    // statement the session runs before the query is finalized gives the context a new query id
+    // and start time, while the query is unregistered and its profile reported under its own id,
+    // the idle reaper's bound and the profile's times counted from its own start.
     private volatile TUniqueId deferredQueryId;
     private volatile long deferredStartTimeMs = -1;
     private MasterOpExecutor masterOpExecutor = null;
@@ -318,32 +327,25 @@ public class StmtExecutor {
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {
         long currentTimestamp = System.currentTimeMillis();
+        if (deferredForArrowFlight) {
+            return getDeferredQuerySummaryInfo(currentTimestamp, isFinished);
+        }
         SummaryBuilder builder = new SummaryBuilder();
-        // A deferred Arrow Flight query is finished long after it started, by which time the session
-        // may have run another statement and moved its query id and start time on.
-        builder.profileId(DebugUtil.printId(queryId()));
+        builder.profileId(DebugUtil.printId(context.queryId()));
         if (Version.DORIS_BUILD_VERSION_MAJOR == 0) {
             builder.dorisVersion(Version.DORIS_BUILD_SHORT_HASH);
         } else {
             builder.dorisVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
         }
         builder.taskType(profileType.name());
-        long startTime = deferredForArrowFlight ? deferredStartTimeMs : context.getStartTime();
-        builder.startTime(TimeUtils.longToTimeString(startTime));
+        builder.startTime(TimeUtils.longToTimeString(context.getStartTime()));
         // TODO: Never use custom data format when deliverying information between two systems.
         // UI can not order profile by TOTAL_TIME since its not a sortable string (2h1m3s > 2h1s?)
         // to get decoded info, UI need to decode it first, it means others need to
         // reference the implementation of DebugUtil.getPrettyStringMs to figure out the format
         if (isFinished) {
             builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
-            long executionCosts = currentTimestamp - startTime;
-            // Execution of parser could happen before StmtExecutor is involved.
-            if (getSummaryProfile().parsedByConnectionProcess) {
-                builder.totalTime(DebugUtil.getPrettyStringMs(
-                        executionCosts + getSummaryProfile().getParseSqlTimeMs()));
-            } else {
-                builder.totalTime(DebugUtil.getPrettyStringMs(executionCosts));
-            }
+            addTotalTime(builder, currentTimestamp - context.getStartTime());
         }
         String taskState = "RUNNING";
         if (isFinished) {
@@ -446,6 +448,39 @@ public class StmtExecutor {
             LOG.warn(e);
         }
         return builder.build();
+    }
+
+    /**
+     * The summary of a deferred Arrow Flight query at its finalization. The query was recorded as
+     * RUNNING when it was deferred, from the session as it was then; finished later, it adds only
+     * what ends it. The session may have moved on in between -- to a SET or USE of the
+     * SetSessionOptions action, to a metadata request -- so its current catalog, database, state
+     * and variables are not this query's any more, and what was recorded stays: the summary is
+     * merged by key. The times count from the query's own start, which the context has moved on
+     * from as well.
+     */
+    private Map<String, String> getDeferredQuerySummaryInfo(long currentTimestamp, boolean isFinished) {
+        SummaryBuilder builder = new SummaryBuilder();
+        if (!isFinished) {
+            return builder.build();
+        }
+        builder.endTime(TimeUtils.longToTimeString(currentTimestamp));
+        addTotalTime(builder, currentTimestamp - deferredStartTimeMs);
+        // A query is only deferred once its coordinator has run it (see deferForArrowFlight).
+        if (coord != null) {
+            builder.taskState(coord.getExecStatus().getErrorCode().name());
+        }
+        return builder.build();
+    }
+
+    private void addTotalTime(SummaryBuilder builder, long executionCosts) {
+        // Execution of parser could happen before StmtExecutor is involved.
+        if (getSummaryProfile().parsedByConnectionProcess) {
+            builder.totalTime(DebugUtil.getPrettyStringMs(
+                    executionCosts + getSummaryProfile().getParseSqlTimeMs()));
+        } else {
+            builder.totalTime(DebugUtil.getPrettyStringMs(executionCosts));
+        }
     }
 
     public Planner planner() {
@@ -1119,12 +1154,16 @@ public class StmtExecutor {
     // effect right now: it floors the idle reaper's bound and must be the value the query actually
     // ran with, not the session value left behind after SET_VAR hints are reverted. Records the
     // query id and the start time for the same reason: a statement the session runs in the meantime
-    // replaces both on the context, and the query is finalized under its own.
+    // replaces both on the context, and the query is finalized under its own. And settles whether
+    // the profile is reported, decided by now in any case (the RUNNING summary was published just
+    // before) and pinned here so that nothing of finalizing the query is left to be read from the
+    // session later: see the comment on deferredForArrowFlight.
     void deferForArrowFlight() {
         deferredForArrowFlight = true;
         deferredExecTimeoutS = context.getExecTimeoutS();
         deferredQueryId = context.queryId();
         deferredStartTimeMs = context.getStartTime();
+        reportsProfile();
         context.addFlightSqlDeferredExecutor(this);
     }
 
@@ -1327,8 +1366,22 @@ public class StmtExecutor {
         }
     }
 
+    /**
+     * Whether this statement's profile is reported, decided the first time it is asked and the
+     * same ever after (see {@link #profileEnabled}): the update that publishes the profile as
+     * RUNNING and the one that finishes it must agree, whatever the session variable says by then.
+     */
+    private boolean reportsProfile() {
+        Boolean decided = profileEnabled;
+        if (decided == null) {
+            decided = context.getSessionVariable().enableProfile() && isProfileSafeStmt();
+            profileEnabled = decided;
+        }
+        return decided;
+    }
+
     public void updateProfile(boolean isFinished) {
-        if (!context.getSessionVariable().enableProfile() || !isProfileSafeStmt()) {
+        if (!reportsProfile()) {
             return;
         }
         // If any error happened in update profile, we should ignore this error
