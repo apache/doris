@@ -234,6 +234,11 @@ IndexDiskUsageCollector::IndexDiskUsageCollector(io::FileSystemSPtr fs,
 Status IndexDiskUsageCollector::collect(const IndexDiskUsageOptions& options,
                                         std::vector<IndexDiskUsageRecord>* out) {
     DORIS_CHECK(out != nullptr);
+    // A rowset returns no file system when its tablet or storage resource cannot be resolved.
+    if (_fs == nullptr) {
+        return Status::Error<ErrorCode::INIT_FAILED>("no file system for inverted index files {}",
+                                                     _index_path_prefix);
+    }
     switch (_format) {
     case InvertedIndexStorageFormatPB::V1:
         return _collect_v1(options, out);
