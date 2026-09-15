@@ -27,6 +27,7 @@
 #include <string>
 
 #include "common/metrics/metrics.h"
+#include "cpp/sync_point.h"
 #include "util/time.h"
 
 using std::string;
@@ -216,13 +217,11 @@ PrunedInfo LRUCache::set_capacity(size_t capacity) {
 }
 
 uint64_t LRUCache::get_lookup_count() {
-    std::lock_guard l(_mutex);
-    return _lookup_count;
+    return _lookup_count.load(std::memory_order_relaxed);
 }
 
 uint64_t LRUCache::get_hit_count() {
-    std::lock_guard l(_mutex);
-    return _hit_count;
+    return _hit_count.load(std::memory_order_relaxed);
 }
 
 uint64_t LRUCache::get_stampede_count() {
@@ -231,8 +230,7 @@ uint64_t LRUCache::get_stampede_count() {
 }
 
 uint64_t LRUCache::get_miss_count() {
-    std::lock_guard l(_mutex);
-    return _miss_count;
+    return _miss_count.load(std::memory_order_relaxed);
 }
 
 size_t LRUCache::get_usage() {
@@ -250,10 +248,19 @@ size_t LRUCache::get_element_count() {
     return _table.element_count();
 }
 
-bool LRUCache::_unref(LRUHandle* e) {
-    DCHECK(e->refs > 0);
-    e->refs--;
-    return e->refs == 0;
+void LRUCache::_ref(LRUHandle* e) {
+    // The shard lock protects publication/lifetime and the entry is off the LRU
+    // list. Fast releases cannot reduce refs below 2 while we hold a shared lock.
+    e->refs.fetch_add(1, std::memory_order_relaxed);
+    _hit_count.fetch_add(1, std::memory_order_relaxed);
+    // Expiration only needs an approximate visit time; concurrent hits may move it backwards.
+    e->last_visit_time.store(UnixMillis(), std::memory_order_relaxed);
+}
+
+uint32_t LRUCache::_unref(LRUHandle* e) {
+    auto refs = e->refs.fetch_sub(1, std::memory_order_acq_rel);
+    DCHECK_GT(refs, 0);
+    return refs;
 }
 
 void LRUCache::_lru_remove(LRUHandle* e) {
@@ -305,21 +312,39 @@ void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
 }
 
 Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
+    _lookup_count.fetch_add(1, std::memory_order_relaxed);
+    {
+        std::shared_lock l(_mutex);
+        LRUHandle* e = _table.lookup(key, hash);
+        if (e == nullptr) {
+            // LRU-K misses must update the visits list under the exclusive lock.
+            if (!_is_lru_k) {
+                _miss_count.fetch_add(1, std::memory_order_relaxed);
+                return nullptr;
+            }
+        } else {
+            DCHECK(e->in_cache);
+            if (e->refs.load(std::memory_order_relaxed) > 1) {
+                _ref(e);
+                return reinterpret_cast<Cache::Handle*>(e);
+            }
+        }
+    }
+    // Do not upgrade in place or retain an unowned pointer across unlock: erase,
+    // replacement or eviction may remove this entry before we acquire the lock.
+    TEST_SYNC_POINT("LRUCache::lookup:before_exclusive_lock");
     std::lock_guard l(_mutex);
-    ++_lookup_count;
     LRUHandle* e = _table.lookup(key, hash);
     if (e != nullptr) {
         // we get it from _table, so in_cache must be true
         DCHECK(e->in_cache);
-        if (e->refs == 1) {
+        if (e->refs.load(std::memory_order_relaxed) == 1) {
             // only in LRU free list, remove it from list
             _lru_remove(e);
         }
-        e->refs++;
-        ++_hit_count;
-        e->last_visit_time = UnixMillis();
+        _ref(e);
     } else {
-        ++_miss_count;
+        _miss_count.fetch_add(1, std::memory_order_relaxed);
     }
 
     // If key not exist in cache, and is lru k cache, and key in visits list,
@@ -340,13 +365,26 @@ void LRUCache::release(Cache::Handle* handle) {
         return;
     }
     auto* e = reinterpret_cast<LRUHandle*>(handle);
+    auto refs = e->refs.load(std::memory_order_relaxed);
+    while (refs > 2) {
+        if (e->refs.compare_exchange_weak(refs, refs - 1, std::memory_order_acq_rel,
+                                          std::memory_order_relaxed)) {
+            // Our reference is gone; another thread may immediately free e.
+            return;
+        }
+    }
+    // Keep our reference until the exclusive lock is held. Only this path may
+    // return a cached entry to the LRU list or destroy an erased entry.
     bool last_ref = false;
     {
         std::lock_guard l(_mutex);
         // if last_ref is true, key may have been evict from the cache,
         // or if it is lru k, first insert of key may have failed.
-        last_ref = _unref(e);
-        if (e->in_cache && e->refs == 1) {
+        refs = _unref(e);
+        last_ref = refs == 1;
+        if (last_ref) {
+            DCHECK(!e->in_cache);
+        } else if (refs == 2 && e->in_cache) {
             // only exists in cache
             if (_usage > _capacity) {
                 // take this opportunity and remove the item
@@ -424,7 +462,7 @@ void LRUCache::_evict_from_lru(size_t total_size, LRUHandle** to_remove_head) {
 
 void LRUCache::_evict_one_entry(LRUHandle* e) {
     DCHECK(e->in_cache);
-    DCHECK(e->refs == 1); // LRU list contains elements which may be evicted
+    DCHECK_EQ(e->refs.load(std::memory_order_relaxed), 1);
     _lru_remove(e);
     bool removed = _table.remove(e);
     DCHECK(removed);
@@ -478,7 +516,7 @@ bool LRUCache::_lru_k_insert_visits_list(size_t total_size, visits_lru_cache_key
 Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                                 CachePriority priority) {
     size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
-    auto* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
+    auto* e = new (malloc(handle_size)) LRUHandle;
     e->value = value;
     e->charge = charge;
     e->key_length = key.size();
@@ -486,13 +524,13 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     // because charge at this time is no longer the memory size, but an weight.
     e->total_size = (_type == LRUCacheType::SIZE ? handle_size + charge : charge);
     e->hash = hash;
-    e->refs = 1; // only one for the returned handle.
+    e->refs.store(1, std::memory_order_relaxed); // only the returned handle.
     e->next = e->prev = nullptr;
     e->in_cache = false;
     e->priority = priority;
     e->type = _type;
     memcpy(e->key_data, key.data(), key.size());
-    e->last_visit_time = UnixMillis();
+    e->last_visit_time.store(UnixMillis(), std::memory_order_relaxed);
 
     LRUHandle* to_remove_head = nullptr;
     {
@@ -516,7 +554,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
         auto* old = _table.insert(e);
         e->in_cache = true;
         _usage += e->total_size;
-        e->refs++; // one for the returned handle, one for LRUCache.
+        e->refs.fetch_add(1, std::memory_order_relaxed); // returned handle and LRUCache.
         if (old != nullptr) {
             _stampede_count++;
             old->in_cache = false;
@@ -528,9 +566,9 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
             // will be released from the cache memory_tracker.
             _usage -= old->total_size;
             // if false, old entry is being used externally, just ref-- and sub _usage,
-            if (_unref(old)) {
+            if (_unref(old) == 1) {
                 // old is on LRU because it's in cache and its reference count
-                // was just 1 (Unref returned 0)
+                // was just 1 (_unref returned the previous count).
                 _lru_remove(old);
                 old->next = to_remove_head;
                 to_remove_head = old;
@@ -556,7 +594,7 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash) {
         std::lock_guard l(_mutex);
         e = _table.remove(key, hash);
         if (e != nullptr) {
-            last_ref = _unref(e);
+            last_ref = _unref(e) == 1;
             // if last_ref is false or in_cache is false, e must not be in lru
             if (last_ref && e->in_cache) {
                 // locate in free list
@@ -860,13 +898,13 @@ void ShardedLRUCache::update_cache_metrics() const {
 Cache::Handle* DummyLRUCache::insert(const CacheKey& key, void* value, size_t charge,
                                      CachePriority priority) {
     size_t handle_size = sizeof(LRUHandle);
-    auto* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
+    auto* e = new (malloc(handle_size)) LRUHandle;
     e->value = value;
     e->charge = charge;
     e->key_length = 0;
     e->total_size = 0;
     e->hash = 0;
-    e->refs = 1; // only one for the returned handle
+    e->refs.store(1, std::memory_order_relaxed); // only the returned handle
     e->next = e->prev = nullptr;
     e->in_cache = false;
     return reinterpret_cast<Cache::Handle*>(e);
