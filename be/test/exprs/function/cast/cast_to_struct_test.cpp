@@ -128,4 +128,58 @@ TEST_F(FunctionCastTest, test_from_string_to_struct2) {
                                      std::make_shared<DataTypeString>(), "from"),
                builder.build({"a", "b", "c", "d"}), false);
 }
+
+// A field of a row that the input null map of a STRUCT marks as NULL may still keep a hidden payload
+// (for example the branch of an IF() that was not taken), and the child cast of a nullable field
+// reads its NULL state from the field column, so the mask of the row has to be inherited by it.
+TEST_F(FunctionCastTest, test_cast_struct_null_row_skips_hidden_field_payload) {
+    auto from_field_column = ColumnHelper::create_nullable_column<DataTypeInt32>({128, 1}, {0, 0});
+    auto from_struct = ColumnStruct::create(Columns {from_field_column});
+    ColumnPtr from_column = ColumnNullable::create(
+            std::move(from_struct), ColumnHelper::create_column<DataTypeUInt8>({1, 0}));
+
+    auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>())}));
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>())}));
+
+    auto ctx = create_context(true);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    // Row 0 is NULL and keeps the hidden payload 128, which does not fit into TINYINT.
+    Block block = {
+            {std::move(from_column), from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_TRUE(result.is_null_at(0));
+    EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), R"({"1":1})");
+}
+
+// An out of range field of a visible row still fails.
+TEST_F(FunctionCastTest, test_cast_struct_visible_field_still_fails) {
+    auto from_field_column =
+            ColumnHelper::create_nullable_column<DataTypeInt32>({128, 300}, {0, 0});
+    auto from_struct = ColumnStruct::create(Columns {from_field_column});
+    ColumnPtr from_column = ColumnNullable::create(
+            std::move(from_struct), ColumnHelper::create_column<DataTypeUInt8>({1, 0}));
+
+    auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>())}));
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>())}));
+
+    auto ctx = create_context(true);
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    Block block = {
+            {std::move(from_column), from_type, "from"},
+            {nullptr, to_type, "to"},
+    };
+    EXPECT_FALSE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+}
 } // namespace doris
