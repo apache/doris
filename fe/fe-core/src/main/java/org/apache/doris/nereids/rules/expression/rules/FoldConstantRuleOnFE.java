@@ -212,10 +212,10 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         // ATTN: we must return original expr, because OrToIn is implemented with MutableState,
         //   newExpr will lose these states leading to dead loop by OrToIn -> SimplifyRange -> FoldConstantByFE
         Expression newExpr = expr.accept(this, ctx);
-        if (newExpr.equals(expr)) {
-            return expr;
-        }
-        return newExpr;
+        Expression result = newExpr.equals(expr) ? expr : newExpr;
+        // folding may change the type of an argument of an enclosing function call, restore the
+        // argument/signature consistency before the result is used by other rules
+        return TypeCoercionUtils.restoreFunctionArgumentTypes(result);
     }
 
     /**
@@ -811,7 +811,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             case 1: {
                 Expression originChild = expr.child(0);
                 Expression newChild = originChild.accept(this, context);
-                return (originChild != newChild) ? (E) expr.withChildren(ImmutableList.of(newChild)) : expr;
+                return (originChild != newChild)
+                        ? (E) rebuildAfterRewrite(expr, ImmutableList.of(newChild)) : expr;
             }
             case 2: {
                 Expression originLeft = expr.child(0);
@@ -819,7 +820,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 Expression originRight = expr.child(1);
                 Expression newRight = originRight.accept(this, context);
                 return (originLeft != newLeft || originRight != newRight)
-                        ? (E) expr.withChildren(ImmutableList.of(newLeft, newRight))
+                        ? (E) rebuildAfterRewrite(expr, ImmutableList.of(newLeft, newRight))
                         : expr;
             }
             case 0: {
@@ -835,9 +836,22 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     }
                     newChildren.add(newChild);
                 }
-                return hasNewChildren ? (E) expr.withChildren(newChildren.build()) : expr;
+                return hasNewChildren ? (E) rebuildAfterRewrite(expr, newChildren.build()) : expr;
             }
         }
+    }
+
+    /**
+     * Rebuild the expression with the folded children and keep function calls self consistent.
+     *
+     * <p>Folding a child can change its type, e.g. {@code repeat('x', 2)} (nullable) becomes the
+     * literal 'xx' (not nullable), which drops the nullable marker of the enclosing struct field while
+     * the parent keeps the signature resolved from the original children. Cast the arguments back to
+     * the expected input types right here, so the rest of the optimization never sees an expression
+     * whose declared type disagrees with its own arguments.</p>
+     */
+    private <E extends Expression> E rebuildAfterRewrite(E expr, List<Expression> newChildren) {
+        return (E) TypeCoercionUtils.coerceFunctionArguments(expr.withChildren(newChildren));
     }
 
     private Optional<Expression> preProcess(Expression expression) {

@@ -19,9 +19,12 @@ package org.apache.doris.nereids.trees.expressions.visitor;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+
+import java.util.List;
 
 /**
  * Default implementation for expression rewriting, delegating to child expressions and rewrite current root
@@ -40,6 +43,19 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
         return rewriteChildren(this, whenClause, context);
     }
 
+    /**
+     * Rebuild the expression with the rewritten children and keep function calls self consistent.
+     *
+     * <p>Rewriting a child can change its type, e.g. constant folding replaces {@code repeat('x', 2)}
+     * (nullable) with the literal 'xx' (not nullable), which drops the nullable marker of the enclosing
+     * struct field. The parent is rebuilt with the signature of the original children, so the argument
+     * would no longer match the expected input type and the whole remaining optimization would work on
+     * an inconsistent expression. Cast the arguments back right here, where the mismatch appears.</p>
+     */
+    private static Expression rebuildAfterRewrite(Expression expr, List<Expression> newChildren) {
+        return TypeCoercionUtils.coerceFunctionArguments(expr.withChildren(newChildren));
+    }
+
     /** rewriteChildren */
     public static final <E extends Expression, C> E rewriteChildren(
             ExpressionVisitor<Expression, C> rewriter, E expr, C context) {
@@ -47,7 +63,8 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
             case 1: {
                 Expression originChild = expr.child(0);
                 Expression newChild = originChild.accept(rewriter, context);
-                return (originChild != newChild) ? (E) expr.withChildren(ImmutableList.of(newChild)) : expr;
+                return (originChild != newChild)
+                        ? (E) rebuildAfterRewrite(expr, ImmutableList.of(newChild)) : expr;
             }
             case 2: {
                 Expression originLeft = expr.child(0);
@@ -55,7 +72,7 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
                 Expression originRight = expr.child(1);
                 Expression newRight = originRight.accept(rewriter, context);
                 return (originLeft != newLeft || originRight != newRight)
-                        ? (E) expr.withChildren(ImmutableList.of(newLeft, newRight))
+                        ? (E) rebuildAfterRewrite(expr, ImmutableList.of(newLeft, newRight))
                         : expr;
             }
             case 0: {
@@ -71,7 +88,7 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
                     }
                     newChildren.add(newChild);
                 }
-                return hasNewChildren ? (E) expr.withChildren(newChildren.build()) : expr;
+                return hasNewChildren ? (E) rebuildAfterRewrite(expr, newChildren.build()) : expr;
             }
         }
     }

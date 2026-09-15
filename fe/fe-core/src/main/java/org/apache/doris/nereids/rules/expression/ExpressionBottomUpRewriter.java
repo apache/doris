@@ -22,6 +22,7 @@ import org.apache.doris.nereids.pattern.ExpressionPatternTraverseListeners;
 import org.apache.doris.nereids.pattern.ExpressionPatternTraverseListeners.CombinedListener;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -129,7 +130,8 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
 
         Expression result = parent;
         if (changed) {
-            result = parent.withChildren(newChildren.build());
+            // a rewritten child may change its type, keep the function call self consistent
+            result = TypeCoercionUtils.coerceFunctionArguments(parent.withChildren(newChildren.build()));
         }
         if (changed && context.cascadesContext.isEnableExprTrace()) {
             LOG.info("WithChildren: \nbefore: " + parent + "\nafter: " + result);
