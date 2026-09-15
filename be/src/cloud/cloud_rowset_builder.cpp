@@ -214,13 +214,15 @@ Status CloudGroupRowsetBuilder::commit_rowset(const std::string& job_id, int64_t
 }
 
 Status CloudGroupRowsetBuilder::set_txn_related_info() {
-    _attach_row_binlog.rowset = _row_binlog_builder->rowset();
-    _attach_row_binlog.tablet = _row_binlog_builder->tablet_sptr();
+    RowBinlogTxnInfo attach_row_binlog;
+    attach_row_binlog.column_mapping_snapshot = _attach_row_binlog.column_mapping_snapshot;
+    attach_row_binlog.rowset = _row_binlog_builder->rowset();
+    attach_row_binlog.tablet = _row_binlog_builder->tablet_sptr();
     if (_data_builder->tablet()->enable_unique_key_merge_on_write()) {
-        _attach_row_binlog.delete_bitmap =
+        attach_row_binlog.delete_bitmap =
                 std::make_shared<DeleteBitmap>(_row_binlog_builder->tablet()->tablet_id());
     }
-    RETURN_IF_ERROR(_data_builder->attach_row_binlog_to_txn(_attach_row_binlog));
+    RETURN_IF_ERROR(_data_builder->attach_row_binlog_to_txn(attach_row_binlog));
     RETURN_IF_ERROR(_data_builder->set_txn_related_info());
     return _row_binlog_builder->set_txn_related_info();
 }
