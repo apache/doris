@@ -147,6 +147,11 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalRelation(PhysicalRelation scan, PushDownContext ctx) {
+        // Variant hash keys use canonical equality. The scalar RF implementations do not
+        // support that encoding; a cast to a supported scalar type can still produce an RF.
+        if (ctx.srcExpr.getDataType().isVariantType() || ctx.probeExpr.getDataType().isVariantType()) {
+            return false;
+        }
         if (!scan.canPushDownRuntimeFilter()) {
             return false;
         }

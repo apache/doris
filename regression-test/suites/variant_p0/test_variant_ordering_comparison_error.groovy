@@ -20,32 +20,65 @@ suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
 
-    test {
-        sql """
-            SELECT v
+        qt_variant_order """
+            SELECT id
             FROM (
-                SELECT CAST('2' AS VARIANT) AS v
+                SELECT 1 AS id, parse_to_variant('2') AS v
                 UNION ALL
-                SELECT CAST('1' AS VARIANT) AS v
+                SELECT 2 AS id, parse_to_variant('1') AS v
+                UNION ALL
+                SELECT 3 AS id, parse_to_variant('1.5') AS v
             ) t
-            ORDER BY v
+            ORDER BY v, id
         """
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
-    }
-
-    test {
-        sql """
-            SELECT v
+        qt_variant_topn """
+            SELECT id
             FROM (
-                SELECT CAST('2' AS VARIANT) AS v
+                SELECT 1 AS id, parse_to_variant('2') AS v
                 UNION ALL
-                SELECT CAST('1' AS VARIANT) AS v
+                SELECT 2 AS id, parse_to_variant('1') AS v
+                UNION ALL
+                SELECT 3 AS id, parse_to_variant('1.5') AS v
             ) t
-            ORDER BY v
-            LIMIT 1
+            ORDER BY v DESC, id
+            LIMIT 2
         """
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column"
-    }
+        qt_variant_window """
+            SELECT id, row_number() OVER (ORDER BY v, id)
+            FROM (
+                SELECT 1 AS id, parse_to_variant('2') AS v
+                UNION ALL
+                SELECT 2 AS id, parse_to_variant('1') AS v
+                UNION ALL
+                SELECT 3 AS id, parse_to_variant('1.5') AS v
+            ) t
+            ORDER BY id
+        """
+    // Canonical peers (1, 1.0 and objects with reordered keys), SQL NULL, a JSON null (read back
+    // as {}) and a boolean. One bucket keeps the numbers ahead of the boolean in the segment.
+    sql "DROP TABLE IF EXISTS variant_ordering_peers"
+    sql """CREATE TABLE variant_ordering_peers (id INT, v VARIANT)
+        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num" = "1")"""
+    sql """INSERT INTO variant_ordering_peers VALUES
+        (1, parse_to_variant('2')), (2, parse_to_variant('1')), (3, parse_to_variant('1.0')),
+        (4, parse_to_variant('"a"')), (5, NULL), (6, parse_to_variant('null')),
+        (7, parse_to_variant('{"k":1,"j":2}')), (8, parse_to_variant('{"j":2,"k":1.0}')),
+        (9, parse_to_variant('[1,2]')), (10, parse_to_variant('true'))"""
+    qt_asc_nulls_last "SELECT id FROM variant_ordering_peers ORDER BY v ASC NULLS LAST, id"
+    qt_desc_nulls_first "SELECT id FROM variant_ordering_peers ORDER BY v DESC NULLS FIRST, id"
+    qt_rank_peers """SELECT id, rank() OVER (ORDER BY v), dense_rank() OVER (ORDER BY v)
+        FROM variant_ordering_peers ORDER BY id"""
+    qt_partition_topn """SELECT id, rn FROM (
+            SELECT id, row_number() OVER (ORDER BY v, id) rn FROM variant_ordering_peers) t
+        WHERE rn <= 4 ORDER BY rn"""
+    sql "SET enable_spill = true"
+    sql "SET enable_force_spill = true"
+    sql "SET spill_min_revocable_mem = 1"
+    qt_spill_sort "SELECT id FROM variant_ordering_peers ORDER BY v NULLS FIRST, id"
+    qt_spill_sort_desc "SELECT id FROM variant_ordering_peers ORDER BY v DESC NULLS LAST, id"
+    sql "SET enable_force_spill = false"
+    sql "SET enable_spill = false"
 
     test {
         sql "SELECT CAST('2' AS VARIANT) > CAST('1' AS VARIANT)"
@@ -54,11 +87,6 @@ suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
 
     test {
         sql "SELECT CAST('2' AS VARIANT) > 1"
-        exception "CAST to a concrete type first"
-    }
-
-    test {
-        sql "SELECT CAST('2' AS VARIANT) <=> CAST('1' AS VARIANT)"
         exception "CAST to a concrete type first"
     }
 

@@ -95,6 +95,25 @@ TEST(CastVariantV2ToTest, UnsupportedSourceReturnsAnError) {
     EXPECT_EQ(cast.column.get(), cast.initial_result.get());
 }
 
+TEST(CastVariantV2ToTest, InvalidUtf8StringSourceReturnsAnError) {
+    const std::array<DataTypePtr, 3> source_types {
+            std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(16, TYPE_CHAR),
+            std::make_shared<DataTypeString>(64, TYPE_VARCHAR)};
+    for (const DataTypePtr& source_type : source_types) {
+        auto source = ColumnString::create();
+        source->insert_data("ok", 2);
+        source->insert_data("\xFF", 1);
+        CastResult cast = execute_to_variant(source->get_ptr(), source_type);
+        EXPECT_TRUE(cast.status.is<ErrorCode::INVALID_ARGUMENT>())
+                << source_type->get_name() << ": " << cast.status;
+
+        // A row that the cast turns into NULL never becomes a Variant string.
+        const std::array<NullMap::value_type, 2> null_map {0, 1};
+        CastResult null_row = execute_to_variant(source->get_ptr(), source_type, null_map.data());
+        EXPECT_TRUE(null_row.status.ok()) << source_type->get_name() << ": " << null_row.status;
+    }
+}
+
 TEST(CastVariantV2ToTest, Decimal256ReturnsAnErrorInsteadOfStringifying) {
     auto type = std::make_shared<DataTypeDecimal256>(76, 2);
     auto source = ColumnDecimal256::create(0, 2);
