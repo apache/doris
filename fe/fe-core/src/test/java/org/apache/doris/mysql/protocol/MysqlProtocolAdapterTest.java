@@ -17,27 +17,36 @@
 
 package org.apache.doris.mysql.protocol;
 
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
+import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
-import org.apache.doris.service.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.qe.protocol.RecordingMysqlChannel;
+import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
+
+import java.nio.ByteBuffer;
 
 /**
  * A MySQL connection, a proxy context on the master and an internal context are all a
@@ -79,13 +88,33 @@ public class MysqlProtocolAdapterTest {
     }
 
     @Test
-    public void testProxyContextCollectsThePacketsOfTheForwardedStatement() {
+    public void testProxyContextCollectsThePacketsOfTheForwardedStatement() throws Exception {
         ConnectContext ctx = ConnectContext.forMysqlProxy("session-1");
+        MysqlProtocolAdapter protocol = MysqlProtocolAdapter.of(ctx);
 
         Assertions.assertEquals(ConnectType.MYSQL, ctx.getConnectType());
         Assertions.assertTrue(ctx.isProxy());
         Assertions.assertEquals("session-1", ctx.getSessionId());
         Assertions.assertTrue(ctx.getMysqlChannel() instanceof ProxyMysqlChannel);
+
+        // What the forwarded statement sends is kept, in order, for the frontend the client is
+        // connected to.
+        Assertions.assertTrue(protocol.proxyResultPackets().isEmpty());
+        ByteBuffer first = ByteBuffer.wrap(new byte[] {1});
+        ByteBuffer second = ByteBuffer.wrap(new byte[] {2, 3});
+        ctx.getResultSender().sendRow(first);
+        ctx.getResultSender().sendRow(second);
+        Assertions.assertEquals(Lists.newArrayList(first, second), protocol.proxyResultPackets());
+
+        // A failed attempt of the forwarded query may be retried: nothing reached the client, and
+        // what the attempt wrote is dropped when the next one resets the channel, so the client
+        // gets the packets of one attempt only.
+        Assertions.assertTrue(protocol.canRetryQuery(ctx));
+        ctx.getResultSender().reset();
+        Assertions.assertTrue(protocol.proxyResultPackets().isEmpty());
+        ByteBuffer retried = ByteBuffer.wrap(new byte[] {4});
+        ctx.getResultSender().sendRow(retried);
+        Assertions.assertEquals(Lists.newArrayList(retried), protocol.proxyResultPackets());
     }
 
     @Test
@@ -120,6 +149,169 @@ public class MysqlProtocolAdapterTest {
         // The flag belongs to the statement: it is gone once the statement is over.
         ctx.clear();
         Assertions.assertFalse(ctx.isCursorFetchRequested());
+    }
+
+    @Test
+    public void testClientAddressComesFromTheChannel() {
+        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
+        Mockito.when(channel.getRemoteHostPortString()).thenReturn("10.0.0.1:3306");
+        ConnectContext ctx = new ConnectContext(new MysqlProtocolAdapter(channel));
+
+        // The Host column of SHOW PROCESSLIST and client_ip in the audit log.
+        Assertions.assertEquals("10.0.0.1:3306", ctx.getRemoteHostPortString());
+        Assertions.assertEquals("10.0.0.1:3306", ctx.getClientIP());
+    }
+
+    @Test
+    public void testIntermediateResponseOfAMultiStatementRequest() throws Exception {
+        // The client did not negotiate CLIENT_MULTI_STATEMENTS: the intermediate statements are
+        // marked but nothing is sent, so only the last result reaches the client.
+        RecordingMysqlChannel channel = new RecordingMysqlChannel();
+        ConnectContext ctx = new ConnectContext(new MysqlProtocolAdapter(channel));
+        MysqlProtocolAdapter protocol = MysqlProtocolAdapter.of(ctx);
+        ctx.getState().setOk();
+
+        Assertions.assertTrue(protocol.finishStatement(ctx, null, 0, 2));
+        Assertions.assertNotEquals(0, ctx.getState().serverStatus & MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS);
+        Assertions.assertTrue(channel.getOutbound().isEmpty());
+
+        // The last statement is answered by finishCommand, not here.
+        ctx.getState().reset();
+        ctx.getState().setOk();
+        Assertions.assertTrue(protocol.finishStatement(ctx, null, 1, 2));
+        Assertions.assertEquals(0, ctx.getState().serverStatus & MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS);
+        Assertions.assertTrue(channel.getOutbound().isEmpty());
+
+        // With CLIENT_MULTI_STATEMENTS every intermediate response is sent and flushed right away ...
+        channel.setClientMultiStatements();
+        ctx.getState().reset();
+        ctx.getState().setOk();
+        Assertions.assertTrue(protocol.finishStatement(ctx, null, 0, 2));
+        Assertions.assertEquals(1, channel.getOutbound().size());
+        Assertions.assertTrue(channel.getOutbound().get(0).isFlushed());
+        // OK packet, status flags carry SERVER_MORE_RESULTS_EXISTS
+        byte[] ok = channel.getOutbound().get(0).getPayload();
+        Assertions.assertEquals(0x00, ok[0]);
+        Assertions.assertNotEquals(0, MysqlProto.readInt2(ByteBuffer.wrap(ok, 3, 2))
+                & MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS);
+
+        // ... except after an error, whose response ends the request.
+        channel.clearOutbound();
+        ctx.getState().reset();
+        ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "boom");
+        Assertions.assertTrue(protocol.finishStatement(ctx, null, 0, 2));
+        Assertions.assertTrue(channel.getOutbound().isEmpty());
+    }
+
+    @Test
+    public void testResponsePacketFollowsTheStateAndTheEofCapability() {
+        RecordingMysqlChannel channel = new RecordingMysqlChannel();
+        ConnectContext ctx = new ConnectContext(new MysqlProtocolAdapter(channel));
+        MysqlProtocolAdapter protocol = MysqlProtocolAdapter.of(ctx);
+
+        // A command that needs no response.
+        ctx.getState().setNoop();
+        Assertions.assertNull(protocol.responsePacket(ctx));
+
+        // The end of a result set is an EOF packet ...
+        ctx.getState().setEof();
+        ByteBuffer eof = protocol.responsePacket(ctx);
+        Assertions.assertEquals(0xFE, Byte.toUnsignedInt(eof.get(0)));
+        Assertions.assertEquals(5, eof.remaining());
+
+        // ... unless the client deprecated it, then it is an OK packet with the 0xFE header.
+        channel.setClientDeprecatedEOF();
+        ByteBuffer resultSetEnd = protocol.responsePacket(ctx);
+        Assertions.assertEquals(0xFE, Byte.toUnsignedInt(resultSetEnd.get(0)));
+        Assertions.assertTrue(resultSetEnd.remaining() > 5);
+    }
+
+    @Test
+    public void testAMysqlConnectionCanTakeEveryKindOfResult() {
+        ConnectContext ctx = new ConnectContext();
+        MysqlProtocolAdapter protocol = MysqlProtocolAdapter.of(ctx);
+
+        Assertions.assertTrue(protocol.supportsSqlCacheReplay());
+        Assertions.assertTrue(protocol.canReplayForwardedQueryResult());
+        Assertions.assertTrue(protocol.supportsFeSideResult());
+        Assertions.assertTrue(protocol.supportsShortCircuitPointQuery());
+        // The result always comes through this frontend, whatever the statement does.
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+        protocol.beforeQuery(ctx);
+        Assertions.assertTrue(ctx.isReturnResultFromLocal());
+
+        // The FE-side path is taken for a query, not for COM_STMT_EXECUTE.
+        Assertions.assertTrue(ctx.supportHandleByFe());
+        ctx.setCommand(MysqlCommand.COM_STMT_EXECUTE);
+        Assertions.assertFalse(ctx.supportHandleByFe());
+    }
+
+    @Test
+    public void testAStatementStartsFromAnEmptyChannelAndARetryNeedsOne() throws Exception {
+        RecordingMysqlChannel channel = new RecordingMysqlChannel();
+        ConnectContext ctx = new ConnectContext(new MysqlProtocolAdapter(channel));
+        MysqlProtocolAdapter protocol = MysqlProtocolAdapter.of(ctx);
+
+        // What a statement wrote but never flushed is dropped when the next statement starts:
+        // that is how a request delivers only its last statement's result to a client without
+        // CLIENT_MULTI_STATEMENTS.
+        channel.sendOnePacket(ByteBuffer.wrap(new byte[] {1}));
+        Assertions.assertEquals(1, channel.getOutbound().size());
+        protocol.beforeStatement(ctx);
+        Assertions.assertTrue(channel.getOutbound().isEmpty());
+
+        // A failed query may be retried while none of its packets reached the client ...
+        channel.sendOnePacket(ByteBuffer.wrap(new byte[] {2}));
+        Assertions.assertTrue(protocol.canRetryQuery(ctx));
+        // (a replanned attempt starts without touching the channel: the result of every attempt
+        // is relayed by this frontend, there is nothing of the failed one to withdraw)
+        protocol.beforeAttempt(ctx);
+        Assertions.assertEquals(1, channel.getOutbound().size());
+        Assertions.assertTrue(protocol.canRetryQuery(ctx));
+        // ... and not once one was flushed to the socket.
+        channel.flush();
+        Assertions.assertFalse(protocol.canRetryQuery(ctx));
+        // The next statement starts afresh; what went out stays out.
+        protocol.beforeStatement(ctx);
+        Assertions.assertTrue(protocol.canRetryQuery(ctx));
+        Assertions.assertEquals(1, channel.getOutbound().size());
+    }
+
+    @Test
+    public void testForwardRequestCarriesWhatTheMasterNeedsToAnswerTheClient() {
+        RecordingMysqlChannel channel = new RecordingMysqlChannel();
+        ConnectContext ctx = new ConnectContext(new MysqlProtocolAdapter(channel));
+        MysqlProtocolAdapter protocol = MysqlProtocolAdapter.of(ctx);
+        int flags = MysqlCapability.DEFAULT_CAPABILITY.getFlags()
+                & ~MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
+        ctx.setCapability(new MysqlCapability(flags));
+
+        // A COM_QUERY: the negotiated capabilities, nothing about a prepared statement.
+        TMasterOpRequest request = new TMasterOpRequest();
+        protocol.fillForwardRequest(ctx, request);
+        Assertions.assertEquals(flags, request.getMysqlCapability());
+        Assertions.assertFalse(request.isClientDeprecatedEOF());
+        Assertions.assertFalse(request.isSetPrepareExecuteBuffer());
+        Assertions.assertFalse(request.isSetCursorFetchRequested());
+
+        // A COM_STMT_EXECUTE from a client that deprecated EOF: the execute packet and the cursor
+        // flag travel too.
+        channel.setClientDeprecatedEOF();
+        ctx.setCommand(MysqlCommand.COM_STMT_EXECUTE);
+        ctx.setPrepareExecuteBuffer(ByteBuffer.wrap(new byte[] {7, 0, 0, 0}));
+        ctx.setCursorFetchRequested(true);
+        request = new TMasterOpRequest();
+        protocol.fillForwardRequest(ctx, request);
+        Assertions.assertTrue(request.isClientDeprecatedEOF());
+        Assertions.assertArrayEquals(new byte[] {7, 0, 0, 0}, request.getPrepareExecuteBuffer());
+        Assertions.assertTrue(request.isCursorFetchRequested());
+
+        // The master's proxy context takes them over.
+        ConnectContext proxy = ConnectContext.forMysqlProxy("session-1");
+        MysqlProtocolAdapter.of(proxy).restoreFromForwardRequest(proxy, request);
+        Assertions.assertTrue(proxy.getCapability().isDeprecatedEOF());
+        Assertions.assertTrue(proxy.getMysqlChannel().clientDeprecatedEOF());
+        Assertions.assertTrue(proxy.isCursorFetchRequested());
     }
 
     @Test

@@ -45,6 +45,7 @@ import org.apache.doris.thrift.schema.external.TFieldPtr;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
@@ -58,11 +59,14 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
+import org.apache.iceberg.SupportsDistributedScanPlanning;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.expressions.Literal;
+import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
@@ -73,15 +77,16 @@ import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
-import org.apache.iceberg.util.SerializationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -107,6 +112,9 @@ import java.util.function.UnaryOperator;
  */
 public class IcebergScanPlanProviderTest {
 
+    @TempDir
+    Path tempDir;
+
     private static final Schema SCHEMA = new Schema(
             Types.NestedField.required(1, "id", Types.IntegerType.get()),
             Types.NestedField.optional(2, "name", Types.StringType.get()));
@@ -126,6 +134,15 @@ public class IcebergScanPlanProviderTest {
         catalog.initialize("test", Collections.emptyMap());
         catalog.createNamespace(Namespace.of("db1"));
         return catalog.createTable(TableIdentifier.of("db1", name), schema, spec, null, props);
+    }
+
+    private Table createPersistedTable(String name, Schema schema, PartitionSpec spec, Map<String, String> props) {
+        return new HadoopTables(new Configuration()).create(
+                schema, spec, props, tempDir.resolve(name).toUri().toString());
+    }
+
+    private static Table reloadPersistedTable(Table table) {
+        return new HadoopTables(new Configuration()).load(table.location());
     }
 
     private static DataFile dataFile(PartitionSpec spec, String path, long sizeBytes, List<Long> splitOffsets,
@@ -157,6 +174,20 @@ public class IcebergScanPlanProviderTest {
     private static Table tableWithIo(Table table, FileIO fileIO) {
         return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
                 (proxy, method, args) -> method.getName().equals("io") ? fileIO : invoke(method, table, args));
+    }
+
+    private static Table serverPlannedTable(Table table, AtomicBoolean localMetadataAccessed) {
+        return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(),
+                new Class<?>[] {Table.class, SupportsDistributedScanPlanning.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("allowDistributedPlanning")) {
+                        return false;
+                    }
+                    if (method.getName().equals("newScan") || method.getName().equals("io")) {
+                        localMetadataAccessed.set(true);
+                    }
+                    return invoke(method, table, args);
+                });
     }
 
     private static Table tableWithMissingManifestRowsAndIo(Table table, FileIO fileIO) {
@@ -299,6 +330,58 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void planScanRejectsServerPlanningBeforeReplacingHistoricalScan() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(
+                table.spec(), "s3://b/db1/t1/f.parquet", 100, null, null)).commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.schema().schemaId();
+        table.updateSchema().renameColumn("name", "renamed_name").commit();
+        AtomicBoolean localMetadataAccessed = new AtomicBoolean();
+        IcebergScanPlanProvider provider = providerOver(serverPlannedTable(table, localMetadataAccessed));
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1")
+                .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList()).build()));
+
+        Assertions.assertTrue(failure.getMessage().contains("server-side scan planning"), failure.getMessage());
+        Assertions.assertFalse(localMetadataAccessed.get(),
+                "rejection must happen before replacing the native scan or opening local metadata");
+    }
+
+    @Test
+    public void streamingEstimateRejectsServerPlanningBeforeReadingLocalManifests() {
+        Table table = threeFileTable();
+        AtomicBoolean localMetadataAccessed = new AtomicBoolean();
+        IcebergScanPlanProvider provider = providerOver(serverPlannedTable(table, localMetadataAccessed));
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.streamingSplitEstimate(batchSession(1, true),
+                        new IcebergTableHandle("db1", "t1"), Optional.empty(), false));
+
+        Assertions.assertTrue(failure.getMessage().contains("server-side scan planning"), failure.getMessage());
+        Assertions.assertFalse(localMetadataAccessed.get(),
+                "streaming dispatch must reject before table.io() reads local manifests");
+    }
+
+    @Test
+    public void scanPropertiesRejectServerPlanningBeforeReadingTableCredentials() {
+        Table table = threeFileTable();
+        AtomicBoolean localMetadataAccessed = new AtomicBoolean();
+        IcebergScanPlanProvider provider = providerOver(serverPlannedTable(table, localMetadataAccessed));
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.getScanNodeProperties(emptySession(), new IcebergTableHandle("db1", "t1"),
+                        Collections.emptyList(), Optional.empty()));
+
+        Assertions.assertTrue(failure.getMessage().contains("server-side scan planning"), failure.getMessage());
+        Assertions.assertFalse(localMetadataAccessed.get(),
+                "scan properties must reject before reading table.io() instead of planned-scan credentials");
+    }
+
+    @Test
     public void planScanMissingMetadataFileHasStableTableError() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.loadTableFailure = new RuntimeException(
@@ -315,11 +398,13 @@ public class IcebergScanPlanProviderTest {
 
     @Test
     public void planScanMissingManifestListHasStableTableError() {
-        Table table = createTable("missing_manifest_list", SCHEMA, PartitionSpec.unpartitioned());
+        Table table = createPersistedTable(
+                "missing_manifest_list", SCHEMA, PartitionSpec.unpartitioned(), Collections.emptyMap());
         table.newAppend().appendFile(dataFile(table.spec(),
                 "s3://b/db/missing_manifest_list/f1.parquet", 1024, null, null)).commit();
         table.io().deleteFile(table.currentSnapshot().manifestListLocation());
-        IcebergScanPlanProvider provider = providerOver(table);
+        // Iceberg 1.11 caches parsed manifests on Snapshot; reload from metadata to exercise the missing file.
+        IcebergScanPlanProvider provider = providerOver(reloadPersistedTable(table));
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> provider.planScan(emptySession(), ConnectorScanRequest.builder(
@@ -330,11 +415,13 @@ public class IcebergScanPlanProviderTest {
 
     @Test
     public void streamingMissingManifestListHasStableTableError() {
-        Table table = createTable("missing_stream_manifest", SCHEMA, PartitionSpec.unpartitioned());
+        Table table = createPersistedTable(
+                "missing_stream_manifest", SCHEMA, PartitionSpec.unpartitioned(), Collections.emptyMap());
         table.newAppend().appendFile(dataFile(table.spec(),
                 "s3://b/db/missing_stream_manifest/f1.parquet", 1024, null, null)).commit();
         table.io().deleteFile(table.currentSnapshot().manifestListLocation());
-        IcebergScanPlanProvider provider = providerOver(table);
+        // Iceberg 1.11 caches parsed manifests on Snapshot; reload from metadata to exercise the missing file.
+        IcebergScanPlanProvider provider = providerOver(reloadPersistedTable(table));
         IcebergTableHandle handle = new IcebergTableHandle("db1", "missing_stream_manifest");
 
         DorisConnectorException estimate = Assertions.assertThrows(DorisConnectorException.class,
@@ -1539,7 +1626,7 @@ public class IcebergScanPlanProviderTest {
                 .build());
 
         Assertions.assertEquals(1, ranges.size(), "one data file -> one metadata split");
-        FileScanTask task = SerializationUtil.deserializeFromBase64(
+        FileScanTask task = IcebergSystemTableSerialization.deserializeFromBase64(
                 ((IcebergScanRange) ranges.get(0)).getSerializedSplit());
         Assertions.assertNotNull(task.schema().findField("file_size_in_bytes"),
                 "the requested column must survive in the projected task schema");
@@ -1582,7 +1669,7 @@ public class IcebergScanPlanProviderTest {
                 .build());
 
         Assertions.assertEquals(1, ranges.size(), "one commit -> one $snapshots metadata split");
-        FileScanTask task = SerializationUtil.deserializeFromBase64(
+        FileScanTask task = IcebergSystemTableSerialization.deserializeFromBase64(
                 ((IcebergScanRange) ranges.get(0)).getSerializedSplit());
         try (CloseableIterable<StructLike> rows = task.asDataTask().rows()) {
             Iterator<StructLike> it = rows.iterator();
@@ -1648,11 +1735,18 @@ public class IcebergScanPlanProviderTest {
                 .withFileSizeInBytes(100)
                 .withRecordCount(1)
                 .build();
-        Table table = tableWithPositionDelete(deleteFile);
+        Table table = createPersistedTable(
+                "missing_position_delete_manifest", SCHEMA, PartitionSpec.unpartitioned(), Collections.emptyMap());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 512, null, null))
+                .commit();
+        table.newRowDelta().addDeletes(deleteFile).commit();
         table.io().deleteFile(table.currentSnapshot().manifestListLocation());
+        // Iceberg 1.11 caches parsed manifests on Snapshot; reload from metadata to exercise the missing file.
+        Table reloaded = reloadPersistedTable(table);
 
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> planPositionDeletes(table, Collections.emptyList()));
+                () -> planPositionDeletes(reloaded, Collections.emptyList()));
         Assertions.assertTrue(ex.getMessage().contains(
                 "Metadata not found in metadata location for table db1.t1"), ex.getMessage());
     }
@@ -1765,6 +1859,18 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void jniSystemTableNeedsNoRollingUpgradeFence() {
+        Table table = createTable("sys_upgrade", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, IcebergTableHandle.forSystemTable("db1", "sys_upgrade", "snapshots", -1L, null, -1L),
+                Collections.emptyList(), Optional.empty());
+
+        Assertions.assertFalse(props.containsKey(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+    }
+
+    @Test
     public void getScanNodePropertiesForPositionDeletesRowRequiresCurrentBackendSemantics() {
         Table table = tableWithPositionDelete(
                 positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null));
@@ -1830,6 +1936,97 @@ public class IcebergScanPlanProviderTest {
                 .build());
         Assertions.assertEquals(1, pinned.size());
         Assertions.assertTrue(pinned.get(0).getPath().get().endsWith("f1.parquet"));
+    }
+
+    @Test
+    public void planScanHistoricalPredicateSurvivesColumnRename() {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false);
+    }
+
+    @Test
+    public void planScanHistoricalPredicateSurvivesColumnDrop() {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(true);
+    }
+
+    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn) {
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(1, "x", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "y", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "part", Types.IntegerType.get()));
+        Table table = createTable(
+                "historical_predicate_after_" + (dropColumn ? "drop" : "rename"),
+                historicalSchema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newFastAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/historical.parquet", 1024, null, null))
+                .commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.currentSnapshot().schemaId();
+
+        if (dropColumn) {
+            table.updateSchema().deleteColumn("x").commit();
+        } else {
+            table.updateSchema().renameColumn("x", "renamed_x").commit();
+        }
+
+        assertHistoricalPredicatePlans(table, historicalSnapshotId, historicalSchemaId);
+
+        table.newFastAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/current.parquet", 1024, null, null))
+                .commit();
+
+        assertHistoricalPredicatePlans(table, historicalSnapshotId, historicalSchemaId);
+    }
+
+    private static void assertHistoricalPredicatePlans(
+            Table table, long historicalSnapshotId, int historicalSchemaId) {
+        IcebergTableHandle historicalHandle = new IcebergTableHandle("db1", "t1")
+                .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
+        List<ConnectorScanRange> ranges = providerOver(table).planScan(
+                emptySession(), ConnectorScanRequest.builder(historicalHandle, Collections.emptyList())
+                        .filter(Optional.of(eqInt("x", 1)))
+                        .build());
+
+        // Historical predicates must remain bound to the snapshot schema after later schema evolution.
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("historical.parquet"));
+    }
+
+    @Test
+    public void streamingDispatchRebindsPartitionSpecsForHistoricalSchemaBeforeAndAfterSnapshotAdvance()
+            throws IOException {
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(1, "x", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        PartitionSpec historicalSpec = PartitionSpec.builderFor(historicalSchema).identity("x").build();
+        Table table = createTable("historical_batch_estimate", historicalSchema, historicalSpec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/historical_batch_estimate/old.parquet", 1024, null, "x=1")).commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.currentSnapshot().schemaId();
+        table.updateSchema().renameColumn("x", "renamed_x").commit();
+
+        assertHistoricalStreamingDispatch(table, historicalSnapshotId, historicalSchemaId);
+
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/historical_batch_estimate/new.parquet", 1024, null, "x=2")).commit();
+        assertHistoricalStreamingDispatch(table, historicalSnapshotId, historicalSchemaId);
+    }
+
+    private static void assertHistoricalStreamingDispatch(
+            Table table, long historicalSnapshotId, int historicalSchemaId) throws IOException {
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "historical_batch_estimate")
+                .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
+        IcebergScanPlanProvider provider = providerOver(table);
+        ConnectorSession session = batchSession(1, true);
+        Optional<ConnectorExpression> filter = Optional.of(eqInt("x", 1));
+
+        Assertions.assertEquals(1L, provider.streamingSplitEstimate(session, handle, filter, false));
+        List<ConnectorScanRange> ranges = drain(provider.streamSplits(
+                session, handle, Collections.emptyList(), filter, -1L));
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("old.parquet"));
     }
 
     @Test
@@ -1943,6 +2140,29 @@ public class IcebergScanPlanProviderTest {
                 .build());
         Assertions.assertEquals(1, pinned.size());
         Assertions.assertTrue(pinned.get(0).getPath().get().endsWith("f1.parquet"));
+    }
+
+    @Test
+    public void planScanPinnedToBranchBindsPredicateToCurrentSchema() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "score", Types.IntegerType.get()));
+        Table table = createTable("branch_predicate", schema, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(
+                table.spec(), "s3://b/db/branch_predicate/f1.parquet", 1024, null, null)).commit();
+        long branchSnapshotId = table.currentSnapshot().snapshotId();
+        table.manageSnapshots().createBranch("b1", branchSnapshotId).commit();
+        table.updateSchema().renameColumn("score", "grade").commit();
+        IcebergTableHandle branchHandle = new IcebergTableHandle("db1", "branch_predicate")
+                .withSnapshot(branchSnapshotId, "b1", table.schema().schemaId());
+
+        List<ConnectorScanRange> ranges = providerOver(table).planScan(
+                emptySession(), ConnectorScanRequest.builder(branchHandle, Collections.emptyList())
+                        .filter(Optional.of(eqInt("grade", 1)))
+                        .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("f1.parquet"));
     }
 
     @Test
@@ -3274,6 +3494,68 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertTrue(cache.size() >= 2, "the data + delete manifests must both be cached");
     }
 
+    @Test
+    public void streamSplitsManifestCacheResolvesDroppedEqualityDeleteFieldAfterReload() throws IOException {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "old_key", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "value", Types.StringType.get()));
+        Table table = createPersistedTable("dropped_cache_key", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newAppend().appendFile(dataFile(table.spec(),
+                "s3://b/db/dropped_cache_key/f1.parquet", 1024, null, null)).commit();
+        table.newRowDelta().addDeletes(equalityDeleteFile(
+                "s3://b/db/dropped_cache_key/eq.parquet", FileFormat.PARQUET, 1)).commit();
+        table.updateSchema().deleteColumn("old_key").commit();
+        Table reloaded = reloadPersistedTable(table);
+        IcebergManifestCache cache = new IcebergManifestCache();
+
+        List<ConnectorScanRange> ranges = drain(manifestProvider(manifestCacheProps(), reloaded, cache)
+                .streamSplits(emptySession(), new IcebergTableHandle("db1", "dropped_cache_key"),
+                        Collections.emptyList(), Optional.empty(), -1L));
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(1, deleteCount(ranges.get(0)));
+        Assertions.assertEquals(0L, cache.takeStats("q")[2],
+                "historical equality-delete keys must not force the cache path to fail");
+    }
+
+    @Test
+    public void manifestCacheUsesLatestSchemaForSchemaOnlyMvccPin() throws IOException {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "k", Types.IntegerType.get()));
+        Table table = createPersistedTable("latest_schema_cache", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        Map<Integer, ByteBuffer> oldBounds = Collections.singletonMap(
+                2, Conversions.toByteBuffer(Types.IntegerType.get(), 1));
+        DataFile oldFile = DataFiles.builder(table.spec())
+                .withPath(table.location() + "/old.parquet")
+                .withFileSizeInBytes(100)
+                .withRecordCount(1)
+                .withMetrics(new Metrics(1L, null, null, null, null, oldBounds, oldBounds))
+                .withFormat(FileFormat.PARQUET)
+                .build();
+        table.newAppend().appendFile(oldFile).commit();
+        long pinnedSnapshotId = table.currentSnapshot().snapshotId();
+        table.updateSchema().allowIncompatibleChanges().deleteColumn("k").commit();
+        table.updateSchema().addRequiredColumn(
+                "k", Types.IntegerType.get(), Literal.of(7)).commit();
+        Table reloaded = reloadPersistedTable(table);
+        IcebergTableHandle latestPin = new IcebergTableHandle("db1", "latest_schema_cache")
+                .withSnapshot(pinnedSnapshotId, null, reloaded.schema().schemaId());
+
+        IcebergManifestCache cache = new IcebergManifestCache();
+        List<ConnectorScanRange> ranges = manifestProvider(
+                manifestCacheProps(), reloaded, cache).planScan(
+                        emptySession(), ConnectorScanRequest.builder(latestPin, Collections.emptyList())
+                                .filter(Optional.of(eqInt("k", 7))).build());
+
+        Assertions.assertEquals(1, ranges.size(),
+                "the new field's initial default matches old files and must not be pruned by retired-field stats");
+        Assertions.assertEquals(1, cache.size(), "the assertion must exercise the manifest-cache path");
+        Assertions.assertEquals(0L, cache.takeStats("q")[2], "the cache path must not fall back to the SDK");
+    }
+
     // --- T09: vended credentials (extractVendedToken + static/vended location.* + URI threading) ---
 
     @Test
@@ -3842,7 +4124,7 @@ public class IcebergScanPlanProviderTest {
     @Test
     public void planScanForSystemTableSerializesEachFileScanTaskAsJniSplit() {
         // A $snapshots handle plans through the metadata table (MetadataTableUtils.createMetadataTableInstance):
-        // each metadata FileScanTask is serialized (SerializationUtil.serializeToBase64) and emitted as a JNI
+        // each metadata FileScanTask is serialized with the Iceberg 1.10.1 Schema UID and emitted as a JNI
         // split carrying ONLY serialized_split + FORMAT_JNI + table_level_row_count=-1, mirroring legacy
         // IcebergScanNode.doGetSystemTableSplits + setIcebergParams. MUTATION: routing the sys handle through
         // the normal data-file path (resolveTable + buildRange) -> the range carries the f1.parquet path and no
@@ -3862,6 +4144,8 @@ public class IcebergScanPlanProviderTest {
             String serialized = ((IcebergScanRange) range).getSerializedSplit();
             Assertions.assertNotNull(serialized, "every sys split must carry a serialized FileScanTask");
             Assertions.assertFalse(serialized.isEmpty());
+            Assertions.assertEquals(IcebergSystemTableSerialization.ICEBERG_1_10_1_SCHEMA_UID,
+                    IcebergSystemTableSerialization.schemaUid(serialized));
             TFileRangeDesc rangeDesc = populate(range);
             Assertions.assertEquals(TFileFormatType.FORMAT_JNI, rangeDesc.getFormatType());
             Assertions.assertEquals(serialized,
@@ -3874,7 +4158,8 @@ public class IcebergScanPlanProviderTest {
     public void planScanForSystemTableSplitDeserializesThroughTheBeJniReaderPath() throws Exception {
         // The strongest FE-reachable byte-shape parity check: the serialized_split must be consumable EXACTLY
         // as BE's IcebergSysTableJniScanner consumes it —
-        // SerializationUtil.deserializeFromBase64(...).asDataTask().rows() — and must carry the METADATA-table
+        // IcebergSystemTableSerialization.deserializeFromBase64(...).asDataTask().rows() — and must carry the
+        // METADATA-table
         // schema ($snapshots), not the base table's. (Cross-version / classloader interop is P6.8 docker e2e.)
         // MUTATION: serializing anything other than the FileScanTask (e.g. the DataFile) -> deserialize /
         // asDataTask() fails or yields the wrong schema -> red.
@@ -3891,7 +4176,8 @@ public class IcebergScanPlanProviderTest {
         long snapshotRows = 0;
         for (ConnectorScanRange range : ranges) {
             FileScanTask task =
-                    SerializationUtil.deserializeFromBase64(((IcebergScanRange) range).getSerializedSplit());
+                    IcebergSystemTableSerialization.deserializeFromBase64(
+                            ((IcebergScanRange) range).getSerializedSplit());
             // the deserialized task exposes the $snapshots metadata schema, not the base table's columns.
             Assertions.assertNotNull(task.schema().findField("snapshot_id"),
                     "the serialized split must carry the metadata-table ($snapshots) schema");
@@ -4049,7 +4335,8 @@ public class IcebergScanPlanProviderTest {
     private static String firstSysSplitResidual(List<ConnectorScanRange> ranges) throws Exception {
         Assertions.assertFalse(ranges.isEmpty(), "the metadata table must plan at least one split");
         FileScanTask task =
-                SerializationUtil.deserializeFromBase64(((IcebergScanRange) ranges.get(0)).getSerializedSplit());
+                IcebergSystemTableSerialization.deserializeFromBase64(
+                        ((IcebergScanRange) ranges.get(0)).getSerializedSplit());
         return task.residual().toString();
     }
 
@@ -4176,7 +4463,8 @@ public class IcebergScanPlanProviderTest {
         long rows = 0;
         for (ConnectorScanRange range : ranges) {
             FileScanTask task =
-                    SerializationUtil.deserializeFromBase64(((IcebergScanRange) range).getSerializedSplit());
+                    IcebergSystemTableSerialization.deserializeFromBase64(
+                            ((IcebergScanRange) range).getSerializedSplit());
             try (CloseableIterable<StructLike> closeable = task.asDataTask().rows()) {
                 Iterator<StructLike> it = closeable.iterator();
                 while (it.hasNext()) {

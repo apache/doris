@@ -19,15 +19,14 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.proto.Data;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
-import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -400,7 +399,6 @@ public class AuditLogWorkloadGroupTest {
         MultiStmtRecordingProcessor(ConnectContext ctx, List<StatementBase> parsedStmts,
                 List<String> auditedWorkloadGroups, int[] resolveCallCount) {
             super(ctx);
-            this.connectType = ConnectType.MYSQL;
             this.parsedStmts = parsedStmts;
             this.auditedWorkloadGroups = auditedWorkloadGroups;
             this.resolveCallCount = resolveCallCount;

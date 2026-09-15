@@ -30,6 +30,9 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.results.FlightSqlChannel;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.authentication.Principal;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -67,15 +70,13 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
+import org.apache.doris.qe.protocol.ResultSender;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.BackendSelectionProfile;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
-import org.apache.doris.service.arrowflight.protocol.FlightProtocolAdapter;
-import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
-import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.Histogram;
 import org.apache.doris.system.Backend;
@@ -320,6 +321,11 @@ public class ConnectContext {
 
     public ProtocolAdapter getProtocolAdapter() {
         return protocolAdapter;
+    }
+
+    /** How a statement's result reaches this connection's client. */
+    public ResultSender getResultSender() {
+        return protocolAdapter.resultSender(this);
     }
 
     public MysqlSslContext getMysqlSslContext() {
@@ -897,19 +903,12 @@ public class ConnectContext {
         return FlightProtocolAdapter.of(this).getEndpointsLocations();
     }
 
-    public void clearFlightSqlEndpointsLocations() {
-        FlightProtocolAdapter.of(this).clearEndpointsLocations();
-    }
-
-    public void setReturnResultFromLocal(boolean returnResultFromLocal) {
-        FlightProtocolAdapter.of(this).setReturnResultFromLocal(returnResultFromLocal);
-    }
-
-    // A MySQL connection always sends its result from this frontend; only an Arrow Flight SQL
-    // session may leave a query's result on the backend for the client to pull.
+    /**
+     * Whether the result of the statement being executed comes from this frontend, or is left
+     * on the backends for the client to pull; see {@link ProtocolAdapter#returnsResultFromLocal}.
+     */
     public boolean isReturnResultFromLocal() {
-        return !(protocolAdapter instanceof FlightProtocolAdapter)
-                || ((FlightProtocolAdapter) protocolAdapter).isReturnResultFromLocal();
+        return protocolAdapter.returnsResultFromLocal(this);
     }
 
     // The bearer token of an Arrow Flight SQL session, null for any other connection.
@@ -1503,7 +1502,7 @@ public class ConnectContext {
     }
 
     public boolean supportHandleByFe() {
-        return !getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL) && getCommand() != MysqlCommand.COM_STMT_EXECUTE;
+        return protocolAdapter.supportsFeSideResult() && getCommand() != MysqlCommand.COM_STMT_EXECUTE;
     }
 
     public void setCloudCluster(String cluster) {

@@ -74,8 +74,8 @@ Status HudiJniReader::validate_scan_range(const TFileRangeDesc& range) const {
     return Status::OK();
 }
 
-std::string HudiJniReader::connector_class() const {
-    return "org/apache/doris/hudi/HadoopHudiJniScanner";
+Jni::PluginRef HudiJniReader::plugin_ref() const {
+    return Jni::plugin::HUDI_SCANNER;
 }
 
 Status HudiJniReader::build_scanner_params(std::map<std::string, std::string>* params) const {

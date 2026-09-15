@@ -134,7 +134,6 @@ FileHandleCache::Accessor::~Accessor() {
             destroy();
             return;
         }
-#ifdef USE_HADOOP_HDFS
         int unbuffer_ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsUnbufferFile(handle->file()),
                                                         "HdfsFileHandle::close::hdfsUnbufferFile");
         if (unbuffer_ret != 0) {
@@ -145,9 +144,6 @@ FileHandleCache::Accessor::~Accessor() {
             // Calling explicit release to handle metrics
             release();
         }
-#else
-        destroy();
-#endif
     }
 }
 
