@@ -248,6 +248,7 @@ TEST(AI_ADAPTER_TEST, openai_adapter_completions_request) {
     config.temperature = 0.5;
     config.max_tokens = 64;
     config.api_key = "test_openai_key";
+    config.effort = "low";
     adapter.init(config);
 
     // header
@@ -284,6 +285,8 @@ TEST(AI_ADAPTER_TEST, openai_adapter_completions_request) {
     ASSERT_TRUE(doc.HasMember("max_tokens")) << "Missing max_tokens field";
     ASSERT_TRUE(doc["max_tokens"].IsInt()) << "Max_tokens field is not an integer";
     ASSERT_EQ(doc["max_tokens"].GetInt(), 64);
+    ASSERT_TRUE(doc.HasMember("reasoning_effort"));
+    ASSERT_STREQ(doc["reasoning_effort"].GetString(), "low");
     // msg
     ASSERT_TRUE(doc.HasMember("messages")) << "Missing messages field";
     ASSERT_TRUE(doc["messages"].IsArray()) << "Messages is not an array";
@@ -321,6 +324,7 @@ TEST(AI_ADAPTER_TEST, openai_adatper_responses_request) {
     config.max_tokens = 64;
     config.api_key = "test_openai_key";
     config.endpoint = "https://api.openai.com/v1/responses";
+    config.effort = "max";
     adapter.init(config);
 
     // header
@@ -357,6 +361,9 @@ TEST(AI_ADAPTER_TEST, openai_adatper_responses_request) {
     ASSERT_TRUE(doc.HasMember("max_output_tokens")) << "Missing max_output_tokens field";
     ASSERT_TRUE(doc["max_output_tokens"].IsInt()) << "max_output_tokens field is not an integer";
     ASSERT_EQ(doc["max_output_tokens"].GetInt(), 64);
+    ASSERT_TRUE(doc.HasMember("reasoning"));
+    ASSERT_TRUE(doc["reasoning"].IsObject());
+    ASSERT_STREQ(doc["reasoning"]["effort"].GetString(), "max");
 
     // input
     ASSERT_TRUE(doc.HasMember("input")) << "Missing input field";
@@ -671,6 +678,7 @@ TEST(AI_ADAPTER_TEST, gemini_adapter_request) {
     config.temperature = 0.2;
     config.max_tokens = 32;
     config.api_key = "test_gemini_key";
+    config.effort = "high";
     adapter.init(config);
 
     // header test
@@ -705,6 +713,9 @@ TEST(AI_ADAPTER_TEST, gemini_adapter_request) {
     ASSERT_TRUE(gen_cfg.HasMember("maxOutputTokens")) << "Missing maxOutputTokens field";
     ASSERT_TRUE(gen_cfg["maxOutputTokens"].IsInt());
     ASSERT_EQ(gen_cfg["maxOutputTokens"].GetInt(), 32);
+    ASSERT_TRUE(gen_cfg.HasMember("thinkingConfig"));
+    ASSERT_TRUE(gen_cfg["thinkingConfig"].IsObject());
+    ASSERT_STREQ(gen_cfg["thinkingConfig"]["thinkingLevel"].GetString(), "high");
 
     // system_prompt
     ASSERT_TRUE(doc.HasMember("systemInstruction")) << "Missing system field";
@@ -753,6 +764,7 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_request) {
     config.max_tokens = 256;
     config.api_key = "test_anthropic_key";
     config.anthropic_version = "2023-06-01";
+    config.effort = "medium";
     adapter.init(config);
 
     // header
@@ -790,6 +802,9 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_request) {
     ASSERT_TRUE(doc.HasMember("max_tokens")) << "Missing max_tokens field";
     ASSERT_TRUE(doc["max_tokens"].IsInt()) << "Max_tokens field is not an integer";
     ASSERT_EQ(doc["max_tokens"].GetInt(), 256);
+    ASSERT_TRUE(doc.HasMember("output_config"));
+    ASSERT_TRUE(doc["output_config"].IsObject());
+    ASSERT_STREQ(doc["output_config"]["effort"].GetString(), "medium");
 
     // system_prompt
     ASSERT_TRUE(doc.HasMember("system")) << "Missing system field";

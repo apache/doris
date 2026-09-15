@@ -42,16 +42,12 @@ namespace doris {
 struct AIResource {
     AIResource() = default;
     AIResource(const TAIResource& tai)
-            : endpoint(tai.endpoint),
-              provider_type(tai.provider_type),
-              model_name(tai.model_name),
-              api_key(tai.api_key),
-              temperature(tai.temperature),
-              max_tokens(tai.max_tokens),
-              max_retries(tai.max_retries),
-              retry_delay_second(tai.retry_delay_second),
-              anthropic_version(tai.anthropic_version),
-              dimensions(tai.dimensions) {}
+            : AIResource(tai, tai.endpoint, tai.provider_type, tai.model_name, tai.api_key) {}
+
+    static AIResource from_embed(const TAIResource& tai) {
+        return AIResource(tai, tai.embed_endpoint, tai.embed_provider_type, tai.embed_model_name,
+                          tai.embed_api_key);
+    }
 
     std::string endpoint;
     std::string provider_type;
@@ -63,8 +59,9 @@ struct AIResource {
     int32_t retry_delay_second;
     std::string anthropic_version;
     int32_t dimensions;
+    std::string effort;
 
-    void serialize(BufferWritable& buf) const {
+    void serialize(BufferWritable& buf, bool serialize_effort) const {
         buf.write_binary(endpoint);
         buf.write_binary(provider_type);
         buf.write_binary(model_name);
@@ -75,9 +72,12 @@ struct AIResource {
         buf.write_binary(retry_delay_second);
         buf.write_binary(anthropic_version);
         buf.write_binary(dimensions);
+        if (serialize_effort) {
+            buf.write_binary(effort);
+        }
     }
 
-    void deserialize(BufferReadable& buf) {
+    void deserialize(BufferReadable& buf, bool deserialize_effort) {
         buf.read_binary(endpoint);
         buf.read_binary(provider_type);
         buf.read_binary(model_name);
@@ -88,7 +88,26 @@ struct AIResource {
         buf.read_binary(retry_delay_second);
         buf.read_binary(anthropic_version);
         buf.read_binary(dimensions);
+        if (deserialize_effort) {
+            buf.read_binary(effort);
+        }
     }
+
+private:
+    AIResource(const TAIResource& tai, const std::string& selected_endpoint,
+               const std::string& selected_provider_type, const std::string& selected_model_name,
+               const std::string& selected_api_key)
+            : endpoint(selected_endpoint),
+              provider_type(selected_provider_type),
+              model_name(selected_model_name),
+              api_key(selected_api_key),
+              temperature(tai.temperature),
+              max_tokens(tai.max_tokens),
+              max_retries(tai.max_retries),
+              retry_delay_second(tai.retry_delay_second),
+              anthropic_version(tai.anthropic_version),
+              dimensions(tai.dimensions),
+              effort(tai.effort) {}
 };
 
 enum class MultimodalType { IMAGE, VIDEO, AUDIO };
@@ -123,6 +142,8 @@ public:
         _config.max_retries = config.max_retries;
         _config.retry_delay_second = config.retry_delay_second;
         _config.anthropic_version = config.anthropic_version;
+        _config.dimensions = config.dimensions;
+        _config.effort = config.effort;
     }
 
     // Build request payload based on input text strings
@@ -746,7 +767,8 @@ public:
                 {"role": "user", "content": "xxx"}
               ],
               "temperature": 0.7,
-              "max_output_tokens": 150
+              "max_output_tokens": 150,
+              "reasoning": {"effort": "max"}
             }*/
             doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
                           allocator);
@@ -757,6 +779,12 @@ public:
             }
             if (_config.max_tokens != -1) {
                 doc.AddMember("max_output_tokens", _config.max_tokens, allocator);
+            }
+            if (!_config.effort.empty()) {
+                rapidjson::Value reasoning(rapidjson::kObjectType);
+                reasoning.AddMember("effort", rapidjson::Value(_config.effort.c_str(), allocator),
+                                    allocator);
+                doc.AddMember("reasoning", reasoning, allocator);
             }
 
             // input
@@ -783,6 +811,7 @@ public:
               ],
               "temperature": x,
               "max_tokens": x,
+              "reasoning_effort": "low"
             }*/
             doc.AddMember("model", rapidjson::Value(_config.model_name.c_str(), allocator),
                           allocator);
@@ -793,6 +822,10 @@ public:
             }
             if (_config.max_tokens != -1) {
                 doc.AddMember("max_tokens", _config.max_tokens, allocator);
+            }
+            if (!_config.effort.empty()) {
+                doc.AddMember("reasoning_effort",
+                              rapidjson::Value(_config.effort.c_str(), allocator), allocator);
             }
 
             rapidjson::Value messages(rapidjson::kArrayType);
@@ -1244,7 +1277,8 @@ public:
           ],
           "generationConfig": {
           "temperature": 0.7,
-          "maxOutputTokens": 1024
+          "maxOutputTokens": 1024,
+          "thinkingConfig": {"thinkingLevel": "high"}
           }
 
         }*/
@@ -1281,6 +1315,13 @@ public:
         }
         if (_config.max_tokens != -1) {
             generationConfig.AddMember("maxOutputTokens", _config.max_tokens, allocator);
+        }
+        if (!_config.effort.empty()) {
+            rapidjson::Value thinking_config(rapidjson::kObjectType);
+            thinking_config.AddMember("thinkingLevel",
+                                      rapidjson::Value(_config.effort.c_str(), allocator),
+                                      allocator);
+            generationConfig.AddMember("thinkingConfig", thinking_config, allocator);
         }
         doc.AddMember("generationConfig", generationConfig, allocator);
 
@@ -1560,6 +1601,7 @@ public:
         /*
             "model": "claude-opus-4-1-20250805",
             "max_tokens": 1024,
+            "output_config": {"effort": "medium"},
             "system": "system_prompt here",
             "messages": [
               {"role": "user", "content": "xxx"}
@@ -1577,6 +1619,12 @@ public:
         } else {
             // Keep the default value, Anthropic requires this parameter
             doc.AddMember("max_tokens", 2048, allocator);
+        }
+        if (!_config.effort.empty()) {
+            rapidjson::Value output_config(rapidjson::kObjectType);
+            output_config.AddMember("effort", rapidjson::Value(_config.effort.c_str(), allocator),
+                                    allocator);
+            doc.AddMember("output_config", output_config, allocator);
         }
         if (system_prompt && *system_prompt) {
             doc.AddMember("system", rapidjson::Value(system_prompt, allocator), allocator);

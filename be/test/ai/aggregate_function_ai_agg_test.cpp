@@ -214,6 +214,135 @@ TEST_F(AggregateFunctionAIAggTest, serialize_deserialize_test) {
     _agg_function->destroy(place2);
 }
 
+TEST_F(AggregateFunctionAIAggTest, serialize_effort_only_for_supported_exec_version) {
+    TAIResource ai_resource;
+    ai_resource.provider_type = "MOCK";
+    ai_resource.model_name = "mock_model";
+    ai_resource.endpoint = "http://localhost";
+    ai_resource.api_key = "xxx";
+    ai_resource.temperature = 0.5;
+    ai_resource.max_tokens = 16;
+    ai_resource.max_retries = 1;
+    ai_resource.retry_delay_second = 1;
+    ai_resource.dimensions = 514;
+    ai_resource.effort = "high";
+    _query_ctx->set_ai_resources(
+            std::map<std::string, TAIResource> {{"effort_resource", ai_resource}});
+
+    auto resource_col = ColumnString::create();
+    auto text_col = ColumnString::create();
+    auto task_col = ColumnString::create();
+    resource_col->insert_data("effort_resource", 15);
+    text_col->insert_data("test", 4);
+    task_col->insert_data("summarize", 9);
+
+    std::unique_ptr<char[]> memory(new char[_agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    _agg_function->create(place);
+    const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
+    _agg_function->add(place, columns, 0, _arena);
+
+    _agg_function->set_version(14);
+    auto legacy_column = _agg_function->create_serialize_column();
+    _agg_function->serialize_without_key_to_column(place, *legacy_column);
+
+    _agg_function->set_version(15);
+    auto effort_column = _agg_function->create_serialize_column();
+    _agg_function->serialize_without_key_to_column(place, *effort_column);
+
+    const StringRef legacy_state = legacy_column->get_data_at(0);
+    const StringRef effort_state = effort_column->get_data_at(0);
+
+    ColumnString serialized_effort;
+    VectorBufferWriter effort_writer(serialized_effort);
+    effort_writer.write_binary(std::string("high"));
+    effort_writer.commit();
+    const StringRef expected_suffix = serialized_effort.get_data_at(0);
+
+    ASSERT_EQ(effort_state.size, legacy_state.size + expected_suffix.size);
+    EXPECT_EQ(std::string_view(effort_state.data + legacy_state.size, expected_suffix.size),
+              std::string_view(expected_suffix.data, expected_suffix.size));
+
+    _agg_function->destroy(place);
+}
+
+TEST_F(AggregateFunctionAIAggTest, deserialize_legacy_multi_row_state_does_not_read_effort) {
+    TAIResource ai_resource;
+    ai_resource.provider_type = "MOCK";
+    ai_resource.model_name = "mock_model";
+    ai_resource.endpoint = "http://localhost";
+    ai_resource.api_key = "xxx";
+    ai_resource.temperature = 0.5;
+    ai_resource.max_tokens = 16;
+    ai_resource.max_retries = 1;
+    ai_resource.retry_delay_second = 1;
+    ai_resource.dimensions = 514;
+    ai_resource.effort = "high";
+    _query_ctx->set_ai_resources(
+            std::map<std::string, TAIResource> {{"effort_resource", ai_resource}});
+
+    auto resource_col = ColumnString::create();
+    auto text_col = ColumnString::create();
+    auto task_col = ColumnString::create();
+    resource_col->insert_data("effort_resource", 15);
+    text_col->insert_data("test", 4);
+    task_col->insert_data("summarize", 9);
+
+    std::unique_ptr<char[]> source_memory(new char[_agg_function->size_of_data()]);
+    AggregateDataPtr source_place = source_memory.get();
+    _agg_function->create(source_place);
+    const IColumn* columns[3] = {resource_col.get(), text_col.get(), task_col.get()};
+    _agg_function->add(source_place, columns, 0, _arena);
+
+    _agg_function->set_version(15);
+    auto current_format_column = _agg_function->create_serialize_column();
+    _agg_function->serialize_without_key_to_column(source_place, *current_format_column);
+    const StringRef current_format_state = current_format_column->get_data_at(0);
+
+    ColumnString serialized_effort;
+    VectorBufferWriter effort_writer(serialized_effort);
+    effort_writer.write_binary(std::string("high"));
+    effort_writer.commit();
+    const size_t effort_size = serialized_effort.get_data_at(0).size;
+
+    auto legacy_column = ColumnString::create();
+    for (int i = 0; i < 3; ++i) {
+        legacy_column->insert_data(current_format_state.data,
+                                   current_format_state.size - effort_size);
+    }
+
+    std::unique_ptr<char[]> merged_memory(new char[_agg_function->size_of_data()]);
+    AggregateDataPtr merged_place = merged_memory.get();
+    _agg_function->create(merged_place);
+    _agg_function->set_version(14);
+    _agg_function->deserialize_and_merge_from_column_range(merged_place, *legacy_column, 0, 1,
+                                                           _arena);
+
+    const auto& merged_data = *reinterpret_cast<const AggregateFunctionAIAggData*>(merged_place);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(merged_data.data.data()),
+                          merged_data.data.size()),
+              "test\ntest");
+
+    _agg_function->set_version(15);
+    auto merged_column = _agg_function->create_serialize_column();
+    _agg_function->serialize_without_key_to_column(merged_place, *merged_column);
+    const StringRef merged_state = merged_column->get_data_at(0);
+
+    ColumnString serialized_empty_effort;
+    VectorBufferWriter empty_effort_writer(serialized_empty_effort);
+    empty_effort_writer.write_binary(std::string());
+    empty_effort_writer.commit();
+    const StringRef expected_suffix = serialized_empty_effort.get_data_at(0);
+
+    ASSERT_GE(merged_state.size, expected_suffix.size);
+    EXPECT_EQ(std::string_view(merged_state.data + merged_state.size - expected_suffix.size,
+                               expected_suffix.size),
+              std::string_view(expected_suffix.data, expected_suffix.size));
+
+    _agg_function->destroy(source_place);
+    _agg_function->destroy(merged_place);
+}
+
 TEST_F(AggregateFunctionAIAggTest, reset_test) {
     std::unique_ptr<char[]> memory(new char[_agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();

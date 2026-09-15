@@ -2009,8 +2009,10 @@ public class Config extends ConfigBase {
      */
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
 
+    public static final int AI_AGG_EFFORT_MIN_BE_EXEC_VERSION = 15;
+
     @ConfField(mutable = false)
-    public static int max_be_exec_version = TIMESTAMP_NS_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = AI_AGG_EFFORT_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

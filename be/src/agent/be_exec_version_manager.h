@@ -34,6 +34,7 @@ constexpr inline int SUPPORT_ICEBERG_MERGE_CARDINALITY_VERSION = 11;
 constexpr inline int SUPPORT_ICEBERG_VARIANT_VERSION = 12;
 constexpr inline int SUPPORT_EXTERNAL_TABLE_SINK_HASH_VERSION = 13;
 constexpr inline int SUPPORT_TIMESTAMP_NS_VERSION = 14;
+constexpr inline int SUPPORT_AI_AGG_EFFORT_VERSION = 15;
 
 class BeExecVersionManager {
 public:
