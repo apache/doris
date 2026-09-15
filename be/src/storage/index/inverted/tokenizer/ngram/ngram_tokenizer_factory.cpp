@@ -28,12 +28,8 @@ std::unordered_map<std::string, CharMatcherPtr> NGramTokenizerFactory::MATCHERS;
 Status NGramTokenizerFactory::parse_gram_scheme(const Settings& settings,
                                                 std::optional<gram::GramScheme>* out) {
     out->reset();
-    // The presence of "mode" (sparse|dense|auto) switches to the gram family, which is mutually
-    // exclusive with the legacy ngram sliding window; parsing, validation and defaults of the
-    // gram scheme are all delegated to GramScheme::from_properties, and this function only
-    // forwards the tokenizer properties. Absent min/max_gram come from GramScheme's own member
-    // initializers (3/16) and are deliberately not duplicated here -- two sets of defaults would
-    // drift sooner or later, and there can be only one source of truth.
+    // A "mode" property (sparse, dense or auto) selects the gram family instead of the legacy
+    // sliding window. GramScheme::from_properties parses, validates and defaults its properties.
     if (settings.get_string("mode").empty()) {
         return Status::OK();
     }
@@ -55,7 +51,7 @@ void NGramTokenizerFactory::initialize(const Settings& settings) {
     }
     if (scheme.has_value()) {
         _gram_scheme = scheme;
-        return; // skip the legacy max-min>1 validation and token_chars parsing
+        return; // the legacy size checks and token_chars parsing below do not apply
     }
 
     _min_gram = settings.get_int("min_gram", NGramTokenizer::DEFAULT_MIN_NGRAM_SIZE);
