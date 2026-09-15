@@ -295,7 +295,6 @@ import org.apache.doris.thrift.TRestoreSnapshotResult;
 import org.apache.doris.thrift.TRollbackTxnRequest;
 import org.apache.doris.thrift.TRollbackTxnResult;
 import org.apache.doris.thrift.TRoutineLoadJob;
-import org.apache.doris.thrift.TRowBinlogWriteColumnMappings;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSchemaTableName;
 import org.apache.doris.thrift.TShowProcessListRequest;
@@ -332,6 +331,7 @@ import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.Transaction;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
@@ -2439,12 +2439,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 throw new AnalysisException("Misaligned row-binlog column mapping lists for remote transaction "
                         + request.getTxnId());
             }
-            Map<Long, TRowBinlogWriteColumnMappings> mappings = new HashMap<>();
+            Map<Long, RowBinlogWriteMapping> mappings = new HashMap<>();
             for (int i = 0; i < mappingCount; i++) {
                 long indexId = request.getRowBinlogSourceIndexIds().get(i);
-                TRowBinlogWriteColumnMappings mapping = new TRowBinlogWriteColumnMappings()
-                        .setEntries(request.getRowBinlogColumnMappings().get(i))
-                        .setNeedHistoricalValue(request.getRowBinlogNeedHistoricalValues().get(i));
+                RowBinlogWriteMapping mapping = new RowBinlogWriteMapping(
+                        request.getRowBinlogNeedHistoricalValues().get(i),
+                        request.getRowBinlogColumnMappings().get(i));
                 if (mappings.putIfAbsent(indexId, mapping) != null) {
                     throw new AnalysisException("Duplicate row-binlog source index " + indexId
                             + " for remote transaction " + request.getTxnId());

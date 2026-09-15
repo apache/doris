@@ -34,9 +34,9 @@ import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.thrift.TOlapTableIndexSchema;
 import org.apache.doris.thrift.TOlapTableSchemaParam;
 import org.apache.doris.thrift.TRowBinlogWriteColumnMapping;
-import org.apache.doris.thrift.TRowBinlogWriteColumnMappings;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
@@ -82,19 +82,18 @@ public class TransactionStateTest {
         state.captureRowBinlogColumnMappings(101L, schema); // Separate subtransaction, separate schema snapshot.
 
         testSerDe(fileName, state, restored -> {
-            Map<Long, TRowBinlogWriteColumnMappings> published = restored.getRowBinlogColumnMappings(100L);
-            TRowBinlogWriteColumnMappings mapping = published.get(10L);
-            Assertions.assertTrue(mapping.isSetNeedHistoricalValue());
-            Assertions.assertTrue(mapping.isNeedHistoricalValue());
-            Assertions.assertEquals(2, mapping.getEntriesSize());
-            Assertions.assertFalse(mapping.getEntries().get(0).isSetBeforeColumnUniqueId());
-            Assertions.assertEquals(12, mapping.getEntries().get(1).getCurrentColumnUniqueId());
-            Assertions.assertEquals(22, mapping.getEntries().get(1).getBeforeColumnUniqueId());
-            mapping.getEntries().clear();
+            Map<Long, RowBinlogWriteMapping> published = restored.getRowBinlogColumnMappings(100L);
+            RowBinlogWriteMapping mapping = published.get(10L);
+            Assertions.assertTrue(mapping.isHistorical());
+            Assertions.assertEquals(2, mapping.toThriftEntries().size());
+            Assertions.assertFalse(mapping.toThriftEntries().get(0).isSetBeforeColumnUniqueId());
+            Assertions.assertEquals(12, mapping.toThriftEntries().get(1).getCurrentColumnUniqueId());
+            Assertions.assertEquals(22, mapping.toThriftEntries().get(1).getBeforeColumnUniqueId());
+            mapping.toThriftEntries().clear();
             published.clear();
-            Assertions.assertEquals(2, restored.getRowBinlogColumnMappings(100L).get(10L).getEntriesSize());
+            Assertions.assertEquals(2, restored.getRowBinlogColumnMappings(100L).get(10L).toThriftEntries().size());
             Assertions.assertEquals(99, restored.getRowBinlogColumnMappings(101L).get(10L)
-                    .getEntries().get(1).getCurrentColumnUniqueId());
+                    .toThriftEntries().get(1).getCurrentColumnUniqueId());
             Assertions.assertTrue(restored.getRowBinlogColumnMappings(102L).isEmpty());
         });
     }

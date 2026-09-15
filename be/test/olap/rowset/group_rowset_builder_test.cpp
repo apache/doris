@@ -267,8 +267,6 @@ static void recover_multiple_row_binlog_pairs(bool historical, bool key_only,
         source_index->row_binlog_column_mappings[1].before_uid = 5;
     }
 
-    TRowBinlogWriteColumnMappings thrift_snapshot;
-    thrift_snapshot.__set_need_historical_value(historical);
     std::vector<TRowBinlogWriteColumnMapping> entries;
     for (const auto& mapping : source_index->row_binlog_column_mappings) {
         TRowBinlogWriteColumnMapping entry;
@@ -279,7 +277,6 @@ static void recover_multiple_row_binlog_pairs(bool historical, bool key_only,
         }
         entries.push_back(entry);
     }
-    thrift_snapshot.__set_entries(entries);
 
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -354,7 +351,7 @@ static void recover_multiple_row_binlog_pairs(bool historical, bool key_only,
     EXPECT_FALSE(publish().ok());
     assert_committed();
     publish_request.__set_row_binlog_source_index_ids({row_binlog_index_id});
-    publish_request.__set_row_binlog_column_mappings({thrift_snapshot.entries});
+    publish_request.__set_row_binlog_column_mappings({entries});
     publish_request.__set_row_binlog_need_historical_values({historical});
     EXPECT_FALSE(publish().ok());
     assert_committed();
@@ -375,23 +372,21 @@ static void recover_multiple_row_binlog_pairs(bool historical, bool key_only,
     EXPECT_FALSE(publish().ok());
     assert_committed();
     publish_request.__set_row_binlog_source_index_ids({index_id, index_id});
-    publish_request.__set_row_binlog_column_mappings(
-            {thrift_snapshot.entries, thrift_snapshot.entries});
+    publish_request.__set_row_binlog_column_mappings({entries, entries});
     publish_request.__set_row_binlog_need_historical_values({historical, historical});
     EXPECT_FALSE(publish().ok());
     assert_committed();
     publish_request.__set_row_binlog_source_index_ids({index_id});
     publish_request.__set_row_binlog_need_historical_values({historical});
-    auto invalid_snapshot = thrift_snapshot;
-    invalid_snapshot.entries[0].source_column_unique_id = 9999;
-    publish_request.__set_row_binlog_column_mappings({invalid_snapshot.entries});
+    auto invalid_entries = entries;
+    invalid_entries[0].source_column_unique_id = 9999;
+    publish_request.__set_row_binlog_column_mappings({invalid_entries});
     EXPECT_FALSE(publish().ok());
     assert_committed();
     // Local tablet metadata does not carry an index ID. Select the committed writer's source
     // index, not the default tablet index or the attached binlog index.
     publish_request.__set_row_binlog_source_index_ids({0, index_id});
-    publish_request.__set_row_binlog_column_mappings(
-            {invalid_snapshot.entries, thrift_snapshot.entries});
+    publish_request.__set_row_binlog_column_mappings({invalid_entries, entries});
     publish_request.__set_row_binlog_need_historical_values({!historical, historical});
 
     if (max_gap.has_value()) {

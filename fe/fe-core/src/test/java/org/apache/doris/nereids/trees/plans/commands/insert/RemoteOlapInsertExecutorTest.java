@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.datasource.InternalCatalog;
@@ -44,11 +45,11 @@ import org.apache.doris.thrift.TCommitRemoteTxnResult;
 import org.apache.doris.thrift.TOlapTableIndexSchema;
 import org.apache.doris.thrift.TOlapTableSchemaParam;
 import org.apache.doris.thrift.TRowBinlogWriteColumnMapping;
-import org.apache.doris.thrift.TRowBinlogWriteColumnMappings;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
@@ -140,7 +141,7 @@ class RemoteOlapInsertExecutorTest {
         RemoteOlapInsertExecutor executor = prepareExecutor(index);
         // The writer's schema is mutable; commit must retain the snapshot made during finalizeSink.
         index.getRowBinlogColumnMappings().get(1).setCurrentColumnUniqueId(99);
-        TRowBinlogWriteColumnMappings expected = historicalMapping();
+        RowBinlogWriteMapping expected = historicalMapping();
         Mockito.when(manager.commitAndPublishTransaction(Mockito.any(), Mockito.anyList(), Mockito.eq(100L),
                 Mockito.anyList(), Mockito.anyLong(), Mockito.isNull())).thenAnswer(invocation -> {
                     Assertions.assertEquals(Collections.singletonMap(10L, expected),
@@ -152,7 +153,8 @@ class RemoteOlapInsertExecutorTest {
             TCommitRemoteTxnRequest sent = invocation.getArgument(0);
             Assertions.assertTrue(sent.isSetRowBinlogColumnMappings());
             Assertions.assertEquals(Collections.singletonList(10L), sent.getRowBinlogSourceIndexIds());
-            Assertions.assertEquals(Collections.singletonList(expected.getEntries()), sent.getRowBinlogColumnMappings());
+            Assertions.assertEquals(Collections.singletonList(expected.toThriftEntries()),
+                    sent.getRowBinlogColumnMappings());
             Assertions.assertEquals(Collections.singletonList(true), sent.getRowBinlogNeedHistoricalValues());
             TCommitRemoteTxnRequest received = new TCommitRemoteTxnRequest();
             new TDeserializer().deserialize(received, new TSerializer().serialize(sent));
@@ -172,7 +174,7 @@ class RemoteOlapInsertExecutorTest {
         PublishVersionTask publish = new PublishVersionTask(1L, 100L, 1L, Collections.emptyList(), 0);
         publish.setRowBinlogColumnMappings(replayed.getRowBinlogColumnMappings(100L));
         Assertions.assertEquals(Collections.singletonList(10L), publish.toThrift().getRowBinlogSourceIndexIds());
-        Assertions.assertEquals(Collections.singletonList(expected.getEntries()),
+        Assertions.assertEquals(Collections.singletonList(expected.toThriftEntries()),
                 publish.toThrift().getRowBinlogColumnMappings());
         Assertions.assertEquals(Collections.singletonList(true),
                 publish.toThrift().getRowBinlogNeedHistoricalValues());
@@ -204,7 +206,7 @@ class RemoteOlapInsertExecutorTest {
             config.when(Config::isCloudMode).thenReturn(true);
             executor = prepareExecutor(new TOlapTableIndexSchema(10L, Collections.emptyList(), 1)
                     .setRowBinlogId(20L).setRowBinlogNeedHistoricalValue(true)
-                    .setRowBinlogColumnMappings(historicalMapping().getEntries()));
+                    .setRowBinlogColumnMappings(historicalMapping().toThriftEntries()));
         }
         Mockito.when(client.commitRemoteTxn(Mockito.any())).thenAnswer(invocation -> {
             TCommitRemoteTxnRequest request = invocation.getArgument(0);
@@ -253,12 +255,11 @@ class RemoteOlapInsertExecutorTest {
         assertRejected(complete.deepCopy().setRowBinlogColumnMappings(Collections.emptyList()), "Misaligned");
         assertRejected(complete.deepCopy().setRowBinlogNeedHistoricalValues(Collections.emptyList()), "Misaligned");
         assertRejected(complete.deepCopy().setRowBinlogSourceIndexIds(Arrays.asList(10L, 10L))
-                .setRowBinlogColumnMappings(Arrays.asList(historicalMapping().getEntries(),
-                        historicalMapping().getEntries()))
+                .setRowBinlogColumnMappings(Arrays.asList(historicalMapping().toThriftEntries(),
+                        historicalMapping().toThriftEntries()))
                 .setRowBinlogNeedHistoricalValues(Arrays.asList(true, false)), "Duplicate");
-        assertRejected(request(Collections.singletonMap(10L,
-                new TRowBinlogWriteColumnMappings().setNeedHistoricalValue(true)
-                        .setEntries(Collections.singletonList(new TRowBinlogWriteColumnMapping())))), "mapping");
+        assertRejected(complete.deepCopy().setRowBinlogColumnMappings(Collections.singletonList(
+                Collections.singletonList(new TRowBinlogWriteColumnMapping()))), "mapping");
         Assertions.assertTrue(owner.getRowBinlogColumnMappings(100L).isEmpty());
         Mockito.verify(manager, Mockito.never()).commitAndPublishTransaction(Mockito.any(), Mockito.anyList(),
                 Mockito.anyLong(), Mockito.anyList(), Mockito.anyLong(), Mockito.isNull());
@@ -283,21 +284,19 @@ class RemoteOlapInsertExecutorTest {
 
     @Test
     void testOwnerPreservesKeyOnlyHistoricalAndExplicitFalse() throws Exception {
-        TRowBinlogWriteColumnMappings keyOnly = new TRowBinlogWriteColumnMappings()
-                .setNeedHistoricalValue(true).setEntries(Collections.singletonList(
-                        new TRowBinlogWriteColumnMapping(1, 11)));
-        Map<Long, TRowBinlogWriteColumnMappings> mappings = new LinkedHashMap<>();
-        mappings.put(30L, keyOnly.deepCopy().setNeedHistoricalValue(false));
+        RowBinlogWriteMapping keyOnly = new RowBinlogWriteMapping(true,
+                Collections.singletonList(new TRowBinlogWriteColumnMapping(1, 11)));
+        Map<Long, RowBinlogWriteMapping> mappings = new LinkedHashMap<>();
+        mappings.put(30L, new RowBinlogWriteMapping(false, keyOnly.toThriftEntries()));
         mappings.put(10L, keyOnly);
         TCommitRemoteTxnRequest received = new TCommitRemoteTxnRequest();
         new TDeserializer().deserialize(received, new TSerializer().serialize(request(mappings)));
         Assertions.assertEquals(TStatusCode.OK,
                 service.commitRemoteTxn(received).getStatus().getStatusCode());
-        keyOnly.setNeedHistoricalValue(false);
-        Assertions.assertTrue(owner.getRowBinlogColumnMappings(100L).get(10L).isNeedHistoricalValue());
-        Assertions.assertTrue(owner.getRowBinlogColumnMappings(100L).get(30L).isSetNeedHistoricalValue());
-        Assertions.assertFalse(owner.getRowBinlogColumnMappings(100L).get(30L).isNeedHistoricalValue());
-        Assertions.assertFalse(owner.getRowBinlogColumnMappings(100L).get(10L).getEntries().get(0)
+        received.getRowBinlogNeedHistoricalValues().set(1, false);
+        Assertions.assertTrue(owner.getRowBinlogColumnMappings(100L).get(10L).isHistorical());
+        Assertions.assertFalse(owner.getRowBinlogColumnMappings(100L).get(30L).isHistorical());
+        Assertions.assertFalse(owner.getRowBinlogColumnMappings(100L).get(10L).toThriftEntries().get(0)
                 .isSetBeforeColumnUniqueId());
     }
 
@@ -340,19 +339,19 @@ class RemoteOlapInsertExecutorTest {
                 .setToken("test-token").setCommitInfos(Collections.emptyList()).setInsertVisibleTimeoutMs(1000L);
     }
 
-    private TCommitRemoteTxnRequest request(Map<Long, TRowBinlogWriteColumnMappings> mappings) {
+    private TCommitRemoteTxnRequest request(Map<Long, RowBinlogWriteMapping> mappings) {
         TCommitRemoteTxnRequest request = request().setRowBinlogSourceIndexIds(new ArrayList<>())
                 .setRowBinlogColumnMappings(new ArrayList<>()).setRowBinlogNeedHistoricalValues(new ArrayList<>());
         mappings.forEach((indexId, mapping) -> {
             request.addToRowBinlogSourceIndexIds(indexId);
-            request.addToRowBinlogColumnMappings(mapping.getEntries());
-            request.addToRowBinlogNeedHistoricalValues(mapping.isNeedHistoricalValue());
+            request.addToRowBinlogColumnMappings(mapping.toThriftEntries());
+            request.addToRowBinlogNeedHistoricalValues(mapping.isHistorical());
         });
         return request;
     }
 
-    private TRowBinlogWriteColumnMappings historicalMapping() {
-        return new TRowBinlogWriteColumnMappings().setNeedHistoricalValue(true).setEntries(Arrays.asList(
+    private RowBinlogWriteMapping historicalMapping() throws AnalysisException {
+        return new RowBinlogWriteMapping(true, Arrays.asList(
                 new TRowBinlogWriteColumnMapping(1, 11),
                 new TRowBinlogWriteColumnMapping(2, 12).setBeforeColumnUniqueId(22)));
     }
