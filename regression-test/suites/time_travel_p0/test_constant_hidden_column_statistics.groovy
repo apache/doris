@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_constant_hidden_column_statistics", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
     sql "DROP TABLE IF EXISTS test_constant_hidden_column_statistics FORCE"
     sql """
         CREATE TABLE test_constant_hidden_column_statistics (
@@ -43,29 +39,27 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
 
     def readHiddenState = {
         def rows = sql """
-            SELECT k, __DORIS_VERSION_COL__, __DORIS_COMMIT_TSO_COL__
+            SELECT k, __DORIS_VERSION_COL__
             FROM test_constant_hidden_column_statistics
             ORDER BY k
         """
         return rows.collectEntries { row ->
             [(Integer.parseInt(row[0].toString())): [
-                    version: Long.parseLong(row[1].toString()),
-                    commitTso: Long.parseLong(row[2].toString())
+                    version: Long.parseLong(row[1].toString())
             ]]
         }
     }
 
     def readHiddenMinMax = {
         def row = sql """
-            SELECT MIN(__DORIS_VERSION_COL__), MAX(__DORIS_VERSION_COL__),
-                   MIN(__DORIS_COMMIT_TSO_COL__), MAX(__DORIS_COMMIT_TSO_COL__)
+            SELECT MIN(__DORIS_VERSION_COL__), MAX(__DORIS_VERSION_COL__)
             FROM test_constant_hidden_column_statistics
         """
         return row[0].collect { value -> Long.parseLong(value.toString()) }
     }
 
-    // Case 1: the first rowset predates c_default. Its hidden columns are captured before ALTER so the
-    // test can verify that schema evolution does not replace them with persisted placeholders.
+    // Case 1: the first rowset predates c_default. Its hidden version is captured before ALTER so the
+    // test can verify that schema evolution does not replace it with a persisted placeholder.
     sql """
         INSERT INTO test_constant_hidden_column_statistics VALUES
             (1, 10),
@@ -76,11 +70,8 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     def beforeAlter = readHiddenState()
     assertEquals(2, beforeAlter.size())
     assertEquals(beforeAlter[1].version, beforeAlter[2].version)
-    assertEquals(beforeAlter[1].commitTso, beforeAlter[2].commitTso)
     assertTrue(beforeAlter[1].version > 0)
-    assertTrue(beforeAlter[1].commitTso > 0)
     def oldVersion = beforeAlter[1].version
-    def oldCommitTso = beforeAlter[1].commitTso
 
     sql """
         ALTER TABLE test_constant_hidden_column_statistics
@@ -104,7 +95,7 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     def afterAlter = readHiddenState()
     assertEquals(beforeAlter, afterAlter)
 
-    // Case 2: with only the pre-ALTER rowset, both hidden columns are rowset-scoped constants. Their
+    // Case 2: with only the pre-ALTER rowset, the hidden version is a rowset-scoped constant. Its
     // statistics are therefore [value, value], just like the ALTER-added column default.
     sql "SET enable_pushdown_minmax_on_unique = false"
     def oldMinMaxWithoutPushdown = readHiddenMinMax()
@@ -114,15 +105,10 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         sql("SELECT MIN(__DORIS_VERSION_COL__) FROM test_constant_hidden_column_statistics")
         contains "pushAggOp=MINMAX"
     }
-    explain {
-        sql("SELECT MIN(__DORIS_COMMIT_TSO_COL__) FROM test_constant_hidden_column_statistics")
-        contains "pushAggOp=MINMAX"
-    }
     def oldMinMaxWithPushdown = readHiddenMinMax()
 
     assertEquals(oldMinMaxWithoutPushdown, oldMinMaxWithPushdown)
-    assertEquals([oldVersion, oldVersion, oldCommitTso, oldCommitTso],
-            oldMinMaxWithPushdown)
+    assertEquals([oldVersion, oldVersion], oldMinMaxWithPushdown)
 
     // Case 3: these predicates are evaluated against the constant zonemaps of the historical rowset.
     // c_default in the same predicates is also a constant because it was added after the write.
@@ -138,21 +124,8 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         WHERE __DORIS_VERSION_COL__ > ${oldVersion}
         ORDER BY k
     """
-    order_qt_hidden_initial_tso_equal """
-        SELECT k, c_default
-        FROM test_constant_hidden_column_statistics
-        WHERE __DORIS_COMMIT_TSO_COL__ = ${oldCommitTso} AND c_default = 10
-        ORDER BY k
-    """
-    order_qt_hidden_initial_tso_above_max """
-        SELECT k, c_default
-        FROM test_constant_hidden_column_statistics
-        WHERE __DORIS_COMMIT_TSO_COL__ > ${oldCommitTso}
-        ORDER BY k
-    """
-
     // Case 4: add a physical post-ALTER rowset and verify that a later read gets its own rowset version
-    // and commit TSO instead of reusing constants cached for the first rowset.
+    // instead of reusing the constant cached for the first rowset.
     sql """
         INSERT INTO test_constant_hidden_column_statistics
             (k, v, c_default) VALUES (3, 30, 30)
@@ -169,9 +142,7 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     assertEquals(beforeAlter[1], afterInsert[1])
     assertEquals(beforeAlter[2], afterInsert[2])
     assertTrue(afterInsert[3].version > oldVersion)
-    assertTrue(afterInsert[3].commitTso > oldCommitTso)
     def insertVersion = afterInsert[3].version
-    def insertCommitTso = afterInsert[3].commitTso
 
     sql "SET enable_pushdown_minmax_on_unique = false"
     def insertMinMaxWithoutPushdown = readHiddenMinMax()
@@ -179,8 +150,7 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     def insertMinMaxWithPushdown = readHiddenMinMax()
 
     assertEquals(insertMinMaxWithoutPushdown, insertMinMaxWithPushdown)
-    assertEquals([oldVersion, insertVersion, oldCommitTso, insertCommitTso],
-            insertMinMaxWithPushdown)
+    assertEquals([oldVersion, insertVersion], insertMinMaxWithPushdown)
 
     order_qt_hidden_version_range_after_insert """
         SELECT k, c_default
@@ -188,13 +158,6 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         WHERE __DORIS_VERSION_COL__ > ${oldVersion}
         ORDER BY k
     """
-    order_qt_hidden_tso_range_after_insert """
-        SELECT k, c_default
-        FROM test_constant_hidden_column_statistics
-        WHERE __DORIS_COMMIT_TSO_COL__ > ${oldCommitTso}
-        ORDER BY k
-    """
-
     // Case 5: a MOW upsert updates key 2 while leaving key 1 visible in the original rowset. Keeping one
     // visible row in every rowset makes pushed and non-pushed MIN/MAX directly comparable.
     sql """
@@ -213,9 +176,7 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     assertEquals(beforeAlter[1], afterUpdate[1])
     assertEquals(afterInsert[3], afterUpdate[3])
     assertTrue(afterUpdate[2].version > insertVersion)
-    assertTrue(afterUpdate[2].commitTso > insertCommitTso)
     def updateVersion = afterUpdate[2].version
-    def updateCommitTso = afterUpdate[2].commitTso
 
     sql "SET enable_pushdown_minmax_on_unique = false"
     def updateMinMaxWithoutPushdown = readHiddenMinMax()
@@ -224,15 +185,10 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         sql("SELECT MAX(__DORIS_VERSION_COL__) FROM test_constant_hidden_column_statistics")
         contains "pushAggOp=MINMAX"
     }
-    explain {
-        sql("SELECT MAX(__DORIS_COMMIT_TSO_COL__) FROM test_constant_hidden_column_statistics")
-        contains "pushAggOp=MINMAX"
-    }
     def updateMinMaxWithPushdown = readHiddenMinMax()
 
     assertEquals(updateMinMaxWithoutPushdown, updateMinMaxWithPushdown)
-    assertEquals([oldVersion, updateVersion, oldCommitTso, updateCommitTso],
-            updateMinMaxWithPushdown)
+    assertEquals([oldVersion, updateVersion], updateMinMaxWithPushdown)
 
     // Case 6: exact, range, and empty predicates cover the per-rowset hidden-column zonemaps after the
     // old constant rowset, post-ALTER insert, and update rowsets coexist.
@@ -264,37 +220,6 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         SELECT k, c_default
         FROM test_constant_hidden_column_statistics
         WHERE __DORIS_VERSION_COL__ > ${updateVersion}
-        ORDER BY k
-    """
-
-    order_qt_hidden_final_tso_equal_old """
-        SELECT k, c_default
-        FROM test_constant_hidden_column_statistics
-        WHERE __DORIS_COMMIT_TSO_COL__ = ${oldCommitTso} AND c_default = 10
-        ORDER BY k
-    """
-    order_qt_hidden_final_tso_equal_insert """
-        SELECT k, c_default
-        FROM test_constant_hidden_column_statistics
-        WHERE __DORIS_COMMIT_TSO_COL__ = ${insertCommitTso} AND c_default = 30
-        ORDER BY k
-    """
-    order_qt_hidden_final_tso_equal_update """
-        SELECT k, c_default
-        FROM test_constant_hidden_column_statistics
-        WHERE __DORIS_COMMIT_TSO_COL__ = ${updateCommitTso} AND c_default = 20
-        ORDER BY k
-    """
-    order_qt_hidden_final_tso_above_old """
-        SELECT k, c_default
-        FROM test_constant_hidden_column_statistics
-        WHERE __DORIS_COMMIT_TSO_COL__ > ${oldCommitTso}
-        ORDER BY k
-    """
-    order_qt_hidden_final_tso_above_max """
-        SELECT k, c_default
-        FROM test_constant_hidden_column_statistics
-        WHERE __DORIS_COMMIT_TSO_COL__ > ${updateCommitTso}
         ORDER BY k
     """
 
