@@ -301,6 +301,69 @@ public class HiveConnectorMetadataPartitionPruningTest {
     }
 
     @Test
+    public void parsePartitionNameBindsValuesToTheDeclaredKeysPositionally() {
+        // Hive's FileUtils.makePartName LOWERCASES the rendered key, so a declared key `P-X` comes back as
+        // `p-x`. Binding by the rendered spelling would find no value for the declared key, and because this
+        // prefilter's result IS the logical selected view, that silently pruned the whole table to zero rows.
+        // MUTATION: keying by the decoded segment name makes values.get("P-X") null here.
+        Map<String, String> values = HiveConnectorMetadata.parsePartitionName(
+                "p-x=1/part%3D1=v2", Arrays.asList("P-X", "PART=1"));
+        Assertions.assertEquals("1", values.get("P-X"),
+                "a lowercased rendered key must still bind to the declared key at the same position");
+        Assertions.assertEquals("v2", values.get("PART=1"),
+                "escaped declared keys bind positionally too, without decoding the rendered key");
+    }
+
+    @Test
+    public void parsePartitionNameRejectsASegmentCountThatCannotBeBound() {
+        // Not interpretable -> null, NOT "matches nothing": the caller keeps such a name instead of dropping
+        // it, because only the positions tie a value to a key. A sentence like "year=2024" against two
+        // declared keys gives no way to say which value belongs to which key.
+        Assertions.assertNull(HiveConnectorMetadata.parsePartitionName(
+                "year=2024", Arrays.asList("year", "month")));
+    }
+
+    @Test
+    public void testLocalFallbackBindsUppercaseSpecialCharKeyPositionally() {
+        // The metastore filter grammar cannot name `P-X` (dash), so this prunes through the local fallback,
+        // where HMS renders the key LOWERCASED (`p-x=1`). RED before the positional binding: the declared key
+        // finds no value, every partition is rejected, and the pruned set is EMPTY (silent row loss).
+        List<String> parts = Arrays.asList("p-x=1", "p-x=2");
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Collections.singletonList("P-X"))
+                .partitionKeyTypes(Collections.singletonMap("P-X", "INT"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("P-X", "1")));
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.singletonList("p-x=1"), prunedLocations(result));
+    }
+
+    @Test
+    public void testLocalFallbackKeepsNamesItCannotDecode() {
+        // A metastore name whose segment count does not match the declared partition keys cannot be bound, so
+        // it must be KEPT: dropping it would drop the only partitions that could hold the rows. With nothing
+        // prunable left the connector declines the filter entirely (handle untouched = scan everything).
+        List<String> parts = Arrays.asList("p-x=1", "p-x=2");
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(Arrays.asList("P-X", "M"))
+                .partitionKeyTypes(Collections.singletonMap("P-X", "INT"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("P-X", "1")));
+
+        Assertions.assertFalse(result.isPresent(),
+                "an undecodable name must survive the prefilter, leaving nothing to prune");
+    }
+
+    @Test
     public void testEscapedPartitionValuePrunesInsteadOfDropping() {
         // H1 (end-to-end via applyFilter): a partition value with a Hive-escaped char (":" stored as "%3A")
         // must still match its unescaped predicate literal. RED before the fix: both escaped names fail the

@@ -2594,7 +2594,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         List<String> matched = new ArrayList<>();
         for (String partName : allPartNames) {
             Map<String, String> partValues = parsePartitionName(partName, partKeyNames);
-            if (matchesPredicates(partValues, partKeyTypes, predicates)) {
+            // A name this prefilter cannot decode is KEPT, never dropped: its result becomes the logical
+            // selected view, so dropping a name only because the raw text was not interpretable loses rows the
+            // query must read. The typed PartitionPruner re-prunes the survivors, so a superset only costs the
+            // lost optimization.
+            if (partValues == null || matchesPredicates(partValues, partKeyTypes, predicates)) {
                 matched.add(partName);
             }
         }
@@ -2716,10 +2720,24 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return true;
     }
 
+    /**
+     * Decodes one rendered Hive partition name ({@code key1=val1/key2=val2}) into the DECLARED partition
+     * keys, or {@code null} when the name cannot be bound to them.
+     *
+     * <p>Values are bound POSITIONALLY to {@code partKeyNames}: Hive's {@code FileUtils.makePartName} renders
+     * the segments in the table's partition-key order, but it LOWERCASES the rendered key, so a declared key
+     * such as {@code P-X} comes back as {@code p-x}. Matching the rendered spelling against the declared one
+     * would find no value for that key, reject every real partition, and — because this prefilter's result
+     * becomes the logical selected view — make the query return no rows. The key spelling is therefore not
+     * trusted at all; only the value order is.</p>
+     *
+     * <p>{@code null} means "not interpretable" (a segment count that does not match the declared key count),
+     * NOT "matches nothing": the caller must keep such a name rather than drop it.</p>
+     */
     static Map<String, String> parsePartitionName(String partName,
             List<String> partKeyNames) {
-        Map<String, String> values = new HashMap<>();
         String[] parts = partName.split("/");
+        List<String> decodedValues = new ArrayList<>(parts.length);
         for (String part : parts) {
             int eq = part.indexOf('=');
             if (eq > 0) {
@@ -2727,27 +2745,28 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 // The predicate literal side (extractLiteralValue) is unescaped, so matchesPredicates' string
                 // compare needs the value unescaped too — otherwise an escaped partition value silently drops
                 // rows. Mirrors the sibling partition-value parse (HiveWriteUtils.toPartitionValues) and legacy
-                // FileUtils.unescapePathName. The KEY must be unescaped too: Hive's makePartName escapes the
-                // column name as well (a special-char partition column such as `pt2=x!!!! **1+1/&^%3` comes
-                // back as an escaped key), and matchesPredicates looks it up by the real unescaped column name,
-                // so an escaped key would silently miss and drop every row. Unescaping a plain name is a no-op.
-                values.put(HiveWriteUtils.unescapePathName(part.substring(0, eq)),
-                        HiveWriteUtils.unescapePathName(part.substring(eq + 1)));
+                // FileUtils.unescapePathName. Unescaping a plain name is a no-op.
+                decodedValues.add(HiveWriteUtils.unescapePathName(part.substring(eq + 1)));
             }
+        }
+        if (partKeyNames.size() != decodedValues.size()) {
+            return null;
+        }
+        Map<String, String> values = new HashMap<>();
+        for (int index = 0; index < partKeyNames.size(); index++) {
+            values.put(partKeyNames.get(index), decodedValues.get(index));
         }
         return values;
     }
 
     private boolean matchesPredicates(Map<String, String> partValues, Map<String, String> partKeyTypes,
             Map<String, List<String>> predicates) {
+        // partValues is keyed by exactly the declared partition keys and predicates only ever names one of them
+        // (see extractPartitionPredicates), so every lookup below is present by construction.
         for (Map.Entry<String, List<String>> entry : predicates.entrySet()) {
             String colName = entry.getKey();
             List<String> allowedValues = entry.getValue();
-            String actualValue = partValues.get(colName);
-            if (actualValue == null) {
-                return false;
-            }
-            if (!matchesAnyValue(actualValue, allowedValues, partKeyTypes.get(colName))) {
+            if (!matchesAnyValue(partValues.get(colName), allowedValues, partKeyTypes.get(colName))) {
                 return false;
             }
         }
