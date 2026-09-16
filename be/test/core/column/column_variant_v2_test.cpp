@@ -3427,6 +3427,28 @@ TEST(ColumnVariantV2Test, TypedPhysicalInterfacesStayUnsupportedAndOrderingWorks
     EXPECT_TRUE(typed->is_typed());
 }
 
+TEST(ColumnVariantV2Test, PermutationLimitSwitchesBetweenPartialAndFullSort) {
+    // get_permutation only uses std::partial_sort while the limit stays small relative to the row
+    // count, the threshold ColumnVector applies as well; a larger limit falls back to the full
+    // sort. Both branches must order the leading rows the same way.
+    constexpr std::array<int32_t, 16> VALUES {9, 3, 14, 7, 1, 12, 5, 15, 2, 11, 6, 13, 4, 10, 8, 0};
+    constexpr std::array<uint8_t, 16> NULLS {};
+    auto typed = typed_int32(VALUES, NULLS);
+
+    HybridSorter sorter;
+    IColumn::Permutation result;
+    // limit 1 of 16 rows keeps the partial_sort branch.
+    typed->get_permutation(false, 1, 0, sorter, result);
+    EXPECT_EQ(result[0], 15);
+
+    // limit 12 of 16 rows exceeds the threshold, so the whole permutation comes out ordered.
+    typed->get_permutation(false, 12, 0, sorter, result);
+    ASSERT_EQ(result.size(), VALUES.size());
+    for (size_t index = 1; index < result.size(); ++index) {
+        EXPECT_LT(typed->compare_at(result[index - 1], result[index], *typed, 1), 0);
+    }
+}
+
 TEST(ColumnVariantV2Test, ReplaceNullPayloadsWithCanonicalDefault) {
     auto encoded = ColumnVariantV2::create();
     insert_encoded_field(*encoded, encode_json("1"));

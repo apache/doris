@@ -1038,36 +1038,73 @@ VariantRef ColumnVariantV2::get_value_ref(size_t row) const {
     return {.metadata = {.data = metadata.data, .size = metadata.size}, .value = value};
 }
 
+std::pair<const ColumnNullable*, const ColumnNullable*> ColumnVariantV2::_typed_ordering_operands(
+        const ColumnVariantV2& right, bool allow_floating) const {
+    if (!is_typed() || !right.is_typed() ||
+        !(_typed_type == right._typed_type || _typed_type->equals(*right._typed_type))) {
+        return {nullptr, nullptr};
+    }
+    const PrimitiveType type = _typed_type->get_primitive_type();
+    // IPv4 and IPv6 typed values use their textual representation in Variant, whose lexical
+    // ordering differs from the native address ordering. LARGEINT magnitudes above 10^38 - 1
+    // become Variant strings, so native Int128 order is not the canonical order. Floating point is
+    // excluded for callers that cannot apply Variant's canonical NaN ordering.
+    if (type == TYPE_IPV4 || type == TYPE_IPV6 || type == TYPE_LARGEINT ||
+        (!allow_floating && (type == TYPE_FLOAT || type == TYPE_DOUBLE))) {
+        return {nullptr, nullptr};
+    }
+    return {&assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column()),
+            &assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(right.typed_column())};
+}
+
 int ColumnVariantV2::compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const {
     const auto& right = assert_cast<const ColumnVariantV2&, TypeCheckOnRelease::DISABLE>(rhs);
     DCHECK_LT(n, size());
     DCHECK_LT(m, right.size());
 
-    if (is_typed() && right.is_typed() &&
-        (_typed_type == right._typed_type || _typed_type->equals(*right._typed_type))) {
-        const PrimitiveType type = _typed_type->get_primitive_type();
-        // IPv4 and IPv6 typed values use their textual representation in Variant, whose lexical
-        // ordering differs from the native address ordering. LARGEINT magnitudes above 10^38 - 1
-        // become Variant strings, so native Int128 order is not the canonical order.
-        if (type != TYPE_IPV4 && type != TYPE_IPV6 && type != TYPE_LARGEINT) {
-            const auto& left_nullable =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column());
-            const auto& right_nullable =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                            right.typed_column());
-            if (left_nullable.is_null_at(n)) {
-                return right_nullable.is_null_at(m) ? 0 : -1;
-            }
-            if (right_nullable.is_null_at(m)) {
-                return 1;
-            }
-            return left_nullable.get_nested_column().compare_at(
-                    n, m, right_nullable.get_nested_column(), nan_direction_hint);
+    if (const auto [left_nullable, right_nullable] = _typed_ordering_operands(right, true);
+        left_nullable != nullptr) {
+        if (left_nullable->is_null_at(n)) {
+            return right_nullable->is_null_at(m) ? 0 : -1;
         }
+        if (right_nullable->is_null_at(m)) {
+            return 1;
+        }
+        return left_nullable->get_nested_column().compare_at(
+                n, m, right_nullable->get_nested_column(), nan_direction_hint);
     }
 
     int result = 0;
+    // Both sides are typed but the fast path declined them (different typed types, or a type whose
+    // native order is not the canonical one). Compare the scalars directly: encoding them into
+    // Variant bytes first would allocate a scratch buffer per comparison, and a sort does this
+    // O(n log n) times. A null row becomes the canonical null scalar, which sorts smallest - the
+    // same order the typed fast path above applies.
+    if (is_typed() && right.is_typed()) {
+        const auto& left_nullable =
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column());
+        const auto& right_nullable =
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                        right.typed_column());
+        visit_typed_scalar_column(
+                left_nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), n,
+                n + 1, [&](size_t, const VariantScalarRef& left_scalar) {
+                    visit_typed_scalar_column(
+                            right_nullable, right._typed_type->get_primitive_type(),
+                            right._typed_type->get_scale(), m, m + 1,
+                            [&](size_t, const VariantScalarRef& right_scalar) {
+                                result = canonical_compare(left_scalar, right_scalar);
+                            });
+                });
+        return result;
+    }
+    // Neither side is typed, so both rows already hold canonical Variant bytes and can be compared
+    // without the row visitor's revalidation and buffers.
+    if (!is_typed() && !right.is_typed()) {
+        return canonical_compare(get_value_ref(n), right.get_value_ref(m));
+    }
+    // One side typed, one encoded: the typed side still has to be encoded once.
     visit_variant_v2_values(
             *this, n, n + 1, {}, [](size_t) { DCHECK(false); },
             [&](size_t, VariantRef left_value) {
@@ -1085,23 +1122,13 @@ void ColumnVariantV2::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                        std::vector<uint8_t>& cmp_res,
                                        uint8_t* __restrict filter) const {
     const auto& right = assert_cast<const ColumnVariantV2&, TypeCheckOnRelease::DISABLE>(rhs);
-    if (is_typed() && right.is_typed() &&
-        (_typed_type == right._typed_type || _typed_type->equals(*right._typed_type))) {
-        const PrimitiveType type = _typed_type->get_primitive_type();
-        // ColumnVector::compare_internal does not provide Variant's canonical NaN ordering, while
-        // IP typed values use a textual Variant ordering that differs from native address order.
-        // LARGEINT magnitudes above 10^38 - 1 are Variant strings in canonical order.
-        if (type != TYPE_FLOAT && type != TYPE_DOUBLE && type != TYPE_IPV4 && type != TYPE_IPV6 &&
-            type != TYPE_LARGEINT) {
-            const auto& left_nullable =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column());
-            const auto& right_nullable =
-                    assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                            right.typed_column());
-            left_nullable.compare_internal(rhs_row_id, right_nullable, -1, direction, cmp_res,
-                                           filter);
-            return;
-        }
+    // ColumnVector::compare_internal does not provide Variant's canonical NaN ordering, so floating
+    // point typed columns take the canonical path below.
+    if (const auto [left_nullable, right_nullable] = _typed_ordering_operands(right, false);
+        left_nullable != nullptr) {
+        left_nullable->compare_internal(rhs_row_id, *right_nullable, -1, direction, cmp_res,
+                                        filter);
+        return;
     }
     IColumn::compare_internal(rhs_row_id, rhs, nan_direction_hint, direction, cmp_res, filter);
 }
@@ -1643,8 +1670,7 @@ size_t ColumnVariantV2::get_max_row_byte_size() const {
     return maximum_size;
 }
 
-template <bool with_nullable>
-void ColumnVariantV2::_serialize(StringRef* keys, size_t num_rows) const {
+void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
     DCHECK(keys != nullptr || num_rows == 0);
     DCHECK_LE(num_rows, size());
     if (_typed) {
@@ -1652,10 +1678,6 @@ void ColumnVariantV2::_serialize(StringRef* keys, size_t num_rows) const {
         visit_typed_scalar_column(
                 nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), 0, num_rows,
                 [&](size_t row, const VariantScalarRef& scalar) {
-                    if constexpr (with_nullable) {
-                        *(const_cast<char*>(keys[row].data) + keys[row].size) = 0;
-                        keys[row].size += sizeof(UInt8);
-                    }
                     const CanonicalScalarSerializationPlan plan =
                             prepare_canonical_serialize(scalar);
                     DCHECK(keys[row].data != nullptr);
@@ -1667,10 +1689,6 @@ void ColumnVariantV2::_serialize(StringRef* keys, size_t num_rows) const {
     }
     DCHECK(_typed_type == nullptr);
     for (size_t row = 0; row < num_rows; ++row) {
-        if constexpr (with_nullable) {
-            *(const_cast<char*>(keys[row].data) + keys[row].size) = 0;
-            keys[row].size += sizeof(UInt8);
-        }
         const CanonicalSerializationPlan plan = prepare_canonical_serialize(get_value_ref(row));
         const size_t cell_size = plan.size();
         DCHECK(keys[row].data != nullptr);
@@ -1680,17 +1698,19 @@ void ColumnVariantV2::_serialize(StringRef* keys, size_t num_rows) const {
     }
 }
 
-void ColumnVariantV2::serialize(StringRef* keys, size_t num_rows) const {
-    _serialize<false>(keys, num_rows);
-}
-
 void ColumnVariantV2::serialize_with_nullable(StringRef* keys, size_t num_rows, bool has_null,
                                               const uint8_t* __restrict null_map) const {
     if (has_null) {
         IColumn::serialize_with_nullable(keys, num_rows, has_null, null_map);
         return;
     }
-    _serialize<true>(keys, num_rows);
+    // Without nulls every row carries the same zero flag, so write the flags first and let
+    // serialize() append each value at the advanced cursor.
+    for (size_t row = 0; row < num_rows; ++row) {
+        *(const_cast<char*>(keys[row].data) + keys[row].size) = 0;
+        keys[row].size += sizeof(UInt8);
+    }
+    serialize(keys, num_rows);
 }
 
 void ColumnVariantV2::deserialize(StringRef* keys, size_t num_rows) {
@@ -2048,6 +2068,10 @@ void ColumnVariantV2::get_permutation(bool reverse, size_t limit, int nan_direct
         const int comparison = compare_at(left, right, *this, nan_direction_hint);
         return reverse ? comparison > 0 : comparison < 0;
     };
+    // std::partial_sort only pays off when limit << row_count, the same threshold ColumnVector uses.
+    if (static_cast<double>(limit) > static_cast<double>(row_count) / 8.0) {
+        limit = 0;
+    }
     if (limit != 0 && limit < row_count) {
         std::partial_sort(result.begin(), result.begin() + limit, result.end(), less);
     } else {

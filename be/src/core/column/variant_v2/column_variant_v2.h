@@ -23,6 +23,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 
 #include "common/exception.h"
 #include "core/assert_cast.h"
@@ -271,8 +272,11 @@ private:
     void _adopt_state_from(ColumnVariantV2& replacement);
     void _detach_metadata_for_write();
     void _check_invariants() const;
-    template <bool with_nullable>
-    void _serialize(StringRef* keys, size_t num_rows) const;
+    // Typed columns of both sides when their shared typed type orders natively the same way the
+    // canonical Variant order does, {nullptr, nullptr} otherwise. allow_floating is false for
+    // callers that cannot apply Variant's canonical NaN ordering.
+    std::pair<const ColumnNullable*, const ColumnNullable*> _typed_ordering_operands(
+            const ColumnVariantV2& right, bool allow_floating) const;
     void mutate_subcolumns() override;
 
     // Encoded state: each row owns a value and references one deduplicated metadata blob. The
