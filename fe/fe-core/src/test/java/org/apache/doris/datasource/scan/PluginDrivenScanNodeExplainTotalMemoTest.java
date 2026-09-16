@@ -111,15 +111,22 @@ public class PluginDrivenScanNodeExplainTotalMemoTest {
         Mockito.when(table.getDatabase()).thenReturn((DatabaseIf) db);
         Mockito.when(db.getCatalog()).thenReturn((CatalogIf) catalog);
         Mockito.when(catalog.getType()).thenReturn("hive");
+        // TWO partitions in the unfiltered view, while the selection reports ONE: the asserted total must come
+        // from the connector's view, not from the selection count, which a single-partition fixture could not
+        // tell apart.
         Mockito.when(table.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(Optional.of(
-                ImmutableMap.of("p1", Mockito.mock(PartitionItem.class))));
+                ImmutableMap.of("p1", Mockito.mock(PartitionItem.class),
+                        "p2", Mockito.mock(PartitionItem.class))));
         PluginDrivenScanNode node = renderableNode(table);
 
         // MUTATION: dropping resolveUnknownTotalPartitionNum() from getNodeExplainString -> the line reads
         // partition=1/? and this fails, which the resolver-only tests above cannot see.
-        Assertions.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL).contains("partition=1/1"),
-                "a connector-filtered EXPLAIN must complete the table's real total");
-        Assertions.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL).contains("partition=1/1"));
+        Assertions.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL).contains("partition=1/2"),
+                "a connector-filtered EXPLAIN must complete the table's real total: the UNFILTERED view's size, "
+                        + "not the selection's");
+        // Re-render: the total is completed once per node, which the call-count assertion below pins (a repeated
+        // assert on the same line would be unable to fail independently).
+        node.getNodeExplainString("", TExplainLevel.NORMAL);
         Mockito.verify(table, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());
     }
 
