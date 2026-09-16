@@ -37,6 +37,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
 import org.apache.doris.nereids.types.IntegerType;
@@ -83,6 +84,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
+        Mockito.doReturn(DMLCommandType.NONE).when(sink).getDmlCommandType();
         Mockito.doReturn(false).when(sink).isRewrite();
 
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
@@ -108,6 +110,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
+        Mockito.doReturn(DMLCommandType.NONE).when(sink).getDmlCommandType();
 
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
@@ -192,6 +195,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         Mockito.doReturn(table).when(sink).getTargetTable();
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
         Mockito.doReturn("uuid-u0/schema-1").when(sink).getBoundWriteMetadataIdentity();
+        Mockito.doReturn(DMLCommandType.NONE).when(sink).getDmlCommandType();
         Mockito.doReturn(false).when(sink).isRewrite();
 
         new PhysicalPlanTranslator(context, null).visitPhysicalConnectorTableSink(sink, context);
@@ -243,6 +247,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         Mockito.doReturn(writeColumns).when(sink).getCols();
         Mockito.doReturn(ImmutableList.of(A, B, C)).when(sink).getBoundTargetSchema();
         Mockito.doReturn(ImmutableList.of(aOutput, bOutput, cOutput)).when(sink).getOutput();
+        Mockito.doReturn(DMLCommandType.NONE).when(sink).getDmlCommandType();
         Mockito.doReturn(false).when(sink).isRewrite();
 
         new PhysicalPlanTranslator(context, null).visitPhysicalConnectorTableSink(sink, context);
