@@ -181,6 +181,12 @@ if [[ -z "${FE_UT_PARALLEL}" ]]; then
 fi
 echo "Unit test parallel is: ${FE_UT_PARALLEL}"
 
+# Lance loads JNI from classpath resources; test-classes takes precedence over its Maven JAR.
+. "${DORIS_HOME}/docker/thirdparties/lance-jni-helpers.sh"
+LANCE_JAVA_VERSION=$(sed -n 's/.*<lance.version>\([^<]*\)<\/lance.version>.*/\1/p' "${DORIS_HOME}/fe/pom.xml")
+lance_jni_prepare_test_resources "${DORIS_HOME}/fe/fe-core/target/test-classes" \
+    "${DORIS_THIRDPARTY}" "${LANCE_JAVA_VERSION}" "${TARGET_SYSTEM}" "${TARGET_ARCH}"
+
 if [[ "${RUN}" -eq 1 ]]; then
     echo "Run the specified class: $1"
     # eg:

@@ -732,7 +732,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
         cd -
     fi
     echo "Finished patching ${LANCE_C_SOURCE}"
-    echo "Finished patching test build ${LANCE_C_SOURCE}"
 fi
 
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
