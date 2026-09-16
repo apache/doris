@@ -18,6 +18,7 @@
 #include "storage/index/index_disk_usage.h"
 
 #include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
@@ -27,7 +28,9 @@
 #include <vector>
 
 #include "common/config.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
+#include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
@@ -757,6 +760,149 @@ TEST_F(IndexDiskUsageCollectorTest, CollectWithoutFileSystemFails) {
         const Status st = collector.collect(IndexDiskUsageOptions {}, &records);
         EXPECT_TRUE(st.is<ErrorCode::INIT_FAILED>()) << st;
         EXPECT_TRUE(records.empty());
+    }
+}
+
+namespace {
+
+// Counts file reads and how many of them carry the query context the collector was given.
+struct ReadContextCounter {
+    const TUniqueId* expected_query_id = nullptr;
+    int reads = 0;
+    int reads_with_context = 0;
+
+    void record(const io::IOContext* io_ctx) {
+        ++reads;
+        if (io_ctx != nullptr && io_ctx->reader_type == ReaderType::READER_QUERY &&
+            io_ctx->query_id == expected_query_id) {
+            ++reads_with_context;
+        }
+    }
+};
+
+class ReadContextRecordingReader final : public io::FileReader {
+public:
+    ReadContextRecordingReader(io::FileReaderSPtr inner, ReadContextCounter* counter)
+            : _inner(std::move(inner)), _counter(counter) {}
+
+    Status close() override { return _inner->close(); }
+    const io::Path& path() const override { return _inner->path(); }
+    size_t size() const override { return _inner->size(); }
+    bool closed() const override { return _inner->closed(); }
+    int64_t mtime() const override { return _inner->mtime(); }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        _counter->record(io_ctx);
+        return _inner->read_at(offset, result, bytes_read, io_ctx);
+    }
+
+private:
+    io::FileReaderSPtr _inner;
+    ReadContextCounter* _counter;
+};
+
+// Forwards to the local filesystem and records the IOContext of every read.
+class ReadContextRecordingFileSystem final : public io::FileSystem {
+public:
+    explicit ReadContextRecordingFileSystem(const TUniqueId* expected_query_id)
+            : io::FileSystem("read_context_recording_fs", io::FileSystemType::LOCAL) {
+        _counter.expected_query_id = expected_query_id;
+    }
+
+    const ReadContextCounter& counter() const { return _counter; }
+
+protected:
+    Status create_file_impl(const io::Path& file, io::FileWriterPtr* writer,
+                            const io::FileWriterOptions* opts) override {
+        return _local->create_file_impl(file, writer, opts);
+    }
+    Status open_file_impl(const io::Path& file, io::FileReaderSPtr* reader,
+                          const io::FileReaderOptions* opts) override {
+        io::FileReaderSPtr inner;
+        RETURN_IF_ERROR(_local->open_file_impl(file, &inner, opts));
+        *reader = std::make_shared<ReadContextRecordingReader>(std::move(inner), &_counter);
+        return Status::OK();
+    }
+    Status create_directory_impl(const io::Path& dir, bool failed_if_exists) override {
+        return _local->create_directory_impl(dir, failed_if_exists);
+    }
+    Status delete_file_impl(const io::Path& file) override {
+        return _local->delete_file_impl(file);
+    }
+    Status batch_delete_impl(const std::vector<io::Path>& files) override {
+        return _local->batch_delete_impl(files);
+    }
+    Status delete_directory_impl(const io::Path& dir) override {
+        return _local->delete_directory_impl(dir);
+    }
+    Status exists_impl(const io::Path& path, bool* res) const override {
+        return _local->exists_impl(path, res);
+    }
+    Status file_size_impl(const io::Path& file, int64_t* file_size) const override {
+        return _local->file_size_impl(file, file_size);
+    }
+    Status list_impl(const io::Path& dir, bool only_file, std::vector<io::FileInfo>* files,
+                     bool* exists) override {
+        return _local->list_impl(dir, only_file, files, exists);
+    }
+    Status rename_impl(const io::Path& orig_name, const io::Path& new_name) override {
+        return _local->rename_impl(orig_name, new_name);
+    }
+    Status absolute_path(const io::Path& path, io::Path& abs_path) const override {
+        return _local->absolute_path(path, abs_path);
+    }
+
+private:
+    std::shared_ptr<io::LocalFileSystem> _local = io::global_local_filesystem();
+    ReadContextCounter _counter;
+};
+
+} // namespace
+
+// Every index file read carries the query context, so the file cache and the remote scan cache
+// write limiter treat index_disk_usage like any other scan of the query.
+TEST_F(IndexDiskUsageCollectorTest, CollectPassesQueryContextToFileReads) {
+    TUniqueId query_id;
+    query_id.hi = 7;
+    query_id.lo = 9;
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.query_id = &query_id;
+
+    struct Case {
+        InvertedIndexStorageFormatPB format;
+        std::string rowset;
+        bool position_detail = false;
+    };
+    const std::vector<Case> cases {
+            {.format = InvertedIndexStorageFormatPB::V1, .rowset = "rs_ctx_v1"},
+            {.format = InvertedIndexStorageFormatPB::V2, .rowset = "rs_ctx_v2"},
+            {.format = InvertedIndexStorageFormatPB::SNII, .rowset = "rs_ctx_snii"},
+            {.format = InvertedIndexStorageFormatPB::SNII,
+             .rowset = "rs_ctx_snii_pos",
+             .position_detail = true}};
+    for (const Case& c : cases) {
+        SCOPED_TRACE(c.rowset);
+        auto schema = create_schema();
+        if (c.format == InvertedIndexStorageFormatPB::V1) {
+            schema->append_index(text_index(1, true));
+        }
+        std::vector<IndexSpec> specs {
+                {.index = text_index(1, true), .column_index = 1, .feed = feed_many_text}};
+        const std::string prefix = write_segment(c.format, c.rowset, schema, &specs);
+
+        auto fs = std::make_shared<ReadContextRecordingFileSystem>(&query_id);
+        IndexDiskUsageOptions options;
+        options.position_detail = c.position_detail;
+        options.io_ctx = &io_ctx;
+        IndexDiskUsageCollector collector(fs, prefix, schema, c.format, 1001);
+        std::vector<IndexDiskUsageRecord> records;
+        const Status st = collector.collect(options, &records);
+        ASSERT_TRUE(st.ok()) << st;
+        EXPECT_GT(fs->counter().reads, 0);
+        EXPECT_EQ(fs->counter().reads, fs->counter().reads_with_context);
     }
 }
 

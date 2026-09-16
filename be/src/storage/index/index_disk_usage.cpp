@@ -130,7 +130,7 @@ Status sum_snii_position_bytes(const IndexFileReader& reader, uint64_t index_id,
                                std::string_view suffix, const IndexDiskUsageOptions& options,
                                int64_t* position_bytes) {
     // A full dictionary scan should not evict blocks that queries keep in the file cache.
-    io::IOContext io_ctx;
+    io::IOContext io_ctx = options.io_ctx != nullptr ? *options.io_ctx : io::IOContext {};
     io_ctx.is_disposable = true;
     io_ctx.is_inverted_index = true;
     auto logical = DORIS_TRY(reader.open_snii_logical_index(
@@ -256,7 +256,7 @@ Status IndexDiskUsageCollector::collect(const IndexDiskUsageOptions& options,
 Status IndexDiskUsageCollector::_collect_v1(const IndexDiskUsageOptions& options,
                                             std::vector<IndexDiskUsageRecord>* out) {
     IndexFileReader reader(_fs, _index_path_prefix, _format, _index_file_info, _tablet_id);
-    RETURN_IF_ERROR(reader.init());
+    RETURN_IF_ERROR(reader.init(config::inverted_index_read_buffer_size, options.io_ctx));
     std::vector<TabletIndex> file_indexes;
     for (const V1IndexFile& file : list_v1_index_files(*_schema, _index_file_info, &file_indexes)) {
         const TabletIndex& index = *file.index;
@@ -274,7 +274,7 @@ Status IndexDiskUsageCollector::_collect_v1(const IndexDiskUsageOptions& options
             }
             RETURN_IF_ERROR(size_status);
         }
-        auto directory = reader.open(&index);
+        auto directory = reader.open(&index, options.io_ctx);
         if (!directory.has_value()) {
             if (is_absent_index_file(directory.error())) {
                 continue;
@@ -298,7 +298,8 @@ Status IndexDiskUsageCollector::_collect_v1(const IndexDiskUsageOptions& options
 Status IndexDiskUsageCollector::_collect_compound(const IndexDiskUsageOptions& options,
                                                   std::vector<IndexDiskUsageRecord>* out) {
     IndexFileReader reader(_fs, _index_path_prefix, _format, _index_file_info, _tablet_id);
-    if (const Status st = reader.init(); !st.ok()) {
+    if (const Status st = reader.init(config::inverted_index_read_buffer_size, options.io_ctx);
+        !st.ok()) {
         return is_absent_index_file(st) ? Status::OK() : st;
     }
     auto directories = DORIS_TRY(reader.get_all_directories());
@@ -328,7 +329,8 @@ Status IndexDiskUsageCollector::_collect_compound(const IndexDiskUsageOptions& o
 Status IndexDiskUsageCollector::_collect_snii(const IndexDiskUsageOptions& options,
                                               std::vector<IndexDiskUsageRecord>* out) {
     IndexFileReader reader(_fs, _index_path_prefix, _format, _index_file_info, _tablet_id);
-    if (const Status st = reader.init(); !st.ok()) {
+    if (const Status st = reader.init(config::inverted_index_read_buffer_size, options.io_ctx);
+        !st.ok()) {
         return is_absent_index_file(st) ? Status::OK() : st;
     }
     const auto entries = DORIS_TRY(reader.snii_logical_indexes());
@@ -347,7 +349,8 @@ Status IndexDiskUsageCollector::_collect_snii(const IndexDiskUsageOptions& optio
         record.index_suffix = entry.index_suffix;
         if (entry.kind == snii::format::LogicalIndexKind::kInverted) {
             snii::format::CoreMetadata core;
-            RETURN_IF_ERROR(reader.snii_core_metadata(entry.index_id, entry.index_suffix, &core));
+            RETURN_IF_ERROR(reader.snii_core_metadata(entry.index_id, entry.index_suffix, &core,
+                                                      options.io_ctx));
             const auto& refs = core.section_refs;
             record.structure = IndexDiskUsageStructure::kTerm;
             record.dict_bytes =

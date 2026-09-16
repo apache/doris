@@ -320,8 +320,8 @@ Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::
                         err.what()));
             }
 
-            // 3. read file in DorisCompoundReader
-            compound_reader.reset(new DorisCompoundReader(index_input, _read_buffer_size));
+            // 3. read file in DorisCompoundReader with the caller's IO context
+            compound_reader.reset(new DorisCompoundReader(index_input, _read_buffer_size, io_ctx));
         } catch (CLuceneError& err) {
             // Lazy open can surface a missing file as a read error; keep NotFound distinguishable
             if (err.number() == CL_ERR_FileNotFound) {
@@ -402,7 +402,8 @@ IndexFileReader::snii_logical_indexes() const {
 }
 
 Status IndexFileReader::snii_core_metadata(uint64_t index_id, std::string_view suffix,
-                                           doris::snii::format::CoreMetadata* out) const {
+                                           doris::snii::format::CoreMetadata* out,
+                                           const io::IOContext* io_ctx) const {
     DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     std::shared_lock<std::shared_mutex> lock(_mutex);
     if (_snii_segment_reader == nullptr) {
@@ -410,7 +411,7 @@ Status IndexFileReader::snii_core_metadata(uint64_t index_id, std::string_view s
                 "SNII index file {} is not opened",
                 InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix));
     }
-    io::IOContext meta_io_ctx;
+    io::IOContext meta_io_ctx = io_ctx != nullptr ? *io_ctx : io::IOContext {};
     meta_io_ctx.is_inverted_index = true;
     meta_io_ctx.is_index_data = true;
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);

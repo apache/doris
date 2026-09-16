@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "io/fs/file_system.h"
+#include "io/io_common.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -58,6 +59,9 @@ struct IndexDiskUsageOptions {
     // Returns an error once the query is cancelled. Called before each segment and each SNII
     // dictionary block; unset means the work cannot be cancelled.
     std::function<Status()> check_cancelled;
+    // The query context passed to every index file read, so the file cache accounts these reads
+    // to the query. Unset means the default read behavior.
+    const io::IOContext* io_ctx = nullptr;
 };
 
 enum class IndexDiskUsageLevel : uint8_t { kTablet, kRowset, kSegment };
