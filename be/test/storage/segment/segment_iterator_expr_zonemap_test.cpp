@@ -410,6 +410,8 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorKeepsSegmentWhenExprZonemapMay
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, StatisticsIteratorFallsBackWithoutZoneMap) {
+    // Case: MIN/MAX or MIX is requested for an AGG_KEYS value column without a zone map. The
+    // segment must use its ordinary row iterator instead of an unusable statistics iterator.
     _tablet_schema = make_agg_keys_tablet_schema();
 
     std::shared_ptr<Segment> segment;
@@ -429,8 +431,6 @@ TEST_F(SegmentIteratorExprZonemapTest, StatisticsIteratorFallsBackWithoutZoneMap
         SCOPED_TRACE(agg_type);
         read_options.push_down_agg_type_opt = agg_type;
 
-        // AGG_KEYS value columns do not have zone maps. A statistics iterator would fail while
-        // trying to materialize min/max, so the segment must fall back to reading its rows.
         std::unique_ptr<RowwiseIterator> iter;
         st = segment->new_iterator(read_schema, read_options, &iter);
         ASSERT_TRUE(st.ok()) << st;
@@ -440,6 +440,8 @@ TEST_F(SegmentIteratorExprZonemapTest, StatisticsIteratorFallsBackWithoutZoneMap
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, CountStillUsesStatisticsIteratorWithoutZoneMap) {
+    // Case: COUNT is requested for an AGG_KEYS value column without a zone map. COUNT needs only
+    // row count/nullability, so the statistics iterator remains usable.
     _tablet_schema = make_agg_keys_tablet_schema();
 
     std::shared_ptr<Segment> segment;
@@ -450,8 +452,6 @@ TEST_F(SegmentIteratorExprZonemapTest, CountStillUsesStatisticsIteratorWithoutZo
     read_options.tablet_schema = _tablet_schema;
     read_options.push_down_agg_type_opt = TPushAggOp::COUNT;
 
-    // COUNT never reads min/max values. A missing zone map therefore does not prevent the
-    // statistics iterator from emitting the non-null column's row count.
     std::unique_ptr<RowwiseIterator> iter;
     auto st = segment->new_iterator(read_schema, read_options, &iter);
     ASSERT_TRUE(st.ok()) << st;
@@ -481,6 +481,8 @@ TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, RuntimeColumnsUseCurrentReadOptions) {
+    // Case: the same segment is read by successive requests with different VERSION and TSO
+    // values. Runtime constants must be request-scoped even when column readers are cached.
     constexpr int64_t kCommitTso1 = 466872251335573505L;
     constexpr int64_t kCommitTso2 = kCommitTso1 + 100;
     _tablet_schema = make_runtime_column_tablet_schema();
@@ -529,6 +531,8 @@ TEST_F(SegmentIteratorExprZonemapTest, RuntimeColumnsUseCurrentReadOptions) {
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, RangeVersionUsesPhysicalValues) {
+    // Case: a non-singleton requested version means this is not a point-in-time runtime constant.
+    // Existing physical hidden-column values must win instead of using either range endpoint.
     constexpr int64_t kCommitTso = 466872251335573505L;
     _tablet_schema = make_runtime_column_tablet_schema();
 
@@ -555,6 +559,8 @@ TEST_F(SegmentIteratorExprZonemapTest, RangeVersionUsesPhysicalValues) {
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, MissingPhysicalRuntimeColumnsUseReadOptions) {
+    // Case: an old segment predates the hidden VERSION/TSO columns. A singleton read request must
+    // synthesize those values for every row from StorageReadOptions.
     constexpr int64_t kCommitTso = 466872251335573505L;
     _tablet_schema = make_runtime_column_tablet_schema();
 
@@ -582,6 +588,8 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingPhysicalRuntimeColumnsUseReadOptio
 
 TEST_F(SegmentIteratorExprZonemapTest,
        ConcurrentPointLookupReadsKeepRuntimeConstantsRequestScoped) {
+    // Case: concurrent point lookups share one old segment but carry different commit TSOs. No
+    // task may observe a constant reader created for another request.
     _tablet_schema = make_runtime_column_tablet_schema();
 
     std::shared_ptr<Segment> segment;
@@ -633,6 +641,8 @@ TEST_F(SegmentIteratorExprZonemapTest,
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, HiddenConstantsFeedStatisticsIterator) {
+    // Case: hidden VERSION/TSO columns are absent physically but constant for this request. MIN/MAX
+    // pushdown must consume their synthetic zone-map values through VStatisticsIterator.
     constexpr int64_t kCommitTso = 466872251335573505L;
     _tablet_schema = make_runtime_column_tablet_schema();
 
@@ -671,11 +681,11 @@ TEST_F(SegmentIteratorExprZonemapTest, HiddenConstantsFeedStatisticsIterator) {
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, MissingOrdinaryColumnUsesSchemaDefault) {
+    // Case: an ordinary defaulted column is absent from an old segment. Physical pruning and value
+    // reads must both resolve it to a ConstantColumnReader instead of reporting NOT_FOUND.
     _tablet_schema = make_schema_with_added_default_column();
 
     // The key-only writer models a segment created before `added_value` was added to the schema.
-    // Unlike VERSION/TSO, this ordinary column has no read-time value and must use its schema
-    // default instead of being treated as a missing physical-reader error.
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
 
@@ -683,8 +693,6 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingOrdinaryColumnUsesSchemaDefault) {
     read_options.tablet_schema = _tablet_schema;
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
 
-    // An ordinary column missing from an old segment is still a valid pruning input: its schema
-    // default is represented by a ConstantColumnReader rather than NOT_FOUND.
     std::shared_ptr<ColumnReader> pruning_reader;
     auto st = segment->get_column_reader_for_pruning(_tablet_schema->column(1), read_options,
                                                      &pruning_reader);
@@ -698,6 +706,8 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingOrdinaryColumnUsesSchemaDefault) {
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, SchemaDefaultFeedsMinMaxStatisticsIterator) {
+    // Case: MIN/MAX is pushed down for a column added after the segment was written. The statistics
+    // iterator must return the schema default as both extrema without scanning physical rows.
     _tablet_schema = make_schema_with_added_default_column();
 
     std::shared_ptr<Segment> segment;
@@ -726,10 +736,10 @@ TEST_F(SegmentIteratorExprZonemapTest, SchemaDefaultFeedsMinMaxStatisticsIterato
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, DeletePredicateFiltersSchemaDefault) {
+    // Case: DELETE WHERE targets the default of a column that is absent from an old segment. The
+    // synthesized value must participate in delete evaluation and remove every matching old row.
     _tablet_schema = make_schema_with_added_default_column();
 
-    // The old segment has no physical `added_value`; DELETE WHERE added_value = 42 must therefore
-    // evaluate against the synthesized default and delete every old row.
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
     auto read_schema = make_read_schema(_tablet_schema);
@@ -772,11 +782,11 @@ TEST_F(SegmentIteratorExprZonemapTest, DeletePredicateFiltersSchemaDefault) {
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, MissingVariantSeparatesValueAndPhysicalReaderSemantics) {
+    // Case: a nullable VARIANT root is absent from an old segment. Physical metadata lookup must
+    // report NOT_FOUND, while logical root and generated-child reads must synthesize NULL values.
     _tablet_schema = make_schema_with_added_nullable_variant();
 
     // The key-only writer models a segment created before nullable VARIANT root `v` was added.
-    // Physical metadata lookup must report NOT_FOUND instead of returning a VARIANT-typed
-    // ConstantColumnReader, while normal value reading must still produce one NULL per old row.
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
 

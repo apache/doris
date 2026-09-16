@@ -20,7 +20,7 @@ suite("test_constant_column_object_types", "p0") {
     sql "DROP TABLE IF EXISTS test_constant_object_bitmap_unique FORCE"
     sql "DROP TABLE IF EXISTS test_constant_object_hll_agg FORCE"
 
-    // BITMAP has a legal BITMAP_EMPTY identity default on DUPLICATE and UNIQUE MOW tables.
+    // Case 1: BITMAP has a legal BITMAP_EMPTY identity default on DUPLICATE and UNIQUE MOW tables.
     // Start with a DUPLICATE table so old segments have no physical bitmap column at all.
     sql """
         CREATE TABLE test_constant_object_bitmap_dup (
@@ -79,7 +79,7 @@ suite("test_constant_column_object_types", "p0") {
         FROM test_constant_object_bitmap_dup
     """
 
-    // Run the same metadata-only ADD on UNIQUE MOW. The update of key 1 creates a physical
+    // Case 2: run the same metadata-only ADD on UNIQUE MOW. The update of key 1 creates a physical
     // bitmap while key 2 continues to read BITMAP_EMPTY from its pre-ALTER segment.
     sql """
         CREATE TABLE test_constant_object_bitmap_unique (
@@ -141,7 +141,7 @@ suite("test_constant_column_object_types", "p0") {
         FROM test_constant_object_bitmap_unique
     """
 
-    // HLL does not accept an explicit SQL default. FE assigns its HLL_EMPTY identity default,
+    // Case 3: HLL does not accept an explicit SQL default. FE assigns its HLL_EMPTY identity default,
     // making a value-column ADD legal only on an AGGREGATE KEY table with HLL_UNION.
     sql """
         CREATE TABLE test_constant_object_hll_agg (
@@ -201,7 +201,8 @@ suite("test_constant_column_object_types", "p0") {
         FROM test_constant_object_hll_agg
     """
 
-    // QUANTILE_STATE has no FE-injected identity default corresponding to BITMAP_EMPTY/HLL_EMPTY,
-    // and AGG_STATE has no function-independent identity value. They are intentionally excluded
-    // instead of constructing a default that ALTER cannot reliably materialize for old segments.
+    // Coverage boundary: QUANTILE_STATE has no FE-injected identity default corresponding to
+    // BITMAP_EMPTY/HLL_EMPTY, and AGG_STATE has no function-independent identity value. They are
+    // intentionally excluded instead of constructing a default that ALTER cannot reliably
+    // materialize for old segments.
 }

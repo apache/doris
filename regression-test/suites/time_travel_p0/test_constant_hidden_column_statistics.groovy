@@ -64,7 +64,7 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         return row[0].collect { value -> Long.parseLong(value.toString()) }
     }
 
-    // The first rowset predates c_default. Its hidden columns are captured before ALTER so the
+    // Case 1: the first rowset predates c_default. Its hidden columns are captured before ALTER so the
     // test can verify that schema evolution does not replace them with persisted placeholders.
     sql """
         INSERT INTO test_constant_hidden_column_statistics VALUES
@@ -104,7 +104,7 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     def afterAlter = readHiddenState()
     assertEquals(beforeAlter, afterAlter)
 
-    // With only the pre-ALTER rowset, both hidden columns are rowset-scoped constants. Their
+    // Case 2: with only the pre-ALTER rowset, both hidden columns are rowset-scoped constants. Their
     // statistics are therefore [value, value], just like the ALTER-added column default.
     sql "SET enable_pushdown_minmax_on_unique = false"
     def oldMinMaxWithoutPushdown = readHiddenMinMax()
@@ -124,7 +124,7 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     assertEquals([oldVersion, oldVersion, oldCommitTso, oldCommitTso],
             oldMinMaxWithPushdown)
 
-    // These predicates are evaluated against the constant zonemaps of the historical rowset.
+    // Case 3: these predicates are evaluated against the constant zonemaps of the historical rowset.
     // c_default in the same predicates is also a constant because it was added after the write.
     order_qt_hidden_initial_version_equal """
         SELECT k, c_default
@@ -151,7 +151,7 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         ORDER BY k
     """
 
-    // Add a physical post-ALTER rowset and verify that a later read gets its own rowset version
+    // Case 4: add a physical post-ALTER rowset and verify that a later read gets its own rowset version
     // and commit TSO instead of reusing constants cached for the first rowset.
     sql """
         INSERT INTO test_constant_hidden_column_statistics
@@ -195,7 +195,7 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         ORDER BY k
     """
 
-    // A MOW upsert updates key 2 while leaving key 1 visible in the original rowset. Keeping one
+    // Case 5: a MOW upsert updates key 2 while leaving key 1 visible in the original rowset. Keeping one
     // visible row in every rowset makes pushed and non-pushed MIN/MAX directly comparable.
     sql """
         INSERT INTO test_constant_hidden_column_statistics
@@ -234,7 +234,7 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     assertEquals([oldVersion, updateVersion, oldCommitTso, updateCommitTso],
             updateMinMaxWithPushdown)
 
-    // Exact, range, and empty predicates cover the per-rowset hidden-column zonemaps after the
+    // Case 6: exact, range, and empty predicates cover the per-rowset hidden-column zonemaps after the
     // old constant rowset, post-ALTER insert, and update rowsets coexist.
     order_qt_hidden_final_version_equal_old """
         SELECT k, c_default

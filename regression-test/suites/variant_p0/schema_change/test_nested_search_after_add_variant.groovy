@@ -65,7 +65,7 @@ suite("test_nested_search_after_add_variant", "variant_type") {
         )
     """
 
-    // Keep these rows in a segment whose physical schema predates the VARIANT root.
+    // Case 1: keep these rows in a segment whose physical schema predates the VARIANT root.
     sql "INSERT INTO test_nested_search_after_add_variant VALUES (1), (2)"
     sql """
         ALTER TABLE test_nested_search_after_add_variant
@@ -80,7 +80,7 @@ suite("test_nested_search_after_add_variant", "variant_type") {
         time 600
     }
 
-    // Root, direct child, nested child, and an absent child must all be NULL for old rowsets.
+    // Case 2: root, direct child, nested child, and an absent child must all be NULL for old rowsets.
     order_qt_old_variant_root_and_paths """
         SELECT id,
                v IS NULL,
@@ -110,7 +110,7 @@ suite("test_nested_search_after_add_variant", "variant_type") {
     sql "SET enable_inverted_index_query = true"
     sql "SET enable_match_without_inverted_index = false"
 
-    // These rows use the post-ALTER physical schema and are scanned together with the two
+    // Case 3: these rows use the post-ALTER physical schema and are scanned together with the two
     // constant-backed historical rows.
     sql """
         INSERT INTO test_nested_search_after_add_variant (id, v) VALUES
@@ -130,6 +130,7 @@ suite("test_nested_search_after_add_variant", "variant_type") {
         ORDER BY id
     """
 
+    // Case 4: a predicate on a generated subcolumn must handle missing and physical VARIANT roots.
     order_qt_variant_subcolumn_predicate """
         SELECT id, cast(v['profile']['score'] AS INT)
         FROM test_nested_search_after_add_variant
@@ -137,7 +138,7 @@ suite("test_nested_search_after_add_variant", "variant_type") {
         ORDER BY id
     """
 
-    // The physical rowset can use idx_v while the historical rowset has neither the VARIANT root
+    // Case 5: the physical rowset can use idx_v while the historical rowset has neither the VARIANT root
     // nor an index iterator. The scan must combine both cases without falling back to MATCH.
     order_qt_variant_index_match """
         SELECT id, cast(v['name'] AS STRING)
@@ -146,7 +147,7 @@ suite("test_nested_search_after_add_variant", "variant_type") {
         ORDER BY id
     """
 
-    // Reading the array path exercises the physical sparse/typed VARIANT path without requiring
+    // Case 6: reading the array path exercises the physical sparse/typed VARIANT path without requiring
     // the optional NestedGroup search provider.
     order_qt_nested_variant_physical_path """
         SELECT id, cast(v['items'] AS STRING)

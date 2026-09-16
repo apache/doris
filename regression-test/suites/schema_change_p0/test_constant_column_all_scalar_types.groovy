@@ -34,7 +34,7 @@ suite("test_constant_column_all_scalar_types") {
         )
     """
 
-    // This rowset physically contains none of the columns added below. Every value read from it
+    // Case 1: this rowset physically contains none of the columns added below. Every value read from it
     // must therefore be materialized by ConstantColumnReader from the latest tablet schema.
     sql """
         INSERT INTO test_constant_column_all_scalar_types VALUES
@@ -86,6 +86,7 @@ suite("test_constant_column_all_scalar_types") {
         time 600
     }
 
+    // Case 2: read every added type from historical rows, grouped by type family for diagnosis.
     order_qt_old_integer_defaults """
         SELECT id, c_bool, c_tinyint, c_smallint, c_int, c_bigint, c_largeint
         FROM test_constant_column_all_scalar_types
@@ -109,7 +110,7 @@ suite("test_constant_column_all_scalar_types") {
         ORDER BY id
     """
 
-    // Write every added type physically with values distinct from the defaults, so the same scan
+    // Case 3: write every added type physically with values distinct from the defaults, so the same scan
     // mixes constant-backed old rowsets and ordinary physical readers.
     sql """
         INSERT INTO test_constant_column_all_scalar_types (
@@ -129,6 +130,7 @@ suite("test_constant_column_all_scalar_types") {
         )
     """
 
+    // Case 4: read each type family while constant-backed and physical rowsets coexist.
     order_qt_mixed_integer_values """
         SELECT id, generation, c_bool, c_tinyint, c_smallint, c_int, c_bigint, c_largeint
         FROM test_constant_column_all_scalar_types
@@ -152,6 +154,7 @@ suite("test_constant_column_all_scalar_types") {
         ORDER BY id
     """
 
+    // Case 5: predicates spanning type families select only rows synthesized from schema defaults.
     order_qt_default_predicates_across_type_families """
         SELECT id
         FROM test_constant_column_all_scalar_types
@@ -168,6 +171,7 @@ suite("test_constant_column_all_scalar_types") {
         ORDER BY id
     """
 
+    // Case 6: inverse predicates select only the post-ALTER row with physically stored values.
     order_qt_physical_predicates_across_type_families """
         SELECT id
         FROM test_constant_column_all_scalar_types

@@ -19,7 +19,7 @@ suite("test_constant_column_schema_evolution") {
     sql "DROP TABLE IF EXISTS test_constant_column_schema_evolution_dup"
     sql "DROP TABLE IF EXISTS test_constant_column_schema_evolution_unique"
 
-    // Keep every schema generation in a separate rowset. Historical rowsets do not have
+    // Case 1: keep every schema generation in a separate rowset. Historical rowsets do not have
     // c_default or c_null physically, so their values must come from constant iterators.
     sql """
         CREATE TABLE test_constant_column_schema_evolution_dup (
@@ -73,6 +73,8 @@ suite("test_constant_column_schema_evolution") {
         ORDER BY k
     """
 
+    // Case 2: mix old constant-backed rows with physical values and test equality, range, and NULL
+    // predicates against both kinds of rowset.
     sql """
         INSERT INTO test_constant_column_schema_evolution_dup
             (k, payload, c_default, c_null) VALUES
@@ -118,7 +120,7 @@ suite("test_constant_column_schema_evolution") {
         ORDER BY k
     """
 
-    // The delete predicate matches the default supplied for historical rowsets as well as
+    // Case 3: the delete predicate matches the default supplied for historical rowsets as well as
     // a physical value in the post-ALTER rowset.
     sql """
         DELETE FROM test_constant_column_schema_evolution_dup
@@ -132,7 +134,7 @@ suite("test_constant_column_schema_evolution") {
         ORDER BY k
     """
 
-    // A rowset written after the delete predicate must not be filtered by that predicate.
+    // Case 4: a rowset written after the delete predicate must not be filtered by that predicate.
     sql """
         INSERT INTO test_constant_column_schema_evolution_dup
             (k, payload, c_default, c_null) VALUES
@@ -152,7 +154,7 @@ suite("test_constant_column_schema_evolution") {
         time 600
     })
 
-    // Reusing the name with a different type gives the replacement a new unique id. The
+    // Case 5: reusing the name with a different type gives the replacement a new unique id. The
     // historical INT values and delete predicate must still resolve through the old id.
     sql """
         ALTER TABLE test_constant_column_schema_evolution_dup
@@ -181,6 +183,7 @@ suite("test_constant_column_schema_evolution") {
             (9, 'new_zzz', 60, 'zzz')
     """
 
+    // Case 6: predicates on the replacement VARCHAR column must use its new default and UID.
     order_qt_dup_readd_equal_default """
         SELECT k
         FROM test_constant_column_schema_evolution_dup
@@ -200,7 +203,7 @@ suite("test_constant_column_schema_evolution") {
         ORDER BY k
     """
 
-    // Use a separate unique-key table to exercise StatisticsColumnIterator. There are no
+    // Case 7: use a separate unique-key table to exercise StatisticsColumnIterator. There are no
     // duplicate keys, updates, or deletes, so MIN/MAX has unambiguous visible-row semantics.
     sql """
         CREATE TABLE test_constant_column_schema_evolution_unique (
@@ -240,6 +243,7 @@ suite("test_constant_column_schema_evolution") {
         time 600
     })
 
+    // Compare scan and MIN/MAX pushdown while all rows use the synthesized INT default.
     sql "SET enable_pushdown_minmax_on_unique = false"
     explain {
         sql("SELECT MIN(c_stats) FROM test_constant_column_schema_evolution_unique")
@@ -264,6 +268,7 @@ suite("test_constant_column_schema_evolution") {
         FROM test_constant_column_schema_evolution_unique
     """
 
+    // Case 8: compare scan and MIN/MAX pushdown after physical INT values are added.
     sql """
         INSERT INTO test_constant_column_schema_evolution_unique
             (k, payload, c_stats) VALUES
@@ -292,6 +297,8 @@ suite("test_constant_column_schema_evolution") {
         FROM test_constant_column_schema_evolution_unique
     """
 
+    // Case 9: drop and re-add the statistics column as VARCHAR. Historical rowsets must use the
+    // replacement UID and its new string default in both normal and pushed-down reads.
     sql """
         ALTER TABLE test_constant_column_schema_evolution_unique
         DROP COLUMN `c_stats`
@@ -338,6 +345,7 @@ suite("test_constant_column_schema_evolution") {
         FROM test_constant_column_schema_evolution_unique
     """
 
+    // Case 10: compare scan and MIN/MAX pushdown after physical VARCHAR values are added.
     sql """
         INSERT INTO test_constant_column_schema_evolution_unique
             (k, payload, c_stats) VALUES

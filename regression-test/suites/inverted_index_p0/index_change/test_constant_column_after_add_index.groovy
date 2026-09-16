@@ -50,7 +50,7 @@ suite("test_constant_column_after_add_index") {
         )
     """
 
-    // These segments have neither the added column nor its inverted index.
+    // Case 1: create historical segments that have neither the added column nor its inverted index.
     sql """
         INSERT INTO test_constant_column_after_add_index VALUES
             (1, 'old-1'),
@@ -83,7 +83,7 @@ suite("test_constant_column_after_add_index") {
         time 600
     }
 
-    // Keep physical-index and constant-reader segments in the same scan.
+    // Case 2: keep physical-index and constant-reader segments in the same scan.
     sql """
         INSERT INTO test_constant_column_after_add_index VALUES
             (3, 'new-legacy', 'legacy'),
@@ -97,6 +97,7 @@ suite("test_constant_column_after_add_index") {
                 "build index timed out for test_constant_column_after_add_index")
     }
 
+    // Case 3: the predicate matches both the synthesized default and a physical indexed value.
     order_qt_index_matches_constant_and_physical """
         SELECT /*+SET_VAR(enable_fallback_on_missing_inverted_index=false) */ id, payload, tag
         FROM test_constant_column_after_add_index
@@ -104,6 +105,7 @@ suite("test_constant_column_after_add_index") {
         ORDER BY id
     """
 
+    // Case 4: the predicate matches only the post-ALTER physical indexed segment.
     order_qt_index_matches_only_physical """
         SELECT /*+SET_VAR(enable_fallback_on_missing_inverted_index=false) */ id, payload, tag
         FROM test_constant_column_after_add_index
@@ -111,6 +113,7 @@ suite("test_constant_column_after_add_index") {
         ORDER BY id
     """
 
+    // Case 5: the constant segment is rejected while the physical index is still evaluated.
     order_qt_index_rejects_constant_segment """
         SELECT /*+SET_VAR(enable_fallback_on_missing_inverted_index=false) */ id, payload, tag
         FROM test_constant_column_after_add_index
@@ -118,6 +121,7 @@ suite("test_constant_column_after_add_index") {
         ORDER BY id
     """
 
+    // Case 6: COUNT scans the same mixed segment set without materializing the added column.
     qt_count_with_index_and_constant_segments """
         SELECT /*+SET_VAR(enable_fallback_on_missing_inverted_index=false) */ COUNT(*)
         FROM test_constant_column_after_add_index

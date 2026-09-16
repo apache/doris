@@ -91,7 +91,7 @@ suite("test_constant_column_partial_update_hidden", "p0,nonConcurrent") {
             )
         """
 
-        // These rows are written before c_default exists, so reads after ALTER must synthesize it.
+        // Case 1: rows written before c_default exists must synthesize it after ALTER.
         sql """
             INSERT INTO ${tableName} VALUES
                 (1, 'old-1', 100),
@@ -126,7 +126,7 @@ suite("test_constant_column_partial_update_hidden", "p0,nonConcurrent") {
         assertEquals(10, afterAdd[2].defaultValue)
         assertEquals(beforeAddHidden, readOnlyHiddenState(tableName))
 
-        // Omit c_default while updating an old row. The updated row must keep the ALTER default;
+        // Case 2: omit c_default while updating an old row. The updated row must keep the ALTER default;
         // the untouched row must retain its original hidden-column values.
         sql "SET enable_unique_key_partial_update = true"
         sql "INSERT INTO ${tableName}(id, payload) VALUES (1, 'old-1-partial')"
@@ -156,7 +156,7 @@ suite("test_constant_column_partial_update_hidden", "p0,nonConcurrent") {
             """
         }
 
-        // A post-ALTER row has a physical c_default. Omitting it preserves 30, while an explicit
+        // Case 3: a post-ALTER row has a physical c_default. Omitting it preserves 30, while an explicit
         // partial update changes only c_default and keeps the other columns.
         sql "INSERT INTO ${tableName} VALUES (3, 'new-3', 300, 30)"
         sql "SYNC"
@@ -201,7 +201,7 @@ suite("test_constant_column_partial_update_hidden", "p0,nonConcurrent") {
             """
         }
 
-        // Reusing the name creates a new column UID. In particular, key 3 must not recover the
+        // Case 4: reusing the name creates a new column UID. In particular, key 3 must not recover the
         // dropped physical value 40 when a partial update omits the new c_default.
         sql "ALTER TABLE ${tableName} DROP COLUMN c_default"
         waitForSchemaChangeDone({

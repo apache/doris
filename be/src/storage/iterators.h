@@ -44,6 +44,9 @@ struct IteratorRowRef;
 
 class StorageReadOptions {
 public:
+    // Every storage read needs a statistics sink. Deleting the default constructor keeps copied
+    // options valid from creation; for example, SegmentIterator stores a copy and later
+    // dereferences stats while reading pages.
     StorageReadOptions() = delete;
 
     explicit StorageReadOptions(OlapReaderStatistics& stats_) noexcept : stats(&stats_) {}

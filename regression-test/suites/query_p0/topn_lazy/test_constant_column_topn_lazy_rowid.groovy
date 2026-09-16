@@ -32,7 +32,7 @@ suite("test_constant_column_topn_lazy_rowid") {
         )
     """
 
-    // The TopN result deliberately includes both old constant-backed rows and a new physical row.
+    // Case 1: prepare a TopN result containing old constant-backed rows and a new physical row.
     sql """
         INSERT INTO test_constant_column_topn_lazy_rowid VALUES
             (1, 100),
@@ -58,6 +58,8 @@ suite("test_constant_column_topn_lazy_rowid") {
             (4, 70, 'not-in-topn')
     """
 
+    // Case 2: lazy rowid fetch must produce the same added-column and hidden VERSION values as a
+    // normal scan when constant-backed and physical rows are mixed.
     sql "SET show_hidden_columns = true"
     sql "SET topn_lazy_materialization_threshold = -1"
     def normalRead = sql """
@@ -97,7 +99,7 @@ suite("test_constant_column_topn_lazy_rowid") {
     assertTrue(lazyRead.every { row -> (row[2] as Long) > 0 },
             "TopN rowid fetch returned a hidden version placeholder: ${lazyRead}")
 
-    // VERSION is the only projected value in this query. Seeing PhysicalLazyMaterialize above
+    // Case 3: VERSION is the only projected value in this query. Seeing PhysicalLazyMaterialize above
     // therefore proves that the hidden column itself reaches the rowid-fetch phase.
     def lazyHiddenOnlyRead = sql """
         SELECT __DORIS_VERSION_COL__

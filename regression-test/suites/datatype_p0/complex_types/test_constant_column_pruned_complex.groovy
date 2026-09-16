@@ -32,7 +32,7 @@ suite("test_constant_column_pruned_complex") {
         )
     """
 
-    // These rows are stored before either complex column exists. Both columns must therefore be
+    // Case 1: these rows are stored before either complex column exists. Both columns must therefore be
     // supplied by ConstantColumnIterator after the light schema change.
     sql """
         INSERT INTO test_constant_column_pruned_complex VALUES
@@ -66,7 +66,7 @@ suite("test_constant_column_pruned_complex") {
         time 600
     }
 
-    // Mix physical complex values, empty containers, and explicit NULL with the historical rows.
+    // Case 2: mix physical complex values, empty containers, and explicit NULL with historical rows.
     sql """
         INSERT INTO test_constant_column_pruned_complex (id, payload, m, s) VALUES
             (3, 'new-three', map('x', 30, 'y', 31), named_struct('a', 300, 'b', 'three')),
@@ -75,6 +75,7 @@ suite("test_constant_column_pruned_complex") {
     """
 
     sql "SET enable_prune_nested_column = true"
+    // Case 3: reading both complex columns must agree with and without nested-column pruning.
     order_qt_pruned_complex_enabled """
         SELECT id,
                m IS NULL,
@@ -108,7 +109,7 @@ suite("test_constant_column_pruned_complex") {
 
     sql "SET enable_prune_nested_column = true"
 
-    // Read only one MAP child at a time so nested-column pruning cannot materialize the other
+    // Case 4: read only one MAP child at a time so nested-column pruning cannot materialize the other
     // child as a shortcut. Historical rows still have to produce a valid nullable constant.
     order_qt_pruned_map_keys_only """
         SELECT id, array_sort(map_keys(m))
@@ -121,7 +122,7 @@ suite("test_constant_column_pruned_complex") {
         ORDER BY id
     """
 
-    // Likewise, make each STRUCT child its own access path. This mixes NULL constants from the
+    // Case 5: make each STRUCT child its own access path. This mixes NULL constants from the
     // pre-ALTER segment with physical child streams from the post-ALTER segment.
     order_qt_pruned_struct_a_only """
         SELECT id, struct_element(s, 'a')
@@ -134,7 +135,7 @@ suite("test_constant_column_pruned_complex") {
         ORDER BY id
     """
 
-    // Constant-backed complex values are outputs while an ordinary physical column is the
+    // Case 6: constant-backed complex values are outputs while an ordinary physical column is the
     // predicate. This also exercises map/struct child pruning on the old rowset.
     order_qt_constant_complex_as_output """
         SELECT id,
@@ -149,7 +150,7 @@ suite("test_constant_column_pruned_complex") {
         ORDER BY id
     """
 
-    // Exercise the inverse assignment: the constant-backed columns participate in predicates
+    // Case 7: exercise the inverse assignment: the constant-backed columns participate in predicates
     // while values from both old and new physical schemas are materialized as output.
     order_qt_constant_complex_as_predicate """
         SELECT id, payload
@@ -158,7 +159,7 @@ suite("test_constant_column_pruned_complex") {
         ORDER BY id
     """
 
-    // All candidate historical rows reach the complex predicates, but SQL NULL semantics leave
+    // Case 8: all candidate historical rows reach the complex predicates, but SQL NULL semantics leave
     // an empty selection. Finalizing the constant placeholders must still produce a valid block.
     qt_constant_complex_empty_selection """
         SELECT COUNT(*)

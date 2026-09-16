@@ -147,7 +147,7 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
         assertTrue(errors.isEmpty(), "phase ${phase} failed:\n${errors.toList().join('\n')}")
     }
 
-    // Warm the row-store point-query path before the schema changes and record the physical
+    // Case 1: warm the row-store point-query path before the schema changes and record the physical
     // rowset version expected for each key.
     sql """
         INSERT INTO test_constant_column_concurrent_point_query VALUES
@@ -172,7 +172,7 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
         ORDER BY k
     """
 
-    // Keys 1 and 2 read c_default from a ConstantColumnIterator; keys 3 and 4 read a physical
+    // Case 2: keys 1 and 2 read c_default from a ConstantColumnIterator; keys 3 and 4 read a physical
     // column. Every prepared point query also reads the synthesized rowset version.
     sql """
         ALTER TABLE test_constant_column_concurrent_point_query
@@ -213,7 +213,7 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
         ORDER BY k
     """
 
-    // A same-name column with a different type/default must not reuse the dropped INT column UID.
+    // Case 3: a same-name column with a different type/default must not reuse the dropped INT column UID.
     sql "ALTER TABLE test_constant_column_concurrent_point_query DROP COLUMN c_default"
     waitForSchemaChangeDone({
         sql """
