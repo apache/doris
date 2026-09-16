@@ -2376,4 +2376,31 @@ TEST_F(FunctionCastToIntTest, test_strict_cast_nullable_without_null) {
     EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 0), "1");
     EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 1), "2");
 }
+
+// The row that the input null map marks as NULL is skipped, but its destination slot still has to
+// hold the default value of the target type: a consumer that reads the nested column of a nullable
+// input without looking at the NULL map (for example ipv6_cidr_to_range, whose cidr argument is an
+// implicit CAST to SMALLINT) must not read uninitialized memory.
+TEST_F(FunctionCastToIntTest, test_masked_row_keeps_default_value) {
+    auto ctx = create_context(true);
+    auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>());
+
+    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
+    ASSERT_TRUE(fn != nullptr);
+
+    // Row 0 is NULL with the hidden payload 128, which does not fit into TINYINT.
+    Block block = {
+            {ColumnHelper::create_nullable_column<DataTypeInt32>({128, 7}, {1, 0}), from_type,
+             "from"},
+            {nullptr, to_type, "to"},
+    };
+    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    const auto& nested = assert_cast<const DataTypeInt8::ColumnType&>(result.get_nested_column());
+    EXPECT_EQ(result.get_null_map_data()[0], 1);
+    EXPECT_EQ(nested.get_data()[0], 0);
+    EXPECT_EQ(nested.get_data()[1], 7);
+}
 } // namespace doris
