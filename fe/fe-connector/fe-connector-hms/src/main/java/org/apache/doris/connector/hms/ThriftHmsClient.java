@@ -241,7 +241,7 @@ public class ThriftHmsClient implements HmsClient {
 
     @Override
     public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
-        int threshold = filteredPartitionThreshold();
+        int threshold = filteredPartitionThreshold(partitionBatchSize);
         FilteredPartitionPage page = execute(client ->
                 fetchFilteredPartitionPage(client, dbName, tableName, filter, threshold));
         // The saturation decision MUST use the RAW metastore page size, not the hook-filtered list: the
@@ -287,9 +287,10 @@ public class ThriftHmsClient implements HmsClient {
      *
      * <p>Capped at {@code Short.MAX_VALUE - 1}: the probe is {@code threshold + 1} and the Thrift field is a
      * short, so a threshold at the cap would be narrowed on the wire and a saturated page would look complete.
+     * The configuration layer rejects a non-positive batch size, so no lower bound is needed here.</p>
      */
-    private int filteredPartitionThreshold() {
-        return Math.max(1, Math.min(partitionBatchSize, Short.MAX_VALUE - 1));
+    static int filteredPartitionThreshold(int partitionBatchSize) {
+        return Math.min(partitionBatchSize, Short.MAX_VALUE - 1);
     }
 
     /** Whether a raw (pre-hook) page of {@code partitionCount} entries means the request was capped. */
