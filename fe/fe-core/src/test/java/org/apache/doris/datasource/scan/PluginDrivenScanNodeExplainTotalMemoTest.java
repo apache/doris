@@ -19,21 +19,27 @@ package org.apache.doris.datasource.scan;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.Optional;
 
 /**
@@ -79,9 +85,12 @@ public class PluginDrivenScanNodeExplainTotalMemoTest {
 
     @Test
     public void failedLookupIsRememberedAndRethrownWithoutReQuerying() {
-        IllegalStateException failure = new IllegalStateException("metastore unavailable");
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
-        Mockito.when(table.getNameToPartitionItemsForScan(Mockito.any())).thenThrow(failure);
+        // A FRESH exception per invocation: with a single-instance thenThrow the identity below would hold for
+        // any implementation, because Mockito rethrows the same object every time.
+        Mockito.when(table.getNameToPartitionItemsForScan(Mockito.any())).thenAnswer(invocation -> {
+            throw new IllegalStateException("metastore unavailable");
+        });
         PluginDrivenScanNode node = node(table);
 
         IllegalStateException first = Assertions.assertThrows(IllegalStateException.class, () -> resolve(node));
@@ -89,8 +98,28 @@ public class PluginDrivenScanNodeExplainTotalMemoTest {
 
         // MUTATION: memoizing only completed work -> the connector is asked again on every render, and because
         // the profile caller swallows the throw the enumeration repeats while the profile update keeps failing.
-        Assertions.assertSame(failure, first);
-        Assertions.assertSame(first, second, "the stored failure must be rethrown, not re-queried");
+        Assertions.assertSame(first, second, "the stored failure must be rethrown, not resolved a second time");
+        Mockito.verify(table, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());
+    }
+
+    @Test
+    public void renderedExplainCompletesTheTotalFromOneLookup() {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getNameWithFullQualifiers()).thenReturn("hive_ctl.db.tbl");
+        DatabaseIf<?> db = Mockito.mock(DatabaseIf.class);
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(table.getDatabase()).thenReturn((DatabaseIf) db);
+        Mockito.when(db.getCatalog()).thenReturn((CatalogIf) catalog);
+        Mockito.when(catalog.getType()).thenReturn("hive");
+        Mockito.when(table.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(Optional.of(
+                ImmutableMap.of("p1", Mockito.mock(PartitionItem.class))));
+        PluginDrivenScanNode node = renderableNode(table);
+
+        // MUTATION: dropping resolveUnknownTotalPartitionNum() from getNodeExplainString -> the line reads
+        // partition=1/? and this fails, which the resolver-only tests above cannot see.
+        Assertions.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL).contains("partition=1/1"),
+                "a connector-filtered EXPLAIN must complete the table's real total");
+        Assertions.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL).contains("partition=1/1"));
         Mockito.verify(table, Mockito.times(1)).getNameToPartitionItemsForScan(Mockito.any());
     }
 
@@ -106,6 +135,28 @@ public class PluginDrivenScanNodeExplainTotalMemoTest {
                 new PlanNodeId(0), descriptor, false, new SessionVariable(), ScanContext.EMPTY,
                 Mockito.mock(Connector.class), Mockito.mock(ConnectorSession.class),
                 Mockito.mock(ConnectorTableHandle.class));
+        Deencapsulation.setField(node, "totalPartitionNum", -1L);
+        return node;
+    }
+
+    /**
+     * A node the EXPLAIN renderer can run in full without I/O: the connector session, handle and property
+     * cache are pre-seeded, mirroring {@code PluginDrivenScanNodeVerboseExplainTest}'s renderable node. The
+     * selection is the connector-filtered shape, i.e. a known selected count with an UNKNOWN total.
+     */
+    private static PluginDrivenScanNode renderableNode(PluginDrivenExternalTable table) {
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        TupleDescriptor descriptor = new TupleDescriptor(new TupleId(0));
+        descriptor.setTable(table);
+        Deencapsulation.setField(node, "desc", descriptor);
+        Deencapsulation.setField(node, "conjuncts", Lists.newArrayList());
+        Deencapsulation.setField(node, "scanRangeLocations", Lists.newArrayList());
+        Deencapsulation.setField(node, "topnFilterSortNodes", Lists.newArrayList());
+        Deencapsulation.setField(node, "scanNodeProperties", Collections.<String, String>emptyMap());
+        Deencapsulation.setField(node, "isBatchModeCache", Boolean.FALSE);
+        Deencapsulation.setField(node, "connector", Mockito.mock(Connector.class));
+        Deencapsulation.setField(node, "pushDownAggNoGroupingOp", TPushAggOp.NONE);
+        Deencapsulation.setField(node, "selectedPartitionNum", 1L);
         Deencapsulation.setField(node, "totalPartitionNum", -1L);
         return node;
     }
