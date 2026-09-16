@@ -55,6 +55,19 @@ suite("correlated_in_scalar_aggregate") {
     order_qt_not_in_plain """
         SELECT o.k FROM cisa_o o WHERE o.k NOT IN (SELECT i.k FROM cisa_i i WHERE i.k = o.k) ORDER BY o.k
     """
+    // IN over the global aggregation of the correlated rows: the aggregation of an outer row whose
+    // domain is empty is 0 (the global aggregation always produces one row), so that row compares
+    // against 0 instead of being dropped or compared with nothing
+    order_qt_in_correlated_global_agg """
+        SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT count(*) FROM cisa_i i WHERE i.k = o.k) ORDER BY o.k
+    """
+    order_qt_not_in_correlated_global_agg """
+        SELECT o.k FROM cisa_o o WHERE o.k NOT IN (SELECT count(*) FROM cisa_i i WHERE i.k = o.k) ORDER BY o.k
+    """
+    order_qt_in_correlated_global_agg_as_value """
+        SELECT o.k, o.k IN (SELECT count(*) FROM cisa_i i WHERE i.k = o.k) AS v
+        FROM cisa_o o ORDER BY o.k
+    """
     // EXISTS which is correlated only by its HAVING clause: the aggregation is evaluated for every
     // outer row, so the predicates of the HAVING clause are applied to the global aggregation
     order_qt_exists_having_only_corr_ge """
@@ -132,16 +145,29 @@ suite("correlated_in_scalar_aggregate") {
         FROM cisa_o o ORDER BY o.k
     """
 
+    // The scalar subquery whose correlated predicate is not an equality between the outer side and
+    // the inner side is evaluated on the aggregation of the domain of every outer row as well: the
+    // left outer join which a scalar subquery is unnested into pairs the outer row with the groups
+    // of the inner side whose key is the value of the outer row, which is the aggregation of the
+    // domain of the outer row only when that predicate is an equality
+    order_qt_scalar_lt_count """
+        SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k < o.k) AS c FROM cisa_o o ORDER BY o.k
+    """
+    order_qt_scalar_lt_sum """
+        SELECT o.k, (SELECT sum(i.g) FROM cisa_i i WHERE i.k < o.k) AS s FROM cisa_o o ORDER BY o.k
+    """
+    // `i.k <=> o.k` is an equality as well, but one whose domain contains the inner rows of the
+    // null key: the condition of the left outer join of a scalar subquery cannot express it, so it
+    // is evaluated on the aggregation of the domain as well (the outer row with the null key
+    // compares against the count of the inner rows whose key is null)
+    order_qt_scalar_nullsafe_equal_count """
+        SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k <=> o.k) AS c FROM cisa_o o ORDER BY o.k
+    """
+
     // The shapes below are not supported by the scalar and IN subquery rewrites: they must be
-    // rejected with a user error and must never return a wrong result silently.
-    test {
-        sql "SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k < o.k) AS c FROM cisa_o o"
-        exception "scalar subquery's correlatedPredicates's operator must be EQ"
-    }
-    test {
-        sql "SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k <=> o.k) AS c FROM cisa_o o"
-        exception "scalar subquery's correlatedPredicates's operator must be EQ"
-    }
+    // rejected with a user error and must never return a wrong result silently. A scalar subquery
+    // whose aggregation is filtered or grouped cannot be unnested by this rule at all: the analyzer
+    // rejects it before the rewrite runs (see SubExprAnalyzer.validateNodeInfoList).
     test {
         sql "SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) AS c FROM cisa_o o"
         exception "access outer query's column before agg with group by is not supported"
@@ -151,10 +177,14 @@ suite("correlated_in_scalar_aggregate") {
                 " FROM cisa_o o"
         exception "only project, sort and subquery alias node is allowed after agg node"
     }
+    // a correlated predicate whose side mixes the outer query and the subquery cannot be evaluated
+    // by the join which unnests the scalar subquery either
     test {
-        sql "SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT count(*) FROM cisa_i i WHERE i.k = o.k)"
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
+        sql "SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k - o.k = 0) AS c FROM cisa_o o"
+        exception "Unsupported correlated subquery with correlated predicate"
     }
+    // an IN subquery whose select list is the correlated column itself keeps the correlated column
+    // in the projection of the subquery, which the rewrites of the IN subquery cannot expose
     test {
         sql "SELECT o.k FROM cisa_o o" +
                 " WHERE o.k IN (SELECT o.k FROM cisa_i i WHERE i.k = o.k HAVING count(*) >= o.k - 4)"

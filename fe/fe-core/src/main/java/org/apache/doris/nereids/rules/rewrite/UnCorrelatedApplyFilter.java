@@ -69,9 +69,10 @@ public class UnCorrelatedApplyFilter extends OneRewriteRuleFactory {
             Plan child = PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child());
             // every predicate which was already pulled into the apply is a condition of the join
             // which unnests the apply, so it may not be replaced by the predicates of this filter.
-            // for `t1.c1 in (select t3.c1 from (select t2.c1 from t2 where t2.c1 = t1.c1) t3
-            // where t3.c1 > t1.c1)` the correlated predicates `t3.c1 > t1.c1` and `t2.c1 = t1.c1`
-            // are pulled one after the other: the join needs the conditions of both filters
+            // for the IN subquery of t1.c1 in (select t3.c1 from (select t2.c1 from t2 where
+            // t2.c1 = t1.c1) t3 where t3.c1 > t1.c1) the correlated predicates t3.c1 > t1.c1 and
+            // t2.c1 = t1.c1 are pulled one after the other: the join needs the conditions of both
+            // filters
             List<Expression> newCorrelationFilter = Lists.newArrayList();
             apply.getCorrelationFilter().map(ExpressionUtils::extractConjunction)
                     .ifPresent(newCorrelationFilter::addAll);

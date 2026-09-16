@@ -52,3 +52,28 @@
 1	1
 2	1
 
+-- !select_ne_sum_gt --
+-2	-2
+-1	-1
+1	1
+2	1
+
+-- !select_in_sum --
+2	2
+3	2
+
+-- !select_in_sum_abs --
+1	1
+2	1
+2	2
+3	2
+
+-- !select_not_in_sum --
+-1	-1
+
+-- !select_not_in_sum_abs --
+1	1
+2	1
+2	2
+3	2
+

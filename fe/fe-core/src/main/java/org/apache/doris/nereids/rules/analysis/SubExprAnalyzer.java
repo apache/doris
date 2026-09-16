@@ -125,7 +125,10 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
-        checkNoCorrelatedSlotsUnderAgg(analyzedResult);
+        // the correlated predicate of an IN subquery may sit below the aggregation of the subquery:
+        // the rewrite which unnests it (UnCorrelatedApplyAggregateFilter) computes the aggregation
+        // of the domain of every outer row, the empty correlated domain included, so that the value
+        // which the IN compares exists for every outer row
         checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
         checkRootIsLimit(analyzedResult);
 
@@ -225,14 +228,6 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
     }
 
-    private void checkNoCorrelatedSlotsUnderAgg(AnalyzedResult analyzedResult) {
-        if (analyzedResult.hasCorrelatedSlotsUnderAgg()) {
-            throw new AnalysisException(
-                    "Unsupported correlated subquery with grouping and/or aggregation "
-                            + analyzedResult.getLogicalPlan());
-        }
-    }
-
     private void checkNoCorrelatedSlotsUnderSetOp(AnalyzedResult analyzedResult) {
         if (analyzedResult.hasCorrelatedSlotsUnderSetOp()) {
             throw new AnalysisException(
@@ -317,12 +312,6 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
 
         public boolean isCorrelated() {
             return !correlatedSlots.isEmpty();
-        }
-
-        public boolean hasCorrelatedSlotsUnderAgg() {
-            return correlatedSlots.isEmpty() ? false
-                    : hasCorrelatedSlotsUnderNode(logicalPlan,
-                            ImmutableSet.copyOf(correlatedSlots), LogicalAggregate.class);
         }
 
         public boolean hasCorrelatedSlotsUnderSetOp() {

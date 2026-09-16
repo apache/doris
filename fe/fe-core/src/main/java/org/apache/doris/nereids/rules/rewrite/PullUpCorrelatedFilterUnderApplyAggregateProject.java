@@ -65,18 +65,17 @@ import java.util.Set;
  *                          |
  *                         child
  * </pre>
- * SQL example: in
- * `select t1.c1 from t1 where t1.c2 > (select max(t3.c3) from (select t2.c2 * 2 as c3 from t2
- * where t2.c1 = t1.c1 and t2.c2 > 10) t3)`
- * the subquery is an `Aggregate -> Project -> Filter` and the Project computes the argument of
- * the aggregation (`t2.c2 * 2 as c3`), so it cannot be replaced together with the aggregation
- * (`UnCorrelatedApplyAggregateFilter` only rewrites aggregations whose projections pass through
- * the columns below them). This rule moves the correlated conjunct `t2.c1 = t1.c1` above the
- * Project, so that it sits directly below the aggregation, while the Project and the ordinary
- * conjunct `t2.c2 > 10` stay below it; afterwards `UnCorrelatedApplyAggregateFilter` can pull
- * the conjunct into the apply. When the Project only passes through the columns below it
- * (eg. `(select t2.c2 from t2 where t2.c1 = t1.c1)`), the aggregation rule handles the subquery
- * by itself and this rule does not fire.
+ * SQL example: in select t1.c1 from t1 where t1.c2 > (select max(t3.c3) from (select t2.c2 * 2
+ * as c3 from t2 where t2.c1 = t1.c1 and t2.c2 > 10) t3) the subquery is an Aggregate above a
+ * Project above a Filter, and the Project computes the argument of the aggregation
+ * (t2.c2 * 2 as c3), so it cannot be replaced together with the aggregation
+ * (UnCorrelatedApplyAggregateFilter only rewrites aggregations whose projections pass through the
+ * columns below them). This rule moves the correlated conjunct t2.c1 = t1.c1 above the Project,
+ * so that it sits directly below the aggregation, while the Project and the ordinary conjunct
+ * t2.c2 > 10 stay below it; afterwards UnCorrelatedApplyAggregateFilter can pull the conjunct
+ * into the apply. When the Project only passes through the columns below it (eg. the Project of
+ * the derived table in (select t2.c2 from t2 where t2.c1 = t1.c1)), the aggregation rule handles
+ * the subquery by itself and this rule does not fire.
  */
 public class PullUpCorrelatedFilterUnderApplyAggregateProject implements RewriteRuleFactory {
     @Override
