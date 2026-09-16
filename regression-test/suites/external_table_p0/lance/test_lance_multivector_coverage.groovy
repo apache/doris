@@ -25,7 +25,8 @@ suite("test_lance_multivector_coverage", "p0,external") {
     def saved = [:]
     for (String variable : ["batch_size", "topn_lazy_materialization_threshold", "enable_file_scanner_v2",
                             "enable_sql_cache", "enable_query_cache"]) {
-        saved[variable] = (sql "SHOW VARIABLES LIKE '${variable}'")[0][1]
+        // Experimental variables are omitted by SHOW VARIABLES under their unprefixed names.
+        saved[variable] = (sql "SELECT @@session.${variable}")[0][0]
     }
     def parseVectors = { value -> new JsonSlurper().parseText(value.toString()) }
     def assertVectors = { expected, actual ->
@@ -176,12 +177,18 @@ suite("test_lance_multivector_coverage", "p0,external") {
                 assertEquals([], sql("SELECT row_id FROM ${source(table, 'vectors', query, 'cosine', indexed, 3, 0, 'row_id < 0')}"))
             }
         }
-        // A TVF prefilter can find the next eligible row; an outer WHERE cannot refill TopK.
-        int nearest = ranked(false)[0][0]
+        // Outer WHERE filters each split's candidates before the global merge. Remove
+        // every split winner so another split cannot refill TopK and mask postfiltering.
+        def splitWinners = (0..2).collect { fragment ->
+            ranked(false).find { (it[0] - 1) % 3 == fragment }[0]
+        }
+        assertEquals(3, splitWinners.unique(false).size())
+        String predicate = "row_id NOT IN (${splitWinners.join(',')})"
         String full = source("multivector_ivf_flat", "vectors", query, "cosine", false, 1, 0, null)
-        assertEquals([], sql("SELECT row_id FROM ${full} WHERE row_id != ${nearest}"))
-        String prefiltered = source("multivector_ivf_flat", "vectors", query, "cosine", false, 1, 0, "row_id != ${nearest}")
-        assertEquals(ranked(false)[1][0], (sql "SELECT row_id FROM ${prefiltered}")[0][0] as int)
+        assertEquals([], sql("SELECT row_id FROM ${full} WHERE ${predicate}"))
+        String prefiltered = source("multivector_ivf_flat", "vectors", query, "cosine", false, 1, 0, predicate)
+        int nextEligible = ranked(false).find { !splitWinners.contains(it[0]) }[0]
+        assertEquals(nextEligible, (sql "SELECT row_id FROM ${prefiltered}")[0][0] as int)
         for (String column : ["integer_vectors", "nullable_vectors"]) {
             test {
                 sql "SELECT _distance FROM ${source('multivector_dimensions', column, [[1, 2, 3]], 'l2', false, 1, 0, null)}"

@@ -86,7 +86,7 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
             throw new AnalysisException("Lance multi-vector search supports l2, cosine, and dot metrics");
         }
         TExternalSearchRequest searchRequest = new TExternalSearchRequest()
-                .setSchemaVersion(queryVector.isSetNumVectors() ? 2 : 1)
+                .setSchemaVersion(1)
                 .setSearchQuery(TExternalSearchQuery.vector_search(vectorParams));
         TVectorSearchOptions vectorSearchOptions = buildVectorSearchOptions(params, useIndex);
         if (vectorSearchOptions != null) {

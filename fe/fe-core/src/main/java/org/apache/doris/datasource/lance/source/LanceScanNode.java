@@ -163,8 +163,7 @@ public class LanceScanNode extends FileQueryScanNode {
         }
         super.doInitialize();
         checkAdditionalTypeBackendCompatibility(
-                projectsCurrentReaderType() || (externalSearchRequest != null
-                        && externalSearchRequest.getSchemaVersion() >= 2), backendPolicy.getBackends());
+                projectsCurrentReaderType(), backendPolicy.getBackends());
         ExternalUtil.initSchemaInfo(params, -1L, sourceColumns);
 
         if (searchKind != SearchKind.NORMAL) {
@@ -198,7 +197,7 @@ public class LanceScanNode extends FileQueryScanNode {
         return false;
     }
 
-    /** Rejects old smooth-upgrade source BEs for Lance features requiring the current reader. */
+    /** Rejects old smooth-upgrade source BEs for additional Lance type projections. */
     @VisibleForTesting
     public static void checkAdditionalTypeBackendCompatibility(
             boolean requiresCurrentReader, Iterable<Backend> backends) throws UserException {
@@ -208,7 +207,7 @@ public class LanceScanNode extends FileQueryScanNode {
         for (Backend backend : backends) {
             if (backend.isSmoothUpgradeSrc()) {
                 throw new UserException(
-                        "Additional Lance types or multi-vector search are unavailable while backend "
+                        "Additional Lance types are unavailable while backend "
                                 + backend.getId() + " is a smooth upgrade source");
             }
         }

@@ -476,7 +476,7 @@ TEST(LanceTableReaderVectorSearchTest, ValidatesMultiVectorWireShapeBeforeDatase
     RuntimeState state(globals);
     auto valid = make_float32_vector_search_params({1.0F, 0.0F, 0.0F}, 4, 0);
     auto& request = valid.lance_scan_params.external_search_request;
-    request.__set_schema_version(2);
+    request.__set_schema_version(1);
     auto& query = request.search_query.vector_search.query_vector;
     query.__set_dimension(3);
     query.__set_num_vectors(1);
@@ -501,13 +501,14 @@ TEST(LanceTableReaderVectorSearchTest, ValidatesMultiVectorWireShapeBeforeDatase
                 .__set_num_vectors(count);
         check(invalid, false);
     }
-    auto old_version = valid;
-    old_version.lance_scan_params.external_search_request.__set_schema_version(1);
-    check(old_version, false);
+    auto unsupported_version = valid;
+    unsupported_version.lance_scan_params.external_search_request.__set_schema_version(2);
+    check(unsupported_version, false);
     auto missing_count = valid;
     missing_count.lance_scan_params.external_search_request.search_query.vector_search.query_vector
             .__isset.num_vectors = false;
-    check(missing_count, false);
+    // Without num_vectors, the same payload is an ordinary single-vector request.
+    check(missing_count, true);
     auto hamming = valid;
     hamming.lance_scan_params.external_search_request.search_query.vector_search.__set_metric(
             TVectorMetric::HAMMING);
@@ -850,7 +851,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexed
                 RuntimeProfile profile("multi_vector_search");
                 auto params = make_float32_vector_search_params({0, 0, 0}, 10, 0);
                 auto& request = params.lance_scan_params.external_search_request;
-                request.__set_schema_version(2);
+                request.__set_schema_version(1);
                 request.vector_search_options.__set_use_index(indexed);
                 request.vector_search_options.__set_nprobes(1);
                 auto& search = request.search_query.vector_search;
@@ -972,7 +973,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorSegmentTopKMatchesIndependentG
                     // FE sends top_k + offset to each split, and applies offset only after merging.
                     auto params = make_float32_vector_search_params({0, 0, 0}, 20, 0);
                     auto& request = params.lance_scan_params.external_search_request;
-                    request.__set_schema_version(2);
+                    request.__set_schema_version(1);
                     request.vector_search_options.__set_use_index(split < 2);
                     request.vector_search_options.__set_nprobes(4);
                     request.vector_search_options.__set_refine_factor(64);
@@ -1041,7 +1042,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBat
                          " indexed=" + std::to_string(indexed));
             auto params = make_float32_vector_search_params({0, 0, 0}, 1, 0);
             auto& request = params.lance_scan_params.external_search_request;
-            request.__set_schema_version(2);
+            request.__set_schema_version(1);
             request.vector_search_options.__set_use_index(indexed);
             request.vector_search_options.__set_nprobes(1);
             auto& search = request.search_query.vector_search;
@@ -1084,7 +1085,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorCosineMasksUndefinedRows) {
         for (const bool zero_query : {false, true}) {
             auto params = make_float32_vector_search_params({0, 0, 0}, 10, 0);
             auto& request = params.lance_scan_params.external_search_request;
-            request.__set_schema_version(2);
+            request.__set_schema_version(1);
             request.vector_search_options.__set_use_index(indexed);
             request.vector_search_options.__set_nprobes(1);
             auto& search = request.search_query.vector_search;
@@ -1129,7 +1130,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorDefaultMetricIsConsistentAcros
     for (const auto fragment : fixture.fragment_ids) {
         auto params = make_float32_vector_search_params({0, 0, 0}, 10, 0);
         auto& request = params.lance_scan_params.external_search_request;
-        request.__set_schema_version(2);
+        request.__set_schema_version(1);
         request.vector_search_options.__set_use_index(true);
         auto& search = request.search_query.vector_search;
         search.__set_column("vectors32");
@@ -1170,7 +1171,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorRejectsActualNullAndNonFiniteE
             SCOPED_TRACE(column);
             auto params = make_float32_vector_search_params({0, 0, 0}, 1, 0);
             auto& request = params.lance_scan_params.external_search_request;
-            request.__set_schema_version(2);
+            request.__set_schema_version(1);
             auto& search = request.search_query.vector_search;
             search.__set_column(column);
             search.query_vector.__set_dimension(3);

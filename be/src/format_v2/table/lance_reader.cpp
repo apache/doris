@@ -532,7 +532,7 @@ Status LanceTableReader::_validate_external_search_request() const {
     }
 
     const auto& request = lance_scan_params.external_search_request;
-    if (request.schema_version != 1 && request.schema_version != 2) {
+    if (request.schema_version != 1) {
         return Status::NotSupported("unsupported external search schema version: {}",
                                     request.schema_version);
     }
@@ -564,10 +564,10 @@ Status LanceTableReader::_validate_external_search_request() const {
                                         static_cast<int>(query_vector.element_type));
         }
         const bool multi_vector = query_vector.__isset.num_vectors;
-        if (multi_vector != (request.schema_version == 2) ||
-            (multi_vector && query_vector.num_vectors <= 0)) {
+        // The optional count distinguishes a query matrix, including a one-row matrix.
+        if (multi_vector && query_vector.num_vectors <= 0) {
             return Status::InvalidArgument(
-                    "Lance multi-vector queries require schema version 2 and positive num_vectors");
+                    "Lance multi-vector queries require positive num_vectors");
         }
         if (multi_vector && (query_vector.element_type == TVectorElementType::UINT8 ||
                              query_vector.element_type == TVectorElementType::INT8 ||
@@ -613,9 +613,6 @@ Status LanceTableReader::_validate_external_search_request() const {
         }
     } else {
         DORIS_CHECK(_search_kind == SearchKind::FULL_TEXT);
-        if (request.schema_version != 1) {
-            return Status::InvalidArgument("Lance full-text search requires schema version 1");
-        }
         const auto& full_text = request.search_query.full_text_search;
         if (!full_text.__isset.column || full_text.column.empty() ||
             full_text.column.find('\0') != std::string::npos) {

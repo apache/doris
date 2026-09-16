@@ -55,7 +55,9 @@ subvectors. The score is a sum, not an average, so duplicating a query subvector
 changes the score. `_distance` uses Doris FLOAT, including for Float64 inputs.
 
 `top_k` and `offset` count table rows, not subvectors. The TVF `filter` is applied
-before candidate search; an outer SQL WHERE filters the search's results.
+before candidate search. An outer SQL WHERE filters each split's returned candidates
+before Doris merges them into the global TopK; it does not rerun Lance search to
+replace rejected candidates within a split.
 Distributed fragments return row candidates for the global TopK. Ties at the
 TopK boundary have no guaranteed row order.
 
@@ -92,9 +94,6 @@ are searched together with indexed rows.
   at most 100,000, with a default refinement factor of 1. These limits bound
   per-query ANN plan expansion and candidate allocation, independently of wire size.
 - Extension and dictionary vector encodings are not supported.
-- Multi-vector requests use a new protocol version. Old BEs reject these requests;
-  finish the BE upgrade before enabling multi-vector searches. Ordinary vector
-  requests retain their previous protocol.
 
 For example, a compatible PyArrow schema is:
 

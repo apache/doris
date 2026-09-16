@@ -75,25 +75,6 @@ public class LanceLazyMaterializationUpgradeTest {
         assertUpgradeFence(false);
     }
 
-    @Test
-    public void testMultiVectorSearchFencesOldBackendWithoutVectorProjection() throws Exception {
-        ConnectContext previous = ConnectContext.get();
-        ConnectContext context = new ConnectContext();
-        context.setThreadLocalInfo();
-        try {
-            RuntimeException error = Assertions.assertThrows(RuntimeException.class,
-                    () -> translate(true, false, true, true));
-            Assertions.assertTrue(error.toString().contains("smooth upgrade source"));
-            translate(true, false, false, true);
-        } finally {
-            if (previous == null) {
-                ConnectContext.remove();
-            } else {
-                previous.setThreadLocalInfo();
-            }
-        }
-    }
-
     private void assertUpgradeFence(boolean vector) throws Exception {
         ConnectContext previous = ConnectContext.get();
         ConnectContext context = new ConnectContext();
@@ -115,10 +96,6 @@ public class LanceLazyMaterializationUpgradeTest {
     }
 
     private void translate(boolean vector, boolean lazyNull, boolean mixedVersion) throws Exception {
-        translate(vector, lazyNull, mixedVersion, false);
-    }
-
-    private void translate(boolean vector, boolean lazyNull, boolean mixedVersion, boolean multiVector) throws Exception {
         String functionName = vector ? "vector_search" : "full_text_search";
         String scoreName = vector ? "_distance" : "_score";
         Field nestedNull = new Field("nested_null", FieldType.nullable(ArrowType.List.INSTANCE),
@@ -167,8 +144,7 @@ public class LanceLazyMaterializationUpgradeTest {
                     : TExternalSearchQuery.full_text_search(new TFullTextSearchParams().setColumn("text"));
             LanceScanNode node = LanceScanNode.forExternalSearch(call.getArgument(0, PlanNodeId.class),
                     call.getArgument(1, TupleDescriptor.class), source, metadata, 0,
-                    new TExternalSearchRequest().setSchemaVersion(multiVector ? 2 : 1).setSearchQuery(query),
-                    call.getArgument(2, SessionVariable.class));
+                    new TExternalSearchRequest().setSearchQuery(query), call.getArgument(2, SessionVariable.class));
             java.lang.reflect.Field backendPolicy = ExternalScanNode.class.getDeclaredField("backendPolicy");
             backendPolicy.setAccessible(true);
             backendPolicy.set(node, policy);
