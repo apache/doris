@@ -15,9 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.doris.regression.util.WarmupMetricsUtils
 
-suite("alter_ttl_2") {
+suite("alter_ttl_2", "nonConcurrent") {
+    def originalQueryCache = sql("select @@enable_sql_cache, @@enable_query_cache")[0]
+            .collect { it.toString().toLowerCase(Locale.ROOT) }
+    assertTrue(originalQueryCache.every { it in ["true", "false", "1", "0"] })
+    onFinish {
+        sql "set enable_sql_cache = ${originalQueryCache[0]}"
+        sql "set enable_query_cache = ${originalQueryCache[1]}"
+    }
+    sql "set enable_sql_cache = false"
+    sql "set enable_query_cache = false"
     def custoBeConfig = [
         enable_evict_file_cache_in_advance : false,
         file_cache_enter_disk_resource_limit_mode_percent : 99,
@@ -31,7 +40,9 @@ suite("alter_ttl_2") {
     assertTrue(!clusters.isEmpty())
     def validCluster = clusters[0][0]
     sql """use @${validCluster};""";
-    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="300") """
+    long initialTtlSeconds = 3600L
+    long expiredTtlSeconds = 1L
+    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="${initialTtlSeconds}") """
     String[][] backends = sql """ show backends """
     String backendId;
     def backendIdToBackendIP = [:]
@@ -47,26 +58,11 @@ suite("alter_ttl_2") {
     assertEquals(backendIdToBackendIP.size(), 1)
 
     backendId = backendIdToBackendIP.keySet()[0]
-    def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
-    logger.info(url)
-    def clearFileCache = { check_func ->
-        httpTest {
-            endpoint ""
-            uri url
-            op "get"
-            body ""
-            check check_func
-        }
-    }
-
-    def getMetricsMethod = { check_func ->
-        httpTest {
-            endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
-            uri "/brpc_metrics"
-            op "get"
-            check check_func
-        }
-    }
+    def cacheBackend = [
+        ip: backendIdToBackendIP.get(backendId),
+        httpPort: backendIdToBackendHttpPort.get(backendId),
+        brpcPort: backendIdToBackendBrpcPort.get(backendId)
+    ]
 
     def getTabletIds = { String tableName ->
         def tablets = sql "show tablets from ${tableName}"
@@ -74,31 +70,57 @@ suite("alter_ttl_2") {
         tablets.collect { it[0] as Long }
     }
 
-    def waitForFileCacheType = { List<Long> tabletIds, String expectedType, long timeoutMs = 180000L, long intervalMs = 2000L ->
-        long start = System.currentTimeMillis()
-        while (System.currentTimeMillis() - start < timeoutMs) {
-            boolean allMatch = true
-            for (Long tabletId in tabletIds) {
-                def rows = sql "select type from information_schema.file_cache_info where tablet_id = ${tabletId}"
-                if (rows.isEmpty()) {
-                    logger.warn("file_cache_info is empty for tablet ${tabletId} while waiting for ${expectedType}")
-                    allMatch = false
-                    break
-                }
-                def mismatch = rows.find { row -> !row[0]?.toString()?.equalsIgnoreCase(expectedType) }
-                if (mismatch) {
-                    logger.info("tablet ${tabletId} has cache types ${rows.collect { it[0] }} while waiting for ${expectedType}")
-                    allMatch = false
-                    break
-                }
-            }
-            if (allMatch) {
-                logger.info("All file cache entries for tablets ${tabletIds} are ${expectedType}")
-                return
-            }
-            sleep(intervalMs)
+    def getCache = { List<Long> tabletIds ->
+        sql "use @${validCluster}"
+        def rows = sql """select be_id, cache_path, tablet_id, `hash`, `offset`, size, lower(type)
+            from information_schema.file_cache_info
+            where tablet_id in (${tabletIds.join(',')}) and be_id = ${backendId}"""
+        def blocks = [:]
+        rows.each { row ->
+            def key = [row[0] as Long, row[1].toString(), row[2] as Long,
+                       row[3].toString(), row[4] as Long]
+            assertTrue(!blocks.containsKey(key), "Duplicate cache block: ${key}")
+            assertTrue((row[5] as Long) > 0L, "Invalid block size: ${row}")
+            blocks[key] = [size: row[5] as Long, type: row[6].toString()]
         }
-        assertTrue(false, "Timeout waiting for file_cache_info type ${expectedType} for tablets ${tabletIds}")
+        blocks
+    }
+    def sizes = { Map blocks -> blocks.collectEntries { key, value -> [(key): value.size] } }
+    def waitForFileCacheType = { List<Long> tabletIds, String expectedType, Map expectedBlocks = null ->
+        long deadline = System.currentTimeMillis() + 600000L
+        long stableSince = 0L
+        def previous = null
+        def lastState = [:]
+        while (System.currentTimeMillis() < deadline) {
+            def blocks = getCache(tabletIds)
+            def missing = tabletIds.findAll { id -> !blocks.keySet().any { it[2] == id } }
+            boolean ready = missing.isEmpty() && blocks.values().every { it.type == expectedType } &&
+                    (expectedBlocks == null || sizes(blocks) == sizes(expectedBlocks))
+            lastState = [expected_type: expectedType, missing_tablets: missing,
+                         by_type: blocks.values().groupBy { it.type }.collectEntries { type, values ->
+                             [(type): [blocks: values.size(), bytes: values.sum(0L) { it.size }]]
+                         }, missing_blocks: expectedBlocks == null ? [] : (expectedBlocks.keySet() - blocks.keySet()).take(10)]
+            if (blocks != previous) { logger.info("Scoped TTL transition: ${lastState}") }
+            if (!ready || blocks != previous) { stableSince = System.currentTimeMillis() }
+            previous = blocks
+            if (ready && System.currentTimeMillis() - stableSince >= 3000L) {
+                logger.info("Verified scoped cache: tablets=${tabletIds}, state=${lastState}")
+                return blocks
+            }
+            sleep(1000)
+        }
+        assertTrue(false, "Timeout waiting for scoped cache conversion on ${validCluster}/BE ${backendId}: ${lastState}")
+    }
+    def getGlobalMetrics = {
+        ["ttl_cache_size", "normal_queue_cache_size"].collectEntries { name ->
+            [(name): WarmupMetricsUtils.getBrpcMetric(cacheBackend.ip.toString(), cacheBackend.brpcPort.toString(), name)]
+        }
+    }
+    def scanTable = {
+        // Force a BE column scan and check fixture data before and after the cache transition.
+        def result = sql "select count(*), sum(C_CUSTKEY) from customer_ttl"
+        assertEquals(200L, result[0][0] as Long)
+        assertEquals(2020100L, result[0][1] as Long)
     }
 
     sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
@@ -130,101 +152,30 @@ suite("alter_ttl_2") {
         }
     }
 
-    clearFileCache.call() {
-        respCode, body -> {}
-    }
-    sleep(30000)
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            for (String line in strs) {
-                if (flag1) break;
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    logger.info("ttl_cache_size line before assert zero: " + line)
-                    assertEquals(line.substring(i).toLong(), 0)
-                    flag1 = true
-                }
-            }
-            assertTrue(flag1)
-    }
+    try {
+        def metricsBeforeClear = getGlobalMetrics()
+        WarmupMetricsUtils.clearFileCache(cacheBackend.ip.toString(), cacheBackend.httpPort.toString())
+        def metricsAfterClear = getGlobalMetrics()
+        // sync=true may leave held blocks from other tables. Global counters are diagnostic only.
+        logger.info("TTL clear metrics: before=${metricsBeforeClear}, after=${metricsAfterClear}")
 
-    load_customer_ttl_once("customer_ttl")
-    def tabletIds = getTabletIds.call("customer_ttl")
-    waitForFileCacheType.call(tabletIds, "ttl", 60000L)
-    sql """ select count(*) from customer_ttl """
-    sleep(30000)
-    long ttl_cache_size = 0
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            for (String line in strs) {
-                if (flag1) break;
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    logger.info("ttl_cache_size line after load: " + line)
-                    ttl_cache_size = line.substring(i).toLong()
-                    flag1 = true
-                }
-            }
-            assertTrue(flag1)
-    }
-    sql """ ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="120") """
-    sleep(80000)
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            for (String line in strs) {
-                if (flag1) break;
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    logger.info("ttl_cache_size line after ttl update: " + line)
-                    assertEquals(line.substring(i).toLong(), ttl_cache_size)
-                    flag1 = true
-                }
-            }
-            assertTrue(flag1)
-    }
-    // the first load data ttl is 300，so need wait for 200s until the ttl timeout
-    sleep(200000)
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            for (String line in strs) {
-                if (flag1) break;
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    assertEquals(line.substring(i).toLong(), 0)
-                    flag1 = true
-                }
-            }
-            assertTrue(flag1)
-    }
+        load_customer_ttl_once("customer_ttl")
+        def tabletIds = getTabletIds.call("customer_ttl")
+        scanTable()
+        def baseline = waitForFileCacheType(tabletIds, "ttl")
+        def metricsBeforeAlter = getGlobalMetrics()
+        logger.info("TTL before shortening: tablets=${tabletIds}, blocks=${baseline}, metrics=${metricsBeforeAlter}")
 
-    waitForFileCacheType.call(tabletIds, "normal", 300000L)
+        // The stable TTL baseline above is already more than one second after tablet creation.
+        // Retain the positive -> positive transition; the original blocks must change type in place.
+        sql """ALTER TABLE customer_ttl SET ("file_cache_ttl_seconds"="${expiredTtlSeconds}")"""
+        waitForFileCacheType(tabletIds, "normal", baseline)
+        def metricsAfterAlter = getGlobalMetrics()
+        def delta = metricsAfterAlter.collectEntries { name, value -> [(name): value - metricsBeforeAlter[name]] }
+        logger.info("TTL after shortening: before=${metricsBeforeAlter}, after=${metricsAfterAlter}, delta=${delta}")
+        scanTable()
+    } finally {
+        sql "DROP TABLE IF EXISTS customer_ttl FORCE"
+    }
     }
 }

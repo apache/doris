@@ -15,121 +15,214 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_file_cache_info") {
-    def custoBeConfig = [
-        enable_evict_file_cache_in_advance : false,
-        file_cache_enter_disk_resource_limit_mode_percent : 99
+suite("test_file_cache_info", "nonConcurrent") {
+    def customBeConfig = [
+        enable_evict_file_cache_in_advance: false,
+        file_cache_enter_disk_resource_limit_mode_percent: 99
     ]
-
-    setBeConfigTemporary(custoBeConfig) {
-
-    String[][] backends = sql """ show backends """
-    def backendSockets = []
-    def backendIdToBackendIP = [:]
-    def backendIdToBackendHttpPort = [:]
-    for (String[] backend in backends) {
-        if (backend[9].equals("true")) {
-            backendIdToBackendIP.put(backend[0], backend[1])
-            backendIdToBackendHttpPort.put(backend[0], backend[4])
+    setBeConfigTemporary(customBeConfig) {
+        String tableName = "test_file_cache_info_lifecycle"
+        def clusters = sql "SHOW CLUSTERS"
+        assertTrue(!clusters.isEmpty(), "No compute group found")
+        String clusterName = clusters[0][0].toString()
+        String dbName = sql("SELECT DATABASE()")[0][0].toString()
+        def backends = sql_return_maparray("SHOW BACKENDS").findAll { be ->
+            "${be.Alive}".equalsIgnoreCase("true") &&
+                    parseJson(be.Tag.toString()).compute_group_name == clusterName
+        }.collectEntries { be -> [(be.BackendId as Long): be] }
+        assertTrue(!backends.isEmpty(), "No alive backends in ${clusterName}")
+        def backendIds = backends.keySet()
+        Long tabletId = null
+        def lastState = [:]
+        def clearResponses = [:]
+        def originalQueryCache = sql("select @@enable_sql_cache, @@enable_query_cache")[0].collect { value ->
+            String setting = value.toString().toLowerCase(Locale.ROOT)
+            assertTrue(setting in ["true", "false", "0", "1"], "Unexpected cache setting: ${value}")
+            setting
         }
-    }
-    assertTrue(backendIdToBackendIP.size() > 0, "No alive backends found")
+        def expectedRows = (1..5).collect { i ->
+            [i as Long, String.format('Customer#%09d', i), "address${i}".toString(),
+             "city${i}".toString(), "nation${i}".toString(), "region${i}".toString(),
+             "phone${i}".toString(), "segment${i}".toString()]
+        }
+        def readTable = {
+            sql "use @${clusterName}"
+            // Read and validate every column; result caches are disabled for both reads.
+            def rows = sql "select * from ${tableName} order by c_custkey"
+            assertTrue(rows.every { it.size() == 8 && it.every { value -> value != null } },
+                    "Unexpected data result: ${rows}")
+            def normalized = rows.collect { row -> [row[0] as Long] + row.drop(1).collect { it.toString() } }
+            assertEquals(expectedRows, normalized)
+        }
+        def getCache = {
+            sql "use @${clusterName}"
+            def rows = sql """select be_id, cache_path, tablet_id, `hash`, `offset`, size, lower(type)
+                from information_schema.file_cache_info
+                where tablet_id = ${tabletId} and be_id in (${backendIds.join(',')})"""
+            def blocks = [:]
+            rows.each { row ->
+                def key = [row[0] as Long, row[1].toString(), row[2] as Long,
+                           row[3].toString(), row[4] as Long]
+                assertTrue(backendIds.contains(key[0]) && key[2] == tabletId, "Unexpected cache owner: ${row}")
+                assertTrue(key[4] >= 0L && (row[5] as Long) > 0L, "Invalid cache range: ${row}")
+                assertTrue(!blocks.containsKey(key), "Duplicate cache block: ${key}")
+                blocks[key] = [size: row[5] as Long, type: row[6]?.toString()]
+            }
+            blocks
+        }
+        def summarizeCache = { Map blocks ->
+            blocks.groupBy { key, value -> [key[0], key[2]] }.collectEntries { owner, entries ->
+                [(owner): [block_count: entries.size(), bytes: entries.values().sum(0L) { it.size },
+                           bytes_by_type: entries.values().groupBy { it.type }.collectEntries { type, values ->
+                               [(type): values.sum(0L) { it.size }]
+                           }]]
+            }
+        }
+        def waitForCache = { String phase, boolean expectPresent, long timeoutMs ->
+            long startedMs = System.currentTimeMillis()
+            long deadlineMs = startedMs + timeoutMs
+            long stableSince = 0L
+            long lastLogMs = 0L
+            def previous = null
+            while (System.currentTimeMillis() < deadlineMs) {
+                def blocks = getCache()
+                boolean matches = expectPresent ? !blocks.isEmpty() : blocks.isEmpty()
+                lastState = [phase: phase, elapsed_ms: System.currentTimeMillis() - startedMs,
+                             cache_by_be_tablet: summarizeCache(blocks), blocks: blocks]
+                if (blocks != previous || System.currentTimeMillis() - lastLogMs >= 30000L) {
+                    logger.info("file_cache_info lifecycle: cluster=${clusterName}, ${lastState}")
+                    lastLogMs = System.currentTimeMillis()
+                }
+                if (!matches || blocks != previous) {
+                    stableSince = System.currentTimeMillis()
+                }
+                previous = blocks
+                // A transient empty metadata snapshot is not a completed clear.
+                if (matches && System.currentTimeMillis() - stableSince >= 3000L) {
+                    logger.info("file_cache_info phase complete: ${lastState}")
+                    return blocks
+                }
+                sleep(1000)
+            }
+            assertTrue(false, "Timeout waiting for ${phase}: cluster=${clusterName}, tablet=${tabletId}, " +
+                    "BEs=${backendIds}, clear_responses=${clearResponses}, last_state=${lastState}")
+        }
+        def waitForReaders = {
+            long deadlineMs = System.currentTimeMillis() + 60000L
+            long quietSince = System.currentTimeMillis()
+            while (System.currentTimeMillis() < deadlineMs) {
+                def active = sql_return_maparray("SHOW PROCESSLIST").findAll { row ->
+                    row.Db?.toString() == dbName && row.Info?.toString()?.contains(tableName) &&
+                            !"${row.Command}".equalsIgnoreCase("Sleep")
+                }
+                lastState = [phase: "reader_drain", active_queries: active]
+                if (!active.isEmpty()) {
+                    quietSince = System.currentTimeMillis()
+                } else if (System.currentTimeMillis() - quietSince >= 3000L) {
+                    return
+                }
+                sleep(1000)
+            }
+            assertTrue(false, "Timeout waiting for table queries to finish: ${lastState}")
+        }
+        def clearCache = { long beId ->
+            def be = backends[beId]
+            String url = "http://${be.Host}:${be.HttpPort}/api/file_cache?op=clear&sync=true"
+            long startedMs = System.currentTimeMillis()
+            clearResponses[beId] = [url: url]
+            logger.info("file_cache_info clear start: BE=${beId}, url=${url}")
+            def connection = new URL(url).openConnection()
+            connection.setConnectTimeout(5000)
+            connection.setReadTimeout(60000)
+            try {
+                int status = connection.getResponseCode()
+                String body = (status == 200 ? connection.getInputStream() : connection.getErrorStream())
+                        ?.withCloseable { it.getText("UTF-8") } ?: ""
+                clearResponses[beId] += [http_status: status, elapsed_ms: System.currentTimeMillis() - startedMs,
+                                         response: body]
+                logger.info("file_cache_info clear response: BE=${beId}, ${clearResponses[beId]}")
+                assertEquals(200, status, "Clear failed on BE ${beId}: ${body}")
+                def response = parseJson(body)
+                assertTrue("${response.status}".equalsIgnoreCase("OK"), "Clear failed on BE ${beId}: ${body}")
+                def counters = ["num_files_all", "num_cells_all", "num_cells_to_delete", "num_cells_wait_recycle"]
+                        .collectEntries { name ->
+                            def matcher = response.msg?.toString() =~ /\b${name}=(\d+)/
+                            def values = []
+                            while (matcher.find()) { values.add(matcher.group(1) as Long) }
+                            [(name): values.isEmpty() ? null : values.sum(0L)]
+                        }
+                clearResponses[beId].counters = counters
+                logger.info("file_cache_info clear counters: BE=${beId}, ${counters}")
+            } catch (Throwable t) {
+                clearResponses[beId].error = t.toString()
+                clearResponses[beId].elapsed_ms = System.currentTimeMillis() - startedMs
+                throw t
+            } finally {
+                connection.disconnect()
+            }
+        }
+        Throwable failure = null
+        try {
+            sql "use @${clusterName}"
+            sql "set enable_sql_cache = false"
+            sql "set enable_query_cache = false"
+            sql "drop table if exists ${tableName} force"
+            sql """CREATE TABLE ${tableName} (
+                c_custkey INT, c_name STRING, c_address STRING, c_city STRING,
+                c_nation STRING, c_region STRING, c_phone STRING, c_mktsegment STRING
+            ) DUPLICATE KEY(c_custkey)
+            DISTRIBUTED BY HASH(c_custkey) BUCKETS 1
+            PROPERTIES("file_cache_ttl_seconds"="3600", "disable_auto_compaction"="true")"""
+            def tablets = sql_return_maparray("show tablets from ${tableName}")
+                    .collect { it.TabletId as Long }.unique()
+            assertEquals(1, tablets.size(), "Expected one tablet: ${tablets}")
+            tabletId = tablets[0]
+            String values = expectedRows.collect { row ->
+                "(${row[0]}, " + row.drop(1).collect { "'${it}'" }.join(", ") + ")"
+            }.join(", ")
+            sql "insert into ${tableName} values ${values}"
+            readTable()
+            def baseline = waitForCache("populated", true, 120000L)
+            waitForReaders()
+            // SQL quiescence does not prove that every BE holder has been released. The scoped
+            // empty-state check below remains the barrier for clear and async Meta Store deletion.
+            def cacheOwners = baseline.keySet().collect { it[0] }.unique().sort()
+            logger.info("file_cache_info before clear: cluster=${clusterName}, tablet=${tabletId}, " +
+                    "cache_owners=${cacheOwners}, cache_by_be_tablet=${summarizeCache(baseline)}, blocks=${baseline}")
+            long clearStartedMs = System.currentTimeMillis()
+            cacheOwners.each { clearCache(it as Long) }
+            waitForCache("cleared", false, 600000L)
+            logger.info("file_cache_info clear verified: tablet=${tabletId}, " +
+                    "clear_to_empty_ms=${System.currentTimeMillis() - clearStartedMs}, responses=${clearResponses}")
 
-    backendIdToBackendIP.each { backendId, ip ->
-        def socket = ip + ":" + backendIdToBackendHttpPort.get(backendId)
-        backendSockets.add(socket)
-    }
-
-    sql "drop table IF EXISTS customer"
-
-    sql """
-        CREATE TABLE IF NOT EXISTS customer (
-            `c_custkey` int NULL,
-            `c_name` string NULL,
-            `c_address` string NULL,
-            `c_city` string NULL,
-            `c_nation` string NULL,
-            `c_region` string NULL,
-            `c_phone` string NULL,
-            `c_mktsegment` string NULL
-        )
-        DUPLICATE KEY(`c_custkey`)
-        DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-        PROPERTIES (
-            "file_cache_ttl_seconds" = "3600"
-        )
-    """
-
-    sql """
-        insert into customer values
-        (1, 'Customer#000000001', 'address1', 'city1', 'nation1', 'region1', 'phone1', 'segment1'),
-        (2, 'Customer#000000002', 'address2', 'city2', 'nation2', 'region2', 'phone2', 'segment2'),
-        (3, 'Customer#000000003', 'address3', 'city3', 'nation3', 'region3', 'phone3', 'segment3'),
-        (4, 'Customer#000000004', 'address4', 'city4', 'nation4', 'region4', 'phone4', 'segment4'),
-        (5, 'Customer#000000005', 'address5', 'city5', 'nation5', 'region5', 'phone5', 'segment5')
-    """
-    sql "sync"
-
-    sql "select count(*) from customer"
-
-    Thread.sleep(10000)
-
-    def get_tablet_id = { String tbl_name ->
-        def tablets = sql "show tablets from ${tbl_name}"
-        assertEquals(tablets.size(), 1, "Should have exactly one tablet with BUCKETS=1")
-        return tablets[0][0] as Long
-    }
-
-    def tablet_id = get_tablet_id("customer")
-    println "Tablet ID: ${tablet_id}"
-
-    def desc_cache_info = sql "desc information_schema.file_cache_info"
-    assertTrue(desc_cache_info.size() > 0, "desc information_schema.file_cache_info should not be empty")
-    assertEquals(desc_cache_info[0][0].toString().toUpperCase(), "HASH")
-    assertEquals(desc_cache_info[1][0].toString().toUpperCase(), "OFFSET")
-
-    def cache_info = sql "select * from information_schema.file_cache_info"
-    
-    assertTrue(cache_info.size() > 0, "file_cache_info should not be empty for tablet_id ${tablet_id}")
-    
-    println "First query - File cache info for tablet_id ${tablet_id}:"
-    cache_info.each { row ->
-        println "  ${row}"
-    }
-
-    def clearResults = []
-    backendSockets.each { socket ->
-        httpTest {
-            endpoint ""
-            uri socket + "/api/file_cache?op=clear&sync=true"
-            op "get"
-            check {respCode, body ->
-                assertEquals(respCode, 200, "clear local cache fail, maybe you can find something in respond: " + parseJson(body))
-                clearResults.add(true)
+            // Only now read the business table again. No repeated clear or forced release can
+            // bypass a stuck holder; persistent remnants must fail with the block details above.
+            long reloadStartedMs = System.currentTimeMillis()
+            readTable()
+            def reloaded = waitForCache("reloaded", true, 120000L)
+            // Readers may split a file into different blocks than the INSERT writer did.
+            logger.info("file_cache_info reload verified: tablet=${tabletId}, " +
+                    "read_to_visible_ms=${System.currentTimeMillis() - reloadStartedMs}, " +
+                    "cache_by_be_tablet=${summarizeCache(reloaded)}, blocks=${reloaded}")
+        } catch (Throwable t) {
+            failure = t
+            logger.warn("file_cache_info lifecycle failed: cluster=${clusterName}, tablet=${tabletId}, " +
+                    "clear_responses=${clearResponses}, last_state=${lastState}, error=${t}")
+            throw t
+        } finally {
+            def cleanupErrors = []
+            try { sql "drop table if exists ${tableName} force" } catch (Throwable t) { cleanupErrors.add(t) }
+            [enable_sql_cache: originalQueryCache[0], enable_query_cache: originalQueryCache[1]].each { name, value ->
+                try { sql "set ${name} = ${value}" } catch (Throwable t) { cleanupErrors.add(t) }
+            }
+            if (!cleanupErrors.isEmpty()) {
+                if (failure != null) {
+                    cleanupErrors.each { failure.addSuppressed(it) }
+                } else {
+                    cleanupErrors.tail().each { cleanupErrors[0].addSuppressed(it) }
+                    throw cleanupErrors[0]
+                }
             }
         }
     }
-    assertEquals(clearResults.size(), backendSockets.size(), "Failed to clear cache on some backends")
-
-    Thread.sleep(5000)
-
-    def cache_info_after_clear = sql "select * from information_schema.file_cache_info where tablet_id = ${tablet_id}"
-    assertEquals(cache_info_after_clear.size(), 0, "file_cache_info should be empty after clearing cache")
-
-    println "After clearing cache - File cache info is empty as expected"
-
-    sql "select * from customer"
-
-    Thread.sleep(10000)
-
-    def cache_info_reloaded = sql "select * from information_schema.file_cache_info where tablet_id = ${tablet_id}"
-    assertTrue(cache_info_reloaded.size() > 0, "file_cache_info should not be empty after reloading data")
-
-    println "After reloading data - File cache info for tablet_id ${tablet_id}:"
-    cache_info_reloaded.each { row ->
-        println "  ${row}"
-    }
-
-    }
 }
-
