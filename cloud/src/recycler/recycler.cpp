@@ -4887,12 +4887,36 @@ int InstanceRecycler::delete_delete_bitmap_kvs(int64_t tablet_id, const std::str
             meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id, 0, 0});
     std::string delete_bitmap_end =
             meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id, INT64_MAX, INT64_MAX});
-    int ret = txn_remove(txn_kv_.get(), delete_bitmap_start, delete_bitmap_end);
-    if (ret != 0) {
-        LOG(WARNING) << "failed to delete delete bitmap kv, instance_id=" << instance_id_
-                     << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
+
+    std::unique_ptr<RangeGetIterator> it;
+    while (it == nullptr || it->more()) {
+        int ret = txn_get(txn_kv_.get(), delete_bitmap_start, delete_bitmap_end, it);
+        if (ret != 0) {
+            LOG(WARNING) << "failed to get delete bitmap kv, instance_id=" << instance_id_
+                         << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
+            return ret;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+
+        std::vector<std::string> keys;
+        while (it->has_next()) {
+            auto [key, _] = it->next();
+            keys.emplace_back(key);
+            if (!it->has_next()) {
+                delete_bitmap_start = key;
+            }
+        }
+        delete_bitmap_start.push_back('\x00');
+        if (txn_remove(txn_kv_.get(), std::move(keys)) != 0) {
+            LOG(WARNING) << "failed to delete delete bitmap kv, instance_id=" << instance_id_
+                         << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
+            return -1;
+        }
     }
-    return ret;
+
+    return 0;
 }
 
 bool InstanceRecycler::decode_packed_file_key(std::string_view key, std::string* packed_path) {
@@ -6000,6 +6024,13 @@ int InstanceRecycler::recycle_rowsets() {
                 LOG(WARNING) << "failed to delete versioned delete bitmap kv, instance_id="
                              << instance_id_;
                 return;
+            }
+            for (const auto& [_, rs] : rowsets_to_delete) {
+                if (delete_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
+                    LOG(WARNING) << "failed to delete delete bitmap kv, rs="
+                                 << rs.ShortDebugString();
+                    return;
+                }
             }
             if (txn_remove(txn_kv_.get(), rowset_keys_to_delete) != 0) {
                 LOG(WARNING) << "failed to delete recycle rowset kv, instance_id=" << instance_id_;

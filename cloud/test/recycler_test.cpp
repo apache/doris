@@ -1531,6 +1531,51 @@ TEST(RecyclerTest, recycle_rowsets) {
     check_delete_bitmap_file_size(accessor, tablet_id, 0);
 }
 
+TEST(RecyclerTest, recycle_rowsets_point_deletes_v1_delete_bitmap_keys_by_page) {
+    config::retention_seconds = 0;
+    config::instance_recycler_worker_pool_size = 1;
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view resource_id =
+            "recycle_rowsets_point_deletes_v1_delete_bitmap_keys_by_page";
+    auto instance = create_recycler_test_instance(std::string(resource_id));
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    constexpr int64_t tablet_id = 10002;
+    constexpr int64_t index_id = 10003;
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto rowset = create_rowset(std::string(resource_id), tablet_id, index_id, 0, schema);
+    ASSERT_EQ(create_recycle_rowset(txn_kv.get(), accessor.get(), rowset,
+                                    RecycleRowsetPB::COMPACT, false),
+              0);
+
+    const int delete_bitmap_key_count = RangeGetOptions().batch_limit + 1;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    create_delete_bitmaps(txn.get(), tablet_id, rowset.rowset_id_v2(), 0,
+                          delete_bitmap_key_count - 1);
+    const std::string adjacent_rowset_id = rowset.rowset_id_v2() + "_adjacent";
+    const auto adjacent_key =
+            meta_delete_bitmap_key({instance_id, tablet_id, adjacent_rowset_id, 0, 0});
+    txn->put(adjacent_key, "adjacent_delete_bitmap");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    const int64_t delete_count_before = txn_kv->del_count_;
+    ASSERT_EQ(recycler.recycle_rowsets(), 0);
+
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 1, 1);
+    EXPECT_GE(txn_kv->del_count_ - delete_count_before, delete_bitmap_key_count);
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string value;
+    EXPECT_EQ(txn->get(adjacent_key, &value), TxnErrorCode::TXN_OK);
+}
+
 TEST(RecyclerTest, recycle_rowsets_only_marks_prepare_rowsets_as_recycled) {
     config::retention_seconds = 0;
     auto old_enable_mark = config::enable_mark_delete_rowset_before_recycle;
