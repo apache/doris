@@ -1423,6 +1423,16 @@ public class IcebergUtils {
         return resSchema;
     }
 
+    /** Build independent display columns without changing the nullable columns used by scans. */
+    public static List<Column> parseSchemaForDisplay(Schema schema, boolean enableMappingVarbinary,
+            boolean enableMappingTimestampTz) {
+        List<Column> columns = parseSchema(schema, enableMappingVarbinary, enableMappingTimestampTz);
+        for (Column column : columns) {
+            column.setIsAllowNull(schema.findField(column.getUniqueId()).isOptional());
+        }
+        return columns;
+    }
+
     /** Convert one Iceberg field to a Doris column without using the generic Doris default-value channel. */
     public static Column parseField(Types.NestedField field, boolean enableMappingVarbinary,
             boolean enableMappingTimestampTz) {
