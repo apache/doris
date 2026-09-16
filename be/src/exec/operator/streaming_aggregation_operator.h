@@ -54,7 +54,6 @@ private:
     friend class StatefulOperatorX;
 
     size_t _memory_usage() const;
-    void _add_limit_heap_top(ColumnRawPtrs& key_columns, size_t rows);
     bool _do_limit_filter(size_t num_rows, ColumnRawPtrs& key_columns);
     void _refresh_limit_heap(size_t i, ColumnRawPtrs& key_columns);
 

@@ -299,6 +299,117 @@ TEST_F(StreamingAggOperatorTest, memory_limit_pass_through_and_recover) {
     { EXPECT_TRUE(local_state->close(state.get()).ok()); }
 }
 
+TEST_F(StreamingAggOperatorTest, sort_limit_boundary_survives_pass_through_and_recover) {
+    // TopN(k ASC, 2) pushed down as a sort limit on the group key, with a real aggregate so
+    // that the pass-through serialization path is exercised. The mock sum reads column 0 and
+    // the group key slot reads column 1.
+    op->_aggregate_evaluators.push_back(create_agg_fn(pool, "sum",
+                                                      {std::make_shared<DataTypeInt64>()},
+                                                      std::make_shared<DataTypeInt64>(), false));
+    op->_pool = &pool;
+    op->_needs_finalize = false;
+    op->_do_sort_limit = true;
+    op->_sort_limit = 2;
+    op->_order_directions = {1};
+    op->_null_directions = {1};
+    op->set_parallel_tasks(5);
+
+    EXPECT_TRUE(op->set_child(child_op));
+    EXPECT_TRUE(op->prepare(state.get()).ok());
+    op->_probe_expr_ctxs = MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>());
+
+    {
+        auto local_state = std::make_unique<MockStreamingAggLocalState>(state.get(), op.get());
+        LocalStateInfo info {.parent_profile = &profile,
+                             .scan_ranges = {},
+                             .shared_state = nullptr,
+                             .shared_state_map = {},
+                             .task_idx = 0};
+        EXPECT_TRUE(local_state->init(state.get(), info).ok());
+        state->resize_op_id_to_local_state(-100);
+        state->emplace_local_state(op->operator_id(), std::move(local_state));
+    }
+    local_state =
+            static_cast<MockStreamingAggLocalState*>(state->get_local_state(op->operator_id()));
+    EXPECT_TRUE(local_state->open(state.get()).ok());
+    local_state->use_real_decision = true;
+    auto* memory_context = state->get_query_ctx()->resource_ctx()->memory_context();
+
+    auto boundary_key = [&]() {
+        return local_state->limit_columns[0]->get_int(local_state->limit_columns_min);
+    };
+
+    {
+        // Two groups seed the heap: candidates {10, 20}, boundary 20.
+        memory_context->set_mem_limit(5000LL * 1024 * 1024);
+        Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1}),
+                     ColumnHelper::create_column_with_name<DataTypeInt64>({10, 20})};
+        auto st = op->push(state.get(), &block, false);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(local_state->_get_hash_table_size(), 2);
+        EXPECT_EQ(local_state->need_do_sort_limit, 1);
+        EXPECT_EQ(boundary_key(), 20);
+    }
+
+    {
+        // Query limit lowered: the mixed block passes through. Key 30 is beyond the boundary
+        // and is dropped; key 5 is forwarded without entering the hash table, so it must not
+        // tighten the boundary either.
+        memory_context->set_mem_limit(10);
+        Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1}),
+                     ColumnHelper::create_column_with_name<DataTypeInt64>({5, 30})};
+        auto st = op->push(state.get(), &block, false);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(local_state->_get_hash_table_size(), 2);
+        EXPECT_EQ(local_state->_pre_aggregated_block->rows(), 1);
+        EXPECT_EQ(local_state->_pre_aggregated_block->get_by_position(0).column->get_int(0), 5);
+        EXPECT_EQ(boundary_key(), 20);
+
+        Block out;
+        bool eos = false;
+        EXPECT_TRUE(op->pull(state.get(), &out, &eos).ok());
+        EXPECT_EQ(out.rows(), 1);
+        EXPECT_FALSE(eos);
+    }
+
+    {
+        // Query limit restored: key 5 is new to the hash table and enters the heap exactly
+        // once, so the candidates become {5, 10} with boundary 10, not {5, 5}.
+        memory_context->set_mem_limit(5000LL * 1024 * 1024);
+        Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({1}),
+                     ColumnHelper::create_column_with_name<DataTypeInt64>({5})};
+        auto st = op->push(state.get(), &block, false);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(local_state->_get_hash_table_size(), 3);
+        EXPECT_EQ(local_state->_pre_aggregated_block->rows(), 0);
+        EXPECT_EQ(boundary_key(), 10);
+    }
+
+    {
+        // Key 7 belongs in the TopN result {5, 7}: it must be kept, and it tightens the
+        // boundary to 7.
+        Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({1}),
+                     ColumnHelper::create_column_with_name<DataTypeInt64>({7})};
+        auto st = op->push(state.get(), &block, false);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(local_state->_get_hash_table_size(), 4);
+        EXPECT_EQ(boundary_key(), 7);
+    }
+
+    {
+        // Key 8 is beyond the boundary and is dropped without touching the hash table.
+        Block block {ColumnHelper::create_column_with_name<DataTypeInt64>({1}),
+                     ColumnHelper::create_column_with_name<DataTypeInt64>({8})};
+        auto st = op->push(state.get(), &block, false);
+        EXPECT_TRUE(st.ok()) << st.msg();
+        EXPECT_EQ(local_state->_get_hash_table_size(), 4);
+        EXPECT_EQ(local_state->_pre_aggregated_block->rows(), 0);
+        EXPECT_EQ(boundary_key(), 7);
+    }
+
+    { EXPECT_TRUE(local_state->close(state.get()).ok()); }
+}
+
 TEST_F(StreamingAggOperatorTest, require_hash_shuffle_after_non_hash_local_exchange) {
     state->_query_options.__set_enable_local_exchange_before_agg(false);
     op->_needs_finalize = false;

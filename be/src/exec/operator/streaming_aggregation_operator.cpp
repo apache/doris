@@ -368,11 +368,15 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
             }
 
             if (need_do_sort_limit == 1) {
+                // Only drop rows that the current boundary already excludes. The boundary must
+                // not be tightened from pass-through rows: they never enter the hash table, so
+                // the heap cannot tell a new group from one it already holds and would count
+                // the same group twice, discarding a group that belongs in the TopN result.
+                // Aggregation resumed later refreshes the heap through hash table insertion.
                 if (_do_limit_filter(rows, key_columns)) {
                     bool need_filter = std::find(need_computes.begin(), need_computes.end(), 1) !=
                                        need_computes.end();
                     if (need_filter) {
-                        _add_limit_heap_top(key_columns, rows);
                         Block::filter_block_internal(in_block, need_computes);
                         rows = (uint32_t)in_block->rows();
                     } else {
@@ -705,21 +709,6 @@ void StreamingAggLocalState::build_limit_heap(size_t hash_table_size) {
         hash_table_size--;
     }
     limit_columns_min = limit_heap.top()._row_id;
-}
-
-void StreamingAggLocalState::_add_limit_heap_top(ColumnRawPtrs& key_columns, size_t rows) {
-    for (int i = 0; i < rows; ++i) {
-        if (cmp_res[i] == 1 && need_computes[i]) {
-            for (int j = 0; j < key_columns.size(); ++j) {
-                limit_columns[j]->insert_from(*key_columns[j], i);
-            }
-            limit_heap.emplace(limit_columns[0]->size() - 1, limit_columns, order_directions,
-                               null_directions);
-            limit_heap.pop();
-            limit_columns_min = limit_heap.top()._row_id;
-            break;
-        }
-    }
 }
 
 void StreamingAggLocalState::_refresh_limit_heap(size_t i, ColumnRawPtrs& key_columns) {
