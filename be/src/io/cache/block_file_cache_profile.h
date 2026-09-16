@@ -23,7 +23,6 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <unordered_map>
 
 #include "common/metrics/doris_metrics.h"
@@ -49,21 +48,23 @@ public:
         return s_metrics;
     }
 
-    FileCacheMetrics() {
-        FileCacheStatistics stats;
-        update(&stats);
-    }
+    // The counters are value members, so they are fully constructed before this
+    // body runs; registering here (instead of lazily on first update) is safe
+    // even if a metrics callback fires right after registration, since report()
+    // only reads the counters. There is no publication race: instance() is a
+    // magic static and returns only after construction completes.
+    FileCacheMetrics() { register_entity(); }
 
     void update(FileCacheStatistics* stats);
     std::shared_ptr<AtomicStatistics> report();
+    // Public for tests: pushes the current counters into the DorisMetrics
+    // gauges without waiting for the periodic metrics hook.
+    void update_metrics_callback();
 
 private:
     void register_entity();
-    void update_metrics_callback();
 
-    std::mutex _mtx;
-    // use shared_ptr for concurrent
-    std::shared_ptr<AtomicStatistics> _statistics;
+    AtomicStatistics _statistics;
 };
 
 FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
