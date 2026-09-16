@@ -118,11 +118,18 @@ public class ThriftHmsClientMaxPartsTest {
     @Test
     public void testFilteredProbeFollowsTheBatchSizeAndStaysInShortRange() {
         Assertions.assertEquals(321, ThriftHmsClient.filteredPartitionThreshold(321));
-        // The probe is threshold + 1 and the Thrift max_parts field is a short: a threshold at or above the cap
-        // would be narrowed on the wire, and a saturated page would then look complete - the failure this
-        // threshold exists to detect. MUTATION: returning the batch size unclamped -> red.
-        Assertions.assertEquals(Short.MAX_VALUE - 1, ThriftHmsClient.filteredPartitionThreshold(Short.MAX_VALUE));
-        Assertions.assertEquals(Short.MAX_VALUE - 1, ThriftHmsClient.filteredPartitionThreshold(1 << 20));
+        // The probe is threshold + 1, and the metastore SATURATES an oversized max_parts to Short.MAX_VALUE
+        // (HiveMetaStoreClient.shrinkMaxtoShort). A threshold at or above that cap would therefore make a
+        // truncated page look complete - the failure this threshold exists to detect. The invariant is asserted
+        // rather than the current constant, so adjusting the cap stays valid while the probe still fits.
+        // MUTATION: returning the batch size unclamped -> red.
+        Assertions.assertEquals(Short.MAX_VALUE - 1,
+                ThriftHmsClient.filteredPartitionThreshold(Short.MAX_VALUE - 1));
+        for (int batchSize : new int[] {1, 321, HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE, Short.MAX_VALUE,
+                HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE * 200}) {
+            Assertions.assertTrue(ThriftHmsClient.filteredPartitionThreshold(batchSize) + 1 <= Short.MAX_VALUE,
+                    "the probe must stay inside the Thrift short field, batch size " + batchSize);
+        }
     }
 
     @Test
