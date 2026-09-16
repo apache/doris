@@ -881,7 +881,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         }
 
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
-        tablet->last_sync_time_s = now;
+        tablet->last_sync_rowsets_time_s = now;
 
         if (sync_stats) {
             sync_stats->get_remote_rowsets_rpc_ns +=

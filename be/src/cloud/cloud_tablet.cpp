@@ -1552,6 +1552,7 @@ Status CloudTablet::sync_meta() {
                 new_vertical_compaction_num_columns_per_group);
     }
 
+    last_sync_tablet_meta_time_s = ::time(nullptr);
     return Status::OK();
 }
 

@@ -364,7 +364,7 @@ TEST_F(CloudCompactionTest, cumulative_global_lock_failure_keeps_thread_count_ba
     tablet->_approximate_num_rowsets = rowsets.size();
     tablet->_approximate_cumu_num_rowsets = rowsets.size();
     tablet->_approximate_cumu_num_deltas = rowsets.size();
-    tablet->last_sync_time_s = 1;
+    tablet->last_sync_rowsets_time_s = 1;
 
     auto* sync_point = SyncPoint::get_instance();
     sync_point->enable_processing();
@@ -433,16 +433,16 @@ public:
 TEST_F(CloudCompactionTest, cumulative_result_requires_next_counter) {
     auto tablet = std::make_shared<CloudTablet>(_engine, _tablet_meta);
     tablet->set_cumulative_compaction_cnt(1);
-    tablet->last_sync_time_s = 1;
+    tablet->last_sync_rowsets_time_s = 1;
     TestableCloudCompaction compaction(_engine, tablet);
 
     std::unique_lock lock(tablet->get_header_lock());
     EXPECT_FALSE(compaction.test_should_apply_cumulative_compaction_result(1));
-    EXPECT_EQ(tablet->last_sync_time_s, 1);
+    EXPECT_EQ(tablet->last_sync_rowsets_time_s, 1);
     EXPECT_TRUE(compaction.test_should_apply_cumulative_compaction_result(2));
-    EXPECT_EQ(tablet->last_sync_time_s, 1);
+    EXPECT_EQ(tablet->last_sync_rowsets_time_s, 1);
     EXPECT_FALSE(compaction.test_should_apply_cumulative_compaction_result(3));
-    EXPECT_EQ(tablet->last_sync_time_s, 0);
+    EXPECT_EQ(tablet->last_sync_rowsets_time_s, 0);
 }
 
 class TestableCloudCumulativeCompaction : public CloudCumulativeCompaction {
@@ -481,7 +481,7 @@ static CloudTabletSPtr create_cloud_tablet_with_rowsets(CloudStorageEngine& engi
     tablet->set_cumulative_layer_point(cumulative_point);
     tablet->fetch_add_approximate_num_rowsets(static_cast<int64_t>(num_rowsets) -
                                               tablet->fetch_add_approximate_num_rowsets(0));
-    tablet->last_sync_time_s = 1;
+    tablet->last_sync_rowsets_time_s = 1;
     return tablet;
 }
 
@@ -548,7 +548,7 @@ TEST_F(CloudCompactionTest, base_result_with_newer_cumulative_point_forces_sync)
 
         ASSERT_TRUE(compaction.modify_rowsets().ok());
         EXPECT_EQ(tablet->cumulative_layer_point(), 6);
-        EXPECT_EQ(tablet->last_sync_time_s, expected_sync_time);
+        EXPECT_EQ(tablet->last_sync_rowsets_time_s, expected_sync_time);
     };
 
     run_case(10008, 8, 0);
@@ -757,7 +757,7 @@ TEST_F(CloudCompactionTest, parallel_pick_keeps_mode_after_dynamic_config_change
     EXPECT_TRUE(commit_called);
     EXPECT_EQ(tablet->cumulative_compaction_cnt(), 0);
     EXPECT_EQ(tablet->cumulative_layer_point(), 2);
-    EXPECT_EQ(tablet->last_sync_time_s, 0);
+    EXPECT_EQ(tablet->last_sync_rowsets_time_s, 0);
 }
 
 TEST_F(CloudCompactionTest, parallel_pick_advances_continuous_low_prefix_through_delete) {

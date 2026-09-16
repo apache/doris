@@ -330,7 +330,7 @@ TEST_F(CloudIndexChangeCompactionTest, ms_ret_status_test) {
     {
         tablet->set_base_compaction_cnt(0);
         tablet->set_cumulative_layer_point(6);
-        tablet->last_sync_time_s = 1;
+        tablet->last_sync_rowsets_time_s = 1;
         auto index_change_compact = std::make_shared<CloudIndexChangeCompaction>(
                 *_engine, tablet, 0, index_list, columns);
         index_change_compact->_input_rowsets.push_back(rowset_ptr);
@@ -344,7 +344,7 @@ TEST_F(CloudIndexChangeCompactionTest, ms_ret_status_test) {
         index_change_compact->_update_tablet_for_base_compaction(response, nullptr);
 
         EXPECT_EQ(tablet->cumulative_layer_point(), 6);
-        EXPECT_EQ(tablet->last_sync_time_s, 0);
+        EXPECT_EQ(tablet->last_sync_rowsets_time_s, 0);
     }
 }
 
