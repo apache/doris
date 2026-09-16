@@ -443,7 +443,7 @@ Status collect_rowset_index_disk_usage(const RowsetSharedPtr& rowset,
             SegmentSharedPtr loaded;
             OlapReaderStatistics stats;
             RETURN_IF_ERROR(std::static_pointer_cast<BetaRowset>(rowset)->load_segment(
-                    segment.ref(), &stats, &loaded));
+                    segment.ref(), &stats, &loaded, options.io_ctx));
             row_count = loaded->num_rows();
         }
         for (auto& record : records) {
