@@ -10,6 +10,7 @@
 1	before	\N	\N
 2	after-add	added	\N
 3	after-normal-column	continued	default-note
+4	explicit-null-default	explicit-null	default-note
 
 -- !non_variant --
 1	{"plain":"string"}

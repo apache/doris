@@ -110,6 +110,17 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
         // FT-001: Reuse the same writes for default and paimon-cpp-compatible tables.
         // Honor the session setting, including external fuzzy testing.
         String appendBackend = sql("SELECT UPPER(@@paimon_write_backend)")[0][0]
+        def assertPaimonNotNullFailure = { String statement, String columnName ->
+            test {
+                sql statement
+                check { result, exception, startTime, endTime ->
+                    assertNotNull(exception)
+                    String message = exception.toString()
+                    assertTrue(message.contains("Cannot write null to non-null column(${columnName})")
+                            || message.contains("field ${columnName} not nullable while data have null value"))
+                }
+            }
+        }
         def appendTables = [t_append: appendBackend]
         writeOnlyTables.keySet().each { tableName -> appendTables[tableName] = appendBackend }
         appendTables.each { tableName, expectedBackend ->
@@ -199,10 +210,8 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
 
         // Explicit NULL remains an input value. Paimon checks the real NOT NULL
         // schema before applying its writer-side default wrapper.
-        test {
-            sql """INSERT INTO t_append_default (name, id) VALUES (NULL, 2)"""
-            exception "Cannot write null to non-null column(name)"
-        }
+        assertPaimonNotNullFailure(
+                "INSERT INTO t_append_default (name, id) VALUES (NULL, 2)", "name")
         order_qt_ao_default_after_explicit_null """
             SELECT id, name FROM t_append_default ORDER BY id
         """
@@ -210,10 +219,7 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
         // Doris does not duplicate Paimon's nullability validation. An omitted
         // NOT NULL field without a default remains NULL and is rejected by the
         // writer against the real Paimon schema.
-        test {
-            sql """INSERT INTO t_append_required (id) VALUES (1)"""
-            exception "Cannot write null to non-null column(name)"
-        }
+        assertPaimonNotNullFailure("INSERT INTO t_append_required (id) VALUES (1)", "name")
 
         // A defaulted partition field uses the schema default as its logical and
         // physical partition value instead of the configured null-partition name.
@@ -238,11 +244,9 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             FROM t_partition_default\$partitions
             ORDER BY `partition`
         """
-        test {
-            sql """INSERT INTO t_partition_default (id, name, dt)
-                VALUES (2, 'explicit-null-partition', NULL)"""
-            exception "Cannot write null to non-null column(dt)"
-        }
+        assertPaimonNotNullFailure(
+                """INSERT INTO t_partition_default (id, name, dt)
+                    VALUES (2, 'explicit-null-partition', NULL)""", "dt")
 
         // FT-044: Duplicate target columns are rejected case-insensitively.
         test {

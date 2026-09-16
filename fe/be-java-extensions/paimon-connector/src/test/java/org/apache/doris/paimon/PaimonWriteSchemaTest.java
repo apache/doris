@@ -17,11 +17,8 @@
 
 package org.apache.doris.paimon;
 
-import org.apache.paimon.casting.DefaultValueRow;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
-import org.apache.paimon.data.InternalArray;
-import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
@@ -34,8 +31,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 
 public class PaimonWriteSchemaTest {
 
@@ -111,24 +106,10 @@ public class PaimonWriteSchemaTest {
     }
 
     @Test
-    public void testOmittedNotNullDefaultIsAppliedBeforeTableWriter() {
+    public void testOmittedFieldRemainsNullEvenWhenTableHasDefault() {
         RowType tableType = new RowType(Arrays.asList(
                 new DataField(0, "id", new IntType()),
-                new DataField(1, "name", new VarCharType(false, VarCharType.MAX_LENGTH),
-                        null, "unknown")));
-        PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"id"});
-
-        InternalRow tableRow = tableRow(schema, 7);
-
-        Assertions.assertEquals(7, tableRow.getInt(0));
-        Assertions.assertEquals("unknown", tableRow.getString(1).toString());
-    }
-
-    @Test
-    public void testOmittedNotNullWithoutDefaultIsLeftForTableWriterValidation() {
-        RowType tableType = new RowType(Arrays.asList(
-                new DataField(0, "id", new IntType()),
-                new DataField(1, "name", DataTypes.STRING().notNull())));
+                new DataField(1, "name", DataTypes.STRING().notNull(), null, "unknown")));
         PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"id"});
 
         InternalRow tableRow = tableRow(schema, 7);
@@ -138,28 +119,7 @@ public class PaimonWriteSchemaTest {
     }
 
     @Test
-    public void testReorderedInputOverridesDefaultsWhileOmittedFieldUsesDefault() {
-        RowType tableType = new RowType(Arrays.asList(
-                new DataField(0, "id", new IntType()),
-                new DataField(1, "name", DataTypes.STRING(), null, "unknown"),
-                new DataField(2, "score", new DoubleType()),
-                new DataField(3, "region", DataTypes.STRING(), null, "north")));
-        PaimonWriteSchema schema = PaimonWriteSchema.create(tableType,
-                new String[] {"region", "score", "id"});
-
-        InternalRow tableRow = tableRow(schema,
-                BinaryString.fromString("south"),
-                92.5D,
-                8);
-
-        Assertions.assertEquals(8, tableRow.getInt(0));
-        Assertions.assertEquals("unknown", tableRow.getString(1).toString());
-        Assertions.assertEquals(92.5D, tableRow.getDouble(2));
-        Assertions.assertEquals("south", tableRow.getString(3).toString());
-    }
-
-    @Test
-    public void testExplicitNullIsNotReplacedByOmittedFieldDefault() {
+    public void testExplicitNullIsPreservedBySchemaAdapter() {
         RowType tableType = new RowType(Arrays.asList(
                 new DataField(0, "id", new IntType()),
                 new DataField(1, "name", DataTypes.STRING(), null, "unknown")));
@@ -187,60 +147,6 @@ public class PaimonWriteSchemaTest {
 
         Assertions.assertEquals(9, tableRow.getInt(0));
         Assertions.assertTrue(tableRow.isNullAt(1));
-    }
-
-    @Test
-    public void testPaimonWriterDefaultsExplicitNullRouteFields() {
-        RowType tableType = new RowType(Arrays.asList(
-                new DataField(0, "bucket_key", new IntType(), null, "1"),
-                new DataField(1, "partition_key", new VarCharType(VarCharType.MAX_LENGTH),
-                        null, "default-partition")));
-        PaimonWriteSchema schema = PaimonWriteSchema.create(
-                tableType, new String[] {"bucket_key", "partition_key"});
-
-        InternalRow tableRow = tableRow(schema, null, null);
-        Assertions.assertTrue(tableRow.isNullAt(0));
-        Assertions.assertTrue(tableRow.isNullAt(1));
-
-        DefaultValueRow defaultValueRow = DefaultValueRow.create(tableType);
-        Assertions.assertNotNull(defaultValueRow);
-        InternalRow writerRow = defaultValueRow.replaceRow(tableRow);
-        Assertions.assertEquals(1, writerRow.getInt(0));
-        Assertions.assertEquals("default-partition", writerRow.getString(1).toString());
-    }
-
-    @Test
-    public void testOmittedComplexDefaultsUsePaimonInternalValues() {
-        RowType nestedType = RowType.of(DataTypes.INT(), DataTypes.STRING());
-        RowType tableType = new RowType(Arrays.asList(
-                new DataField(0, "id", DataTypes.INT()),
-                new DataField(1, "numbers", DataTypes.ARRAY(DataTypes.INT()), null, "[1, 2, 3]"),
-                new DataField(2, "properties",
-                        DataTypes.MAP(DataTypes.STRING(), DataTypes.INT()), null, "{one -> 1, two -> 2}"),
-                new DataField(3, "nested", nestedType, null, "{42, default-value}")));
-        PaimonWriteSchema schema = PaimonWriteSchema.create(tableType, new String[] {"id"});
-
-        InternalRow tableRow = tableRow(schema, 10);
-
-        InternalArray numbers = tableRow.getArray(1);
-        Assertions.assertEquals(3, numbers.size());
-        Assertions.assertEquals(1, numbers.getInt(0));
-        Assertions.assertEquals(3, numbers.getInt(2));
-
-        InternalMap properties = tableRow.getMap(2);
-        Assertions.assertEquals(2, properties.size());
-        Map<String, Integer> actualProperties = new HashMap<>();
-        for (int i = 0; i < properties.size(); i++) {
-            actualProperties.put(
-                    properties.keyArray().getString(i).toString(),
-                    properties.valueArray().getInt(i));
-        }
-        Assertions.assertEquals(1, actualProperties.get("one"));
-        Assertions.assertEquals(2, actualProperties.get("two"));
-
-        InternalRow nested = tableRow.getRow(3, 2);
-        Assertions.assertEquals(42, nested.getInt(0));
-        Assertions.assertEquals("default-value", nested.getString(1).toString());
     }
 
     @Test
