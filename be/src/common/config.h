@@ -1719,8 +1719,10 @@ DECLARE_String(spill_s3_storage_vault);
 // Upper bound of spill bytes kept in object storage by this BE, including bytes reserved for
 // in-flight uploads. 0 means unlimited.
 DECLARE_mInt64(spill_s3_storage_limit_bytes);
-// Upper bound of spill bytes appended to S3 writers but not yet acknowledged by object storage.
-// Bounds the upload buffer memory of spill; writers block once it is reached.
+// Upper bound of the allocated capacity of spill upload buffers that were submitted to object
+// storage and are not yet acknowledged (every buffer counts as s3_write_buffer_size, also a
+// partially filled last one). Bounds the upload buffer memory of spill; writers block once it
+// is reached.
 DECLARE_mInt64(spill_s3_max_inflight_upload_bytes);
 DECLARE_Int64(wait_cancel_release_memory_ms);
 

@@ -1713,7 +1713,7 @@ message GetTabletStatsResponse {
 // A BE periodically reports its totals since the process started (boot_id). Meta-service keeps
 // exactly one record per backend_id: a report with the same boot_id replaces the previous one
 // (retries never double count), a report with a newer boot_id first folds the previous process'
-// totals into prior_boots_*, and a report with an older boot_id is ignored. The record count is
+// totals into prior_boots_*, and a report with an older boot_id is rejected. The record count is
 // bounded by the number of BEs. Lifetime total of a BE = remote_* + prior_boots_*.
 // Reporting is best-effort: a BE that crashes loses whatever it uploaded after its last report
 // (at most one reporting interval); a graceful shutdown reports before exiting.

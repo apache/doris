@@ -3580,6 +3580,10 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
         return;
     }
     SpillStatsPB value = spill_stats;
+    // Server-owned fields: never taken from the report.
+    value.clear_prior_boots_write_bytes();
+    value.clear_prior_boots_put_requests();
+    value.clear_update_time_ms();
     if (err == TxnErrorCode::TXN_OK) {
         SpillStatsPB existing;
         if (!existing.ParseFromString(existing_val)) {

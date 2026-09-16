@@ -1002,15 +1002,20 @@ int InstanceRecycler::recycle_deleted_instance_data() {
                             instance_info().snapshot_switch_status() !=
                                     SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED;
     if (snapshot_enabled) {
-        // Only referenced rowsets are recycled selectively below; spill objects of the
-        // instance's BEs (spill/ prefix, see recycle_expired_spill_objects) are not referenced
-        // by anything and no BE of a deleted instance is alive to clean them, so drop them
-        // outright before the metadata that identifies them goes away.
+        // Only referenced rowsets are recycled selectively below because the vault may be
+        // shared with other instances. Spill objects are namespaced by instance
+        // (spill/{instance_id}/..., see recycle_expired_spill_objects), are not referenced by
+        // anything and no BE of a deleted instance is alive to clean them, so this instance's
+        // own spill prefix is dropped outright before the metadata that identifies it goes away.
         for (auto& [resource_id, accessor] : accessor_map_) {
             if (stopped()) {
                 return ret;
             }
-            int del_ret = accessor->delete_prefix("spill/");
+            // Spill is written to S3 vaults only; see recycle_expired_spill_objects.
+            if (accessor->type() != AccessorType::S3 && accessor->type() != AccessorType::MOCK) {
+                continue;
+            }
+            int del_ret = accessor->delete_prefix(spill_object_prefix());
             if (del_ret != 0) {
                 LOG_WARNING("failed to delete spill objects of deleted instance")
                         .tag("instance_id", instance_id_)
@@ -7852,6 +7857,10 @@ int InstanceRecycler::recycle_expired_stage_objects() {
     return ret;
 }
 
+std::string InstanceRecycler::spill_object_prefix() const {
+    return fmt::format("spill/{}/", instance_id_);
+}
+
 int InstanceRecycler::recycle_expired_spill_objects() {
     LOG_INFO("begin to recycle expired spill objects").tag("instance_id", instance_id_);
 
@@ -7889,9 +7898,11 @@ int InstanceRecycler::recycle_expired_spill_objects() {
         if (accessor->type() != AccessorType::S3 && accessor->type() != AccessorType::MOCK) {
             continue;
         }
-        // Objects are written by BE under "{vault prefix}/spill/{backend_id}/data/{boot_id}/..."
-        // plus one boot marker per generation under "spill/{backend_id}/boots/{boot_id}".
-        int ret1 = accessor->delete_prefix("spill/", expiration_time);
+        // Objects are written by BE under
+        // "{vault prefix}/spill/{instance_id}/{backend_id}/data/{boot_id}/..." plus one boot
+        // marker per generation under "spill/{instance_id}/{backend_id}/boots/{boot_id}". Only
+        // this instance's prefix is swept: the vault may be shared with other instances.
+        int ret1 = accessor->delete_prefix(spill_object_prefix(), expiration_time);
         if (ret1 != 0) {
             LOG(WARNING) << "failed to recycle expired spill objects, ret=" << ret1
                          << " instance_id=" << instance_id_ << " resource_id=" << resource_id;
