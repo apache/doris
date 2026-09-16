@@ -494,11 +494,15 @@ void DorisMetrics::_update_process_fd_num() {
         process_fd_num_used->set_value(0);
         return;
     }
-    int64_t count =
-            std::count_if(dict_iter, std::filesystem::end(dict_iter), [](const auto& entry) {
-                std::error_code error_code;
-                return entry.is_regular_file(error_code) && !error_code;
-            });
+    // Entries under /proc/self/fd are symlinks, and every is_regular_file() call
+    // follows the link with a stat(), which is O(fds) syscalls and can stall
+    // /metrics for hundreds of milliseconds when there are many open fds.
+    // Count the entries directly (readdir only) to avoid the per-entry stat.
+    int64_t count = 0;
+    for (const auto& entry : dict_iter) {
+        (void)entry;
+        ++count;
+    }
 
     process_fd_num_used->set_value(count);
 
