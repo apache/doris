@@ -132,8 +132,8 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             'write-buffer-spillable' = 'true'
         );
 
-        DROP TABLE IF EXISTS paimon.${dbName}.t_failed_write;
-        CREATE TABLE paimon.${dbName}.t_failed_write (
+        DROP TABLE IF EXISTS paimon.${dbName}.t_large_row;
+        CREATE TABLE paimon.${dbName}.t_large_row (
             id BIGINT, payload STRING
         ) USING paimon
         TBLPROPERTIES (
@@ -438,20 +438,17 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
         qt_txn_spill """SELECT COUNT(*), MIN(id), MAX(id), SUM(id) FROM t_spill"""
         assertTableEquals("t_spill", "ORDER BY id")
 
-        // FT-019: A row larger than the complete write buffer fails inside the
-        // Paimon writer. The failed statement must not publish rows or a snapshot.
-        sql """INSERT INTO t_failed_write VALUES (1, 'committed_before_failure')"""
-        qt_txn_failed_write_before """SELECT id, payload FROM t_failed_write ORDER BY id"""
-        qt_txn_failed_snapshot_before """SELECT COUNT(*) FROM t_failed_write\$snapshots"""
-        test {
-            sql """INSERT INTO t_failed_write VALUES
-                (2, 'accepted_before_error'),
-                (3, repeat('x', 1048576))"""
-            exception "The record exceeds the maximum size of a sort buffer"
-        }
-        qt_txn_failed_write_after """SELECT id, payload FROM t_failed_write ORDER BY id"""
-        qt_txn_failed_snapshot_after """SELECT COUNT(*) FROM t_failed_write\$snapshots"""
-        assertTableEquals("t_failed_write", "ORDER BY id")
+        // FT-019: A row larger than the in-memory write buffer spills to the
+        // writer's temporary directory and commits normally.
+        sql """INSERT INTO t_large_row VALUES (1, 'committed_before_spill')"""
+        qt_txn_large_row_before """SELECT id, length(payload) FROM t_large_row ORDER BY id"""
+        qt_txn_large_row_snapshot_before """SELECT COUNT(*) FROM t_large_row\$snapshots"""
+        sql """INSERT INTO t_large_row VALUES
+            (2, 'accepted_before_spill'),
+            (3, repeat('x', 1048576))"""
+        qt_txn_large_row_after """SELECT id, length(payload) FROM t_large_row ORDER BY id"""
+        qt_txn_large_row_snapshot_after """SELECT COUNT(*) FROM t_large_row\$snapshots"""
+        assertTableEquals("t_large_row", "ORDER BY id")
 
         // Multi-row VALUES — verify all 20 rows committed
         sql """

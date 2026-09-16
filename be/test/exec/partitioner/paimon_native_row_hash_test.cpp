@@ -109,8 +109,8 @@ TEST(PaimonNativeRowHashTest, SharedRouterBuildsWriterBucketsAndPartitions) {
     ASSERT_TRUE(partition_values({"part"}, {1}, fields, "__DEFAULT__", partitions).ok());
     ASSERT_EQ(3, partitions.size());
     EXPECT_EQ("p1", partitions[0].at("part"));
-    EXPECT_EQ("__DEFAULT__", partitions[1].at("part"));
-    EXPECT_EQ("__DEFAULT__", partitions[2].at("part"));
+    EXPECT_EQ(" ", partitions[1].at("part"));
+    EXPECT_EQ("", partitions[2].at("part"));
 }
 
 } // namespace doris::paimon_native

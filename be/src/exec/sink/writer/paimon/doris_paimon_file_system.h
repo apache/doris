@@ -19,8 +19,8 @@
 
 #include <paimon/fs/file_system.h>
 
+#include <map>
 #include <mutex>
-#include <set>
 
 #include "io/fs/file_system.h"
 
@@ -33,7 +33,7 @@ class ResourceContext;
 class DorisPaimonFileSystem final : public paimon::FileSystem {
 public:
     DorisPaimonFileSystem(io::FileSystemSPtr fs, std::string table_root, std::string storage_root,
-                          std::shared_ptr<ResourceContext> context);
+                          std::shared_ptr<ResourceContext> context, std::string temp_root = {});
     ~DorisPaimonFileSystem() override;
     // Call only after SDK shutdown and stream draining. Failed deletions remain owned
     // for retry. Destruction without a successful handoff performs best-effort cleanup.
@@ -61,12 +61,15 @@ public:
 
 private:
     paimon::Result<std::string> storage_path(const std::string& path) const;
+    io::FileSystemSPtr file_system(const std::string& path) const;
+    bool is_temp_path(const std::string& path) const;
     io::FileSystemSPtr _fs;
     std::string _table_root;
     std::string _storage_root;
+    std::string _temp_root;
     std::shared_ptr<ResourceContext> _context;
     mutable std::mutex _owned_mutex;
-    mutable std::set<std::string> _owned_files;
+    mutable std::map<std::string, io::FileSystemSPtr> _owned_files;
     bool _ownership_finished = false;
 };
 } // namespace doris

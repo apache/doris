@@ -1,0 +1,24 @@
+Based on official paimon-cpp v0.3.0. Populate first-row lookup stores with
+primary keys. The bool specialization only needs empty values, but it must
+still scan the data file and insert every key for membership lookup.
+
+diff --git a/src/paimon/core/mergetree/lookup_levels.cpp b/src/paimon/core/mergetree/lookup_levels.cpp
+--- a/src/paimon/core/mergetree/lookup_levels.cpp
++++ b/src/paimon/core/mergetree/lookup_levels.cpp
+@@ -328,16 +328,6 @@ std::optional<std::string> LookupLevels<T>::TryToDownloadRemoteSst(
+ template <typename T>
+ Status LookupLevels<T>::CreateSstFileFromDataFile(const std::shared_ptr<DataFileMeta>& file,
+                                                   const std::string& kv_file_path) {
+-    if constexpr (std::is_same_v<T, bool>) {
+-        // Short-circuit logic: if T is bool, just write empty lookup file.
+-        PAIMON_ASSIGN_OR_RAISE(
+-            std::shared_ptr<BloomFilter> bloom_filter,
+-            LookupStoreFactory::BfGenerator(file->row_count, options_, pool_.get()));
+-        PAIMON_ASSIGN_OR_RAISE(
+-            std::unique_ptr<LookupStoreWriter> kv_writer,
+-            lookup_store_factory_->CreateWriter(fs_, kv_file_path, bloom_filter, pool_));
+-        return kv_writer->Close();
+-    }
+     // Prepare reader to iterate KeyValue
+     PAIMON_ASSIGN_OR_RAISE(
+         std::vector<std::unique_ptr<FileBatchReader>> raw_readers,

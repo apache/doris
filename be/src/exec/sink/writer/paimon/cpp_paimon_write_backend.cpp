@@ -21,6 +21,7 @@
 #include <arrow/c/bridge.h>
 #include <arrow/compute/api_vector.h>
 #include <arrow/compute/exec.h>
+#include <fmt/format.h>
 #include <paimon/commit_message.h>
 #include <paimon/file_store_write.h>
 #include <paimon/memory/memory_pool.h>
@@ -33,6 +34,7 @@
 #include <cstring>
 #include <limits>
 #include <map>
+#include <string_view>
 #include <tuple>
 
 #include "common/config.h"
@@ -42,9 +44,11 @@
 #include "exec/partitioner/external/paimon_row_hash_partition_function.h"
 #include "exec/sink/writer/paimon/doris_paimon_file_system.h"
 #include "exec/sink/writer/paimon/paimon_resource_context.h"
+#include "exec/spill/spill_file_manager.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/parquet/arrow_memory_pool.h"
 #include "io/file_factory.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -225,6 +229,7 @@ struct ExportOwner {
 };
 
 constexpr int32_t UNSPECIFIED_BUCKET = std::numeric_limits<int32_t>::min();
+constexpr std::string_view PAIMON_CPP_WRITER_IO_TMP_DIR = "paimon_cpp_writer_io_tmp";
 
 struct PaimonRoute {
     std::map<std::string, std::string> partition;
@@ -391,9 +396,24 @@ public:
         auto fs = with_paimon_resource_context(
                 context, [&] { return FileFactory::create_fs(fs_properties, file_description); });
         if (!fs.has_value()) return fs.error();
-        _filesystem = std::make_shared<DorisPaimonFileSystem>(std::move(fs.value()), root_path,
-                                                              storage.root_path, context);
+        std::string temp_directory;
+        auto* spill_file_manager = state->exec_env()->spill_file_mgr();
+        if (spill_file_manager != nullptr) {
+            auto spill_relative_path = fmt::format("{}-{}", PAIMON_CPP_WRITER_IO_TMP_DIR,
+                                                   spill_file_manager->next_id());
+            RETURN_IF_ERROR(spill_file_manager->create_external_spill_session(
+                    spill_relative_path, state->get_query_ctx(), &_spill_session));
+            std::vector<std::string> spill_paths;
+            RETURN_IF_ERROR(_spill_session->get_paths(&spill_paths));
+            if (spill_paths.size() != 1) {
+                return Status::InternalError("Paimon native writer requires one spill path");
+            }
+            temp_directory = std::move(spill_paths.front());
+        }
+        _filesystem = std::make_shared<DorisPaimonFileSystem>(
+                std::move(fs.value()), root_path, storage.root_path, context, temp_directory);
         paimon::WriteContextBuilder builder(root_path, sink.commit_user);
+        if (!temp_directory.empty()) builder.WithTempDirectory(temp_directory);
         auto branch = options.find("branch");
         auto ctx = builder.WithTableSchema(table_schema.value())
                            .WithBranch(branch == options.end() ? "main" : branch->second)
@@ -520,6 +540,7 @@ public:
             COUNTER_SET(_conversion_peak, _arrow_pool->max_memory());
         _arrow_pool.reset();
         _pool.reset();
+        _spill_session.reset();
         // Files remain owned until message handoff. Abort or filesystem destruction removes
         // them, including when prepare, SDK close or RuntimeState message retention fails.
         return result;
@@ -540,6 +561,7 @@ public:
     std::string _default_partition_name;
     int32_t _num_buckets = -1;
     std::shared_ptr<DorisPaimonFileSystem> _filesystem;
+    std::unique_ptr<ExternalSpillSession> _spill_session;
     std::unique_ptr<paimon::FileStoreWrite> _sdk;
     RuntimeProfile::Counter* _sdk_pool_peak = nullptr;
     RuntimeProfile::Counter* _conversion_peak = nullptr;

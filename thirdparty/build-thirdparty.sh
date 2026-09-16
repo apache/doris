@@ -1112,6 +1112,11 @@ build_paimon_cpp() {
         patch -p1 < "${TP_DIR}/patches/paimon-cpp-0.3.0-partition-types.patch"
         touch doris-partition-types.patched
     fi
+    # Populate first-row lookup SSTs with keys instead of creating an empty store.
+    if [[ ! -f doris-first-row-lookup.patched ]]; then
+        patch -p1 < "${TP_DIR}/patches/paimon-cpp-0.3.0-first-row-lookup.patch"
+        touch doris-first-row-lookup.patched
+    fi
     local paimon_runtime_flags="" paimon_install_rpath='$ORIGIN'
     local -a paimon_runtime_libraries=()
     if [[ "${KERNEL}" == "Linux" ]]; then

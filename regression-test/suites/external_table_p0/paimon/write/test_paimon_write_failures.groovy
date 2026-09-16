@@ -93,7 +93,7 @@ suite("test_paimon_write_failures", "p0,external,paimon") {
             sql """INSERT INTO t_atomic_append VALUES
                 (2, 'accepted_before_error', 'p1'),
                 (3, NULL, 'p2')"""
-            exception "Cannot write null to non-null column(payload)"
+            exception "CheckNullabilityMatch failed, field payload not nullable"
         }
         assertAtomicAppendState(1L, 1L)
         order_qt_failure_atomic_after """
@@ -107,13 +107,13 @@ suite("test_paimon_write_failures", "p0,external,paimon") {
         // against the real Paimon schema by the Paimon writer.
         test {
             sql """INSERT INTO t_atomic_append (id, dt) VALUES (4, 'p4')"""
-            exception "Cannot write null to non-null column(payload)"
+            exception "CheckNullabilityMatch failed, field payload not nullable"
         }
 
         // Partition columns follow the same Paimon nullability contract.
         test {
             sql """INSERT INTO t_atomic_append VALUES (4, 'bad_partition', NULL)"""
-            exception "Cannot write null to non-null column(dt)"
+            exception "CheckNullabilityMatch failed, field dt not nullable"
         }
         assertAtomicAppendState(1L, 1L)
 
@@ -153,7 +153,7 @@ suite("test_paimon_write_failures", "p0,external,paimon") {
             sql """INSERT OVERWRITE TABLE t_atomic_append VALUES
                 (10, 'would_replace', 'p10'),
                 (11, NULL, 'p11')"""
-            exception "Cannot write null to non-null column(payload)"
+            exception "CheckNullabilityMatch failed, field payload not nullable"
         }
         assertAtomicAppendState(2L, 2L)
         order_qt_failure_overwrite_after """
@@ -168,7 +168,7 @@ suite("test_paimon_write_failures", "p0,external,paimon") {
         // must publish no snapshot, and the table remains writable afterwards.
         test {
             sql """INSERT INTO t_pk_not_null VALUES (NULL, 'invalid_key')"""
-            exception "Cannot write null to non-null column(id)"
+            exception "CheckNullabilityMatch failed, field id not nullable"
         }
         assertEquals(0L,
                 (sql """SELECT COUNT(*) FROM t_pk_not_null\$snapshots""")[0][0] as long)

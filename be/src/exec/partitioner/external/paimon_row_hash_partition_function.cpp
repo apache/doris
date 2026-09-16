@@ -16,7 +16,6 @@
 
 #include "exec/partitioner/external/paimon_row_hash_partition_function.h"
 
-#include <cctype>
 #include <cstring>
 #include <string_view>
 
@@ -149,10 +148,6 @@ Status partition_value(const ColumnWithTypeAndName& field, size_t row,
         *result = value == 0 ? "false" : "true";
     } else {
         *result = field.type->to_string(column, row, DataTypeSerDe::get_default_format_options());
-    }
-    if (result->empty() || std::all_of(result->begin(), result->end(),
-                                       [](unsigned char ch) { return std::isspace(ch) != 0; })) {
-        *result = default_value;
     }
     return Status::OK();
 }

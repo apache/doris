@@ -278,10 +278,12 @@ private:
 
 DorisPaimonFileSystem::DorisPaimonFileSystem(io::FileSystemSPtr fs, std::string table_root,
                                              std::string storage_root,
-                                             std::shared_ptr<ResourceContext> context)
+                                             std::shared_ptr<ResourceContext> context,
+                                             std::string temp_root)
         : _fs(std::move(fs)),
           _table_root(trim_root(std::move(table_root))),
           _storage_root(trim_root(std::move(storage_root))),
+          _temp_root(temp_root.empty() ? "" : trim_root(std::move(temp_root))),
           _context(std::move(context)) {}
 
 DorisPaimonFileSystem::~DorisPaimonFileSystem() {
@@ -301,7 +303,8 @@ paimon::Status DorisPaimonFileSystem::cleanup_owned_files() {
         paimon::Status first_error;
         for (auto it = _owned_files.begin(); it != _owned_files.end();) {
             // Continue cleaning other files even if one request or allocation fails.
-            auto status = io_call(_context, [&] { return io_status(_fs->delete_file(*it)); });
+            auto status = io_call(_context,
+                                  [&] { return io_status(it->second->delete_file(it->first)); });
             if (status.ok()) {
                 it = _owned_files.erase(it);
             } else {
@@ -323,8 +326,11 @@ void DorisPaimonFileSystem::release_owned_files() {
 
 PResult<std::string> DorisPaimonFileSystem::storage_path(const std::string& path) const {
     if (path.empty() || _table_root.empty() || _storage_root.empty() ||
-        path.find('\0') != std::string::npos ||
-        (_fs->type() == io::FileSystemType::S3 && path.find_first_of("?#") != std::string::npos)) {
+        path.find('\0') != std::string::npos) {
+        return paimon::Status::Invalid("Invalid Paimon IO path");
+    }
+    if (is_temp_path(path)) return path;
+    if (_fs->type() == io::FileSystemType::S3 && path.find_first_of("?#") != std::string::npos) {
         return paimon::Status::Invalid("Invalid Paimon IO path");
     }
     std::string_view suffix;
@@ -341,18 +347,31 @@ PResult<std::string> DorisPaimonFileSystem::storage_path(const std::string& path
     return child_path(_storage_root, std::string(suffix));
 }
 
+bool DorisPaimonFileSystem::is_temp_path(const std::string& path) const {
+    if (_temp_root.empty()) return false;
+    if (path == _temp_root) return true;
+    return path.size() > _temp_root.size() && path.compare(0, _temp_root.size(), _temp_root) == 0 &&
+           path[_temp_root.size()] == '/' &&
+           safe_suffix(std::string_view(path).substr(_temp_root.size() + 1));
+}
+
+io::FileSystemSPtr DorisPaimonFileSystem::file_system(const std::string& path) const {
+    return is_temp_path(path) ? io::global_local_filesystem() : _fs;
+}
+
 PResult<std::unique_ptr<paimon::InputStream>> DorisPaimonFileSystem::Open(
         const std::string& path) const {
     return io_call(_context, [&]() -> PResult<std::unique_ptr<paimon::InputStream>> {
         PAIMON_ASSIGN_OR_RAISE(std::string mapped, storage_path(path));
+        auto fs = file_system(path);
         io::FileReaderSPtr reader;
         io::FileReaderOptions options; // no process-global data cache for mutable schema metadata
-        PAIMON_RETURN_NOT_OK(io_status(_fs->open_file(mapped, &reader, &options)));
+        PAIMON_RETURN_NOT_OK(io_status(fs->open_file(mapped, &reader, &options)));
         if (reader->size() > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
             return paimon::Status::Invalid("Paimon file is too large");
         }
         return std::unique_ptr<paimon::InputStream>(
-                new Input(std::move(reader), _fs, path, _context));
+                new Input(std::move(reader), std::move(fs), path, _context));
     });
 }
 
@@ -360,10 +379,11 @@ PResult<std::unique_ptr<paimon::OutputStream>> DorisPaimonFileSystem::Create(
         const std::string& path, bool overwrite) const {
     return io_call(_context, [&]() -> PResult<std::unique_ptr<paimon::OutputStream>> {
         PAIMON_ASSIGN_OR_RAISE(std::string mapped, storage_path(path));
+        auto fs = file_system(path);
         if (trim_root(path) == _table_root)
             return paimon::Status::Invalid("Cannot overwrite table root");
         bool exists = false;
-        PAIMON_RETURN_NOT_OK(io_status(_fs->exists(mapped, &exists)));
+        PAIMON_RETURN_NOT_OK(io_status(fs->exists(mapped, &exists)));
         {
             std::lock_guard lock(_owned_mutex);
             if (_ownership_finished)
@@ -373,27 +393,27 @@ PResult<std::unique_ptr<paimon::OutputStream>> DorisPaimonFileSystem::Create(
             }
             // SDK Init/Abort may delete this path even when opening the file fails.
             // A failed existence check must never grant ownership.
-            _owned_files.insert(mapped);
+            _owned_files.emplace(mapped, fs);
         }
         // This is a UUID data-file writer, NOT a conditional-create metadata committer.
         // Doris has no atomic create-if-absent API. AtomicStore is explicitly disabled.
-        if (_fs->type() == io::FileSystemType::LOCAL) {
-            PAIMON_RETURN_NOT_OK(io_status(_fs->create_directory(io::Path(mapped).parent_path())));
+        if (fs->type() == io::FileSystemType::LOCAL) {
+            PAIMON_RETURN_NOT_OK(io_status(fs->create_directory(io::Path(mapped).parent_path())));
         }
         io::FileWriterOptions options;
         options.used_by_s3_committer = false; // Close must complete the object BEFORE FE commit
         options.allow_adaptive_file_cache_write = false;
         io::FileWriterPtr writer;
-        PAIMON_RETURN_NOT_OK(io_status(_fs->create_file(mapped, &writer, &options)));
+        PAIMON_RETURN_NOT_OK(io_status(fs->create_file(mapped, &writer, &options)));
         return std::unique_ptr<paimon::OutputStream>(
-                new Output(std::move(writer), _fs, path, _context));
+                new Output(std::move(writer), std::move(fs), path, _context));
     });
 }
 
 paimon::Status DorisPaimonFileSystem::Mkdirs(const std::string& path) const {
     return io_call(_context, [&]() -> paimon::Status {
         PAIMON_ASSIGN_OR_RAISE(std::string mapped, storage_path(path));
-        return io_status(_fs->create_directory(mapped));
+        return io_status(file_system(path)->create_directory(mapped));
     });
 }
 
@@ -409,9 +429,10 @@ PResult<std::unique_ptr<paimon::FileStatus>> DorisPaimonFileSystem::GetFileStatu
         const std::string& path) const {
     return io_call(_context, [&]() -> PResult<std::unique_ptr<paimon::FileStatus>> {
         PAIMON_ASSIGN_OR_RAISE(std::string mapped, storage_path(path));
-        if (_fs->type() == io::FileSystemType::LOCAL) {
+        auto fs = file_system(path);
+        if (fs->type() == io::FileSystemType::LOCAL) {
             bool exists = false;
-            PAIMON_RETURN_NOT_OK(io_status(_fs->exists(mapped, &exists)));
+            PAIMON_RETURN_NOT_OK(io_status(fs->exists(mapped, &exists)));
             if (!exists) return paimon::Status::NotExist("Paimon path does not exist");
             bool dir = false;
             PAIMON_RETURN_NOT_OK(
@@ -419,13 +440,13 @@ PResult<std::unique_ptr<paimon::FileStatus>> DorisPaimonFileSystem::GetFileStatu
             if (dir) return std::unique_ptr<paimon::FileStatus>(new FileStatus(path, 0, true));
         }
         int64_t size = 0;
-        auto status = _fs->file_size(mapped, &size);
+        auto status = fs->file_size(mapped, &size);
         if (status.ok())
             return std::unique_ptr<paimon::FileStatus>(new FileStatus(path, size, false));
         if (!status.is<ErrorCode::NOT_FOUND>()) return io_status(status);
         std::vector<io::FileInfo> files;
         bool exists = false;
-        PAIMON_RETURN_NOT_OK(io_status(_fs->list(mapped, false, &files, &exists)));
+        PAIMON_RETURN_NOT_OK(io_status(fs->list(mapped, false, &files, &exists)));
         // S3FileSystem::list always reports exists=true: only objects establish a prefix.
         if (files.empty()) return paimon::Status::NotExist("Paimon path does not exist");
         return std::unique_ptr<paimon::FileStatus>(new FileStatus(path, 0, true));
@@ -437,7 +458,7 @@ paimon::Status DorisPaimonFileSystem::ListFileStatus(
     return io_call(_context, [&]() -> paimon::Status {
         if (!result) return paimon::Status::Invalid("Null directory listing output");
         PAIMON_ASSIGN_OR_RAISE(std::string mapped, storage_path(path));
-        PAIMON_ASSIGN_OR_RAISE(auto children, list_children(_fs, mapped));
+        PAIMON_ASSIGN_OR_RAISE(auto children, list_children(file_system(path), mapped));
         std::vector<std::unique_ptr<paimon::FileStatus>> staged;
         staged.reserve(children.size());
         for (const auto& [name, info] : children) {
@@ -455,7 +476,7 @@ paimon::Status DorisPaimonFileSystem::ListDir(
     return io_call(_context, [&]() -> paimon::Status {
         if (!result) return paimon::Status::Invalid("Null directory listing output");
         PAIMON_ASSIGN_OR_RAISE(std::string mapped, storage_path(path));
-        PAIMON_ASSIGN_OR_RAISE(auto children, list_children(_fs, mapped));
+        PAIMON_ASSIGN_OR_RAISE(auto children, list_children(file_system(path), mapped));
         std::vector<std::unique_ptr<paimon::BasicFileStatus>> staged;
         staged.reserve(children.size());
         for (const auto& [name, info] : children)
@@ -472,21 +493,39 @@ PResult<bool> DorisPaimonFileSystem::Exists(const std::string& path) const {
     return result.status();
 }
 
-paimon::Status DorisPaimonFileSystem::Delete(const std::string& path, bool /*recursive*/) const {
+paimon::Status DorisPaimonFileSystem::Delete(const std::string& path, bool recursive) const {
     return io_call(_context, [&]() -> paimon::Status {
         PAIMON_ASSIGN_OR_RAISE(std::string mapped, storage_path(path));
         if (trim_root(path) == _table_root)
             return paimon::Status::Invalid("Cannot delete bound table root");
         std::lock_guard lock(_owned_mutex);
-        if (!_owned_files.contains(mapped)) {
-            // SDK Init calls Abort even when Create failed with Exist. Never delete
-            // another writer's file, or recursively delete a shared object prefix.
-            return paimon::Status::NotImplemented(
-                    "Paimon append cleanup only deletes writer-owned files");
+        auto owned = _owned_files.find(mapped);
+        if (owned != _owned_files.end()) {
+            PAIMON_RETURN_NOT_OK(io_status(owned->second->delete_file(mapped)));
+            if (is_temp_path(path)) _owned_files.erase(owned);
+            // Retain table-file ownership for idempotent abort retries until cleanup or handoff.
+            return paimon::Status::OK();
         }
-        PAIMON_RETURN_NOT_OK(io_status(_fs->delete_file(mapped)));
-        // Retain ownership for idempotent retries until cleanup or explicit handoff.
-        return paimon::Status::OK();
+        if (is_temp_path(path) && recursive) {
+            if (trim_root(path) == _temp_root)
+                return paimon::Status::Invalid("Cannot delete Paimon temporary root");
+            PAIMON_RETURN_NOT_OK(io_status(file_system(path)->delete_directory(mapped)));
+            for (auto it = _owned_files.begin(); it != _owned_files.end();) {
+                const auto& owned = it->first;
+                if (owned == mapped ||
+                    (owned.size() > mapped.size() && owned.compare(0, mapped.size(), mapped) == 0 &&
+                     owned[mapped.size()] == '/')) {
+                    it = _owned_files.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            return paimon::Status::OK();
+        }
+        // SDK Init calls Abort even when Create failed with Exist. Never delete
+        // another writer's file, or recursively delete a shared object prefix.
+        return paimon::Status::NotImplemented(
+                "Paimon append cleanup only deletes writer-owned files");
     });
 }
 
