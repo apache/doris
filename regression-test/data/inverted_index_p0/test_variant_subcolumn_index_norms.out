@@ -3,11 +3,15 @@
 2	0.6931
 3	0.61
 
--- !variant_subcolumn_score_no_norms --
-2	0.6931
-3	0.6931
+-- !variant_subcolumn_match_no_norms --
+2
+3
 
 -- !plain_column_score --
 1	0.5754
 3	0.8714
+
+-- !mixed_match --
+1
+2
 

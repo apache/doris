@@ -18,7 +18,6 @@
 #pragma once
 
 #include <cstdint>
-#include <optional>
 #include <string_view>
 
 #include "common/status.h"
@@ -60,10 +59,9 @@ public:
     // Per-term document frequency. Absent term -> *df = 0 (OK status).
     Status doc_freq(std::string_view term, uint64_t* df) const;
 
-    // 1-byte encoded doc-length norm for docid (raw byte from the norms POD), or
-    // std::nullopt when the index was written without norms. Out-of-range docid on
-    // an index with norms -> InvalidArgument.
-    Status encoded_norm(uint32_t docid, std::optional<uint8_t>* out) const;
+    // 1-byte encoded doc-length norm for docid (raw byte from the norms POD).
+    // Out-of-range docid -> InvalidArgument; index without norms -> InvalidArgument.
+    Status encoded_norm(uint32_t docid, uint8_t* out) const;
 
     bool has_norms() const { return has_norms_; }
 

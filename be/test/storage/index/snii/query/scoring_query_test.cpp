@@ -29,7 +29,6 @@
 #include <cstdio>
 #include <map>
 #include <mutex>
-#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
 #include <thread>
@@ -289,7 +288,7 @@ TEST(SniiScoringQuery, ReferenceOracleEqualsExhaustive) {
         EXPECT_EQ(df, plist.size()) << term;
     }
     for (uint32_t d = 0; d < corpus.doc_count; ++d) {
-        std::optional<uint8_t> got;
+        uint8_t got = 0;
         ASSERT_TRUE(stats.encoded_norm(d, &got).ok());
         EXPECT_EQ(got, norms[d]) << "docid " << d;
     }
@@ -352,11 +351,10 @@ TEST(SniiScoringQuery, StatsProviderSharesValidatedNormsAcrossQueries) {
     EXPECT_EQ(metered_reader.metrics().total_request_bytes, after_first.total_request_bytes);
     EXPECT_EQ(logical_reader.memory_usage(), memory_usage_before_load);
 
-    std::optional<uint8_t> first_norm;
-    std::optional<uint8_t> second_norm;
+    uint8_t first_norm = 0;
+    uint8_t second_norm = 0;
     ASSERT_TRUE(first.encoded_norm(17, &first_norm).ok());
     ASSERT_TRUE(second.encoded_norm(17, &second_norm).ok());
-    EXPECT_TRUE(first_norm.has_value());
     EXPECT_EQ(first_norm, second_norm);
 
     std::remove(path.c_str());
@@ -384,7 +382,7 @@ TEST(SniiScoringQuery, StatsProviderSharesOneConcurrentNormsLoad) {
     constexpr size_t kThreadCount = 16;
     std::barrier start(static_cast<std::ptrdiff_t>(kThreadCount + 1));
     std::vector<doris::Status> statuses(kThreadCount);
-    std::vector<std::optional<uint8_t>> norms(kThreadCount);
+    std::vector<uint8_t> norms(kThreadCount);
     std::vector<std::thread> threads;
     threads.reserve(kThreadCount);
     controlled_reader.reset_read_at_calls();
@@ -443,71 +441,9 @@ TEST(SniiScoringQuery, StatsProviderRetriesTransientNormsReadFailure) {
 
     SniiStatsProvider retry;
     ASSERT_TRUE(SniiStatsProvider::open(&logical_reader, &retry).ok());
-    std::optional<uint8_t> norm;
+    uint8_t norm = 0;
     ASSERT_TRUE(retry.encoded_norm(17, &norm).ok());
-    EXPECT_TRUE(norm.has_value());
     EXPECT_EQ(controlled_reader.read_at_calls(), 2U);
-
-    std::remove(path.c_str());
-}
-
-// An index written without norms scores every document as if it had the average length, so the
-// ranking depends on term frequency and IDF only, and no norms read is attempted.
-TEST(SniiScoringQuery, IndexWithoutNormsScoresWithoutLengthNormalization) {
-    const Corpus corpus = MakeCorpus();
-    const std::string path = TempPath();
-    {
-        SniiIndexInput input = ToInput(corpus);
-        input.encoded_norms.clear();
-        io::LocalFileWriter writer;
-        ASSERT_TRUE(writer.open(path).ok());
-        SniiCompoundWriter compound_writer(&writer);
-        ASSERT_TRUE(compound_writer.add_logical_index(std::move(input)).ok());
-        ASSERT_TRUE(compound_writer.finish().ok());
-    }
-
-    io::LocalFileReader file_reader;
-    ASSERT_TRUE(file_reader.open(path).ok());
-    reader::SniiSegmentReader segment_reader;
-    ASSERT_TRUE(reader::SniiSegmentReader::open(&file_reader, &segment_reader).ok());
-    reader::LogicalIndexReader logical_reader;
-    ASSERT_TRUE(segment_reader.open_index(1, "body", &logical_reader).ok());
-    ASSERT_FALSE(logical_reader.has_norms());
-
-    SniiStatsProvider stats;
-    ASSERT_TRUE(SniiStatsProvider::open(&logical_reader, &stats).ok());
-    EXPECT_FALSE(stats.has_norms());
-    std::optional<uint8_t> norm = 1;
-    ASSERT_TRUE(stats.encoded_norm(17, &norm).ok());
-    EXPECT_FALSE(norm.has_value());
-
-    const Bm25Params params;
-    const uint32_t k = 10;
-    const auto& postings = corpus.postings.at("common");
-    const double df = static_cast<double>(postings.size());
-    const double idf = std::log(1.0 + (corpus.doc_count - df + 0.5) / (df + 0.5));
-    std::vector<ScoredDoc> expected;
-    for (const auto& [docid, freq] : postings) {
-        expected.push_back({docid, idf * (freq * (params.k1 + 1.0)) / (freq + params.k1)});
-    }
-    std::ranges::sort(expected, [](const ScoredDoc& a, const ScoredDoc& b) {
-        if (a.score != b.score) {
-            return a.score > b.score;
-        }
-        return a.docid < b.docid;
-    });
-    expected.resize(k);
-
-    const std::vector<std::string> terms {"common"};
-    std::vector<ScoredDoc> scored;
-    ASSERT_TRUE(doris::snii::query::scoring_query_exhaustive(logical_reader, stats, terms, k,
-                                                             params, &scored)
-                        .ok());
-    ASSERT_EQ(scored.size(), expected.size());
-    for (size_t i = 0; i < expected.size(); ++i) {
-        EXPECT_EQ(scored[i].docid, expected[i].docid) << "rank " << i;
-        EXPECT_NEAR(scored[i].score, expected[i].score, 1e-6) << "rank " << i;
-    }
 
     std::remove(path.c_str());
 }

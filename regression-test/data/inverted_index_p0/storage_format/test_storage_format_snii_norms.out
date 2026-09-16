@@ -7,23 +7,19 @@
 1	0.311
 2	0.5235
 
--- !snii_field_pattern_no_norms_score --
-1	0.47
-2	0.47
+-- !snii_field_pattern_no_norms_match --
+1
+2
 
--- !snii_whole_column_no_norms_score --
-1	0.47
-2	0.47
+-- !snii_whole_column_no_norms_match --
+1
+2
 
 -- !snii_config_plain_column_score --
 1	0.3541
 2	0.562
 
--- !snii_config_field_pattern_score --
-1	0.47
-2	0.47
-
--- !snii_config_norms_true_score --
-1	0.47
-2	0.47
+-- !snii_mixed_match --
+1
+2
 

@@ -43,10 +43,13 @@ namespace collection_statistics_detail {
 
 Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_count,
                                                              uint64_t sum_total_term_freq,
-                                                             bool has_positions) {
-    if (!has_positions) {
+                                                             bool has_positions, bool has_norms) {
+    if (!has_positions || !has_norms) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
-                "SNII scoring requires positions; this index was written without them"));
+                "SNII scoring requires positions and norms; this segment was written without "
+                "positions or without norms. Norms are left out when the index sets \"norms\" = "
+                "\"false\" or, for a variant path, when inverted_index_skip_norms_for_variant is "
+                "on"));
     }
     return SniiScoringSegmentStats {.doc_count = index_doc_count,
                                     .token_count = sum_total_term_freq};
@@ -245,7 +248,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
             const uint64_t segment_doc_count = logical_reader->stats().doc_count;
             RETURN_IF_ERROR(admit_snii_scoring_segment(
                     ws_field_name, segment_doc_count, logical_reader->stats().sum_total_term_freq,
-                    logical_reader->has_positions(), &segment_accumulator));
+                    logical_reader->has_positions(), logical_reader->has_norms(),
+                    &segment_accumulator));
 
             ::doris::snii::reader::DictBlockCache dict_block_cache;
             for (const auto& logical_term_bytes : collect_info.unique_terms) {
@@ -311,8 +315,22 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         index_reader = index_searcher->getReader();
 #endif
         total_segment_docs = std::max(total_segment_docs, index_reader->maxDoc());
-        _total_num_tokens[ws_field_name] +=
-                index_reader->sumTotalTermFreq(ws_field_name.c_str()).value_or(0);
+        // BM25 on an analyzed index needs the record length of every row, and CLucene keeps
+        // them, together with the field's token count, in the norms. A segment written without
+        // norms would feed a zero avgdl, or rank its rows as zero-length documents next to the
+        // segments that have norms, so refuse to score the collection, as SNII does. An index
+        // that is not analyzed never writes norms and is left as it is.
+        const auto token_count = index_reader->sumTotalTermFreq(ws_field_name.c_str());
+        if (!token_count.has_value() &&
+            segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                    collect_info.index_meta->properties())) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "BM25 scoring requires norms, but segment {} was written without norms for "
+                    "field {}. Norms are left out when the index sets \"norms\" = \"false\" or, "
+                    "for a variant path, when inverted_index_skip_norms_for_variant is on",
+                    seg_path, StringHelper::to_string(ws_field_name));
+        }
+        _total_num_tokens[ws_field_name] += token_count.value_or(0);
 
         for (const auto& logical_term_bytes : collect_info.unique_terms) {
             const auto logical_term =
@@ -333,10 +351,10 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
 
 Status CollectionStatistics::admit_snii_scoring_segment(
         const std::wstring& field_name, uint64_t index_doc_count, uint64_t sum_total_term_freq,
-        bool has_positions, SniiScoringSegmentAccumulator* segment_accumulator) {
+        bool has_positions, bool has_norms, SniiScoringSegmentAccumulator* segment_accumulator) {
     DORIS_CHECK(segment_accumulator != nullptr);
     auto segment_stats = collection_statistics_detail::resolve_snii_scoring_segment(
-            index_doc_count, sum_total_term_freq, has_positions);
+            index_doc_count, sum_total_term_freq, has_positions, has_norms);
     if (!segment_stats.has_value()) {
         clear();
         return segment_stats.error();

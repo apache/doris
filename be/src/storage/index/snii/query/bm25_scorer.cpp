@@ -47,13 +47,10 @@ ScorerContext ScorerContext::from_idf(double idf) {
     return ctx;
 }
 
-double ScorerContext::score(double tf, std::optional<uint8_t> encoded_norm, double avgdl,
+double ScorerContext::score(double tf, uint8_t encoded_norm, double avgdl,
                             const Bm25Params& params) const {
-    // Without a norm the document length is unknown, so the document is scored as if it had the
-    // average length: b * dl / avgdl becomes b, and 1 - b + b leaves no length factor at all.
-    const double length_term =
-            encoded_norm.has_value() ? params.b * decode_norm(*encoded_norm) / avgdl : params.b;
-    const double denom = tf + params.k1 * (1.0 - params.b + length_term);
+    const double dl = decode_norm(encoded_norm);
+    const double denom = tf + params.k1 * (1.0 - params.b + params.b * dl / avgdl);
     return idf_ * (tf * (params.k1 + 1.0)) / denom;
 }
 
