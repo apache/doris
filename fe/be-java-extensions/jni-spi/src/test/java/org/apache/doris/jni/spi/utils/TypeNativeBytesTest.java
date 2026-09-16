@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.jni.utils;
+package org.apache.doris.jni.spi.utils;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
@@ -33,7 +33,7 @@ public class TypeNativeBytesTest {
                 (byte) 0x33, (byte) 0x22, (byte) 0x11, (byte) 0x00
         };
 
-        Assert.assertArrayEquals(expected, TypeNativeBytes.getUuidBytes(uuid));
-        Assert.assertEquals(uuid, TypeNativeBytes.getUuid(expected));
+        Assertions.assertArrayEquals(expected, TypeNativeBytes.getUuidBytes(uuid));
+        Assertions.assertEquals(uuid, TypeNativeBytes.getUuid(expected));
     }
 }

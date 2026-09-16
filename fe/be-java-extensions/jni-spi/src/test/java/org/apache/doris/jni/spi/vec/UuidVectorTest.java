@@ -15,15 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.jni;
+package org.apache.doris.jni.spi.vec;
 
-import org.apache.doris.common.jni.utils.JavaUdfDataType;
-import org.apache.doris.common.jni.utils.OffHeap;
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.VectorTable;
+import org.apache.doris.jni.spi.utils.OffHeap;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
@@ -33,7 +30,6 @@ public class UuidVectorTest {
     @Test
     public void testUuidBatchGrowthNestedNullsAndReuse() {
         OffHeap.setTesting();
-        Assert.assertTrue(JavaUdfDataType.getCandidateTypes(UUID.class).contains(JavaUdfDataType.UUID));
         ColumnType[] types = {ColumnType.parseType("u", "uuid"),
                 ColumnType.parseType("a", "array<uuid>")};
         String[] fields = {"u", "a"};
@@ -60,9 +56,9 @@ public class UuidVectorTest {
                 }
                 VectorTable readable = VectorTable.createReadableTable(types, fields, nativeMeta);
                 Object[][] restored = readable.getMaterializedData();
-                Assert.assertArrayEquals(values, restored[0]);
-                Assert.assertArrayEquals(arrays, restored[1]);
-                Assert.assertArrayEquals(Arrays.copyOfRange(values, 1, 4097),
+                Assertions.assertArrayEquals(values, restored[0]);
+                Assertions.assertArrayEquals(arrays, restored[1]);
+                Assertions.assertArrayEquals(Arrays.copyOfRange(values, 1, 4097),
                         readable.getColumn(0).getUuidColumn(1, 4097));
                 // The readable view borrows writable's buffers; writable owns their lifetime.
                 writable.reset();
