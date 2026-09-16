@@ -26,6 +26,7 @@
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
 #include "exprs/vexpr.h"
@@ -116,11 +117,14 @@ TabletSchemaSPtr make_tablet_schema() {
 }
 
 TabletSchemaSPtr make_agg_keys_tablet_schema() {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::AGG_KEYS);
+    create_int_key(0, false)->to_schema_pb(schema_pb.add_column());
+    create_int_value(1, FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM, false)
+            ->to_schema_pb(schema_pb.add_column());
+
     auto tablet_schema = std::make_shared<TabletSchema>();
-    tablet_schema->append_column(*create_int_key(0, false));
-    tablet_schema->append_column(
-            *create_int_value(1, FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM, false));
-    tablet_schema->set_keys_type(KeysType::AGG_KEYS);
+    tablet_schema->init_from_pb(schema_pb);
     tablet_schema->set_storage_page_size(4096);
     return tablet_schema;
 }
@@ -331,7 +335,10 @@ protected:
         st = iter->seek_to_ordinal(0);
         ASSERT_TRUE(st.ok()) << st;
 
-        *dst = Schema::get_data_type_ptr(_tablet_schema->column(cid))->create_column();
+        const auto& column = _tablet_schema->column(cid);
+        *dst = DataTypeFactory::instance()
+                       .create_data_type(column, column.is_nullable())
+                       ->create_column();
         size_t n = kRuntimeColumnRows;
         bool has_null = false;
         st = iter->next_batch(&n, *dst, &has_null);

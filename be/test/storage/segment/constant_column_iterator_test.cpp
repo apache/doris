@@ -1052,7 +1052,7 @@ TEST_F(ConstantColumnIteratorTest, EmptyMapConstantSupportsPrunedValueDestinatio
 TEST_F(ConstantColumnIteratorTest, NullStructConstantSupportsPrunedFieldDestination) {
     // Case: projection keeps only one STRUCT field. A NULL constant must preserve row count and
     // nullability without requiring destination columns for fields that were pruned away.
-    ConstantColumnIterator struct_iterator(Field());
+    ConstantColumnIterator struct_iterator {Field()};
     struct_iterator.set_column_name("s");
     auto st = struct_iterator.set_access_paths({make_data_access_path({"s", "kept"})}, {});
     ASSERT_TRUE(st.ok()) << st;
