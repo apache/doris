@@ -38,6 +38,10 @@
 #include "runtime/runtime_state.h"
 #include "util/url_coding.h"
 
+#include <chrono>
+
+#include "cctz/time_zone.h"
+
 namespace doris::format::paimon {
 namespace {
 
@@ -244,6 +248,25 @@ TEST_F(PaimonRustTableReaderTest, FillsPartitionConstantsForMissingArrowColumns)
     const auto value_field = const_column->get_field();
     const auto& value = value_field.get<TYPE_STRING>();
     EXPECT_EQ(std::string(value.data(), value.size()), "2024-01-01");
+}
+
+TEST_F(PaimonRustTableReaderTest, MaterializesInSessionTimezone) {
+    // TIMESTAMP_LTZ values materialize as session-local civil times: the
+    // materialization timezone must come from the session, not a fixed default
+    // (epoch 0 reads as 08:00 in a +08:00 session and 00:00 in UTC).
+    const auto hour_of_epoch_zero = [](const cctz::time_zone& tz) {
+        return tz.lookup(cctz::time_point<cctz::seconds>(std::chrono::seconds(0))).cs.hour();
+    };
+
+    PaimonRustTableReader reader;
+    _runtime_state->set_timezone("+08:00");
+    ASSERT_TRUE(init_reader_with_count(&reader, std::vector<GlobalIndex> {}).ok());
+    EXPECT_EQ(hour_of_epoch_zero(reader.TEST_ctz()), 8);
+
+    PaimonRustTableReader utc_reader;
+    _runtime_state->set_timezone("UTC");
+    ASSERT_TRUE(init_reader_with_count(&utc_reader, std::vector<GlobalIndex> {}).ok());
+    EXPECT_EQ(hour_of_epoch_zero(utc_reader.TEST_ctz()), 0);
 }
 
 } // namespace doris::format::paimon

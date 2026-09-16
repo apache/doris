@@ -80,7 +80,9 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
             assertEquals(jniResults[i].toString(), rustResults[i].toString())
         }
 
-        // The v1 fallback path must keep working when v2 is explicitly disabled.
+        // The v1 path must keep working when v2 is explicitly disabled: FE only
+        // encodes PAIMON_RUST requests when enable_file_scanner_v2 is on (the V1
+        // FileScanner rejects them), so with v2 disabled it selects JNI.
         sql """set enable_file_scanner_v2=false"""
         def v1RustResults = testQueries.collect { query -> sql(query) }
         for (int i = 0; i < testQueries.size(); i++) {
