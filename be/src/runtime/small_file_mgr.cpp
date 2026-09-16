@@ -33,9 +33,11 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
 #include "common/status.h"
+#include "common/tls_protocol_config.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/cluster_info.h"
@@ -169,9 +171,6 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
     }
 
     ClusterInfo* cluster_info = _exec_env->cluster_info();
-    // Small file download is the only BE→FE path that uses HTTP (not Thrift/RPC).
-    // master_fe_http_port is set to https_port when enable_https=true (see HeartbeatMgr).
-    // The ~1ms fallback overhead is acceptable; small file downloads are infrequent.
     const std::string host_port = cluster_info->master_fe_addr.hostname + ":" +
                                   std::to_string(cluster_info->master_fe_http_port);
     const std::string query = "/api/get_small_file?file_id=" + std::to_string(file_id) +
@@ -191,13 +190,16 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
         return true;
     };
 
-    std::string url = "http://" + host_port + query;
+    std::string url = get_internal_http_scheme() + host_port + query;
     LOG(INFO) << "download file from: " << url;
     HttpClient client;
-    RETURN_IF_ERROR(client.init(url));
+    RETURN_IF_ERROR(client.init_internal(url));
     Status execute_status = client.execute(download_cb);
 
-    if (!execute_status.ok()) {
+    // Preserve the legacy FE-only HTTPS fallback when unified TLS is disabled. With unified TLS,
+    // the configured protocol is authoritative: do not downgrade, retry another protocol, or
+    // bypass certificate validation after a failed request.
+    if (!execute_status.ok() && !config::enable_tls) {
         rewind(fp.get());
         if (ftruncate(fileno(fp.get()), 0) != 0) {
             LOG(WARNING) << "fail to truncate temp file for https retry, errno=" << errno;
@@ -208,7 +210,7 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
         url = "https://" + host_port + query;
         LOG(INFO) << "HTTP failed, retrying with HTTPS: " << url;
         HttpClient https_client;
-        RETURN_IF_ERROR(https_client.init(url));
+        RETURN_IF_ERROR(https_client.init_internal(url));
         // Skip TLS cert verification: internal cluster traffic only; file integrity
         // is guaranteed independently by MD5 checksum verification below.
         https_client.use_untrusted_ssl();

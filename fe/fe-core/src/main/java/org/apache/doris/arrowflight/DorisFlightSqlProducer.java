@@ -26,6 +26,7 @@ import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter.PreparedQuery
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.Version;
@@ -39,6 +40,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.tls.server.TlsProtocolSet;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -158,6 +160,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         // Keep the info code registered even without a manifest: SqlInfoBuilder rejects unknown codes.
         sqlInfoBuilder.withFlightSqlServerArrowVersion(
                 arrowVersion == null || arrowVersion.isEmpty() ? "unknown" : arrowVersion);
+    }
+
+    public static Location createAdvertisedLocation(String host, int port) {
+        if (Config.enable_tls
+                && TlsProtocolSet.isProtocolIncluded(TlsProtocolSet.Protocol.ARROWFLIGHT)) {
+            return Location.forGrpcTls(host, port);
+        }
+        return Location.forGrpcInsecure(host, port);
     }
 
     private static ByteBuffer serializeMetadata(final Schema schema) {
@@ -325,14 +335,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                             // If it is different from the Doris BE node randomly routed by nginx,
                             // data forwarding needs to be done inside the Doris BE node.
                             if (endpointLoc.getResultPublicAccessAddr().isSetPort()) {
-                                location = Location.forGrpcInsecure(endpointLoc.getResultPublicAccessAddr().hostname,
+                                location = createAdvertisedLocation(endpointLoc.getResultPublicAccessAddr().hostname,
                                         endpointLoc.getResultPublicAccessAddr().port);
                             } else {
-                                location = Location.forGrpcInsecure(endpointLoc.getResultPublicAccessAddr().hostname,
+                                location = createAdvertisedLocation(endpointLoc.getResultPublicAccessAddr().hostname,
                                         endpointLoc.getResultFlightServerAddr().port);
                             }
                         } else {
-                            location = Location.forGrpcInsecure(endpointLoc.getResultFlightServerAddr().hostname,
+                            location = createAdvertisedLocation(endpointLoc.getResultFlightServerAddr().hostname,
                                     endpointLoc.getResultFlightServerAddr().port);
                         }
                         // By default, the query results of all BE nodes will be aggregated to one BE node.

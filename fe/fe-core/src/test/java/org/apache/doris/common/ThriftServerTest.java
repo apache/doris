@@ -25,14 +25,24 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import org.apache.thrift.TProcessor;
 import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.protocol.TProtocol;
+import org.apache.thrift.server.ServerContext;
+import org.apache.thrift.server.TServerEventHandler;
+import org.apache.thrift.server.TThreadPoolServer;
+import org.apache.thrift.transport.TServerSocket;
 import org.apache.thrift.transport.TSocket;
+import org.apache.thrift.transport.TTransport;
+import org.apache.thrift.transport.layered.TFramedTransport;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.net.BindException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 class ThriftServerTest {
     @Test
@@ -61,5 +71,69 @@ class ThriftServerTest {
             }
             Assertions.assertTrue(listener.isClosed());
         }
+    }
+
+    @Test
+    public void testFramedThreadPoolRoundTrip() throws Exception {
+        assertThreadPoolRoundTrip(true);
+    }
+
+    @Test
+    public void testUnframedThreadPoolRoundTrip() throws Exception {
+        assertThreadPoolRoundTrip(false);
+    }
+
+    private void assertThreadPoolRoundTrip(boolean useFramedTransport) throws Exception {
+        TServerSocket serverTransport = new TServerSocket(0);
+        int port = serverTransport.getServerSocket().getLocalPort();
+        TProcessor processor = (input, output) -> {
+            int request = input.readI32();
+            output.writeI32(request + 1);
+            output.getTransport().flush();
+        };
+        TThreadPoolServer server = ThriftServer.createThreadPoolServer(
+                serverTransport, processor, useFramedTransport);
+        CountDownLatch started = new CountDownLatch(1);
+        server.setServerEventHandler(new TServerEventHandler() {
+            @Override
+            public void preServe() {
+                started.countDown();
+            }
+
+            @Override
+            public ServerContext createContext(TProtocol input, TProtocol output) {
+                // Thrift 0.24 records the peer address on the returned context.
+                return new ThriftServerContext(null);
+            }
+
+            @Override
+            public void deleteContext(ServerContext serverContext, TProtocol input, TProtocol output) {
+            }
+
+            @Override
+            public void processContext(
+                    ServerContext serverContext, TTransport inputTransport, TTransport outputTransport) {
+            }
+        });
+
+        Thread serverThread = new Thread(server::serve, "framed-thrift-server-test");
+        serverThread.setDaemon(true);
+        serverThread.start();
+        Assertions.assertTrue(started.await(5, TimeUnit.SECONDS));
+
+        TSocket clientSocket = new TSocket("127.0.0.1", port, 5000);
+        TTransport clientTransport = useFramedTransport ? new TFramedTransport(clientSocket) : clientSocket;
+        try {
+            clientTransport.open();
+            TBinaryProtocol protocol = new TBinaryProtocol(clientTransport);
+            protocol.writeI32(41);
+            clientTransport.flush();
+            Assertions.assertEquals(42, protocol.readI32());
+        } finally {
+            clientTransport.close();
+            server.stop();
+            serverThread.join(5000);
+        }
+        Assertions.assertFalse(serverThread.isAlive());
     }
 }

@@ -59,4 +59,3 @@ suite("test_auth_show", "account") {
     assertEquals(result2.size(), 1)
     sql """REVOKE SHOW_VIEW_PRIV ON ${dbName}.${tableName} FROM ${user}"""
 }
-

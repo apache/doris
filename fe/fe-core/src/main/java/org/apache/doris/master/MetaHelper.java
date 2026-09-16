@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.util.HttpURLUtil;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.manager.HttpUtils;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -150,7 +151,8 @@ public class MetaHelper {
     public static <T> ResponseBody doGet(String url, int timeout, Class<T> clazz) throws IOException {
         Map<String, String> headers = HttpURLUtil.getNodeIdentHeaders();
         LOG.info("meta helper, url: {}, timeout: {}, header names: {}", url, timeout, headers.keySet());
-        String response = HttpUtils.doGet(url, headers, timeout);
+        String response = HttpUtils.doInternalGet(
+                url, headers, timeout, InternalHttpClientProvider.Target.FE);
         try {
             return parseResponse(response, clazz);
         } catch (Exception e) {

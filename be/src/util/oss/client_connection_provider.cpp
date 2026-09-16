@@ -25,6 +25,12 @@ Status configure_brpc_channel_options(brpc::ChannelOptions* options) {
     return rpc_tls::configure_channel(options);
 }
 
+Status configure_http_client(CURL* curl, bool internal) {
+    (void)curl;
+    (void)internal;
+    return Status::OK();
+}
+
 std::shared_ptr<apache::thrift::transport::TSocket> create_thrift_client_socket(
         const std::string& host, int port) {
     if (rpc_tls::enabled("thrift")) {

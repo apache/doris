@@ -34,8 +34,10 @@ import org.apache.thrift.server.TThreadedSelectorServer;
 import org.apache.thrift.transport.TNonblockingServerSocket;
 import org.apache.thrift.transport.TNonblockingSocket;
 import org.apache.thrift.transport.TServerSocket;
+import org.apache.thrift.transport.TServerTransport;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransportException;
+import org.apache.thrift.transport.layered.TFramedTransport;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -138,13 +140,27 @@ public class ThriftServer {
     }
 
     private void createThreadPoolServer(ServerSocket listener) throws TTransportException {
-        TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(createBlockingSocket(listener))
+        server = createThreadPoolServer(createBlockingSocket(listener), processor, false);
+    }
+
+    /**
+     * Creates a blocking Thrift server that uses Doris' standard daemon worker pool.
+     *
+     * <p>Callers that interoperate with a threaded-selector endpoint can retain its framed wire
+     * protocol by setting {@code useFramedTransport} to true while using a blocking server transport.
+     */
+    public static TThreadPoolServer createThreadPoolServer(
+            TServerTransport serverTransport, TProcessor processor, boolean useFramedTransport) {
+        TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(serverTransport)
                 .protocolFactory(new TBinaryProtocol.Factory())
                 .processor(processor);
+        if (useFramedTransport) {
+            serverArgs.transportFactory(new TFramedTransport.Factory(Config.thrift_max_frame_size));
+        }
         ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
                 Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
         serverArgs.executorService(threadPoolExecutor);
-        server = new TThreadPoolServer(serverArgs);
+        return new TThreadPoolServer(serverArgs);
     }
 
     public void start() throws IOException {
