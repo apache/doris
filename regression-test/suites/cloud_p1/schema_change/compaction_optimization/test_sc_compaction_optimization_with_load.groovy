@@ -91,8 +91,9 @@ suite('test_sc_compaction_optimization_with_load', 'docker') {
             sleep(10000)
             assertEquals("RUNNING", getJobState(tableName))
 
-            // Phase 3: Heavy loading during SC
-            for (int i = 0; i < 8; i++) {
+            // Phase 3: Heavy loading during SC. NOTREADY tablets keep the latest 10 versions
+            // unmerged, so create enough versions for older rowsets to become compactable.
+            for (int i = 0; i < 16; i++) {
                 insertBatch(200 + i * 20, 20, "sc_${i}")
             }
 
@@ -101,37 +102,34 @@ suite('test_sc_compaction_optimization_with_load', 'docker') {
             def newTablets = allTablets.findAll { !(it.TabletId.toString() in baseTabletIds) }
             assertEquals(3, newTablets.size())
 
-            // Wait for auto compaction to sync double-write rowsets and compact them
-            sleep(30000)
-
             // Verify compaction happened: check if any non-placeholder rowset spans multiple
             // versions (e.g. [4-6]). Each INSERT creates a single-version rowset [v-v],
             // so a multi-version rowset is direct proof of compaction.
-            boolean compactionHappened = false
-            for (def tablet : newTablets) {
-                def tabletId = tablet.TabletId.toString()
-                def (code, out, err) = curl("GET", tablet.CompactionStatus)
-                if (code == 0) {
-                    def status = parseJson(out.trim())
-                    if (status.rowsets instanceof List) {
-                        logger.info("New tablet ${tabletId} rowsets: ${status.rowsets}")
-                        for (def rowset : status.rowsets) {
-                            def match = (rowset =~ /\[(\d+)-(\d+)\]/)
-                            if (match) {
-                                def start = match[0][1] as int
-                                def end = match[0][2] as int
-                                if (start > 1 && end > start) {
-                                    logger.info("New tablet ${tabletId} has merged rowset [${start}-${end}], compaction confirmed")
-                                    compactionHappened = true
-                                    break
+            awaitUntil(90, 1) {
+                for (def tablet : newTablets) {
+                    def tabletId = tablet.TabletId.toString()
+                    def (code, out, err) = curl("GET", tablet.CompactionStatus)
+                    if (code == 0) {
+                        def status = parseJson(out.trim())
+                        if (status.rowsets instanceof List) {
+                            logger.info("New tablet ${tabletId} rowsets: ${status.rowsets}")
+                            for (def rowset : status.rowsets) {
+                                def match = (rowset =~ /\[(\d+)-(\d+)\]/)
+                                if (match) {
+                                    def start = match[0][1] as int
+                                    def end = match[0][2] as int
+                                    if (start > 1 && end > start) {
+                                        logger.info("New tablet ${tabletId} has merged rowset "
+                                                + "[${start}-${end}], compaction confirmed")
+                                        return true
+                                    }
                                 }
                             }
                         }
                     }
                 }
-                if (compactionHappened) break
+                return false
             }
-            assertTrue(compactionHappened, "Expected auto compaction on new tablets during SC queue wait")
 
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs(injectName)
@@ -151,7 +149,7 @@ suite('test_sc_compaction_optimization_with_load', 'docker') {
         assertEquals("FINISHED", finalState)
 
         // Phase 5: Verify data correctness and compaction
-        assertEquals(310L, (sql "SELECT count(*) FROM ${tableName}")[0][0])
+        assertEquals(470L, (sql "SELECT count(*) FROM ${tableName}")[0][0])
 
         // Verify column type changed
         def schema = sql "DESC ${tableName}"
@@ -160,10 +158,10 @@ suite('test_sc_compaction_optimization_with_load', 'docker') {
 
         // Phase 6: Post-SC loading (verify alter_version cleanup)
         for (int i = 0; i < 3; i++) {
-            insertBatch(500 + i * 10, 10, "post_${i}")
+            insertBatch(1000 + i * 10, 10, "post_${i}")
         }
         // Phase 6: Verify data correctness and schema change
-        def expectedCount = 150 + 160 + 30  // initial(5*30) + SC inserts(8*20) + post-SC(3*10)
+        def expectedCount = 150 + 320 + 30  // initial(5*30) + SC inserts(16*20) + post-SC(3*10)
         assertEquals(expectedCount, (sql "SELECT count(*) FROM ${tableName}")[0][0])
         assertEquals(expectedCount, (sql "SELECT count(distinct k1) FROM ${tableName}")[0][0])
 

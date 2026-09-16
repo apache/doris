@@ -19,25 +19,25 @@ import org.apache.doris.regression.suite.Suite
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility;
 
-Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id  /* param */->
+Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id,
+                                          Integer timeout_sec = 10, Integer max_retries = 10  /* param */->
     return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id),
-            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
+            null, timeout_sec, context.config.feHttpUser, context.config.feHttpPassword, max_retries)
 }
 
 Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port),
-            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
+    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
 }
 
-Suite.metaClass.be_show_tablet_status{ String ip, String port, String tablet_id  /* param */->
+Suite.metaClass.be_show_tablet_status{ String ip, String port, String tablet_id,
+                                      Integer timeout_sec = 10, Integer max_retries = 10  /* param */->
     return curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id),
-            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
+            null, timeout_sec, context.config.feHttpUser, context.config.feHttpPassword, max_retries)
 }
 
 Suite.metaClass._be_run_compaction = { String ip, String port, String tablet_id, String compact_type ->
     return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=%s",
-            ip, port, tablet_id, compact_type), null, 10,
-            context.config.feHttpUser, context.config.feHttpPassword)
+            ip, port, tablet_id, compact_type))
 }
 
 Suite.metaClass.be_run_base_compaction = { String ip, String port, String tablet_id  /* param */->
@@ -57,12 +57,13 @@ Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet
 }
 
 Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, String table_id  /* param */->
-    return curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id),
-            null, 10, context.config.feHttpUser, context.config.feHttpPassword)
+    return curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id))
 }
 
 logger.info("Added 'be_run_full_compaction' function to Suite")
-Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300, String[] ignored_errors=[] ->
+Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compaction_type, int timeout_seconds=300,
+                                                String[] ignored_errors=[], Collection tablet_ids=[],
+                                                String[] retryable_errors=[] ->
     if (!(compaction_type in ["cumulative", "base", "full"])) {
         throw new IllegalArgumentException("invalid compaction type: ${compaction_type}, supported types: cumulative, base, full")
     }
@@ -71,6 +72,13 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
     def tablets = sql_return_maparray """show tablets from ${table_name}"""
+    if (!tablet_ids.isEmpty()) {
+        def requestedTabletIds = tablet_ids.collect { "${it}" }.toSet()
+        tablets = tablets.findAll { requestedTabletIds.contains("${it.TabletId}") }
+        def foundTabletIds = tablets.collect { "${it.TabletId}" }.toSet()
+        assert foundTabletIds == requestedTabletIds:
+                "Unable to find all requested tablets for ${table_name}, requested: ${requestedTabletIds}, found: ${foundTabletIds}"
+    }
     def exit_code, stdout, stderr
 
     def auto_compaction_disabled = sql("show create table ${table_name}")[0][1].contains('"disable_auto_compaction" = "true"')
@@ -92,23 +100,38 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
     for (tablet in tablets) {
         def be_host = backendId_to_backendIP["${tablet.BackendId}"]
         def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
-        switch (compaction_type) {
-            case "cumulative":
-                (exit_code, stdout, stderr) = be_run_cumulative_compaction(be_host, be_port, tablet.TabletId)
-                break
-            case "base":
-                (exit_code, stdout, stderr) = be_run_base_compaction(be_host, be_port, tablet.TabletId)
-                break
-            case "full":
-                (exit_code, stdout, stderr) = be_run_full_compaction(be_host, be_port, tablet.TabletId)
-                break
-        }
-        assert exit_code == 0: "trigger compaction failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
-        def trigger_status = parseJson(stdout.trim())
-        if (trigger_status.status.toLowerCase() != "success") {
+        long triggerDeadline = System.currentTimeMillis() + timeout_seconds * 1000L
+        while (true) {
+            switch (compaction_type) {
+                case "cumulative":
+                    (exit_code, stdout, stderr) = be_run_cumulative_compaction(be_host, be_port, tablet.TabletId)
+                    break
+                case "base":
+                    (exit_code, stdout, stderr) = be_run_base_compaction(be_host, be_port, tablet.TabletId)
+                    break
+                case "full":
+                    (exit_code, stdout, stderr) = be_run_full_compaction(be_host, be_port, tablet.TabletId)
+                    break
+            }
+            assert exit_code == 0: "trigger compaction failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+            def trigger_status = parseJson(stdout.trim())
             def status_lower = trigger_status.status.toLowerCase()
-            if (status_lower == "already_exist") {
-                triggered_tablets.add(tablet) // compaction already in queue, treat it as successfully triggered
+            if (status_lower == "success" || status_lower == "already_exist") {
+                triggered_tablets.add(tablet)
+                break
+            } else if (retryable_errors.any { error -> status_lower.contains(error.toLowerCase()) }) {
+                assert System.currentTimeMillis() < triggerDeadline:
+                        "retry trigger compaction timeout, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}"
+                logger.info("retry transient compaction trigger failure, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}")
+                // The transient trigger failure updates the tablet's failure timestamp.
+                // Refresh the baseline so it cannot be mistaken for completion of the
+                // later successful asynchronous trigger.
+                (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
+                assert exit_code == 0:
+                        "refresh tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+                be_tablet_compaction_status.put("${be_host}-${tablet.TabletId}", parseJson(stdout.trim()))
+                sleep(1000)
+                continue
             } else if (!auto_compaction_disabled) {
                 // ignore the error if auto compaction enabled
             } else if (status_lower.contains("e-2000") || status_lower.contains("e-2010")
@@ -124,8 +147,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             } else {
                 throw new Exception("trigger compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}")
             }
-        } else {
-            triggered_tablets.add(tablet)
+            break
         }
     }
 
@@ -146,19 +168,28 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             def be_host = backendId_to_backendIP["${tablet.BackendId}"]
             def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
 
-            (exit_code, stdout, stderr) = be_get_compaction_status(be_host, be_port, tablet.TabletId)
-            assert exit_code == 0: "get compaction status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+            // Awaitility owns the retry loop. Keep each HTTP probe bounded so an
+            // inner curl retry cannot consume the entire compaction timeout.
+            (exit_code, stdout, stderr) = be_get_compaction_status(be_host, be_port, tablet.TabletId, 5, 1)
+            if (exit_code != 0) {
+                logger.warn("get compaction status failed, will retry, be host: ${be_host}, tablet id: ${tablet.TabletId}, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}")
+                return false
+            }
             def compactionStatus = parseJson(stdout.trim())
             assert compactionStatus.status.toLowerCase() == "success": "compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${compactionStatus.status}"
             // running is true means compaction is still running
             running = compactionStatus.run_status
 
             if (!is_time_series_compaction) {
-                (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
-                assert exit_code == 0: "get tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+                (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId, 5, 1)
+                if (exit_code != 0) {
+                    logger.warn("get tablet status failed, will retry, be host: ${be_host}, tablet id: ${tablet.TabletId}, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}")
+                    return false
+                }
                 def tabletStatus = parseJson(stdout.trim())
                 def oldStatus = be_tablet_compaction_status.get("${be_host}-${tablet.TabletId}")
-                // last compaction success/failure time isn't updated, indicates compaction is not started(so we treat it as running and wait)
+                // The HTTP trigger is asynchronous in cloud mode. run_status may already be
+                // false at the first poll, so also require a completion marker for this run.
                 def handedOffToBaseCompactionAfterDeleteVersion = false
                 def completedByBaseCompactionAfterDeleteVersion = false
                 if (compaction_type == "cumulative") {
@@ -168,9 +199,6 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                     def baseSuccessTimeChanged = oldStatus["last base success time"] != tabletStatus["last base success time"]
                     def cumulativeSuccessTimeChanged =
                             oldStatus["last cumulative success time"] != tabletStatus["last cumulative success time"]
-                    // E-2010 advances the cumulative point and lets base compaction handle delete-version rowsets.
-                    // In some timing windows, base success is already visible in the cached old status while
-                    // cumulative success advances later, so accept either success signal but not failure time alone.
                     handedOffToBaseCompactionAfterDeleteVersion = lastCumulativeStatus.contains("e-2010") &&
                             oldCumulativePoint != null && newCumulativePoint != null &&
                             newCumulativePoint > oldCumulativePoint
@@ -178,19 +206,21 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                             handedOffToBaseCompactionAfterDeleteVersion &&
                             (baseSuccessTimeChanged || cumulativeSuccessTimeChanged)
                 }
-                def success_time_unchanged = (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
-                def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
-                def currentCompactionTimestampChanged = !success_time_unchanged || !failure_time_unchanged
+                def successTimeUnchanged = oldStatus["last ${compaction_type} success time"] ==
+                        tabletStatus["last ${compaction_type} success time"]
+                def failureTimeUnchanged = oldStatus["last ${compaction_type} failure time"] ==
+                        tabletStatus["last ${compaction_type} failure time"]
+                def completionTimestampChanged = !successTimeUnchanged || !failureTimeUnchanged
                 def compactionFinished = completedByBaseCompactionAfterDeleteVersion ||
-                        (!handedOffToBaseCompactionAfterDeleteVersion && currentCompactionTimestampChanged)
+                        (!handedOffToBaseCompactionAfterDeleteVersion && completionTimestampChanged)
                 running = running || !compactionFinished
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}, run status: ${compactionStatus.run_status}, old status: ${oldStatus}, new status: ${tabletStatus}")
                     return false
                 }
             } else {
-                // time series compaction sometimes doesn't update compaction success time
-                // so we solely check run_status for it
+                // Time series compaction sometimes doesn't update compaction success time,
+                // so solely check run_status for it.
                 if (running) {
                     logger.info("compaction is still running, be host: ${be_host}, tablet id: ${tablet.TabletId}")
                     return false

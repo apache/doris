@@ -25,7 +25,7 @@
 //
 // Key assertions:
 //   - SC stays RUNNING while override is on (proves cross-V1 failure occurred;
-//     with only 120 rows a successful conversion finishes in <2s)
+//     with only 220 rows a successful conversion finishes in <2s)
 //   - SC eventually reaches FINISHED (retry works)
 //   - Data integrity after SC
 
@@ -39,7 +39,9 @@ suite('test_sc_compaction_cross_v1_retry', 'docker') {
     options.beConfigs += ["enable_java_support=false"]
     options.beConfigs += ["enable_new_tablet_do_compaction=true"]
     options.beConfigs += ["alter_tablet_worker_count=1"]
-    options.beConfigs += ["cumulative_compaction_min_deltas=2"]
+    // Wait until all [5-10] rowsets are eligible before compacting. This prevents an early
+    // [5-6] compaction which would not cross the overridden V1=6 boundary.
+    options.beConfigs += ["cumulative_compaction_min_deltas=6"]
     options.beNum = 1
     options.feConfigs += ["enable_schema_change_retry=true"]
     // Use a high retry limit so the override window does not exhaust retries.
@@ -82,6 +84,10 @@ suite('test_sc_compaction_cross_v1_retry', 'docker') {
         }
         assertEquals(60L, (sql "SELECT count(*) FROM ${tableName}")[0][0])
 
+        def baseTablets = sql_return_maparray("SHOW TABLETS FROM ${tableName}")
+        assertEquals(1, baseTablets.size())
+        def baseTabletId = baseTablets[0].TabletId.toString()
+
         // Phase 2: Block SC, let compaction run freely during block
         def scBlock = 'CloudSchemaChangeJob::process_alter_tablet.block'
         def overrideDP = 'CloudSchemaChangeJob::process_alter_tablet.override_base_max_version'
@@ -92,8 +98,15 @@ suite('test_sc_compaction_cross_v1_retry', 'docker') {
             sleep(10000)
             assertEquals("RUNNING", getJobState(tableName))
 
-            // Phase 3: Insert 6 batches (versions 5-10), compaction runs freely
-            for (int i = 0; i < 6; i++) {
+            def allTablets = sql_return_maparray("SHOW TABLETS FROM ${tableName}")
+            assertEquals(2, allTablets.size())
+            def newTablets = allTablets.findAll { it.TabletId.toString() != baseTabletId }
+            assertEquals(1, newTablets.size())
+            def newTablet = newTablets[0]
+
+            // Phase 3: Insert 16 batches (versions 5-20). NOTREADY tablets keep the latest
+            // 10 versions unmerged, leaving [5-10] eligible for cumulative compaction.
+            for (int i = 0; i < 16; i++) {
                 StringBuilder sb = new StringBuilder()
                 sb.append("INSERT INTO ${tableName} VALUES ")
                 for (int j = 0; j < 10; j++) {
@@ -104,8 +117,32 @@ suite('test_sc_compaction_cross_v1_retry', 'docker') {
                 sql sb.toString()
             }
 
-            // Phase 4: Wait for compaction to merge on new tablet
-            sleep(30000)
+            // Phase 4: Verify the exact precondition for SC_COMPACTION_CONFLICT: a rowset on
+            // the new tablet starts at/before V1=6 and ends after it.
+            awaitUntil(90, 1) {
+                def (code, out, err) = curl("GET", newTablet.CompactionStatus)
+                if (code != 0) {
+                    return false
+                }
+                def status = parseJson(out.trim())
+                if (!(status.rowsets instanceof List)) {
+                    return false
+                }
+                logger.info("New tablet ${newTablet.TabletId} rowsets: ${status.rowsets}")
+                for (def rowset : status.rowsets) {
+                    def match = (rowset =~ /\[(\d+)-(\d+)\]/)
+                    if (match) {
+                        def start = match[0][1] as int
+                        def end = match[0][2] as int
+                        if (start > 1 && start <= 6 && end > 6) {
+                            logger.info("New tablet ${newTablet.TabletId} has cross-V1 rowset "
+                                    + "[${start}-${end}]")
+                            return true
+                        }
+                    }
+                }
+                return false
+            }
 
             // Phase 5: Override V1=6 so attempts trigger cross-V1 detection
             GetDebugPoint().enableDebugPointForAllBEs(overrideDP, [version: 6])
@@ -115,16 +152,18 @@ suite('test_sc_compaction_cross_v1_retry', 'docker') {
             GetDebugPoint().disableDebugPointForAllBEs(scBlock)
         }
 
-        // Phase 6: Verify SC_COMPACTION_CONFLICT was actually triggered.
-        // With override on, SC cannot succeed. With only 120 rows, a successful
-        // conversion would finish in <2s. So if SC is still RUNNING after 10s,
-        // at least one attempt has failed due to the cross-V1 check.
-        sleep(10000)
-        assertEquals("RUNNING", getJobState(tableName),
-                "SC should still be RUNNING with override on - cross-V1 failure expected")
-
-        // Phase 7: Disable override → next retry uses real base_max_version → SC succeeds
-        GetDebugPoint().disableDebugPointForAllBEs(overrideDP)
+        try {
+            // Phase 6: Verify SC_COMPACTION_CONFLICT was actually triggered.
+            // With override on, SC cannot succeed. With only 220 rows, a successful
+            // conversion would finish in <2s. So if SC is still RUNNING after 10s,
+            // at least one attempt has failed due to the cross-V1 check.
+            sleep(10000)
+            assertEquals("RUNNING", getJobState(tableName),
+                    "SC should still be RUNNING with override on - cross-V1 failure expected")
+        } finally {
+            // Phase 7: Disable override → next retry uses real base_max_version → SC succeeds
+            GetDebugPoint().disableDebugPointForAllBEs(overrideDP)
+        }
 
         // Wait for SC to finish via retry
         int maxTries = 180
@@ -142,7 +181,7 @@ suite('test_sc_compaction_cross_v1_retry', 'docker') {
 
         // Verify data integrity
         def totalRows = (sql "SELECT count(*) FROM ${tableName}")[0][0]
-        assertEquals(120L, totalRows)
+        assertEquals(220L, totalRows)
 
         // Verify schema change actually applied (v2 should be bigint now)
         def columns = sql "DESC ${tableName}"
