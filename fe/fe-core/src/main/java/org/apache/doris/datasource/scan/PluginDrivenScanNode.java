@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
@@ -73,6 +74,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
 import org.apache.doris.datasource.split.SplitAssignment;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
@@ -160,6 +162,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // Nereids partition-pruning result, injected by the translator. Defaults to NOT_PRUNED
     // so that connectors / non-partitioned tables read all partitions unless pruning applies.
     private SelectedPartitions selectedPartitions = SelectedPartitions.NOT_PRUNED;
+
+    // Memoizes the one-shot resolution of an unknown total partition count (see
+    // resolveUnknownTotalPartitionNum); an UNAVAILABLE connector view leaves the count unknown, so without this
+    // flag every later render of the same node would rebuild the whole view for the same answer.
+    private boolean totalPartitionNumResolved;
 
     // Cached isBatchMode() result. isBatchMode is read on both the dispatch (FileQueryScanNode)
     // and explain (FileScanNode) paths and num_partitions_in_batch_mode is fuzzy, so cache it to
@@ -1173,9 +1180,19 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // deferred therefore means a no-filter full scan, which must recover the complete map before the
         // batch-mode gate so it keeps the legacy asynchronous split-generation path.
         PluginDrivenExternalTable table = (PluginDrivenExternalTable) getTargetTable();
-        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(table,
-                Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
-        Optional<Map<String, PartitionItem>> partitions = table.getNameToPartitionItemsForScan(snapshot);
+        // The map is resolved per statement and table reference rather than enumerated here: the MV partition
+        // compensator recorded the view it reasoned about, and its union branch is restricted to exactly those
+        // partition names, so reading a later generation here would read partitions that neither the MV branch
+        // nor the compensation union covers - rows silently missing from a rewritten query.
+        Optional<TableSnapshot> tableSnapshot = Optional.ofNullable(getQueryTableSnapshot());
+        Optional<TableScanParams> scanParams = Optional.ofNullable(getScanParams());
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(table, tableSnapshot, scanParams);
+        ConnectContext connectContext = ConnectContext.get();
+        StatementContext statementContext = connectContext == null ? null : connectContext.getStatementContext();
+        Optional<Map<String, PartitionItem>> partitions = statementContext == null
+                ? table.getNameToPartitionItemsForScan(snapshot)
+                : statementContext.resolveScanPartitionView(table, tableSnapshot, scanParams,
+                        () -> table.getNameToPartitionItemsForScan(snapshot));
         selectedPartitions = materializeDeferredSelectedPartitions(selectedPartitions, partitions);
     }
 
@@ -1203,6 +1220,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * leaves the count unknown, which the renderers write as {@code ?} - never as a fabricated 0.</p>
      */
     private void resolveUnknownTotalPartitionNum() {
+        // Memoized: an UNAVAILABLE view leaves the count unknown, so without this flag every later render of the
+        // same node (toString, getPlanTreeExplainStr, Profile.updateSummary) would ask the connector again and
+        // rebuild the whole view for the same answer.
+        if (totalPartitionNumResolved) {
+            return;
+        }
+        totalPartitionNumResolved = true;
         if (totalPartitionNum >= 0) {
             return;
         }

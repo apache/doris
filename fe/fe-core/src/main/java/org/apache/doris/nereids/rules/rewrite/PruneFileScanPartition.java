@@ -150,9 +150,16 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
             // The plugin-driven scan path degrades instead of failing: a connector entry that cannot be
             // represented as a Doris partition item makes the whole view unavailable, and pruning is then
             // skipped (every partition is read) rather than pruning against a partial/empty set.
+            //
+            // The view is resolved ONCE per statement and table reference (resolveScanPartitionView): the MV
+            // partition collector records the same view, and its compensation union is restricted to those
+            // names, so a second enumeration here could hand the scan a generation the compensation never saw.
             Optional<Map<String, PartitionItem>> scanView =
                     externalTable instanceof PluginDrivenExternalTable
-                            ? ((PluginDrivenExternalTable) externalTable).getNameToPartitionItemsForScan(snapshot)
+                            ? ctx.getStatementContext().resolveScanPartitionView(externalTable,
+                                    scan.getTableSnapshot(), scan.getScanParams(),
+                                    () -> ((PluginDrivenExternalTable) externalTable)
+                                            .getNameToPartitionItemsForScan(snapshot))
                             : Optional.of(externalTable.getNameToPartitionItems(snapshot));
             if (!scanView.isPresent()) {
                 return SelectedPartitions.NOT_PRUNED;

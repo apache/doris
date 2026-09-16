@@ -137,6 +137,10 @@ public class QueryPartitionCollectorTest {
             collect(scan(table, Optional.empty()), statementContext);
 
             assertRecordedPartitions(statementContext, "p1");
+            // The enumeration performed here is recorded, so the physical scan reads the SAME generation the
+            // compensation decision was made from instead of enumerating its own.
+            Assertions.assertTrue(
+                    statementContext.getExternalTablePreloadInfo(TABLE_ID).get().hasScanPartitionView());
         } finally {
             statementContext.close();
         }
