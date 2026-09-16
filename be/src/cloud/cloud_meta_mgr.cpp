@@ -2727,6 +2727,23 @@ Status CloudMetaMgr::list_snapshot(std::vector<SnapshotInfoPB>& snapshots) {
     return Status::OK();
 }
 
+Status CloudMetaMgr::get_instance_id(std::string* instance_id) {
+    GetInstanceRequest req;
+    GetInstanceResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    RETURN_IF_ERROR(retry_rpc(MetaServiceRPC::GET_INSTANCE, req, &res,
+                              &MetaService_Stub::get_instance,
+                              {
+                                      .host_limiters = host_level_ms_rpc_rate_limiters_,
+                                      .backpressure_handler = ms_backpressure_handler_,
+                              }));
+    if (res.instance().instance_id().empty()) {
+        return Status::InternalError("meta-service returned an instance without an id");
+    }
+    *instance_id = res.instance().instance_id();
+    return Status::OK();
+}
+
 Status CloudMetaMgr::get_snapshot_properties(SnapshotSwitchStatus& switch_status,
                                              int64_t& max_reserved_snapshots,
                                              int64_t& snapshot_interval_seconds) {

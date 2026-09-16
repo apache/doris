@@ -80,7 +80,7 @@ struct FileWriterOptions {
     // writer: the buffer is dropped, no further data is accepted and close() reports the error.
     //
     // upload_done_callback is called exactly once, with the same capacity, for every buffer
-    // that passed the gate, when
+    // that passed the gate — and only for those — when
     // the upload of that buffer has finished (success, provider error, or skipped because an
     // earlier buffer failed) and also when its submission failed. It runs on the upload thread
     // strictly before the buffer's status is published, so it always happens before the writer
