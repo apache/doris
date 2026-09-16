@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "cpp/sync_point.h"
+#include "format/table/index_disk_usage_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
@@ -209,6 +210,33 @@ TEST_F(IndexDiskUsageRowsetTest, RowCountFailureIsNotCachedInRowset) {
             &segment_rows, /*enable_segment_cache=*/false, &stats);
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_EQ(std::vector<uint32_t>({8}), segment_rows);
+}
+
+// Rows are labeled with the newest schema among the rowsets, so an index added after the tablet
+// was cached still resolves to its name.
+TEST_F(IndexDiskUsageRowsetTest, LabelSchemaFollowsNewestRowsetSchema) {
+    auto old_schema = create_schema();
+    auto new_schema = std::make_shared<TabletSchema>();
+    new_schema->copy_from(*old_schema);
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(10002);
+    index_pb.set_index_name("idx_k1");
+    index_pb.add_col_unique_id(1);
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    new_schema->append_index(std::move(index));
+    new_schema->set_schema_version(old_schema->schema_version() + 1);
+
+    RowsetSharedPtr old_rowset;
+    RowsetSharedPtr new_rowset;
+    ASSERT_TRUE(write_rowset(old_schema, 20003, 4, &old_rowset).ok());
+    ASSERT_TRUE(write_rowset(new_schema, 20004, 4, &new_rowset).ok());
+
+    TabletSchemaSPtr label =
+            IndexDiskUsageReader::label_schema(old_schema, {new_rowset, old_rowset});
+    EXPECT_NE(nullptr, resolve_disk_usage_index(*label, 10002, ""));
+    EXPECT_EQ(old_schema.get(), IndexDiskUsageReader::label_schema(old_schema, {}).get());
 }
 
 } // namespace doris::segment_v2

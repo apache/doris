@@ -75,6 +75,14 @@ public:
     Status close() override { return Status::OK(); }
     const segment_v2::IndexDiskUsageOptions& options() const { return _options; }
 
+    // The schema that labels the rows of a tablet: the newest schema among its rowsets, because a
+    // cached cloud tablet may not know an index that later rowsets already carry.
+    static TabletSchemaSPtr label_schema(const TabletSchemaSPtr& tablet_schema,
+                                         const std::vector<RowsetSharedPtr>& rowsets);
+    // The IO context of one tablet: the query context plus the tablet TTL that classifies its
+    // reads in the file cache.
+    static io::IOContext tablet_io_context(const io::IOContext& query_io_ctx, int64_t ttl_seconds);
+
 protected:
     Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
