@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <span>
+
 #include "storage/binlog.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/transform/block_transform.h"
@@ -52,7 +54,7 @@ struct BinlogDeriveContext {
     uint32_t binlog_tso_cid = 0;
     uint32_t binlog_lsn_cid = 0;
     uint32_t binlog_op_cid = 0;
-    std::vector<RowBinlogColumnCidMapping> column_mappings;
+    std::span<const RowBinlogColumnCidMapping> column_mappings;
 };
 
 // Base for the derive stages: apply() runs the setup steps (schema layout + LSN
