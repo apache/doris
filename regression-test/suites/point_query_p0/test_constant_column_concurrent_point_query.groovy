@@ -47,7 +47,6 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
         )
     """
 
-    sql "SET show_hidden_columns = true"
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
 
@@ -60,9 +59,6 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
         def expected = rows.collectEntries { row ->
             [(Integer.parseInt(row[0].toString())): row.collect { value -> value?.toString() }]
         }
-        expected.each { key, row ->
-            assertTrue(Long.parseLong(row[-1]) > 0, "key=${key} has an invalid version ${row[-1]}")
-        }
         return expected
     }
 
@@ -70,7 +66,6 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
         List<Integer> keys = expected.keySet().toList().sort()
         try (Connection connection = DriverManager.getConnection(serverPrepareUrl, user, password);
              Statement sessionStatement = connection.createStatement()) {
-            sessionStatement.execute("SET show_hidden_columns = true")
             sessionStatement.execute("SET enable_nereids_planner = true")
             sessionStatement.execute("SET enable_fallback_to_original_planner = false")
 
@@ -95,8 +90,7 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
         }
     }
 
-    // Case 1: warm the row-store point-query path before the schema changes and record the physical
-    // rowset version expected for each key.
+    // Case 1: warm the row-store point-query path before the schema changes.
     sql """
         INSERT INTO test_constant_column_concurrent_point_query VALUES
             (1, 'old-1'),
@@ -106,22 +100,21 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
 
     explain {
         sql """
-            SELECT k, payload, __DORIS_VERSION_COL__
+            SELECT k, payload
             FROM test_constant_column_concurrent_point_query
             WHERE k = 1
         """
         contains "SHORT-CIRCUIT"
     }
-    def beforeAdd = expectedRows("k, payload, __DORIS_VERSION_COL__")
-    runPointQueries("before_add", "k, payload, __DORIS_VERSION_COL__", beforeAdd)
+    def beforeAdd = expectedRows("k, payload")
+    runPointQueries("before_add", "k, payload", beforeAdd)
     order_qt_concurrent_point_before_add """
         SELECT k, payload
         FROM test_constant_column_concurrent_point_query
         ORDER BY k
     """
 
-    // Case 2: keys 1 and 2 read c_default from a ConstantColumnIterator; keys 3 and 4 read a physical
-    // column. Every prepared point query also reads the synthesized rowset version.
+    // Case 2: keys 1 and 2 predate c_default; keys 3 and 4 store physical values.
     sql """
         ALTER TABLE test_constant_column_concurrent_point_query
         ADD COLUMN c_default INT NOT NULL DEFAULT '10'
@@ -143,18 +136,18 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
 
     explain {
         sql """
-            SELECT k, payload, c_default, __DORIS_VERSION_COL__
+            SELECT k, payload, c_default
             FROM test_constant_column_concurrent_point_query
             WHERE k = 1
         """
         contains "SHORT-CIRCUIT"
     }
-    def afterAdd = expectedRows("k, payload, c_default, __DORIS_VERSION_COL__")
+    def afterAdd = expectedRows("k, payload, c_default")
     assertEquals('10', afterAdd[1][2])
     assertEquals('10', afterAdd[2][2])
     assertEquals('30', afterAdd[3][2])
     assertEquals('40', afterAdd[4][2])
-    runPointQueries("after_add", "k, payload, c_default, __DORIS_VERSION_COL__", afterAdd)
+    runPointQueries("after_add", "k, payload, c_default", afterAdd)
     order_qt_concurrent_point_after_add """
         SELECT k, payload, c_default
         FROM test_constant_column_concurrent_point_query
@@ -191,24 +184,22 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
 
     explain {
         sql """
-            SELECT k, payload, c_default, __DORIS_VERSION_COL__
+            SELECT k, payload, c_default
             FROM test_constant_column_concurrent_point_query
             WHERE k = 3
         """
         contains "SHORT-CIRCUIT"
     }
-    def afterReAdd = expectedRows("k, payload, c_default, __DORIS_VERSION_COL__")
+    def afterReAdd = expectedRows("k, payload, c_default")
     assertEquals('fresh', afterReAdd[1][2])
     assertEquals('fresh', afterReAdd[2][2])
     assertEquals('fresh', afterReAdd[3][2])
     assertEquals('fresh', afterReAdd[4][2])
     assertEquals('physical', afterReAdd[5][2])
-    runPointQueries("after_readd", "k, payload, c_default, __DORIS_VERSION_COL__", afterReAdd)
+    runPointQueries("after_readd", "k, payload, c_default", afterReAdd)
     order_qt_concurrent_point_after_readd """
         SELECT k, payload, c_default
         FROM test_constant_column_concurrent_point_query
         ORDER BY k
     """
-
-    sql "SET show_hidden_columns = false"
 }

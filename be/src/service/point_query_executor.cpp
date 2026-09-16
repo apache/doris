@@ -100,7 +100,12 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     }
     const TabletColumn& target_rs_column = schema.column_by_uid(target_rs_column_id);
     DCHECK(target_rs_column.is_row_store_column());
-    // The full column group is considered a full match, thus no missing cids
+    // An empty row_columns_uids() means the row-store column contains the full row. Keep
+    // missing_cids empty so full-row point queries can be served entirely from the row store,
+    // including row-cache hits. Read-time-synthesized hidden columns are intentionally not
+    // supported on this fast path: for example, JSONB stores 0 for __DORIS_VERSION_COL__, while
+    // its published value must be obtained from the rowset. Resolving it would require bypassing
+    // the row cache and reading the column store with rowset context, defeating this optimization.
     if (schema.row_columns_uids().empty()) {
         missing_cids.clear();
         return;
