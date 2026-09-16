@@ -316,13 +316,42 @@ public class TabletSlidingWindowAccessStatsTest {
                     loadStat(101L, 1L, now, 60_000L),
                     loadStat(102L, 1L, now, 60_000L)));
 
-            // Six candidates, a cap of four: two query slots and two load slots, not four
-            // queries. A single max(scanRate, loadRate) ordering would drop both loads.
+            // Each dimension keeps its own budget of four, so all six survive retention. A
+            // single max(scanRate, loadRate) ordering would have dropped both loads.
             Assertions.assertNotNull(stats.getAccessInfo(101L));
             Assertions.assertNotNull(stats.getAccessInfo(102L));
-            Assertions.assertEquals(4L, stats.getActiveIdsInWindow());
+            Assertions.assertEquals(6L, stats.getActiveIdsInWindow());
             Set<Long> top = stats.getTopNActive(4).stream().map(r -> r.id).collect(Collectors.toSet());
             Assertions.assertEquals(Set.of(3L, 4L, 101L, 102L), top);
+        } finally {
+            Config.cloud_active_partition_scheduling_topn = originalTopn;
+        }
+    }
+
+    // Retention must not spend getTopNActive()'s unique-id budget: that allocates the final
+    // quota per backend, before cross-backend overlap is known. Here backend 1's own load
+    // runner-up is exactly what the global load share needs, because backend 2 turns the leader
+    // into a query winner whose load entry is then a duplicate.
+    @Test
+    public void testRetentionKeepsTheLoadRunnerUpNeededAfterBackendsMerge() {
+        int originalTopn = Config.cloud_active_partition_scheduling_topn;
+        Config.cloud_active_partition_scheduling_topn = 2;
+        try {
+            long now = System.currentTimeMillis();
+            stats.updateFromReport(1L, Collections.singletonList(queryStat(1L, 1L, now, 60_000L)),
+                    Collections.singletonList(loadStat(10L, 100L, now, 60_000L)));
+            // Still loading 10, and 11 starts loading. No queries this round.
+            stats.updateFromReport(1L, Collections.emptyList(), List.of(
+                    loadStat(10L, 100L, now, 60_000L),
+                    loadStat(11L, 90L, now, 60_000L)));
+            // Another compute group queries 10 hard, making it the global query winner.
+            stats.updateFromReport(2L, Collections.singletonList(queryStat(10L, 200L, now, 60_000L)),
+                    Collections.emptyList());
+
+            // 10 takes the query slot; its own load entry is a duplicate, so the load slot must
+            // go to 11. Dropping 11 during backend 1's retention would backfill with query 1.
+            Set<Long> top = stats.getTopNActive(2).stream().map(r -> r.id).collect(Collectors.toSet());
+            Assertions.assertEquals(Set.of(10L, 11L), top);
         } finally {
             Config.cloud_active_partition_scheduling_topn = originalTopn;
         }

@@ -119,11 +119,16 @@ public class TabletSlidingWindowAccessStats {
      * the window already, and dropping by age alone would evict a tablet hammered early in the
      * window in favour of one touched once at the end.
      *
-     * <p>The cap is applied per dimension, exactly the way getTopNActive() spends its budget.
-     * Ranking the two dimensions against each other here would compare unlike units: scans
-     * outnumber flushes by one to two orders of magnitude, so a churning query set would evict
-     * every load tablet before the reserved load quota downstream ever got to see it - and with
-     * the backend's own lists well under their cap, nothing would report the loss.
+     * <p>Each dimension keeps its own retainLimit candidates, so this holds up to 2x that many
+     * ids per backend. Two cheaper rules were both wrong. One ordering over both dimensions
+     * compares unlike units - scans outnumber flushes by one to two orders of magnitude, so a
+     * churning query set evicts every load tablet before the reserved load quota downstream
+     * ever sees it. Spending getTopNActive()'s unique-id budget here is wrong for a subtler
+     * reason: it allocates the final quota per backend, before cross-backend overlap is known.
+     * A load candidate dropped here as the backend's own runner-up is exactly the one the
+     * global load share needs once another backend turns the leader into a query winner, whose
+     * load entry is then a duplicate; a weak query backfills the freed slot instead. Neither
+     * failure trips the BE truncation flag, because both backend lists fit their own cap.
      *
      * <p>lastAccessTime comes from the backend's clock while the cutoff comes from FE's, but a
      * window measured in hours absorbs the skew between them.
@@ -149,18 +154,36 @@ public class TabletSlidingWindowAccessStats {
         // Whatever the backend just reported is fresher than anything retained for it.
         //
         // Known limitation: a report carrying only one dimension replaces the whole record, so
-        // a query-only report zeroes a load rate that is still inside the window and the tablet
-        // can drop out of the load bucket. Not fixed - expiring the dimensions independently
-        // needs a separate timestamp per dimension, which is more machinery than a scheduling
-        // hint is worth. The tablet stays in the map and keeps its query ranking.
+        // a query-only report zeroes a load rate that is still inside the window, and a
+        // load-only report does the same to a query rate. Not fixed - expiring the dimensions
+        // independently needs a separate timestamp per dimension, which is more machinery than
+        // a scheduling hint is worth. Losing a dimension drops the tablet out of that bucket's
+        // ranking, and once the cap below binds it can leave this map entirely, so the tablet
+        // can end up treated as cold.
         merged.putAll(reported);
         if (merged.size() <= retainLimit) {
             return merged;
         }
 
-        Map<Long, AccessStatsResult> capped = Maps.newHashMapWithExpectedSize(retainLimit);
-        for (AccessStatsResult result : pickAcrossDimensions(merged.values(), retainLimit)) {
-            capped.put(result.id, result);
+        List<AccessStatsResult> byQuery = new ArrayList<>();
+        List<AccessStatsResult> byLoad = new ArrayList<>();
+        for (AccessStatsResult result : merged.values()) {
+            if (result.scanRate > 0) {
+                byQuery.add(result);
+            }
+            if (result.loadRate > 0) {
+                byLoad.add(result);
+            }
+        }
+        byQuery.sort(QUERY_RATE_COMPARATOR);
+        byLoad.sort(LOAD_RATE_COMPARATOR);
+        Map<Long, AccessStatsResult> capped = Maps.newHashMapWithExpectedSize(
+                Math.min(merged.size(), 2 * retainLimit));
+        for (int i = 0; i < Math.min(retainLimit, byQuery.size()); i++) {
+            capped.put(byQuery.get(i).id, byQuery.get(i));
+        }
+        for (int i = 0; i < Math.min(retainLimit, byLoad.size()); i++) {
+            capped.put(byLoad.get(i).id, byLoad.get(i));
         }
         return capped;
     }
