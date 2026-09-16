@@ -670,9 +670,9 @@ Status VariantNestedSearchEvaluator::evaluate(
     const ColumnId column_id = static_cast<ColumnId>(ordinal);
 
     std::shared_ptr<segment_v2::ColumnReader> column_reader;
-    RETURN_IF_ERROR(segment->get_column_reader(segment->tablet_schema()->column(column_id),
-                                               &column_reader,
-                                               index_exec_ctx->column_iter_opts().stats));
+    RETURN_IF_ERROR(segment->get_physical_column_reader(segment->tablet_schema()->column(column_id),
+                                                        &column_reader,
+                                                        index_exec_ctx->column_iter_opts().stats));
     auto* variant_reader = dynamic_cast<segment_v2::VariantColumnReader*>(column_reader.get());
     if (variant_reader == nullptr) {
         return Status::InvalidArgument("Column '{}' is not VARIANT for nested query", root_field);

@@ -186,6 +186,13 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     }
     get_missing_and_include_cids(schema, output_slot_descs, _row_store_column_ids,
                                  _missing_col_uids, _include_col_uids);
+    for (const auto* slot : output_slot_descs) {
+        if (slot->col_name() == COMMIT_TSO_COL) {
+            _commit_tso_idx = _col_uid_to_idx.at(slot->col_unique_id());
+            _missing_col_uids.erase(slot->col_unique_id());
+            break;
+        }
+    }
 
     return Status::OK();
 }
@@ -494,7 +501,8 @@ Status PointQueryExecutor::_lookup_row_key() {
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
-        if (!config::disable_storage_row_cache) {
+        // A cached JSONB row has neither a logical commit TSO nor its source rowset location.
+        if (!config::disable_storage_row_cache && _reusable->commit_tso_idx() == -1) {
             RowCache::CacheHandle cache_handle;
             auto hit_cache = RowCache::instance()->lookup(
                     {_tablet->tablet_id(), _row_read_ctxs[i]._primary_key}, &cache_handle);
@@ -545,9 +553,11 @@ Status PointQueryExecutor::_lookup_row_data() {
                 continue;
             }
             std::string value;
+            const int tso_idx = _reusable->commit_tso_idx();
+            const size_t old_tso_rows = tso_idx == -1 ? 0 : result_columns[tso_idx]->size();
             // fill block by row store
             if (_reusable->rs_column_uid() != -1) {
-                bool use_row_cache = !config::disable_storage_row_cache;
+                bool use_row_cache = !config::disable_storage_row_cache && tso_idx == -1;
                 io::IOContext io_ctx;
                 io_ctx.reader_type = ReaderType::READER_QUERY;
                 io_ctx.file_cache_stats = &_profile_metrics.read_stats.file_cache_stats;
@@ -605,10 +615,23 @@ Status PointQueryExecutor::_lookup_row_data() {
                     StorageReadOptions storage_read_options;
                     storage_read_options.stats = &_read_stats;
                     storage_read_options.io_ctx = io_ctx;
+                    storage_read_options.tablet_schema = rowset->tablet_schema();
+                    storage_read_options.rowset_id = rowset->rowset_id();
+                    storage_read_options.version = rowset->version();
+                    storage_read_options.commit_tso = rowset->commit_tso();
                     RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
                                                                     row_ids, column,
                                                                     storage_read_options, iter));
                 }
+            }
+            if (tso_idx != -1) {
+                const auto& loc = _row_read_ctxs[i]._row_location.value();
+                auto& column = result_columns[tso_idx];
+                column->resize(old_tso_rows);
+                const auto* slot = _reusable->tuple_desc()->slots()[tso_idx];
+                RETURN_IF_ERROR(BaseTablet::fetch_value_by_rowids(
+                        *(_row_read_ctxs[i]._rowset_ptr), loc.segment_id, {loc.row_id},
+                        _tablet->tablet_schema()->column_by_uid(slot->col_unique_id()), column));
             }
         }
         if (result_columns.size() > _reusable->include_col_uids().size()) {

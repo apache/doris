@@ -16,10 +16,7 @@
 // under the License.
 #pragma once
 
-#include <optional>
-
 #include "agent/be_exec_version_manager.h"
-#include "core/field.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "storage/olap_common.h"
@@ -65,10 +62,9 @@ public:
     // otherwise, return only none variant subcolumn readers
     std::map<int32_t, std::shared_ptr<ColumnReader>> get_available_readers(bool include_subcolumns);
 
-    // Get column reader by column unique id
+    // Cache physical readers only. Logical constant readers are resolved by Segment before lookup.
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
-                             std::optional<Field> const_value = std::nullopt);
+                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
 
     // Get column reader by column unique id and path(leaf node of variant's subcolumn)
     virtual Status get_path_column_reader(int32_t col_uid, PathInData relative_path,

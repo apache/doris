@@ -60,6 +60,15 @@ std::shared_ptr<ColumnReader> ColumnReaderCache::_lookup(const ColumnReaderCache
 
 void ColumnReaderCache::_insert_locked_nocheck(const ColumnReaderCacheKey& key,
                                                const std::shared_ptr<ColumnReader>& reader) {
+    // Replacing an existing key updates its node in place. Pushing a second node for the same key
+    // would leave the first one unreachable in the list while eviction erases the map entry of
+    // whichever copy reaches the tail, dropping the live reader from the map.
+    if (auto it = _cache_map.find(key); it != _cache_map.end()) {
+        it->second->reader = reader;
+        it->second->last_access = std::chrono::steady_clock::now();
+        _lru_list.splice(_lru_list.begin(), _lru_list, it->second);
+        return;
+    }
     // If capacity exceeded, remove least recently used (tail)
     if (_cache_map.size() >= config::max_segment_partial_column_cache_size) {
         g_segment_column_reader_cache_count << -1;
@@ -96,9 +105,7 @@ std::map<int32_t, std::shared_ptr<ColumnReader>> ColumnReaderCache::get_availabl
 Status ColumnReaderCache::get_column_reader(int32_t col_uid,
                                             std::shared_ptr<ColumnReader>* column_reader,
                                             OlapReaderStatistics* stats,
-                                            const io::IOContext* source_io_ctx,
-                                            std::optional<Field> const_value) {
-    // Attempt to find in cache
+                                            const io::IOContext* source_io_ctx) {
     if (auto cached = _lookup({col_uid, {}})) {
         *column_reader = cached;
         return Status::OK();
@@ -123,7 +130,6 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
     ColumnReaderOptions opts {.kept_in_memory = _tablet_schema->is_in_memory(),
                               .be_exec_version = _be_exec_version,
                               .tablet_schema = _tablet_schema};
-    opts.const_value = std::move(const_value);
 
     std::shared_ptr<ColumnReader> reader;
     if ((FieldType)meta.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {

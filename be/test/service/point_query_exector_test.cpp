@@ -29,9 +29,67 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/point_query_executor.h"
+#include "storage/mow/mow_transform_test_base.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_helper.h"
 
 namespace doris {
+
+class PointQueryCommitTsoTest : public MowTransformTestBase {};
+
+TEST_F(PointQueryCommitTsoTest, RowStoreResolvesCommitTsoForEveryRow) {
+    auto schema = create_row_store_schema();
+    TabletSchemaPB schema_pb;
+    schema->to_schema_pb(&schema_pb);
+    schema_pb.set_delete_sign_idx(2);
+    schema->init_from_pb(schema_pb);
+    schema->append_column(*create_commit_tso_column(10));
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 6051, 2, {{1, 11}, {2, 22}}, &tablet);
+    rowset->make_visible(Version(2, 2), 42);
+
+    auto slot = TSlotDescriptorBuilder()
+                        .type(TYPE_BIGINT)
+                        .nullable(false)
+                        .column_name(COMMIT_TSO_COL)
+                        .column_pos(0)
+                        .build();
+    slot.__set_col_unique_id(10);
+    TDescriptorTableBuilder descriptors;
+    TTupleDescriptorBuilder().add_slot(slot).build(&descriptors);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::SLOT_REF);
+    node.__set_type(create_type_desc(TYPE_BIGINT));
+    node.__set_is_nullable(false);
+    TSlotRef ref;
+    ref.__set_slot_id(0);
+    ref.__set_tuple_id(0);
+    node.__set_slot_ref(ref);
+    TExpr expr;
+    expr.__set_nodes({node});
+    auto reusable = std::make_shared<Reusable>();
+    ASSERT_TRUE(reusable->init(descriptors.desc_tbl(), {expr}, TQueryOptions {}, *schema).ok());
+    ASSERT_EQ(0, reusable->commit_tso_idx());
+
+    PointQueryExecutor executor;
+    executor._tablet = tablet;
+    executor._reusable = reusable;
+    executor._result_block = reusable->get_block();
+    executor._row_hits = 2;
+    executor._row_read_ctxs.resize(2);
+    for (uint32_t i = 0; i < 2; ++i) {
+        auto& ctx = executor._row_read_ctxs[i];
+        ctx._row_location = RowLocation(rowset->rowset_id(), 0, i);
+        rowset->acquire();
+        ctx._rowset_ptr.reset(new RowsetSharedPtr(rowset));
+    }
+    ASSERT_TRUE(executor._lookup_row_data().ok());
+    const auto& result =
+            assert_cast<const ColumnInt64&>(*executor._result_block->get_by_position(0).column);
+    ASSERT_EQ(2, result.size());
+    EXPECT_EQ(42, result.get_element(0));
+    EXPECT_EQ(42, result.get_element(1));
+}
 
 // Helper class for setting up Reusable objects to test LookupConnectionCache
 class ReusableTestHelper {

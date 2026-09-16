@@ -25,7 +25,6 @@
 #include <cstdint>
 #include <map>
 #include <memory> // for unique_ptr
-#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -217,15 +216,20 @@ public:
 
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 
-    // get the column reader by tablet column, return NOT_FOUND if not found reader in this segment
+    // Resolve logical values before consulting the physical reader cache. All data, zone-map and
+    // index reads must use this entry point with the source rowset's version and commit TSO.
     Status get_column_reader(const TabletColumn& col, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
-                             std::optional<Field> const_value = std::nullopt);
+                             const StorageReadOptions& read_options);
 
-    // get the column reader by column unique id, return NOT_FOUND if not found reader in this segment
-    Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
-                             std::optional<Field> const_value = std::nullopt);
+    // Physical metadata access for Variant readers and storage inspection. This does not resolve
+    // read-time values such as commit TSO. Returns NOT_FOUND for a missing physical column.
+    Status get_physical_column_reader(const TabletColumn& col,
+                                      std::shared_ptr<ColumnReader>* column_reader,
+                                      OlapReaderStatistics* stats,
+                                      const io::IOContext* io_ctx = nullptr);
+    Status get_physical_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
+                                      OlapReaderStatistics* stats,
+                                      const io::IOContext* io_ctx = nullptr);
 
     Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);
 

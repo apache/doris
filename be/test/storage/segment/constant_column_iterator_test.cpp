@@ -36,20 +36,15 @@ namespace doris {
 
 class ConstantColumnIteratorTest : public testing::Test {};
 
-TEST_F(ConstantColumnIteratorTest, ColumnReaderCreateWithConstValueReturnsConstantReader) {
+TEST_F(ConstantColumnIteratorTest, ConstantReaderUsesSameValueForDataAndZoneMap) {
     const int64_t kValue = 8888;
-    ColumnReaderOptions opts;
-    opts.const_value = Field::create_field<TYPE_BIGINT>(kValue);
-
-    std::shared_ptr<ColumnReader> reader;
-    auto st = ColumnReader::create(opts, ColumnMetaPB(), 3, io::FileReaderSPtr(), &reader);
-    ASSERT_TRUE(st.ok()) << st;
-    ASSERT_NE(nullptr, reader);
+    std::shared_ptr<ColumnReader> reader =
+            std::make_shared<ConstantColumnReader>(Field::create_field<TYPE_BIGINT>(kValue));
     EXPECT_TRUE(reader->has_zone_map());
     EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_BIGINT, reader->get_meta_type());
 
     segment_v2::ZoneMap zone_map;
-    st = reader->get_segment_zone_map(&zone_map);
+    auto st = reader->get_segment_zone_map(&zone_map);
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_EQ(kValue, zone_map.min_value.get<TYPE_BIGINT>());
     EXPECT_EQ(kValue, zone_map.max_value.get<TYPE_BIGINT>());
@@ -95,6 +90,17 @@ TEST_F(ConstantColumnIteratorTest, MatchConditionUsesConstantZoneMap) {
     st = reader.match_condition(&prune, &matched);
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_FALSE(matched);
+}
+
+// A constant reader has no physical index to open, so index-iterator creation is a no-op rather
+// than an attempt to load one from state this reader never initializes.
+TEST_F(ConstantColumnIteratorTest, NewIndexIteratorIsANoOp) {
+    ConstantColumnReader constant_reader(Field::create_field<TYPE_BIGINT>(int64_t {7}));
+    ColumnReader& reader = constant_reader;
+    std::unique_ptr<IndexIterator> iter;
+    auto st = reader.new_index_iterator(nullptr, nullptr, "", 0, 0, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(iter, nullptr);
 }
 
 // next_batch fills every row with the constant value, advances the ordinal,

@@ -103,6 +103,8 @@ public:
     // delete sign idx in block
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
 
+    int32_t commit_tso_idx() const { return _commit_tso_idx; }
+
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -123,6 +125,8 @@ private:
     std::unordered_set<int32_t> _include_col_uids;
     // delete sign idx in block
     int32_t _delete_sign_idx = -1;
+    // Commit TSO is resolved from the source rowset, never from the JSONB row cache.
+    int32_t _commit_tso_idx = -1;
 };
 
 // RowCache is a LRU cache for row store

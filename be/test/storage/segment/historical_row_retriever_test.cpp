@@ -30,6 +30,7 @@
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/partial_update_info.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/tablet/tablet_schema_helper.h"
 
 namespace doris {
 
@@ -328,6 +329,55 @@ TEST_F(HistoricalRowRetrieverTest, ReviseOperatorWithOldDeleteSign) {
     EXPECT_EQ(ROW_BINLOG_UPDATE, retriever._operators[1]);
     EXPECT_EQ(ROW_BINLOG_UPDATE, retriever._operators[2]);
     EXPECT_EQ(ROW_BINLOG_DELETE, retriever._operators[3]);
+}
+
+TEST_F(HistoricalRowRetrieverTest, CommitTsoReadsRespectPublishAndStorageFormat) {
+    for (bool row_store : {false, true}) {
+        SCOPED_TRACE(row_store);
+        auto schema = row_store ? create_row_store_schema() : create_mow_schema(false);
+        const uint32_t tso_cid = schema->num_columns();
+        schema->append_column(*create_commit_tso_column(10));
+        TabletSharedPtr tablet;
+        auto rowset = write_rowset(schema, row_store ? 6041 : 6042, 2, {{1, 11}, {2, 22}}, &tablet);
+        const auto& column = schema->column(tso_cid);
+        MutableColumnPtr unpublished = ColumnInt64::create();
+        ASSERT_TRUE(BaseTablet::fetch_value_by_rowids(rowset, 0, {0}, column, unpublished).ok());
+        EXPECT_EQ(0, assert_cast<ColumnInt64&>(*unpublished).get_element(0));
+
+        // Publish keeps the physical segment and its already cached placeholder reader.
+        rowset->make_visible(Version(2, 2), 42);
+        FixedReadPlan plan;
+        plan.prepare_to_read(RowLocation(rowset->rowset_id(), 0, 0), 0);
+        std::map<RowsetId, RowsetSharedPtr> rowsets {{rowset->rowset_id(), rowset}};
+        std::map<uint32_t, uint32_t> read_index;
+        Block block = schema->create_storage_block({tso_cid});
+        ASSERT_TRUE(
+                plan.read_columns_by_plan(*schema, {tso_cid}, rowsets, block, &read_index, false)
+                        .ok());
+        ASSERT_EQ(1, block.rows());
+        EXPECT_EQ(42,
+                  assert_cast<const ColumnInt64&>(*block.get_by_position(0).column).get_element(0));
+        if (row_store) {
+            // A read plan appends several rowsets/segments into one block. Resolving the new
+            // batch's TSO must preserve the previously appended rows.
+            ASSERT_TRUE(BaseTablet::fetch_value_through_row_column(rowset, *schema, 0, {1},
+                                                                   {tso_cid}, block)
+                                .ok());
+            ASSERT_EQ(2, block.rows());
+            const auto& appended =
+                    assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+            EXPECT_EQ(42, appended.get_element(0));
+            EXPECT_EQ(42, appended.get_element(1));
+        }
+
+        Block all_rows;
+        ASSERT_TRUE(read_rowset(rowset, schema, &all_rows).ok());
+        ASSERT_EQ(2, all_rows.rows());
+        const auto& tsos =
+                assert_cast<const ColumnInt64&>(*all_rows.get_by_position(tso_cid).column);
+        EXPECT_EQ(42, tsos.get_element(0));
+        EXPECT_EQ(42, tsos.get_element(1));
+    }
 }
 
 } // namespace doris
