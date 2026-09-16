@@ -17,8 +17,8 @@
 
 package org.apache.doris.iceberg;
 
-import org.apache.doris.common.jni.utils.OffHeap;
-import org.apache.doris.common.jni.vec.VectorTable;
+import org.apache.doris.jni.spi.utils.OffHeap;
+import org.apache.doris.jni.spi.vec.VectorTable;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;

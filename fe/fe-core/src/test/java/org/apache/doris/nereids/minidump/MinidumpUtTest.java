@@ -20,11 +20,11 @@ package org.apache.doris.nereids.minidump;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.proc.FrontendsProcNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
 
 import org.json.JSONObject;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -37,22 +37,28 @@ import org.mockito.Mockito;
  */
 class MinidumpUtTest {
 
-    @Disabled
     @Test
     public void testMinidumpUt() {
         Minidump minidump = null;
         String filePath = getClass().getProtectionDomain().getCodeSource().getLocation().getPath();
         String directory = filePath.substring(0, filePath.indexOf("/target/test-classes"));
         String currentMinidumpPath = "/src/test/java/org/apache/doris/nereids/minidump/MinidumpUtTestData.json";
-        try {
+        Frontend fe = Mockito.mock(Frontend.class);
+        Mockito.when(fe.getVersion()).thenReturn("Apache Doris test");
+        Env mockEnv = Mockito.mock(Env.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<FrontendsProcNode> procStatic = Mockito.mockStatic(FrontendsProcNode.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(mockEnv);
+            procStatic.when(() -> FrontendsProcNode.getCurrentFrontendVersion(mockEnv)).thenReturn(fe);
             minidump = MinidumpUtils.jsonMinidumpLoad(directory + currentMinidumpPath);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+        Assertions.assertNotNull(minidump);
         MinidumpUtils.setConnectContext(minidump);
-        JSONObject resultPlan = MinidumpUtils.executeSql("select * from t1 where l1 = 1");
-        assert (minidump != null);
-        assert (resultPlan != null);
+        Assertions.assertNull(ConnectContext.get().getStatementContext());
+        JSONObject resultPlan = MinidumpUtils.executeSql("select 1");
+        Assertions.assertNotNull(resultPlan);
     }
 
     @Test

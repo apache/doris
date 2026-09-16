@@ -223,10 +223,11 @@ Status CloudRowsetWriter::_collect_packed_slice_location(io::FileWriter* file_wr
         return Status::OK();
     }
 
-    // Get packed slice location directly from PackedFileManager
+    // Ask the writer, which holds a reference to its own slice location. Looking it up by
+    // path in PackedFileManager would race with the retention based cleanup of the index.
     io::PackedSliceLocation index;
     RETURN_IF_ERROR(
-            io::PackedFileManager::instance()->get_packed_slice_location(file_path, &index));
+            static_cast<io::PackedFileWriter*>(file_writer)->get_packed_slice_location(&index));
     if (index.packed_file_path.empty()) {
         return Status::OK(); // File not in packed file, skip
     }

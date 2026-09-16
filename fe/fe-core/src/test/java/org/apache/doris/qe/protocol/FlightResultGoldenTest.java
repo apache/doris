@@ -52,8 +52,8 @@ import java.util.List;
  *
  * <p>What is covered: {@code SHOW VARIABLES}, {@code SHOW DATABASES} and {@code DESC} (results the
  * frontend materializes and caches), {@code SET} and {@code USE} (no cached result, which is how the
- * producer knows to synthesize its {@code StatusResult=0} row), {@code EXPLAIN}, a syntax error and
- * an unknown table. Every column comes back as {@code Utf8} today -- that is the current behavior,
+ * producer knows to synthesize its {@code StatusResult=0} row), {@code EXPLAIN},
+ * {@code EXPLAIN PLAN PROCESS}, a syntax error and an unknown table. Every column comes back as {@code Utf8} today -- that is the current behavior,
  * and typing those results is a later step of the same work.
  *
  * <p>Regenerate from the {@code fe} directory with:
@@ -94,6 +94,7 @@ public class FlightResultGoldenTest extends TestWithFeService {
                 // The plan text and the node ids inside it move with the planner, so only the shape
                 // of the answer is recorded. Same reason as ProtocolGolden.Fidelity.SUMMARY.
                 new FlightCase("explain select 1", Detail.SHAPE),
+                new FlightCase("explain plan process select 1", Detail.SHAPE),
                 // A parser error carries the whole keyword list of the grammar.
                 new FlightCase("select from", Detail.SHAPE),
                 new FlightCase("select * from no_such_table", Detail.ROWS));

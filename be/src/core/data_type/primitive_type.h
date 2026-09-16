@@ -42,7 +42,7 @@ template <typename T>
 class ColumnStr;
 class IColumnDummy;
 class ColumnMap;
-class ColumnVariant;
+class ColumnVariantV2;
 class ColumnStruct;
 class ColumnVarbinary;
 class VariantField;
@@ -94,7 +94,8 @@ class DataTypeJsonb;
 class DataTypeArray;
 class DataTypeMap;
 class DataTypeNullable;
-class DataTypeVariant;
+class DataTypeVariantV2;
+using DataTypeVariant = DataTypeVariantV2;
 class DataTypeStruct;
 class DataTypeBitMap;
 class DataTypeQuantileState;
@@ -513,7 +514,7 @@ struct PrimitiveTypeTraits<TYPE_VARIANT> {
     using CppType = VariantField;
     using StorageFieldType = CppType;
     using DataType = DataTypeVariant;
-    using ColumnType = ColumnVariant;
+    using ColumnType = ColumnVariantV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_BITMAP> {

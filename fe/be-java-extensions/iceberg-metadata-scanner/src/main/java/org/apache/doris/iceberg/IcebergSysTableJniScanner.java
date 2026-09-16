@@ -17,27 +17,21 @@
 
 package org.apache.doris.iceberg;
 
-import org.apache.doris.common.classloader.ThreadClassLoaderContext;
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
-import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
+import org.apache.doris.jni.spi.vec.ColumnValue;
 import org.apache.doris.kerberos.PreExecutionAuthenticator;
 import org.apache.doris.kerberos.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
-import org.apache.commons.io.input.ClassLoaderObjectInputStream;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.CloseableIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.UncheckedIOException;
 import java.time.Clock;
-import java.util.Base64;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
@@ -48,7 +42,6 @@ import java.util.stream.Collectors;
 public class IcebergSysTableJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(IcebergSysTableJniScanner.class);
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
-    private final ClassLoader classLoader;
     private final Clock clock;
     private final String fileIoExpiryMs;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
@@ -62,14 +55,12 @@ public class IcebergSysTableJniScanner extends JniScanner {
     }
 
     IcebergSysTableJniScanner(int batchSize, Map<String, String> params, Clock clock) {
-        this.classLoader = this.getClass().getClassLoader();
         this.clock = clock;
         this.fileIoExpiryMs = params.get("file_io_expiry_ms");
         String serializedSplitParams = params.get("serialized_split");
         Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
                 "serialized_split should not be empty");
-        // The planner's serialized FileIO owns metadata credentials. Resolve its implementation
-        // under the extension classloader without replacing it from native reader properties.
+        this.scanTask = IcebergSerializationCompat.deserializeFromBase64(serializedSplitParams);
         String requiredFieldsParam = params.get("required_fields");
         Preconditions.checkArgument(requiredFieldsParam != null && !requiredFieldsParam.isEmpty(),
                 "required_fields should not be empty");
@@ -80,9 +71,6 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            this.scanTask = deserializeWithClassLoader(serializedSplitParams, classLoader);
-        }
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
         String requiredTypesParam = params.get("required_types");
         Preconditions.checkArgument(requiredTypesParam != null && !requiredTypesParam.isEmpty(),
@@ -92,41 +80,17 @@ public class IcebergSysTableJniScanner extends JniScanner {
         initTableInfo(requiredTypes, requiredFields, batchSize);
     }
 
-    private static <T> T deserializeWithClassLoader(String serialized, ClassLoader classLoader) {
-        byte[] bytes = Base64.getMimeDecoder().decode(serialized);
-        // Keep extension-local FileIO visibility without losing Java's primitive and proxy
-        // descriptor handling. Commons IO is supplied by the BE parent classloader.
-        try (ObjectInputStream input = new ClassLoaderObjectInputStream(
-                classLoader, new ByteArrayInputStream(bytes))) {
-            @SuppressWarnings("unchecked")
-            T value = (T) input.readObject();
-            return value;
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to deserialize object", e);
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException("Could not read object", e);
-        }
-    }
-
     @Override
-    public void open() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            openReader();
-        }
-    }
-
-    private void openReader() throws IOException {
+    protected void openInternal() throws IOException {
         validateFileIoExpiry();
         try {
-            try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-                preExecutionAuthenticator.execute(() -> {
-                    // execute FileScanTask to get rows
-                    reader = scanTask.asDataTask().rows().iterator();
-                    return null;
-                });
-            }
+            preExecutionAuthenticator.execute(() -> {
+                // execute FileScanTask to get rows
+                reader = scanTask.asDataTask().rows().iterator();
+                return null;
+            });
         } catch (Exception e) {
-            this.close();
+            closeInternal();
             String msg = String.format("Failed to open scan task: %s", scanTask);
             LOG.error(msg, e);
             throw new IOException(msg, e);
@@ -141,7 +105,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
         try {
             expiry = Long.parseLong(fileIoExpiryMs);
         } catch (NumberFormatException ignored) {
-            // The parsing exception includes its input, which must not reach diagnostics.
+            // Do not expose the credential metadata value through the parsing exception.
             throw new IOException("Invalid Iceberg FileIO expiry timestamp");
         }
         if (expiry <= clock.millis()) {
@@ -151,40 +115,38 @@ public class IcebergSysTableJniScanner extends JniScanner {
 
     @Override
     protected int getNext() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            int rows = 0;
-            long startAppendDataTime = System.nanoTime();
-            while (rows < getBatchSize()) {
-                if (!reader.hasNext()) {
-                    break;
-                }
-                StructLike row = reader.next();
-                for (int i = 0; i < requiredFieldCount; i++) {
-                    // Read positionally: FE (IcebergScanPlanProvider.doPlanSystemTableScan) projects the
-                    // metadata-table scan with the BE-requested fields first, in required_fields order, so the
-                    // i-th projected row field is the i-th required field; any internal dependencies follow.
-                    // Do NOT index via scanTask.schema():
-                    // for a metadata StaticDataTask, schema() returns the FULL table schema while rows() yields a
-                    // narrowed StructProjection, so a full-schema ordinal overruns the projected row (upstream
-                    // #65262 -- reverting this to a by-name/schema() lookup reintroduces ArrayIndexOutOfBounds).
-                    Object value = row.get(i, Object.class);
-                    ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
-                    appendData(i, columnValue);
-                }
-                rows++;
+        int rows = 0;
+        long startAppendDataTime = System.nanoTime();
+        while (rows < getBatchSize()) {
+            if (!reader.hasNext()) {
+                break;
             }
-            appendDataTime += System.nanoTime() - startAppendDataTime;
-            return rows;
+            StructLike row = reader.next();
+            for (int i = 0; i < requiredFieldCount; i++) {
+                // Read positionally: FE (IcebergScanPlanProvider.doPlanSystemTableScan) projects the
+                // metadata-table scan to exactly the BE-requested fields, in required_fields order, so the
+                // i-th projected row field is the i-th required field. Do NOT index via scanTask.schema():
+                // for a metadata StaticDataTask, schema() returns the FULL table schema while rows() yields a
+                // narrowed StructProjection, so a full-schema ordinal overruns the projected row (upstream
+                // #65262 -- reverting this to a by-name/schema() lookup reintroduces ArrayIndexOutOfBounds).
+                Object value = row.get(i, Object.class);
+                ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
+                appendData(i, columnValue);
+            }
+            rows++;
         }
+        appendDataTime += System.nanoTime() - startAppendDataTime;
+        return rows;
     }
 
     @Override
-    public void close() throws IOException {
-        try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            if (reader != null) {
-                // Close the iterator to release resources
-                reader.close();
-            }
+    protected void closeInternal() throws IOException {
+        if (reader != null) {
+            // Called twice whenever openInternal fails - it closes, then BE closes again. That is
+            // within the SPI contract here because closing an iceberg CloseableIterator twice is a
+            // no-op the second time, for both shapes a metadata table produces: a StaticDataTask's
+            // rows have nothing to release, and a ManifestReadTask's avro reader closes idempotently.
+            reader.close();
         }
     }
 

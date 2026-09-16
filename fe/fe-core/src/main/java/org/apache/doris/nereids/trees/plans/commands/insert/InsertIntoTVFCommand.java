@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
@@ -111,10 +110,6 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
             if (deleteExisting && !"local".equals(sinkTvfName)) {
                 deleteExistingFilesInFE(sinkTvfName, sinkProps);
             }
-        }
-
-        if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
-            ctx.getMysqlChannel().reset();
         }
 
         // 3. Create coordinator
