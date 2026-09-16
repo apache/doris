@@ -436,13 +436,18 @@ public:
     // ActiveTabletCollector::commit().
     std::atomic<int64_t> last_reported_scan_count {0};
     std::atomic<int64_t> last_reported_flush_count {0};
-    // Wall clock of that commit. Shared by every tablet in a round, because commit() is
-    // all-or-nothing: a dropped report (5 retries exhausted, or handle_report() returning
-    // false) advances no baseline at all, so the next round's delta spans several
-    // intervals. Backends also report on independent phases. FE compares entries across
-    // backends and across rounds, so it must normalise delta by this window rather than
-    // compare raw counts.
-    std::atomic<int64_t> last_reported_time_ms {0};
+    // Monotonic clock of that commit -- NOT wall clock. Its only use is the
+    // `now - last_reported_mono_ms` subtraction that yields the delta window; a backward
+    // NTP step on the wall clock would clamp that window to 1 ms and inflate every rate
+    // by orders of magnitude. The two last_*_time_ms fields above must stay wall clock:
+    // they are shipped to FE, which compares them against its own clock.
+    //
+    // Shared by every tablet in a round, because commit() is all-or-nothing: a dropped
+    // report (5 retries exhausted, or handle_report() returning false) advances no
+    // baseline at all, so the next round's delta spans several intervals. Backends also
+    // report on independent phases. FE compares entries across backends and across
+    // rounds, so it must normalise delta by this window rather than compare raw counts.
+    std::atomic<int64_t> last_reported_mono_ms {0};
     std::atomic<int64_t> published_count = 0;
     std::atomic<int64_t> read_block_count = 0;
     std::atomic<int64_t> write_count = 0;

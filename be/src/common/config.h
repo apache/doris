@@ -328,12 +328,14 @@ DECLARE_mInt32(report_tablet_interval_seconds);
 // Per-list cap: a report carries at most 2 * report_active_tablet_max_num entries
 // (one top-N list for queries, one for loads).
 //
-// MUST satisfy:  report_active_tablet_max_num >= fe cloud_active_partition_scheduling_topn / 2
-//
-// FE's getTopNActive() picks topn/2 per bucket. When the hot set is concentrated on a
-// single BE, that BE alone has to be able to fill a whole bucket, so a smaller cap here
-// silently drops information. 5000 is exactly the lower bound for the FE default of 10000
-// -- raising the FE value without raising this one loses data silently.
+// Sizing against fe cloud_active_partition_scheduling_topn: FE reserves only topn/2 for the
+// query bucket and backfills whatever the load bucket leaves free from the query list, so
+// one dimension can claim the whole budget. The worst case -- the cluster's entire hot set
+// on a single BE -- therefore wants this >= topn. The default is deliberately half of the
+// FE default instead: FE merges across backends, so it takes a one-BE hot set for the cap
+// to bind at all, and paying 2x the report size on every BE in every cluster to cover that
+// is not worth it. Raise it if you raise the FE value, or if a BE reports
+// report.active_tablet_truncated far above zero.
 DECLARE_mInt32(report_active_tablet_max_num);
 // Only tablets queried / loaded within this window are reported as active.
 DECLARE_mInt32(report_active_tablet_window_second);

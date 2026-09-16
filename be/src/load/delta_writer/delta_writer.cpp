@@ -104,13 +104,14 @@ BaseDeltaWriter::~BaseDeltaWriter() {
     if (_rowset_builder->tablet() != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
         _rowset_builder->tablet()->flush_bytes->increment(stat.flush_size_bytes);
-        _rowset_builder->tablet()->flush_finish_count->increment(stat.flush_finish_count);
         // Stamped here and nowhere else, so the load timestamp and the counter it
         // accompanies always move together: a non-zero flush delta always comes with a
         // fresh timestamp, and the active-window filter can only ever retire a stale
-        // delta, never invent one.
+        // delta, never invent one. Timestamp first, for the same reason as the query
+        // path -- the report walk reads both without a lock.
         _rowset_builder->tablet()->last_load_flush_time_ms.store(UnixMillis(),
                                                                  std::memory_order_relaxed);
+        _rowset_builder->tablet()->flush_finish_count->increment(stat.flush_finish_count);
     }
 }
 

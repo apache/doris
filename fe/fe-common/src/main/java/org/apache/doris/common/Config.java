@@ -3355,8 +3355,9 @@ public class Config extends ConfigBase {
             + "partitions first, then other active partitions, then "
             + "inactive partitions, and internal databases last. "
             + "Default is 10000. <=0 disables TopN segmentation. "
-            + "Must keep be config report_active_tablet_max_num >= this / 2, otherwise a BE that holds a "
-            + "concentrated hot set cannot fill one FE bucket and stats are silently lost.")
+            + "A BE reports at most report_active_tablet_max_num tablets per dimension, so a BE holding "
+            + "a concentrated hot set cannot fill this budget on its own unless that be config is >= this "
+            + "value; watch the BE bvar report.active_tablet_truncated before raising this one.")
     public static int cloud_active_partition_scheduling_topn = 10000;
 
     @ConfField(mutable = true, masterOnly = true, description = "Refresh interval in seconds for the active-tablet "

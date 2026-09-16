@@ -47,6 +47,10 @@ class ActiveTabletCollector {
 public:
     // Called at the top of each build_all_report_tablets_info() pass.
     void start();
+    // Clock-injecting overload, so tests get exact delta windows. now_ms is wall clock
+    // (compared against the tablets' activity timestamps, and shipped to FE); now_mono_ms
+    // is monotonic and feeds the delta window only.
+    void start(int64_t now_ms, int64_t now_mono_ms);
     // Called once per tablet during the walk.
     void collect(const std::shared_ptr<BaseTablet>& tablet);
     // Per-dimension nth_element by rate. No cross-dimension merging or weighting here:
@@ -72,7 +76,11 @@ private:
     std::vector<ActiveTabletCandidate> _query_cands;
     std::vector<ActiveTabletCandidate> _load_cands;
     std::vector<Pending> _pending;
+    // Wall clock, compared against the tablets' last query / load timestamps and shipped
+    // to FE. _now_mono_ms only ever feeds the delta window -- see
+    // BaseTablet::last_reported_mono_ms.
     int64_t _now_ms = 0;
+    int64_t _now_mono_ms = 0;
     bool _truncated = false;
 };
 

@@ -383,8 +383,9 @@ Status PointQueryExecutor::lookup_up() {
     RETURN_IF_ERROR(_lookup_row_data());
     RETURN_IF_ERROR(_output_data());
     if (_tablet != nullptr) {
-        _tablet->query_scan_count->increment(1);
+        // Timestamp before the counter -- see olap_scanner.cpp.
         _tablet->last_query_scan_time_ms.store(UnixMillis(), std::memory_order_relaxed);
+        _tablet->query_scan_count->increment(1);
     }
     return Status::OK();
 }
