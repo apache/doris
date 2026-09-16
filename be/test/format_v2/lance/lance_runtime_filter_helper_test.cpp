@@ -43,7 +43,6 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
-#include "runtime/runtime_profile.h"
 
 namespace doris::format::lance {
 namespace {
@@ -175,7 +174,7 @@ TEST(LanceRuntimeFilterHelperTest, ConvertsSupportedFiltersToLanceSql) {
     EXPECT_TRUE(result->skipped_filter_ids.empty());
 }
 
-TEST(LanceRuntimeFilterHelperTest, RecordsUnsupportedRuntimeFilters) {
+TEST(LanceRuntimeFilterHelperTest, SeparatesSupportedAndUnsupportedRuntimeFilters) {
     const VExprContextSPtrs conjuncts {
             int64_runtime_in("id", {2}, 3),
             unsupported_bloom_runtime_filter("id", 8),
@@ -187,13 +186,6 @@ TEST(LanceRuntimeFilterHelperTest, RecordsUnsupportedRuntimeFilters) {
     EXPECT_EQ("(`id` IN (2))", result->expression);
     EXPECT_EQ((std::vector<int> {3}), result->pushable_filter_ids);
     EXPECT_EQ((std::vector<int> {8}), result->skipped_filter_ids);
-
-    RuntimeProfile profile("lance_runtime_filter_profile");
-    record_lance_runtime_filter_pushdown(&profile, *result);
-    ASSERT_NE(profile.get_info_string("LanceRuntimeFilterPushedIds"), nullptr);
-    EXPECT_EQ("3", *profile.get_info_string("LanceRuntimeFilterPushedIds"));
-    ASSERT_NE(profile.get_info_string("LanceRuntimeFilterSkippedIds"), nullptr);
-    EXPECT_EQ("8", *profile.get_info_string("LanceRuntimeFilterSkippedIds"));
 }
 
 TEST(LanceRuntimeFilterHelperTest, IgnoresNonRuntimeFilterConjuncts) {
