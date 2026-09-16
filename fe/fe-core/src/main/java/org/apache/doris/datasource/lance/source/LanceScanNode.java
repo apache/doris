@@ -417,7 +417,7 @@ public class LanceScanNode extends FileQueryScanNode {
             plannedIndexSegments = plan.splitCount();
             plannedIndexFragments = plan.indexSegmentFragmentCount();
             plannedUnindexedFragments = plannedFragments - plannedIndexFragments;
-            appendUnindexedFragmentSplits(plan, visibleFragments);
+            plan.addUncoveredFragments(visibleFragments.values(), 1);
             return Optional.of(plan.buildSplits());
         }
         return Optional.empty();
