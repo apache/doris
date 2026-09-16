@@ -185,7 +185,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
                 if (windowExpression.getPartitionKeys().stream().anyMatch((
-                        partitionKey -> partitionKey.getDataType().isObjectOrVariantType()))) {
+                        partitionKey -> partitionKey.getDataType().isObjectType()))) {
                     throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             });
