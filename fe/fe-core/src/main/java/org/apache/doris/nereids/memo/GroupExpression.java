@@ -19,10 +19,6 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
-import org.apache.doris.nereids.metrics.EventChannel;
-import org.apache.doris.nereids.metrics.EventProducer;
-import org.apache.doris.nereids.metrics.consumer.LogConsumer;
-import org.apache.doris.nereids.metrics.event.CostStateUpdateEvent;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -51,9 +47,6 @@ import java.util.stream.Collectors;
  * Representation for group expression in cascades optimizer.
  */
 public class GroupExpression {
-    private static final EventProducer COST_STATE_TRACER = new EventProducer(CostStateUpdateEvent.class,
-            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(CostStateUpdateEvent.class,
-                    EventChannel.LOG)));
     private Cost cost = null;
     private Group ownerGroup;
     private final List<Group> children;
@@ -225,7 +218,6 @@ public class GroupExpression {
      */
     public boolean updateLowestCostTable(PhysicalProperties outputProperties,
             List<PhysicalProperties> childrenInputProperties, Cost cost) {
-        COST_STATE_TRACER.log(CostStateUpdateEvent.of(this, cost.getValue(), outputProperties));
         if (lowestCostTable.containsKey(outputProperties)) {
             if (lowestCostTable.get(outputProperties).first.getValue() > cost.getValue()) {
                 lowestCostTable.put(outputProperties, Pair.of(cost, childrenInputProperties));
