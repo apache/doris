@@ -23,6 +23,7 @@ import org.apache.doris.thrift.TActiveTabletStat;
 import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -45,12 +46,6 @@ public class TabletSlidingWindowAccessStats {
                     .reversed();
     private static final Comparator<AccessStatsResult> LOAD_RATE_COMPARATOR =
             Comparator.comparingDouble((AccessStatsResult r) -> r.loadRate)
-                    .thenComparingLong(r -> r.lastAccessTime)
-                    .reversed();
-    // Hottest on either dimension first, same tie-break. Decides what a backend's retention
-    // cap keeps, where the two dimensions are not yet separated into buckets.
-    private static final Comparator<AccessStatsResult> HEAT_COMPARATOR =
-            Comparator.comparingDouble((AccessStatsResult r) -> Math.max(r.scanRate, r.loadRate))
                     .thenComparingLong(r -> r.lastAccessTime)
                     .reversed();
 
@@ -122,9 +117,16 @@ public class TabletSlidingWindowAccessStats {
      * otherwise accumulate a whole window's worth of distinct tablets. The coldest are dropped
      * first, by rate rather than by age - everything that survives the cutoff above is inside
      * the window already, and dropping by age alone would evict a tablet hammered early in the
-     * window in favour of one touched once at the end. lastAccessTime comes from the backend's
-     * clock while the cutoff comes from FE's, but a window measured in hours absorbs the skew
-     * between them.
+     * window in favour of one touched once at the end.
+     *
+     * <p>The cap is applied per dimension, exactly the way getTopNActive() spends its budget.
+     * Ranking the two dimensions against each other here would compare unlike units: scans
+     * outnumber flushes by one to two orders of magnitude, so a churning query set would evict
+     * every load tablet before the reserved load quota downstream ever got to see it - and with
+     * the backend's own lists well under their cap, nothing would report the loss.
+     *
+     * <p>lastAccessTime comes from the backend's clock while the cutoff comes from FE's, but a
+     * window measured in hours absorbs the skew between them.
      */
     private static Map<Long, AccessStatsResult> retainWithinWindow(
             Map<Long, AccessStatsResult> previous, Map<Long, AccessStatsResult> reported) {
@@ -145,16 +147,19 @@ public class TabletSlidingWindowAccessStats {
             }
         }
         // Whatever the backend just reported is fresher than anything retained for it.
+        //
+        // Known limitation: a report carrying only one dimension replaces the whole record, so
+        // a query-only report zeroes a load rate that is still inside the window and the tablet
+        // can drop out of the load bucket. Not fixed - expiring the dimensions independently
+        // needs a separate timestamp per dimension, which is more machinery than a scheduling
+        // hint is worth. The tablet stays in the map and keeps its query ranking.
         merged.putAll(reported);
         if (merged.size() <= retainLimit) {
             return merged;
         }
 
-        List<AccessStatsResult> byHeat = new ArrayList<>(merged.values());
-        byHeat.sort(HEAT_COMPARATOR);
         Map<Long, AccessStatsResult> capped = Maps.newHashMapWithExpectedSize(retainLimit);
-        for (int i = 0; i < retainLimit; i++) {
-            AccessStatsResult result = byHeat.get(i);
+        for (AccessStatsResult result : pickAcrossDimensions(merged.values(), retainLimit)) {
             capped.put(result.id, result);
         }
         return capped;
@@ -289,10 +294,22 @@ public class TabletSlidingWindowAccessStats {
         if (!Config.enable_active_tablet_sliding_window_access_stats || topN <= 0) {
             return Collections.emptyList();
         }
+        return pickAcrossDimensions(mergeBackendStats().values(), topN);
+    }
 
+    /**
+     * Spend a budget of {@code limit} tablets across the two dimensions, each ranked on its own
+     * rate. Half is reserved for queries, counted in tablets actually added so a tablet hot on
+     * both dimensions costs one slot and not two; loads then fill the rest, and queries backfill
+     * whatever is still free - which happens when loads ran out, or when the two lists
+     * overlapped. Neither dimension is ever ranked against the other: scans and flushes differ
+     * by one to two orders of magnitude, so a single ordering drops load-heavy tablets as a class.
+     */
+    private static List<AccessStatsResult> pickAcrossDimensions(
+            Collection<AccessStatsResult> candidates, int limit) {
         List<AccessStatsResult> queryStats = new ArrayList<>();
         List<AccessStatsResult> loadStats = new ArrayList<>();
-        for (AccessStatsResult result : mergeBackendStats().values()) {
+        for (AccessStatsResult result : candidates) {
             if (result.scanRate > 0) {
                 queryStats.add(result);
             }
@@ -306,21 +323,16 @@ public class TabletSlidingWindowAccessStats {
         Map<Long, AccessStatsResult> selected = new LinkedHashMap<>();
         int queryIdx = 0;
         int loadIdx = 0;
-
-        // Half the budget is reserved for the query dimension, counted in tablets actually
-        // added: a tablet hot on both dimensions must not cost a slot on each side.
-        int queryReserve = topN / 2;
+        int queryReserve = limit / 2;
         while (queryIdx < queryStats.size() && selected.size() < queryReserve) {
             AccessStatsResult result = queryStats.get(queryIdx++);
             selected.putIfAbsent(result.id, result);
         }
-        // Load then fills the rest of the budget, and query backfills whatever is still free -
-        // which happens when load ran out, or when the two lists overlapped.
-        while (loadIdx < loadStats.size() && selected.size() < topN) {
+        while (loadIdx < loadStats.size() && selected.size() < limit) {
             AccessStatsResult result = loadStats.get(loadIdx++);
             selected.putIfAbsent(result.id, result);
         }
-        while (queryIdx < queryStats.size() && selected.size() < topN) {
+        while (queryIdx < queryStats.size() && selected.size() < limit) {
             AccessStatsResult result = queryStats.get(queryIdx++);
             selected.putIfAbsent(result.id, result);
         }
@@ -389,21 +401,31 @@ public class TabletSlidingWindowAccessStats {
     }
 
     /**
-     * Query traffic SUMS across replicas, load traffic takes the MAX. The asymmetry is in how
-     * the two reach a replica: the planner assigns each scan range to exactly one replica, so
-     * a tablet's query traffic is split between its backends and only the sum is the tablet's
-     * real rate - taking the max would make a three-replica tablet read three times colder
-     * than a single-replica one carrying the same load. A load, by contrast, writes every
-     * replica, so each backend reports the same flushes and summing would multiply them by the
-     * replication factor. lastAccessTime is the most recent touch either way.
+     * Query traffic always SUMS across backends: the planner assigns each scan range to exactly
+     * one replica, so a tablet's query traffic is split between the backends holding it and only
+     * the sum is the tablet's real rate - taking the max would make a three-replica tablet read
+     * three times colder than a single-replica one carrying the same load.
+     *
+     * <p>Load traffic depends on the deployment. Shared-nothing replicates every write, so all
+     * three backends report the same flushes and summing would multiply them by the replication
+     * factor - max is the tablet's real rate there. Cloud does not replicate on the write path:
+     * a CloudTablet holds a single CloudReplica, and CloudReplica#getBackendIdImpl resolves it
+     * to one backend per compute group (a random one of cloud_replica_num when
+     * enable_cloud_multi_replica is on), so two backends reporting the same tablet did
+     * independent work and max would silently discard half of it.
+     *
+     * <p>lastAccessTime is the most recent touch either way.
      */
     private static AccessStatsResult mergeReplicas(AccessStatsResult left, AccessStatsResult right) {
+        boolean loadIsSplit = Config.isCloudMode();
         return new AccessStatsResult(left.id,
                 left.scanCount + right.scanCount,
-                Math.max(left.loadCount, right.loadCount),
+                loadIsSplit ? left.loadCount + right.loadCount
+                        : Math.max(left.loadCount, right.loadCount),
                 Math.max(left.lastAccessTime, right.lastAccessTime),
                 left.scanRate + right.scanRate,
-                Math.max(left.loadRate, right.loadRate));
+                loadIsSplit ? left.loadRate + right.loadRate
+                        : Math.max(left.loadRate, right.loadRate));
     }
 
     public static TabletSlidingWindowAccessStats getInstance() {

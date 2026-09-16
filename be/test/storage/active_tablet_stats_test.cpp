@@ -183,6 +183,28 @@ TEST(ActiveTabletStatsTest, FirstRoundReportsActivitySinceConstruction) {
     EXPECT_TRUE(collector.load_candidates().empty());
 }
 
+// The metric entity is keyed by tablet id, so a replacement object for a tablet whose original
+// is still alive shares its counters. Seeding the baselines from the counters is what stops the
+// replacement's first report from billing the whole of the original's history to one window.
+TEST(ActiveTabletStatsTest, ReplacementTabletDoesNotInheritTheOldCountAsDelta) {
+    auto original = make_baselined_tablet(104, kNowMs - kReportIntervalMs);
+    original->query_scan_count->increment(1'000'000);
+
+    // Built while the original is still alive, the way local migration does it.
+    auto replacement = std::make_shared<StatsTestTablet>(104);
+    EXPECT_EQ(replacement->query_scan_count->value(), 1'000'000) << "counters are shared by id";
+    EXPECT_EQ(replacement->last_reported_scan_count.load(), 1'000'000);
+
+    replacement->query_scan_count->increment(1);
+    replacement->last_query_scan_time_ms.store(kNowMs);
+    replacement->last_reported_mono_ms.store(kNowMs - kReportIntervalMs);
+
+    ActiveTabletCollector collector;
+    collect_at(collector, replacement, kNowMs);
+    ASSERT_EQ(collector.query_candidates().size(), 1);
+    EXPECT_EQ(collector.query_candidates().front().delta, 1);
+}
+
 // Collection must be read-only on the baselines. The report path retries the walk up
 // to 5 times on a report-version conflict, so a destructive read (exchange) would make
 // every retry after the first see a zero delta.
