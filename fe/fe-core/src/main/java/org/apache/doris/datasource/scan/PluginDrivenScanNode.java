@@ -1222,12 +1222,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private void resolveUnknownTotalPartitionNum() {
         // Memoized: an UNAVAILABLE view leaves the count unknown, so without this flag every later render of the
         // same node (toString, getPlanTreeExplainStr, Profile.updateSummary) would ask the connector again and
-        // rebuild the whole view for the same answer.
+        // rebuild the whole view for the same answer. Only a COMPLETED attempt is memoized - caching a failed one
+        // would downgrade a hard failure in the first render to a silent `?` in every later one.
         if (totalPartitionNumResolved) {
             return;
         }
-        totalPartitionNumResolved = true;
         if (totalPartitionNum >= 0) {
+            totalPartitionNumResolved = true;
             return;
         }
         // A metadata TVF scan (PluginDrivenSysTable) has no partition view to ask about; its counts stay at
@@ -1235,6 +1236,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // through that shape.
         TableIf table = desc.getTable();
         if (!(table instanceof PluginDrivenExternalTable)) {
+            totalPartitionNumResolved = true;
             return;
         }
         PluginDrivenExternalTable pluginDrivenTable = (PluginDrivenExternalTable) table;
@@ -1242,6 +1244,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
         totalPartitionNum = totalPartitionNumFromUnfilteredView(totalPartitionNum,
                 pluginDrivenTable.getNameToPartitionItemsForScan(snapshot));
+        totalPartitionNumResolved = true;
     }
 
     /**
