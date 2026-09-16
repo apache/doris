@@ -129,5 +129,56 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
             )
         """
     }
+    // Write with an explicit backslash, then change only the metadata to Hive's double-quote sentinel.
+    // This leaves backslash-escaped embedded quotes in the file and exercises Hive's reader constructor choice.
+    String sqlBackslash = "\\\\"
+    for (boolean tableProperties : [true, false]) {
+        String table = tableProperties ? "csv_default_escape_table" : "csv_default_escape_serde"
+        hive_docker "DROP TABLE IF EXISTS csv_table_properties_db.${table}"
+        hive_docker """
+            CREATE TABLE csv_table_properties_db.${table} (label STRING, payload STRING)
+            ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+            ${tableProperties ? '' : "WITH SERDEPROPERTIES ('escapeChar'='${sqlBackslash}')"}
+            STORED AS TEXTFILE
+            ${tableProperties ? "TBLPROPERTIES ('escapeChar'='${sqlBackslash}')" : ''}
+        """
+        hive_docker """
+            INSERT INTO csv_table_properties_db.${table}
+            SELECT label, payload FROM csv_table_properties_db.source_rows
+        """
+        for (String sentinel : ['"', '"suffix']) {
+            hive_docker """
+                ALTER TABLE csv_table_properties_db.${table}
+                SET ${tableProperties ? 'TBLPROPERTIES' : 'SERDEPROPERTIES'} ('escapeChar'='${sentinel}')
+            """
+            sql "REFRESH DATABASE csv_table_properties_catalog.csv_table_properties_db"
+            def expected = hive_docker "SELECT label, payload FROM csv_table_properties_db.source_rows ORDER BY label"
+            def hiveRows = hive_docker "SELECT label, payload FROM csv_table_properties_db.${table} ORDER BY label"
+            assertEquals(expected, hiveRows)
+            assertEquals(hiveRows, sql("SELECT label, payload FROM ${table} ORDER BY label"))
+        }
+    }
+
+    // These metadata values initialize successfully in Hive, but its reader rejects the effective tuple.
+    for (String properties : [
+        "'separatorChar'='q', 'quoteChar'='q', 'escapeChar'='e'",
+        "'separatorChar'='e', 'quoteChar'='q', 'escapeChar'='e'",
+        "'separatorChar'='s', 'quoteChar'='e', 'escapeChar'='e'",
+        "'separatorChar'='${sqlBackslash}', 'quoteChar'='q', 'escapeChar'='\"'"
+    ]) {
+        hive_docker """
+            ALTER TABLE csv_table_properties_db.csv_two_columns SET TBLPROPERTIES (${properties})
+        """
+        sql "REFRESH DATABASE csv_table_properties_catalog.csv_table_properties_db"
+        test {
+            sql "SELECT label, payload FROM csv_two_columns ORDER BY label"
+            exception "separatorChar, quoteChar and escapeChar must be distinct when non-NUL"
+        }
+    }
+    hive_docker """
+        ALTER TABLE csv_table_properties_db.csv_two_columns SET TBLPROPERTIES (
+            'separatorChar'='s', 'quoteChar'='q', 'escapeChar'='e'
+        )
+    """
     sql "REFRESH DATABASE csv_table_properties_catalog.csv_table_properties_db"
 }

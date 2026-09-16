@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
 
 class PluginDrivenScanNodeCsvPropertiesTest {
@@ -74,6 +75,35 @@ class PluginDrivenScanNodeCsvPropertiesTest {
         }
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> toWire(Map.of(), Map.of("separatorChar", "😀")));
+    }
+
+    @Test
+    void testDefaultEscapeSentinelSurvivesThriftAsBackslash() throws Exception {
+        for (String quote : new String[] {"\"", "q"}) {
+            Map<String, String> properties = Map.of("quoteChar", quote, "escapeChar", "\"suffix");
+            assertWireProperties(toWire(Map.of(), properties), ",", quote.charAt(0), '\\', "\"".equals(quote));
+            assertWireProperties(toWire(properties, Map.of()), ",", quote.charAt(0), '\\', "\"".equals(quote));
+        }
+    }
+
+    @Test
+    void testCharacterConflictsFailBeforeThriftConstruction() {
+        for (Map<String, String> properties : List.of(
+                Map.of("separatorChar", "|", "quoteChar", "|"),
+                Map.of("separatorChar", "|", "escapeChar", "|"),
+                Map.of("quoteChar", "q", "escapeChar", "q"),
+                Map.of("separatorChar", "\\", "escapeChar", "\""),
+                Map.of("separatorChar", "\0"))) {
+            Assertions.assertThrows(DorisConnectorException.class, () -> toWire(Map.of(), properties));
+            Assertions.assertThrows(DorisConnectorException.class, () -> toWire(properties, Map.of()));
+        }
+    }
+
+    @Test
+    void testDisabledQuoteAndEscapeSurviveThrift() throws Exception {
+        Map<String, String> properties = Map.of("quoteChar", "\0", "escapeChar", "\0");
+        assertWireProperties(toWire(Map.of(), properties), ",", '\0', '\0', false);
+        assertWireProperties(toWire(properties, Map.of()), ",", '\0', '\0', false);
     }
 
     private static TFileAttributes toWire(Map<String, String> serdeProperties,

@@ -164,18 +164,33 @@ public final class HiveTextProperties {
             Map<String, String> tableParams, Map<String, String> result) {
         // Trino stores CSV settings in table parameters. Honor Hive's table-over-SerDe precedence
         // so valid CSV files are not silently split with the default delimiter and quote characters.
-        result.put(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR,
-                getCsvCharacter(params, tableParams, SEPARATOR_CHAR, ','));
+        String separator = getCsvCharacter(params, tableParams, SEPARATOR_CHAR, ',');
+        String quoteChar = getCsvCharacter(params, tableParams, QUOTE_CHAR, '"');
+        String escapeChar = getCsvCharacter(params, tableParams, ESCAPE_CHAR, '"');
+        // Hive treats the writer-default double quote as a sentinel: newReader selects the constructor
+        // whose effective escape is backslash. Resolve it before validating the parser's character tuple.
+        if ("\"".equals(escapeChar)) {
+            escapeChar = "\\";
+        }
+        if ("\0".equals(separator)) {
+            throw new DorisConnectorException("Invalid OpenCSVSerde property 'separatorChar': must not be NUL");
+        }
+        // OpenCSV requires distinct active characters; NUL disables quote/escape and may be shared by both.
+        if (separator.equals(quoteChar) || separator.equals(escapeChar)
+                || (!"\0".equals(quoteChar) && quoteChar.equals(escapeChar))) {
+            throw new DorisConnectorException("Invalid OpenCSVSerde configuration: "
+                    + "separatorChar, quoteChar and escapeChar must be distinct when non-NUL");
+        }
+        result.put(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR, separator);
         // OpenCSVSerde does not use table-level line.delim to frame records. Preserve the existing
         // SerDe-only override; applying a table property here can merge otherwise valid newline records.
         String lineDelimiter = params == null ? null : params.get(LINE_DELIM);
         result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER,
                 lineDelimiter == null ? DEFAULT_LINE_DELIM : lineDelimiter);
-        String quoteChar = getCsvCharacter(params, tableParams, QUOTE_CHAR, '"');
         result.put(ScanNodePropertyKeys.TEXT_ENCLOSE, quoteChar);
         // BE's extra double-quote trimming is valid only for the effective double-quote enclosure.
         result.put(ScanNodePropertyKeys.TEXT_TRIM_DOUBLE_QUOTES, String.valueOf("\"".equals(quoteChar)));
-        result.put(ScanNodePropertyKeys.TEXT_ESCAPE, getCsvCharacter(params, tableParams, ESCAPE_CHAR, '\\'));
+        result.put(ScanNodePropertyKeys.TEXT_ESCAPE, escapeChar);
         result.put(ScanNodePropertyKeys.TEXT_NULL_FORMAT, "");
     }
 
