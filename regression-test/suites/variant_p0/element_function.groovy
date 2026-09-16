@@ -60,6 +60,12 @@ suite("regression_test_variant_element_at", "p0")  {
             cast(${variantV2Function}('{"o":{"name":"john"}}') as json), '\$.o'))"""
     assertEquals('{"name":"john"}', obj[0][0])
 
+    // The cases below need Variant V2. On the legacy V1 path element_at resolves an integer index as an
+    // object key, so indexing an array stored in a VARIANT column returns NULL there.
+    if (!getFeConfig("enable_variant_v2").toBoolean()) {
+        return
+    }
+
     // DORIS-28435: an integer index on a VARIANT array that was itself extracted with element_at is 1-based like
     // ARRAY element_at and counts from the end when negative; 0, out-of-range indexes, non-array values and
     // missing paths give NULL, while a string index still reads object keys. On a stored column the planner
