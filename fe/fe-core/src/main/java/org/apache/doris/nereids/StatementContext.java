@@ -1358,6 +1358,17 @@ public class StatementContext implements Closeable {
         return Collections.unmodifiableCollection(externalTablePreloadInfos.values());
     }
 
+    /**
+     * The preload record of one external table, or empty when the table was never registered for preload.
+     * Used by lock-sensitive consumers to reuse metadata the pre-lock preload pass already materialized.
+     *
+     * @param tableId the table's id, as used by {@link #registerExternalTableForPreload}
+     * @return ExternalTablePreloadInfo
+     */
+    public Optional<ExternalTablePreloadInfo> getExternalTablePreloadInfo(long tableId) {
+        return Optional.ofNullable(externalTablePreloadInfos.get(tableId));
+    }
+
     public int getExternalTablePreloadCandidateCount() {
         return externalTablePreloadInfos.size();
     }

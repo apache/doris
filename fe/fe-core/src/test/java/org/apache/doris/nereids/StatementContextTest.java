@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -38,6 +39,7 @@ import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
 
 public class StatementContextTest {
@@ -387,6 +389,83 @@ public class StatementContextTest {
 
     private CatalogIf<?> mockCatalog() {
         return Mockito.mock(CatalogIf.class);
+    }
+
+    @Test
+    public void testPreloadDeferredScanPartitionViewBeforeLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        // WHY: a connector-pruning table materializes NO partition view in initSelectedPartitions (it returns
+        // DEFERRED), yet the MV partition collector needs the full view after the locks are taken. The preload
+        // pass must therefore materialize it HERE and hand it to that collector.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(connectContext.getQueryIdentifier()).thenReturn("query-deferred");
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(19L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportInternalPartitionPruned()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getBaseSchema()).thenReturn(Collections.emptyList());
+        Mockito.when(hiveExternalTable.initSelectedPartitions(Mockito.any()))
+                .thenReturn(SelectedPartitions.DEFERRED_PARTITION_PRUNING);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Optional<Map<String, PartitionItem>> scanView =
+                Optional.of(ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)));
+        Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(scanView);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
+
+            ExternalMetadataPreloadResult result = executePreload(statementContext);
+
+            org.junit.jupiter.api.Assertions.assertTrue(result.isExecuted());
+            ExternalTablePreloadInfo preloadInfo = statementContext.getExternalTablePreloadInfo(19L).get();
+            org.junit.jupiter.api.Assertions.assertTrue(preloadInfo.hasScanPartitionView());
+            org.junit.jupiter.api.Assertions.assertEquals(scanView, preloadInfo.getScanPartitionView());
+            Mockito.verify(hiveExternalTable, Mockito.times(1)).initSelectedPartitions(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testPreloadSkipsScanPartitionViewForTableWithoutConnectorPruning() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable plainTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnablePreloadExternalMetadata(true);
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(connectContext.getQueryIdentifier()).thenReturn("query-plain");
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(plainTable.getId()).thenReturn(20L);
+        Mockito.when(plainTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(plainTable.supportInternalPartitionPruned()).thenReturn(true);
+        Mockito.when(plainTable.getBaseSchema()).thenReturn(Collections.emptyList());
+        Mockito.when(plainTable.initSelectedPartitions(Mockito.any()))
+                .thenReturn(SelectedPartitions.NOT_PRUNED);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(plainTable, Optional.empty(), Optional.empty());
+
+            executePreload(statementContext);
+
+            // A connector that cannot prune from a predicate already enumerated its view eagerly, so there is
+            // nothing to warm and no connector call to add.
+            org.junit.jupiter.api.Assertions.assertFalse(
+                    statementContext.getExternalTablePreloadInfo(20L).get().hasScanPartitionView());
+            Mockito.verify(plainTable, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
     }
 
     private ExternalMetadataPreloadResult executePreload(StatementContext statementContext) {
