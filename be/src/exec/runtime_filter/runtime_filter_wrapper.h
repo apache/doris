@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -90,7 +91,8 @@ public:
     // The shared vector includes the NULL hash whenever the exact set contains NULL, regardless
     // of target nullability. A non-nullable target may therefore retain one conservative bucket.
     std::shared_ptr<const std::vector<uint32_t>> get_or_compute_bucket_prune_hashes(
-            const DataTypePtr& target_type) const;
+            const DataTypePtr& target_type, TDistributionHashType::type hash_type,
+            uint32_t bucket_num) const;
 
     bool disable_always_true_logic() const { return _disable_always_true_logic; }
 
@@ -171,5 +173,8 @@ private:
     mutable std::once_flag _bucket_prune_hashes_once;
     mutable std::atomic_bool _bucket_prune_hashes_started = false;
     mutable std::shared_ptr<const std::vector<uint32_t>> _bucket_prune_hashes;
+    mutable std::mutex _identity_bucket_prune_hashes_mutex;
+    mutable std::unordered_map<uint32_t, std::shared_ptr<const std::vector<uint32_t>>>
+            _identity_bucket_prune_hashes;
 };
 } // namespace doris

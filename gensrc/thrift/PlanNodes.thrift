@@ -1685,6 +1685,9 @@ struct TRuntimeFilterDesc {
   // distribution column. BE still verifies that the delivered filter has an
   // exact IN set before using it for bucket pruning.
   22: optional set<Types.TPlanNodeId> bucket_pruning_target_ids;
+
+  // Storage hash algorithm for each bucket-pruning target. Missing entries are legacy CRC32.
+  23: optional map<Types.TPlanNodeId, Types.TDistributionHashType> bucket_pruning_target_hash_types;
 }
 
 
