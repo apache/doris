@@ -20,18 +20,24 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
+#include <future>
+#include <limits>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
-#include "bthread/countdown_event.h"
+#include "bthread/bthread.h"
 #include "common/exception.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner_v2.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/table/hive_reader.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -417,109 +423,374 @@ TEST_F(SubmitExternalScanTasksTest, ThrownExceptionReachesTheCaller) {
     EXPECT_NE(result.to_string().find("scanner threw"), std::string::npos);
 }
 
+// Keep accepted tasks queued until the test explicitly runs them. This models a
+// saturated scanner pool and lets submission failures race with pending work.
+class QueuedRowIdScanScheduler : public InlineScanScheduler {
+public:
+    Status submit_scan_task(SimplifiedScanTask task, const std::string& id) override {
+        if (tasks.size() == fail_at) {
+            if (throw_on_submit) {
+                throw std::runtime_error("scan submission exception");
+            }
+            return Status::InternalError("scan queue full");
+        }
+        task_ids.push_back(id);
+        tasks.push_back(std::move(task));
+        return Status::OK();
+    }
+
+    size_t fail_at = std::numeric_limits<size_t>::max();
+    bool throw_on_submit = false;
+    std::vector<std::string> task_ids;
+    std::vector<SimplifiedScanTask> tasks;
+};
+
 class ParallelRowIdFetchTest : public RowIdStorageReaderTest {
 protected:
-    static Status read_groups(size_t count, int batch, int concurrency, bool row_store,
-                              const std::function<Status(size_t, size_t)>& read) {
-        return RowIdStorageReader::read_internal_segment_groups(count, batch, concurrency,
-                                                                row_store, read);
+    static void submit(ScannerScheduler* scheduler, size_t count, int concurrency,
+                       std::function<Status(size_t)> read, std::function<void(Status)> finish) {
+        RowIdStorageReader::submit_internal_scan_tasks(scheduler, count, concurrency,
+                                                       std::move(read), std::move(finish));
     }
 };
 
-TEST_F(ParallelRowIdFetchTest, CoversEveryGroupIncludingPartialLastTask) {
+TEST_F(ParallelRowIdFetchTest, QueuesBoundedWorkersAndReadsEveryTaskOnce) {
+    QueuedRowIdScanScheduler scheduler;
     std::vector<int> visits(7, 0);
-    std::atomic<int> tasks = 0;
-    auto status = read_groups(7, 2, 3, false, [&](size_t begin, size_t end) {
-        EXPECT_LE(end - begin, 2);
-        for (size_t i = begin; i < end; ++i) {
-            ++visits[i];
-        }
-        ++tasks;
-        return Status::OK();
-    });
-    ASSERT_TRUE(status.ok()) << status;
-    EXPECT_EQ(tasks, 4);
-    EXPECT_EQ(visits, std::vector<int>(7, 1));
-}
-
-TEST_F(ParallelRowIdFetchTest, SerialFallbacksReadOneRange) {
-    auto check_serial = [&](int batch, int concurrency, bool row_store) {
-        int calls = 0;
-        auto status = read_groups(5, batch, concurrency, row_store, [&](size_t begin, size_t end) {
-            EXPECT_EQ(begin, 0);
-            EXPECT_EQ(end, 5);
-            ++calls;
-            return Status::OK();
-        });
-        EXPECT_TRUE(status.ok()) << status;
-        EXPECT_EQ(calls, 1);
-    };
-    check_serial(0, 8, false);
-    check_serial(-1, 8, false);
-    check_serial(5, 8, false);
-    check_serial(100, 8, false);
-    check_serial(1, 1, false);
-    check_serial(1, 0, false);
-    check_serial(1, -1, false);
-    check_serial(1, 8, true);
-}
-
-TEST_F(ParallelRowIdFetchTest, EmptyRequestDoesNotRead) {
-    ASSERT_TRUE(read_groups(0, 1, 8, false, [](size_t, size_t) {
-                    ADD_FAILURE() << "Empty request must not schedule a read";
-                    return Status::OK();
-                }).ok());
-}
-
-TEST_F(ParallelRowIdFetchTest, RunsConcurrentlyWithinLimit) {
-    bthread::CountdownEvent first_pair(2);
-    std::atomic<int> active = 0;
-    std::atomic<int> peak = 0;
-    auto status = read_groups(8, 1, 2, false, [&](size_t begin, size_t) {
-        const int running = ++active;
-        int previous = peak.load();
-        while (previous < running && !peak.compare_exchange_weak(previous, running)) {
-        }
-        if (begin < 2) {
-            first_pair.signal();
-            first_pair.wait();
-        }
-        --active;
-        return Status::OK();
-    });
-    ASSERT_TRUE(status.ok()) << status;
-    EXPECT_EQ(peak, 2);
-    EXPECT_EQ(active, 0);
-}
-
-TEST_F(ParallelRowIdFetchTest, WaitsForStartedTasksOnError) {
-    bthread::CountdownEvent both_started(2);
-    std::atomic<bool> other_finished = false;
-    auto status = read_groups(2, 1, 2, false, [&](size_t begin, size_t) {
-        both_started.signal();
-        both_started.wait();
-        if (begin == 0) {
-            return Status::InternalError("internal rowid read failed");
-        }
-        other_finished = true;
-        return Status::OK();
-    });
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("internal rowid read failed"), std::string::npos);
-    EXPECT_TRUE(other_finished);
-}
-
-TEST_F(ParallelRowIdFetchTest, ExceptionsReachCallerWithoutHanging) {
-    for (bool doris_exception : {false, true}) {
-        auto status = read_groups(3, 1, 2, false, [&](size_t, size_t) -> Status {
-            if (doris_exception) {
-                throw Exception(ErrorCode::INTERNAL_ERROR, "parallel read exception");
-            }
-            throw std::runtime_error("parallel read exception");
-        });
-        EXPECT_FALSE(status.ok());
-        EXPECT_NE(status.to_string().find("parallel read exception"), std::string::npos);
+    int completions = 0;
+    submit(
+            &scheduler, visits.size(), 3,
+            [&](size_t idx) {
+                EXPECT_EQ(bthread_self(), 0);
+                ++visits[idx];
+                return Status::OK();
+            },
+            [&](Status status) {
+                EXPECT_TRUE(status.ok()) << status;
+                EXPECT_EQ(visits, std::vector<int>(7, 1));
+                ++completions;
+            });
+    ASSERT_EQ(scheduler.tasks.size(), 3);
+    EXPECT_EQ(completions, 0);
+    EXPECT_NE(scheduler.task_ids[0], scheduler.task_ids[1]);
+    for (auto& task : scheduler.tasks) {
+        task.scan_func();
     }
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, EmptyRequestCompletesWithoutSubmitting) {
+    QueuedRowIdScanScheduler scheduler;
+    int completions = 0;
+    submit(
+            &scheduler, 0, 8,
+            [](size_t) {
+                ADD_FAILURE() << "Empty request must not schedule a read";
+                return Status::OK();
+            },
+            [&](Status status) {
+                EXPECT_TRUE(status.ok());
+                ++completions;
+            });
+    EXPECT_TRUE(scheduler.tasks.empty());
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, FastWorkersDoNotCompleteDuringSubmission) {
+    class CountingInlineScheduler : public InlineScanScheduler {
+    public:
+        Status submit_scan_task(SimplifiedScanTask task, const std::string&) override {
+            ++submissions;
+            task.scan_func();
+            return Status::OK();
+        }
+        int submissions = 0;
+    } scheduler;
+    int completions = 0;
+    submit(
+            &scheduler, 7, 3, [](size_t) { return Status::OK(); },
+            [&](Status status) {
+                EXPECT_TRUE(status.ok());
+                EXPECT_EQ(scheduler.submissions, 3);
+                ++completions;
+            });
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, RejectedSubmissionCompletesAfterAcceptedWorkers) {
+    for (bool throw_on_submit : {false, true}) {
+        for (size_t fail_at : {0, 1, 2}) {
+            QueuedRowIdScanScheduler scheduler;
+            scheduler.fail_at = fail_at;
+            scheduler.throw_on_submit = throw_on_submit;
+            int completions = 0;
+            submit(
+                    &scheduler, 7, 3,
+                    [](size_t) {
+                        ADD_FAILURE() << "Pending reads should stop after submission failure";
+                        return Status::OK();
+                    },
+                    [&](Status status) {
+                        EXPECT_FALSE(status.ok());
+                        EXPECT_NE(status.to_string().find(throw_on_submit ? "submission exception"
+                                                                          : "queue full"),
+                                  std::string::npos);
+                        ++completions;
+                    });
+            ASSERT_EQ(scheduler.tasks.size(), fail_at);
+            EXPECT_EQ(completions, fail_at == 0 ? 1 : 0);
+            for (auto& task : scheduler.tasks) {
+                task.scan_func();
+            }
+            EXPECT_EQ(completions, 1);
+        }
+    }
+}
+
+TEST_F(ParallelRowIdFetchTest, DiscardedQueuedWorkersCompleteWithCancellation) {
+    QueuedRowIdScanScheduler scheduler;
+    int completions = 0;
+    submit(
+            &scheduler, 7, 3,
+            [](size_t) {
+                ADD_FAILURE() << "Discarded tasks must not execute";
+                return Status::OK();
+            },
+            [&](Status status) {
+                EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status;
+                ++completions;
+            });
+    EXPECT_EQ(completions, 0);
+    scheduler.tasks.clear();
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, DiscardedWorkersPreserveEarlierReadError) {
+    QueuedRowIdScanScheduler scheduler;
+    int completions = 0;
+    submit(
+            &scheduler, 7, 3,
+            [](size_t) { return Status::InternalError("read failed before shutdown"); },
+            [&](Status status) {
+                EXPECT_NE(status.to_string().find("read failed before shutdown"),
+                          std::string::npos);
+                ++completions;
+            });
+    scheduler.tasks.front().scan_func();
+    EXPECT_EQ(completions, 0);
+    scheduler.tasks.clear();
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, ReadErrorsAndExceptionsReachCompletion) {
+    for (int error_kind : {0, 1, 2}) {
+        QueuedRowIdScanScheduler scheduler;
+        int completions = 0;
+        int reads = 0;
+        submit(
+                &scheduler, 7, 3,
+                [&](size_t) -> Status {
+                    ++reads;
+                    if (error_kind == 1) {
+                        throw Exception(ErrorCode::INTERNAL_ERROR, "parallel read exception");
+                    }
+                    if (error_kind == 2) {
+                        throw std::runtime_error("parallel read exception");
+                    }
+                    return Status::InternalError("parallel read exception");
+                },
+                [&](Status status) {
+                    EXPECT_FALSE(status.ok());
+                    EXPECT_NE(status.to_string().find("parallel read exception"),
+                              std::string::npos);
+                    ++completions;
+                });
+        for (auto& task : scheduler.tasks) {
+            task.scan_func();
+        }
+        EXPECT_EQ(completions, 1);
+        EXPECT_EQ(reads, 1);
+    }
+}
+
+TEST_F(ParallelRowIdFetchTest, SingleThreadSchedulerReleasesParentBeforeReading) {
+    auto scheduler = std::make_unique<ThreadPoolSimplifiedScanScheduler>("rowid-single-thread-test",
+                                                                         nullptr);
+    ASSERT_TRUE(scheduler->start(1, 1, 8, 1).ok());
+    std::promise<Status> completion;
+    auto result = completion.get_future();
+    std::thread::id parent_thread;
+    std::atomic<bool> parent_returned = false;
+    std::atomic<int> reads = 0;
+    ASSERT_TRUE(scheduler
+                        ->submit_scan_task(SimplifiedScanTask(
+                                [&]() {
+                                    parent_thread = std::this_thread::get_id();
+                                    submit(
+                                            scheduler.get(), 7, 3,
+                                            [&](size_t) {
+                                                EXPECT_EQ(bthread_self(), 0);
+                                                EXPECT_EQ(std::this_thread::get_id(),
+                                                          parent_thread);
+                                                EXPECT_TRUE(parent_returned);
+                                                ++reads;
+                                                return Status::OK();
+                                            },
+                                            [&](Status status) { completion.set_value(status); });
+                                    parent_returned = true;
+                                    return true;
+                                },
+                                nullptr, nullptr))
+                        .ok());
+    EXPECT_EQ(result.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    scheduler->stop();
+    EXPECT_TRUE(result.get().ok());
+    EXPECT_EQ(reads, 7);
+}
+
+// GTest assertion macros inflate the complexity of this synchronized two-worker scenario.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(ParallelRowIdFetchTest, RunsConcurrentlyWithinLimitAndWaitsForActiveReads) {
+    for (bool fail : {false, true}) {
+        auto scheduler = std::make_unique<ThreadPoolSimplifiedScanScheduler>(
+                "rowid-concurrency-test", nullptr);
+        ASSERT_TRUE(scheduler->start(4, 4, 8, 1).ok());
+        std::promise<void> first_started;
+        auto first_ready = first_started.get_future().share();
+        std::promise<void> second_started;
+        auto second_ready = second_started.get_future().share();
+        std::promise<Status> completion;
+        auto result = completion.get_future();
+        std::atomic<int> active = 0;
+        std::atomic<int> peak = 0;
+        std::atomic<bool> second_finished = false;
+        submit(
+                scheduler.get(), 8, 2,
+                [&](size_t idx) {
+                    EXPECT_EQ(bthread_self(), 0);
+                    const int running = ++active;
+                    int previous = peak.load();
+                    while (previous < running && !peak.compare_exchange_weak(previous, running)) {
+                    }
+                    if (idx == 0) {
+                        first_started.set_value();
+                        EXPECT_EQ(second_ready.wait_for(std::chrono::seconds(10)),
+                                  std::future_status::ready);
+                    } else if (idx == 1) {
+                        second_started.set_value();
+                        EXPECT_EQ(first_ready.wait_for(std::chrono::seconds(10)),
+                                  std::future_status::ready);
+                        second_finished = true;
+                    }
+                    --active;
+                    return fail && idx == 0 ? Status::InternalError("active read failed")
+                                            : Status::OK();
+                },
+                [&](Status status) {
+                    EXPECT_EQ(active, 0);
+                    EXPECT_TRUE(second_finished);
+                    completion.set_value(status);
+                });
+        EXPECT_EQ(result.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+        scheduler->stop();
+        EXPECT_EQ(result.get().ok(), !fail);
+        EXPECT_EQ(peak, 2);
+    }
+}
+
+TEST_F(ParallelRowIdFetchTest, KeepsReadStateAliveUntilAllWorkersComplete) {
+    QueuedRowIdScanScheduler scheduler;
+    auto state = std::make_shared<int>(0);
+    std::weak_ptr<int> weak_state = state;
+    int completions = 0;
+    submit(
+            &scheduler, 7, 3,
+            [state](size_t) {
+                ++*state;
+                return Status::OK();
+            },
+            [&](Status status) {
+                EXPECT_TRUE(status.ok());
+                auto retained = weak_state.lock();
+                ASSERT_NE(retained, nullptr);
+                EXPECT_EQ(*retained, 7);
+                ++completions;
+            });
+    state.reset();
+    EXPECT_FALSE(weak_state.expired());
+    for (auto& task : scheduler.tasks) {
+        task.scan_func();
+    }
+    EXPECT_EQ(completions, 1);
+    // Request state must also be released when the scheduler keeps the task closures.
+    EXPECT_TRUE(weak_state.expired());
+}
+
+class RowIdFetchRequestTest : public RowIdStorageReaderTest {
+protected:
+    void SetUp() override {
+        _previous_manager = std::exchange(ExecEnv::GetInstance()->_id_manager, &_manager);
+        _request.mutable_query_id()->set_hi(1);
+        _request.mutable_query_id()->set_lo(2);
+    }
+
+    void TearDown() override { ExecEnv::GetInstance()->_id_manager = _previous_manager; }
+
+    IdManager _manager;
+    IdManager* _previous_manager = nullptr;
+    PMultiGetRequestV2 _request;
+    PMultiGetResponseV2 _response;
+    QueuedRowIdScanScheduler _scheduler;
+};
+
+TEST_F(RowIdFetchRequestTest, MissingMappingPreservesEmptyResponseBlocks) {
+    _request.add_request_block_descs();
+    _request.add_request_block_descs();
+    int completions = 0;
+    RowIdStorageReader::read_by_rowids(_request, &_response, &_scheduler, [&](Status status) {
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_EQ(_response.blocks_size(), 2);
+        ++completions;
+    });
+    EXPECT_EQ(completions, 1);
+    EXPECT_TRUE(_scheduler.tasks.empty());
+}
+
+TEST_F(RowIdFetchRequestTest, MissingFileMappingCompletesWithError) {
+    _manager.add_id_file_map(_request.query_id(), 60);
+    auto* desc = _request.add_request_block_descs();
+    desc->add_file_id(0);
+    desc->add_row_id(0);
+    int completions = 0;
+    RowIdStorageReader::read_by_rowids(_request, &_response, &_scheduler, [&](Status status) {
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("file_mapping not found"), std::string::npos);
+        ++completions;
+    });
+    EXPECT_EQ(completions, 1);
+    EXPECT_TRUE(_scheduler.tasks.empty());
+}
+
+TEST_F(RowIdFetchRequestTest, ParallelRequestUsesSuppliedSchedulerAndPropagatesRejection) {
+    auto mapping = _manager.add_id_file_map(_request.query_id(), 60);
+    auto* desc = _request.add_request_block_descs();
+    RowsetId rowset_id;
+    rowset_id.init(1);
+    for (uint32_t segment_id = 0; segment_id < 3; ++segment_id) {
+        auto file_mapping = std::make_shared<FileMapping>(42, rowset_id, segment_id);
+        desc->add_file_id(mapping->get_file_mapping_id(file_mapping));
+        desc->add_row_id(0);
+    }
+    _request.set_parallel_batch_rows(1);
+    _scheduler.fail_at = 0;
+    int completions = 0;
+    RowIdStorageReader::read_by_rowids(_request, &_response, &_scheduler, [&](Status status) {
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("scan queue full"), std::string::npos);
+        ++completions;
+    });
+    EXPECT_EQ(completions, 1);
+    EXPECT_TRUE(_scheduler.tasks.empty());
 }
 
 } // namespace doris

@@ -2340,7 +2340,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableTopnLazyMatPhase2NoWriteFileCache = false;
 
     @VarAttrDef.VarAttr(name = ROWID_FETCH_PARALLEL_BATCH_ROWS, needForward = true,
-            description = "Maximum segment groups per bthread task for internal-table rowid fetch. "
+            description = "Maximum segment groups per read batch for internal-table rowid fetch. "
                     + "Values > 0 enable parallel column-store reads; values <= 0 use serial reads. "
                     + "Row-store reads remain serial.")
     public int rowidFetchParallelBatchRows = 0;

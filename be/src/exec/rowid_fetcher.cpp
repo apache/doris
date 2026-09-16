@@ -27,6 +27,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <exception>
 #include <memory>
@@ -37,7 +38,6 @@
 #include <utility>
 #include <vector>
 
-#include "cloud/cloud_meta_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/exception.h"
@@ -49,6 +49,7 @@
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/file_scanner_v2.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/io_common.h"
@@ -203,214 +204,70 @@ static void scatter_scan_blocks_to_result_block(
     }
 }
 
-Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
-                                          PMultiGetResponseV2* response) {
-    if (request.request_block_descs_size()) {
-        auto tquery_id = ((UniqueId)request.query_id()).to_thrift();
-        // todo: use mutableBlock instead of block
-        std::vector<Block> result_blocks(request.request_block_descs_size());
+// Request-owned storage for internal reads. Workers touch disjoint segment blocks and
+// scatter entries; only their statistics are merged under a lock.
+struct RowIdStorageReader::InternalReadState {
+    const PRequestBlockDesc& request_block_desc;
+    std::shared_ptr<IdFileMap> id_file_map;
+    TUniqueId query_id;
+    io::FileCacheMissPolicy file_cache_miss_policy;
+    Block result_block;
+    std::vector<DorisFormatReadBatch> scan_batches;
+    std::vector<std::pair<size_t, size_t>> row_id_block_idx;
+    std::vector<Block> scan_blocks;
+    std::mutex stats_mutex;
+    OlapReaderStatistics stats;
+    int64_t acquire_tablet_ms = 0;
+    int64_t acquire_rowsets_ms = 0;
+    int64_t acquire_segments_ms = 0;
+    int64_t lookup_row_data_ms = 0;
 
-        OlapReaderStatistics stats;
-        int64_t acquire_tablet_ms = 0;
-        int64_t acquire_rowsets_ms = 0;
-        int64_t acquire_segments_ms = 0;
-        int64_t lookup_row_data_ms = 0;
+    InternalReadState(const PRequestBlockDesc& desc, std::shared_ptr<IdFileMap> mapping,
+                      TUniqueId id, io::FileCacheMissPolicy policy)
+            : request_block_desc(desc),
+              id_file_map(std::move(mapping)),
+              query_id(std::move(id)),
+              file_cache_miss_policy(policy) {}
 
-        int64_t external_init_reader_avg_ms = 0;
-        int64_t external_get_block_avg_ms = 0;
-        size_t external_scan_range_cnt = 0;
-
-        const auto file_cache_miss_policy =
-                request.file_cache_remote_only_on_miss()
-                        ? io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS
-                        : io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
-
-        // Add counters for different file mapping types
-        std::unordered_map<FileMappingType, int64_t> file_type_counts;
-
-        auto id_file_map =
-                ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(request.query_id());
-        // if id_file_map is null, means the BE not have scan range, just return ok
-        if (!id_file_map) {
-            // padding empty block to response
-            LOG(INFO) << "id_file_map not found for query_id: " << print_id(request.query_id());
-            for (int i = 0; i < request.request_block_descs_size(); ++i) {
-                response->add_blocks();
-            }
-            return Status::OK();
-        }
-
-        for (int i = 0; i < request.request_block_descs_size(); ++i) {
-            const auto& request_block_desc = request.request_block_descs(i);
-            PMultiGetBlockV2* pblock = response->add_blocks();
-            if (request_block_desc.row_id_size() >= 1) {
-                // Since this block belongs to the same table, we only need to take the first type for judgment.
-                auto first_file_id = request_block_desc.file_id(0);
-                auto first_file_mapping = id_file_map->get_file_mapping(first_file_id);
-                if (!first_file_mapping) {
-                    return Status::InternalError(
-                            "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
-                            BackendOptions::get_localhost(), print_id(request.query_id()),
-                            first_file_id);
-                }
-                file_type_counts[first_file_mapping->type] += request_block_desc.row_id_size();
-
-                // prepare slots to build block
-                std::vector<SlotDescriptor> slots;
-                slots.reserve(request_block_desc.slots_size());
-                for (const auto& pslot : request_block_desc.slots()) {
-                    slots.push_back(SlotDescriptor(pslot));
-                }
-                try {
-                    if (first_file_mapping->type == FileMappingType::INTERNAL) {
-                        RETURN_IF_ERROR(read_batch_doris_format_row(
-                                request_block_desc, id_file_map, slots, tquery_id, result_blocks[i],
-                                stats, &acquire_tablet_ms, &acquire_rowsets_ms,
-                                &acquire_segments_ms, &lookup_row_data_ms, file_cache_miss_policy,
-                                request.parallel_batch_rows()));
-                    } else {
-                        RETURN_IF_ERROR(read_batch_external_row(
-                                request.wg_id(), request_block_desc, id_file_map, slots,
-                                first_file_mapping, tquery_id, result_blocks[i],
-                                pblock->mutable_profile(), &external_init_reader_avg_ms,
-                                &external_get_block_avg_ms, &external_scan_range_cnt));
-                    }
-                } catch (const Exception& e) {
-                    return Status::Error<false>(e.code(), "Row id fetch failed because {}",
-                                                e.what());
-                }
+    Status prepare(const std::vector<SlotDescriptor>& slots) {
+        result_block = Block(slots, request_block_desc.row_id_size());
+        // Phase 1: Group all row_ids by their (tablet_id, rowset_id, segment_id) key.
+        // Unlike the old code which only batched adjacent rows with the same file_id,
+        // this merges non-contiguous same-segment requests into a single batch,
+        // maximizing the number of rows read per seek_and_read_by_rowid call.
+        std::unordered_map<SegKey, size_t, HashOfSegKey> batch_idx_by_seg;
+        // (batch_idx, position_in_batch) for each row in the original request.
+        row_id_block_idx.resize(request_block_desc.row_id_size());
+        for (int j = 0; j < request_block_desc.row_id_size(); ++j) {
+            auto file_id = request_block_desc.file_id(j);
+            auto file_mapping = id_file_map->get_file_mapping(file_id);
+            if (!file_mapping) {
+                return Status::InternalError(
+                        "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                        BackendOptions::get_localhost(), print_id(query_id), file_id);
             }
 
-            [[maybe_unused]] size_t compressed_size = 0;
-            [[maybe_unused]] size_t uncompressed_size = 0;
-            [[maybe_unused]] int64_t compress_time = 0;
-            int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
-            RETURN_IF_ERROR(result_blocks[i].serialize(
-                    be_exec_version, pblock->mutable_block(), &uncompressed_size, &compressed_size,
-                    &compress_time, segment_v2::CompressionTypePB::LZ4));
-        }
-
-        // Build file type statistics string
-        std::string file_type_stats;
-        for (const auto& [type, count] : file_type_counts) {
-            if (!file_type_stats.empty()) {
-                file_type_stats += ", ";
+            // Derive segment key and group by it — rows from the same segment are batched together
+            // even if they are interleaved with rows from other segments in the request.
+            auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
+            SegKey seg_key {
+                    .tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
+            auto [it, inserted] = batch_idx_by_seg.emplace(seg_key, scan_batches.size());
+            if (inserted) {
+                // First time seeing this segment, create a new batch for it.
+                scan_batches.emplace_back();
+                scan_batches.back().file_mapping = file_mapping;
             }
-            file_type_stats += fmt::format("{}:{}", type, count);
+            // Record (row_id, original_request_index) for later sorting and scattering.
+            scan_batches[it->second].row_ids_with_positions.emplace_back(
+                    request_block_desc.row_id(j), j);
         }
 
-        LOG(INFO) << "Query stats: "
-                  << fmt::format(
-                             "query_id:{}, "
-                             "Internal table:"
-                             "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
-                             "io_latency:{}ns, uncompressed_bytes_read:{}, bytes_read:{}, "
-                             "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
-                             "lookup_row_data_ms:{}, file_types:[{}]; "
-                             "External table : init_reader_ms:{}, get_block_ms:{}, "
-                             "external_scan_range_cnt:{}",
-                             print_id(request.query_id()), stats.cached_pages_num,
-                             stats.total_pages_num, stats.compressed_bytes_read, stats.io_ns,
-                             stats.uncompressed_bytes_read, stats.bytes_read, acquire_tablet_ms,
-                             acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
-                             file_type_stats, external_init_reader_avg_ms,
-                             external_get_block_avg_ms, external_scan_range_cnt);
-        set_topn_lazy_materialization_file_cache_stats(
-                stats.file_cache_stats,
-                response->mutable_topn_lazy_materialization_file_cache_stats());
-    }
-
-    return Status::OK();
-}
-
-Status RowIdStorageReader::read_internal_segment_groups(
-        size_t group_count, int batch_groups, int concurrency, bool fetch_row_store,
-        const std::function<Status(size_t, size_t)>& read_groups) {
-    if (group_count == 0) {
+        scan_blocks.resize(scan_batches.size());
         return Status::OK();
     }
-    auto read_range = [&](size_t begin, size_t end) -> Status {
-        Status status;
-        // A thrown exception must not escape bthread_fork_join: it would skip completion
-        // accounting and leave the RPC waiting for a task that can never finish.
-        try {
-            ASSIGN_STATUS_IF_CATCH_EXCEPTION(status = read_groups(begin, end), status);
-        } catch (const std::exception& e) {
-            status = Status::InternalError("Row id fetch failed because {}", e.what());
-        }
-        return status;
-    };
-    if (fetch_row_store || batch_groups <= 0 || concurrency <= 1 ||
-        std::cmp_less_equal(group_count, batch_groups)) {
-        return read_range(0, group_count);
-    }
-    const auto groups_per_task = static_cast<size_t>(batch_groups);
-    std::vector<std::function<Status()>> tasks;
-    tasks.reserve(1 + (group_count - 1) / groups_per_task);
-    for (size_t begin = 0; begin < group_count; begin += groups_per_task) {
-        tasks.emplace_back([&, begin] {
-            return read_range(begin, std::min(begin + groups_per_task, group_count));
-        });
-    }
-    return cloud::bthread_fork_join(tasks, concurrency);
-}
 
-Status RowIdStorageReader::read_batch_doris_format_row(
-        const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
-        std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
-        OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
-        int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
-        io::FileCacheMissPolicy file_cache_miss_policy, int parallel_batch_rows) {
-    if (result_block.is_empty_column()) [[likely]] {
-        result_block = Block(slots, request_block_desc.row_id_size());
-    }
-
-    // Phase 1: Group all row_ids by their (tablet_id, rowset_id, segment_id) key.
-    // Unlike the old code which only batched adjacent rows with the same file_id,
-    // this merges non-contiguous same-segment requests into a single batch,
-    // maximizing the number of rows read per seek_and_read_by_rowid call.
-    std::vector<DorisFormatReadBatch> scan_batches;
-    std::unordered_map<SegKey, size_t, HashOfSegKey> batch_idx_by_seg;
-    // (batch_idx, position_in_batch) for each row in the original request.
-    std::vector<std::pair<size_t, size_t>> row_id_block_idx(request_block_desc.row_id_size());
-    for (int j = 0; j < request_block_desc.row_id_size(); ++j) {
-        auto file_id = request_block_desc.file_id(j);
-        auto file_mapping = id_file_map->get_file_mapping(file_id);
-        if (!file_mapping) {
-            return Status::InternalError(
-                    "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
-                    BackendOptions::get_localhost(), print_id(query_id), file_id);
-        }
-
-        // Derive segment key and group by it — rows from the same segment are batched together
-        // even if they are interleaved with rows from other segments in the request.
-        auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
-        SegKey seg_key {.tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
-        auto [it, inserted] = batch_idx_by_seg.emplace(seg_key, scan_batches.size());
-        if (inserted) {
-            // First time seeing this segment, create a new batch for it.
-            scan_batches.emplace_back();
-            scan_batches.back().file_mapping = file_mapping;
-        }
-        // Record (row_id, original_request_index) for later sorting and scattering.
-        scan_batches[it->second].row_ids_with_positions.emplace_back(request_block_desc.row_id(j),
-                                                                     j);
-    }
-
-    // Phase 2: For each segment, sort row_ids ascending (required by ColumnIterator),
-    // deduplicate, then read all rows in a single batch call.
-    std::vector<Block> scan_blocks(scan_batches.size());
-    std::mutex stats_mutex;
-    auto read_groups = [&](size_t begin, size_t end) -> Status {
-        SCOPED_INIT_THREAD_CONTEXT();
-        // Serial reads and bthread-start failures run on the already-attached RPC
-        // thread. Only a new worker needs a task attachment; nesting one would
-        // detach the RPC's memory tracker before scattering/serializing its result.
-        std::optional<AttachTask> task_context;
-        if (!thread_context()->is_attach_task()) {
-            task_context.emplace(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
-        }
-        signal::set_signal_task_id(query_id);
+    Status read(size_t begin, size_t end) {
         OlapReaderStatistics local_stats;
         int64_t local_acquire_tablet_ms = 0;
         int64_t local_acquire_rowsets_ms = 0;
@@ -481,19 +338,322 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         stats.total_pages_num += local_stats.total_pages_num;
         stats.cached_pages_num += local_stats.cached_pages_num;
         stats.file_cache_stats.merge_from(local_stats.file_cache_stats);
-        *acquire_tablet_ms += local_acquire_tablet_ms;
-        *acquire_rowsets_ms += local_acquire_rowsets_ms;
-        *acquire_segments_ms += local_acquire_segments_ms;
-        *lookup_row_data_ms += local_lookup_row_data_ms;
+        acquire_tablet_ms += local_acquire_tablet_ms;
+        acquire_rowsets_ms += local_acquire_rowsets_ms;
+        acquire_segments_ms += local_acquire_segments_ms;
+        lookup_row_data_ms += local_lookup_row_data_ms;
         return Status::OK();
+    }
+
+    void scatter() {
+        scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
+    }
+};
+
+struct RowIdStorageReader::ReadRequestState {
+    const PMultiGetRequestV2& request;
+    PMultiGetResponseV2* response;
+    const TUniqueId tquery_id;
+    const int concurrency = config::rowid_fetch_parallel_max_concurrency;
+    std::shared_ptr<IdFileMap> id_file_map;
+    std::vector<Block> result_blocks;
+    std::vector<std::unique_ptr<InternalReadState>> internal_reads;
+    struct ReadTask {
+        int block;
+        size_t begin;
+        size_t end;
     };
-    RETURN_IF_ERROR(read_internal_segment_groups(
-            scan_batches.size(), parallel_batch_rows, config::rowid_fetch_parallel_max_concurrency,
-            request_block_desc.fetch_row_store(), read_groups));
+    std::vector<ReadTask> tasks;
+    std::unordered_map<FileMappingType, int64_t> file_type_counts;
+    int64_t external_init_reader_avg_ms = 0;
+    int64_t external_get_block_avg_ms = 0;
+    size_t external_scan_range_cnt = 0;
 
-    scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
+    ReadRequestState(const PMultiGetRequestV2& req, PMultiGetResponseV2* resp)
+            : request(req),
+              response(resp),
+              tquery_id(((UniqueId)req.query_id()).to_thrift()),
+              result_blocks(req.request_block_descs_size()),
+              internal_reads(req.request_block_descs_size()) {}
 
-    return Status::OK();
+    Status prepare_internal_block(int idx, const std::vector<SlotDescriptor>& slots,
+                                  io::FileCacheMissPolicy policy) {
+        const auto& desc = request.request_block_descs(idx);
+        auto read = std::make_unique<InternalReadState>(desc, id_file_map, tquery_id, policy);
+        RETURN_IF_ERROR(read->prepare(slots));
+        const size_t group_count = read->scan_batches.size();
+        const int batch_groups = request.parallel_batch_rows();
+        if (desc.fetch_row_store() || batch_groups <= 0 || concurrency <= 1 ||
+            std::cmp_less_equal(group_count, batch_groups)) {
+            RETURN_IF_ERROR(read->read(0, group_count));
+        } else {
+            for (size_t begin = 0; begin < group_count; begin += batch_groups) {
+                tasks.push_back({idx, begin, std::min(begin + batch_groups, group_count)});
+            }
+        }
+        internal_reads[idx] = std::move(read);
+        return Status::OK();
+    }
+
+    Status prepare() {
+        if (request.request_block_descs_size() == 0) {
+            return Status::OK();
+        }
+        id_file_map = ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(request.query_id());
+        if (!id_file_map) {
+            LOG(INFO) << "id_file_map not found for query_id: " << print_id(request.query_id());
+            for (int i = 0; i < request.request_block_descs_size(); ++i) {
+                response->add_blocks();
+            }
+            return Status::OK();
+        }
+        const auto file_cache_miss_policy =
+                request.file_cache_remote_only_on_miss()
+                        ? io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS
+                        : io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
+        for (int i = 0; i < request.request_block_descs_size(); ++i) {
+            const auto& desc = request.request_block_descs(i);
+            auto* pblock = response->add_blocks();
+            if (desc.row_id_size() == 0) {
+                continue;
+            }
+            // Each block belongs to one table, so its first mapping determines the reader.
+            auto first_file_id = desc.file_id(0);
+            auto first_file_mapping = id_file_map->get_file_mapping(first_file_id);
+            if (!first_file_mapping) {
+                return Status::InternalError(
+                        "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                        BackendOptions::get_localhost(), print_id(request.query_id()),
+                        first_file_id);
+            }
+            file_type_counts[first_file_mapping->type] += desc.row_id_size();
+
+            std::vector<SlotDescriptor> slots;
+            slots.reserve(desc.slots_size());
+            for (const auto& pslot : desc.slots()) {
+                slots.push_back(SlotDescriptor(pslot));
+            }
+            if (first_file_mapping->type == FileMappingType::INTERNAL) {
+                RETURN_IF_ERROR(prepare_internal_block(i, slots, file_cache_miss_policy));
+            } else {
+                RETURN_IF_ERROR(read_batch_external_row(
+                        request.wg_id(), desc, id_file_map, slots, first_file_mapping, tquery_id,
+                        result_blocks[i], pblock->mutable_profile(), &external_init_reader_avg_ms,
+                        &external_get_block_avg_ms, &external_scan_range_cnt));
+            }
+        }
+        return Status::OK();
+    }
+
+    Status finish() {
+        if (!id_file_map) {
+            return Status::OK();
+        }
+        OlapReaderStatistics stats;
+        int64_t acquire_tablet_ms = 0;
+        int64_t acquire_rowsets_ms = 0;
+        int64_t acquire_segments_ms = 0;
+        int64_t lookup_row_data_ms = 0;
+        for (int i = 0; i < request.request_block_descs_size(); ++i) {
+            if (internal_reads[i]) {
+                auto& read = *internal_reads[i];
+                read.scatter();
+                result_blocks[i] = std::move(read.result_block);
+                stats.cached_pages_num += read.stats.cached_pages_num;
+                stats.total_pages_num += read.stats.total_pages_num;
+                stats.compressed_bytes_read += read.stats.compressed_bytes_read;
+                stats.io_ns += read.stats.io_ns;
+                stats.uncompressed_bytes_read += read.stats.uncompressed_bytes_read;
+                stats.bytes_read += read.stats.bytes_read;
+                stats.file_cache_stats.merge_from(read.stats.file_cache_stats);
+                acquire_tablet_ms += read.acquire_tablet_ms;
+                acquire_rowsets_ms += read.acquire_rowsets_ms;
+                acquire_segments_ms += read.acquire_segments_ms;
+                lookup_row_data_ms += read.lookup_row_data_ms;
+            }
+            auto* pblock = response->mutable_blocks(i);
+            [[maybe_unused]] size_t compressed_size = 0;
+            [[maybe_unused]] size_t uncompressed_size = 0;
+            [[maybe_unused]] int64_t compress_time = 0;
+            int be_exec_version = request.has_be_exec_version() ? request.be_exec_version() : 0;
+            RETURN_IF_ERROR(result_blocks[i].serialize(
+                    be_exec_version, pblock->mutable_block(), &uncompressed_size, &compressed_size,
+                    &compress_time, segment_v2::CompressionTypePB::LZ4));
+        }
+        // Build file type statistics string
+        std::string file_type_stats;
+        for (const auto& [type, count] : file_type_counts) {
+            if (!file_type_stats.empty()) {
+                file_type_stats += ", ";
+            }
+            file_type_stats += fmt::format("{}:{}", type, count);
+        }
+
+        LOG(INFO) << "Query stats: "
+                  << fmt::format(
+                             "query_id:{}, "
+                             "Internal table:"
+                             "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
+                             "io_latency:{}ns, uncompressed_bytes_read:{}, bytes_read:{}, "
+                             "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
+                             "lookup_row_data_ms:{}, file_types:[{}]; "
+                             "External table : init_reader_ms:{}, get_block_ms:{}, "
+                             "external_scan_range_cnt:{}",
+                             print_id(request.query_id()), stats.cached_pages_num,
+                             stats.total_pages_num, stats.compressed_bytes_read, stats.io_ns,
+                             stats.uncompressed_bytes_read, stats.bytes_read, acquire_tablet_ms,
+                             acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
+                             file_type_stats, external_init_reader_avg_ms,
+                             external_get_block_avg_ms, external_scan_range_cnt);
+        set_topn_lazy_materialization_file_cache_stats(
+                stats.file_cache_stats,
+                response->mutable_topn_lazy_materialization_file_cache_stats());
+
+        return Status::OK();
+    }
+};
+
+namespace {
+
+// Both storage reads and scheduler submission can throw. Convert exceptions on the
+// same pthread where they originated, before publishing completion.
+template <typename Func>
+Status rowid_read_status(Func&& func) {
+    Status status;
+    try {
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(status = func(), status);
+    } catch (const std::exception& e) {
+        status = Status::InternalError("Row id fetch failed because {}", e.what());
+    }
+    return status;
+}
+
+struct RowIdScanDispatch {
+    size_t task_count = 0;
+    std::function<Status(size_t)> run_task;
+    std::function<void(Status)> on_complete;
+    std::atomic<size_t> next_task = 0;
+    // The submitting thread owns one reference until all submissions finish.
+    // Even inline/fast workers cannot finish the RPC during submission.
+    std::atomic<size_t> remaining = 1;
+    AtomicStatus status;
+
+    ~RowIdScanDispatch() {
+        // Scheduler shutdown may destroy queued closures without executing them.
+        // The last closure can disappear only after all running reads have exited.
+        if (on_complete) {
+            SCOPED_INIT_THREAD_CONTEXT();
+            std::optional<AttachTask> task_context;
+            if (!thread_context()->is_attach_task()) {
+                task_context.emplace(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+            }
+            status.update(Status::Cancelled("Row id scan tasks discarded by scheduler shutdown"));
+            complete();
+        }
+    }
+
+    void complete() {
+        // Release request buffers while the rowid tracker is attached, even if
+        // the scheduler retains finished task closures for longer.
+        auto completion = std::move(on_complete);
+        completion(status.status());
+        run_task = {};
+    }
+
+    void finish_worker() {
+        if (remaining.fetch_sub(1) == 1) {
+            complete();
+        }
+    }
+};
+
+} // namespace
+
+void RowIdStorageReader::submit_internal_scan_tasks(ScannerScheduler* scheduler, size_t task_count,
+                                                    int concurrency,
+                                                    std::function<Status(size_t)> run_task,
+                                                    std::function<void(Status)> on_complete) {
+    std::shared_ptr<RowIdScanDispatch> dispatch;
+    auto setup_status = rowid_read_status([&]() {
+        dispatch = std::make_shared<RowIdScanDispatch>();
+        dispatch->task_count = task_count;
+        dispatch->run_task = std::move(run_task);
+        dispatch->on_complete = std::move(on_complete);
+        return Status::OK();
+    });
+    if (!setup_status.ok()) {
+        on_complete(setup_status);
+        return;
+    }
+    // Launch only a bounded number of workers, each pulling the next segment range.
+    // Never block a scanner thread waiting for work submitted to its own scheduler.
+    DCHECK_GT(concurrency, 0);
+    const size_t workers = std::min(task_count, static_cast<size_t>(concurrency));
+    for (size_t i = 0; i < workers; ++i) {
+        dispatch->remaining.fetch_add(1);
+        auto status = rowid_read_status([&]() {
+            return scheduler->submit_scan_task(
+                    SimplifiedScanTask(
+                            [dispatch]() {
+                                std::optional<AttachTask> task_context;
+                                dispatch->status.update(rowid_read_status([&]() {
+                                    task_context.emplace(
+                                            ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+                                    while (dispatch->status.ok()) {
+                                        const auto idx = dispatch->next_task.fetch_add(1);
+                                        if (idx >= dispatch->task_count) {
+                                            break;
+                                        }
+                                        RETURN_IF_ERROR(dispatch->run_task(idx));
+                                    }
+                                    return Status::OK();
+                                }));
+                                dispatch->finish_worker();
+                                return true;
+                            },
+                            nullptr, nullptr),
+                    fmt::format("rowid-fetch-{}-{}", fmt::ptr(dispatch.get()), i));
+        });
+        if (!status.ok()) {
+            dispatch->status.update(status);
+            dispatch->finish_worker();
+            break;
+        }
+    }
+    dispatch->finish_worker();
+}
+
+void RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
+                                        PMultiGetResponseV2* response, ScannerScheduler* scheduler,
+                                        std::function<void(Status)> on_complete) {
+    std::shared_ptr<ReadRequestState> state;
+    auto status = rowid_read_status([&]() {
+        state = std::make_shared<ReadRequestState>(request, response);
+        return state->prepare();
+    });
+    if (!status.ok()) {
+        on_complete(status);
+        return;
+    }
+    auto finish = [state, on_complete = std::move(on_complete)](Status status) {
+        signal::set_signal_task_id(state->request.query_id());
+        if (status.ok()) {
+            status = rowid_read_status([&]() { return state->finish(); });
+        }
+        on_complete(status);
+    };
+    if (state->tasks.empty()) {
+        finish(Status::OK());
+        return;
+    }
+    submit_internal_scan_tasks(
+            scheduler, state->tasks.size(), state->concurrency,
+            [state](size_t idx) {
+                signal::set_signal_task_id(state->request.query_id());
+                const auto& task = state->tasks[idx];
+                return state->internal_reads[task.block]->read(task.begin, task.end);
+            },
+            std::move(finish));
 }
 
 const std::string RowIdStorageReader::ScannersRunningTimeProfile = "ScannersRunningTime";
