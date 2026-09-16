@@ -83,6 +83,7 @@ public:
     const std::vector<uint8_t>& destination_encoded_norms(size_t destination_segment) const;
     writer::TrackedEncodedNorms take_destination_encoded_norms(size_t destination_segment);
     format::IndexConfig destination_index_config() const;
+    bool preserves_embedded_char_nuls() const;
     bool destination_writes_norms() const { return eligibility_.destination_writes_norms; }
     size_t destination_segment_count() const { return destination_segment_num_rows_.size(); }
 

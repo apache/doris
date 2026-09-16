@@ -66,6 +66,7 @@ Status decode_core_pb(const doris::snii::SniiCoreMetadataPB& input, CoreMetadata
         return corrupted("core metadata: missing required field");
     }
     RETURN_IF_ERROR(validate_index_config(input.index_config(), &out->index_config));
+    out->preserves_embedded_char_nuls = input.preserves_embedded_char_nuls();
 
     const auto& stats = input.stats();
     if (!stats.has_doc_count() || !stats.has_indexed_doc_count() || !stats.has_term_count() ||
@@ -122,6 +123,10 @@ Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out) {
 
     doris::snii::SniiCoreMetadataPB core;
     core.set_index_config(static_cast<uint32_t>(metadata.index_config));
+    // Keep non-CHAR and legacy metadata byte-compatible by omitting the default marker.
+    if (metadata.preserves_embedded_char_nuls) {
+        core.set_preserves_embedded_char_nuls(true);
+    }
     auto* stats = core.mutable_stats();
     stats->set_doc_count(metadata.stats.doc_count);
     stats->set_indexed_doc_count(metadata.stats.indexed_doc_count);

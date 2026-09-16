@@ -38,6 +38,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_string.h"
 #include "cpp/sync_point.h"
 #include "exprs/function/function_multi_match.h"
@@ -395,9 +396,13 @@ Status open_snii_index(const TabletIndex* meta, std::string index_path_prefix,
     if (!logical_reader.has_value()) {
         return logical_reader.error();
     }
+    DataTypePtr column_type = std::make_shared<DataTypeString>();
+    if (column_is_array) {
+        column_type = std::make_shared<DataTypeArray>(column_type);
+    }
     opened->index_reader = SniiIndexReader::create_shared(
             meta, opened->file_reader, InvertedIndexReaderType::FULLTEXT,
-            logical_reader.value()->stats().doc_count, column_is_array);
+            logical_reader.value()->stats().doc_count, column_type);
     return Status::OK();
 }
 
@@ -540,7 +545,7 @@ std::shared_ptr<SniiIndexReader> make_corrupt_index_reader(
         const TabletIndex* meta, const std::shared_ptr<IndexFileReader>& file_reader) {
     return SniiIndexReader::create_shared(meta, file_reader, InvertedIndexReaderType::FULLTEXT,
                                           /*rows_of_segment=*/kCorruptSegmentRows,
-                                          /*column_is_array=*/false);
+                                          std::make_shared<::doris::DataTypeString>());
 }
 
 // Rows in the segment write_array_null_payload_segment() lays down, and the row
@@ -593,7 +598,8 @@ protected:
         assert_ok(_file_reader->init());
         _index_reader = SniiIndexReader::create_shared(
                 &_meta, _file_reader, InvertedIndexReaderType::FULLTEXT,
-                /*rows_of_segment=*/kPositionalSegmentDocCount, /*column_is_array=*/false);
+                /*rows_of_segment=*/kPositionalSegmentDocCount,
+                std::make_shared<::doris::DataTypeString>());
         _previous_query_cache = ExecEnv::GetInstance()->get_inverted_index_query_cache();
         _query_cache.reset(InvertedIndexQueryCache::create_global_cache(1024 * 1024, 1));
         ExecEnv::GetInstance()->set_inverted_index_query_cache(_query_cache.get());
@@ -1639,7 +1645,8 @@ TEST_F(SniiIndexReaderCountFallback, KeywordLaneWarmQueryCacheHitSkipsSegmentOpe
     assert_ok(opened.file_reader->init());
     opened.index_reader = SniiIndexReader::create_shared(
             &keyword_meta, opened.file_reader, InvertedIndexReaderType::STRING_TYPE,
-            /*rows_of_segment=*/kPositionalSegmentDocCount, /*column_is_array=*/false);
+            /*rows_of_segment=*/kPositionalSegmentDocCount,
+            std::make_shared<::doris::DataTypeString>());
 
     std::atomic<uint32_t> searcher_opens {0};
     opened.index_reader->set_searcher_open_observer_for_test(record_searcher_open, &searcher_opens);

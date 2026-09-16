@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "core/string_ref.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/query/query_info.h"
@@ -145,7 +146,8 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
     DCHECK(token_count != nullptr);
     *max_position = position_base;
     *token_count = 0;
-    const size_t logical_size = _is_char ? strnlen(value.data, value.size) : value.size;
+    const size_t logical_size =
+            _is_char ? StringRef(value.data, value.size).trim_tail_padding_zero().size : value.size;
     const std::string_view logical_value(value.data, logical_size);
     if ((!_should_analyzer && logical_value.size() > _ignore_above) ||
         (_should_analyzer && logical_value.empty())) {
@@ -350,6 +352,7 @@ Status SniiIndexColumnWriter::finish() {
     _report_null_docids_capacity(/*release_all=*/true);
     IndexFileWriter::SniiAddIndexOptions options {};
     options.is_direct_load = _is_direct_load;
+    options.preserves_embedded_char_nuls = _is_char;
     if (_writes_norms) {
         DORIS_CHECK_EQ(_encoded_norms.size(), _rid);
         options.encoded_norms = std::move(_encoded_norms);

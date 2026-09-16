@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/exception.h"
+#include "core/data_type/data_type_string.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -175,10 +176,9 @@ protected:
                 InvertedIndexStorageFormatPB::SNII);
         // The file does not exist -- these cases only exercise the analysis-purpose
         // router, never the count fast path -- so the segment shape is nominal.
-        _snii_reader = SniiIndexReader::create_shared(&_meta, _snii_file_reader,
-                                                      InvertedIndexReaderType::FULLTEXT,
-                                                      /*rows_of_segment=*/0,
-                                                      /*column_is_array=*/false);
+        _snii_reader = SniiIndexReader::create_shared(
+                &_meta, _snii_file_reader, InvertedIndexReaderType::FULLTEXT,
+                /*rows_of_segment=*/0, std::make_shared<::doris::DataTypeString>());
     }
 
     void TearDown() override {

@@ -146,6 +146,7 @@ struct SniiIndexInput {
     // reporting. NEVER report live_bytes_ (a gated estimate); report
     // arena_bytes()+slot_of_+dict ram_bytes_.
     MemoryReporter* mem_reporter = nullptr;
+    bool preserves_embedded_char_nuls = false;
 };
 
 // Move-only ownership of a NULL-docid allocation and its precharged bytes.
@@ -350,6 +351,7 @@ private:
     uint64_t index_id_;
     std::string index_suffix_;
     format::IndexConfig index_config_;
+    bool preserves_embedded_char_nuls_;
     format::IndexTier tier_;
     bool has_prx_;
     bool has_norms_;

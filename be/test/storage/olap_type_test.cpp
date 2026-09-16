@@ -1867,8 +1867,8 @@ TEST_F(OlapTypeTest, timestamptz_type) {
     }
 }
 
-// from_olap_string cuts a CHAR value at its first '\0': a CHAR(N) write pads the value
-// with '\0' up to the schema length, and the page read path cuts it the same way.
+// from_olap_string strips only trailing zero padding from CHAR(N), matching the
+// page read path while preserving embedded NULs.
 // VARCHAR and STRING are stored with their natural byte length, so they keep every byte.
 TEST_F(OlapTypeTest, from_olap_string_strings) {
     struct Case {
@@ -1878,7 +1878,7 @@ TEST_F(OlapTypeTest, from_olap_string_strings) {
     };
     std::vector<Case> cases = {
             // CHAR(N) ZoneMap min/max from the convertor is padded with '\0'
-            // — strnlen recovers the logical content.
+            // — trimming trailing zero padding recovers the logical content.
             {TYPE_CHAR, std::string("abc", 3) + std::string(7, '\0'), "abc"},
             {TYPE_CHAR, std::string(10, '\0'), ""},
             {TYPE_CHAR, "alpha", "alpha"},
@@ -1901,8 +1901,8 @@ TEST_F(OlapTypeTest, from_olap_string_strings) {
 
 // A VARCHAR / STRING value may hold a '\0' in the middle, and every byte has
 // to survive the parse. Cutting at that '\0' used to give a zone map bound the data never
-// held, which then pruned rows that match. CHAR is still cut, because its '\0' is padding
-// and the page read path cuts CHAR values the same way.
+// held, which then pruned rows that match. CHAR must preserve embedded NULs too,
+// removing only trailing zero padding.
 TEST_F(OlapTypeTest, from_olap_string_strings_embedded_null) {
     const std::string embedded_null("ab\0cd", 5);
 
@@ -1915,9 +1915,10 @@ TEST_F(OlapTypeTest, from_olap_string_strings_embedded_null) {
     }
 
     auto char_type = DataTypeFactory::instance().create_data_type(TYPE_CHAR, /*is_nullable=*/false,
-                                                                  0, 0, /*length=*/5);
-    expect_from_storage_string_paths(char_type, embedded_null, [](const Field& field) {
-        EXPECT_EQ(field.get<TYPE_STRING>(), "ab");
+                                                                  0, 0, /*length=*/8);
+    const auto padded_char = embedded_null + std::string(3, '\0');
+    expect_from_storage_string_paths(char_type, padded_char, [&](const Field& field) {
+        EXPECT_EQ(field.get<TYPE_STRING>(), embedded_null);
     });
 }
 } // namespace doris

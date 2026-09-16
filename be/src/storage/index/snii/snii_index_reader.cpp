@@ -33,6 +33,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "core/data_type/data_type_nullable.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
@@ -43,6 +44,7 @@
 #include "storage/index/inverted/common/single_flight.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/inverted/inverted_index_selector.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/query/boolean_query.h"
 #include "storage/index/snii/query/count_query.h"
@@ -440,6 +442,18 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
 
 } // namespace
 
+SniiIndexReader::SniiIndexReader(const TabletIndex* index_meta,
+                                 const std::shared_ptr<IndexFileReader>& index_file_reader,
+                                 InvertedIndexReaderType reader_type, uint64_t rows_of_segment,
+                                 const DataTypePtr& column_type)
+        : InvertedIndexReader(index_meta, index_file_reader),
+          _reader_type(reader_type),
+          _rows_of_segment(rows_of_segment),
+          _column_is_array(remove_nullable(column_type)->get_storage_field_type() ==
+                           FieldType::OLAP_FIELD_TYPE_ARRAY),
+          _is_char(get_inverted_index_leaf_field_type(column_type) ==
+                   FieldType::OLAP_FIELD_TYPE_CHAR) {}
+
 Status SniiIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
     if (*iterator == nullptr) {
         *iterator = InvertedIndexIterator::create_unique();
@@ -629,6 +643,27 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     // sharing can be decided before opening the segment. Scoring queries depend on collection
     // statistics and use neither the result cache nor single-flight coalescing.
     const bool allow_result_cache = !actual_similarity;
+    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
+    InvertedIndexCacheHandle searcher_cache_handle;
+    std::unique_ptr<::doris::snii::reader::LogicalIndexReader> uncached_reader;
+    const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
+    if (_is_char) {
+        RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
+                                            &logical_reader));
+        // Legacy CHAR indexes cut at the first NUL. Their postings can omit matching rows,
+        // so even a cached bitmap cannot safely filter the newly lossless column values.
+        if (!logical_reader->preserves_embedded_char_nuls()) {
+            if (actual_similarity) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                        "SNII CHAR index {} uses legacy NUL normalization; rebuild it for scoring",
+                        _index_meta.index_id());
+            }
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "SNII CHAR index {} uses legacy NUL normalization; scan column values until "
+                    "the index is rebuilt",
+                    _index_meta.index_id());
+        }
+    }
     const InvertedIndexRawQuerySemantic raw_semantic {.raw_query_bytes = search_str,
                                                       .query_type = query_type,
                                                       .slop = query_info.slop,
@@ -642,15 +677,13 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     InvertedIndexQueryCacheHandle cache_handler;
     if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map,
                            allow_result_cache)) {
-        return finish_query(nullptr);
+        return finish_query(logical_reader);
     }
 
-    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
-    InvertedIndexCacheHandle searcher_cache_handle;
-    std::unique_ptr<::doris::snii::reader::LogicalIndexReader> uncached_reader;
-    const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
-    RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
-                                        &logical_reader));
+    if (!_is_char) {
+        RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
+                                            &logical_reader));
+    }
 
     InvertedIndexQueryInfo execution_query_info = query_info;
     RETURN_IF_ERROR(_parse_query_terms(context, plain_analysis_str, query_type, analyzer_ctx,

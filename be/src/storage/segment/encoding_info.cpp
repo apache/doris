@@ -498,8 +498,8 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
         // block; the predecoder rewrites that into the V1 offset-array layout downstream Slice
         // decoders expect. CHAR uses the IS_CHAR=true variant so the trailing '\0' padding of
         // CHAR dictionary words (written with the VARCHAR builder) is stripped on read — mirroring
-        // PLAIN_ENCODING_V2. strnlen on a write-stripped CHAR page is a no-op, so the variant is
-        // also correct for direct CHAR plain V3 pages.
+        // PLAIN_ENCODING_V2. Both dictionary words and direct CHAR plain V3 pages preserve
+        // embedded NULs and strip only trailing zero padding on read.
         if constexpr (TraitsClass::type == FieldType::OLAP_FIELD_TYPE_CHAR) {
             _data_page_pre_decoder = std::make_unique<BinaryPlainPageV3PreDecoder<true>>();
         } else if constexpr (std::is_same_v<typename TraitsClass::CppType, Slice>) {

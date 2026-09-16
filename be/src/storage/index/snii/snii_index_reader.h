@@ -56,21 +56,16 @@ public:
     using SearcherOpenObserver = void (*)(void*) noexcept;
 #endif
 
-    // `rows_of_segment` and `column_is_array` describe the SEGMENT and the COLUMN,
+    // `rows_of_segment` and `column_type` describe the SEGMENT and the COLUMN,
     // deliberately not read back out of the index image: the count-only fast path
     // fabricates row ids, so it needs at least one bound a corrupt (but CRC-valid)
     // image cannot move, and one fact about how the column was written. Both are
-    // already on hand where readers are built -- ColumnReader::_load_index passes
-    // the same rows_of_segment to AnnIndexReader and already tests _meta_type for
-    // OLAP_FIELD_TYPE_ARRAY a few lines above.
+    // supplied by ColumnReader::_load_index. The column type also identifies CHAR
+    // and ARRAY<CHAR> indexes whose legacy NUL normalization is unsafe for filtering.
     SniiIndexReader(const TabletIndex* index_meta,
                     const std::shared_ptr<IndexFileReader>& index_file_reader,
                     InvertedIndexReaderType reader_type, uint64_t rows_of_segment,
-                    bool column_is_array)
-            : InvertedIndexReader(index_meta, index_file_reader),
-              _reader_type(reader_type),
-              _rows_of_segment(rows_of_segment),
-              _column_is_array(column_is_array) {}
+                    const DataTypePtr& column_type);
 
     Status new_iterator(std::unique_ptr<IndexIterator>* iterator) override;
     Status query(const IndexQueryContextPtr& context, const std::string& column_name,
@@ -175,6 +170,7 @@ private:
     // True when the indexed column is an ARRAY. Disqualifies the count-only fast
     // path on a segment that has nulls; see _try_count_only_fastpath.
     bool _column_is_array = false;
+    bool _is_char = false;
 #ifdef BE_TEST
     SingleFlightFollowerJoinedObserver _single_flight_follower_joined_observer = nullptr;
     void* _single_flight_follower_joined_opaque = nullptr;

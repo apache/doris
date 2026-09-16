@@ -44,6 +44,8 @@ struct CoreMetadata {
     IndexConfig index_config = IndexConfig::kDocsOnly;
     StatsBlock stats;
     SectionRefs section_refs;
+    // False for legacy/unmarked indexes; only trailing CHAR padding was stripped when true.
+    bool preserves_embedded_char_nuls = false;
 };
 
 Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out);

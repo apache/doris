@@ -176,6 +176,7 @@ public:
 
     const format::SectionRefs& section_refs() const { return core_.section_refs; }
     const format::StatsBlock& stats() const { return core_.stats; }
+    bool preserves_embedded_char_nuls() const { return core_.preserves_embedded_char_nuls; }
     format::IndexTier tier() const { return tier_; }
     bool has_positions() const { return has_positions_; }
     // Whether BM25 norms exist: current writers emit them for analyzed indexes with positions.

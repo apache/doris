@@ -27,6 +27,7 @@
 #include "core/column/column_string.h"
 #include "storage/cache/page_cache.h"
 #include "storage/olap_common.h"
+#include "storage/segment/binary_dict_page_pre_decoder.h"
 #include "storage/segment/binary_plain_page.h"
 #include "storage/segment/binary_plain_page_char_strip_pre_decoder.h"
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h"
@@ -604,7 +605,8 @@ void verify_unpadded_column(MutableColumnPtr& column, const std::vector<std::str
 // → BinaryPlainPageDecoder → strings come out unpadded.
 TEST_F(BinaryPlainPageV2Test, CharStripPreDecoder_V2_RoundtripPaddedSlices) {
     constexpr size_t pad_len = 8;
-    std::vector<std::string> logical = {"a", "bc", "", "alpha", "alpaca12"};
+    std::vector<std::string> logical = {"a", std::string("a\0b", 3), "", std::string("\0xy", 3),
+                                        "alpaca12"};
     auto buffers = make_padded_buffers(logical, pad_len);
     auto slices = slices_from(buffers, pad_len);
 
@@ -653,7 +655,8 @@ TEST_F(BinaryPlainPageV2Test, CharStripPreDecoder_V2_RoundtripPaddedSlices) {
 // V2 case above for the PLAIN_ENCODING path.
 TEST_F(BinaryPlainPageV2Test, CharStripPreDecoder_V1_RoundtripPaddedSlices) {
     constexpr size_t pad_len = 6;
-    std::vector<std::string> logical = {"x", "abcd", "", "zzzzzz", "qw"};
+    std::vector<std::string> logical = {"x", std::string("a\0\0b", 4), "",
+                                        std::string("\0abcde", 6), "qw"};
     auto buffers = make_padded_buffers(logical, pad_len);
     auto slices = slices_from(buffers, pad_len);
 
@@ -694,6 +697,44 @@ TEST_F(BinaryPlainPageV2Test, CharStripPreDecoder_V1_RoundtripPaddedSlices) {
     ASSERT_TRUE(page_decoder.next_batch(&num_to_read, column).ok());
     ASSERT_EQ(logical.size(), num_to_read);
     verify_unpadded_column(column, logical);
+}
+
+// Dictionary overflow pages wrap a plain page in a dict header. They must apply the
+// same CHAR trimming as ordinary pages, without losing the header or embedded NULs.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GTest assertion macros add branches.
+TEST_F(BinaryPlainPageV2Test, CharStripDictionaryFallbackPreservesEmbeddedNuls) {
+    const std::vector<std::string> logical {std::string("a\0b", 3), "", std::string("\0x", 2)};
+    auto buffers = make_padded_buffers(logical, 4);
+    auto slices = slices_from(buffers, 4);
+    for (auto encoding : {PLAIN_ENCODING, PLAIN_ENCODING_V2, PLAIN_ENCODING_V3}) {
+        SCOPED_TRACE(encoding);
+        const EncodingInfo* info = nullptr;
+        ASSERT_TRUE(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_CHAR, encoding, &info).ok());
+        PageBuilderOptions options;
+        std::unique_ptr<PageBuilder> builder;
+        ASSERT_TRUE(info->create_page_builder(options, builder).ok());
+        size_t count = slices.size();
+        ASSERT_TRUE(builder->add(reinterpret_cast<const uint8_t*>(slices.data()), &count).ok());
+        ASSERT_EQ(count, slices.size());
+        OwnedSlice plain_page;
+        ASSERT_TRUE(builder->finish(&plain_page).ok());
+        std::string page_bytes;
+        put_fixed32_le(&page_bytes, encoding);
+        page_bytes.append(plain_page.slice().data, plain_page.slice().size);
+        Slice page(page_bytes);
+        std::unique_ptr<DataPage> decoded_page;
+        BinaryDictPagePreDecoder<true> pre_decoder;
+        ASSERT_TRUE(
+                pre_decoder.decode(&decoded_page, &page, 0, false, PageTypePB::DATA_PAGE, "").ok());
+        BinaryDictPageDecoder decoder(page, PageDecoderOptions {});
+        ASSERT_TRUE(decoder.init().ok());
+        ASSERT_FALSE(decoder.is_dict_encoding());
+        MutableColumnPtr column = ColumnString::create();
+        count = logical.size();
+        ASSERT_TRUE(decoder.next_batch(&count, column).ok());
+        ASSERT_EQ(count, logical.size());
+        verify_unpadded_column(column, logical);
+    }
 }
 
 } // namespace segment_v2

@@ -970,9 +970,8 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
         if (is_string_type(type)) {
             auto reader_type = should_analyzer ? InvertedIndexReaderType::FULLTEXT
                                                : InvertedIndexReaderType::STRING_TYPE;
-            index_reader = SniiIndexReader::create_shared(
-                    index_meta, index_file_reader, reader_type, rows_of_segment,
-                    _meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY);
+            index_reader = SniiIndexReader::create_shared(index_meta, index_file_reader,
+                                                          reader_type, rows_of_segment, _data_type);
         } else if (field_is_numeric_type(type)) {
             index_reader = SniiBkdIndexReader::create_shared(index_meta, index_file_reader);
         } else {
@@ -2537,7 +2536,7 @@ Status StringFileColumnIterator::set_access_paths(
     // recorded in dict word info / page headers is always the padded length
     // (e.g. 25 for CHAR(25)) — never the logical length expected by length().
     // Recovering the logical length requires scanning the chars buffer with
-    // strnlen() (shrink_padding_chars), which OFFSET_ONLY by definition skips.
+    // trim_tail_padding_zero(), which OFFSET_ONLY by definition skips.
     // There is no partial-benefit path: any optimization that still produces
     // the correct length() result must read the chars buffer in full.
     //

@@ -243,6 +243,14 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                 return status;
             }
             auto logical_reader = std::move(logical_reader_result.value());
+            // Collection statistics also include segments pruned from the actual scan.
+            // The query reader's guard alone cannot prevent legacy CHAR terms from
+            // corrupting BM25 statistics for otherwise current segments.
+            if (collect_info.is_char && !logical_reader->preserves_embedded_char_nuls()) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                        "SNII CHAR index {} uses legacy NUL normalization; rebuild it for scoring",
+                        collect_info.index_meta->index_id());
+            }
             const uint64_t segment_doc_count = logical_reader->stats().doc_count;
             RETURN_IF_ERROR(admit_snii_scoring_segment(
                     ws_field_name, segment_doc_count, logical_reader->stats().sum_total_term_freq,

@@ -290,6 +290,42 @@ void expect_query_semantics(const reader::LogicalIndexReader& index,
     EXPECT_EQ(docs, alpha_beta_gamma);
 }
 
+TEST(SniiIndexCompactionTest, CharNormalizationRequiresEverySourceToPreserveEmbeddedNuls) {
+    for (const auto markers : {std::array {false, false}, std::array {false, true},
+                               std::array {true, false}, std::array {true, true}}) {
+        SCOPED_TRACE(::testing::PrintToString(markers));
+        std::array<OpenedIndex, 2> sources;
+        for (size_t i = 0; i < sources.size(); ++i) {
+            auto input = make_input(1, {}, {make_term("a", {{.docid = 0, .positions = {0}}})});
+            input.preserves_embedded_char_nuls = markers[i];
+            build_index(std::move(input), &sources[i], reader::LogicalIndexOpenMode::kCompaction);
+        }
+        const RowIdConversionMap conversion = {{{0, 0}}, {{0, 1}}};
+        auto validated = make_validated_conversion(&conversion, {1, 1}, {2});
+        ASSERT_NE(validated, nullptr);
+        std::unique_ptr<SniiPlainT2MergePlan> plan;
+        assert_ok(SniiPlainT2MergePlan::prepare({&sources[0].index, &sources[1].index}, *validated,
+                                                1U << 20, &plan));
+        const bool expected_marker = markers[0] && markers[1];
+        EXPECT_EQ(plan->preserves_embedded_char_nuls(), expected_marker);
+
+        OpenedIndex merged;
+        SniiCompoundWriter compound(&merged.file);
+        auto input = make_input(2, {}, {});
+        input.preserves_embedded_char_nuls = plan->preserves_embedded_char_nuls();
+        std::array<SniiStreamedIndexSession*, 1> sessions {};
+        assert_ok(compound.begin_streamed_index(input, &sessions[0]));
+        assert_ok(plan->execute(sessions));
+        assert_ok(compound.finish());
+        assert_ok(reader::SniiSegmentReader::open(&merged.file, &merged.segment));
+        assert_ok(merged.segment.open_index(kIndexId, kIndexSuffix, &merged.index));
+        EXPECT_EQ(merged.index.preserves_embedded_char_nuls(), expected_marker);
+        std::vector<uint32_t> docids;
+        assert_ok(term_query(merged.index, "a", &docids));
+        EXPECT_EQ(docids, (std::vector<uint32_t> {0, 1}));
+    }
+}
+
 TEST(SniiIndexCompactionTest, DirectPostingRunsMatchPositionedOracleAcrossSources) {
     const std::vector<PostingDoc> source_zero_postings = {
             {.docid = 0, .positions = {1, 4}}, {.docid = 2, .positions = {8}},

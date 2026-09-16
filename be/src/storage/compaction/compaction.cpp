@@ -1218,7 +1218,9 @@ Status Compaction::do_inverted_index_compaction() {
                                 index_meta, dest_segment_num_rows[destination_ordinal],
                                 merge_plan->take_destination_null_docids(destination_ordinal),
                                 merge_plan->destination_writes_norms(),
-                                merge_plan->destination_index_config(), snii_merge_memory_reporter,
+                                merge_plan->destination_index_config(),
+                                merge_plan->preserves_embedded_char_nuls(),
+                                snii_merge_memory_reporter,
                                 &destination_sessions[destination_ordinal]);
                         if (!merge_status.ok()) {
                             break;

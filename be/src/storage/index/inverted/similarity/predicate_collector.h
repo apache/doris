@@ -51,6 +51,7 @@ struct CollectInfo {
     std::vector<LogicalScoringLeaf> logical_scoring_leaves;
     std::shared_ptr<const TabletIndex> owned_index_meta;
     const TabletIndex* index_meta = nullptr;
+    bool is_char = false;
 };
 using CollectInfoMap = std::unordered_map<std::wstring, CollectInfo>;
 

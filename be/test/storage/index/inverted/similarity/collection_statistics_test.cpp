@@ -454,7 +454,8 @@ protected:
     }
 
     // A normal analyzed SNII segment with positions and norms, as emitted for scoring indexes.
-    Status write_snii_scoring_segment(const std::string& segment_path) {
+    Status write_snii_scoring_segment(const std::string& segment_path,
+                                      bool preserves_embedded_char_nuls = false) {
         const std::string index_path_prefix {
                 segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
         io::FileWriterPtr file_writer;
@@ -484,6 +485,7 @@ protected:
         input.config = snii::format::IndexConfig::kDocsPositions;
         input.doc_count = 2;
         input.encoded_norms = {snii::query::encode_norm(2), snii::query::encode_norm(1)};
+        input.preserves_embedded_char_nuls = preserves_embedded_char_nuls;
         input.terms = {std::move(alpha), std::move(beta)};
 
         RETURN_IF_ERROR(writer.add_logical_index(input));
@@ -931,6 +933,49 @@ TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
     ASSERT_TRUE(status.ok()) << status;
     expect_collected_stats(L"1", 2, 3);
     expect_collected_term(L"1", L"alpha", 2);
+}
+
+TEST_F(CollectionStatisticsTest, SniiCharScoringRejectsLegacyCollectionStatistics) {
+    for (bool is_array : {false, true}) {
+        SCOPED_TRACE(is_array);
+        auto schema = create_snii_schema();
+        auto& column = schema->mutable_column(0);
+        column.set_type(FieldType::OLAP_FIELD_TYPE_CHAR);
+        column.set_length(4);
+        if (is_array) {
+            TabletColumn child = column;
+            child.set_name("item");
+            child.set_is_nullable(true);
+            column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+            column.add_sub_column(child);
+        }
+        auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+        auto rowset = std::make_shared<collection_statistics::MockRowset>(schema, rowset_meta);
+        rowset->set_num_segments(1);
+        const std::string current_path =
+                test_dir_ + "/char_current_" + std::to_string(is_array) + ".dat";
+        ASSERT_TRUE(write_snii_scoring_segment(current_path, true).ok());
+        rowset->set_segment_path(0, current_path);
+        auto contexts = create_match_expr_contexts("alpha");
+        ASSERT_TRUE(stats_->collect_full_collection(runtime_state_.get(), {rowset}, schema,
+                                                    contexts, nullptr)
+                            .ok());
+        expect_collected_stats(L"1", 2, 3);
+
+        // Even if only the current segment is scanned, the full collection must not
+        // admit truncated legacy terms into its document frequencies and token counts.
+        const std::string legacy_path =
+                test_dir_ + "/char_legacy_" + std::to_string(is_array) + ".dat";
+        ASSERT_TRUE(write_snii_scoring_segment(legacy_path).ok());
+        rowset->set_num_segments(2);
+        rowset->set_segment_path(1, legacy_path);
+        const auto status = stats_->collect_full_collection(runtime_state_.get(), {rowset}, schema,
+                                                            contexts, nullptr);
+        EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
+        EXPECT_NE(status.to_string().find("rebuild"), std::string::npos);
+        expect_no_collected_tokens(L"1");
+        EXPECT_THROW(stats_->get_doc_num(), Exception);
+    }
 }
 
 TEST_F(CollectionStatisticsTest, SniiScoringLookupUsesCallerIoContext) {

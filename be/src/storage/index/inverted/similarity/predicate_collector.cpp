@@ -248,6 +248,7 @@ void preserve_selected_index_metadata(const ScoringIndexCandidates& candidates,
     DORIS_CHECK(selected_index != nullptr);
     DORIS_CHECK(collect_info != nullptr);
     collect_info->index_meta = selected_index;
+    collect_info->is_char = candidates.field_type == FieldType::OLAP_FIELD_TYPE_CHAR;
     for (const auto& owned_index : candidates.owned_index_metas) {
         if (owned_index.get() == selected_index) {
             collect_info->owned_index_meta = owned_index;

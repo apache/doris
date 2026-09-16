@@ -408,6 +408,7 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in, TrackedNullDoci
         : index_id_(in.index_id),
           index_suffix_(in.index_suffix),
           index_config_(in.config),
+          preserves_embedded_char_nuls_(in.preserves_embedded_char_nuls),
           tier_(format::tier_of(in.config)),
           has_prx_(format::has_positions(in.config)),
           has_norms_(in.write_norms || !in.encoded_norms.empty()),
@@ -834,6 +835,7 @@ Status LogicalIndexWriter::finish_metadata(const SectionRefs& abs_refs, uint64_t
 
     format::CoreMetadata core;
     core.index_config = index_config_;
+    core.preserves_embedded_char_nuls = preserves_embedded_char_nuls_;
     core.stats = stats_;
     core.section_refs = abs_refs;
     ByteSink core_sink;

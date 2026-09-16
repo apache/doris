@@ -194,6 +194,7 @@ std::vector<uint8_t> BuildSourceImage() {
             MakeInput(kIndexIdA, kSuffixA, SingleTermCorpus(kTermA, kDocCount), kDocCount);
     SniiIndexInput second =
             MakeInput(kIndexIdB, kSuffixB, SingleTermCorpus(kTermB, kDocCount), kDocCount);
+    first.preserves_embedded_char_nuls = true;
     return WriteContainer({&first, &second});
 }
 
@@ -274,6 +275,12 @@ TEST(SniiCompoundWriterInherit, CarriesInheritedIndexesAndAppendsANewOne) {
     SniiSegmentReader segment;
     ASSERT_TRUE(SniiSegmentReader::open(&output_reader, &segment).ok());
     EXPECT_EQ(3U, segment.n_logical_indexes());
+    LogicalIndexReader current;
+    LogicalIndexReader legacy;
+    ASSERT_TRUE(segment.open_index(kIndexIdA, kSuffixA, &current).ok());
+    ASSERT_TRUE(segment.open_index(kIndexIdB, kSuffixB, &legacy).ok());
+    EXPECT_TRUE(current.preserves_embedded_char_nuls());
+    EXPECT_FALSE(legacy.preserves_embedded_char_nuls());
 
     const std::vector<uint32_t> expected_docids = {0, 1, 2, 3};
     EXPECT_EQ(expected_docids, QueryTerm(output, kIndexIdA, kSuffixA, kTermA));

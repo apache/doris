@@ -90,6 +90,7 @@ std::vector<uint8_t> mutate_core_payload(
 
 void expect_core_eq(const CoreMetadata& expected, const CoreMetadata& actual) {
     EXPECT_EQ(expected.index_config, actual.index_config);
+    EXPECT_EQ(expected.preserves_embedded_char_nuls, actual.preserves_embedded_char_nuls);
     EXPECT_EQ(expected.stats.doc_count, actual.stats.doc_count);
     EXPECT_EQ(expected.stats.indexed_doc_count, actual.stats.indexed_doc_count);
     EXPECT_EQ(expected.stats.term_count, actual.stats.term_count);
@@ -123,6 +124,27 @@ TEST(SniiCoreMetadata, RoundTripsDocsOnlyWithAllStatsAndRefs) {
     CoreMetadata actual;
     ASSERT_TRUE(decode_core_metadata(Slice(encode(expected)), &actual).ok());
     expect_core_eq(expected, actual);
+}
+
+TEST(SniiCoreMetadata, CharNormalizationMarkerIsOptionalAndRoundTrips) {
+    auto metadata = sample_core();
+    const auto legacy_frame = encode(metadata);
+    const auto legacy_payload = payload_of(legacy_frame);
+    doris::snii::SniiCoreMetadataPB legacy_pb;
+    ASSERT_TRUE(legacy_pb.ParseFromArray(legacy_payload.data(),
+                                         static_cast<int>(legacy_payload.size())));
+    EXPECT_FALSE(legacy_pb.has_preserves_embedded_char_nuls());
+    CoreMetadata legacy;
+    ASSERT_TRUE(decode_core_metadata(Slice(legacy_frame), &legacy).ok());
+    EXPECT_FALSE(legacy.preserves_embedded_char_nuls);
+
+    metadata.preserves_embedded_char_nuls = true;
+    CoreMetadata current;
+    ASSERT_TRUE(decode_core_metadata(Slice(encode(metadata)), &current).ok());
+    expect_core_eq(metadata, current);
+    // Reusing an output object for an old index must not retain the new marker.
+    ASSERT_TRUE(decode_core_metadata(Slice(legacy_frame), &current).ok());
+    EXPECT_FALSE(current.preserves_embedded_char_nuls);
 }
 
 TEST(SniiCoreMetadata, RoundTripsPositions) {

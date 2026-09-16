@@ -318,6 +318,13 @@ format::IndexConfig SniiPlainT2MergePlan::destination_index_config() const {
     return format::IndexConfig::kDocsPositions;
 }
 
+bool SniiPlainT2MergePlan::preserves_embedded_char_nuls() const {
+    // A postings-only merge cannot restore bytes lost by any legacy source index.
+    return std::ranges::all_of(source_indexes_, [](const auto* source) {
+        return source->preserves_embedded_char_nuls();
+    });
+}
+
 Status SniiPlainT2MergePlan::poison(Status status) {
     DORIS_CHECK(!status.ok());
     if (failed_.ok()) {

@@ -847,15 +847,10 @@ Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn&
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& str, Field& field,
                                                              const FormatOptions& options) const {
-    // CHAR(N) is zero-padded to the declared schema length before it is written, so its
-    // stored bytes carry trailing '\0' and stop at the first one. The page read path cuts
-    // CHAR values the same way (see BinaryPlainPageCharStripPreDecoder), so a bound built
-    // like this stays comparable with the rows it describes.
-    //
-    // VARCHAR and STRING keep every byte they were given, '\0' included. Cutting such a
-    // value at an embedded '\0' would give a bound the data never held, and a zone map
-    // built from it prunes rows that match.
-    size_t len = _type == TYPE_CHAR ? strnlen(str.data(), str.size()) : str.size();
+    // CHAR(N) is zero-padded on write. Strip only trailing padding, just like the page
+    // pre-decoders: embedded NULs are data, and cutting them would produce a zone map
+    // bound that can prune matching rows. VARCHAR and STRING preserve every byte.
+    size_t len = _type == TYPE_CHAR ? StringRef(str).trim_tail_padding_zero().size : str.size();
     field = Field::create_field<TYPE_STRING>(std::string(str.data(), len));
     return Status::OK();
 }

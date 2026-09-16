@@ -110,6 +110,7 @@ public:
         // the prx region compresses at snii_prx_zstd_level_direct_load;
         // compaction / schema change / ADD INDEX keep snii_prx_zstd_level.
         bool is_direct_load = false;
+        bool preserves_embedded_char_nuls = false;
         // One byte of BM25 norms per document; empty for keyword or positionless indexes.
         // If nonempty, its size must equal doc_count, and postings retain frequencies for scoring.
         std::vector<uint8_t> encoded_norms;
@@ -135,7 +136,7 @@ public:
     Status add_snii_index_streamed(
             const TabletIndex* index_meta, uint32_t doc_count,
             doris::snii::writer::TrackedNullDocids null_docids,
-            doris::snii::format::IndexConfig index_config,
+            doris::snii::format::IndexConfig index_config, bool preserves_embedded_char_nuls,
             std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
             doris::snii::writer::SniiStreamedIndexSession** session);
     // Sessions with write_norms=true must supply norms through set_encoded_norms before finish.
@@ -143,7 +144,7 @@ public:
     Status add_snii_index_streamed(
             const TabletIndex* index_meta, uint32_t doc_count,
             doris::snii::writer::TrackedNullDocids null_docids, bool write_norms,
-            doris::snii::format::IndexConfig index_config,
+            doris::snii::format::IndexConfig index_config, bool preserves_embedded_char_nuls,
             std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
             doris::snii::writer::SniiStreamedIndexSession** session);
     // Registers one opaque BLOB logical index (a numeric BKD, an ANN graph, ...)

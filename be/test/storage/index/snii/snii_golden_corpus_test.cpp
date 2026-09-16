@@ -47,6 +47,8 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
@@ -426,9 +428,13 @@ Status open_sample(const std::string& dir, const Sample& sample, const TabletInd
     auto logical_reader = out->file_reader->open_snii_index(&meta);
     if (!logical_reader.has_value()) return logical_reader.error();
     out->doc_count = logical_reader.value()->stats().doc_count;
+    ::doris::DataTypePtr column_type = std::make_shared<::doris::DataTypeString>();
+    if (sample.array) {
+        column_type = std::make_shared<::doris::DataTypeArray>(column_type);
+    }
     out->index_reader = SniiIndexReader::create_shared(&meta, out->file_reader,
                                                        InvertedIndexReaderType::FULLTEXT,
-                                                       out->doc_count, sample.array);
+                                                       out->doc_count, column_type);
     return Status::OK();
 }
 

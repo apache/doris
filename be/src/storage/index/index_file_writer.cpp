@@ -269,6 +269,7 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.doc_count = doc_count;
     input.null_docids = std::move(null_docids);
     input.encoded_norms = std::move(options.encoded_norms);
+    input.preserves_embedded_char_nuls = options.preserves_embedded_char_nuls;
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
     snii_resolve_index_write_params(options.is_direct_load, !input.encoded_norms.empty(), &input);
@@ -302,18 +303,18 @@ Status IndexFileWriter::add_snii_blob_index(
 Status IndexFileWriter::add_snii_index_streamed(
         const TabletIndex* index_meta, uint32_t doc_count,
         doris::snii::writer::TrackedNullDocids null_docids,
-        doris::snii::format::IndexConfig index_config,
+        doris::snii::format::IndexConfig index_config, bool preserves_embedded_char_nuls,
         std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
         doris::snii::writer::SniiStreamedIndexSession** session) {
     return add_snii_index_streamed(index_meta, doc_count, std::move(null_docids),
-                                   /*write_norms=*/false, index_config, std::move(mem_reporter),
-                                   session);
+                                   /*write_norms=*/false, index_config,
+                                   preserves_embedded_char_nuls, std::move(mem_reporter), session);
 }
 
 Status IndexFileWriter::add_snii_index_streamed(
         const TabletIndex* index_meta, uint32_t doc_count,
         doris::snii::writer::TrackedNullDocids null_docids, bool write_norms,
-        doris::snii::format::IndexConfig index_config,
+        doris::snii::format::IndexConfig index_config, bool preserves_embedded_char_nuls,
         std::shared_ptr<doris::snii::writer::MemoryReporter> mem_reporter,
         doris::snii::writer::SniiStreamedIndexSession** session) {
     DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
@@ -345,6 +346,7 @@ Status IndexFileWriter::add_snii_index_streamed(
     input.doc_count = doc_count;
     input.mem_reporter = mem_reporter.get();
     input.write_norms = write_norms;
+    input.preserves_embedded_char_nuls = preserves_embedded_char_nuls;
     // Merge output is always the settled-segment shape: COMPACTION prx level.
     snii_resolve_index_write_params(/*is_direct_load=*/false, write_norms, &input);
     if (mem_reporter != nullptr) {
