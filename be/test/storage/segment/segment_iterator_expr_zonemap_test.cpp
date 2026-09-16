@@ -476,10 +476,10 @@ TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
     auto read_schema = make_read_schema(_tablet_schema);
-    SegmentIterator iter(segment, read_schema);
+    StorageReadOptions read_options(_stats);
+    read_options.tablet_schema = _tablet_schema;
+    SegmentIterator iter(segment, read_schema, read_options);
     iter._file_reader = segment->_file_reader;
-    iter._opts.stats = &_stats;
-    iter._opts.tablet_schema = _tablet_schema;
 
     auto expr_ctx = std::make_shared<VExprContext>(std::make_shared<IntMaxAtLeastExpr>(1, 500));
     VExprContextSPtrs conjuncts {expr_ctx};
