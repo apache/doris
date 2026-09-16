@@ -20,6 +20,7 @@ package org.apache.doris.arrowflight;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -45,18 +46,51 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class DorisFlightSqlProducerTest {
 
     private boolean prevRunningUnitTest;
+    private boolean prevEnableTls;
+    private String prevTlsExcludedProtocols;
 
     @BeforeEach
     public void setUp() {
         // ConnectContext.init() only reaches Env when this is false; keep it true so the
         // context can be built without a running FE.
         prevRunningUnitTest = FeConstants.runningUnitTest;
+        prevEnableTls = Config.enable_tls;
+        prevTlsExcludedProtocols = Config.tls_excluded_protocols;
         FeConstants.runningUnitTest = true;
+        Config.enable_tls = false;
+        Config.tls_excluded_protocols = "";
     }
 
     @AfterEach
     public void tearDown() {
         FeConstants.runningUnitTest = prevRunningUnitTest;
+        Config.enable_tls = prevEnableTls;
+        Config.tls_excluded_protocols = prevTlsExcludedProtocols;
+    }
+
+    @Test
+    public void testAdvertisedLocationUsesTlsWhenArrowFlightTlsIsEnabled() {
+        Config.enable_tls = true;
+
+        Assertions.assertEquals("grpc+tls",
+                DorisFlightSqlProducer.createAdvertisedLocation("be.example.com", 8050).getUri().getScheme());
+    }
+
+    @Test
+    public void testAdvertisedLocationUsesPlaintextWhenTlsIsDisabled() {
+        Config.enable_tls = false;
+
+        Assertions.assertEquals("grpc+tcp",
+                DorisFlightSqlProducer.createAdvertisedLocation("be.example.com", 8050).getUri().getScheme());
+    }
+
+    @Test
+    public void testAdvertisedLocationUsesPlaintextWhenArrowFlightTlsIsExcluded() {
+        Config.enable_tls = true;
+        Config.tls_excluded_protocols = "arrowflight";
+
+        Assertions.assertEquals("grpc+tcp",
+                DorisFlightSqlProducer.createAdvertisedLocation("be.example.com", 8050).getUri().getScheme());
     }
 
     /**

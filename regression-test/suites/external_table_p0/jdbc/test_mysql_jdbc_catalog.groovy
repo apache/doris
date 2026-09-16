@@ -201,7 +201,7 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
 
         // test insert
         String uuid1 = UUID.randomUUID().toString();
-        connect(user, "${pwd}", url) {
+        connectToDoris(user, "${pwd}", url) {
             test {
                 sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
                 exception "denied"
@@ -210,7 +210,7 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
 
         sql """GRANT LOAD_PRIV ON ${catalog_name}.${ex_db_name}.${test_insert} TO ${user}"""
 
-        connect(user, "${pwd}", url) {
+        connectToDoris(user, "${pwd}", url) {
             sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
         }
 

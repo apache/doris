@@ -386,6 +386,68 @@ public class GenericPoolTest {
     }
 
     @Test
+    public void testTlsReopenOrClearSkipsReopenAndClearsPool() {
+        boolean oldEnableTls = Config.enable_tls;
+        String oldExcludedProtocols = Config.tls_excluded_protocols;
+        try {
+            ClearTrackingGenericPool pool = new ClearTrackingGenericPool();
+            TNetworkAddress address = new TNetworkAddress(ip, port);
+            Config.enable_tls = true;
+            Config.tls_excluded_protocols = "";
+
+            Assertions.assertFalse(pool.reopenOrClear(address, null, 60000));
+            Assertions.assertSame(address, pool.clearedAddress);
+            Assertions.assertFalse(pool.reopenCalled);
+
+            pool.reset();
+            Assertions.assertFalse(pool.reopenOrClear(address, null));
+            Assertions.assertSame(address, pool.clearedAddress);
+            Assertions.assertFalse(pool.reopenCalled);
+
+            // Excluding Thrift from TLS keeps the normal plaintext reopen behavior.
+            pool.reset();
+            Config.tls_excluded_protocols = "thrift";
+            Assertions.assertTrue(pool.reopenOrClear(address, null, 60000));
+            Assertions.assertNull(pool.clearedAddress);
+            Assertions.assertTrue(pool.reopenCalled);
+        } finally {
+            Config.enable_tls = oldEnableTls;
+            Config.tls_excluded_protocols = oldExcludedProtocols;
+        }
+    }
+
+    private static class ClearTrackingGenericPool extends GenericPool<BackendService.Client> {
+        private TNetworkAddress clearedAddress;
+        private boolean reopenCalled;
+
+        ClearTrackingGenericPool() {
+            super("BackendService", new GenericKeyedObjectPoolConfig(), 0);
+        }
+
+        @Override
+        public boolean reopen(BackendService.Client object, int timeoutMs) {
+            reopenCalled = true;
+            return true;
+        }
+
+        @Override
+        public boolean reopen(BackendService.Client object) {
+            reopenCalled = true;
+            return true;
+        }
+
+        @Override
+        public void clearPool(TNetworkAddress addr) {
+            clearedAddress = addr;
+        }
+
+        void reset() {
+            clearedAddress = null;
+            reopenCalled = false;
+        }
+    }
+
+    @Test
     public void testReopenWithZeroConnectTimeout() throws Exception {
         // When thrift_rpc_connect_timeout_ms = 0, should skip the short timeout (backward compat)
         TNetworkAddress address = new TNetworkAddress(ip, port);

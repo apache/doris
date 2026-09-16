@@ -394,7 +394,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "sync"
 
                         extraThread("test_cache_user1_thread", {
-                            connect("test_cache_user1", "DORIS@2024") {
+                            connectToDoris("test_cache_user1", "DORIS@2024") {
                                 sql "use ${dbName}"
                                 sql "set enable_sql_cache=true"
                                 sql "set enable_strong_consistency_read=true"
@@ -431,7 +431,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "sync"
 
                         extraThread("test_cache_user2_thread", {
-                            connect("test_cache_user2", "DORIS@2024") {
+                            connectToDoris("test_cache_user2", "DORIS@2024") {
                                 sql "use ${dbName}"
                                 sql "set enable_sql_cache=true"
                                 sql "set enable_strong_consistency_read=true"
@@ -452,7 +452,7 @@ suite("parse_sql_from_sql_cache") {
 
                         // after row policy changed, the cache is invalidate
                         extraThread("test_cache_user2_thread2", {
-                            connect("test_cache_user2", "DORIS@2024") {
+                            connectToDoris("test_cache_user2", "DORIS@2024") {
                                 sql "use ${dbName}"
                                 sql "set enable_sql_cache=true"
                                 sql "set enable_strong_consistency_read=true"
@@ -494,7 +494,7 @@ suite("parse_sql_from_sql_cache") {
                         sleep(10000)
 
                         extraThread("test_cache_user3_thread", {
-                            connect("test_cache_user3", "DORIS@2024") {
+                            connectToDoris("test_cache_user3", "DORIS@2024") {
                                 sql "use ${dbName}"
                                 sql "set enable_sql_cache=true"
                                 sql "set enable_strong_consistency_read=true"
@@ -514,7 +514,7 @@ suite("parse_sql_from_sql_cache") {
 
                         // after row policy changed, the cache is invalidate
                         extraThread("test_cache_user3_thread2", {
-                            connect("test_cache_user3", "DORIS@2024") {
+                            connectToDoris("test_cache_user3", "DORIS@2024") {
                                 sql "use ${dbName}"
                                 sql "set enable_sql_cache=true"
                                 sql "set enable_strong_consistency_read=true"
@@ -547,7 +547,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "sync"
 
                         extraThread("test_cache_user4_thread", {
-                            connect("test_cache_user4", "DORIS@2024") {
+                            connectToDoris("test_cache_user4", "DORIS@2024") {
                                 sql "use ${dbName}"
                                 sql "set enable_sql_cache=true"
                                 sql "set enable_strong_consistency_read=true"
@@ -564,7 +564,7 @@ suite("parse_sql_from_sql_cache") {
 
                         // after privileges changed, the cache is invalidate
                         extraThread("test_cache_user4_thread2", {
-                            connect("test_cache_user4", "DORIS@2024") {
+                            connectToDoris("test_cache_user4", "DORIS@2024") {
                                 sql "set enable_sql_cache=true"
                                 sql "set enable_strong_consistency_read=true"
 
@@ -747,7 +747,7 @@ suite("parse_sql_from_sql_cache") {
                         log.info("fe2: ${fe2}")
 
                         log.info("connect to fe: ${fe1}")
-                        connect( context.config.jdbcUser,  context.config.jdbcPassword,  "jdbc:mysql://${fe1}") {
+                        connectToDoris( context.config.jdbcUser,  context.config.jdbcPassword,  "jdbc:mysql://${fe1}") {
                             sql "use ${dbName}"
 
                             createTestTable "test_use_plan_cache18"
@@ -766,7 +766,7 @@ suite("parse_sql_from_sql_cache") {
                         }
 
                         log.info("connect to fe: ${fe2}")
-                        connect( context.config.jdbcUser,  context.config.jdbcPassword,  "jdbc:mysql://${fe2}") {
+                        connectToDoris( context.config.jdbcUser,  context.config.jdbcPassword,  "jdbc:mysql://${fe2}") {
 
                             sql "use ${dbName}"
                             sql "set enable_sql_cache=true"
@@ -1028,7 +1028,7 @@ suite("parse_sql_from_sql_cache") {
                         assertTrue((sql "select * from test_use_plan_cache24").size() > 0)
                         assertHasCache "select * from test_use_plan_cache24"
 
-                        connect(context.config.jdbcUser, context.config.jdbcPassword, context.jdbcUrl) {
+                        connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, context.jdbcUrl) {
                             sql "set enable_sql_cache=true"
                             sql "set enable_strong_consistency_read=true"
                             sql "create temporary table test_use_plan_cache24(a int, b boolean) properties('replication_num'='1')"

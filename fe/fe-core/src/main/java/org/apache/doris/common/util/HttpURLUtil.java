@@ -20,32 +20,28 @@ package org.apache.doris.common.util;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.Config;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.Map;
-import javax.net.ssl.HttpsURLConnection;
 
 public class HttpURLUtil {
 
     public static HttpURLConnection getConnectionWithNodeIdent(String request) throws IOException {
+        InternalHttpClientProvider provider = InternalHttpClientProviderFactory.getProvider();
+        String normalizedRequest = provider.normalizeInternalUrl(
+                request, InternalHttpClientProvider.Target.FE);
         try {
-            SecurityChecker.getInstance().startSSRFChecking(request);
-            URL url = new URL(request);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-
-            if (conn instanceof HttpsURLConnection && Config.enable_https) {
-                HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
-                httpsConn.setSSLSocketFactory(InternalHttpsUtils.getSslContext().getSocketFactory());
-                httpsConn.setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
-            }
+            SecurityChecker.getInstance().startSSRFChecking(normalizedRequest);
+            HttpURLConnection conn = provider.openConnection(
+                    normalizedRequest, InternalHttpClientProvider.Target.FE);
 
             // Must use Env.getServingEnv() instead of getCurrentEnv(),
             // because here we need to obtain selfNode through the official service catalog.
@@ -59,6 +55,20 @@ public class HttpURLUtil {
             return conn;
         } catch (Exception e) {
             throw new IOException(e);
+        } finally {
+            SecurityChecker.getInstance().stopSSRFChecking();
+        }
+    }
+
+    public static HttpURLConnection getInternalConnection(String request,
+            InternalHttpClientProvider.Target target) throws IOException {
+        InternalHttpClientProvider provider = InternalHttpClientProviderFactory.getProvider();
+        String normalizedRequest = provider.normalizeInternalUrl(request, target);
+        try {
+            SecurityChecker.getInstance().startSSRFChecking(normalizedRequest);
+            return provider.openConnection(normalizedRequest, target);
+        } catch (Exception e) {
+            throw e instanceof IOException ? (IOException) e : new IOException(e);
         } finally {
             SecurityChecker.getInstance().stopSSRFChecking();
         }
@@ -83,15 +93,12 @@ public class HttpURLUtil {
     }
 
     public static String buildInternalFeUrl(String host, String path, String queryParams) {
-        String protocol = Config.enable_https ? "https" : "http";
-        int port = getHttpPort();
-
-        String url = protocol + "://" + NetUtils.getHostPortInAccessibleFormat(host, port) + path;
+        String url = "http://" + NetUtils.getHostPortInAccessibleFormat(host, Config.http_port) + path;
         if (queryParams != null && !queryParams.isEmpty()) {
             url += "?" + queryParams;
         }
-
-        return url;
+        return InternalHttpClientProviderFactory.getProvider()
+                .normalizeInternalUrl(url, InternalHttpClientProvider.Target.FE);
     }
 
 }

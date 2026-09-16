@@ -23,7 +23,7 @@ suite("test_ranger_access_resource_column", "p2,ranger,external") {
 	def tokens = context.config.jdbcUrl.split('/')
 	def defaultJdbcUrl = tokens[0] + "//" + tokens[2] + "/?"
 	def checkColumnAccess = { catalogType, access, user, password, catalog, dbName, tableName, columns ->
-		connect("$user", "$password", "$defaultJdbcUrl") {
+		connectToDoris("$user", "$password", "$defaultJdbcUrl") {
 			def executeSqlWithLogging = { sqlStatement, errorMessage ->
 				try {
 					sql sqlStatement

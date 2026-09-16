@@ -19,6 +19,7 @@ package org.apache.doris.common;
 
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.tls.server.TlsProtocolSet;
 
 import org.apache.commons.pool2.BaseKeyedPooledObjectFactory;
 import org.apache.commons.pool2.PooledObject;
@@ -126,6 +127,13 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
     }
 
     public boolean reopenOrClear(TNetworkAddress address, VALUE object, int timeoutMs) {
+        // A TSocket wrapping an SSLSocket does not retain a host and port that reopen() can use.
+        // Rebuild the keyed pool instead of first attempting an invalid close/open cycle.
+        if (Config.enable_tls && TlsProtocolSet.isProtocolIncluded(TlsProtocolSet.Protocol.THRIFT)) {
+            LOG.warn("skip reopen for thrift TLS client and clear pool to recreate connection. address={}", address);
+            clearPool(address);
+            return false;
+        }
         boolean ok = reopen(object, timeoutMs);
         if (!ok) {
             clearPool(address);
@@ -134,6 +142,11 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
     }
 
     public boolean reopenOrClear(TNetworkAddress address, VALUE object) {
+        if (Config.enable_tls && TlsProtocolSet.isProtocolIncluded(TlsProtocolSet.Protocol.THRIFT)) {
+            LOG.warn("skip reopen for thrift TLS client and clear pool to recreate connection. address={}", address);
+            clearPool(address);
+            return false;
+        }
         boolean ok = reopen(object);
         if (!ok) {
             clearPool(address);

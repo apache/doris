@@ -165,7 +165,7 @@ suite("test_ranger_hive_lowercase_access_type", "p2,ranger,external") {
 
         def tokens = context.config.jdbcUrl.split('/')
         def defaultJdbcUrl = tokens[0] + "//" + tokens[2] + "/?"
-        connect(user, password, defaultJdbcUrl) {
+        connectToDoris(user, password, defaultJdbcUrl) {
             String query = "SELECT id, secret FROM `${catalog}`.`${database}`.`${table}` ORDER BY id"
 
             // The first query initializes Ranger's optimized policy evaluator. The second query verifies

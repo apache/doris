@@ -49,7 +49,7 @@ suite("test_analyze_mv") {
         def tokens = context.config.jdbcUrl.split('/')
         def url=tokens[0] + "//" + host + ":" + port
         logger.info("Master url is " + url)
-        connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
+        connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, url) {
             sql """use ${db}"""
             result = sql """show frontends;"""
             logger.info("show frontends result master: " + result)
@@ -639,7 +639,7 @@ suite("test_analyze_mv") {
     def tokens = context.config.jdbcUrl.split('/')
     def url=tokens[0] + "//" + host + ":" + port
     logger.info("Master url is " + url)
-    connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
+    connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, url) {
         sql """use test_analyze_mv"""
         result = sql """show frontends;"""
         logger.info("show frontends result master: " + result)
@@ -684,7 +684,7 @@ suite("test_analyze_mv") {
     // ** End of embedded test
 
     sql """insert into mvTestDup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
-    connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
+    connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, url) {
         sql """use test_analyze_mv"""
         for (int i = 0; i < 120; i++) {
             result_row = sql """show index stats mvTestDup mvTestDup"""

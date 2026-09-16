@@ -31,6 +31,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "common/tls_protocol_config.h"
 #include "common/utils.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
@@ -252,9 +253,10 @@ bool load_size_smaller_than_wal_limit(int64_t content_length) {
 }
 
 Status is_support_batch_download(const std::string& endpoint) {
-    std::string url = fmt::format("http://{}/api/_tablet/_batch_download?check=true", endpoint);
+    std::string url = fmt::format("{}{}/api/_tablet/_batch_download?check=true",
+                                  get_internal_http_scheme(), endpoint);
     auto check_support_cb = [&url](HttpClient* client) {
-        RETURN_IF_ERROR(client->init(url));
+        RETURN_IF_ERROR(client->init_internal(url));
         client->set_timeout_ms(CHECK_SUPPORT_TIMEOUT * 1000);
         client->set_method(HttpMethod::HEAD);
         std::string response;
@@ -267,13 +269,13 @@ Status list_remote_files_v2(const std::string& address, const std::string& token
                             const std::string& remote_dir,
                             std::vector<std::pair<std::string, size_t>>* file_info_list) {
     std::string remote_url =
-            fmt::format("http://{}/api/_tablet/_batch_download?token={}&dir={}&list=true", address,
-                        token, remote_dir);
+            fmt::format("{}{}/api/_tablet/_batch_download?token={}&dir={}&list=true",
+                        get_internal_http_scheme(), address, token, remote_dir);
 
     std::string file_list_str;
     auto list_files_cb = [&](HttpClient* client) {
         file_list_str.clear();
-        RETURN_IF_ERROR(client->init(remote_url, false));
+        RETURN_IF_ERROR(client->init_internal(remote_url, false));
         client->set_method(HttpMethod::GET);
         client->set_timeout_ms(LIST_REMOTE_FILE_TIMEOUT * 1000);
         return client->execute(&file_list_str);
@@ -311,8 +313,8 @@ Status list_remote_files_v2(const std::string& address, const std::string& token
 Status download_files_v2(const std::string& address, const std::string& token,
                          const std::string& remote_dir, const std::string& local_dir,
                          const std::vector<std::pair<std::string, size_t>>& file_info_list) {
-    std::string remote_url = fmt::format("http://{}/api/_tablet/_batch_download?dir={}&token={}",
-                                         address, remote_dir, token);
+    std::string remote_url = fmt::format("{}{}/api/_tablet/_batch_download?dir={}&token={}",
+                                         get_internal_http_scheme(), address, remote_dir, token);
 
     size_t batch_file_size = 0;
     std::unordered_set<std::string> expected_files;
@@ -334,7 +336,7 @@ Status download_files_v2(const std::string& address, const std::string& token,
               << ", timeout: " << estimate_timeout;
 
     auto callback = [&](HttpClient* client) -> Status {
-        RETURN_IF_ERROR(client->init(remote_url, false));
+        RETURN_IF_ERROR(client->init_internal(remote_url, false));
         client->set_method(HttpMethod::POST);
         client->set_payload(payload);
         client->set_timeout_ms(estimate_timeout * 1000);

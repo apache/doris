@@ -31,6 +31,7 @@
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_headers.h"
+#include "util/client_connection_provider.h"
 #include "util/security.h"
 #include "util/stack_util.h"
 
@@ -282,6 +283,14 @@ HttpClient::~HttpClient() {
 }
 
 Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
+    return _init(url, set_fail_on_error, false);
+}
+
+Status HttpClient::init_internal(const std::string& url, bool set_fail_on_error) {
+    return _init(url, set_fail_on_error, true);
+}
+
+Status HttpClient::_init(const std::string& url, bool set_fail_on_error, bool internal) {
     if (_curl == nullptr) {
         _curl = curl_easy_init();
         if (_curl == nullptr) {
@@ -357,6 +366,7 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
         return Status::InternalError("fail to set CURLOPT_URL");
     }
+    RETURN_IF_ERROR(client::configure_http_client(_curl, internal));
 
 #ifndef BE_TEST
     set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);

@@ -40,6 +40,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/tls_protocol_config.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
@@ -89,8 +90,9 @@ public:
         auto& remote_be_addr = remote_tablet_snapshot.remote_be_addr;
 
         // HEAD http://172.16.0.14:6781/api/_tablet/_download?token=e804dd27-86da-4072-af58-70724075d2a4&file=/home/ubuntu/doris_master/output/be/storage/snapshot/20230410102306.9.180/
-        _base_url = fmt::format("http://{}:{}/api/_tablet/_download?token={}&channel=ingest_binlog",
-                                remote_be_addr.hostname, remote_be_addr.port, token);
+        _base_url = fmt::format("{}{}:{}/api/_tablet/_download?token={}&channel=ingest_binlog",
+                                get_internal_http_scheme(), remote_be_addr.hostname,
+                                remote_be_addr.port, token);
     }
     ~SnapshotHttpDownloader() = default;
     SnapshotHttpDownloader(const SnapshotHttpDownloader&) = delete;
@@ -216,7 +218,7 @@ Status SnapshotHttpDownloader::_get_http_file_stat(const std::string& remote_fil
             timeout_ms = config::download_binlog_meta_timeout_ms * 3;
             url = fmt::format("{}&acquire_md5=true", remote_file_url);
         }
-        RETURN_IF_ERROR(client->init(url));
+        RETURN_IF_ERROR(client->init_internal(url));
         client->set_timeout_ms(timeout_ms);
         RETURN_IF_ERROR(client->head());
         RETURN_IF_ERROR(client->get_content_length(&file_size));
@@ -256,7 +258,7 @@ Status SnapshotHttpDownloader::_download_http_file(DataDir* data_dir,
 
     auto download_cb = [&remote_file_url, &remote_file_md5, estimate_timeout, &local_file_path,
                         file_size](HttpClient* client) {
-        RETURN_IF_ERROR(client->init(remote_file_url));
+        RETURN_IF_ERROR(client->init_internal(remote_file_url));
         client->set_timeout_ms(estimate_timeout * 1000);
         RETURN_IF_ERROR(client->download(local_file_path));
 
@@ -350,7 +352,7 @@ Status SnapshotHttpDownloader::_list_remote_files() {
 
     std::string remote_file_list_str;
     auto list_files_cb = [&remote_url_prefix, &remote_file_list_str](HttpClient* client) {
-        RETURN_IF_ERROR(client->init(remote_url_prefix));
+        RETURN_IF_ERROR(client->init_internal(remote_url_prefix));
         client->set_timeout_ms(config::download_binlog_meta_timeout_ms);
         return client->execute(&remote_file_list_str);
     };

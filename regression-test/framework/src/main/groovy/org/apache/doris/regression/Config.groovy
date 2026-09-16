@@ -1125,7 +1125,7 @@ class Config {
         //  final URL with dbName
         jdbcUrl = buildUrl(dbName)
 
-        log.info("Reset jdbcUrl to ${jdbcUrl}")
+        log.info("Reset jdbcUrl to ${sanitizeJdbcUrlForLogging(jdbcUrl)}")
     }
 
     void tryCreateDbIfNotExist(String dbName) {
@@ -1139,7 +1139,8 @@ class Config {
                 }
             }
         } catch (Throwable t) {
-            throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
+            throw new IllegalStateException(
+                    "Create database failed, jdbcUrl: ${sanitizeJdbcUrlForLogging(jdbcUrl)}", t)
         }
     }
 
@@ -1154,7 +1155,8 @@ class Config {
                 }
             }
         } catch (Throwable t) {
-            throw new IllegalStateException("Create database failed, ccrDownstreamUrl: ${ccrDownstreamUrl}", t)
+            throw new IllegalStateException(
+                    "Create database failed, ccrDownstreamUrl: ${sanitizeJdbcUrlForLogging(ccrDownstreamUrl)}", t)
         }
     }
 
@@ -1169,7 +1171,8 @@ class Config {
                 def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'cloud_unique_id'")
                 runMode = result[0].Value.toString().isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
             } catch (Throwable t) {
-                throw new IllegalStateException("Fetch server config 'cloud_unique_id' failed, jdbcUrl: ${jdbcUrl}", t)
+                throw new IllegalStateException(
+                        "Fetch server config 'cloud_unique_id' failed, jdbcUrl: ${sanitizeJdbcUrlForLogging(jdbcUrl)}", t)
             }
         }
     }
@@ -1180,7 +1183,8 @@ class Config {
             log.info("show random_add_order_by_keys_for_mow config: ${result}".toString())
             return result[0].Value.toString().equalsIgnoreCase("true")
         } catch (Throwable t) {
-            log.warn("Fetch server config 'random_add_order_by_keys_for_mow' failed, jdbcUrl: ${jdbcUrl}".toString(), t)
+            log.warn("Fetch server config 'random_add_order_by_keys_for_mow' failed, jdbcUrl: "
+                    + sanitizeJdbcUrlForLogging(jdbcUrl), t)
             return false
         }
     }
@@ -1227,7 +1231,7 @@ class Config {
     Connection getConnectionByDbName(String dbName) {
         String dbUrl = getConnectionUrlByDbName(dbName)
         tryCreateDbIfNotExist(dbName)
-        log.info("connect to ${dbUrl}".toString())
+        log.info("connect to ${sanitizeJdbcUrlForLogging(dbUrl)}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
     }
 
@@ -1260,11 +1264,11 @@ class Config {
     }
 
     Connection getDownstreamConnectionByDbName(String dbName) {
-        log.info("get downstream connection, url: ${ccrDownstreamUrl}, db: ${dbName}, " +
-                "user: ${ccrDownstreamUser}, passwd: ${ccrDownstreamPassword}")
+        log.info("get downstream connection, url: ${sanitizeJdbcUrlForLogging(ccrDownstreamUrl)}, "
+                + "db: ${dbName}, user: ${ccrDownstreamUser}, passwd: ***")
         String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
         tryCreateDownstreamDbIfNotExist(dbName)
-        log.info("connect to ${dbUrl}".toString())
+        log.info("connect to ${sanitizeJdbcUrlForLogging(dbUrl)}".toString())
         return DriverManager.getConnection(dbUrl, ccrDownstreamUser, ccrDownstreamPassword)
     }
 
@@ -1351,8 +1355,7 @@ class Config {
 
     public static String buildUrlWithDb (String jdbcUrl, String dbName, String keyStorePath, String keyStorePassword, String trustStorePath, String trustStorePassword) {
         String urlWithDb = buildUrlWithDbImpl(jdbcUrl, dbName);
-        urlWithDb = addTlsUrl(urlWithDb, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword);
-        urlWithDb = addTimeoutUrl(urlWithDb);
+        urlWithDb = buildTlsJdbcUrl(urlWithDb, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword);
         return urlWithDb
     }
 
@@ -1362,6 +1365,31 @@ class Config {
             host, queryPort)
         url = buildUrlWithDb(url, dbName)
         return url
+    }
+
+    public static String buildUrlWithDb(String host, int queryPort, String dbName,
+                                        String keyStorePath, String keyStorePassword,
+                                        String trustStorePath, String trustStorePassword) {
+        def url = String.format(
+            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+            host, queryPort)
+        url = buildUrlWithDb(url, dbName, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword)
+        return url
+    }
+
+    public static String buildTlsJdbcUrl(String jdbcUrl, String keyStorePath, String keyStorePassword,
+                                         String trustStorePath, String trustStorePassword) {
+        String tlsUrl = addTlsUrl(jdbcUrl, keyStorePath, keyStorePassword, trustStorePath, trustStorePassword)
+        return addTimeoutUrl(tlsUrl)
+    }
+
+    public static String sanitizeJdbcUrlForLogging(String jdbcUrl) {
+        if (jdbcUrl == null) {
+            return null
+        }
+        String sanitized = jdbcUrl.replaceFirst("(?i)^(jdbc:[^:]+://)[^/@?#]+@", '$1***@')
+        return sanitized.replaceAll(
+                "(?i)([?&][^=&]*(?:password|passwd|secret|token)[^=&]*=)[^&#]*", '$1***')
     }
 
     private static String addSslUrl(String url) {
