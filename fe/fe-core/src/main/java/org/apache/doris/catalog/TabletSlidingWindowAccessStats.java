@@ -55,8 +55,9 @@ public class TabletSlidingWindowAccessStats {
     private final ConcurrentHashMap<Long, Map<Long, AccessStatsResult>> beToStats = new ConcurrentHashMap<>();
     private final AtomicLong totalAccessCount = new AtomicLong(0);
 
-    // Merging every backend snapshot is O(total reported tablets) -- up to backendCount * 2 *
-    // be report_active_tablet_max_num entries. MetricRepo scrapes two of the aggregate getters
+    // Merging every backend snapshot is O(total RETAINED tablets), which is not the same as
+    // what was last reported -- retainWithinWindow() states the per-backend bound and it is not
+    // the BE per-list cap. MetricRepo scrapes two of the aggregate getters
     // below on every /metrics request, so they share a short-lived snapshot the same way the
     // pre-BE-report implementation cached its aggregates. getTopNActive() deliberately does NOT
     // use this cache: it runs once per cloud_active_tablet_ids_refresh_interval_second and feeds
@@ -112,15 +113,21 @@ public class TabletSlidingWindowAccessStats {
      * active_tablet_sliding_window_time_window_second, which is the window this feature has
      * advertised since it lived in FE memory.
      *
-     * <p>Retention is bounded by cloud_active_partition_scheduling_topn: the scheduler never
-     * consumes more actives than that in total, and a backend whose hot set churns would
+     * <p>Retention is bounded by cloud_active_partition_scheduling_topn (K below): the scheduler
+     * never consumes more actives than that in total, and a backend whose hot set churns would
      * otherwise accumulate a whole window's worth of distinct tablets. The coldest are dropped
      * first, by rate rather than by age - everything that survives the cutoff above is inside
      * the window already, and dropping by age alone would evict a tablet hammered early in the
      * window in favour of one touched once at the end.
      *
-     * <p>Each dimension keeps its own retainLimit candidates, so this holds up to 2x that many
-     * ids per backend. Two cheaper rules were both wrong. One ordering over both dimensions
+     * <p>Size of a backend's snapshot, which is NOT simply K. The capped path below keeps up to
+     * K per dimension, so up to 2K ids. The early return keeps the incoming report whole, which
+     * the backend caps at report_active_tablet_max_num (B) per dimension, so up to 2B ids - and
+     * that path is taken on a backend's first report and whenever K &lt;= 0. For fixed positive
+     * K and B the bound is therefore max(2K, 2B), and lowering either config does not shrink a
+     * snapshot that already exists until its next update or expiry.
+     *
+     * <p>Two cheaper capping rules were both wrong. One ordering over both dimensions
      * compares unlike units - scans outnumber flushes by one to two orders of magnitude, so a
      * churning query set evicts every load tablet before the reserved load quota downstream
      * ever sees it. Spending getTopNActive()'s unique-id budget here is wrong for a subtler
