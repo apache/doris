@@ -493,7 +493,8 @@ TEST_F(ConstantColumnIteratorTest, DecimalDefaultsCoverScalesReaderIteratorAndZo
 
 TEST_F(ConstantColumnIteratorTest, TemporalDefaultsCoverBoundariesReaderIteratorAndZoneMap) {
     // Case: temporal columns are added to an old segment. Cover calendar boundaries, fractional
-    // precision, nanosecond timestamps, and timezone normalization through the full read pipeline.
+    // precision, the MySQL TIME endpoint, nanosecond timestamps, and timezone normalization through
+    // the full read pipeline.
     struct TemporalDefaultCase {
         DefaultValueCase input;
         std::string expected_debug;
@@ -520,10 +521,12 @@ TEST_F(ConstantColumnIteratorTest, TemporalDefaultsCoverBoundariesReaderIterator
              "2038-01-19 03:14:07.123"},
             {{FieldType::OLAP_FIELD_TYPE_DATETIMEV2, "9999-12-31 23:59:59.999999", 0, 6},
              "9999-12-31 23:59:59.999999"},
-            {{FieldType::OLAP_FIELD_TYPE_TIMEV2, "-838:59:59.999999", 0, 6}, "", -3020399999999.0},
+            {{FieldType::OLAP_FIELD_TYPE_TIMEV2, "-838:59:59.000000", 0, 6}, "", -3020399000000.0},
+            {{FieldType::OLAP_FIELD_TYPE_TIMEV2, "-838:59:58.999999", 0, 6}, "", -3020398999999.0},
             {{FieldType::OLAP_FIELD_TYPE_TIMEV2, "00:00:00", 0, 0}, "", 0.0},
             {{FieldType::OLAP_FIELD_TYPE_TIMEV2, "12:34:56.123", 0, 3}, "", 45296123000.0},
-            {{FieldType::OLAP_FIELD_TYPE_TIMEV2, "838:59:59.999999", 0, 6}, "", 3020399999999.0},
+            {{FieldType::OLAP_FIELD_TYPE_TIMEV2, "838:59:58.999999", 0, 6}, "", 3020398999999.0},
+            {{FieldType::OLAP_FIELD_TYPE_TIMEV2, "838:59:59.000000", 0, 6}, "", 3020399000000.0},
             {{FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, "1677-09-21 00:12:43.145224192"},
              "1677-09-21 00:12:43.145224192"},
             {{FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, "1969-12-31 23:59:59.999999999"},
@@ -562,6 +565,19 @@ TEST_F(ConstantColumnIteratorTest, TemporalDefaultsCoverBoundariesReaderIterator
             EXPECT_EQ(test_case.expected_time_microseconds, field.get<TYPE_TIMEV2>());
         }
         assert_constant_pipeline(column, field);
+    }
+}
+
+TEST_F(ConstantColumnIteratorTest, TimeV2DefaultsRejectFractionPastEndpoint) {
+    // Case: the TIME range ends at +/-838:59:59.000000. Fractional seconds remain supported below
+    // that endpoint, but adding even one microsecond to its magnitude must be rejected.
+    for (const std::string& value : {"-838:59:59.000001", "838:59:59.000001"}) {
+        SCOPED_TRACE(value);
+        TabletColumn column = make_default_column(
+                {FieldType::OLAP_FIELD_TYPE_TIMEV2, value, /*precision=*/0, /*scale=*/6});
+        Field field;
+        auto st = Segment::get_default_value_field(column, &field);
+        EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>()) << st;
     }
 }
 
@@ -849,10 +865,20 @@ TEST_F(ConstantColumnIteratorTest, ArrayDefaultAndRuntimeConstantMaterialize) {
     bool has_null = true;
     st = array_iterator.next_batch(&rows, array_dst, &has_null);
     ASSERT_TRUE(st.ok()) << st;
+    EXPECT_FALSE(has_null);
     const auto* materialized_array = assert_cast<const ColumnArray*>(array_dst.get());
     EXPECT_EQ(2, materialized_array->size_at(0));
     EXPECT_EQ(2, materialized_array->size_at(1));
-    const auto& array_elements = assert_cast<const ColumnInt32&>(materialized_array->get_data());
+    // DataTypeArray always uses a nullable nested column, even when the TabletColumn child is
+    // declared non-nullable. Verify both the nested null map and the physical INT values.
+    const auto& nullable_elements =
+            assert_cast<const ColumnNullable&>(materialized_array->get_data());
+    ASSERT_EQ(4, nullable_elements.size());
+    for (size_t index = 0; index < nullable_elements.size(); ++index) {
+        EXPECT_FALSE(nullable_elements.is_null_at(index));
+    }
+    const auto& array_elements =
+            assert_cast<const ColumnInt32&>(nullable_elements.get_nested_column());
     EXPECT_EQ(1, array_elements.get_element(0));
     EXPECT_EQ(-2, array_elements.get_element(1));
     EXPECT_EQ(1, array_elements.get_element(2));
