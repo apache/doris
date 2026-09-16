@@ -3919,18 +3919,29 @@ TEST(RecyclerTest, recycle_expired_spill_objects) {
     ASSERT_EQ(recycler.init(), 0);
     auto accessor = recycler.accessor_map_.begin()->second;
 
-    // Spill objects of a BE that never came back, plus regular data that must survive.
-    ASSERT_EQ(accessor->put_file("spill/be-dead/1000/q1/sort-1-0-1/0", "spill"), 0);
-    ASSERT_EQ(accessor->put_file("spill/be-dead/1000/q1/sort-1-0-1/1", "spill"), 0);
-    ASSERT_EQ(accessor->put_file("spill/be-dead/1001/q2/agg-1-0-1/0", "spill"), 0);
+    // Spill objects (data + boot markers) of a BE that never came back, plus regular data
+    // that must survive.
+    ASSERT_EQ(accessor->put_file("spill/10001/boots/1000", ""), 0);
+    ASSERT_EQ(accessor->put_file("spill/10001/data/1000/q1/sort-1-0-1/0", "spill"), 0);
+    ASSERT_EQ(accessor->put_file("spill/10001/data/1000/q1/sort-1-0-1/1", "spill"), 0);
+    ASSERT_EQ(accessor->put_file("spill/10001/data/1001/q2/agg-1-0-1/0", "spill"), 0);
     ASSERT_EQ(accessor->put_file("data/10001/rowset_0.dat", "data"), 0);
     ASSERT_EQ(accessor->put_file("spillover/not_spill", "data"), 0);
 
+    // A non-positive TTL would select objects of running queries: the task is skipped.
+    auto saved_ttl = config::spill_objects_expire_time_second;
+    config::spill_objects_expire_time_second = 0;
+    ASSERT_EQ(recycler.recycle_expired_spill_objects(), 0);
+    EXPECT_EQ(accessor->exists("spill/10001/boots/1000"), 0);
+    EXPECT_EQ(accessor->exists("spill/10001/data/1000/q1/sort-1-0-1/0"), 0);
+    config::spill_objects_expire_time_second = saved_ttl;
+
     // The mock accessor ignores the expiration time, so this only verifies prefix scoping.
     ASSERT_EQ(recycler.recycle_expired_spill_objects(), 0);
-    EXPECT_NE(accessor->exists("spill/be-dead/1000/q1/sort-1-0-1/0"), 0);
-    EXPECT_NE(accessor->exists("spill/be-dead/1000/q1/sort-1-0-1/1"), 0);
-    EXPECT_NE(accessor->exists("spill/be-dead/1001/q2/agg-1-0-1/0"), 0);
+    EXPECT_NE(accessor->exists("spill/10001/boots/1000"), 0);
+    EXPECT_NE(accessor->exists("spill/10001/data/1000/q1/sort-1-0-1/0"), 0);
+    EXPECT_NE(accessor->exists("spill/10001/data/1000/q1/sort-1-0-1/1"), 0);
+    EXPECT_NE(accessor->exists("spill/10001/data/1001/q2/agg-1-0-1/0"), 0);
     EXPECT_EQ(accessor->exists("data/10001/rowset_0.dat"), 0);
     EXPECT_EQ(accessor->exists("spillover/not_spill"), 0);
 }
@@ -4693,10 +4704,10 @@ TEST(RecyclerTest, recycle_deleted_instance) {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
         SpillStatsPB spill_stats;
-        spill_stats.set_cloud_unique_id("be-1");
+        spill_stats.set_backend_id(1);
         spill_stats.set_boot_id(1);
         spill_stats.set_remote_write_bytes(100);
-        txn->put(stats_spill_key({instance_id, "be-1"}), spill_stats.SerializeAsString());
+        txn->put(stats_spill_key({instance_id, 1}), spill_stats.SerializeAsString());
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 

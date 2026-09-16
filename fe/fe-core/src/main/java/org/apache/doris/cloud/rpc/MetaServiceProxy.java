@@ -99,28 +99,8 @@ public class MetaServiceProxy {
 
     public Cloud.GetSpillStatsResponse getSpillStats(Cloud.GetSpillStatsRequest request)
             throws RpcException {
-        long startTime = System.currentTimeMillis();
-        String methodName = "getSpillStats";
-        if (MetricRepo.isInit && Config.isCloudMode()) {
-            CloudMetrics.META_SERVICE_RPC_ALL_TOTAL.increase(1L);
-            CloudMetrics.META_SERVICE_RPC_TOTAL.getOrAdd(methodName).increase(1L);
-        }
-
-        try {
-            acquireRateLimit(methodName);
-            final MetaServiceClient client = getProxy();
-            Cloud.GetSpillStatsResponse response = client.getSpillStats(request);
-            if (MetricRepo.isInit && Config.isCloudMode()) {
-                CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
-                        .update(System.currentTimeMillis() - startTime);
-            }
-            return response;
-        } catch (MetaServiceRateLimitException e) {
-            throw e;
-        } catch (Exception e) {
-            recordRpcFailed(methodName, startTime);
-            throw new RpcException("", e.getMessage(), e);
-        }
+        return executeWithMetrics("getSpillStats", (client) -> client.getSpillStats(request),
+                Cloud.GetSpillStatsResponse::getStatus);
     }
 
     public Cloud.GetInstanceResponse getInstance(Cloud.GetInstanceRequest request)

@@ -56,6 +56,7 @@
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/workload_management/io_context.h"
 #include "runtime/workload_management/resource_context.h"
+#include "service/backend_options.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
@@ -94,6 +95,7 @@ struct MockS3Store {
     std::atomic<bool> fail_deletes {false};
     std::atomic<bool> block_uploads {false};
     std::atomic<int64_t> put_requests {0};
+    std::atomic<int64_t> marker_puts {0};
     std::atomic<int64_t> get_requests {0};
     std::atomic<int64_t> head_requests {0};
     std::atomic<int64_t> list_requests {0};
@@ -126,6 +128,7 @@ struct MockS3Store {
         fail_deletes = false;
         block_uploads = false;
         put_requests = 0;
+        marker_puts = 0;
         get_requests = 0;
         head_requests = 0;
         list_requests = 0;
@@ -192,6 +195,13 @@ public:
 
     io::ObjStorageResponse put_object(const io::ObjStoragePath& opts,
                                       std::string_view stream) override {
+        if (opts.key.find("/boots/") != std::string::npos) {
+            // Boot marker written by the GC thread: not spill data, not counted as such.
+            std::lock_guard lock(_store->mutex);
+            _store->objects[_store->make_key(opts.bucket, opts.key)] = std::string();
+            ++_store->marker_puts;
+            return io::ObjStorageResponse::OK();
+        }
         int64_t index = ++_store->put_requests;
         if (_store->fail_put_index > 0 && index == _store->fail_put_index) {
             return make_error("injected put_object failure");
@@ -264,7 +274,9 @@ public:
 
     io::ObjStorageHeadResult head_object(const io::ObjStoragePath& opts) override {
         io::ObjStorageHeadResult resp;
-        _store->head_requests++;
+        if (opts.key.find("/boots/") == std::string::npos) {
+            _store->head_requests++; // boot markers are not spill data traffic
+        }
         std::lock_guard lock(_store->mutex);
         auto it = _store->objects.find(_store->make_key(opts.bucket, opts.key));
         if (it == _store->objects.end()) {
@@ -295,7 +307,9 @@ public:
 
     io::ObjStorageListPageResult list_objects_page(const io::ObjStoragePath& opts,
                                                    std::string_view /*token*/) override {
-        _store->list_requests++;
+        if (opts.prefix.find("/boots") == std::string::npos) {
+            _store->list_requests++; // boot markers are not spill data traffic
+        }
         std::lock_guard lock(_store->mutex);
         const auto& object_prefix = opts.prefix.empty() ? opts.key : opts.prefix;
         std::string prefix = _store->make_key(opts.bucket, object_prefix);
@@ -371,7 +385,7 @@ private:
 
 constexpr const char* kBucket = "spill-mock-bucket";
 constexpr const char* kVaultPrefix = "spill_s3_test";
-constexpr const char* kCloudUniqueId = "be-cloud-unique-id";
+constexpr int64_t kBackendId = 10001;
 constexpr int64_t kBootId = 1000;
 
 } // namespace
@@ -446,6 +460,10 @@ protected:
         _saved_cloud_unique_id = config::cloud_unique_id;
         config::deploy_mode = "";
         config::cloud_unique_id = "";
+        // ensure_ready() reads the heartbeat-assigned backend id; tests bind the store
+        // explicitly and rely on "unknown" here.
+        _saved_backend_id = BackendOptions::get_backend_id();
+        BackendOptions::set_backend_id(0);
         // Small buffers so that a few KB of data exercise multipart uploads and part rotation.
         config::s3_write_buffer_size = 8 * 1024;
         config::spill_file_part_size_bytes = 32 * 1024;
@@ -483,13 +501,14 @@ protected:
         config::enable_s3_object_check_after_upload = _saved_check_after_upload;
         config::deploy_mode = _saved_deploy_mode;
         config::cloud_unique_id = _saved_cloud_unique_id;
+        BackendOptions::set_backend_id(_saved_backend_id);
     }
 
     // Build a manager with one remote store bound to the mock file system.
     void _create_manager(bool bind_fs = true) {
         auto store = std::make_unique<SpillDataDir>(SpillDataDir::Remote {}, "vault-1", kBootId);
         if (bind_fs) {
-            store->init_remote_fs(_s3_fs, kCloudUniqueId);
+            store->init_remote_fs(_s3_fs, kBackendId);
         }
         _data_dir = store.get();
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
@@ -510,10 +529,12 @@ protected:
         _data_dir = nullptr;
     }
 
-    static std::string be_root() {
-        return fmt::format("{}/spill/{}", kVaultPrefix, kCloudUniqueId);
+    // Vault-prefixed keys of the mock store: {vault}/spill/{backend_id}/data/{boot_id}/...
+    static std::string be_root() { return fmt::format("{}/spill/{}", kVaultPrefix, kBackendId); }
+    static std::string boot_root() { return fmt::format("{}/data/{}", be_root(), kBootId); }
+    static std::string boot_marker(int64_t boot_id) {
+        return fmt::format("{}/boots/{}", be_root(), boot_id);
     }
-    static std::string boot_root() { return fmt::format("{}/{}", be_root(), kBootId); }
 
     static Block _random_string_block(std::mt19937& rng, size_t rows, size_t len) {
         std::vector<std::string> values;
@@ -585,6 +606,7 @@ protected:
     bool _saved_check_after_upload = true;
     std::string _saved_deploy_mode;
     std::string _saved_cloud_unique_id;
+    int64_t _saved_backend_id = 0;
 };
 
 TEST_F(SpillFileS3Test, RemoteStoreLayout) {
@@ -592,11 +614,14 @@ TEST_F(SpillFileS3Test, RemoteStoreLayout) {
     ASSERT_TRUE(_data_dir->is_remote());
     ASSERT_TRUE(_data_dir->ready());
     ASSERT_EQ(_data_dir->storage_medium(), TStorageMedium::S3);
-    ASSERT_EQ(_data_dir->get_remote_be_root(), fmt::format("spill/{}", kCloudUniqueId));
+    ASSERT_EQ(_data_dir->get_remote_be_root(), fmt::format("spill/{}", kBackendId));
     ASSERT_EQ(_data_dir->get_spill_data_path(),
-              fmt::format("spill/{}/{}", kCloudUniqueId, kBootId));
+              fmt::format("spill/{}/data/{}", kBackendId, kBootId));
     ASSERT_EQ(_data_dir->get_spill_data_path("q1"),
-              fmt::format("spill/{}/{}/q1", kCloudUniqueId, kBootId));
+              fmt::format("spill/{}/data/{}/q1", kBackendId, kBootId));
+    ASSERT_EQ(_data_dir->get_remote_boot_marker_path("1000"),
+              fmt::format("spill/{}/boots/1000", kBackendId));
+    ASSERT_EQ(_data_dir->backend_id(), kBackendId);
     ASSERT_EQ(_data_dir->fs().get(), _s3_fs.get());
     ASSERT_FALSE(_data_dir->reach_capacity_limit(1LL << 40)); // unlimited by default
 }
@@ -615,7 +640,7 @@ TEST_F(SpillFileS3Test, NotReadyUntilVaultResolved) {
     ASSERT_EQ(spill_file, nullptr);
     ASSERT_TRUE(_manager->remote_startup_cleanup_pending());
 
-    // Cloud mode but the FE heartbeat has not delivered cloud_unique_id yet.
+    // Cloud mode but the FE heartbeat has not delivered the backend id yet.
     auto saved_deploy_mode = config::deploy_mode;
     auto saved_cloud_unique_id = config::cloud_unique_id;
     config::deploy_mode = "cloud";
@@ -641,7 +666,7 @@ TEST_F(SpillFileS3Test, RoundtripAcrossParts) {
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_TRUE(spill_file->ready_for_reading());
 
-    // Objects live under {vault prefix}/spill/{cloud_unique_id}/{boot_id}/{relative_path}/{part}.
+    // Objects live under {vault prefix}/spill/{backend_id}/data/{boot_id}/{relative_path}/{part}.
     auto keys = mock_store().keys_with_prefix(kBucket, boot_root() + "/query_1/sort-1-0-1/");
     ASSERT_GT(keys.size(), 1) << "expected several parts";
     int64_t object_bytes = 0;
@@ -792,27 +817,38 @@ TEST_F(SpillFileS3Test, QueryDirectoryDeletionRetriesUntilSuccess) {
 }
 
 TEST_F(SpillFileS3Test, StartupCleanupDeletesOnlyOtherBootGenerations) {
-    // Residue of two previous boots plus an object of the current generation written by
-    // "another running query" of this process.
-    mock_store().put_raw(kBucket, be_root() + "/900/query_old/sort-1-0-1/0", "old");
-    mock_store().put_raw(kBucket, be_root() + "/900/query_old/sort-1-0-1/1", "old");
-    mock_store().put_raw(kBucket, be_root() + "/950/query_old2/agg-1-0-1/0", "old");
+    // Residue of two previous boots (marker + data) plus an object of the current generation
+    // written by "another running query" of this process.
+    mock_store().put_raw(kBucket, boot_marker(900), "");
+    mock_store().put_raw(kBucket, be_root() + "/data/900/query_old/sort-1-0-1/0", "old");
+    mock_store().put_raw(kBucket, be_root() + "/data/900/query_old/sort-1-0-1/1", "old");
+    mock_store().put_raw(kBucket, boot_marker(950), "");
+    mock_store().put_raw(kBucket, be_root() + "/data/950/query_old2/agg-1-0-1/0", "old");
     mock_store().put_raw(kBucket, boot_root() + "/query_live/sort-1-0-1/0", "live");
     // Data of another BE must not be touched.
-    mock_store().put_raw(kBucket, fmt::format("{}/spill/other-be/900/q/0", kVaultPrefix), "other");
+    mock_store().put_raw(kBucket, fmt::format("{}/spill/10002/boots/900", kVaultPrefix), "");
+    mock_store().put_raw(kBucket, fmt::format("{}/spill/10002/data/900/q/0", kVaultPrefix),
+                         "other");
 
     _create_manager();
+    // Two old generations take two GC rounds (one generation per round).
     for (int i = 0; i < 100 && _manager->remote_startup_cleanup_pending(); ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     ASSERT_FALSE(_manager->remote_startup_cleanup_pending());
-    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, be_root() + "/900/").empty());
-    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, be_root() + "/950/").empty());
+    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, be_root() + "/data/900/").empty());
+    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, be_root() + "/data/950/").empty());
     ASSERT_EQ(mock_store().keys_with_prefix(kBucket, boot_root() + "/").size(), 1);
+    // Only the marker of the current boot is left, and the listing was limited to the
+    // boots directory (the marker of this boot was written before cleanup).
+    ASSERT_EQ(mock_store().keys_with_prefix(kBucket, be_root() + "/boots/"),
+              std::vector<std::string> {boot_marker(kBootId)});
+    ASSERT_EQ(mock_store().marker_puts, 1);
+    ASSERT_EQ(mock_store().put_requests, 0);
     ASSERT_EQ(mock_store()
-                      .keys_with_prefix(kBucket, kVaultPrefix + std::string("/spill/other-be/"))
+                      .keys_with_prefix(kBucket, kVaultPrefix + std::string("/spill/10002/"))
                       .size(),
-              1);
+              2);
 }
 
 TEST_F(SpillFileS3Test, StorageLimitIsEnforced) {
