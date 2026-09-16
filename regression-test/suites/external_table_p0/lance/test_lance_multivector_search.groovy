@@ -28,6 +28,7 @@ suite("test_lance_multivector_search", "p0,external") {
         "s3.endpoint"="${endpoint}", "s3.access_key"="admin", "s3.secret_key"="password",
         "s3.region"="us-east-1", "use_path_style"="true")"""
     sql "SET enable_file_scanner_v2 = true"
+    def previousBatchSize = (sql "SHOW VARIABLES LIKE 'batch_size'")[0][1]
     // The fixture has unequal subvector counts, empty/null outer rows, two fragments,
     // and cosine IVF_FLAT indexes built before appending the second fragment.
     def vectors = [1L: [[1d, 0d], [0d, 1d]], 2L: [[2d, 0d]],
@@ -41,8 +42,9 @@ suite("test_lance_multivector_search", "p0,external") {
     }
     def search = { String column, String json, String metric, boolean indexed, int k, int offset, String filter ->
         String where = filter == null ? "" : ', "filter"="' + filter + '"'
+        String metricProperty = metric == null ? "" : ', "metric"="' + metric + '"'
         return """vector_search("table"="${tableName}", "column"="${column}",
-            "query_vector"="${json}", "metric"="${metric}", "use_index"="${indexed}",
+            "query_vector"="${json}"${metricProperty}, "use_index"="${indexed}",
             "nprobes"="1", "top_k"="${k}", "offset"="${offset}"${where})"""
     }
     try {
@@ -98,6 +100,35 @@ suite("test_lance_multivector_search", "p0,external") {
                 assertEquals(3L, ((sql "SELECT row_id FROM ${source}")[0][0] as Number).longValue())
             }
         }
+        // The default metric must remain L2 on both indexed and appended fragments.
+        def defaultRows = sql "SELECT row_id, _distance FROM ${search('vectors32', '[[1,0]]', null, true, 10, 0, null)} ORDER BY _distance, row_id"
+        assertEquals([1L, 2L, 6L, 3L], defaultRows.collect { (it[0] as Number).longValue() })
+        assertEquals([0d, 1d, 1d, 4d], defaultRows.collect { (it[1] as Number).doubleValue() })
+        for (int batchSize : [1, 2, 1024]) {
+            sql "SET batch_size = ${batchSize}"
+            def tiny = sql "SELECT row_id, _distance FROM ${search('tiny_vectors', '[[0,0]]', 'l2', false, 1, 0, null)}"
+            assertEquals(2L, (tiny[0][0] as Number).longValue())
+            assertTrue(Math.abs((tiny[0][1] as Number).doubleValue() - 1e-8) < 1e-13)
+            def indexed = sql "SELECT row_id, _distance FROM ${search('batch_vectors', '[[1,0],[0,1]]', 'cosine', true, 1, 0, null)}"
+            assertEquals(3L, (indexed[0][0] as Number).longValue())
+            assertTrue(Math.abs((indexed[0][1] as Number).doubleValue() - (2d - Math.sqrt(2d))) < 1e-5)
+        }
+        for (String column : ['null_elements', 'nan_elements', 'inf_elements']) {
+            test {
+                sql """SELECT _distance FROM vector_search("table"="${catalogName}.`default`.multivector_invalid",
+                    "column"="${column}", "query_vector"="[[0,0]]", "top_k"="1", "use_index"="false")"""
+                exception "finite, non-null elements"
+            }
+        }
+        test {
+            sql "SELECT row_id FROM ${search('vectors32', '[[1,0],[0,1]]', 'cosine', true, 50001, 0, null)}"
+            exception "candidate budget"
+        }
+        String tooMany = '[' + Collections.nCopies(129, '[1,0]').join(',') + ']'
+        test {
+            sql "SELECT row_id FROM ${search('vectors32', tooMany, 'l2', false, 1, 0, null)}"
+            exception "exceeds 128 subvectors"
+        }
         def invalidQueries = ["[]": "must be non-empty", "[1,0]": "Each query subvector",
                               "[[1]]": "Each query subvector", "[[1,0],[0]]": "Each query subvector",
                               "[null]": "Each query subvector", "[[1,null]]": "must be a number",
@@ -113,6 +144,7 @@ suite("test_lance_multivector_search", "p0,external") {
             exception "supports l2, cosine, and dot"
         }
     } finally {
+        sql "SET batch_size = ${previousBatchSize}"
         sql """DROP CATALOG IF EXISTS `${catalogName}`"""
     }
 }

@@ -1,3 +1,14 @@
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -39,6 +39,7 @@
+ mod index_model;
+ mod index_segment;
+ mod merge_insert;
++mod multivector;
+ mod restore;
+ pub mod runtime;
+ mod scanner;
 diff --git a/src/scanner.rs b/src/scanner.rs
 --- a/src/scanner.rs
 +++ b/src/scanner.rs
@@ -20,7 +31,46 @@ diff --git a/src/scanner.rs b/src/scanner.rs
          }
          if let Some(bs) = self.batch_size {
              scanner.batch_size(bs);
-@@ -300,6 +310,12 @@
+@@ -261,7 +271,27 @@
+             if let Some(np) = self.nprobes {
+                 scanner.nprobes(np as usize);
+             }
+-            if let Some(rf) = self.refine_factor {
++            if multi_vector {
++                if matches!(
++                    self.metric_override,
++                    Some(crate::index::LanceMetricType::Hamming)
++                ) {
++                    return Err(lance_core::Error::invalid_input_source(
++                        "multi-vector queries support only l2, cosine, and dot metrics".into(),
++                    ));
++                }
++                let refine = self.refine_factor.unwrap_or(1);
++                if refine == 0
++                    || n.k as usize
++                        > crate::multivector::MAX_QUERY_VECTOR_CANDIDATES / refine as usize
++                {
++                    return Err(lance_core::Error::invalid_input_source(
++                        "multi-vector refined candidate count must be in 1..=100000".into(),
++                    ));
++                }
++                // Validate actual stored values and refine candidate scores before TopK.
++                scanner.refine(refine);
++            } else if let Some(rf) = self.refine_factor {
+                 scanner.refine(rf);
+             }
+             if let Some(ef) = self.ef {
+@@ -269,6 +299,9 @@
+             }
+             if let Some(m) = self.metric_override {
+                 scanner.distance_metric(m.to_distance());
++            } else if multi_vector {
++                // Resolve the same default on indexed and uncovered fragments.
++                scanner.distance_metric(lance_linalg::distance::DistanceType::L2);
+             }
+             if let Some(ui) = self.use_index {
+                 scanner.use_index(ui);
+@@ -300,6 +333,12 @@
          Ok(PreparedScanner {
              scanner,
              distributed_fts,
@@ -33,7 +83,7 @@ diff --git a/src/scanner.rs b/src/scanner.rs
          })
      }
  }
-@@ -314,10 +330,45 @@
+@@ -314,10 +353,45 @@
  struct PreparedScanner {
      scanner: lance::dataset::scanner::Scanner,
      distributed_fts: Option<PreparedFtsExecution>,
@@ -50,7 +100,7 @@ diff --git a/src/scanner.rs b/src/scanner.rs
 +                coalesce_partitions::CoalescePartitionsExec, limit::GlobalLimitExec,
 +                sorts::sort::SortExec,
 +            };
-+            let plan = self.scanner.create_plan().await?;
++            let plan = crate::multivector::rewrite(self.scanner.create_plan().await?)?;
 +            let sort = PhysicalSortExpr {
 +                expr: expressions::col("_distance", plan.schema().as_ref())?,
 +                options: arrow::compute::SortOptions {
@@ -79,7 +129,7 @@ diff --git a/src/scanner.rs b/src/scanner.rs
          let Some(distributed_fts) = self.distributed_fts else {
              return self.scanner.try_into_stream().await;
          };
-@@ -1978,6 +2029,21 @@
+@@ -1978,6 +2052,21 @@
      }
      let column_str = unsafe { helpers::parse_c_string(column)? }.unwrap();
 
@@ -101,7 +151,7 @@ diff --git a/src/scanner.rs b/src/scanner.rs
      let dtype = match element_type {
          0 => LanceDataType::Float32,
          1 => LanceDataType::Float16,
-@@ -2016,9 +2082,104 @@
+@@ -2016,9 +2105,112 @@
          }
      };
 
@@ -153,6 +203,13 @@ diff --git a/src/scanner.rs b/src/scanner.rs
 +            "dimension, num_vectors, and k must be positive; dimension must fit int32",
 +        ));
 +    }
++    if num_vectors > crate::multivector::MAX_QUERY_VECTORS
++        || num_vectors > crate::multivector::MAX_QUERY_VECTOR_CANDIDATES / k as usize
++    {
++        return Err(invalid(
++            "multi-vector query exceeds 128 subvectors or 100000 subvector-candidates",
++        ));
++    }
 +    let (data_type, width) = match element_type {
 +        0 => (DataType::Float32, 4),
 +        1 => (DataType::Float16, 2),
@@ -194,6 +251,7 @@ diff --git a/src/scanner.rs b/src/scanner.rs
 +    // A primitive array is interpreted as one vector by Lance. Preserve matrix shape even
 +    // for a single subvector. Lance does not preserve element nullability in its schema.
 +    let values = unsafe { decode_query_values(query_data, count, element_type)? };
++    crate::multivector::validate_query(values.as_ref())?;
 +    let query = arrow_array::FixedSizeListArray::try_new(
 +        Arc::new(Field::new("item", data_type, false)),
 +        dimension as i32,
@@ -208,10 +266,377 @@ diff --git a/src/scanner.rs b/src/scanner.rs
          k,
      });
      Ok(0)
+diff --git a/src/multivector.rs b/src/multivector.rs
+--- /dev/null
++++ b/src/multivector.rs
+@@ -0,0 +1,363 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Correct multi-vector scoring before the pinned Lance plan's candidate limits.
++
++use std::collections::HashMap;
++use std::sync::Arc;
++
++use arrow_array::types::{Float16Type, Float32Type, Float64Type};
++use arrow_array::{
++    Array, ArrayRef, ArrowPrimitiveType, BooleanArray, FixedSizeListArray, Float32Array, ListArray,
++    RecordBatch, UInt64Array,
++};
++use arrow_schema::{DataType, SchemaRef};
++use datafusion::error::{DataFusionError, Result};
++use datafusion::execution::context::TaskContext;
++use datafusion::physical_plan::{
++    DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties, SendableRecordBatchStream,
++    stream::RecordBatchStreamAdapter,
++};
++use futures::{StreamExt, TryStreamExt, stream};
++use lance::io::exec::KNNVectorDistanceExec;
++use lance_linalg::distance::{Cosine, DistanceType, Dot, L2};
++
++// Lance creates one ANN branch per query vector,
++// each overfetching 10 * k candidates before scoring; wire bytes alone cannot bound this work.
++pub(crate) const MAX_QUERY_VECTORS: usize = 128;
++pub(crate) const MAX_QUERY_VECTOR_CANDIDATES: usize = 100_000;
++
++fn invalid(message: impl Into<String>) -> DataFusionError {
++    DataFusionError::Execution(message.into())
++}
++
++/// Rewrite inside TopK/refinement, before any score can discard a candidate.
++pub(crate) fn rewrite(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionPlan>> {
++    let children = plan
++        .children()
++        .into_iter()
++        .map(|child| rewrite(child.clone()))
++        .collect::<Result<Vec<_>>>()?;
++    let plan = if children.is_empty() {
++        plan
++    } else {
++        plan.with_new_children(children)?
++    };
++    let mode = if let Some(exact) = plan.downcast_ref::<KNNVectorDistanceExec>() {
++        if exact.is_batch {
++            return Err(invalid(
++                "expected one logical multi-vector query, not batch queries",
++            ));
++        }
++        Some(Scoring::Exact {
++            query: exact.query.clone(),
++            column: exact.column.clone(),
++            metric: exact.distance_type,
++        })
++    // This pinned Lance node is not publicly re-exported, so match its stable plan name.
++    } else if plan.name() == "MultivectorScoringExec" {
++        Some(Scoring::Indexed)
++    } else {
++        None
++    };
++    Ok(match mode {
++        Some(mode) => Arc::new(MultiVectorScoreExec {
++            original: plan,
++            mode,
++        }),
++        None => plan,
++    })
++}
++
++#[derive(Clone, Debug)]
++enum Scoring {
++    Exact {
++        query: ArrayRef,
++        column: String,
++        metric: DistanceType,
++    },
++    Indexed,
++}
++
++#[derive(Debug)]
++struct MultiVectorScoreExec {
++    original: Arc<dyn ExecutionPlan>,
++    mode: Scoring,
++}
++
++impl DisplayAs for MultiVectorScoreExec {
++    fn fmt_as(&self, _: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
++        write!(f, "MultiVectorScore: {}", self.original.name())
++    }
++}
++
++impl ExecutionPlan for MultiVectorScoreExec {
++    fn name(&self) -> &str {
++        "MultiVectorScoreExec"
++    }
++    fn properties(&self) -> &Arc<PlanProperties> {
++        self.original.properties()
++    }
++    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
++        self.original.children()
++    }
++    fn required_input_distribution(&self) -> Vec<datafusion::physical_expr::Distribution> {
++        self.original.required_input_distribution()
++    }
++    fn with_new_children(
++        self: Arc<Self>,
++        children: Vec<Arc<dyn ExecutionPlan>>,
++    ) -> Result<Arc<dyn ExecutionPlan>> {
++        Ok(Arc::new(Self {
++            original: self.original.clone().with_new_children(children)?,
++            mode: self.mode.clone(),
++        }))
++    }
++    fn execute(
++        &self,
++        partition: usize,
++        context: Arc<TaskContext>,
++    ) -> Result<SendableRecordBatchStream> {
++        let schema = self.schema();
++        match &self.mode {
++            Scoring::Exact {
++                query,
++                column,
++                metric,
++            } => {
++                let input = self.children()[0].execute(partition, context)?;
++                let query = query.clone();
++                let column = column.clone();
++                let metric = *metric;
++                let output_schema = schema.clone();
++                let output = input
++                    .map(move |batch| {
++                        let query = query.clone();
++                        let column = column.clone();
++                        let schema = output_schema.clone();
++                        async move {
++                            let batch = batch?;
++                            tokio::task::spawn_blocking(move || {
++                                exact_batch(batch, query, &column, metric, schema)
++                            })
++                            .await
++                            .map_err(|e| DataFusionError::External(Box::new(e)))?
++                        }
++                    })
++                    .buffered(lance_core::utils::tokio::get_num_compute_intensive_cpus());
++                Ok(Box::pin(RecordBatchStreamAdapter::new(schema, output)))
++            }
++            Scoring::Indexed => {
++                let inputs = self
++                    .children()
++                    .into_iter()
++                    .map(|child| child.execute(partition, context.clone()))
++                    .collect::<Result<Vec<_>>>()?;
++                let output_schema = schema.clone();
++                let output =
++                    stream::once(async move { indexed_batch(inputs, output_schema).await });
++                Ok(Box::pin(RecordBatchStreamAdapter::new(schema, output)))
++            }
++        }
++    }
++}
++
++fn row_distance<T: ArrowPrimitiveType>(
++    query: &dyn Array,
++    vectors: &FixedSizeListArray,
++    metric: DistanceType,
++) -> Result<f32>
++where
++    T::Native: L2 + Cosine + Dot + Into<f64>,
++{
++    let q = query
++        .as_any()
++        .downcast_ref::<arrow_array::PrimitiveArray<T>>()
++        .ok_or_else(|| invalid("multi-vector query element type mismatch"))?;
++    let values = vectors
++        .values()
++        .as_any()
++        .downcast_ref::<arrow_array::PrimitiveArray<T>>()
++        .ok_or_else(|| invalid("multi-vector stored element type mismatch"))?;
++    if vectors.null_count() != 0
++        || values.null_count() != 0
++        || values
++            .values()
++            .iter()
++            .any(|v| !Into::<f64>::into(*v).is_finite())
++    {
++        return Err(invalid(
++            "multi-vector stored subvectors must contain only finite, non-null elements",
++        ));
++    }
++    let dimension = vectors.value_length() as usize;
++    let distance = metric.func();
++    // Subtracting each small distance from 1 rounds it away before TopK. Sum minima
++    // directly, using f64 only for the accumulator; the base kernels and output remain f32.
++    let mut score = 0.0f64;
++    for query_vector in q.values().chunks_exact(dimension) {
++        let best = values
++            .values()
++            .chunks_exact(dimension)
++            .map(|vector| distance(query_vector, vector))
++            .min_by(f32::total_cmp)
++            .ok_or_else(|| invalid("cannot score an empty multi-vector row"))?;
++        score += best as f64;
++    }
++    let score = score as f32;
++    if !score.is_finite() {
++        return Err(invalid("multi-vector distance is not finite"));
++    }
++    Ok(score)
++}
++
++fn exact_batch(
++    batch: RecordBatch,
++    query: ArrayRef,
++    column: &str,
++    metric: DistanceType,
++    schema: SchemaRef,
++) -> Result<RecordBatch> {
++    if batch.num_rows() == 0 {
++        return Ok(RecordBatch::new_empty(schema));
++    }
++    let vectors = batch
++        .column_by_name(column)
++        .and_then(|a| a.as_any().downcast_ref::<ListArray>())
++        .ok_or_else(|| invalid("multi-vector scoring requires a List column"))?;
++    let row_ids = batch.column_by_name("_rowid");
++    let mut scores = Vec::with_capacity(batch.num_rows());
++    for (i, vector) in vectors.iter().enumerate() {
++        if row_ids.is_some_and(|ids| ids.is_null(i)) {
++            scores.push(None);
++            continue;
++        }
++        let Some(vector) = vector else {
++            scores.push(None);
++            continue;
++        };
++        let vector = vector
++            .as_any()
++            .downcast_ref::<FixedSizeListArray>()
++            .ok_or_else(|| invalid("multi-vector row must be a FixedSizeList"))?;
++        if vector.is_empty() {
++            scores.push(None);
++            continue;
++        }
++        let score = match query.data_type() {
++            DataType::Float16 => row_distance::<Float16Type>(query.as_ref(), vector, metric),
++            DataType::Float32 => row_distance::<Float32Type>(query.as_ref(), vector, metric),
++            DataType::Float64 => row_distance::<Float64Type>(query.as_ref(), vector, metric),
++            _ => Err(invalid("unsupported multi-vector element type")),
++        }?;
++        scores.push(Some(score));
++    }
++    let mask = BooleanArray::from_iter(scores.iter().map(|score| Some(score.is_some())));
++    let distances: ArrayRef = Arc::new(Float32Array::from(scores));
++    let columns = schema
++        .fields()
++        .iter()
++        .map(|field| {
++            if field.name() == "_distance" {
++                Ok(distances.clone())
++            } else {
++                batch
++                    .column_by_name(field.name())
++                    .cloned()
++                    .ok_or_else(|| invalid(format!("missing score output column {}", field.name())))
++            }
++        })
++        .collect::<Result<Vec<_>>>()?;
++    Ok(arrow::compute::filter_record_batch(
++        &RecordBatch::try_new(schema, columns)?,
++        &mask,
++    )?)
++}
++
++async fn indexed_batch(
++    inputs: Vec<SendableRecordBatchStream>,
++    schema: SchemaRef,
++) -> Result<RecordBatch> {
++    // A query child may emit several batches. Reduce its entire stream exactly once;
++    // treating each batch as a query adds spurious missing-query contributions.
++    let queries = futures::future::try_join_all(inputs.into_iter().map(|mut input| async move {
++        let mut rows = HashMap::<u64, f32>::new();
++        let mut maximum: Option<f32> = None;
++        while let Some(batch) = input.try_next().await? {
++            let ids = batch
++                .column_by_name("_rowid")
++                .and_then(|a| a.as_any().downcast_ref::<UInt64Array>())
++                .ok_or_else(|| invalid("indexed multi-vector scorer requires row IDs"))?;
++            let distances = batch
++                .column_by_name("_distance")
++                .and_then(|a| a.as_any().downcast_ref::<Float32Array>())
++                .ok_or_else(|| invalid("indexed multi-vector scorer requires distances"))?;
++            for i in 0..batch.num_rows() {
++                let distance = distances.value(i);
++                if ids.is_null(i) || distances.is_null(i) || !distance.is_finite() {
++                    return Err(invalid(
++                        "indexed multi-vector candidate has invalid row ID or distance",
++                    ));
++                }
++                maximum = Some(maximum.map_or(distance, |old| old.max(distance)));
++                rows.entry(ids.value(i))
++                    .and_modify(|old| *old = old.min(distance))
++                    .or_insert(distance);
++            }
++        }
++        Ok::<_, DataFusionError>((rows, maximum.unwrap_or(1.0)))
++    }))
++    .await?;
++    let mut results = HashMap::<u64, f64>::new();
++    let mut missed = 0.0f64;
++    for (rows, maximum) in queries {
++        for (id, score) in &mut results {
++            *score += *rows.get(id).unwrap_or(&maximum) as f64;
++        }
++        for (id, score) in rows {
++            results.entry(id).or_insert(score as f64 + missed);
++        }
++        missed += maximum as f64;
++    }
++    let (ids, scores): (Vec<_>, Vec<_>) = results.into_iter().unzip();
++    Ok(RecordBatch::try_new(
++        schema,
++        vec![
++            Arc::new(Float32Array::from_iter_values(
++                scores.into_iter().map(|score| score as f32),
++            )),
++            Arc::new(UInt64Array::from(ids)),
++        ],
++    )?)
++}
++
++pub(crate) fn validate_query(values: &dyn Array) -> Result<()> {
++    fn finite<T: ArrowPrimitiveType>(values: &dyn Array) -> bool
++    where
++        T::Native: Into<f64>,
++    {
++        values
++            .as_any()
++            .downcast_ref::<arrow_array::PrimitiveArray<T>>()
++            .is_some_and(|array| {
++                array.null_count() == 0
++                    && array
++                        .values()
++                        .iter()
++                        .all(|v| Into::<f64>::into(*v).is_finite())
++            })
++    }
++    let valid = match values.data_type() {
++        DataType::Float16 => finite::<Float16Type>(values),
++        DataType::Float32 => finite::<Float32Type>(values),
++        DataType::Float64 => finite::<Float64Type>(values),
++        _ => false,
++    };
++    if valid {
++        Ok(())
++    } else {
++        Err(invalid(
++            "multi-vector query must contain only finite, non-null elements",
++        ))
++    }
++}
 diff --git a/include/lance/lance.h b/include/lance/lance.h
 --- a/include/lance/lance.h
 +++ b/include/lance/lance.h
-@@ -1716,6 +1716,17 @@
+@@ -1716,6 +1716,21 @@
      size_t query_len,
      LanceDataType element_type,
      uint32_t k
@@ -221,7 +646,11 @@ diff --git a/include/lance/lance.h b/include/lance/lance.h
 + * Set one multi-vector query on a List<FixedSizeList<float16|float32|float64>> column.
 + * Inner vectors must be non-nullable and contain no null elements; the outer list may be nullable.
 + * query_data contains dimension * num_vectors aligned elements in row-major order.
-+ * Both sizes and k must be positive. Returns 0 on success, -1 on error.
++ * Both sizes and k must be positive. At most 128 query subvectors are accepted;
++ * num_vectors * k and refine_factor * k must each be at most 100000.
++ * Values are copied before returning. The default metric is L2 on every fragment.
++ * Scores sum each query vector's minimum distance; refinement defaults to 1.
++ * Returns 0 on success, -1 on error. Stored invalid elements fail during execution.
 + */
 +int32_t lance_scanner_nearest_multivector(
 +    LanceScanner* scanner, const char* column, const void* query_data,
@@ -232,15 +661,16 @@ diff --git a/include/lance/lance.h b/include/lance/lance.h
 diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
 --- a/include/lance/lance.hpp
 +++ b/include/lance/lance.hpp
-@@ -1369,6 +1369,15 @@
+@@ -1369,6 +1369,16 @@
          return *this;
      }
 
-+    /// One multi-vector query; q contains dim * count row-major floating-point elements.
-+    Scanner& nearest_multivector(const std::string& column, const void* q, size_t dim,
-+                                size_t count, LanceDataType dtype, uint32_t k) {
-+        if (lance_scanner_nearest_multivector(handle_.get(), column.c_str(),
-+                                            q, dim, count, dtype, k) != 0)
++    /// One multi-vector query, copied from dimension * num_vectors row-major elements.
++    Scanner& nearest_multivector(const std::string& column, const void* query_data,
++                                size_t dimension, size_t num_vectors,
++                                LanceDataType element_type, uint32_t k) {
++        if (lance_scanner_nearest_multivector(handle_.get(), column.c_str(), query_data,
++                                            dimension, num_vectors, element_type, k) != 0)
 +            check_error();
 +        return *this;
 +    }
@@ -251,7 +681,7 @@ diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
 diff --git a/tests/multivector_test.rs b/tests/multivector_test.rs
 --- /dev/null
 +++ b/tests/multivector_test.rs
-@@ -0,0 +1,254 @@
+@@ -0,0 +1,644 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -370,7 +800,7 @@ diff --git a/tests/multivector_test.rs b/tests/multivector_test.rs
 +            assert_eq!(lance_scanner_set_prefilter(scan, true), 0);
 +            let rows = collect(scan);
 +            let expected = if count == 2 {
-+                vec![(1, -1.), (2, 5.), (3, 7.)]
++                vec![(1, 0.), (2, 6.), (3, 8.)]
 +            } else {
 +                vec![(1, 0.), (2, 1.), (3, 4.)]
 +            };
@@ -438,7 +868,7 @@ diff --git a/tests/multivector_test.rs b/tests/multivector_test.rs
 +        }
 +        assert_eq!(lance_scanner_set_limit(scan, 10), 0);
 +        assert_eq!(lance_scanner_set_offset(scan, 0), 0);
-+        assert_eq!(collect(scan), vec![(1, -1.), (2, 5.), (3, 7.)]);
++        assert_eq!(collect(scan), vec![(1, 0.), (2, 6.), (3, 8.)]);
 +        lance_scanner_close(scan);
 +        lance_dataset_close(ds);
 +    }
@@ -500,9 +930,399 @@ diff --git a/tests/multivector_test.rs b/tests/multivector_test.rs
 +            assert_eq!(lance_scanner_set_refine_factor(scan, 1), 0);
 +            assert_eq!(lance_scanner_set_offset(scan, 1), 0);
 +            assert_eq!(lance_scanner_set_limit(scan, 2), 0);
-+            assert_eq!(collect(scan), vec![(3, -1.), (2, 0.)]);
++            assert_eq!(collect(scan), vec![(3, 0.), (2, 1.)]);
 +            lance_scanner_close(scan);
 +        }
 +        lance_dataset_close(ds);
++    }
++}
++
++fn custom_fixture(
++    rows: Vec<Vec<Option<f32>>>,
++    dim: i32,
++    indexed: bool,
++) -> (tempfile::TempDir, CString) {
++    use lance::index::DatasetIndexExt;
++    use lance::index::vector::VectorIndexParams;
++    use lance_index::IndexType;
++    use lance_linalg::distance::MetricType;
++    let dir = tempfile::tempdir().unwrap();
++    let path = dir.path().join("vectors.lance");
++    let mut offsets = vec![0i32];
++    let mut values = Vec::new();
++    for row in &rows {
++        values.extend_from_slice(row);
++        offsets.push(values.len() as i32 / dim);
++    }
++    let vectors = FixedSizeListArray::try_new(
++        Arc::new(Field::new("item", DataType::Float32, true)),
++        dim,
++        Arc::new(Float32Array::from(values)),
++        None,
++    )
++    .unwrap();
++    let rows_array = ListArray::try_new(
++        Arc::new(Field::new("item", vectors.data_type().clone(), false)),
++        OffsetBuffer::new(offsets.into()),
++        Arc::new(vectors),
++        None,
++    )
++    .unwrap();
++    let schema = Arc::new(Schema::new(vec![
++        Field::new("id", DataType::Int32, false),
++        Field::new("vectors", rows_array.data_type().clone(), true),
++    ]));
++    let batch = RecordBatch::try_new(
++        schema.clone(),
++        vec![
++            Arc::new(Int32Array::from_iter_values(1..=rows.len() as i32)),
++            Arc::new(rows_array),
++        ],
++    )
++    .unwrap();
++    lance_c::runtime::block_on(async {
++        let mut ds = Dataset::write(
++            RecordBatchIterator::new(vec![Ok(batch)], schema),
++            path.to_str().unwrap(),
++            None,
++        )
++        .await
++        .unwrap();
++        if indexed {
++            ds.create_index(
++                &["vectors"],
++                IndexType::Vector,
++                None,
++                &VectorIndexParams::ivf_flat(1, MetricType::Cosine),
++                false,
++            )
++            .await
++            .unwrap();
++        }
++    });
++    (dir, CString::new(path.to_str().unwrap()).unwrap())
++}
++
++#[test]
++fn exact_top_one_preserves_small_distances_before_truncation() {
++    let (_dir, uri) = custom_fixture(vec![vec![Some(0.00015)], vec![Some(0.0001)]], 1, false);
++    let column = CString::new("vectors").unwrap();
++    unsafe {
++        let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++        for count in [1, 2] {
++            for batch_size in [1, 1024] {
++                let scan = lance_scanner_new(ds, ptr::null(), ptr::null());
++                assert_eq!(
++                    lance_scanner_nearest_multivector(
++                        scan,
++                        column.as_ptr(),
++                        [0.0f32, 0.0].as_ptr().cast(),
++                        1,
++                        count,
++                        0,
++                        1
++                    ),
++                    0
++                );
++                assert_eq!(lance_scanner_set_use_index(scan, false), 0);
++                assert_eq!(lance_scanner_set_batch_size(scan, batch_size), 0);
++                let rows = collect(scan);
++                assert_eq!(rows.len(), 1);
++                assert_eq!(rows[0].0, 2);
++                assert!((rows[0].1 - count as f32 * 1e-8).abs() < 1e-14, "{rows:?}");
++                lance_scanner_close(scan);
++            }
++        }
++        lance_dataset_close(ds);
++    }
++}
++
++#[test]
++fn indexed_top_one_is_independent_of_child_batch_boundaries() {
++    let rows = vec![
++        vec![Some(1.), Some(0.)],
++        vec![Some(0.), Some(1.)],
++        vec![Some(1.), Some(1.)],
++        vec![Some(2.), Some(1.)],
++        vec![Some(1.), Some(2.)],
++    ];
++    let (_dir, uri) = custom_fixture(rows, 2, true);
++    let column = CString::new("vectors").unwrap();
++    unsafe {
++        let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++        for batch_size in [1, 2, 1024] {
++            let scan = lance_scanner_new(ds, ptr::null(), ptr::null());
++            assert_eq!(
++                lance_scanner_nearest_multivector(
++                    scan,
++                    column.as_ptr(),
++                    [1.0f32, 0., 0., 1.].as_ptr().cast(),
++                    2,
++                    2,
++                    0,
++                    1
++                ),
++                0
++            );
++            assert_eq!(lance_scanner_set_metric(scan, 1), 0);
++            assert_eq!(lance_scanner_set_refine_factor(scan, 1), 0);
++            assert_eq!(lance_scanner_set_batch_size(scan, batch_size), 0);
++            let result = collect(scan);
++            assert_eq!(result[0].0, 3, "batch_size={batch_size}");
++            assert!((result[0].1 - (2.0 - 2.0f32.sqrt())).abs() < 1e-6);
++            lance_scanner_close(scan);
++        }
++        lance_dataset_close(ds);
++    }
++}
++
++#[test]
++fn actual_null_and_nonfinite_stored_elements_fail_search() {
++    let column = CString::new("vectors").unwrap();
++    for value in [
++        None,
++        Some(f32::NAN),
++        Some(f32::INFINITY),
++        Some(f32::NEG_INFINITY),
++    ] {
++        let (_dir, uri) = custom_fixture(vec![vec![value, Some(0.)]], 2, false);
++        unsafe {
++            let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++            let scan = lance_scanner_new(ds, ptr::null(), ptr::null());
++            assert_eq!(
++                lance_scanner_nearest_multivector(
++                    scan,
++                    column.as_ptr(),
++                    [0.0f32, 0.].as_ptr().cast(),
++                    2,
++                    1,
++                    0,
++                    1
++                ),
++                0
++            );
++            assert_eq!(lance_scanner_set_use_index(scan, false), 0);
++            let mut stream = FFI_ArrowArrayStream::empty();
++            assert_eq!(lance_scanner_to_arrow_stream(scan, &mut stream), 0);
++            let mut reader = ArrowArrayStreamReader::from_raw(&mut stream).unwrap();
++            let result = reader.next();
++            assert!(
++                matches!(result, Some(Err(_))),
++                "value={value:?}: {result:?}"
++            );
++            drop(reader);
++            lance_scanner_close(scan);
++            lance_dataset_close(ds);
++        }
++    }
++}
++
++#[test]
++fn rejects_excessive_multivector_plan_width_and_candidate_work() {
++    let (_dir, uri) = fixture();
++    let column = CString::new("vectors").unwrap();
++    unsafe {
++        let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++        let scan = lance_scanner_new(ds, ptr::null(), ptr::null());
++        let q = [0.0f32; 258];
++        for (count, k) in [(129, 1), (128, 782), (1, 100001)] {
++            assert_eq!(
++                lance_scanner_nearest_multivector(
++                    scan,
++                    column.as_ptr(),
++                    q.as_ptr().cast(),
++                    2,
++                    count,
++                    0,
++                    k
++                ),
++                -1
++            );
++        }
++        lance_scanner_close(scan);
++        lance_dataset_close(ds);
++    }
++}
++
++#[test]
++fn omitted_metric_is_l2_on_indexed_and_unindexed_fragments() {
++    let (_dir, uri) = custom_fixture(vec![vec![Some(2.), Some(0.)]], 2, true);
++    lance_c::runtime::block_on(async {
++        let mut ds = Dataset::open(uri.to_str().unwrap()).await.unwrap();
++        let old = ds.scan().try_into_batch().await.unwrap();
++        let vectors = FixedSizeListArray::try_new(
++            Arc::new(Field::new("item", DataType::Float32, true)),
++            2,
++            Arc::new(Float32Array::from(vec![1.0, 0.1])),
++            None,
++        )
++        .unwrap();
++        let lists = ListArray::try_new(
++            Arc::new(Field::new("item", vectors.data_type().clone(), false)),
++            OffsetBuffer::new(vec![0i32, 1].into()),
++            Arc::new(vectors),
++            None,
++        )
++        .unwrap();
++        let batch = RecordBatch::try_new(
++            old.schema(),
++            vec![Arc::new(Int32Array::from(vec![2])), Arc::new(lists)],
++        )
++        .unwrap();
++        ds.append(
++            RecordBatchIterator::new(vec![Ok(batch)], old.schema()),
++            None,
++        )
++        .await
++        .unwrap();
++    });
++    let column = CString::new("vectors").unwrap();
++    unsafe {
++        let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++        for (fragment, id, score) in [(0u64, 1, 1.0f32), (1u64, 2, 0.01f32)] {
++            let scan = lance_scanner_new(ds, ptr::null(), ptr::null());
++            assert_eq!(
++                lance_scanner_nearest_multivector(
++                    scan,
++                    column.as_ptr(),
++                    [1.0f32, 0.].as_ptr().cast(),
++                    2,
++                    1,
++                    0,
++                    1
++                ),
++                0
++            );
++            assert_eq!(lance_scanner_set_prefilter(scan, true), 0);
++            assert_eq!(lance_scanner_set_fragment_ids(scan, &fragment, 1), 0);
++            let rows = collect(scan);
++            assert_eq!(rows[0].0, id);
++            assert!(
++                (rows[0].1 - score).abs() < 1e-6,
++                "fragment={fragment}: {rows:?}"
++            );
++            lance_scanner_close(scan);
++        }
++        lance_dataset_close(ds);
++    }
++}
++
++#[test]
++fn query_values_and_refinement_are_validated_before_execution() {
++    let (_dir, uri) = fixture();
++    let column = CString::new("vectors").unwrap();
++    unsafe {
++        let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++        let scan = lance_scanner_new(ds, ptr::null(), ptr::null());
++        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
++            assert_eq!(
++                lance_scanner_nearest_multivector(
++                    scan,
++                    column.as_ptr(),
++                    [value, 0.0f32].as_ptr().cast(),
++                    2,
++                    1,
++                    0,
++                    1
++                ),
++                -1
++            );
++        }
++        let query = [1.0f32; 256];
++        assert_eq!(
++            lance_scanner_nearest_multivector(
++                scan,
++                column.as_ptr(),
++                query.as_ptr().cast(),
++                2,
++                128,
++                0,
++                781
++            ),
++            0
++        );
++        assert_eq!(lance_scanner_set_metric(scan, 3), 0);
++        let mut invalid_metric_stream = FFI_ArrowArrayStream::empty();
++        assert_eq!(
++            lance_scanner_to_arrow_stream(scan, &mut invalid_metric_stream),
++            -1
++        );
++        assert_eq!(lance_scanner_set_metric(scan, 0), 0);
++        assert_eq!(lance_scanner_set_refine_factor(scan, u32::MAX), 0);
++        let mut stream = FFI_ArrowArrayStream::empty();
++        assert_eq!(lance_scanner_to_arrow_stream(scan, &mut stream), -1);
++        lance_scanner_close(scan);
++        lance_dataset_close(ds);
++    }
++}
++
++#[test]
++fn float16_and_float64_queries_support_all_distance_metrics() {
++    let (dir, source) = fixture();
++    for (code, dtype) in [(1, DataType::Float16), (2, DataType::Float64)] {
++        let path = dir.path().join(format!("typed_{code}.lance"));
++        lance_c::runtime::block_on(async {
++            let source = Dataset::open(source.to_str().unwrap()).await.unwrap();
++            let batch = source.scan().try_into_batch().await.unwrap();
++            let vector_type = DataType::List(Arc::new(Field::new(
++                "item",
++                DataType::FixedSizeList(Arc::new(Field::new("item", dtype, true)), 2),
++                false,
++            )));
++            let vectors =
++                arrow::compute::cast(batch.column_by_name("vectors").unwrap(), &vector_type)
++                    .unwrap();
++            let schema = Arc::new(Schema::new(vec![
++                Field::new("id", DataType::Int32, false),
++                Field::new("vectors", vector_type, true),
++            ]));
++            let batch =
++                RecordBatch::try_new(schema.clone(), vec![batch.column(0).clone(), vectors])
++                    .unwrap();
++            Dataset::write(
++                RecordBatchIterator::new(vec![Ok(batch)], schema),
++                path.to_str().unwrap(),
++                None,
++            )
++            .await
++            .unwrap();
++        });
++        let uri = CString::new(path.to_str().unwrap()).unwrap();
++        let column = CString::new("vectors").unwrap();
++        let f16_query = [1.0f32, 0., 0., 1.].map(half::f16::from_f32);
++        let f64_query = [1.0f64, 0., 0., 1.];
++        let query = if code == 1 {
++            f16_query.as_ptr().cast()
++        } else {
++            f64_query.as_ptr().cast()
++        };
++        unsafe {
++            let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++            for (metric, expected) in [(0, [0., 6., 8.]), (1, [0., 1., 0.]), (2, [0., 0., -4.])] {
++                let scanner = lance_scanner_new(ds, ptr::null(), ptr::null());
++                assert_eq!(
++                    lance_scanner_nearest_multivector(
++                        scanner,
++                        column.as_ptr(),
++                        query,
++                        2,
++                        2,
++                        code,
++                        10
++                    ),
++                    0
++                );
++                assert_eq!(lance_scanner_set_metric(scanner, metric), 0);
++                assert_eq!(lance_scanner_set_use_index(scanner, false), 0);
++                let mut rows = collect(scanner);
++                rows.sort_by_key(|row| row.0);
++                assert_eq!(
++                    rows,
++                    vec![(1, expected[0]), (2, expected[1]), (3, expected[2])]
++                );
++                lance_scanner_close(scanner);
++            }
++            lance_dataset_close(ds);
++        }
 +    }
 +}

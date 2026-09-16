@@ -42,8 +42,13 @@ def expected_table():
                         ("vectors64", pa.float64())]:
         vector = pa.list_(pa.field("item", dtype), 2)
         fields.append(pa.field(name, pa.list_(pa.field("item", vector, nullable=False))))
+    for name in ["tiny_vectors", "batch_vectors"]:
+        fields.append(pa.field(name, pa.list_(pa.field("item", pa.list_(pa.float32(), 2), nullable=False))))
+    tiny = [[[0.00015, 0]], [[0.0001, 0]], [[0.0002, 0]], [], None, [[0.001, 0]]]
+    batches = [[[1, 0]], [[0, 1]], [[1, 1]], [], None, [[2, 1]]]
     return pa.Table.from_pylist([
-        dict(row_id=i + 1, vectors16=row, vectors32=row, vectors64=row)
+        dict(row_id=i + 1, vectors16=row, vectors32=row, vectors64=row,
+             tiny_vectors=tiny[i], batch_vectors=batches[i])
         for i, row in enumerate(ROWS)
     ], schema=pa.schema(fields))
 
@@ -74,10 +79,15 @@ def check(output):
     assert len(ds.get_fragments()) == 2
     indices = ds.list_indices()
     assert {tuple(index["fields"]) for index in indices} == {
-        ("vectors16",), ("vectors32",), ("vectors64",)}
+        ("vectors16",), ("vectors32",), ("vectors64",), ("batch_vectors",)}
     assert all(index["type"] == "IVF_FLAT" and index["fragment_ids"] == {0}
                for index in indices)
     assert distances() == [(1, 0.0), (6, 2.0), (2, 6.0), (3, 8.0)]
+    invalid = lance.dataset(str(output.with_name("multivector_invalid.lance"))).to_table()
+    assert invalid.num_rows == 1
+    assert invalid["null_elements"][0].as_py() == [[None, 0.0]]
+    assert np.isnan(invalid["nan_elements"][0].as_py()[0][0])
+    assert np.isposinf(invalid["inf_elements"][0].as_py()[0][0])
 
 
 def build(output):
@@ -85,9 +95,16 @@ def build(output):
     lance.write_dataset(table.slice(0, 3), str(output), data_storage_version="2.2")
     # Keep null/empty rows outside the index; append also exercises mixed index coverage.
     ds = lance.dataset(str(output))
-    for column in ["vectors16", "vectors32", "vectors64"]:
+    for column in ["vectors16", "vectors32", "vectors64", "batch_vectors"]:
         ds.create_index(column, index_type="IVF_FLAT", metric="cosine", num_partitions=1)
     lance.write_dataset(table.slice(3), str(output), mode="append", data_storage_version="2.2")
+    invalid_type = pa.list_(pa.field("item", pa.list_(pa.float32(), 2), nullable=False))
+    invalid = pa.Table.from_arrays([
+        pa.array([[[None, 0]]], type=invalid_type),
+        pa.array([[[float("nan"), 0]]], type=invalid_type),
+        pa.array([[[float("inf"), 0]]], type=invalid_type),
+    ], names=["null_elements", "nan_elements", "inf_elements"])
+    lance.write_dataset(invalid, str(output.with_name("multivector_invalid.lance")), data_storage_version="2.2")
     check(output)
 
 

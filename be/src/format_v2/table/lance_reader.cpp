@@ -35,7 +35,6 @@
 #include "common/logging.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_vector.h"
 #include "exec/common/endian.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_runtime_filter_helper.h"
@@ -596,6 +595,22 @@ Status LanceTableReader::_validate_external_search_request() const {
             return Status::InvalidArgument(
                     "Lance vector search top_k + offset exceeds uint32 range");
         }
+        // Match FE/C API limits before constructing the per-subvector ANN plan branches.
+        constexpr int MAX_QUERY_VECTORS = 128;
+        constexpr int64_t MAX_QUERY_VECTOR_CANDIDATES = 100000;
+        const auto refine_factor =
+                request.__isset.vector_search_options &&
+                                request.vector_search_options.__isset.refine_factor
+                        ? request.vector_search_options.refine_factor
+                        : 1;
+        if (multi_vector &&
+            (query_vector.num_vectors > MAX_QUERY_VECTORS || refine_factor <= 0 ||
+             vector.top_k + vector.offset > MAX_QUERY_VECTOR_CANDIDATES / refine_factor ||
+             query_vector.num_vectors >
+                     MAX_QUERY_VECTOR_CANDIDATES / (vector.top_k + vector.offset))) {
+            return Status::InvalidArgument(
+                    "multi-vector query exceeds 128 subvectors or 100000 subvector-candidates");
+        }
     } else {
         DORIS_CHECK(_search_kind == SearchKind::FULL_TEXT);
         if (request.schema_version != 1) {
@@ -1028,9 +1043,14 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
                                     static_cast<int>(query.element_type));
     }
 
-    if (vector.__isset.metric && vector.metric != TVectorMetric::DEFAULT) {
+    {
+        // FE plans an omitted metric as L2; never let indexed splits choose another default.
+        const auto requested_metric =
+                !vector.__isset.metric || vector.metric == TVectorMetric::DEFAULT
+                        ? TVectorMetric::L2
+                        : vector.metric;
         LanceMetricType metric;
-        switch (vector.metric) {
+        switch (requested_metric) {
         case TVectorMetric::L2:
             metric = LANCE_METRIC_L2;
             break;
@@ -1052,8 +1072,8 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
         }
     }
 
-    // The pinned Lance ANN scorer and flat scorer differ by a query-count constant.
-    // Exact refinement makes indexed and unindexed candidates use the same row-level score.
+    // Exact refinement validates stored elements and gives indexed and unindexed candidates
+    // the same row-level score before either path truncates its results.
     if (query.__isset.num_vectors && lance_scanner_set_refine_factor(scanner, 1) != 0) {
         return lance_error("enable Lance multi-vector refinement");
     }
@@ -1368,26 +1388,6 @@ Status LanceTableReader::_fill_block_from_record_batch(
                                     ->read_column_from_arrow(*columns[output_idx],
                                                              normalized_column.get(), 0, row_count,
                                                              _ctz));
-            if (_search_kind == SearchKind::VECTOR && field->name() == LANCE_DISTANCE_COLUMN) {
-                const auto& query = _scan_params->lance_scan_params.external_search_request
-                                            .search_query.vector_search.query_vector;
-                if (query.__isset.num_vectors) {
-                    // Lance's exact score is 1 - sum(1 - distance). Expose sum(min distance)
-                    // so one logical row has the same scoring contract for every query size.
-                    IColumn* output = columns[output_idx].get();
-                    if (auto* nullable = check_and_get_column<ColumnNullable>(*output)) {
-                        output = &nullable->get_nested_column();
-                    }
-                    auto* distances = check_and_get_column<ColumnFloat32>(*output);
-                    if (distances == nullptr) {
-                        return Status::InternalError("Lance multi-vector distance must be FLOAT");
-                    }
-                    auto& data = distances->get_data();
-                    for (size_t i = data.size() - row_count; i < data.size(); ++i) {
-                        data[i] += static_cast<float>(query.num_vectors - 1);
-                    }
-                }
-            }
         } catch (const Exception& e) {
             return Status::InternalError("convert Lance Arrow column '{}' failed: {}",
                                          field->name(), e.what());

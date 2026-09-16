@@ -204,6 +204,23 @@ public class LanceVectorQueryTest {
         Assertions.assertTrue(error.getMessage().contains("Each query subvector"));
     }
 
+    @Test
+    public void testMultiVectorWorkBudgetAndBoundaries() throws Exception {
+        Field field = multiVectorField(new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE),
+                1, false, true);
+        String matrix = "[" + String.join(",", Collections.nCopies(128, "[1]")) + "]";
+        TSearchVector query = LanceVectorQuery.parseAndEncodeQueryVector(field, matrix);
+        LanceVectorQuery.validateMultiVectorBudget(query, 780, 1, 1);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LanceVectorQuery.validateMultiVectorBudget(query, 781, 1, 1));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LanceVectorQuery.validateMultiVectorBudget(query, 1, 0, Integer.MAX_VALUE));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> LanceVectorQuery.validateMultiVectorBudget(query, Long.MAX_VALUE, 1, 1));
+        Assertions.assertThrows(AnalysisException.class, () -> LanceVectorQuery.parseAndEncodeQueryVector(
+                field, "[" + String.join(",", Collections.nCopies(129, "[1]")) + "]"));
+    }
+
     private static Field multiVectorField(ArrowType element, int dimension,
             boolean nullableVector, boolean nullableElement) {
         Field child = new Field("item", new FieldType(nullableVector, new ArrowType.FixedSizeList(dimension), null),

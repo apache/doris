@@ -65,8 +65,10 @@ against their original values so indexed and unindexed rows use the same score.
 `refine_factor` can increase the candidate pool beyond this default refinement.
 It does not turn ANN candidate selection into an exhaustive search.
 
-The pinned Lance version supports multi-vector indexes with the cosine metric.
-Use `use_index=false` for L2 or dot searches. `nprobes`, `ef`, and `refine_factor`
+Omitting `metric` selects L2 consistently on all fragments, including partially
+indexed datasets. The pinned Lance version supports multi-vector indexes with
+the cosine metric; specify `metric="cosine"` to use those indexes. L2 and dot
+searches use the exact path when no compatible index exists. `nprobes`, `ef`, and `refine_factor`
 retain their usual index-specific meaning. Rows appended after index creation
 are searched together with indexed rows.
 
@@ -77,11 +79,15 @@ are searched together with indexed rows.
 - Outer null rows and empty outer arrays have no matching subvector and do not rank.
 - Subvectors must be declared non-nullable. Stored subvectors must contain only
   finite, non-null elements. The pinned Lance distance kernels do not support
-  null elements; declaring elements nullable in the persisted schema does not
-  imply support for actual null values. Lance reconstructs this element schema
-  flag as nullable, so Doris cannot reject the flag itself.
+  null elements. The scoring path rejects actual null/non-finite elements before
+  computing scores; the persisted nullable schema flag alone is allowed because
+  Lance reconstructs this flag as nullable.
 - Query matrices reject empty matrices, ragged dimensions, nulls, nonnumeric
   values, and numbers outside the element type's finite range.
+- At most 128 query subvectors are accepted. Both
+  `num_vectors * (top_k + offset)` and `refine_factor * (top_k + offset)` must be
+  at most 100,000, with a default refinement factor of 1. These limits bound
+  per-query ANN plan expansion and candidate allocation, independently of wire size.
 - Extension and dictionary vector encodings are not supported.
 - Multi-vector requests use a new protocol version. Old BEs reject these requests;
   finish the BE upgrade before enabling multi-vector searches. Ordinary vector
@@ -101,5 +107,7 @@ embeddings = pa.field(
 ```
 
 The regression fixture generator `lance_build_multivector.py` creates typed
-multi-vector data, empty/null rows, a cosine IVF_FLAT index, and a subsequent
-append. Its distance oracle computes scores independently of Lance.
+multi-vector data, empty/null rows, cosine IVF_FLAT indexes, and a subsequent
+append. Additional fixtures cover small-distance TopK, batch-independent indexed
+TopK, and actual invalid stored elements. Its distance oracle computes scores
+independently of Lance.

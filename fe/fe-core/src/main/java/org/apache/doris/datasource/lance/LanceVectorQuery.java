@@ -38,6 +38,10 @@ import java.nio.ByteOrder;
 
 /** Validates and encodes one Lance vector-search query against its Arrow vector column. */
 public final class LanceVectorQuery {
+    // Keep aligned with the BE and Lance-C limits: each subvector expands into an ANN branch.
+    public static final int MAX_QUERY_VECTORS = 128;
+    public static final long MAX_QUERY_VECTOR_CANDIDATES = 100_000;
+
     private static final String ARROW_EXTENSION_NAME = "ARROW:extension:name";
 
     private LanceVectorQuery() {
@@ -64,6 +68,19 @@ public final class LanceVectorQuery {
         return match;
     }
 
+    public static void validateMultiVectorBudget(TSearchVector query, long topK, long offset, int refineFactor)
+            throws AnalysisException {
+        if (query.isSetNumVectors() && (query.getNumVectors() <= 0
+                || query.getNumVectors() > MAX_QUERY_VECTORS || topK <= 0 || offset < 0
+                || offset > MAX_QUERY_VECTOR_CANDIDATES
+                || topK > MAX_QUERY_VECTOR_CANDIDATES - offset
+                || refineFactor <= 0 || topK + offset > MAX_QUERY_VECTOR_CANDIDATES / refineFactor
+                || query.getNumVectors() > MAX_QUERY_VECTOR_CANDIDATES / (topK + offset))) {
+            throw new AnalysisException("Multi-vector query exceeds 128 subvectors or "
+                    + "100000 candidate budget for num_vectors or refine_factor times (top_k + offset)");
+        }
+    }
+
     public static TSearchVector parseAndEncodeQueryVector(Field field, String json)
             throws AnalysisException {
         boolean multiVector = field.getType().getTypeID() == ArrowType.ArrowTypeID.List;
@@ -87,6 +104,9 @@ public final class LanceVectorQuery {
         JsonArray values = parseQueryVector(json, field, multiVector ? -1 : encodingSpec.dimension);
         int numVectors = multiVector ? values.size() : 1;
         if (multiVector) {
+            if (numVectors > MAX_QUERY_VECTORS) {
+                throw new AnalysisException("Multi-vector query exceeds 128 subvectors");
+            }
             // Validate shape before allocating from the schema dimension, even for a short input.
             for (JsonElement subvector : values) {
                 if (!subvector.isJsonArray() || subvector.getAsJsonArray().size() != encodingSpec.dimension) {

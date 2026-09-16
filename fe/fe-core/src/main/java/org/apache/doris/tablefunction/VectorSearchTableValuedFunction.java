@@ -77,9 +77,10 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
                 .setQueryVector(queryVector)
                 .setTopK(common.topK())
                 .setOffset(common.offset());
-        if (params.containsKey(METRIC)) {
-            vectorParams.setMetric(parseMetric(params.get(METRIC)));
-        }
+        // Pin the planner's default on every split; Lance otherwise inherits an index metric.
+        vectorParams.setMetric(params.containsKey(METRIC) ? parseMetric(params.get(METRIC)) : TVectorMetric.L2);
+        LanceVectorQuery.validateMultiVectorBudget(queryVector, common.topK(), common.offset(),
+                params.containsKey(REFINE_FACTOR) ? parsePositiveInt(params.get(REFINE_FACTOR), REFINE_FACTOR) : 1);
 
         if (queryVector.isSetNumVectors() && vectorParams.getMetric() == TVectorMetric.HAMMING) {
             throw new AnalysisException("Lance multi-vector search supports l2, cosine, and dot metrics");
