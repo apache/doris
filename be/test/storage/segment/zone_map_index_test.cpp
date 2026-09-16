@@ -579,6 +579,74 @@ public:
             }
         }
     }
+
+    // A STRING / VARCHAR value may hold '\0' in the middle, and the zone map
+    // bound has to keep those bytes. A bound cut at the '\0' is smaller than the data it
+    // stands for, so a pushed-down comparison prunes pages that do hold matching rows.
+    // CHAR is the exception: it is zero-padded to the schema length on write and the page
+    // read path cuts every CHAR value at its first '\0', so its bound is cut here too.
+    template <PrimitiveType PType>
+    void test_embedded_nul_bound(const std::string& testname, bool bound_is_cut) {
+        // 'a' '\0' 'b' -- a value whose middle byte is '\0'.
+        const std::string value("a\0b", 3);
+        const std::string cut_value("a");
+
+        TabletColumnPtr tab_col;
+        int32_t length = -1;
+        if constexpr (PType == TYPE_CHAR) {
+            length = 3;
+            tab_col = create_char_key(0, false, length);
+        } else if constexpr (PType == TYPE_VARCHAR) {
+            tab_col = create_varchar_key(0, false);
+        } else {
+            tab_col = create_string_key(0, false);
+        }
+        auto data_type = DataTypeFactory::instance().create_data_type(PType, false, 0, 0, length);
+
+        std::unique_ptr<ZoneMapIndexWriter> writer;
+        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, tab_col.get(), writer).ok());
+        Slice slices[] = {Slice(value), Slice(value)};
+        writer->add_values(slices, 2);
+        ASSERT_TRUE(writer->flush().ok());
+
+        const std::string file_path = kTestDir + "/" + testname;
+        io::FileWriterPtr file_writer;
+        ASSERT_TRUE(_fs->create_file(file_path, &file_writer).ok());
+        ColumnIndexMetaPB index_meta;
+        ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
+        ASSERT_TRUE(file_writer->close().ok());
+
+        // The bytes on disk always carry the '\0'; only the parse back can lose it.
+        const auto& seg_zm_pb = index_meta.zone_map_index().segment_zone_map();
+        EXPECT_EQ(seg_zm_pb.min(), value);
+        EXPECT_EQ(seg_zm_pb.max(), value);
+
+        ZoneMap zone_map;
+        ASSERT_TRUE(ZoneMap::from_proto(seg_zm_pb, data_type, zone_map).ok());
+        ASSERT_FALSE(zone_map.pass_all);
+        const std::string& expected = bound_is_cut ? cut_value : value;
+        EXPECT_EQ(zone_map.min_value.template get<PType>(), expected);
+        EXPECT_EQ(zone_map.max_value.template get<PType>(), expected);
+
+        if (bound_is_cut) {
+            return;
+        }
+
+        // The page holds only 'a\0b', so every predicate below has to keep the page.
+        const auto a = Field::create_field<PType>(cut_value);
+        ComparisonPredicateBase<PType, PredicateType::GT> gt(0, "", a);
+        EXPECT_TRUE(gt.evaluate_and(zone_map));
+        ComparisonPredicateBase<PType, PredicateType::NE> ne(0, "", a);
+        EXPECT_TRUE(ne.evaluate_and(zone_map));
+        ComparisonPredicateBase<PType, PredicateType::EQ> eq(0, "",
+                                                             Field::create_field<PType>(value));
+        EXPECT_TRUE(eq.evaluate_and(zone_map));
+
+        // ... and 'a\0b' <= 'a' matches nothing, so this one may drop it.
+        ComparisonPredicateBase<PType, PredicateType::LE> le(0, "", a);
+        EXPECT_FALSE(le.evaluate_and(zone_map));
+    }
+
     io::FileSystemSPtr _fs;
 };
 
@@ -1441,6 +1509,17 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterMaxLenStringPage_NoSegmentMaxDoubleInc
                "_page_zone_map.max_value into _segment_zone_map.max_value, "
                "causing finish() to increment the last byte a second time.";
     EXPECT_EQ(static_cast<unsigned char>(seg_zm.max().back()), static_cast<unsigned char>('y'));
+}
+
+// Regression test: a comparison predicate on a STRING / VARCHAR column
+// whose values hold an embedded '\0' silently lost or gained rows, because the zone map
+// bound was parsed back with C string semantics and stopped at that '\0'.
+TEST_F(ColumnZoneMapTest, EmbeddedNulKeepsStringBound) {
+    test_embedded_nul_bound<TYPE_STRING>("embedded_nul_string", /*bound_is_cut=*/false);
+    test_embedded_nul_bound<TYPE_VARCHAR>("embedded_nul_varchar", /*bound_is_cut=*/false);
+    // CHAR pads with '\0' on write and cuts at the first '\0' on read, so its bound is
+    // cut the same way and stays comparable with the rows the page returns.
+    test_embedded_nul_bound<TYPE_CHAR>("embedded_nul_char", /*bound_is_cut=*/true);
 }
 
 } // namespace segment_v2
