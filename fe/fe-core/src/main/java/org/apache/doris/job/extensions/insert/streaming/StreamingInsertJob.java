@@ -1076,9 +1076,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
         }
-        if (replayJob.getOffsetProviderPersist() != null) {
-            setOffsetProviderPersist(replayJob.getOffsetProviderPersist());
-        }
         try {
             modifyPropertiesInternal(replayJob.getProperties());
             // When the pause state is restarted, it also needs to be updated
@@ -1088,6 +1085,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } catch (Exception e) {
             // should not happen
             log.error("replay modify streaming insert job properties failed, job id: {}", getJobId(), e);
+        }
+        if (replayJob.getOffsetProviderPersist() != null) {
+            setOffsetProviderPersist(replayJob.getOffsetProviderPersist());
         }
         if (replayJob.getNonTxnJobStatistic() != null) {
             setNonTxnJobStatistic(replayJob.getNonTxnJobStatistic());
