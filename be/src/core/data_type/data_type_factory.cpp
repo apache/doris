@@ -158,6 +158,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
         result = create_datetimev2(scale);
         break;
+    case FieldType::OLAP_FIELD_TYPE_TIMEV2:
+        result = std::make_shared<DataTypeTimeV2>(scale);
+        break;
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
         result = std::make_shared<DataTypeTimeStampNs>();
         break;
@@ -204,8 +207,8 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = create_decimal(precision, scale, false);
         break;
     default:
-        result = nullptr;
-        break;
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unsupported FieldType: {}",
+                               static_cast<int>(type));
     }
     return result;
 }
@@ -368,12 +371,13 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
     DataTypePtr nested = nullptr;
     if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_AGG_STATE)) {
         DataTypes data_types;
-        for (auto child : pcolumn.children_columns()) {
-            auto type = DataTypeFactory::instance().create_data_type(child);
-            // may have length column with OLAP_FIELD_TYPE_UNSIGNED_BIGINT, then type will be nullptr
-            if (type) {
-                data_types.push_back(type);
+        for (const auto& child : pcolumn.children_columns()) {
+            // ARRAY/MAP serialized aggregate states append their physical offset stream after the
+            // logical argument columns. It is storage metadata, not an aggregate argument type.
+            if (child.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)) {
+                continue;
             }
+            data_types.push_back(DataTypeFactory::instance().create_data_type(child));
         }
         nested = std::make_shared<DataTypeAggState>(data_types, pcolumn.result_is_nullable(),
                                                     pcolumn.function_name(),
