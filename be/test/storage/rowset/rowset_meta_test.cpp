@@ -31,9 +31,14 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/local_file_system.h"
 #include "storage/olap_common.h"
 #include "storage/olap_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
+#include "util/slice.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -681,6 +686,50 @@ TEST_F(RowsetMetaTest, TestSegmentMetaView) {
         segment_ids.push_back(segment.id());
     }
     EXPECT_EQ(segment_ids, std::vector<int64_t>({0, 2, 5}));
+}
+
+TEST_F(RowsetMetaTest, TestPackedPhysicalFs) {
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+
+    // Without packed slice locations there is nothing to map, so the physical fs is returned
+    // unchanged.
+    EXPECT_EQ(rowset_meta.packed_physical_fs(), rowset_meta.physical_fs());
+
+    // Lay out a packed file the way PackedFileWriter does: the segment bytes live at a
+    // non-zero offset inside a shared object, and no object exists at the segment path.
+    const std::string packed_file_path = "./packed_file.dat";
+    const std::string padding(7, 'x');
+    const std::string segment_content = "segment-payload";
+    {
+        std::ofstream out(packed_file_path, std::ios::binary);
+        out << padding << segment_content;
+    }
+    Defer defer {[&]() { static_cast<void>(std::filesystem::remove(packed_file_path)); }};
+
+    const std::string segment_path = "./data/15673/540081_0.dat";
+    io::FileReaderSPtr reader;
+    EXPECT_FALSE(rowset_meta.physical_fs()->open_file(segment_path, &reader).ok());
+
+    rowset_meta.add_packed_slice_location(
+            segment_path, packed_file_path, cast_set<int64_t>(padding.size()),
+            cast_set<int64_t>(segment_content.size()),
+            cast_set<int64_t>(padding.size() + segment_content.size()));
+
+    // The packed-aware fs resolves the segment path to its slice, while still handing out the
+    // raw bytes (no decryption layer on top).
+    auto fs = rowset_meta.packed_physical_fs();
+    ASSERT_NE(fs, nullptr);
+    ASSERT_TRUE(fs->open_file(segment_path, &reader).ok());
+
+    // Size and offsets stay slice-relative, so callers can address the segment as if it were a
+    // standalone file.
+    EXPECT_EQ(reader->size(), segment_content.size());
+    std::string buf(segment_content.size(), '\0');
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader->read_at(0, Slice(buf.data(), buf.size()), &bytes_read).ok());
+    EXPECT_EQ(bytes_read, segment_content.size());
+    EXPECT_EQ(buf, segment_content);
 }
 
 } // namespace doris

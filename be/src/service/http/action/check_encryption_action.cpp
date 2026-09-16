@@ -68,7 +68,11 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
             rs_meta->end_version() == 1) {
             return;
         }
-        auto fs = rs_meta->physical_fs();
+        // Must not be `physical_fs()`: packed rowsets keep their segments as slices inside a
+        // shared object, and only the `PackedFileSystem` wrapper can resolve a segment path to
+        // that slice. `fs()` is not an option either, since it decrypts and would hide the
+        // encryption footer this check is looking for.
+        auto fs = rs_meta->packed_physical_fs();
         if (fs == nullptr) {
             st = Status::InternalError("failed to get fs for rowset: tablet={}, rs={}",
                                        tablet->tablet_id(), rs->rowset_id().to_string());
@@ -137,12 +141,18 @@ Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {
     if (config::is_cloud_mode() && rs_meta->start_version() == 0 && rs_meta->end_version() == 1) {
         return "{}";
     }
-    auto fs = rs_meta->physical_fs();
+    // See the comment in `is_tablet_encrypted()` for why this is neither `physical_fs()`
+    // nor `fs()`.
+    auto fs = rs_meta->packed_physical_fs();
+    if (fs == nullptr) {
+        return ResultError(Status::InternalError("failed to get fs for rowset: tablet={}, rs={}",
+                                                 tablet->tablet_id(), rs->rowset_id().to_string()));
+    }
     io::FileReaderSPtr reader;
     RETURN_IF_ERROR_RESULT(fs->open_file(maybe_seg_path.value(), &reader));
 
     std::vector<uint8_t> pb_len_buf;
-    pb_len_buf.reserve(sizeof(uint64_t));
+    pb_len_buf.resize(sizeof(uint64_t));
     Slice pb_len_slice(pb_len_buf.data(), sizeof(uint64_t));
     size_t bytes_read;
     RETURN_IF_ERROR_RESULT(
