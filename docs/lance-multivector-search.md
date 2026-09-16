@@ -82,6 +82,9 @@ are searched together with indexed rows.
   null elements. The scoring path rejects actual null/non-finite elements before
   computing scores; the persisted nullable schema flag alone is allowed because
   Lance reconstructs this flag as nullable.
+- Cosine pairs with zero norm have undefined distance and do not contribute a
+  match. A row is excluded if any query subvector has no defined match, so a
+  zero-norm query subvector produces no results. Valid rows continue to rank.
 - Query matrices reject empty matrices, ragged dimensions, nulls, nonnumeric
   values, and numbers outside the element type's finite range.
 - At most 128 query subvectors are accepted. Both

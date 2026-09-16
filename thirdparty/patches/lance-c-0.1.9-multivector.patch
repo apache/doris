@@ -269,7 +269,7 @@ diff --git a/src/scanner.rs b/src/scanner.rs
 diff --git a/src/multivector.rs b/src/multivector.rs
 --- /dev/null
 +++ b/src/multivector.rs
-@@ -0,0 +1,363 @@
+@@ -0,0 +1,399 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -438,7 +438,7 @@ diff --git a/src/multivector.rs b/src/multivector.rs
 +    query: &dyn Array,
 +    vectors: &FixedSizeListArray,
 +    metric: DistanceType,
-+) -> Result<f32>
++) -> Result<Option<f32>>
 +where
 +    T::Native: L2 + Cosine + Dot + Into<f64>,
 +{
@@ -472,15 +472,50 @@ diff --git a/src/multivector.rs b/src/multivector.rs
 +            .values()
 +            .chunks_exact(dimension)
 +            .map(|vector| distance(query_vector, vector))
-+            .min_by(f32::total_cmp)
-+            .ok_or_else(|| invalid("cannot score an empty multi-vector row"))?;
++            // Finite zero-norm vectors have undefined cosine distance. Ignore those
++            // pairs; a query with no defined match masks this row, not the whole scan.
++            .filter(|distance| !distance.is_nan())
++            .min_by(f32::total_cmp);
++        let Some(best) = best else {
++            return Ok(None);
++        };
 +        score += best as f64;
 +    }
 +    let score = score as f32;
 +    if !score.is_finite() {
 +        return Err(invalid("multi-vector distance is not finite"));
 +    }
-+    Ok(score)
++    Ok(Some(score))
++}
++
++fn vector_column(batch: &RecordBatch, column: &str) -> Result<ArrayRef> {
++    if let Some(array) = batch.column_by_name(column) {
++        return Ok(array.clone());
++    }
++    // The planner resolves field paths, including quoted dotted names. Its private
++    // KNN resolver is not exported, so use the same parser and struct traversal here.
++    let parts = lance_core::datatypes::parse_field_path(column)
++        .map_err(|e| invalid(format!("invalid vector column path '{column}': {e}")))?;
++    let root = parts
++        .first()
++        .ok_or_else(|| invalid("empty vector column path"))?;
++    let mut array = batch
++        .column_by_name(root)
++        .cloned()
++        .ok_or_else(|| invalid(format!("missing vector column '{column}'")))?;
++    for part in &parts[1..] {
++        array = array
++            .as_any()
++            .downcast_ref::<arrow_array::StructArray>()
++            .and_then(|parent| parent.column_by_name(part))
++            .cloned()
++            .ok_or_else(|| {
++                invalid(format!(
++                    "missing struct field '{part}' in vector column '{column}'"
++                ))
++            })?;
++    }
++    Ok(array)
 +}
 +
 +fn exact_batch(
@@ -493,9 +528,10 @@ diff --git a/src/multivector.rs b/src/multivector.rs
 +    if batch.num_rows() == 0 {
 +        return Ok(RecordBatch::new_empty(schema));
 +    }
-+    let vectors = batch
-+        .column_by_name(column)
-+        .and_then(|a| a.as_any().downcast_ref::<ListArray>())
++    let array = vector_column(&batch, column)?;
++    let vectors = array
++        .as_any()
++        .downcast_ref::<ListArray>()
 +        .ok_or_else(|| invalid("multi-vector scoring requires a List column"))?;
 +    let row_ids = batch.column_by_name("_rowid");
 +    let mut scores = Vec::with_capacity(batch.num_rows());
@@ -522,7 +558,7 @@ diff --git a/src/multivector.rs b/src/multivector.rs
 +            DataType::Float64 => row_distance::<Float64Type>(query.as_ref(), vector, metric),
 +            _ => Err(invalid("unsupported multi-vector element type")),
 +        }?;
-+        scores.push(Some(score));
++        scores.push(score);
 +    }
 +    let mask = BooleanArray::from_iter(scores.iter().map(|score| Some(score.is_some())));
 +    let distances: ArrayRef = Arc::new(Float32Array::from(scores));
@@ -681,7 +717,7 @@ diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
 diff --git a/tests/multivector_test.rs b/tests/multivector_test.rs
 --- /dev/null
 +++ b/tests/multivector_test.rs
-@@ -0,0 +1,644 @@
+@@ -0,0 +1,758 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -942,6 +978,15 @@ diff --git a/tests/multivector_test.rs b/tests/multivector_test.rs
 +    dim: i32,
 +    indexed: bool,
 +) -> (tempfile::TempDir, CString) {
++    custom_fixture_at(rows, dim, indexed, "vectors")
++}
++
++fn custom_fixture_at(
++    rows: Vec<Vec<Option<f32>>>,
++    dim: i32,
++    indexed: bool,
++    column: &str,
++) -> (tempfile::TempDir, CString) {
 +    use lance::index::DatasetIndexExt;
 +    use lance::index::vector::VectorIndexParams;
 +    use lance_index::IndexType;
@@ -968,15 +1013,21 @@ diff --git a/tests/multivector_test.rs b/tests/multivector_test.rs
 +        None,
 +    )
 +    .unwrap();
++    let parts = lance_core::datatypes::parse_field_path(column).unwrap();
++    let mut array: arrow_array::ArrayRef = Arc::new(rows_array);
++    for name in parts[1..].iter().rev() {
++        let field = Arc::new(Field::new(name, array.data_type().clone(), true));
++        array = Arc::new(arrow_array::StructArray::from(vec![(field, array)]));
++    }
 +    let schema = Arc::new(Schema::new(vec![
 +        Field::new("id", DataType::Int32, false),
-+        Field::new("vectors", rows_array.data_type().clone(), true),
++        Field::new(&parts[0], array.data_type().clone(), true),
 +    ]));
 +    let batch = RecordBatch::try_new(
 +        schema.clone(),
 +        vec![
 +            Arc::new(Int32Array::from_iter_values(1..=rows.len() as i32)),
-+            Arc::new(rows_array),
++            array,
 +        ],
 +    )
 +    .unwrap();
@@ -990,7 +1041,7 @@ diff --git a/tests/multivector_test.rs b/tests/multivector_test.rs
 +        .unwrap();
 +        if indexed {
 +            ds.create_index(
-+                &["vectors"],
++                &[column],
 +                IndexType::Vector,
 +                None,
 +                &VectorIndexParams::ivf_flat(1, MetricType::Cosine),
@@ -1323,6 +1374,105 @@ diff --git a/tests/multivector_test.rs b/tests/multivector_test.rs
 +                lance_scanner_close(scanner);
 +            }
 +            lance_dataset_close(ds);
++        }
++    }
++}
++
++#[test]
++fn cosine_zero_norm_rows_do_not_abort_exact_or_refined_search() {
++    let rows = vec![
++        vec![Some(0.), Some(0.)],
++        vec![Some(1.), Some(0.)],
++        vec![Some(0.), Some(0.), Some(0.), Some(1.)],
++    ];
++    for indexed in [false, true] {
++        let (_dir, uri) = custom_fixture(rows.clone(), 2, indexed);
++        unsafe {
++            let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++            for query in [[1.0f32, 0., 0., 1.], [0., 0., 0., 1.]] {
++                for count in [1, 2] {
++                    let scan = lance_scanner_new(ds, ptr::null(), ptr::null());
++                    assert_eq!(
++                        lance_scanner_nearest_multivector(
++                            scan,
++                            c"vectors".as_ptr(),
++                            query.as_ptr().cast(),
++                            2,
++                            count,
++                            0,
++                            3
++                        ),
++                        0
++                    );
++                    assert_eq!(lance_scanner_set_use_index(scan, indexed), 0);
++                    assert_eq!(lance_scanner_set_metric(scan, 1), 0);
++                    assert_eq!(lance_scanner_set_refine_factor(scan, 2), 0);
++                    let mut actual = collect(scan);
++                    actual.sort_by_key(|row| row.0);
++                    let expected = if query[0] == 0. {
++                        vec![]
++                    } else if count == 1 {
++                        vec![(2, 0.), (3, 1.)]
++                    } else {
++                        vec![(2, 1.), (3, 1.)]
++                    };
++                    assert_eq!(
++                        actual, expected,
++                        "indexed={indexed}, query={query:?}, count={count}"
++                    );
++                    lance_scanner_close(scan);
++                }
++            }
++            lance_dataset_close(ds);
++        }
++    }
++}
++
++#[test]
++fn nested_and_quoted_columns_support_exact_and_refined_search() {
++    for column in [
++        "payload.vectors",
++        "payload.`vectors.with.dot`",
++        "payload.inner.`vectors.with.dot`",
++    ] {
++        let rows = vec![
++            vec![Some(1.), Some(0.), Some(0.), Some(1.)],
++            vec![Some(2.), Some(0.)],
++            vec![Some(1.), Some(1.)],
++        ];
++        for indexed in [false, true] {
++            let (_dir, uri) = custom_fixture_at(rows.clone(), 2, indexed, column);
++            let column = CString::new(column).unwrap();
++            unsafe {
++                let ds = lance_dataset_open(uri.as_ptr(), ptr::null(), 0);
++                let scan = lance_scanner_new(ds, ptr::null(), ptr::null());
++                assert_eq!(
++                    lance_scanner_nearest_multivector(
++                        scan,
++                        column.as_ptr(),
++                        [1.0f32, 0., 0., 1.].as_ptr().cast(),
++                        2,
++                        2,
++                        0,
++                        3
++                    ),
++                    0
++                );
++                assert_eq!(lance_scanner_set_use_index(scan, indexed), 0);
++                assert_eq!(lance_scanner_set_metric(scan, 1), 0);
++                assert_eq!(lance_scanner_set_refine_factor(scan, 2), 0);
++                let actual = collect(scan);
++                assert_eq!(actual.len(), 3);
++                assert_eq!(
++                    actual.iter().map(|row| row.0).collect::<Vec<_>>(),
++                    vec![1, 3, 2]
++                );
++                assert_eq!(actual[0].1, 0.);
++                assert!((actual[1].1 - (2. - 2.0f32.sqrt())).abs() < 1e-6);
++                assert_eq!(actual[2].1, 1.);
++                lance_scanner_close(scan);
++                lance_dataset_close(ds);
++            }
 +        }
 +    }
 +}

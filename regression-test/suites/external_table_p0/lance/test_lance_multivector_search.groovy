@@ -113,6 +113,26 @@ suite("test_lance_multivector_search", "p0,external") {
             assertEquals(3L, (indexed[0][0] as Number).longValue())
             assertTrue(Math.abs((indexed[0][1] as Number).doubleValue() - (2d - Math.sqrt(2d))) < 1e-5)
         }
+        // A zero-norm row must not abort valid rows from indexed or appended fragments.
+        for (boolean indexed : [false, true]) {
+            for (String queryJson : ["[[1,0],[0,1]]", "[[0,0],[0,1]]"]) {
+                String source = """vector_search("table"="${catalogName}.`default`.multivector_zero",
+                    "column"="vectors", "query_vector"="${queryJson}", "metric"="cosine",
+                    "top_k"="10", "nprobes"="1", "use_index"="${indexed}")"""
+                if (indexed) {
+                    explain {
+                        sql "SELECT row_id, _distance FROM ${source}"
+                        contains "lanceSearchIndexSegments=1"
+                        contains "lanceSearchUnindexedFragments=1"
+                    }
+                }
+                def rows = sql "SELECT row_id, _distance FROM ${source} ORDER BY row_id"
+                def expected = queryJson.startsWith("[[0,0]") ? [] : [[2L, 1d], [3L, 1d]]
+                assertEquals(expected, rows.collect {
+                    [(it[0] as Number).longValue(), (it[1] as Number).doubleValue()]
+                })
+            }
+        }
         for (String column : ['null_elements', 'nan_elements', 'inf_elements']) {
             test {
                 sql """SELECT _distance FROM vector_search("table"="${catalogName}.`default`.multivector_invalid",

@@ -955,6 +955,51 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBat
     }
 }
 
+TEST(LanceTableReaderVectorSearchTest, MultiVectorCosineMasksUndefinedRows) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector_zero.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const bool indexed : {false, true}) {
+        for (const bool zero_query : {false, true}) {
+            auto params = make_float32_vector_search_params({0, 0, 0}, 10, 0);
+            auto& request = params.lance_scan_params.external_search_request;
+            request.__set_schema_version(2);
+            request.vector_search_options.__set_use_index(indexed);
+            request.vector_search_options.__set_nprobes(1);
+            auto& search = request.search_query.vector_search;
+            search.__set_column("vectors");
+            search.__set_metric(TVectorMetric::COSINE);
+            auto& query = search.query_vector;
+            query.__set_dimension(2);
+            query.__set_num_vectors(2);
+            std::string values(16, '\0');
+            if (!zero_query) {
+                LittleEndian::Store32(values.data(), std::bit_cast<uint32_t>(1.0F));
+            }
+            LittleEndian::Store32(values.data() + 12, std::bit_cast<uint32_t>(1.0F));
+            query.__set_values(values);
+            RuntimeProfile profile("multi_vector_cosine_zero_norm");
+            LanceTableReader reader;
+            ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+            ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+            Block block;
+            add_output_columns(&block, columns);
+            auto rows = read_vector_search_rows(&reader, &block);
+            std::sort(rows.begin(), rows.end());
+            // Undefined pairs cannot poison valid matches in the same row or other fragments.
+            const std::vector<std::pair<int64_t, float>> expected =
+                    zero_query ? std::vector<std::pair<int64_t, float>> {}
+                               : std::vector<std::pair<int64_t, float>> {{2, 1}, {3, 1}};
+            EXPECT_EQ(expected, rows);
+            EXPECT_TRUE(reader.close().ok());
+        }
+    }
+}
+
 TEST(LanceTableReaderVectorSearchTest, MultiVectorDefaultMetricIsConsistentAcrossFragments) {
     const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector.lance";
     LanceFixtureInfo fixture;

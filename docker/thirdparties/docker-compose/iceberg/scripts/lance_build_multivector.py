@@ -73,6 +73,24 @@ def distances(query=QUERY, metric="l2"):
     return sorted(result, key=lambda pair: (pair[1], pair[0]))
 
 
+def zero_norm_table():
+    vector_type = pa.list_(pa.field("item", pa.list_(pa.float32(), 2), nullable=False))
+    return pa.Table.from_arrays([
+        pa.array([1, 2, 3, 4], type=pa.int64()),
+        pa.array([[[0, 0]], [[1, 0]], [[0, 0], [0, 1]], [[0, 0]]], type=vector_type),
+    ], schema=pa.schema([pa.field("row_id", pa.int64(), nullable=False),
+                         pa.field("vectors", vector_type)]))
+
+
+def build_zero_norm(output):
+    table = zero_norm_table()
+    lance.write_dataset(table.slice(0, 3), str(output), data_storage_version="2.2")
+    ds = lance.dataset(str(output))
+    ds.create_index("vectors", index_type="IVF_FLAT", metric="cosine", num_partitions=1)
+    # An all-zero appended fragment must not abort a query over valid indexed rows.
+    lance.write_dataset(table.slice(3), str(output), mode="append", data_storage_version="2.2")
+
+
 def check(output):
     ds = lance.dataset(str(output))
     assert ds.to_table().equals(expected_table())
@@ -84,6 +102,10 @@ def check(output):
                for index in indices)
     assert distances() == [(1, 0.0), (6, 2.0), (2, 6.0), (3, 8.0)]
     invalid = lance.dataset(str(output.with_name("multivector_invalid.lance"))).to_table()
+    zero = lance.dataset(str(output.with_name("multivector_zero.lance")))
+    assert zero.to_table().equals(zero_norm_table())
+    assert len(zero.get_fragments()) == 2
+    assert zero.list_indices()[0]["fragment_ids"] == {0}
     assert invalid.num_rows == 1
     assert invalid["null_elements"][0].as_py() == [[None, 0.0]]
     assert np.isnan(invalid["nan_elements"][0].as_py()[0][0])
@@ -105,6 +127,7 @@ def build(output):
         pa.array([[[float("inf"), 0]]], type=invalid_type),
     ], names=["null_elements", "nan_elements", "inf_elements"])
     lance.write_dataset(invalid, str(output.with_name("multivector_invalid.lance")), data_storage_version="2.2")
+    build_zero_norm(output.with_name("multivector_zero.lance"))
     check(output)
 
 
