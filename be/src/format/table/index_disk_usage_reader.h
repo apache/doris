@@ -25,6 +25,7 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "format/generic_reader.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "storage/index/index_disk_usage.h"
 
@@ -72,6 +73,7 @@ public:
     Status init_reader();
     Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status close() override { return Status::OK(); }
+    const segment_v2::IndexDiskUsageOptions& options() const { return _options; }
 
 protected:
     Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
@@ -92,6 +94,8 @@ private:
     TMetaScanRange _scan_range;
     std::vector<Column> _slot_columns;
     segment_v2::IndexDiskUsageLevel _level = segment_v2::IndexDiskUsageLevel::kTablet;
+    // Referenced by _options, so the reader must not move after init_reader().
+    io::IOContext _io_ctx;
     segment_v2::IndexDiskUsageOptions _options;
     size_t _next_tablet = 0;
 };

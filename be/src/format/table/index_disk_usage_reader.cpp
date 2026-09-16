@@ -31,6 +31,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/rowset/rowset.h"
 #include "storage/tablet/base_tablet.h"
@@ -153,6 +154,16 @@ Status IndexDiskUsageReader::init_reader() {
         RETURN_IF_CANCELLED(state);
         return Status::OK();
     };
+    // Index file reads are accounted to the query like the reads of any other scan.
+    _io_ctx = io::IOContext {
+            .reader_type = ReaderType::READER_QUERY,
+            .query_id = &_state->query_id(),
+            .is_inverted_index = true,
+    };
+    if (auto* query_ctx = _state->get_query_ctx(); query_ctx != nullptr) {
+        _io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+    }
+    _options.io_ctx = &_io_ctx;
     _slot_columns.clear();
     for (const SlotDescriptor* slot : _slots) {
         const Column column = DORIS_TRY(column_of(slot->col_name()));
