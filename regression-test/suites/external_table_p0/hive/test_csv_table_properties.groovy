@@ -35,7 +35,7 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
     hive_docker """
         INSERT INTO csv_table_properties_db.source_rows VALUES
             ('1', 'Alpha', 'quiet sequoias, escape q and e', 1),
-            ('2', 'Omega', 'edge, requests', 4),
+            ('2', 'Omega', 'edge | requests, end', 4),
             ('3', 'Beta', '"literal quotes", ss qq ee', 4),
             ('4', 'Empty', '', 1)
     """
@@ -66,13 +66,14 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
     ]
     for (def layout : layouts) {
         hive_docker "DROP TABLE IF EXISTS csv_table_properties_db.${layout.table}"
-        // Keep these settings ONLY in TBLPROPERTIES: putting them in SERDEPROPERTIES hides the bug.
+        // Keep character settings ONLY in TBLPROPERTIES: SERDEPROPERTIES would hide the lookup bug.
+        // Hive ignores table-level line.delim for this SerDe; it must not turn payload pipes into records.
         hive_docker """
             CREATE TABLE csv_table_properties_db.${layout.table} (${layout.columns})
             ${layout.partitioned ? 'PARTITIONED BY (group_id INT)' : ''}
             ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
             STORED AS TEXTFILE
-            TBLPROPERTIES ('separatorChar'='s', 'quoteChar'='q', 'escapeChar'='e')
+            TBLPROPERTIES ('separatorChar'='s', 'quoteChar'='q', 'escapeChar'='e', 'line.delim'='|')
         """
         hive_docker """
             INSERT INTO csv_table_properties_db.${layout.table}
@@ -88,10 +89,45 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
             "SELECT ${layout.aggregate} FROM %s",
             "SELECT ${layout.projection} FROM %s WHERE label = 'Omega' ORDER BY label"
         ]
-        for (String query : queries) {
-            def expected = hive_docker(String.format(query, "csv_table_properties_db.source_rows"))
-            def actual = sql(String.format(query, layout.table))
-            assertEquals(expected, actual)
+        // The same files must remain readable after a metadata-only change to multi-character values:
+        // OpenCSVSerde takes the first Java character of each property.
+        for (boolean multiCharacter : [false, true]) {
+            if (multiCharacter) {
+                hive_docker """
+                    ALTER TABLE csv_table_properties_db.${layout.table} SET TBLPROPERTIES (
+                        'separatorChar'='ss', 'quoteChar'='qq', 'escapeChar'='ee'
+                    )
+                """
+                sql "REFRESH DATABASE csv_table_properties_catalog.csv_table_properties_db"
+            }
+            for (String query : queries) {
+                def expected = hive_docker(String.format(query, "csv_table_properties_db.source_rows"))
+                def actual = sql(String.format(query, layout.table))
+                assertEquals(expected, actual)
+            }
         }
     }
+
+    // Hive accepts these characters, but Doris must reject them before truncating their UTF-8 bytes.
+    // Empty values are covered by unit tests: Hive itself rejects them while validating ALTER TABLE.
+    for (def invalid : [
+        [key: "quoteChar", value: "é", message: "the first character must be ASCII"],
+        [key: "escapeChar", value: "é", message: "the first character must be ASCII"]
+    ]) {
+        hive_docker """
+            ALTER TABLE csv_table_properties_db.csv_two_columns
+            SET TBLPROPERTIES ('${invalid.key}'='${invalid.value}')
+        """
+        sql "REFRESH DATABASE csv_table_properties_catalog.csv_table_properties_db"
+        test {
+            sql "SELECT label, payload FROM csv_two_columns ORDER BY label"
+            exception "OpenCSVSerde property '${invalid.key}': ${invalid.message}"
+        }
+        hive_docker """
+            ALTER TABLE csv_table_properties_db.csv_two_columns SET TBLPROPERTIES (
+                'separatorChar'='s', 'quoteChar'='q', 'escapeChar'='e'
+            )
+        """
+    }
+    sql "REFRESH DATABASE csv_table_properties_catalog.csv_table_properties_db"
 }

@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -216,10 +218,69 @@ public class HiveTextPropertiesTest {
     }
 
     @Test
-    public void testCsvExplicitEmptyTableParametersOverrideSerdeParameters() {
+    public void testCsvIgnoresTableRecordDelimiter() {
+        for (String value : new String[] {"|", "", "\r\n"}) {
+            Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), sd("line.delim", value));
+            Assertions.assertEquals("\n", result.get(PREFIX + "line_delimiter"));
+        }
         Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE,
-                sd("quoteChar", "q", "escapeChar", "e"), sd("quoteChar", "", "escapeChar", ""));
-        assertCsvProperties(result, ",", "", "", "false");
+                sd("line.delim", "\r\n"), sd("line.delim", "|"));
+        Assertions.assertEquals("\r\n", result.get(PREFIX + "line_delimiter"));
+    }
+
+    @Test
+    public void testCsvUsesFirstJavaCharacterFromEitherPropertySource() {
+        Map<String, String> properties = sd("separatorChar", "ss", "quoteChar", "qq", "escapeChar", "ee");
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), properties),
+                "s", "q", "e", "false");
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, properties, sd()),
+                "s", "q", "e", "false");
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, sd(),
+                sd("separatorChar", "99", "quoteChar", "\"suffix", "escapeChar", "eé")),
+                "9", "\"", "e", "true");
+    }
+
+    @Test
+    public void testCsvRejectsEmptyCharacterPropertiesInsteadOfFallingBack() {
+        for (String key : new String[] {"separatorChar", "quoteChar", "escapeChar"}) {
+            DorisConnectorException tableError = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(key, "x"), sd(key, "")));
+            Assertions.assertTrue(tableError.getMessage().contains(key));
+            Assertions.assertTrue(tableError.getMessage().contains("empty"));
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(key, ""), sd()));
+        }
+    }
+
+    @Test
+    public void testCsvRejectsNonAsciiQuoteAndEscapeFromEitherSource() {
+        for (String key : new String[] {"quoteChar", "escapeChar"}) {
+            for (String value : new String[] {"é", "中", "😀"}) {
+                Assertions.assertThrows(DorisConnectorException.class,
+                        () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), sd(key, value)), key);
+                Assertions.assertThrows(DorisConnectorException.class,
+                        () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(key, value), sd()), key);
+            }
+        }
+    }
+
+    @Test
+    public void testCsvPreservesUtf8SeparatorButRejectsSurrogates() {
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), sd("separatorChar", "ésuffix")),
+                "é", "\"", "\\", "true");
+        for (String value : new String[] {"😀", String.valueOf(Character.MIN_HIGH_SURROGATE),
+                String.valueOf(Character.MIN_LOW_SURROGATE)}) {
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), sd("separatorChar", value)));
+        }
+    }
+
+    @Test
+    public void testCsvValidatesOnlyTheEffectiveCharacterProperties() {
+        assertCsvProperties(HiveTextProperties.extract(OPEN_CSV_SERDE,
+                sd("separatorChar", "", "quoteChar", "é", "escapeChar", ""),
+                sd("separatorChar", "ss", "quoteChar", "qq", "escapeChar", "ee")),
+                "s", "q", "e", "false");
     }
 
     private static void assertCsvProperties(Map<String, String> result,

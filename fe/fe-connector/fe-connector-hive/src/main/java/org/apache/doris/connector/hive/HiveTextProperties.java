@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 
 import java.util.HashMap;
@@ -37,8 +38,8 @@ import java.util.Map;
  * {@link HiveCatalogProperties} (per catalog) and {@link HmsConf} (per FE). Its input keys are remote HMS
  * table parameters and its output keys are a BE payload, so both sets belong to the single class that
  * reads them, which is this one. That is also why its two numeric parses stay lenient: a garbage
- * {@code skip.header.line.count} or delimiter in somebody else's Hive table must not fail the query the
- * way a garbage value a user typed into {@code CREATE CATALOG} now does.</p>
+ * {@code skip.header.line.count} or LazySimpleSerDe delimiter keeps its historical fallback. CSV
+ * character properties instead follow OpenCSVSerde validation and the BE wire-format limits.</p>
  */
 public final class HiveTextProperties {
 
@@ -103,7 +104,7 @@ public final class HiveTextProperties {
      *
      * @param serDeLib  the SerDe library class name
      * @param sdParams  the StorageDescriptor / SerDeInfo parameters
-     * @param tableParams the table-level parameters (for skip.header.line.count)
+     * @param tableParams the table-level SerDe properties and skip.header.line.count
      * @return map of text properties, empty if not a text-based format
      */
     public static Map<String, String> extract(String serDeLib,
@@ -164,19 +165,17 @@ public final class HiveTextProperties {
         // Trino stores CSV settings in table parameters. Honor Hive's table-over-SerDe precedence
         // so valid CSV files are not silently split with the default delimiter and quote characters.
         result.put(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR,
-                getParamOrDefault(params, tableParams, SEPARATOR_CHAR, ","));
+                getCsvCharacter(params, tableParams, SEPARATOR_CHAR, ','));
+        // OpenCSVSerde does not use table-level line.delim to frame records. Preserve the existing
+        // SerDe-only override; applying a table property here can merge otherwise valid newline records.
+        String lineDelimiter = params == null ? null : params.get(LINE_DELIM);
         result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER,
-                getParamOrDefault(params, tableParams, LINE_DELIM, DEFAULT_LINE_DELIM));
-        String quoteChar = getParamOrDefault(params, tableParams, QUOTE_CHAR, "\"");
+                lineDelimiter == null ? DEFAULT_LINE_DELIM : lineDelimiter);
+        String quoteChar = getCsvCharacter(params, tableParams, QUOTE_CHAR, '"');
         result.put(ScanNodePropertyKeys.TEXT_ENCLOSE, quoteChar);
-        // #65501: BE strips the wrapping quotes only when the enclose char is exactly the double-quote '"'.
-        // The connector owns this CSV serde semantics, so decide here and pass an explicit flag; the generic
-        // PluginDrivenScanNode then just applies it instead of trimming for any enclose char. Compare the
-        // first byte, matching how the node sets enclose (enclose.getBytes()[0]) and BE's getEnclose() == '"'.
-        boolean trimDoubleQuotes = !quoteChar.isEmpty() && quoteChar.getBytes()[0] == (byte) '"';
-        result.put(ScanNodePropertyKeys.TEXT_TRIM_DOUBLE_QUOTES, String.valueOf(trimDoubleQuotes));
-        String escapeChar = getParamOrDefault(params, tableParams, ESCAPE_CHAR, "\\");
-        result.put(ScanNodePropertyKeys.TEXT_ESCAPE, escapeChar);
+        // BE's extra double-quote trimming is valid only for the effective double-quote enclosure.
+        result.put(ScanNodePropertyKeys.TEXT_TRIM_DOUBLE_QUOTES, String.valueOf("\"".equals(quoteChar)));
+        result.put(ScanNodePropertyKeys.TEXT_ESCAPE, getCsvCharacter(params, tableParams, ESCAPE_CHAR, '\\'));
         result.put(ScanNodePropertyKeys.TEXT_NULL_FORMAT, "");
     }
 
@@ -256,9 +255,28 @@ public final class HiveTextProperties {
         }
     }
 
-    private static String getParamOrDefault(Map<String, String> params, Map<String, String> tableParams,
-            String key, String defaultVal) {
-        String val = serdeVal(params, tableParams, key);
-        return (val != null) ? val : defaultVal;
+    private static String getCsvCharacter(Map<String, String> params, Map<String, String> tableParams,
+            String key, char defaultValue) {
+        String value = serdeVal(params, tableParams, key);
+        if (value == null) {
+            return Character.toString(defaultValue);
+        }
+        if (value.isEmpty()) {
+            throw new DorisConnectorException("Invalid OpenCSVSerde property '" + key + "': value must not be empty");
+        }
+        // Hive uses charAt(0), not a complete string, Unicode code point, or numeric byte value.
+        // Validate only that effective character, after resolving table-over-SerDe precedence.
+        char character = value.charAt(0);
+        if (Character.isSurrogate(character)) {
+            throw new DorisConnectorException("Unsupported OpenCSVSerde property '" + key
+                    + "': the first Java character must not be a surrogate");
+        }
+        // Separator is a Thrift string, but quote/escape are i8 fields consumed as single UTF-8 bytes.
+        // Reject unrepresentable characters instead of silently passing only their first encoded byte.
+        if (!SEPARATOR_CHAR.equals(key) && character > 0x7f) {
+            throw new DorisConnectorException("Unsupported OpenCSVSerde property '" + key
+                    + "': the first character must be ASCII (a single UTF-8 byte)");
+        }
+        return Character.toString(character);
     }
 }
