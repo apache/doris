@@ -109,9 +109,22 @@ BaseDeltaWriter::~BaseDeltaWriter() {
         // fresh timestamp, and the active-window filter can only ever retire a stale
         // delta, never invent one. Timestamp first, for the same reason as the query
         // path -- the report walk reads both without a lock.
-        _rowset_builder->tablet()->last_load_flush_time_ms.store(UnixMillis(),
-                                                                 std::memory_order_relaxed);
-        _rowset_builder->tablet()->flush_finish_count->increment(stat.flush_finish_count);
+        //
+        // Known limitation: DeltaWriterV2 (enable_memtable_on_sink_node, local mode only)
+        // commits through LoadStreamWriter and never reaches this destructor, so those loads
+        // are missing from SHOW TABLET / PROC. Not fixed: the only scheduling consumer is the
+        // cloud rebalancer, and V2 is excluded from cloud.
+        //
+        // Only when this writer actually flushed something. close() initializes an
+        // empty-rowset writer for every tablet of a touched partition, and those flush
+        // nothing. Stamping unconditionally would let such a writer refresh the timestamp
+        // of a delta that is still uncommitted because reports have been failing, and the
+        // next successful report would then resurrect that whole stale delta as fresh heat.
+        if (stat.flush_finish_count > 0) {
+            _rowset_builder->tablet()->last_load_flush_time_ms.store(UnixMillis(),
+                                                                     std::memory_order_relaxed);
+            _rowset_builder->tablet()->flush_finish_count->increment(stat.flush_finish_count);
+        }
     }
 }
 

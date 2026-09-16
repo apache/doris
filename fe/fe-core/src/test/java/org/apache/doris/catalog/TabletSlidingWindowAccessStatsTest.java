@@ -292,6 +292,64 @@ public class TabletSlidingWindowAccessStatsTest {
         Assertions.assertEquals(now - 100L, shown.lastAccessTime);
     }
 
+    // The retention cap must not rank the two dimensions against each other: scans outnumber
+    // flushes by orders of magnitude, so one ordering would evict every load tablet before the
+    // reserved load quota downstream ever saw it - with both backend lists well under their own
+    // cap, so nothing would report the loss.
+    @Test
+    public void testRetentionCapKeepsBothDimensions() {
+        int originalTopn = Config.cloud_active_partition_scheduling_topn;
+        Config.cloud_active_partition_scheduling_topn = 4;
+        try {
+            long now = System.currentTimeMillis();
+            // Round 1: two hot queries and two cold-but-real loads. Nothing is capped yet.
+            stats.updateFromReport(1L, List.of(
+                    queryStat(1L, 100L, now - 1_000L, 60_000L),
+                    queryStat(2L, 100L, now - 1_000L, 60_000L)), List.of(
+                    loadStat(101L, 1L, now - 1_000L, 60_000L),
+                    loadStat(102L, 1L, now - 1_000L, 60_000L)));
+            // Round 2: the query set churned, the same two tablets are still loading. The
+            // query rates tie, so recency decides which pair keeps the query half.
+            stats.updateFromReport(1L, List.of(
+                    queryStat(3L, 100L, now, 60_000L),
+                    queryStat(4L, 100L, now, 60_000L)), List.of(
+                    loadStat(101L, 1L, now, 60_000L),
+                    loadStat(102L, 1L, now, 60_000L)));
+
+            // Six candidates, a cap of four: two query slots and two load slots, not four
+            // queries. A single max(scanRate, loadRate) ordering would drop both loads.
+            Assertions.assertNotNull(stats.getAccessInfo(101L));
+            Assertions.assertNotNull(stats.getAccessInfo(102L));
+            Assertions.assertEquals(4L, stats.getActiveIdsInWindow());
+            Set<Long> top = stats.getTopNActive(4).stream().map(r -> r.id).collect(Collectors.toSet());
+            Assertions.assertEquals(Set.of(3L, 4L, 101L, 102L), top);
+        } finally {
+            Config.cloud_active_partition_scheduling_topn = originalTopn;
+        }
+    }
+
+    // Cloud routes a load to one backend per compute group rather than replicating it, so two
+    // backends reporting the same tablet did independent work and their flushes must be summed.
+    @Test
+    public void testCloudModeSumsLoadAcrossBackends() {
+        String originalUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "test_cloud_unique_id";
+        try {
+            Assertions.assertTrue(Config.isCloudMode());
+            long now = System.currentTimeMillis();
+            stats.updateFromReport(1L, Collections.emptyList(),
+                    Collections.singletonList(loadStat(10L, 20L, now - 100L, 60_000L)));
+            stats.updateFromReport(2L, Collections.emptyList(),
+                    Collections.singletonList(loadStat(10L, 20L, now - 200L, 60_000L)));
+
+            TabletSlidingWindowAccessStats.AccessStatsResult result = stats.getTopNActive(2).get(0);
+            Assertions.assertEquals(40L, result.loadCount);
+            Assertions.assertEquals(40.0, result.loadRate);
+        } finally {
+            Config.cloud_unique_id = originalUniqueId;
+        }
+    }
+
     @Test
     public void testRemoveBackendRemovesItsSnapshot() {
         long now = System.currentTimeMillis();

@@ -433,7 +433,8 @@ public:
     std::atomic<int64_t> last_load_flush_time_ms {0};
     // Snapshots taken at the last SUCCESSFULLY DELIVERED report. Committed only after
     // handle_report() returns true, never with exchange() during collection -- see
-    // ActiveTabletCollector::commit().
+    // ActiveTabletCollector::commit(). Seeded in the constructor from the counters' current
+    // values, which are shared with any other live BaseTablet for the same tablet id.
     std::atomic<int64_t> last_reported_scan_count {0};
     std::atomic<int64_t> last_reported_flush_count {0};
     // Monotonic clock of that commit -- NOT wall clock. Its only use is the

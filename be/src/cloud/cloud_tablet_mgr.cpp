@@ -611,6 +611,10 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
         if (!tablet) return;
         (*tablet_num)++;
         if (active) {
+            // Known limitation: the counters live on the cached CloudTablet, so a tablet
+            // evicted from the cache before its first report takes its activity with it and
+            // FE sees it as cold. Not fixed - keeping a sample independent of the metadata
+            // cache is a lifetime redesign, and this is a scheduling hint, not accounting.
             active->collect(tablet);
         }
         TTabletInfo tablet_info;

@@ -158,11 +158,16 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta) : _tablet_meta(std::move
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_bytes);
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_finish_count);
 
-    // The counters start at zero with this object, so treating construction as the first
-    // baseline makes the first report carry everything that happened since, over a window
-    // that really is the time since construction. Leaving it at zero would make collect()
-    // skip the first round while commit() still advanced the baseline, silently discarding
-    // that activity.
+    // Seed the baselines from whatever the counters already hold -- they are NOT
+    // necessarily zero. The metric entity is keyed by tablet id, so register_metric() above
+    // hands back the EXISTING counters whenever another BaseTablet for this id is still
+    // alive: local migration constructs the replacement before dropping the original, and in
+    // cloud a background shared_ptr can outlive cache eviction while a replacement is loaded.
+    // Assuming zero there would make this object's first report bill the old object's entire
+    // history to a single window. Leaving the time at zero instead would make collect() skip
+    // the first round while commit() still advanced the baseline, discarding that activity.
+    last_reported_scan_count.store(query_scan_count->value(), std::memory_order_relaxed);
+    last_reported_flush_count.store(flush_finish_count->value(), std::memory_order_relaxed);
     last_reported_mono_ms.store(MonotonicMillis(), std::memory_order_relaxed);
 
     // construct _timestamped_versioned_tracker from rs and stale rs meta

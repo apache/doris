@@ -168,6 +168,9 @@ public class ReportHandler extends Daemon {
         }
 
         long beId = backend.getId();
+        // A backend too old to send these fields contributes no activity at all, for as long as
+        // it stays un-upgraded. Not fixed: a capability handshake costs far more than the
+        // precision is worth here. Upgrade BEs before FE if it matters.
         if (request.isSetTopQueryTablets() || request.isSetTopLoadTablets()) {
             TabletSlidingWindowAccessStats.getInstance().updateFromReport(
                     beId,
