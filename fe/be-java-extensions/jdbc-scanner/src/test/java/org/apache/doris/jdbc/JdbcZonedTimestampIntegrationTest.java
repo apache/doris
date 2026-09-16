@@ -41,6 +41,29 @@ import java.util.TimeZone;
 class JdbcZonedTimestampIntegrationTest {
     @Test
     @EnabledIfSystemProperty(named = "postgresql.integration.url", matches = ".+")
+    void testPostgreSqlUnrepresentableTimestampRange() throws Exception {
+        withDriver("postgresql", "org.postgresql.Driver", connection -> {
+            PostgreSQLJdbcExecutor executor = Mockito.mock(PostgreSQLJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
+            String values = "'infinity'::timestamptz, '-infinity'::timestamptz, "
+                    + "'294276-12-31 23:59:59.999999+00'::timestamptz, "
+                    + "'4713-01-01 00:00:00+00 BC'::timestamptz";
+            try (Statement statement = connection.createStatement();
+                    ResultSet rows = statement.executeQuery("SELECT " + values + ", ARRAY[" + values + "]")) {
+                Assertions.assertTrue(rows.next());
+                executor.resultSet = rows;
+                for (int i = 0; i < 4; ++i) {
+                    assertInstant(executor, i, null);
+                }
+                ColumnType array = ColumnType.parseType("events", "array<timestamptz(6)>");
+                Object raw = executor.getColumnValue(4, array, new String[0]);
+                Assertions.assertEquals(Arrays.asList(null, null, null, null),
+                        executor.getOutputConverter(array, "").convert(new Object[] {raw})[0]);
+            }
+        });
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "postgresql.integration.url", matches = ".+")
     void testPostgreSqlTimestampArraysAndDstOverlap() throws Exception {
         withDriver("postgresql", "org.postgresql.Driver", connection -> {
             PostgreSQLJdbcExecutor executor = Mockito.mock(PostgreSQLJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);

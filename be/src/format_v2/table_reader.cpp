@@ -1414,6 +1414,12 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
     if (file_request.conjuncts.empty()) {
         return false;
     }
+    // Localization may inject schema-evolution casts absent from the scanner's digest. Honor
+    // their uncacheable contract: an unchanged field ID can acquire different timestamp semantics,
+    // and reusing an old all-false granule would silently discard matching rows.
+    if (!build_predicate_snapshot_digest(file_request.conjuncts).has_value()) {
+        return false;
+    }
     // Delete files/deletion vectors are table-format state. They may change independently of the
     // data file path/mtime/size used by the external cache key, so caching their result can become
     // stale. Keep delete filtering enabled, but do not read or write condition cache.

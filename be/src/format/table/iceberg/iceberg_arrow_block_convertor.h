@@ -21,15 +21,28 @@
 
 namespace doris::iceberg {
 
-class IcebergArrowWriteConverter final : public ArrowWriteConverter {
+class Schema;
+
+class IcebergArrowBlockConvertor final : public ArrowBlockConvertor {
 public:
+    IcebergArrowBlockConvertor() = default;
+    IcebergArrowBlockConvertor(const Schema& schema, const std::string* schema_json = nullptr)
+            : _schema(&schema), _schema_json(schema_json) {}
+
+    Status arrow_schema(const std::string& timezone, std::shared_ptr<arrow::Schema>* schema) const;
+
+protected:
     Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
                         const IColumn& column, const NullMap* null_map,
                         const std::shared_ptr<arrow::Field>& field,
                         arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                         const cctz::time_zone& ctz) const override;
+
+private:
+    const Schema* _schema = nullptr;
+    const std::string* _schema_json = nullptr;
 };
 
-const IcebergArrowWriteConverter& iceberg_arrow_write_converter();
+const IcebergArrowBlockConvertor& iceberg_arrow_block_convertor();
 
 } // namespace doris::iceberg

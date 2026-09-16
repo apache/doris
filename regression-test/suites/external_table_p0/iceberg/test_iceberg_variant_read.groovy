@@ -1422,8 +1422,8 @@ public class AppendVariantEqualityDelete {
         WHERE v['shared'] >= 20
         ORDER BY id
     """
-    // The stable snapshot contributes a genuinely shredded file, while the appended file is read by
-    // seeking its unshredded value. More than four rows qualify, forcing local TopN overshoot to be
+    // The stable snapshot contributes a genuinely shredded file, while the appended file uses
+    // direct unshredded-path seeking. More than four rows qualify, forcing local TopN overshoot to be
     // truncated after the merge exchange while the mapper-eligible projected path crosses the wire.
     explain {
         sql """
@@ -1458,8 +1458,11 @@ public class AppendVariantEqualityDelete {
             ["VariantLeafProjections", "VariantUnshreddedDirectSeekRows"]).toString()
     assertTrue(counterSum(projectedGatherProfile, "VariantLeafProjections") > 0,
             "The projected TopN did not read a physical shredded Variant leaf")
+    // A successful direct seek is not a path miss and must not require rebuilding the root.
     assertTrue(counterSum(projectedGatherProfile, "VariantUnshreddedDirectSeekRows") > 0,
-            "The projected TopN did not combine the unshredded Variant file")
+            "The projected TopN did not read the unshredded file")
+    assertEquals(0L, counterSum(projectedGatherProfile, "VariantReconstructedRows"),
+            "The projected TopN must not rebuild complete Variant roots for a leaf-only result")
     order_qt_variant_projected_remote_gather """
         SELECT id,
                CAST(projected['n'] AS INT)
@@ -1518,7 +1521,9 @@ public class AppendVariantEqualityDelete {
     assertTrue(counterSum(multiRowGroupColdProfile, "RowGroupsTotalNum") > 1,
                "The generated Variant file did not contain multiple Parquet row groups")
     assertTrue(counterSum(multiRowGroupColdProfile, "VariantUnshreddedDirectSeekRows") > 0,
-               "The unshredded scan did not seek its predicate leaf")
+               "The unshredded scan did not seek the requested leaf")
+    assertEquals(0L, counterSum(multiRowGroupColdProfile, "VariantReconstructedRows"),
+               "A leaf-only unshredded predicate must not reconstruct the complete Variant")
     assertTrue(counterSum(multiRowGroupColdProfile, "FilteredRowsByLazyRead") > 0,
                "The unshredded Variant predicate did not defer non-predicate columns")
     String multiRowGroupWarmToken =
@@ -1531,7 +1536,7 @@ public class AppendVariantEqualityDelete {
     String multiRowGroupWarmProfile = getProfileByToken(multiRowGroupWarmToken,
             ["VariantUnshreddedDirectSeekRows"]).toString()
     assertTrue(counterSum(multiRowGroupWarmProfile, "VariantUnshreddedDirectSeekRows") > 0,
-               "The warm unshredded scan did not seek its predicate leaf")
+               "The warm unshredded scan did not preserve direct-path seeking")
     qt_variant_multi_row_group_result """
         SELECT COUNT(*), MIN(id), MAX(id), SUM(CAST(v['n'] AS BIGINT))
         FROM variant_multi_row_group
@@ -1622,7 +1627,7 @@ public class AppendVariantEqualityDelete {
     assertTrue(counterSum(pagePruningProfile, "VariantLeafProjections") > 0,
                "A root Variant output query did not retain its typed predicate leaf projection")
     assertTrue(counterSum(pagePruningProfile, "VariantUnshreddedDirectSeekRows") > 0,
-               "The mixed scan did not read its unshredded Variant file")
+               "The mixed scan did not seek its unshredded Variant file")
     assertTrue(counterSum(pagePruningProfile, "VariantDirectLeafRows") > 0,
                "The mixed scan did not evaluate rows from the shredded typed leaf")
     assertTrue(counterSum(pagePruningProfile, "VariantReconstructedRows") > 0,
@@ -1833,7 +1838,9 @@ public class AppendVariantEqualityDelete {
     String positionDeleteProfile = getProfileByToken(positionDeleteToken,
             ["VariantUnshreddedDirectSeekRows"]).toString()
     assertTrue(counterSum(positionDeleteProfile, "VariantUnshreddedDirectSeekRows") > 0,
-               "Position-delete filtering did not seek the unshredded Variant leaf")
+               "Position-delete filtering did not preserve direct unshredded-path seeking")
+    assertEquals(0L, counterSum(positionDeleteProfile, "VariantReconstructedRows"),
+               "A leaf-only predicate with position deletes must not reconstruct complete Variant rows")
 
     // A STRING path must build a physical leaf projection rather than falling back to rebuilding
     // the complete Variant. Reading only the accessed leaves is the entire advantage shredded
@@ -1881,12 +1888,13 @@ public class AppendVariantEqualityDelete {
         SELECT id, CAST(v AS STRING) FROM variant_mixed_format ORDER BY id
     """
 
+    List<List<Object>> variantV2Rows = sql """
+        SELECT id, CAST(v AS STRING) FROM variant_values ORDER BY id
+    """
     sql """set enable_file_scanner_v2=false"""
     try {
-        test {
-            sql """SELECT CAST(v AS STRING) FROM variant_values ORDER BY id"""
-            exception "legacy file scanner does not support VARIANT"
-        }
+        // Versioned Iceberg scan semantics require V2 even when the session requests V1.
+        assertEquals(variantV2Rows, sql("SELECT id, CAST(v AS STRING) FROM variant_values ORDER BY id"))
     } finally {
         sql """set enable_file_scanner_v2=true"""
     }

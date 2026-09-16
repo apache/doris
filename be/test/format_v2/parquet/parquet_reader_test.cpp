@@ -3683,7 +3683,7 @@ TEST_F(NewParquetReaderTest, ComplexColumnDoesNotMisreportSiblingPagesAsCrossing
     EXPECT_EQ(profile.get_counter("PageCrossingBatches")->value(), 0);
 }
 
-TEST_F(NewParquetReaderTest, GetSchemaMapsInt96ToTimestampTzWhenTimestampTzMappingEnabled) {
+TEST_F(NewParquetReaderTest, GetSchemaKeepsUnannotatedInt96AsDateTime) {
     write_int96_timestamp_parquet_file(_file_path);
     auto reader = create_reader(0, -1, nullptr, true);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -3694,7 +3694,7 @@ TEST_F(NewParquetReaderTest, GetSchemaMapsInt96ToTimestampTzWhenTimestampTzMappi
     ASSERT_EQ(schema.size(), 1);
     EXPECT_EQ(schema[0].name, "ts_tz");
     ASSERT_TRUE(schema[0].type->is_nullable());
-    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
+    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_DATETIMEV2);
     EXPECT_EQ(remove_nullable(schema[0].type)->get_scale(), 6);
 }
 
@@ -3751,9 +3751,9 @@ TEST_F(NewParquetReaderTest, Int96TimezoneUsesCatalogPropertyInsteadOfSessionTim
     // A legacy Hive writer configured for Asia/Shanghai can normalize local 2025-01-01 00:00 to
     // raw INT96 2024-12-31 16:00. The matching catalog property reverses that normalization.
     EXPECT_EQ(read_first_value(std::string {"Asia/Shanghai"}), "2025-01-01 00:00:00.000000");
-    // TIMESTAMPTZ preserves the instant even when the INT96 compatibility timezone is configured.
-    EXPECT_EQ(read_first_value(std::string {"Asia/Shanghai"}, true),
-              "2024-12-31 16:00:00.000000+00:00");
+    // Enabling instant mappings cannot invent timezone semantics for unannotated INT96.
+    EXPECT_EQ(read_first_value(std::string {"Asia/Shanghai"}, true), "2025-01-01 00:00:00.000000");
+    EXPECT_EQ(read_first_value(std::string {}, true), "2024-12-31 16:00:00.000000");
 }
 
 TEST_F(NewParquetReaderTest, Int96UsesPerColumnPaimonTimestampSemantics) {
@@ -3804,7 +3804,7 @@ TEST_F(NewParquetReaderTest, Int96UsesPerColumnPaimonTimestampSemantics) {
 TEST_F(NewParquetReaderTest, NestedInt96UsesHiveParquetTimezone) {
     TimezoneUtils::load_timezones_to_cache();
     write_nested_int96_timestamp_parquet_file(_file_path);
-    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {}, 0,
+    auto reader = create_reader(0, -1, nullptr, true, nullptr, std::nullopt, false, false, {}, 0,
                                 nullptr, -1, "Asia/Shanghai");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_timezone("America/Los_Angeles");

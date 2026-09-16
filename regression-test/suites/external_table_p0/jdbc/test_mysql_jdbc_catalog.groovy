@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_docker_mysql") {
+    // Zoned JDBC types preserve instants; pin their display zone independently of the runner.
+    sql "SET time_zone = '+08:00'"
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -175,6 +178,8 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         order_qt_ex_tb17  """ select * from ${ex_tb17} order by id; """
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
+        // Both legacy and modern drivers must preserve the fixture's UTC instant.
+        assertEquals(1669532991L, (sql "select unix_timestamp(timestamp_value) from ${ex_tb19}")[0][0] as long)
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
         order_qt_ex_tb21_1  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
         order_qt_ex_tb21_2  """ select `key`, `id` from ${ex_tb21} where `key` like 2 order by id;"""
@@ -395,7 +400,11 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         explain {
             sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05' and timestamp0 > '2022-01-01';")
 
-            contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (`timestamp0` > '2022-01-01 00:00:00')"
+            // The JDBC session is UTC, while the literal is interpreted in the Doris session zone.
+            contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt`"
+            notContains "WHERE"
+            contains "PREDICATES:"
+            contains "2021-12-31 16:00:00+00:00"
         }
         explain {
             sql ("select k6, k8 from test1 where nvl(k6, 1) = k6;")

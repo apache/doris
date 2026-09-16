@@ -528,7 +528,10 @@ public class IcebergUtils {
                 case DATE:
                     return dateLiteral.getStringValue();
                 case TIMESTAMP:
-                    if (((Types.TimestampType) icebergType).shouldAdjustToUTC()) {
+                    // TIMESTAMPTZ literals already contain UTC fields after planner coercion.
+                    // Applying the session zone again changes the pushed predicate's instant.
+                    if (((Types.TimestampType) icebergType).shouldAdjustToUTC()
+                            && !dateLiteral.getType().isTimeStampTz()) {
                         return dateLiteral.getUnixTimestampWithMicroseconds(TimeUtils.getTimeZone());
                     } else {
                         return dateLiteral.getUnixTimestampWithMicroseconds(TimeUtils.getUTCTimeZone());
@@ -2113,8 +2116,9 @@ public class IcebergUtils {
             throws AnalysisException {
         // For NULL value, create a minimum partition for it.
         if (value == null) {
-            PartitionKey nullLowKey = PartitionKey.createPartitionKey(
-                    Lists.newArrayList(new PartitionValue("0000-01-01")), partitionColumns);
+            // The sentinel is not a session-local timestamp; parsing year zero through a
+            // positive timezone offset would underflow the supported timestamp range.
+            PartitionKey nullLowKey = PartitionKey.createInfinityPartitionKey(partitionColumns, false);
             PartitionKey nullUpKey = nullLowKey.successor();
             return Range.closedOpen(nullLowKey, nullUpKey);
         }
@@ -2148,11 +2152,15 @@ public class IcebergUtils {
             default:
                 throw new RuntimeException("Unsupported transform " + transform);
         }
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        // Use proleptic years: year-of-era formatting aliases year zero to year one and empties its range.
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss");
         Column c = partitionColumns.get(0);
         Preconditions.checkState(c.getDataType().isDateLikeType(), "Only support date type partition column");
         if (c.getType().isDate() || c.getType().isDateV2()) {
-            formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+            formatter = DateTimeFormatter.ofPattern("uuuu-MM-dd");
+        } else if (c.getType().isTimeStampTz()) {
+            // Iceberg time transforms count UTC intervals, independently of the query timezone.
+            formatter = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss'+00:00'");
         }
         PartitionValue lowerValue = new PartitionValue(lower.format(formatter));
         PartitionValue upperValue = new PartitionValue(upper.format(formatter));

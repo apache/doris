@@ -226,6 +226,8 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
                 throw new AnalysisException("Table does not exist: " + table);
             }
             List<Column> columns = new ArrayList<>(jdbcClient.getColumnsFromJdbc(database, table));
+            // Use the CDC transport schema, not the external JDBC catalog's timestamp mapping.
+            columns.forEach(column -> column.setType(StreamingJobUtils.getCdcTimestampType(column.getType())));
             if (includeDeleteSign) {
                 columns.add(new Column(Column.DELETE_SIGN, PrimitiveType.TINYINT, false));
             }

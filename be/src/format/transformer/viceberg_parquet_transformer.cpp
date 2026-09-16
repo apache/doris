@@ -17,14 +17,12 @@
 
 #include "format/transformer/viceberg_parquet_transformer.h"
 
-#include <arrow/util/key_value_metadata.h>
 #include <parquet/api/reader.h>
 #include <parquet/schema.h>
 
 #include <unordered_set>
 
-#include "format/table/iceberg/arrow_schema_util.h"
-#include "format/table/iceberg/iceberg_arrow_write_converter.h"
+#include "format/table/iceberg/iceberg_arrow_block_convertor.h"
 #include "format/table/parquet_utils.h"
 #include "runtime/runtime_state.h"
 
@@ -38,23 +36,12 @@ VIcebergParquetTransformer::VIcebergParquetTransformer(
         const std::string* iceberg_schema_json, const iceberg::Schema& iceberg_schema)
         : VParquetTransformer(state, file_writer, output_vexpr_ctxs, std::move(column_names),
                               output_object_data, parquet_options,
-                              iceberg::iceberg_arrow_write_converter()),
-          _iceberg_schema_json(iceberg_schema_json),
-          _iceberg_schema(iceberg_schema) {}
+                              std::make_unique<iceberg::IcebergArrowBlockConvertor>(
+                                      iceberg_schema, iceberg_schema_json)) {}
 
 Status VIcebergParquetTransformer::_parse_schema(std::shared_ptr<arrow::Schema>* schema) {
-    // Iceberg's field IDs and physical Variant schema must always use its matching converter.
-    std::vector<std::shared_ptr<arrow::Field>> fields;
-    RETURN_IF_ERROR(
-            iceberg::ArrowSchemaUtil::convert(&_iceberg_schema, _state->timezone(), fields));
-    if (_iceberg_schema_json != nullptr) {
-        *schema = arrow::schema(
-                std::move(fields),
-                arrow::KeyValueMetadata::Make({"iceberg.schema"}, {*_iceberg_schema_json}));
-    } else {
-        *schema = arrow::schema(std::move(fields));
-    }
-    return Status::OK();
+    return static_cast<const iceberg::IcebergArrowBlockConvertor&>(*_arrow_block_convertor)
+            .arrow_schema(_state->timezone(), schema);
 }
 
 Status VIcebergParquetTransformer::collect_file_statistics_after_close(TIcebergColumnStats* stats) {

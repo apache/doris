@@ -807,13 +807,12 @@ public class PaimonUtil {
                 if (value == null) {
                     return null;
                 }
-                // Paimon timestamp with local time zone is stored as Timestamp type in utc
+                // Path readers have no session-zone fallback. Preserve the UTC instant and its
+                // explicit offset, including the two otherwise identical times in a DST overlap.
                 Timestamp timestamp = (Timestamp) value;
                 return timestamp.toLocalDateTime()
                         .atZone(ZoneId.of("UTC"))
-                        .withZoneSameInstant(ZoneId.of(timeZone))
-                        .toLocalDateTime()
-                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
             default:
                 throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
         }

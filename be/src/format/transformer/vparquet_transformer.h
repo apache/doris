@@ -92,17 +92,19 @@ struct ParquetFileOptions {
 // a wrapper of parquet output stream
 class VParquetTransformer : public VFileFormatTransformer {
 public:
-    VParquetTransformer(
-            RuntimeState* state, doris::io::FileWriter* file_writer,
-            const VExprContextSPtrs& output_vexpr_ctxs, std::vector<std::string> column_names,
-            bool output_object_data, const ParquetFileOptions& parquet_options,
-            const ArrowWriteConverter& arrow_write_converter = plain_arrow_write_converter());
+    VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
+                        const VExprContextSPtrs& output_vexpr_ctxs,
+                        std::vector<std::string> column_names, bool output_object_data,
+                        const ParquetFileOptions& parquet_options,
+                        std::unique_ptr<ArrowBlockConvertor> arrow_block_convertor =
+                                std::make_unique<ArrowFlightArrowBlockConvertor>());
 
-    VParquetTransformer(
-            RuntimeState* state, doris::io::FileWriter* file_writer,
-            const VExprContextSPtrs& output_vexpr_ctxs, std::vector<TParquetSchema> parquet_schemas,
-            bool output_object_data, const ParquetFileOptions& parquet_options,
-            const ArrowWriteConverter& arrow_write_converter = plain_arrow_write_converter());
+    VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
+                        const VExprContextSPtrs& output_vexpr_ctxs,
+                        std::vector<TParquetSchema> parquet_schemas, bool output_object_data,
+                        const ParquetFileOptions& parquet_options,
+                        std::unique_ptr<ArrowBlockConvertor> arrow_block_convertor =
+                                std::make_unique<ArrowFlightArrowBlockConvertor>());
 
     ~VParquetTransformer() override = default;
 
@@ -115,6 +117,8 @@ public:
     int64_t written_len() override;
 
 protected:
+    std::unique_ptr<ArrowBlockConvertor> _arrow_block_convertor;
+
     virtual Status _parse_schema(std::shared_ptr<arrow::Schema>* schema);
     std::shared_ptr<::parquet::FileMetaData> _file_metadata() const { return _writer->metadata(); }
 
@@ -134,7 +138,6 @@ private:
     std::string _timezone;
     cctz::time_zone _timezone_obj;
     uint64_t _write_size = 0;
-    const ArrowWriteConverter& _arrow_write_converter;
 };
 
 } // namespace doris

@@ -15,15 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/table/iceberg/iceberg_arrow_write_converter.h"
+#include "format/table/iceberg/iceberg_arrow_block_convertor.h"
 
 #include <arrow/array/builder_base.h>
 #include <arrow/type.h>
+#include <arrow/util/key_value_metadata.h>
+
+#include "format/table/iceberg/arrow_schema_util.h"
 
 namespace doris::iceberg {
 #include "common/compile_check_begin.h"
 
-Status IcebergArrowWriteConverter::write_column(const std::shared_ptr<const IDataType>& type,
+Status IcebergArrowBlockConvertor::arrow_schema(const std::string& timezone,
+                                                std::shared_ptr<arrow::Schema>* schema) const {
+    if (_schema == nullptr) {
+        return Status::InvalidArgument("Iceberg schema is required for Arrow schema conversion");
+    }
+    // Field IDs, Variant storage and timestamp bindings must share the same target schema.
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    RETURN_IF_ERROR(ArrowSchemaUtil::convert(_schema, timezone, fields));
+    *schema = arrow::schema(std::move(fields));
+    if (_schema_json != nullptr) {
+        *schema = (*schema)->WithMetadata(
+                arrow::KeyValueMetadata::Make({"iceberg.schema"}, {*_schema_json}));
+    }
+    return Status::OK();
+}
+
+Status IcebergArrowBlockConvertor::write_column(const std::shared_ptr<const IDataType>& type,
                                                 const DataTypeSerDe& serde, const IColumn& column,
                                                 const NullMap* null_map,
                                                 const std::shared_ptr<arrow::Field>& field,
@@ -36,8 +55,8 @@ Status IcebergArrowWriteConverter::write_column(const std::shared_ptr<const IDat
                                                array_builder, start, end, ctz);
 }
 
-const IcebergArrowWriteConverter& iceberg_arrow_write_converter() {
-    static const IcebergArrowWriteConverter converter;
+const IcebergArrowBlockConvertor& iceberg_arrow_block_convertor() {
+    static const IcebergArrowBlockConvertor converter;
     return converter;
 }
 

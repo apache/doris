@@ -48,7 +48,7 @@
 #include "core/string_buffer.hpp"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/parse/variant_string_parse.h"
-#include "format/table/paimon/paimon_arrow_write_converter.h"
+#include "format/table/paimon/paimon_arrow_block_convertor.h"
 #include "util/mysql_row_buffer.h"
 
 namespace doris {
@@ -223,7 +223,7 @@ void expect_paimon_variant_bytes(const IColumn& column, const ColumnVariantV2& e
     DataTypePtr type = std::make_shared<DataTypeVariantV2>();
     const auto serde = type->get_serde();
     const auto field = arrow::field("payload", binary_variant_arrow_type(), true);
-    const Status status = paimon::paimon_arrow_write_converter().write_column(
+    const Status status = paimon::paimon_arrow_block_convertor().write_column(
             type, *serde, column, null_map, field, builder.get(), 0, column.size(),
             cctz::utc_time_zone());
     ASSERT_TRUE(status.ok()) << status;
@@ -450,7 +450,7 @@ TEST(DataTypeVariantV2SerdeOutputTest, ConstNullableAndOuterMasksPreserveBoundar
     EXPECT_TRUE(invalid_dates->is_typed());
 }
 
-TEST(PaimonArrowWriteConverterTest, BinaryStructPreservesEncodedAndTypedBytesAndOuterNulls) {
+TEST(PaimonArrowBlockConvertorTest, BinaryStructPreservesEncodedAndTypedBytesAndOuterNulls) {
     auto documents = encoded_json({R"({"a":[1,null,"x"]})", R"({"hidden":true})", "null"});
     NullMap mask {0, 1, 0};
     expect_paimon_variant_bytes(*documents, *documents, &mask);
@@ -462,7 +462,7 @@ TEST(PaimonArrowWriteConverterTest, BinaryStructPreservesEncodedAndTypedBytesAnd
     EXPECT_TRUE(typed->is_typed());
 }
 
-TEST(PaimonArrowWriteConverterTest, NestedArrayUsesPaimonSerdeRecursively) {
+TEST(PaimonArrowBlockConvertorTest, NestedArrayUsesPaimonSerdeRecursively) {
     auto variants = encoded_json({R"({"id":1})", R"({"hidden":true})", R"([true,"x"])", "null"});
     const auto expected = variants->read_view();
     auto offsets = ColumnArray::ColumnOffsets::create();
@@ -481,7 +481,7 @@ TEST(PaimonArrowWriteConverterTest, NestedArrayUsesPaimonSerdeRecursively) {
     ASSERT_TRUE(arrow::MakeBuilder(arrow::default_memory_pool(), arrow_type, &builder).ok());
 
     const auto serde = array_type->get_serde();
-    Status status = paimon::paimon_arrow_write_converter().write_column(
+    Status status = paimon::paimon_arrow_block_convertor().write_column(
             array_type, *serde, *array, nullptr, field, builder.get(), 0, array->size(),
             cctz::utc_time_zone());
     ASSERT_TRUE(status.ok()) << status;
@@ -507,7 +507,7 @@ TEST(PaimonArrowWriteConverterTest, NestedArrayUsesPaimonSerdeRecursively) {
     }
 }
 
-TEST(PaimonArrowWriteConverterTest, BinaryStructRejectsUnsupportedPaimonPrimitive) {
+TEST(PaimonArrowBlockConvertorTest, BinaryStructRejectsUnsupportedPaimonPrimitive) {
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
     auto row = builder.begin_row();
     row.add_time_ntz_micros(1'500'000);
@@ -518,7 +518,7 @@ TEST(PaimonArrowWriteConverterTest, BinaryStructRejectsUnsupportedPaimonPrimitiv
     DataTypePtr type = std::make_shared<DataTypeVariantV2>();
     const auto serde = type->get_serde();
     const auto field = arrow::field("payload", binary_variant_arrow_type(), true);
-    const Status status = paimon::paimon_arrow_write_converter().write_column(
+    const Status status = paimon::paimon_arrow_block_convertor().write_column(
             type, *serde, *encoded, nullptr, field, arrow_builder.get(), 0, encoded->size(),
             cctz::utc_time_zone());
     EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);

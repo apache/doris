@@ -43,17 +43,13 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
-import java.util.Calendar;
 import java.util.List;
-import java.util.TimeZone;
 import java.util.stream.Collectors;
 
 public class MySQLJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(MySQLJdbcExecutor.class);
 
     private static final Gson gson = new Gson();
-
-    private Calendar timestampCalendar;
 
     public MySQLJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
@@ -78,8 +74,8 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
     @Override
     protected void initializeStatement(Connection conn, JdbcDataSourceConfig config, String sql) throws SQLException {
         if (usesMySqlTimestampProtocol(config)) {
-            // MySQL sends TIMESTAMP as session-local fields. An explicit UTC session and Calendar
-            // preserve instants even when Connector/J's connection timezone differs from the JVM.
+            // MySQL sends TIMESTAMP as session-local fields. Read and bind those fields in UTC
+            // without the driver's legacy Calendar conversion, which may apply the JVM offset.
             // Set this on every checkout because pooled sessions may have been modified by a query.
             try (Statement timezoneStatement = conn.createStatement()) {
                 timezoneStatement.execute("SET SESSION time_zone = '+00:00'");
@@ -183,9 +179,10 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 return data;
             }
             case TIMESTAMPTZ: {
-                Timestamp value = usesMySqlTimestampProtocol(config)
-                        ? resultSet.getTimestamp(columnIndex + 1, getTimestampCalendar())
-                        : resultSet.getTimestamp(columnIndex + 1);
+                if (usesMySqlTimestampProtocol(config)) {
+                    return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
+                }
+                Timestamp value = resultSet.getTimestamp(columnIndex + 1);
                 return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
             }
             default:
@@ -198,20 +195,12 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
         return config.getTableType() == TOdbcTableType.MYSQL || config.getTableType() == TOdbcTableType.OCEANBASE;
     }
 
-    private Calendar getTimestampCalendar() {
-        if (timestampCalendar == null) {
-            // Calendar is mutable: keep it per executor, never shared between scanner threads.
-            timestampCalendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
-        }
-        return timestampCalendar;
-    }
-
     @Override
     protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
         if (usesMySqlTimestampProtocol(config)) {
-            // Timestamp.from alone still lets the driver serialize in its configured connection zone.
-            preparedStatement.setTimestamp(parameterIndex, Timestamp.from(value.toInstant(ZoneOffset.UTC)),
-                    getTimestampCalendar());
+            // Connector/J 5.x can ignore Calendar during timestamp conversion. Bind the UTC
+            // session's civil fields directly so neither driver nor JVM applies another offset.
+            preparedStatement.setString(parameterIndex, value.toString().replace('T', ' '));
         } else {
             super.setTimestampTz(parameterIndex, value);
         }

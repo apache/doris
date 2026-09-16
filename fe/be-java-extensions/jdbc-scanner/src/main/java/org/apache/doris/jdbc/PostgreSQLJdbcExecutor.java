@@ -29,14 +29,27 @@ import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
 public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(PostgreSQLJdbcExecutor.class);
+    private static final Instant MIN_TIMESTAMP = LocalDateTime.of(0, 1, 1, 0, 0).toInstant(ZoneOffset.UTC);
+    private static final Instant MAX_TIMESTAMP = LocalDateTime.of(10000, 1, 1, 0, 0).toInstant(ZoneOffset.UTC);
+
+    private static LocalDateTime toDorisTimestamp(Instant value) {
+        // PostgreSQL supports BC years and infinities. Reject them before Timestamp/packed JNI
+        // conversion can overflow into an unrelated date or emit an invalid offset-only value.
+        if (value.isBefore(MIN_TIMESTAMP) || !value.isBefore(MAX_TIMESTAMP)) {
+            return null;
+        }
+        return LocalDateTime.ofInstant(value, ZoneOffset.UTC);
+    }
 
     public PostgreSQLJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
@@ -95,7 +108,7 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
                 if (offsetDateTime == null) {
                     return null;
                 } else {
-                    return Timestamp.from(offsetDateTime.toInstant());
+                    return toDorisTimestamp(offsetDateTime.toInstant());
                 }
             case ARRAY:
                 java.sql.Array array = resultSet.getArray(columnIndex + 1);
@@ -122,7 +135,7 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
             case TIMESTAMPTZ:
                 return createConverter(input -> {
                     if (input instanceof Timestamp) {
-                        return LocalDateTime.ofInstant(((Timestamp) input).toInstant(), java.time.ZoneOffset.UTC);
+                        return toDorisTimestamp(((Timestamp) input).toInstant());
                     } else {
                         return input;
                     }
@@ -214,7 +227,7 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
                     // pgjdbc returns Timestamp[] even for timestamptz arrays. Preserve the instant
                     // before JNI materializes LocalDateTime[], including inside nested arrays.
                     result.add(element == null ? null
-                            : LocalDateTime.ofInstant(((Timestamp) element).toInstant(), java.time.ZoneOffset.UTC));
+                            : toDorisTimestamp(((Timestamp) element).toInstant()));
                 }
                 return result;
             }

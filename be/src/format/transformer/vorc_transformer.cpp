@@ -64,6 +64,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -154,7 +155,13 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
           _write_options(new orc::WriterOptions()),
           _schema_str(std::move(schema)),
           _iceberg_schema(iceberg_schema) {
-    _write_options->setTimezoneName(_state->timezone());
+    // ORC recognizes GMT as its UTC fast path. Other UTC aliases can lack a zoneinfo file
+    // or resolve through a locally overridden UTC file, shifting timestamp statistics.
+    int32_t fixed_offset = 0;
+    const bool is_utc =
+            TimezoneUtils::try_get_fixed_offset_seconds(_state->timezone_obj(), &fixed_offset) &&
+            fixed_offset == 0;
+    _write_options->setTimezoneName(is_utc ? "GMT" : _state->timezone());
     _write_options->setUseTightNumericVector(true);
     set_compression_type(compress_type);
     if (_iceberg_schema != nullptr) {

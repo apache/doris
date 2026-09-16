@@ -182,11 +182,11 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          std::vector<std::string> column_names,
                                          bool output_object_data,
                                          const ParquetFileOptions& parquet_options,
-                                         const ArrowWriteConverter& arrow_write_converter)
+                                         std::unique_ptr<ArrowBlockConvertor> arrow_block_convertor)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
+          _arrow_block_convertor(std::move(arrow_block_convertor)),
           _column_names(std::move(column_names)),
-          _parquet_options(parquet_options),
-          _arrow_write_converter(arrow_write_converter) {
+          _parquet_options(parquet_options) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -195,11 +195,11 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
                                          std::vector<TParquetSchema> parquet_schemas,
                                          bool output_object_data,
                                          const ParquetFileOptions& parquet_options,
-                                         const ArrowWriteConverter& arrow_write_converter)
+                                         std::unique_ptr<ArrowBlockConvertor> arrow_block_convertor)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
+          _arrow_block_convertor(std::move(arrow_block_convertor)),
           _parquet_schemas(std::move(parquet_schemas)),
-          _parquet_options(parquet_options),
-          _arrow_write_converter(arrow_write_converter) {
+          _parquet_options(parquet_options) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
@@ -259,8 +259,8 @@ Status VParquetTransformer::write(const Block& block) {
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, get_arrow_memory_pool(), &result,
-                                           _timezone_obj, 0, block.rows(), _arrow_write_converter));
+    RETURN_IF_ERROR(_arrow_block_convertor->convert_to_arrow(
+            block, _arrow_schema, get_arrow_memory_pool(), &result, _timezone_obj));
     if (_write_size == 0) {
         RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
     }

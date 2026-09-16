@@ -44,6 +44,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
+#include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -87,42 +88,50 @@ TEST_F(VOrcTransformerTest, RejectsLossyPreEpochFractions) {
 }
 
 TEST_F(VOrcTransformerTest, TimestampBoundsRetainMicroseconds) {
-    for (const auto& type : DataTypes {std::make_shared<DataTypeDateTimeV2>(6),
-                                       std::make_shared<DataTypeTimeStampTz>(6)}) {
-        std::string schema_json =
-                R"({"type":"struct","fields":[{"id":1,"name":"event_time","required":true,"type":")";
-        schema_json += type->get_primitive_type() == TYPE_TIMESTAMPTZ ? "timestamptz" : "timestamp";
-        schema_json += R"("}]})";
-        auto schema = iceberg::SchemaParser::from_json(schema_json);
-        auto exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
-        io::FileWriterPtr file_writer;
-        ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
-        RuntimeState state;
-        state.set_timezone("UTC");
-        VOrcTransformer transformer(&state, file_writer.get(), exprs, "", {"event_time"}, false,
-                                    TFileCompressType::PLAIN, schema.get(), _fs);
-        ASSERT_TRUE(transformer.open().ok());
-        auto column = type->create_column();
-        for (const auto& fields : std::vector<std::array<int, 7>> {
-                     {1969, 12, 31, 23, 59, 58, 999999}, {2021, 11, 7, 6, 30, 0, 123456}}) {
-            DateV2Value<DateTimeV2ValueType> value;
-            value.unchecked_set_time(fields[0], fields[1], fields[2], fields[3], fields[4],
-                                     fields[5], fields[6]);
-            auto packed = value.to_date_int_val();
-            column->insert_data(reinterpret_cast<const char*>(&packed), sizeof(packed));
+    TimezoneUtils::load_timezones_to_cache();
+    // UTC aliases must share ORC's UTC encoding, including names without a zoneinfo file.
+    for (const std::string timezone :
+         {"UTC", "Etc/UTC", "UTC+0", "+00:00", "Asia/Shanghai", "America/New_York"}) {
+        SCOPED_TRACE(timezone);
+        for (const auto& type : DataTypes {std::make_shared<DataTypeDateTimeV2>(6),
+                                           std::make_shared<DataTypeTimeStampTz>(6)}) {
+            SCOPED_TRACE(type->get_name());
+            std::string schema_json =
+                    R"({"type":"struct","fields":[{"id":1,"name":"event_time","required":true,"type":")";
+            schema_json +=
+                    type->get_primitive_type() == TYPE_TIMESTAMPTZ ? "timestamptz" : "timestamp";
+            schema_json += R"("}]})";
+            auto schema = iceberg::SchemaParser::from_json(schema_json);
+            auto exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+            io::FileWriterPtr file_writer;
+            ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+            RuntimeState state;
+            state.set_timezone(timezone);
+            VOrcTransformer transformer(&state, file_writer.get(), exprs, "", {"event_time"}, false,
+                                        TFileCompressType::PLAIN, schema.get(), _fs);
+            ASSERT_TRUE(transformer.open().ok());
+            auto column = type->create_column();
+            for (const auto& fields : std::vector<std::array<int, 7>> {
+                         {1969, 12, 31, 23, 59, 58, 999999}, {2021, 11, 7, 6, 30, 0, 123456}}) {
+                DateV2Value<DateTimeV2ValueType> value;
+                value.unchecked_set_time(fields[0], fields[1], fields[2], fields[3], fields[4],
+                                         fields[5], fields[6]);
+                auto packed = value.to_date_int_val();
+                column->insert_data(reinterpret_cast<const char*>(&packed), sizeof(packed));
+            }
+            ASSERT_TRUE(transformer.write(Block({{std::move(column), type, "event_time"}})).ok());
+            ASSERT_TRUE(transformer.close().ok());
+            TIcebergColumnStats stats;
+            ASSERT_TRUE(transformer.collect_file_statistics_after_close(&stats).ok());
+            ASSERT_EQ(sizeof(int64_t), stats.lower_bounds.at(1).size());
+            ASSERT_EQ(sizeof(int64_t), stats.upper_bounds.at(1).size());
+            int64_t lower;
+            int64_t upper;
+            memcpy(&lower, stats.lower_bounds.at(1).data(), sizeof(lower));
+            memcpy(&upper, stats.upper_bounds.at(1).data(), sizeof(upper));
+            EXPECT_EQ(-1000001, lower);
+            EXPECT_EQ(1636266600123456, upper);
         }
-        ASSERT_TRUE(transformer.write(Block({{std::move(column), type, "event_time"}})).ok());
-        ASSERT_TRUE(transformer.close().ok());
-        TIcebergColumnStats stats;
-        ASSERT_TRUE(transformer.collect_file_statistics_after_close(&stats).ok());
-        ASSERT_EQ(sizeof(int64_t), stats.lower_bounds.at(1).size());
-        ASSERT_EQ(sizeof(int64_t), stats.upper_bounds.at(1).size());
-        int64_t lower;
-        int64_t upper;
-        memcpy(&lower, stats.lower_bounds.at(1).data(), sizeof(lower));
-        memcpy(&upper, stats.upper_bounds.at(1).data(), sizeof(upper));
-        EXPECT_EQ(-1000001, lower);
-        EXPECT_EQ(1636266600123456, upper);
     }
 }
 

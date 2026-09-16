@@ -196,7 +196,16 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/nested_structs.rust.parquet"
-            order_qt_test_24 """ select * from HDFS(
+            // This fixture labels nanosecond-sized min/max values as TIMESTAMP_MICROS. Reject
+            // those out-of-range instants, but retain coverage for every valid nested column.
+            test {
+                sql """ select ul_observation_date from HDFS(
+                        "uri" = "${uri}",
+                        "hadoop.username" = "${hdfsUserName}",
+                        "format" = "parquet") limit 10; """
+                exception "Parquet dictionary entry"
+            }
+            order_qt_test_24 """ select * except (ul_observation_date) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet") limit 10; """
@@ -328,7 +337,8 @@ suite("test_hdfs_parquet_group0","external,hive,tvf,external_docker") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet"); """
-                exception "Unexpected end of stream"
+                // The native reader rejects the truncated fixed-width page before decoding values.
+                exception "Parquet fixed-width page has 364 uncompressed bytes, expected 400"
             }
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/lz4_raw_compressed.parquet"

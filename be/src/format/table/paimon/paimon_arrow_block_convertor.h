@@ -21,8 +21,8 @@
 
 namespace doris::paimon {
 
-class PaimonArrowWriteConverter final : public ArrowWriteConverter {
-public:
+class PaimonArrowBlockConvertor final : public ArrowBlockConvertor {
+protected:
     Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
                         const IColumn& column, const NullMap* null_map,
                         const std::shared_ptr<arrow::Field>& field,
@@ -30,6 +30,6 @@ public:
                         const cctz::time_zone& ctz) const override;
 };
 
-const PaimonArrowWriteConverter& paimon_arrow_write_converter();
+const PaimonArrowBlockConvertor& paimon_arrow_block_convertor();
 
 } // namespace doris::paimon

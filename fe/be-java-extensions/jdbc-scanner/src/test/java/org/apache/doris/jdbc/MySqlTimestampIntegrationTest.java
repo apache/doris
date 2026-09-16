@@ -65,7 +65,8 @@ class MySqlTimestampIntegrationTest {
         TimeZone original = TimeZone.getDefault();
         URL driverUrl = new File(System.getProperty("mysql.integration.driverJar")).toURI().toURL();
         try (URLClassLoader loader = new URLClassLoader(new URL[] {driverUrl}, getClass().getClassLoader())) {
-            Driver driver = (Driver) loader.loadClass("com.mysql.cj.jdbc.Driver").getDeclaredConstructor().newInstance();
+            Driver driver = (Driver) loader.loadClass(System.getProperty("mysql.integration.driverClass",
+                    "com.mysql.cj.jdbc.Driver")).getDeclaredConstructor().newInstance();
             for (String jvmZone : new String[] {"Asia/Shanghai", "UTC", "America/New_York"}) {
                 TimeZone.setDefault(TimeZone.getTimeZone(jvmZone));
                 for (String sessionZone : new String[] {"+00:00", "+08:00"}) {

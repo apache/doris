@@ -17,9 +17,11 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.Type;
@@ -42,6 +44,7 @@ import org.apache.doris.system.Backend;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Range;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
@@ -78,6 +81,7 @@ import java.nio.ByteBuffer;
 import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -92,6 +96,105 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergUtilsTest {
+    @Test
+    public void testTimestampPredicateLiteralAlreadyContainsUtcFields() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (LocalDateTime utc : Arrays.asList(
+                        LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000),
+                        LocalDateTime.of(2021, 11, 7, 5, 30, 0, 123456000),
+                        LocalDateTime.of(2021, 11, 7, 6, 30, 0, 123456000))) {
+                    // Planner TIMESTAMPTZ literals are UTC instants, even in non-UTC sessions.
+                    DateLiteral literal = new DateLiteral(utc, ScalarType.createTimeStampTzType(6));
+                    long micros = utc.toEpochSecond(ZoneOffset.UTC) * 1_000_000 + utc.getNano() / 1000;
+                    Assert.assertEquals(micros,
+                            IcebergUtils.extractDorisLiteral(Types.TimestampType.withZone(), literal));
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTimestampTransformRangesUseUtc() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            List<Column> columns = Collections.singletonList(
+                    new Column("ts", ScalarType.createTimeStampTzType(6)));
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (String transform : Arrays.asList("hour", "day", "month", "year")) {
+                    // Iceberg transform ordinals describe UTC boundaries, not session-local time.
+                    Range<PartitionKey> range = IcebergUtils.getPartitionRange("0", transform, columns);
+                    Assert.assertEquals(0, range.lowerEndpoint().getKeys().get(0).compareLiteral(
+                            new DateLiteral(1970, 1, 1, 0, 0, 0, 0, columns.get(0).getType())));
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testYearZeroTransformRangeUsesProlepticYear() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        context.getSessionVariable().setTimeZone("UTC");
+        try {
+            for (ScalarType type : Arrays.asList(ScalarType.createDateV2Type(),
+                    ScalarType.createDatetimeV2Type(6), ScalarType.createTimeStampTzType(6))) {
+                List<Column> columns = Collections.singletonList(new Column("ts", type));
+                // Year-of-era formatting would map both year zero and year one to 0001.
+                Range<PartitionKey> range = IcebergUtils.getPartitionRange("-1970", "year", columns);
+                Assert.assertFalse(range.isEmpty());
+                Assert.assertEquals(0L, ((DateLiteral) range.lowerEndpoint().getKeys().get(0)).getYear());
+                Assert.assertEquals(1L, ((DateLiteral) range.upperEndpoint().getKeys().get(0)).getYear());
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTimestampTransformNullRange() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            List<Column> columns = Collections.singletonList(
+                    new Column("ts", ScalarType.createTimeStampTzType(6)));
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                Range<PartitionKey> nullRange = IcebergUtils.getPartitionRange(null, "day", columns);
+                Assert.assertFalse(nullRange.isEmpty());
+                Assert.assertTrue(nullRange.upperEndpoint().compareTo(
+                        IcebergUtils.getPartitionRange("0", "day", columns).lowerEndpoint()) < 0);
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
     @Test
     public void testTimestampPartitionSerializationRoundTrip() {
         ConnectContext previous = ConnectContext.get();

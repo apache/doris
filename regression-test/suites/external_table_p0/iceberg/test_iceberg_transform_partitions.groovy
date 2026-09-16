@@ -23,6 +23,9 @@ suite("test_iceberg_transform_partitions", "p0,external,doris,external_docker,ex
         return
     }
 
+    // Iceberg instant columns use TIMESTAMPTZ; pin the display zone for typed snapshots.
+    sql """set time_zone = 'Asia/Shanghai'"""
+
     String catalog_name = "test_iceberg_transform_partitions"
     String db_name = "transform_partition_db"
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")

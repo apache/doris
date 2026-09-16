@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/table/paimon/paimon_arrow_write_converter.h"
+#include "format/table/paimon/paimon_arrow_block_convertor.h"
 
 #include <arrow/array/builder_base.h>
 #include <arrow/type.h>
@@ -23,7 +23,7 @@
 namespace doris::paimon {
 #include "common/compile_check_begin.h"
 
-Status PaimonArrowWriteConverter::write_column(const std::shared_ptr<const IDataType>& type,
+Status PaimonArrowBlockConvertor::write_column(const std::shared_ptr<const IDataType>& type,
                                                const DataTypeSerDe& serde, const IColumn& column,
                                                const NullMap* null_map,
                                                const std::shared_ptr<arrow::Field>& field,
@@ -36,8 +36,8 @@ Status PaimonArrowWriteConverter::write_column(const std::shared_ptr<const IData
                                               start, end, ctz);
 }
 
-const PaimonArrowWriteConverter& paimon_arrow_write_converter() {
-    static const PaimonArrowWriteConverter converter;
+const PaimonArrowBlockConvertor& paimon_arrow_block_convertor() {
+    static const PaimonArrowBlockConvertor converter;
     return converter;
 }
 

@@ -19,6 +19,8 @@ suite("test_iceberg_statistics", "p0,external,doris,external_docker,external_doc
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
+            // TIMESTAMPTZ statistics retain their offset and must not depend on the runner's zone.
+            sql """set time_zone = 'Asia/Shanghai'"""
             String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
             String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -39,6 +41,7 @@ suite("test_iceberg_statistics", "p0,external,doris,external_docker,external_doc
             def result = sql """show frontends;"""
             logger.info("Frontends info: " + result)
 
+            def catalog_id = get_catalog_id(catalog_name)
             def table_id_mor = get_table_id(catalog_name, db_name, "sample_mor_parquet")
             def table_id_cow = get_table_id(catalog_name, db_name, "sample_cow_parquet")
 
@@ -47,9 +50,10 @@ suite("test_iceberg_statistics", "p0,external,doris,external_docker,external_doc
             sql """analyze table sample_mor_parquet with sync"""
             sql """analyze table sample_cow_parquet with sync"""
 
-            // select
-            def s1 = """select col_id,count,ndv,null_count,min,max,data_size_in_bytes from internal.__internal_schema.column_statistics where tbl_id = ${table_id_mor} order by id;"""
-            def s2 = """select col_id,count,ndv,null_count,min,max,data_size_in_bytes from internal.__internal_schema.column_statistics where tbl_id = ${table_id_cow} order by id;"""
+            // External table IDs can recur across catalogs; stale statistics from a dropped
+            // catalog must not make a rerun depend on asynchronous statistics cleanup.
+            def s1 = """select col_id,count,ndv,null_count,min,max,data_size_in_bytes from internal.__internal_schema.column_statistics where catalog_id = '${catalog_id}' and tbl_id = '${table_id_mor}' order by id;"""
+            def s2 = """select col_id,count,ndv,null_count,min,max,data_size_in_bytes from internal.__internal_schema.column_statistics where catalog_id = '${catalog_id}' and tbl_id = '${table_id_cow}' order by id;"""
 
             qt_s1 s1
             qt_s2 s2

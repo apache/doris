@@ -36,10 +36,6 @@ public:
 
 protected:
     Status _parse_schema(std::shared_ptr<arrow::Schema>* schema) override;
-
-private:
-    const std::string* _iceberg_schema_json;
-    const iceberg::Schema& _iceberg_schema;
 };
 
 } // namespace doris

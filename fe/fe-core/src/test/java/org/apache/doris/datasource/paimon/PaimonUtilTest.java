@@ -57,6 +57,8 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -192,6 +194,27 @@ public class PaimonUtilTest {
         Assert.assertTrue(writeType.getFields().get(0).getType().isVariantType());
         Assert.assertTrue(((ArrayType) writeType.getFields().get(1).getType())
                 .getItemType().isVariantType());
+    }
+
+    @Test
+    public void testLtzPartitionValuesRetainInstantsAcrossTimeZones() {
+        Table table = mockPartitionTable(Collections.emptyMap(),
+                DataTypes.FIELD(0, "part", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
+        for (LocalDateTime utc : Arrays.asList(
+                LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000),
+                LocalDateTime.of(2021, 11, 7, 5, 30, 0, 123456000),
+                LocalDateTime.of(2021, 11, 7, 6, 30, 0, 123456000))) {
+            BinaryRow row = new BinaryRow(1);
+            BinaryRowWriter writer = new BinaryRowWriter(row);
+            writer.writeTimestamp(0, Timestamp.fromLocalDateTime(utc), 6);
+            writer.complete();
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                // Path literals need an explicit offset even when both DST instants display alike.
+                String value = PaimonUtil.getPartitionInfoMap(table, row, zone).get("part");
+                Assert.assertEquals(utc.toInstant(ZoneOffset.UTC),
+                        OffsetDateTime.parse(value.replace(' ', 'T')).toInstant());
+            }
+        }
     }
 
     @Test
