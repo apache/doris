@@ -3471,7 +3471,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true,
             description = "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. If false, "
                     + "use the legacy modulo placement. Restart-only.")
-    public static boolean enable_cloud_colocate_consistent_hash = true;
+    public static boolean enable_cloud_colocate_consistent_hash = false;
 
     @ConfField(mutable = true, description = "Whether to enable the automatic start-stop feature in cloud model, "
             + "default is true.")
