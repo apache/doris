@@ -72,7 +72,9 @@ struct AIResource {
         buf.write_binary(retry_delay_second);
         buf.write_binary(anthropic_version);
         buf.write_binary(dimensions);
-        buf.write_binary(effort);
+        if (!effort.empty()) {
+            buf.write_binary(effort);
+        }
     }
 
     void deserialize(BufferReadable& buf) {
@@ -86,7 +88,9 @@ struct AIResource {
         buf.read_binary(retry_delay_second);
         buf.read_binary(anthropic_version);
         buf.read_binary(dimensions);
-        buf.read_binary(effort);
+        if (buf.has_remaining()) {
+            buf.read_binary(effort);
+        }
     }
 
 private:

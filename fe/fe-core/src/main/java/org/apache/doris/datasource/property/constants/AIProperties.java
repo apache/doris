@@ -63,8 +63,12 @@ public class AIProperties extends BaseProperties {
     public static final List<String> PROVIDERS
             = Arrays.asList("OPENAI", "LOCAL", "GEMINI", "DEEPSEEK", "ANTHROPIC",
             "MOONSHOT", "QWEN", "MINIMAX", "ZHIPU", "BAICHUAN", "VOYAGEAI", "JINA");
-    public static final List<String> EFFORT_LEVELS =
+    private static final List<String> ALL_EFFORT_LEVELS =
             Arrays.asList("none", "minimal", "low", "medium", "high", "xhigh", "max");
+    private static final List<String> ANTHROPIC_EFFORT_LEVELS =
+            Arrays.asList("low", "medium", "high", "xhigh", "max");
+    private static final List<String> GEMINI_EFFORT_LEVELS =
+            Arrays.asList("minimal", "low", "medium", "high");
 
     public static void requiredAIProperties(Map<String, String> properties) throws DdlException {
         boolean hasGeneralProperties = hasAnyProperty(properties, REQUIRED_FIELDS, API_KEY);
@@ -81,8 +85,18 @@ public class AIProperties extends BaseProperties {
         }
 
         String effort = properties.get(EFFORT);
-        if (!Strings.isNullOrEmpty(effort) && !EFFORT_LEVELS.contains(effort)) {
-            throw new DdlException("[" + EFFORT + "] must be one of " + EFFORT_LEVELS);
+        if (!Strings.isNullOrEmpty(effort)) {
+            String providerType = properties.get(PROVIDER_TYPE);
+            List<String> effortLevels = ALL_EFFORT_LEVELS;
+            if ("ANTHROPIC".equals(providerType)) {
+                effortLevels = ANTHROPIC_EFFORT_LEVELS;
+            } else if ("GEMINI".equals(providerType)) {
+                effortLevels = GEMINI_EFFORT_LEVELS;
+            }
+            if (!effortLevels.contains(effort)) {
+                throw new DdlException("[" + EFFORT + "] must be one of " + effortLevels
+                        + " for provider: " + providerType);
+            }
         }
 
         // Check weather the 'temperature' is valid

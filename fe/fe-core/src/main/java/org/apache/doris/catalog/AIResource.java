@@ -125,24 +125,24 @@ public class AIResource extends Resource {
             LOG.debug("AI resource need check validity: {}", needCheck);
         }
 
+        Map<String, String> changedProperties = new HashMap<>(this.properties);
+        for (Map.Entry<String, String> kv : properties.entrySet()) {
+            replaceIfEffectiveValue(changedProperties, kv.getKey(), kv.getValue());
+            if (kv.getKey().equals(AIProperties.API_KEY)
+                    || kv.getKey().equals(AIProperties.EMBED_API_KEY)) {
+                changedProperties.put(kv.getKey(), kv.getValue());
+            } else if (kv.getKey().equals(AIProperties.EFFORT)
+                    && Strings.isNullOrEmpty(kv.getValue())) {
+                changedProperties.remove(kv.getKey());
+            }
+        }
         if (needCheck) {
-            Map<String, String> changedProperties = new HashMap<>(this.properties);
-            changedProperties.putAll(properties);
             AIProperties.requiredAIProperties(changedProperties);
         }
 
         // modify properties
         writeLock();
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
-            replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
-            if (kv.getKey().equals(AIProperties.API_KEY)
-                    || kv.getKey().equals(AIProperties.EMBED_API_KEY)) {
-                this.properties.put(kv.getKey(), kv.getValue());
-            } else if (kv.getKey().equals(AIProperties.EFFORT)
-                    && Strings.isNullOrEmpty(kv.getValue())) {
-                this.properties.remove(kv.getKey());
-            }
-        }
+        this.properties = changedProperties;
         ++version;
         writeUnlock();
         super.modifyProperties(properties);

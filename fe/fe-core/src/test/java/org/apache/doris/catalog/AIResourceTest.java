@@ -57,7 +57,9 @@ import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class AIResourceTest {
@@ -378,15 +380,86 @@ public class AIResourceTest {
     }
 
     @Test
-    public void testValidEffortIsForwarded() throws DdlException {
-        for (String effort : AIProperties.EFFORT_LEVELS) {
+    public void testOpenAiDeepSeekAndQwenAcceptAllEffortLevels() throws DdlException {
+        List<String> providers = Arrays.asList("OPENAI", "DEEPSEEK", "QWEN");
+        List<String> effortLevels = Arrays.asList("none", "minimal", "low", "medium", "high", "xhigh", "max");
+        for (String provider : providers) {
+            for (String effort : effortLevels) {
+                Map<String, String> properties = new HashMap<>(aiProperties);
+                properties.put(AIProperties.PROVIDER_TYPE, provider);
+                properties.put(AIProperties.EFFORT, effort);
+
+                AIResource aiResource = new AIResource("effort-resource");
+                aiResource.setProperties(ImmutableMap.copyOf(properties));
+
+                Assertions.assertEquals(effort, aiResource.toThrift().getEffort());
+            }
+        }
+    }
+
+    @Test
+    public void testAnthropicEffortLevels() throws DdlException {
+        for (String effort : Arrays.asList("low", "medium", "high", "xhigh", "max")) {
             Map<String, String> properties = new HashMap<>(aiProperties);
+            properties.put(AIProperties.PROVIDER_TYPE, "ANTHROPIC");
             properties.put(AIProperties.EFFORT, effort);
 
             AIResource aiResource = new AIResource("effort-resource");
             aiResource.setProperties(ImmutableMap.copyOf(properties));
 
             Assertions.assertEquals(effort, aiResource.toThrift().getEffort());
+        }
+
+        for (String effort : Arrays.asList("none", "minimal")) {
+            Map<String, String> properties = new HashMap<>(aiProperties);
+            properties.put(AIProperties.PROVIDER_TYPE, "ANTHROPIC");
+            properties.put(AIProperties.EFFORT, effort);
+
+            AIResource aiResource = new AIResource("invalid-anthropic-effort-resource");
+            Assertions.assertThrows(DdlException.class,
+                    () -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
+        }
+    }
+
+    @Test
+    public void testGeminiEffortLevels() throws DdlException {
+        for (String effort : Arrays.asList("minimal", "low", "medium", "high")) {
+            Map<String, String> properties = new HashMap<>(aiProperties);
+            properties.put(AIProperties.PROVIDER_TYPE, "GEMINI");
+            properties.put(AIProperties.EFFORT, effort);
+
+            AIResource aiResource = new AIResource("effort-resource");
+            aiResource.setProperties(ImmutableMap.copyOf(properties));
+
+            Assertions.assertEquals(effort, aiResource.toThrift().getEffort());
+        }
+
+        for (String effort : Arrays.asList("none", "xhigh", "max")) {
+            Map<String, String> properties = new HashMap<>(aiProperties);
+            properties.put(AIProperties.PROVIDER_TYPE, "GEMINI");
+            properties.put(AIProperties.EFFORT, effort);
+
+            AIResource aiResource = new AIResource("invalid-gemini-effort-resource");
+            Assertions.assertThrows(DdlException.class,
+                    () -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
+        }
+    }
+
+    @Test
+    public void testOtherProvidersAcceptAllEffortLevels() throws DdlException {
+        List<String> providers = Arrays.asList("LOCAL", "MOONSHOT", "MINIMAX", "ZHIPU", "BAICHUAN", "VOYAGEAI", "JINA");
+        List<String> effortLevels = Arrays.asList("none", "minimal", "low", "medium", "high", "xhigh", "max");
+        for (String provider : providers) {
+            for (String effort : effortLevels) {
+                Map<String, String> properties = new HashMap<>(aiProperties);
+                properties.put(AIProperties.PROVIDER_TYPE, provider);
+                properties.put(AIProperties.EFFORT, effort);
+
+                AIResource aiResource = new AIResource("effort-resource");
+                aiResource.setProperties(ImmutableMap.copyOf(properties));
+
+                Assertions.assertEquals(effort, aiResource.toThrift().getEffort());
+            }
         }
     }
 
@@ -522,6 +595,38 @@ public class AIResourceTest {
 
         Assertions.assertEquals("new_api_key", aiResource.getProperty(AIProperties.API_KEY));
         Assertions.assertEquals("0.9", aiResource.getProperty(AIProperties.TEMPERATURE));
+    }
+
+    @Test
+    public void testModifyPropertiesPersistsNormalizedProviders() throws Exception {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put(AIProperties.VALIDITY_CHECK, "true");
+        properties.put(AIProperties.EMBED_ENDPOINT, "https://api.openai.com/v1/embeddings");
+        properties.put(AIProperties.EMBED_PROVIDER_TYPE, "openai");
+        properties.put(AIProperties.EMBED_MODEL_NAME, "text-embedding-3-small");
+        properties.put(AIProperties.EMBED_API_KEY, "embed-api-key");
+        properties.put(AIProperties.DIMENSIONS, "8");
+
+        AIResource aiResource = new AIResource("normalized-provider-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(properties));
+        aiResource.modifyProperties(ImmutableMap.of(
+                AIProperties.PROVIDER_TYPE, "openai",
+                AIProperties.EMBED_PROVIDER_TYPE, "qwen"));
+
+        Assertions.assertEquals("OPENAI", aiResource.getProperty(AIProperties.PROVIDER_TYPE));
+        Assertions.assertEquals("QWEN", aiResource.getProperty(AIProperties.EMBED_PROVIDER_TYPE));
+        Assertions.assertEquals("OPENAI", aiResource.toThrift().getProviderType());
+        Assertions.assertEquals("QWEN", aiResource.toThrift().getEmbedProviderType());
+
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        aiResource.write(new DataOutputStream(bytes));
+        AIResource restoredResource = (AIResource) Resource.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+
+        Assertions.assertEquals("OPENAI", restoredResource.getProperty(AIProperties.PROVIDER_TYPE));
+        Assertions.assertEquals("QWEN", restoredResource.getProperty(AIProperties.EMBED_PROVIDER_TYPE));
+        Assertions.assertEquals("OPENAI", restoredResource.toThrift().getProviderType());
+        Assertions.assertEquals("QWEN", restoredResource.toThrift().getEmbedProviderType());
     }
 
     @Test
