@@ -598,6 +598,31 @@ public class LocalShuffleNodeCoverageTest {
     }
 
     @Test
+    public void testNestedLoopJoinPreservesProbeStorageHashType() {
+        TrackingPlanNode identityProbe = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.IDENTITY;
+            }
+        };
+        TrackingPlanNode crc32Build = new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return HashDistributionInfo.HashType.CRC32;
+            }
+        };
+        NestedLoopJoinNode nestedLoopJoin = new NestedLoopJoinNode(nextPlanNodeId(), identityProbe, crc32Build,
+                Lists.newArrayList(new TupleId(NEXT_ID.getAndIncrement())), JoinOperator.CROSS_JOIN, false);
+
+        Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
+                nestedLoopJoin.getStorageDistributionHashType());
+        LocalExchangeNode bucketExchange = new LocalExchangeNode(nextPlanNodeId(), nestedLoopJoin,
+                LocalExchangeType.BUCKET_HASH_SHUFFLE, Collections.emptyList());
+        Assertions.assertEquals(HashDistributionInfo.HashType.IDENTITY,
+                bucketExchange.getStorageDistributionHashType());
+    }
+
+    @Test
     public void testNestedLoopJoinNodeBranches() {
         PlanTranslatorContext ctx = new PlanTranslatorContext();
         List<TupleId> tupleIds = Lists.newArrayList(new TupleId(NEXT_ID.getAndIncrement()));

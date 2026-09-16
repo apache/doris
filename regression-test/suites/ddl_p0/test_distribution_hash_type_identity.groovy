@@ -577,4 +577,76 @@ suite("test_distribution_hash_type_identity") {
         contains "INNER JOIN(BUCKET_SHUFFLE)"
     }
     order_qt_identity_set_operation_join "${setOperationJoinSql}"
+
+
+    // ---------------------------------------------------------------------
+    // 9. Nested-loop join preserves the probe-side IDENTITY bucket layout.
+    //    The CRC32 build side is broadcast and does not repartition probe rows. Feed the NLJ output
+    //    into an IDENTITY bucket-shuffle join and verify both BE-native and FE-planned local exchange
+    //    paths keep matching rows in the destination buckets.
+    // ---------------------------------------------------------------------
+    sql "DROP TABLE IF EXISTS test_identity_nlj_probe"
+    sql "DROP TABLE IF EXISTS test_identity_nlj_build"
+    sql "DROP TABLE IF EXISTS test_identity_nlj_bucket"
+
+    sql """
+        CREATE TABLE test_identity_nlj_probe (
+            id BIGINT NOT NULL,
+            v INT NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 8
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        )
+    """
+    sql """
+        CREATE TABLE test_identity_nlj_build (
+            threshold INT NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(threshold)
+        DISTRIBUTED BY HASH(threshold) BUCKETS 3
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql """
+        CREATE TABLE test_identity_nlj_bucket (
+            id BIGINT NOT NULL,
+            w INT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 7
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        )
+    """
+
+    sql "INSERT INTO test_identity_nlj_probe VALUES (1, 1), (7, 7), (8, 8), (99, 99)"
+    sql "INSERT INTO test_identity_nlj_build VALUES (10)"
+    sql "INSERT INTO test_identity_nlj_bucket VALUES (1, 10), (7, 70), (8, 80), (100, 1000)"
+
+    def nljThenBucketSql = """
+        SELECT p.id, p.v, r.w
+        FROM (
+            SELECT a.id, a.v
+            FROM test_identity_nlj_probe a
+            JOIN [broadcast] test_identity_nlj_build b ON a.v < b.threshold
+        ) p
+        JOIN [shuffle] test_identity_nlj_bucket r ON p.id = r.id
+    """
+
+    sql "set enable_nereids_planner = true"
+    sql "set enable_bucket_shuffle_join = true"
+    sql "set bucket_shuffle_downgrade_ratio = 0"
+    explain {
+        sql(nljThenBucketSql)
+        contains "NESTED LOOP JOIN"
+        contains "INNER JOIN(BUCKET_SHUFFLE)"
+    }
+
+    sql "set enable_local_shuffle_planner = false"
+    order_qt_identity_nlj_then_bucket_native "${nljThenBucketSql}"
+    sql "set enable_local_shuffle_planner = true"
+    order_qt_identity_nlj_then_bucket_fe "${nljThenBucketSql}"
 }
