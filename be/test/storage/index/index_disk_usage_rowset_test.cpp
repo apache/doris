@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -24,6 +25,7 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
+#include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "storage/index/index_disk_usage.h"
 #include "storage/index/index_writer.h"
@@ -134,14 +136,45 @@ TEST_F(IndexDiskUsageRowsetTest, RowCountFallsBackToSegmentFooters) {
     // Rowsets written before per-segment row counts were persisted have none in their meta.
     rowset->rowset_meta()->set_num_segment_rows({});
 
+    TUniqueId query_id;
+    query_id.hi = 7;
+    query_id.lo = 9;
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.query_id = &query_id;
+    IndexDiskUsageOptions options;
+    options.io_ctx = &io_ctx;
+
+    // The footer reads carry the query context like the index file reads do.
+    int footer_reads = 0;
+    int footer_reads_with_context = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->enable_processing();
     std::vector<IndexDiskUsageRow> rows;
-    const Status st = collect_rowset_index_disk_usage(rowset, IndexDiskUsageOptions {},
-                                                      /*tablet_id=*/1001, &rows);
+    Status st;
+    {
+        SyncPoint::CallbackGuard guard;
+        sync_point->set_call_back(
+                "Segment::_parse_footer::io_ctx",
+                [&](auto&& args) {
+                    const auto* ctx = try_any_cast<io::IOContext*>(args[0]);
+                    ++footer_reads;
+                    if (ctx->reader_type == ReaderType::READER_QUERY &&
+                        ctx->query_id == &query_id) {
+                        ++footer_reads_with_context;
+                    }
+                },
+                &guard);
+        st = collect_rowset_index_disk_usage(rowset, options, /*tablet_id=*/1001, &rows);
+    }
+    sync_point->disable_processing();
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_FALSE(rows.empty());
     for (const auto& row : rows) {
         EXPECT_EQ(8, row.row_count) << "index " << row.record.index_id;
     }
+    EXPECT_GT(footer_reads, 0);
+    EXPECT_EQ(footer_reads, footer_reads_with_context);
 }
 
 // A failed footer read must not stay cached in the rowset, where later queries and compactions
