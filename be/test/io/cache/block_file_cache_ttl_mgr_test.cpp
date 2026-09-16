@@ -224,6 +224,14 @@ protected:
         ASSERT_TRUE(_cache->initialize());
         ASSERT_TRUE(wait_for_condition([this]() { return _cache->get_async_open_success(); },
                                        std::chrono::seconds(5)));
+
+        // initialize() starts a TTL manager of its own against this cache. Every case below
+        // drives one it owns, and two of them converting the same blocks makes both the
+        // conversions and the scan counts nondeterministic -- a block can be demoted before
+        // the case has finished setting up the state it means to exercise.
+        if (auto* cache_owned_ttl_mgr = _cache->get_ttl_mgr()) {
+            cache_owned_ttl_mgr->stop();
+        }
     }
 
     void TearDown() override {
@@ -664,9 +672,11 @@ TEST_F(BlockFileCacheTtlMgrTest, ExpiredTabletDemotesTtlBlocksRestoredFromDisk) 
     UInt128Wrapper hash;
     auto block = create_block(kTabletId, "ttl-restored-expired", 0, 1024, &hash, FileCacheType::TTL,
                               expiration_time);
+    // Asserted before the block is published to the meta store: a scan can only reach a block
+    // that is listed there, so until then no manager can convert it out from under us.
+    ASSERT_EQ(FileCacheType::TTL, block->cache_type());
     persist_block_meta(kTabletId, hash, block->range().left, block->range().size(),
                        FileCacheType::TTL, expiration_time);
-    ASSERT_EQ(FileCacheType::TTL, block->cache_type());
 
     _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(_cache.get(), _meta_store.get());
     _ttl_mgr->register_tablet_id(kTabletId);
@@ -702,9 +712,11 @@ TEST_F(BlockFileCacheTtlMgrTest, ExpiredTabletDemotesTtlBlocksCachedAfterDemotio
     UInt128Wrapper late_hash;
     auto late_block = create_block(kTabletId, "ttl-expire-then-cache-late", 0, 1024, &late_hash,
                                    FileCacheType::TTL, expiration_time);
+    // Same ordering as above, and here it matters: the manager is running by this point and
+    // sweeps this tablet every round, so publishing first would race the assertion.
+    ASSERT_EQ(FileCacheType::TTL, late_block->cache_type());
     persist_block_meta(kTabletId, late_hash, late_block->range().left, late_block->range().size(),
                        FileCacheType::TTL, expiration_time);
-    ASSERT_EQ(FileCacheType::TTL, late_block->cache_type());
 
     EXPECT_TRUE(
             wait_for_condition([&]() { return late_block->cache_type() == FileCacheType::NORMAL; },
