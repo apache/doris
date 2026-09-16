@@ -388,11 +388,15 @@ public:
     // returns 0 for success otherwise error
     int recycle_expired_stage_objects();
 
-    // delete spill objects ("spill/" prefix of every storage vault) older than
-    // config::spill_objects_expire_time_second. They are left behind only by BEs that
-    // died and never restarted with the same backend_id.
+    // delete spill objects of this instance ("spill/{instance_id}/" prefix of every S3 storage
+    // vault) older than config::spill_objects_expire_time_second. They are left behind only by
+    // BEs that died and never restarted with the same backend_id.
     // returns 0 for success otherwise error
     int recycle_expired_spill_objects();
+
+    // "spill/{instance_id}/": the vault prefix under which BEs of this instance write spill.
+    // A vault may be shared by several instances; the recycler never touches another one's.
+    std::string spill_object_prefix() const;
 
     // scan and recycle operation logs
     // returns 0 for success otherwise error

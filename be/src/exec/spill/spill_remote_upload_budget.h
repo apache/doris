@@ -47,7 +47,8 @@ public:
 
     /// Block until `bytes` fits into the budget. A request larger than the whole budget is
     /// admitted once nothing else is in flight so a single oversized buffer cannot deadlock.
-    /// Returns Cancelled when `is_cancelled` (optional) reports true while waiting.
+    /// Returns Cancelled when `is_cancelled` (optional) reports true, before admitting on the
+    /// fast path or after any wait.
     /// `wait_ns` (optional) receives the time spent blocked.
     Status acquire(int64_t bytes, const std::function<bool()>& is_cancelled, int64_t* wait_ns);
 

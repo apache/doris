@@ -21,6 +21,7 @@
 
 #include <utility>
 
+#include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/config.h"
@@ -67,8 +68,8 @@ Status RemoteSpillDataDir::ensure_ready() {
         return Status::InternalError(
                 "spill to s3 is not ready: backend id is unknown, waiting for FE heartbeat");
     }
-    // Resolve from what is already known locally; never trigger a meta-service sync here.
-    // The vault refresh thread and the heartbeat fill these in, and callers retry.
+    // The vault is resolved from what the refresh thread already brought in; the instance id
+    // needs one GetInstance RPC (bounded by retry_rpc). Callers retry on failure.
     auto& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
     std::string vault_id = _vault_id.empty() ? engine.default_vault_id() : _vault_id;
     io::RemoteFileSystemSPtr fs =
@@ -84,14 +85,19 @@ Status RemoteSpillDataDir::ensure_ready() {
         return Status::NotSupported("spill to s3 only supports S3 storage vaults, vault '{}' is {}",
                                     vault_id, fs->type());
     }
-    init_remote_fs(fs, backend_id);
+    std::string instance_id;
+    RETURN_IF_ERROR(engine.meta_mgr().get_instance_id(&instance_id));
+    init_remote_fs(fs, std::move(instance_id), backend_id);
     return Status::OK();
 }
 
-void RemoteSpillDataDir::init_remote_fs(io::FileSystemSPtr fs, int64_t backend_id) {
+void RemoteSpillDataDir::init_remote_fs(io::FileSystemSPtr fs, std::string instance_id,
+                                        int64_t backend_id) {
+    DCHECK(!instance_id.empty());
     _fs = std::move(fs);
+    _instance_id = std::move(instance_id);
     _backend_id = backend_id;
-    _remote_be_root = fmt::format("{}/{}", SPILL_DIR_PREFIX, backend_id);
+    _remote_be_root = fmt::format("{}/{}/{}", SPILL_DIR_PREFIX, _instance_id, backend_id);
     _spill_root = get_remote_boot_data_path(std::to_string(_boot_id));
     _ready.store(true, std::memory_order_release);
     LOG(INFO) << fmt::format(
