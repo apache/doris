@@ -67,19 +67,31 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
     for (def layout : layouts) {
         hive_docker "DROP TABLE IF EXISTS csv_table_properties_db.${layout.table}"
         // Keep character settings ONLY in TBLPROPERTIES: SERDEPROPERTIES would hide the lookup bug.
-        // Hive ignores table-level line.delim for this SerDe; it must not turn payload pipes into records.
         hive_docker """
             CREATE TABLE csv_table_properties_db.${layout.table} (${layout.columns})
             ${layout.partitioned ? 'PARTITIONED BY (group_id INT)' : ''}
             ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
             STORED AS TEXTFILE
-            TBLPROPERTIES ('separatorChar'='s', 'quoteChar'='q', 'escapeChar'='e', 'line.delim'='|')
+            TBLPROPERTIES ('separatorChar'='s', 'quoteChar'='q', 'escapeChar'='e')
         """
         hive_docker """
             INSERT INTO csv_table_properties_db.${layout.table}
             ${layout.partitioned ? 'PARTITION (group_id)' : ''}
             SELECT ${layout.projection} FROM csv_table_properties_db.source_rows
         """
+
+        // Hive's text writer honors line.delim even though its CSV reader ignores it. Set this only
+        // after INSERT so the fixture keeps newline records and tests a read-side metadata override.
+        hive_docker """
+            ALTER TABLE csv_table_properties_db.${layout.table} SET TBLPROPERTIES ('line.delim'='|')
+        """
+        def sourceRows = hive_docker """
+            SELECT ${layout.projection} FROM csv_table_properties_db.source_rows ORDER BY label
+        """
+        def hiveRows = hive_docker """
+            SELECT ${layout.projection} FROM csv_table_properties_db.${layout.table} ORDER BY label
+        """
+        assertEquals(sourceRows, hiveRows, "Hive CSV fixture must preserve the source rows: ${layout.table}")
 
         sql "REFRESH DATABASE csv_table_properties_catalog.csv_table_properties_db"
 
