@@ -17,6 +17,9 @@
 
 suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_constant_hidden_column_statistics FORCE"
+    // MIN/MAX statistics pushdown on UNIQUE tables currently uses the merge-on-read plan with its
+    // delete-sign filter. Keep this suite on MOR so the explain assertions below prove that the
+    // hidden constant column reaches the statistics iterator.
     sql """
         CREATE TABLE test_constant_hidden_column_statistics (
             `k` INT NOT NULL,
@@ -26,12 +29,9 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         DISTRIBUTED BY HASH(`k`) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "true",
+            "enable_unique_key_merge_on_write" = "false",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "disable_auto_compaction" = "true"
         )
     """
 
@@ -158,8 +158,8 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         WHERE __DORIS_VERSION_COL__ > ${oldVersion}
         ORDER BY k
     """
-    // Case 5: a MOW upsert updates key 2 while leaving key 1 visible in the original rowset. Keeping one
-    // visible row in every rowset makes pushed and non-pushed MIN/MAX directly comparable.
+    // Case 5: a MOR upsert updates key 2 while leaving key 1 visible in the original rowset. Keeping
+    // one visible row in every rowset makes pushed and non-pushed MIN/MAX directly comparable.
     sql """
         INSERT INTO test_constant_hidden_column_statistics
             (k, v, c_default) VALUES (2, 200, 20)
