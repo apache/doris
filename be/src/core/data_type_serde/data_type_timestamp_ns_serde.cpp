@@ -118,7 +118,11 @@ Status DataTypeTimeStampNsSerDe::from_string_strict_mode_batch(
     auto& data = assert_cast<ColumnTimeStampNs&>(result).get_data();
     result.resize(strings.size());
     for (size_t i = 0; i < strings.size(); ++i) {
+        // A row marked as NULL is a hidden payload: skip it, but keep the destination at the default
+        // value of the type instead of leaving it uninitialized for consumers that ignore the NULL
+        // map.
         if (null_map != nullptr && null_map[i]) {
+            data[i] = TimeStampNsValue {};
             continue;
         }
         TimeStampNsValue value;

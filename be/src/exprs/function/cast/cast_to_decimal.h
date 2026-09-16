@@ -808,6 +808,7 @@ public:
                                     scale_multiplier, min_result, max_result, params)) {
                             if (set_nullable) {
                                 null_map_data[i] = 1;
+                                vec_to_data[i] = typename ToDataType::ColumnType::value_type {};
                             } else {
                                 return params.status;
                             }
@@ -894,6 +895,7 @@ public:
                         min_result, max_result, params)) {
                 if (set_nullable) {
                     null_map_data[i] = 1;
+                    vec_to_data[i] = typename ToDataType::ColumnType::value_type {};
                 } else {
                     return params.status;
                 }
@@ -1020,6 +1022,7 @@ public:
                                     params)) {
                             if (set_nullable) {
                                 null_map_data[i] = 1;
+                                vec_to_data[i] = typename ToDataType::ColumnType::value_type {};
                             } else {
                                 return params.status;
                             }
@@ -1134,6 +1137,7 @@ public:
                                     params)) {
                             if (set_nullable) {
                                 null_map_data[i] = 1;
+                                vec_to_data[i] = typename ToDataType::ColumnType::value_type {};
                             } else {
                                 return params.status;
                             }

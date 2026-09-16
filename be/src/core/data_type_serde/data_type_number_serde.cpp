@@ -1677,7 +1677,11 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
     CastParameters params;
     params.is_strict = true;
     for (size_t i = 0; i < size; ++i) {
+        // A row marked as NULL is a hidden payload: skip it, but keep the destination at the default
+        // value of the type instead of leaving it uninitialized for consumers that ignore the NULL
+        // map.
         if (null_map && null_map[i]) {
+            vec_to[i] = typename ColumnType::value_type {};
             continue;
         }
         const auto str_ref = str.get_data_at(i);
