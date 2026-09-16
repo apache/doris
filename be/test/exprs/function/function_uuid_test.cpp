@@ -42,6 +42,15 @@ TEST(function_uuid_test, function_is_uuid_test) {
             {{STRING("6ccd780cbaba102695645b8c656024dz")}, BOOLEAN(0)},
             {{STRING("6ccd780cbaba102")}, BOOLEAN(0)},
             {{STRING("{6ccd780cbaba102}")}, BOOLEAN(0)},
+            // A 36 characters long string must use the 8-4-4-4-12 layout: dashes are required at
+            // the four fixed positions, they can not be replaced by hex digits.
+            {{STRING("000000000000000000000000000000000000")}, BOOLEAN(0)},
+            {{STRING("abcdefabcdefabcdefabcdefabcdefabcdef")}, BOOLEAN(0)},
+            {{STRING("00000000-000000000000000000000000000")}, BOOLEAN(0)},
+            {{STRING("0000000-00000-0000-0000-000000000000")}, BOOLEAN(0)},
+            {{STRING("00000000-0000-0000-00000000000000000")}, BOOLEAN(0)},
+            {{STRING("{000000000000000000000000000000000000}")}, BOOLEAN(0)},
+            {{STRING("00000000000000000000000000000000")}, BOOLEAN(1)},
             {{Null()}, Null()},
     };
 

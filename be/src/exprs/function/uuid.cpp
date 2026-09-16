@@ -353,16 +353,16 @@ struct IsUuidImpl {
 
     static bool is_uuid_with_dash(const char* src, const char* end) {
         size_t str_size = end - src;
-        for (int i = 0; i < str_size; ++i) {
-            if (!is_hex_ascii(src[i])) {
-                if (i == dash_positions[0] || i == dash_positions[1] || i == dash_positions[2] ||
-                    i == dash_positions[3]) {
-                    if (src[i] != '-') {
-                        return false;
-                    }
-                } else {
+        for (size_t i = 0; i < str_size; ++i) {
+            if (i == dash_positions[0] || i == dash_positions[1] || i == dash_positions[2] ||
+                i == dash_positions[3]) {
+                // The four separators must be dashes at the fixed positions of the
+                // 8-4-4-4-12 layout, hex digits are not accepted here.
+                if (src[i] != '-') {
                     return false;
                 }
+            } else if (!is_hex_ascii(src[i])) {
+                return false;
             }
         }
         return true;
