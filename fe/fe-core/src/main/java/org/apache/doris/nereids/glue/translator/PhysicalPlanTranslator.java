@@ -642,11 +642,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         sink.setCols(paimonTableSink.getCols());
         rootFragment.setSink(sink);
         sink.setOutputExprs(outputExprs);
-        try {
-            sink.prepareBackendDecision();
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage(), e);
-        }
+        sink.prepareBackendDecision(paimonTableSink.supportsNativeRowRouting());
         if (paimonTableSink.requiresSingleWriter()) {
             rootFragment.setForceSingleInstance();
         }

@@ -34,13 +34,10 @@ class RuntimeState;
 /// Each PaimonTableSinkLocalState owns one PaimonTableWriter, which in turn
 /// owns one IPaimonWriteBackend and one IPaimonWriter. Pipeline parallelism
 /// therefore determines the number of independent Paimon writer sessions;
-/// each writer session delegates routing to the selected backend. JNI performs
-/// row-level partition and bucket routing; native C++ currently accepts only
-/// batches which need no partition or bucket routing.
-///
-/// The common writer passes projected Blocks through without computing Paimon
-/// partition values or bucket ids. Capability selection therefore keeps those
-/// writes on JNI until the native adapter implements equivalent grouping.
+/// each writer session consumes the ownership established by the shared Doris
+/// Paimon router. JNI retains SDK routing for modes with stateful assigners;
+/// native C++ groups concurrently routable rows with the same Doris routing
+/// primitives used by the exchange partitioner.
 ///
 /// Architecture:
 ///   PaimonTableSinkOperatorX

@@ -1,0 +1,76 @@
+Based on official paimon-cpp v0.3.0. Extend BinaryRowPartitionComputer to
+the FLOAT, DOUBLE and BINARY primitive partition types already supported by
+Doris' Paimon row router.
+
+diff --git a/src/paimon/common/utils/data_converter_utils.h b/src/paimon/common/utils/data_converter_utils.h
+--- a/src/paimon/common/utils/data_converter_utils.h
++++ b/src/paimon/common/utils/data_converter_utils.h
+@@ -38,6 +38,7 @@
+ #include "paimon/common/utils/string_utils.h"
+ #include "paimon/core/casting/date_to_string_cast_executor.h"
+ #include "paimon/defs.h"
++#include "paimon/memory/bytes.h"
+ #include "paimon/predicate/literal.h"
+ #include "paimon/result.h"
+ #include "paimon/status.h"
+@@ -116,6 +117,34 @@
+                     return Status::OK();
+                 };
+                 break;
++            case arrow::Type::FLOAT:
++                converter = [](const std::string& value_str, int32_t field_idx,
++                               BinaryRowWriter* writer) {
++                    auto value = StringUtils::StringToValue<float>(value_str);
++                    RETURN_INVALID_WITH_FIELD_INFO(value, field_idx, value_str,
++                                                   arrow::internal::ToString(arrow::Type::FLOAT));
++                    writer->WriteFloat(field_idx, value.value());
++                    return Status::OK();
++                };
++                break;
++            case arrow::Type::DOUBLE:
++                converter = [](const std::string& value_str, int32_t field_idx,
++                               BinaryRowWriter* writer) {
++                    auto value = StringUtils::StringToValue<double>(value_str);
++                    RETURN_INVALID_WITH_FIELD_INFO(value, field_idx, value_str,
++                                                   arrow::internal::ToString(arrow::Type::DOUBLE));
++                    writer->WriteDouble(field_idx, value.value());
++                    return Status::OK();
++                };
++                break;
++            case arrow::Type::BINARY:
++                converter = [pool](const std::string& value_str, int32_t field_idx,
++                                   BinaryRowWriter* writer) {
++                    Bytes value(value_str, pool);
++                    writer->WriteBinary(field_idx, value);
++                    return Status::OK();
++                };
++                break;
+             case arrow::Type::STRING:
+                 converter = [pool](const std::string& value_str, int32_t field_idx,
+                                    BinaryRowWriter* writer) {
+@@ -176,6 +205,25 @@
+                     return std::to_string(data);
+                 };
+                 break;
++            case arrow::Type::FLOAT:
++                converter = [](const BinaryRow& row, int32_t field_idx) {
++                    return fmt::format("{}", row.GetFloat(field_idx));
++                };
++                break;
++            case arrow::Type::DOUBLE:
++                converter = [](const BinaryRow& row, int32_t field_idx) {
++                    return fmt::format("{}", row.GetDouble(field_idx));
++                };
++                break;
++            case arrow::Type::BINARY:
++                converter = [](const BinaryRow& row, int32_t field_idx) {
++                    auto data = row.GetBinary(field_idx);
++                    if (data == nullptr) {
++                        return std::string();
++                    }
++                    return std::string(data->data(), data->size());
++                };
++                break;
+             case arrow::Type::STRING:
+                 converter = [](const BinaryRow& row, int32_t field_idx) {
+                     BinaryString data = row.GetString(field_idx);

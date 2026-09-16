@@ -19,6 +19,8 @@
 
 #include <arrow/api.h>
 #include <arrow/c/bridge.h>
+#include <arrow/compute/api_vector.h>
+#include <arrow/compute/exec.h>
 #include <paimon/commit_message.h>
 #include <paimon/file_store_write.h>
 #include <paimon/memory/memory_pool.h>
@@ -30,11 +32,14 @@
 #include <atomic>
 #include <cstring>
 #include <limits>
+#include <map>
+#include <tuple>
 
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "core/allocator.h"
+#include "exec/partitioner/external/paimon_row_hash_partition_function.h"
 #include "exec/sink/writer/paimon/doris_paimon_file_system.h"
 #include "exec/sink/writer/paimon/paimon_resource_context.h"
 #include "format/arrow/arrow_block_convertor.h"
@@ -219,6 +224,54 @@ struct ExportOwner {
     }
 };
 
+constexpr int32_t UNSPECIFIED_BUCKET = std::numeric_limits<int32_t>::min();
+
+struct PaimonRoute {
+    std::map<std::string, std::string> partition;
+    int32_t bucket = UNSPECIFIED_BUCKET;
+
+    bool operator<(const PaimonRoute& other) const {
+        return std::tie(partition, bucket) < std::tie(other.partition, other.bucket);
+    }
+};
+
+struct RoutedArrowBatch {
+    PaimonRoute route;
+    std::shared_ptr<arrow::RecordBatch> batch;
+};
+
+Status take_paimon_rows(const std::shared_ptr<arrow::RecordBatch>& input,
+                        const std::vector<uint64_t>& rows, arrow::MemoryPool* pool,
+                        std::shared_ptr<arrow::RecordBatch>* output) {
+    if (rows.size() == static_cast<size_t>(input->num_rows())) {
+        *output = input;
+        return Status::OK();
+    }
+    arrow::UInt64Builder builder(pool);
+    auto append = builder.AppendValues(rows);
+    if (!append.ok()) {
+        return Status::InternalError("Paimon route indexes: {}", append.ToString());
+    }
+    std::shared_ptr<arrow::UInt64Array> indexes;
+    auto finish = builder.Finish(&indexes);
+    if (!finish.ok()) {
+        return Status::InternalError("Paimon route indexes: {}", finish.ToString());
+    }
+    arrow::compute::ExecContext exec_context(pool);
+    arrow::ArrayVector columns;
+    columns.reserve(input->num_columns());
+    for (const auto& column : input->columns()) {
+        auto taken = arrow::compute::Take(
+                *column, *indexes, arrow::compute::TakeOptions::NoBoundsCheck(), &exec_context);
+        if (!taken.ok()) {
+            return Status::InternalError("Paimon route batch: {}", taken.status().ToString());
+        }
+        columns.push_back(std::move(taken).ValueOrDie());
+    }
+    *output = arrow::RecordBatch::Make(input->schema(), rows.size(), std::move(columns));
+    return Status::OK();
+}
+
 } // namespace
 
 std::shared_ptr<paimon::MemoryPool> make_paimon_query_memory_pool(
@@ -292,6 +345,40 @@ public:
         if (limit <= 0) return Status::MemoryLimitExceeded("No Paimon native writer memory budget");
         _pool = make_paimon_query_memory_pool(context, limit);
         _arrow_pool = std::make_shared<QueryArrowPool>(context);
+
+        _partition_keys = table_schema.value()->PartitionKeys();
+        _partition_indexes.reserve(_partition_keys.size());
+        for (const auto& key : _partition_keys) {
+            int index = _schema->GetFieldIndex(key);
+            if (index < 0) {
+                return Status::InvalidArgument("Native Paimon partition column is missing: {}",
+                                               key);
+            }
+            _partition_indexes.push_back(index);
+        }
+        const auto& options = table_schema.value()->Options();
+        auto default_partition = options.find("partition.default-name");
+        _default_partition_name = default_partition == options.end() ? "__DEFAULT_PARTITION__"
+                                                                     : default_partition->second;
+        _num_buckets = table_schema.value()->NumBuckets();
+        if (_num_buckets > 0) {
+            const auto& bucket_keys = table_schema.value()->BucketKeys();
+            _bucket_indexes.reserve(bucket_keys.size());
+            for (const auto& key : bucket_keys) {
+                int index = _schema->GetFieldIndex(key);
+                if (index < 0) {
+                    return Status::InvalidArgument("Native Paimon bucket column is missing: {}",
+                                                   key);
+                }
+                _bucket_indexes.push_back(index);
+            }
+            if (_bucket_indexes.empty()) {
+                return Status::InvalidArgument("Native Paimon fixed-bucket keys are missing");
+            }
+        } else if (!table_schema.value()->PrimaryKeys().empty()) {
+            return Status::NotSupported(
+                    "Native Paimon dynamic and postpone primary-key routing is not enabled");
+        }
         COUNTER_SET(ADD_COUNTER(profile, "PaimonSdkPoolLimit", TUnit::BYTES), limit);
         _sdk_pool_peak = ADD_COUNTER(profile, "PaimonSdkPoolPeak", TUnit::BYTES);
         _conversion_peak = ADD_COUNTER(profile, "PaimonArrowConversionPeak", TUnit::BYTES);
@@ -307,7 +394,6 @@ public:
         _filesystem = std::make_shared<DorisPaimonFileSystem>(std::move(fs.value()), root_path,
                                                               storage.root_path, context);
         paimon::WriteContextBuilder builder(root_path, sink.commit_user);
-        const auto& options = table_schema.value()->Options();
         auto branch = options.find("branch");
         auto ctx = builder.WithTableSchema(table_schema.value())
                            .WithBranch(branch == options.end() ? "main" : branch->second)
@@ -332,11 +418,50 @@ public:
         RETURN_IF_ERROR(convert_to_arrow_batch(block, _schema, _arrow_pool.get(), &batch,
                                                state->timezone_obj()));
         RETURN_IF_ERROR(validate_paimon_cpp_batch(*batch, *_schema));
+        std::vector<RoutedArrowBatch> routed;
+        RETURN_IF_ERROR(route_batch(block, batch, &routed));
+        for (auto& item : routed) {
+            RETURN_IF_ERROR(write_batch(std::move(item)));
+        }
+        return Status::OK();
+    }
+
+    Status route_batch(const Block& block, const std::shared_ptr<arrow::RecordBatch>& batch,
+                       std::vector<RoutedArrowBatch>* routed) {
+        std::vector<int32_t> bucket_ids(batch->num_rows(), UNSPECIFIED_BUCKET);
+        const auto& fields = block.get_columns_with_type_and_name();
+        if (_num_buckets > 0) {
+            RETURN_IF_ERROR(paimon_native::fixed_bucket_ids(_bucket_indexes, fields, _num_buckets,
+                                                            bucket_ids));
+        }
+        std::vector<std::map<std::string, std::string>> partitions;
+        RETURN_IF_ERROR(paimon_native::partition_values(_partition_keys, _partition_indexes, fields,
+                                                        _default_partition_name, partitions));
+
+        std::map<PaimonRoute, std::vector<uint64_t>> groups;
+        for (int64_t row = 0; row < batch->num_rows(); ++row) {
+            PaimonRoute route;
+            route.bucket = bucket_ids[row];
+            route.partition = std::move(partitions[row]);
+            groups[std::move(route)].push_back(row);
+        }
+
+        routed->clear();
+        routed->reserve(groups.size());
+        for (auto& [route, rows] : groups) {
+            std::shared_ptr<arrow::RecordBatch> group;
+            RETURN_IF_ERROR(take_paimon_rows(batch, rows, _arrow_pool.get(), &group));
+            routed->push_back({std::move(route), std::move(group)});
+        }
+        return Status::OK();
+    }
+
+    Status write_batch(RoutedArrowBatch item) {
         ArrowArray data {};
         Defer release {[&] {
             if (data.release) data.release(&data);
         }};
-        auto status = arrow::ExportRecordBatch(*batch, &data);
+        auto status = arrow::ExportRecordBatch(*item.batch, &data);
         if (!status.ok()) return Status::InternalError("Arrow export: {}", status.ToString());
         // Allocate owner before overwriting callback; the guard still releases data on failure.
         auto owner = std::make_unique<ExportOwner>();
@@ -344,7 +469,12 @@ public:
         owner->pool = _arrow_pool;
         data.private_data = owner.release();
         data.release = ExportOwner::release;
-        auto record = paimon::RecordBatchBuilder(&data).Finish();
+        paimon::RecordBatchBuilder builder(&data);
+        builder.SetPartition(item.route.partition);
+        if (item.route.bucket != UNSPECIFIED_BUCKET) {
+            builder.SetBucket(item.route.bucket);
+        }
+        auto record = builder.Finish();
         if (!record.ok()) return sdk_status(record.status());
         return sdk_status(_sdk->Write(std::move(record).value()));
     }
@@ -404,6 +534,11 @@ public:
     std::shared_ptr<paimon::MemoryPool> _pool;
     std::shared_ptr<QueryArrowPool> _arrow_pool;
     std::shared_ptr<arrow::Schema> _schema;
+    std::vector<std::string> _partition_keys;
+    std::vector<int> _partition_indexes;
+    std::vector<int> _bucket_indexes;
+    std::string _default_partition_name;
+    int32_t _num_buckets = -1;
     std::shared_ptr<DorisPaimonFileSystem> _filesystem;
     std::unique_ptr<paimon::FileStoreWrite> _sdk;
     RuntimeProfile::Counter* _sdk_pool_peak = nullptr;

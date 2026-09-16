@@ -22,6 +22,12 @@
 #include <cstdint>
 #include <limits>
 
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "exec/partitioner/external/paimon_row_hash_partition_function.h"
+
 namespace doris::paimon_native {
 
 TEST(PaimonNativeRowHashTest, MatchesPaimonBinaryRowGoldenValues) {
@@ -80,6 +86,31 @@ TEST(PaimonNativeRowHashTest, MatchesDefaultBucketAndChannelComputer) {
 
     ASSERT_EQ(fixed_bucket_channel(std::numeric_limits<int32_t>::min(), 1, 8), 0);
     ASSERT_FALSE(fixed_bucket_channel(1, 0, 0).has_value());
+}
+
+TEST(PaimonNativeRowHashTest, SharedRouterBuildsWriterBucketsAndPartitions) {
+    auto ids = ColumnInt32::create();
+    ids->insert_value(1);
+    ids->insert_value(1);
+    ids->insert_value(1);
+    auto parts = ColumnString::create();
+    parts->insert_data("p1", 2);
+    parts->insert_data(" ", 1);
+    parts->insert_data("", 0);
+    std::vector<ColumnWithTypeAndName> fields;
+    fields.emplace_back(std::move(ids), std::make_shared<DataTypeInt32>(), "id");
+    fields.emplace_back(std::move(parts), std::make_shared<DataTypeString>(), "part");
+
+    std::vector<int32_t> buckets;
+    ASSERT_TRUE(fixed_bucket_ids({0}, fields, 4, buckets).ok());
+    EXPECT_EQ((std::vector<int32_t> {2, 2, 2}), buckets);
+
+    std::vector<std::map<std::string, std::string>> partitions;
+    ASSERT_TRUE(partition_values({"part"}, {1}, fields, "__DEFAULT__", partitions).ok());
+    ASSERT_EQ(3, partitions.size());
+    EXPECT_EQ("p1", partitions[0].at("part"));
+    EXPECT_EQ("__DEFAULT__", partitions[1].at("part"));
+    EXPECT_EQ("__DEFAULT__", partitions[2].at("part"));
 }
 
 } // namespace doris::paimon_native

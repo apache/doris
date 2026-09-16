@@ -112,8 +112,7 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
     }
 
     /** Select the runtime backend during planning so EXPLAIN and execution share one decision. */
-    public void prepareBackendDecision() throws AnalysisException {
-        List<String> outputColumnNames = outputColumnNames();
+    public void prepareBackendDecision(boolean nativeRowRoutingSupported) {
         backendType = TPaimonWriteBackendType.JNI;
         backendStorage = null;
         backendSelectionReason = "JNI selected";
@@ -125,7 +124,7 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         }
 
         PaimonCppWriteSupport.Decision decision = PaimonCppWriteSupport.decide(
-                writeTarget.getTable(), outputColumnNames, writeMode,
+                writeTarget.getTable(), writeMode, nativeRowRoutingSupported,
                 targetTable.getCatalog().getCatalogProperty().getStoragePropertiesMap());
         if (decision.isSupported()) {
             backendType = TPaimonWriteBackendType.CPP;

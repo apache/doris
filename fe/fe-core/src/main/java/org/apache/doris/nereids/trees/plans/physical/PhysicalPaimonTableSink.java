@@ -204,6 +204,19 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
                                 == CoreOptions.ChangelogProducer.FULL_COMPACTION);
     }
 
+    /** Whether Doris can provide every route required by paimon-cpp without serializing the sink. */
+    public boolean supportsNativeRowRouting() {
+        FileStoreTable table = writeTarget.getTable();
+        if (table.bucketMode() == BucketMode.HASH_FIXED) {
+            return buildFixedBucketDistributionSpec(table) != null;
+        }
+        if (table.bucketMode() != BucketMode.BUCKET_UNAWARE) {
+            return false;
+        }
+        return supportsNativeRouteFields(
+                table.schema(), table.schema().partitionKeys(), cols, child().getOutput());
+    }
+
     private DistributionSpecPaimonTableSinkHashPartitioned buildFixedBucketDistributionSpec(
             FileStoreTable paimonTable) {
         if (Config.be_exec_version
@@ -230,6 +243,29 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
             return null;
         }
 
+        List<ExprId> routeExprIds = new ArrayList<>();
+        List<List<Integer>> routeFieldIndexes = buildNativeRouteFieldIndexes(schema,
+                ImmutableList.of(schema.partitionKeys(), schema.bucketKeys()),
+                sinkColumns, sinkOutput, routeExprIds);
+        if (routeFieldIndexes == null || routeFieldIndexes.get(1).isEmpty()) {
+            return null;
+        }
+        return new DistributionSpecPaimonTableSinkHashPartitioned(
+                routeExprIds, schema.numBuckets(), routeFieldIndexes.get(0), routeFieldIndexes.get(1));
+    }
+
+    static boolean supportsNativeRouteFields(TableSchema schema, List<String> fieldNames,
+            List<Column> sinkColumns, List<Slot> sinkOutput) {
+        return buildNativeRouteFieldIndexes(schema, ImmutableList.of(fieldNames),
+                sinkColumns, sinkOutput, new ArrayList<>()) != null;
+    }
+
+    private static List<List<Integer>> buildNativeRouteFieldIndexes(TableSchema schema,
+            List<List<String>> fieldGroups, List<Column> sinkColumns, List<Slot> sinkOutput,
+            List<ExprId> routeExprIds) {
+        if (sinkColumns.size() != sinkOutput.size()) {
+            return null;
+        }
         Map<String, Slot> outputByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (int i = 0; i < sinkColumns.size(); i++) {
             if (outputByName.put(sinkColumns.get(i).getName(), sinkOutput.get(i)) != null) {
@@ -240,19 +276,17 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         for (DataField field : schema.fields()) {
             fieldsByName.put(field.name(), field);
         }
-
-        List<ExprId> routeExprIds = new ArrayList<>();
         Map<String, Integer> routeIndexes = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        List<Integer> partitionFieldIndexes = appendRouteFields(
-                schema.partitionKeys(), outputByName, fieldsByName, routeExprIds, routeIndexes);
-        List<Integer> bucketFieldIndexes = appendRouteFields(
-                schema.bucketKeys(), outputByName, fieldsByName, routeExprIds, routeIndexes);
-        if (partitionFieldIndexes == null || bucketFieldIndexes == null
-                || bucketFieldIndexes.isEmpty()) {
-            return null;
+        List<List<Integer>> indexes = new ArrayList<>(fieldGroups.size());
+        for (List<String> fieldNames : fieldGroups) {
+            List<Integer> fieldIndexes = appendRouteFields(
+                    fieldNames, outputByName, fieldsByName, routeExprIds, routeIndexes);
+            if (fieldIndexes == null) {
+                return null;
+            }
+            indexes.add(fieldIndexes);
         }
-        return new DistributionSpecPaimonTableSinkHashPartitioned(
-                routeExprIds, schema.numBuckets(), partitionFieldIndexes, bucketFieldIndexes);
+        return indexes;
     }
 
     private static List<Integer> appendRouteFields(List<String> fieldNames,

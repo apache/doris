@@ -16,6 +16,7 @@
 
 #include "exec/partitioner/external/paimon_row_hash_partition_function.h"
 
+#include <cctype>
 #include <cstring>
 #include <string_view>
 
@@ -27,26 +28,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace {
-bool is_supported_type(PrimitiveType type) {
-    switch (type) {
-    case TYPE_BOOLEAN:
-    case TYPE_TINYINT:
-    case TYPE_SMALLINT:
-    case TYPE_INT:
-    case TYPE_BIGINT:
-    case TYPE_FLOAT:
-    case TYPE_DOUBLE:
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING:
-    case TYPE_BINARY:
-    case TYPE_VARBINARY:
-        return true;
-    default:
-        return false;
-    }
-}
-
 template <typename T>
 bool read_fixed_value(const IColumn& column, size_t row, T* value) {
     StringRef data = column.get_data_at(row);
@@ -145,7 +126,126 @@ Status encode_fields(paimon_native::BinaryRowEncoder* encoder,
     }
     return Status::OK();
 }
+
+Status partition_value(const ColumnWithTypeAndName& field, size_t row,
+                       const std::string& default_value, std::string* result) {
+    const IColumn& column = *field.column;
+    if (column.is_null_at(row)) {
+        *result = default_value;
+        return Status::OK();
+    }
+
+    const auto primitive_type = remove_nullable(field.type)->get_primitive_type();
+    if (!paimon_native::supports_routing_type(primitive_type)) {
+        return Status::InvalidArgument("Unsupported Doris type {} for Paimon partition routing",
+                                       field.type->get_name());
+    }
+    if (primitive_type == TYPE_BOOLEAN) {
+        uint8_t value = 0;
+        if (!read_fixed_value(column, row, &value)) {
+            return Status::InvalidArgument("Doris column {} cannot be read for Paimon routing",
+                                           field.name);
+        }
+        *result = value == 0 ? "false" : "true";
+    } else {
+        *result = field.type->to_string(column, row, DataTypeSerDe::get_default_format_options());
+    }
+    if (result->empty() || std::all_of(result->begin(), result->end(),
+                                       [](unsigned char ch) { return std::isspace(ch) != 0; })) {
+        *result = default_value;
+    }
+    return Status::OK();
+}
 } // namespace
+
+namespace paimon_native {
+
+bool supports_routing_type(PrimitiveType type) {
+    switch (type) {
+    case TYPE_BOOLEAN:
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+    case TYPE_FLOAT:
+    case TYPE_DOUBLE:
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING:
+    case TYPE_BINARY:
+    case TYPE_VARBINARY:
+        return true;
+    default:
+        return false;
+    }
+}
+
+Status hash_fields(const std::vector<int32_t>& indexes,
+                   const std::vector<ColumnWithTypeAndName>& fields, std::vector<int32_t>& hashes) {
+    if (fields.empty()) {
+        if (!indexes.empty()) {
+            return Status::InvalidArgument("Paimon routing fields are empty");
+        }
+        hashes.clear();
+        return Status::OK();
+    }
+    const size_t rows = fields.front().column->size();
+    for (int32_t index : indexes) {
+        if (index < 0 || index >= fields.size() || fields[index].column->size() != rows) {
+            return Status::InvalidArgument("Invalid Paimon routing field index {}", index);
+        }
+    }
+    BinaryRowEncoder encoder(indexes.size());
+    hashes.resize(rows);
+    for (size_t row = 0; row < hashes.size(); ++row) {
+        RETURN_IF_ERROR(encode_fields(&encoder, indexes, fields, row));
+        hashes[row] = encoder.hash();
+    }
+    return Status::OK();
+}
+
+Status fixed_bucket_ids(const std::vector<int32_t>& indexes,
+                        const std::vector<ColumnWithTypeAndName>& fields, int32_t num_buckets,
+                        std::vector<int32_t>& buckets) {
+    std::vector<int32_t> hashes;
+    RETURN_IF_ERROR(hash_fields(indexes, fields, hashes));
+    buckets.resize(hashes.size());
+    for (size_t row = 0; row < hashes.size(); ++row) {
+        auto bucket = default_bucket(hashes[row], num_buckets);
+        if (!bucket.has_value()) {
+            return Status::InvalidArgument("Paimon fixed-bucket count must be positive");
+        }
+        buckets[row] = static_cast<int32_t>(*bucket);
+    }
+    return Status::OK();
+}
+
+Status partition_values(const std::vector<std::string>& names, const std::vector<int32_t>& indexes,
+                        const std::vector<ColumnWithTypeAndName>& fields,
+                        const std::string& default_value,
+                        std::vector<std::map<std::string, std::string>>& partitions) {
+    if (names.size() != indexes.size()) {
+        return Status::InvalidArgument("Paimon partition names and indexes differ in size");
+    }
+    const size_t rows = fields.empty() ? 0 : fields.front().column->size();
+    for (int32_t index : indexes) {
+        if (index < 0 || index >= fields.size() || fields[index].column->size() != rows) {
+            return Status::InvalidArgument("Invalid Paimon partition field index {}", index);
+        }
+    }
+    partitions.assign(rows, {});
+    for (size_t row = 0; row < rows; ++row) {
+        for (size_t position = 0; position < indexes.size(); ++position) {
+            int32_t index = indexes[position];
+            std::string value;
+            RETURN_IF_ERROR(partition_value(fields[index], row, default_value, &value));
+            partitions[row].emplace(names[position], std::move(value));
+        }
+    }
+    return Status::OK();
+}
+
+} // namespace paimon_native
 
 PaimonRowHashPartitionFunction::PaimonRowHashPartitionFunction(HashValType partition_count)
         : _partition_count(partition_count) {}
@@ -157,7 +257,7 @@ Status PaimonRowHashPartitionFunction::init(const std::vector<TExpr>& texprs) {
     RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, _field_expr_ctxs));
     for (const auto& context : _field_expr_ctxs) {
         PrimitiveType type = remove_nullable(context->root()->data_type())->get_primitive_type();
-        if (!is_supported_type(type)) {
+        if (!paimon_native::supports_routing_type(type)) {
             return Status::InvalidArgument("Unsupported Paimon native routing type {}",
                                            context->root()->data_type()->get_name());
         }
@@ -198,13 +298,7 @@ Status PaimonRowHashPartitionFunction::_evaluate_fields(
 Status PaimonRowHashPartitionFunction::_hash_fields(
         const std::vector<int32_t>& indexes, const std::vector<ColumnWithTypeAndName>& fields,
         std::vector<int32_t>& hashes) const {
-    paimon_native::BinaryRowEncoder encoder(indexes.size());
-    hashes.resize(fields.empty() ? 0 : fields.front().column->size());
-    for (size_t row = 0; row < hashes.size(); ++row) {
-        RETURN_IF_ERROR(encode_fields(&encoder, indexes, fields, row));
-        hashes[row] = encoder.hash();
-    }
-    return Status::OK();
+    return paimon_native::hash_fields(indexes, fields, hashes);
 }
 
 Status PaimonRowHashPartitionFunction::_clone_expr_ctxs(RuntimeState* state,

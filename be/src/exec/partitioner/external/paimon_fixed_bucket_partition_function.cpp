@@ -52,18 +52,14 @@ Status PaimonFixedBucketPartitionFunction::get_partitions(
     std::vector<ColumnWithTypeAndName> fields;
     RETURN_IF_ERROR(_evaluate_fields(block, fields));
     std::vector<int32_t> partition_hashes;
-    std::vector<int32_t> bucket_hashes;
+    std::vector<int32_t> buckets;
     RETURN_IF_ERROR(
             _hash_fields(_fixed_bucket_info.partition_field_indexes, fields, partition_hashes));
-    RETURN_IF_ERROR(_hash_fields(_fixed_bucket_info.bucket_field_indexes, fields, bucket_hashes));
+    RETURN_IF_ERROR(paimon_native::fixed_bucket_ids(_fixed_bucket_info.bucket_field_indexes, fields,
+                                                    _fixed_bucket_info.num_buckets, buckets));
     partitions.resize(rows);
     for (size_t row = 0; row < rows; ++row) {
-        auto bucket =
-                paimon_native::default_bucket(bucket_hashes[row], _fixed_bucket_info.num_buckets);
-        if (!bucket.has_value()) {
-            return Status::InternalError("Failed to compute Paimon fixed bucket");
-        }
-        auto channel = paimon_native::fixed_bucket_channel(partition_hashes[row], *bucket,
+        auto channel = paimon_native::fixed_bucket_channel(partition_hashes[row], buckets[row],
                                                            _partition_count);
         if (!channel.has_value()) {
             return Status::InternalError("Failed to compute Paimon fixed-bucket writer");

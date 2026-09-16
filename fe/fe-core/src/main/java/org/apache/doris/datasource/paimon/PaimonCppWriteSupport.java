@@ -40,10 +40,7 @@ import org.apache.paimon.types.TimestampType;
 
 import java.net.URI;
 import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /** Pure, pre-writer capability decision. Never retry a failed native writer through JNI. */
 public final class PaimonCppWriteSupport {
@@ -76,9 +73,10 @@ public final class PaimonCppWriteSupport {
         }
     }
 
-    public static Decision decide(FileStoreTable table, List<String> columns,
-            TPaimonWriteMode mode, Map<StorageProperties.Type, StorageProperties> storageProperties) {
-        String reason = fallbackReason(table, columns, mode);
+    public static Decision decide(FileStoreTable table, TPaimonWriteMode mode,
+            boolean nativeRowRoutingSupported,
+            Map<StorageProperties.Type, StorageProperties> storageProperties) {
+        String reason = fallbackReason(table, mode, nativeRowRoutingSupported);
         if (reason != null) {
             return Decision.unsupported(reason);
         }
@@ -93,25 +91,20 @@ public final class PaimonCppWriteSupport {
         return Decision.supported(storage);
     }
 
-    private static String fallbackReason(FileStoreTable table, List<String> columns,
-            TPaimonWriteMode mode) {
+    private static String fallbackReason(FileStoreTable table, TPaimonWriteMode mode,
+            boolean nativeRowRoutingSupported) {
         if (table.fileIO() instanceof RESTTokenFileIO) {
             return "REST data tokens require JNI";
         }
         if (mode != TPaimonWriteMode.APPEND && mode != TPaimonWriteMode.OVERWRITE) {
             return "write mode requires JNI";
         }
-        if (!table.schema().partitionKeys().isEmpty()) {
-            return "native partition routing is not implemented yet";
+        if (!nativeRowRoutingSupported) {
+            return "Doris cannot route this table concurrently for paimon-cpp";
         }
-        if (!table.schema().primaryKeys().isEmpty()) {
-            return "primary-key tables require JNI";
-        }
+
         Map<String, String> options = table.options();
         CoreOptions coreOptions = new CoreOptions(options);
-        if (coreOptions.bucket() != CoreOptions.BUCKET.defaultValue()) {
-            return "bucketed tables require JNI";
-        }
         if (coreOptions.changelogProducer() != CoreOptions.ChangelogProducer.NONE) {
             return "paimon-cpp does not support changelog producers";
         }
@@ -123,21 +116,9 @@ public final class PaimonCppWriteSupport {
                 || !supportedCppDataFormat(coreOptions.fileFormatString())) {
             return "data file format requires JNI";
         }
-        List<DataField> fields = table.schema().fields();
-        Set<String> fieldNames = new HashSet<>();
-        for (DataField field : fields) {
-            fieldNames.add(field.name());
+        for (DataField field : table.schema().fields()) {
             if (requiresJniForType(field.type())) {
                 return "field '" + field.name() + "' contains a timestamp precision unsupported by paimon-cpp";
-            }
-        }
-        Set<String> writeColumns = new HashSet<>();
-        for (String column : columns) {
-            if (!writeColumns.add(column)) {
-                throw new IllegalArgumentException("Duplicate Paimon write column: " + column);
-            }
-            if (!fieldNames.contains(column)) {
-                throw new IllegalArgumentException("Unknown Paimon write column: " + column);
             }
         }
         return null;
