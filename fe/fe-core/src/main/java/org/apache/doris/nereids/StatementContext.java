@@ -38,6 +38,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
@@ -1367,6 +1368,54 @@ public class StatementContext implements Closeable {
      */
     public Optional<ExternalTablePreloadInfo> getExternalTablePreloadInfo(long tableId) {
         return Optional.ofNullable(externalTablePreloadInfos.get(tableId));
+    }
+
+    /**
+     * Materializes every deferred connector partition view the MV partition collector can need, BEFORE the
+     * internal table read locks are taken. This step is unconditional: it exists so the default configuration
+     * gets the lock scope, not only the opt-in {@code enable_preload_external_metadata} pass.
+     *
+     * <p>WHY it is needed at all: {@code QueryPartitionCollector} runs from
+     * {@code InitMaterializationContextHook.afterRewrite}, i.e. while {@link #lock()} is held, and an unfiltered
+     * connector-pruning file scan is still {@code DEFERRED} at that point, so the collector would have to
+     * enumerate the table's whole partition view - an unbounded connector round-trip plus an O(all partitions)
+     * build - with the statement's internal tables locked. Materializing the same view here moves that work
+     * outside the lock window; the collector then reuses it.</p>
+     *
+     * <p>WHY it is skipped when no internal read lock is taken or MV rewrite is disabled: with no locked
+     * internal table the enumeration blocks nothing, and the materialized view has exactly one consumer (the MV
+     * partition collector), which does not run at all when MV rewrite is off.</p>
+     */
+    public void preloadDeferredScanPartitionViewsBeforeLock() {
+        ConnectContext connectContext = getConnectContext();
+        if (connectContext == null || connectContext.getSessionVariable() == null
+                || !connectContext.getSessionVariable().isEnableMaterializedViewRewrite()) {
+            return;
+        }
+        if (!hasAnyPlanReadLockTable()) {
+            return;
+        }
+        for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
+            preloadDeferredScanPartitionView(preloadInfo);
+        }
+    }
+
+    /**
+     * Materializes one table's deferred scan partition view and records it on its preload entry. No-op when the
+     * view is already materialized, or when the table has no LATEST reference: the collector only reuses the
+     * view for a reference without a version selector, so warming any other generation would be unused work.
+     */
+    public void preloadDeferredScanPartitionView(ExternalTablePreloadInfo preloadInfo) {
+        if (preloadInfo.hasScanPartitionView() || !preloadInfo.shouldPreloadLatestSnapshot()) {
+            return;
+        }
+        ExternalTable table = preloadInfo.getTable();
+        if (!(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()) {
+            return;
+        }
+        preloadInfo.setScanPartitionView(
+                ((PluginDrivenExternalTable) table).getNameToPartitionItemsForScan(getSnapshot(table)));
     }
 
     public int getExternalTablePreloadCandidateCount() {
