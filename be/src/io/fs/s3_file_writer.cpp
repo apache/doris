@@ -216,15 +216,20 @@ Status S3FileWriter::close(bool non_block) {
         }
         return _st;
     }
+    if (_pending_buf == nullptr && _bytes_appended == 0 && !_failed) {
+        // No data was appended but an empty object is still created. Build its buffer here so
+        // that it passes the gate like every other buffer; _close_impl() then submits it.
+        RETURN_IF_ERROR(_build_upload_buffer());
+    }
     if (_pending_buf != nullptr) {
         if (_failed) {
             // The object can no longer be completed; do not upload the remaining buffer.
             _pending_buf = nullptr;
         } else {
-            // The last (partial) buffer is submitted by _close_impl(). Pass the gate here, on
-            // the caller's thread, so that _close_impl() never blocks a NonBlockCloseThreadPool
-            // thread. A refusal marks the writer failed; closing continues so that in-flight
-            // uploads drain.
+            // The last (partial, or empty) buffer is submitted by _close_impl(). Pass the gate
+            // here, on the caller's thread, so that _close_impl() never blocks a
+            // NonBlockCloseThreadPool thread. A refusal marks the writer failed; closing
+            // continues so that in-flight uploads drain.
             static_cast<void>(_pass_upload_gate(_pending_buf->get_capacaticy()));
         }
     }
@@ -374,9 +379,11 @@ Status S3FileWriter::_close_impl() {
         RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
     }
 
-    if (_bytes_appended == 0) {
+    if (_bytes_appended == 0 && _pending_buf == nullptr) {
         DCHECK_EQ(_cur_part_num, 1);
-        // No data written, but need to create an empty file
+        // No data written, but need to create an empty file. close() normally builds this buffer
+        // already (so that it passes the upload gate); this is the fallback for a writer whose
+        // close() was skipped.
         RETURN_IF_ERROR(_build_upload_buffer());
         if (!_used_by_s3_committer) {
             auto* pending_buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());

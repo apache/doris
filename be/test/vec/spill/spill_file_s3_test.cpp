@@ -50,6 +50,7 @@
 #include "exec/spill/spill_file_writer.h"
 #include "exec/spill/spill_remote_upload_budget.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
@@ -63,6 +64,7 @@
 #include "testutil/mock/obj_storage_client_test_stub.h"
 #include "util/defer_op.h"
 #include "util/s3_util.h"
+#include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uid_util.h"
 
@@ -386,6 +388,7 @@ private:
 
 constexpr const char* kBucket = "spill-mock-bucket";
 constexpr const char* kVaultPrefix = "spill_s3_test";
+constexpr const char* kInstanceId = "instance-a";
 constexpr int64_t kBackendId = 10001;
 constexpr int64_t kBootId = 1000;
 
@@ -509,7 +512,7 @@ protected:
     void _create_manager(bool bind_fs = true) {
         auto store = std::make_unique<RemoteSpillDataDir>("vault-1", kBootId);
         if (bind_fs) {
-            store->init_remote_fs(_s3_fs, kBackendId);
+            store->init_remote_fs(_s3_fs, kInstanceId, kBackendId);
         }
         _data_dir = store.get();
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
@@ -530,8 +533,10 @@ protected:
         _data_dir = nullptr;
     }
 
-    // Vault-prefixed keys of the mock store: {vault}/spill/{backend_id}/data/{boot_id}/...
-    static std::string be_root() { return fmt::format("{}/spill/{}", kVaultPrefix, kBackendId); }
+    // Vault-prefixed keys of the mock store: {vault}/spill/{instance_id}/{backend_id}/data/{boot_id}/...
+    static std::string be_root() {
+        return fmt::format("{}/spill/{}/{}", kVaultPrefix, kInstanceId, kBackendId);
+    }
     static std::string boot_root() { return fmt::format("{}/data/{}", be_root(), kBootId); }
     static std::string boot_marker(int64_t boot_id) {
         return fmt::format("{}/boots/{}", be_root(), boot_id);
@@ -615,14 +620,15 @@ TEST_F(SpillFileS3Test, RemoteStoreLayout) {
     ASSERT_TRUE(_data_dir->is_remote());
     ASSERT_TRUE(_data_dir->ready());
     ASSERT_EQ(_data_dir->storage_medium(), TStorageMedium::S3);
-    ASSERT_EQ(_data_dir->get_remote_be_root(), fmt::format("spill/{}", kBackendId));
+    ASSERT_EQ(_data_dir->get_remote_be_root(), fmt::format("spill/{}/{}", kInstanceId, kBackendId));
     ASSERT_EQ(_data_dir->get_spill_data_path(),
-              fmt::format("spill/{}/data/{}", kBackendId, kBootId));
+              fmt::format("spill/{}/{}/data/{}", kInstanceId, kBackendId, kBootId));
     ASSERT_EQ(_data_dir->get_spill_data_path("q1"),
-              fmt::format("spill/{}/data/{}/q1", kBackendId, kBootId));
+              fmt::format("spill/{}/{}/data/{}/q1", kInstanceId, kBackendId, kBootId));
     ASSERT_EQ(_data_dir->get_remote_boot_marker_path("1000"),
-              fmt::format("spill/{}/boots/1000", kBackendId));
+              fmt::format("spill/{}/{}/boots/1000", kInstanceId, kBackendId));
     ASSERT_EQ(_data_dir->backend_id(), kBackendId);
+    ASSERT_EQ(_data_dir->instance_id(), kInstanceId);
     ASSERT_EQ(_data_dir->fs().get(), _s3_fs.get());
     ASSERT_FALSE(_data_dir->reach_capacity_limit(1LL << 40)); // unlimited by default
 }
@@ -826,10 +832,18 @@ TEST_F(SpillFileS3Test, StartupCleanupDeletesOnlyOtherBootGenerations) {
     mock_store().put_raw(kBucket, boot_marker(950), "");
     mock_store().put_raw(kBucket, be_root() + "/data/950/query_old2/agg-1-0-1/0", "old");
     mock_store().put_raw(kBucket, boot_root() + "/query_live/sort-1-0-1/0", "live");
-    // Data of another BE must not be touched.
-    mock_store().put_raw(kBucket, fmt::format("{}/spill/10002/boots/900", kVaultPrefix), "");
-    mock_store().put_raw(kBucket, fmt::format("{}/spill/10002/data/900/q/0", kVaultPrefix),
+    // Data of another BE of this instance, and of a BE with the same id in another instance
+    // sharing the vault, must not be touched.
+    mock_store().put_raw(kBucket,
+                         fmt::format("{}/spill/{}/10002/boots/900", kVaultPrefix, kInstanceId), "");
+    mock_store().put_raw(kBucket,
+                         fmt::format("{}/spill/{}/10002/data/900/q/0", kVaultPrefix, kInstanceId),
                          "other");
+    mock_store().put_raw(
+            kBucket, fmt::format("{}/spill/instance-b/{}/boots/900", kVaultPrefix, kBackendId), "");
+    mock_store().put_raw(
+            kBucket, fmt::format("{}/spill/instance-b/{}/data/900/q/0", kVaultPrefix, kBackendId),
+            "other");
 
     _create_manager();
     // Two old generations take two GC rounds (one generation per round).
@@ -847,7 +861,12 @@ TEST_F(SpillFileS3Test, StartupCleanupDeletesOnlyOtherBootGenerations) {
     ASSERT_EQ(mock_store().marker_puts, 1);
     ASSERT_EQ(mock_store().put_requests, 0);
     ASSERT_EQ(mock_store()
-                      .keys_with_prefix(kBucket, kVaultPrefix + std::string("/spill/10002/"))
+                      .keys_with_prefix(
+                              kBucket, fmt::format("{}/spill/{}/10002/", kVaultPrefix, kInstanceId))
+                      .size(),
+              2);
+    ASSERT_EQ(mock_store()
+                      .keys_with_prefix(kBucket, fmt::format("{}/spill/instance-b/", kVaultPrefix))
                       .size(),
               2);
 }
@@ -1151,6 +1170,87 @@ TEST_F(SpillFileS3Test, PartialBufferIsChargedAtCapacity) {
     ASSERT_EQ(budget->inflight_bytes(), 0);
     ASSERT_EQ(budget->total_acquired_bytes(), config::s3_write_buffer_size);
     ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
+}
+
+// The done callback must report exactly what the gate was charged, for every buffer, on the
+// PutObject path (partial buffer), the multipart path (partial last buffer) and the empty
+// object created by close() without any append.
+TEST_F(SpillFileS3Test, GateAndDoneCallbackReportTheSameCapacity) {
+    _create_manager();
+    struct Recorder {
+        std::mutex mutex;
+        std::vector<size_t> gate;
+        std::vector<size_t> done;
+    };
+    auto run = [&](const std::string& name, size_t payload_bytes, size_t expected_buffers) {
+        Recorder rec;
+        io::FileWriterOptions opts;
+        opts.write_file_cache = false;
+        opts.upload_submit_gate = [&rec](size_t bytes) -> Status {
+            std::lock_guard lock(rec.mutex);
+            rec.gate.push_back(bytes);
+            return Status::OK();
+        };
+        opts.upload_done_callback = [&rec](size_t bytes) {
+            std::lock_guard lock(rec.mutex);
+            rec.done.push_back(bytes);
+        };
+        io::FileWriterPtr writer;
+        ASSERT_TRUE(_s3_fs->create_file(fmt::format("hooks/{}", name), &writer, &opts).ok());
+        if (payload_bytes > 0) {
+            std::string payload(payload_bytes, 'x');
+            ASSERT_TRUE(writer->append(Slice(payload)).ok());
+        }
+        ASSERT_TRUE(writer->close().ok());
+        std::lock_guard lock(rec.mutex);
+        const size_t capacity = static_cast<size_t>(config::s3_write_buffer_size);
+        ASSERT_EQ(rec.gate.size(), expected_buffers) << name;
+        ASSERT_EQ(rec.done.size(), expected_buffers) << name;
+        for (size_t b : rec.gate) {
+            EXPECT_EQ(b, capacity) << name;
+        }
+        for (size_t b : rec.done) {
+            EXPECT_EQ(b, capacity) << name;
+        }
+    };
+    // Partial buffer -> one PutObject.
+    run("partial", 100, 1);
+    // 2.5 buffers -> multipart with a partial last buffer.
+    run("multipart", static_cast<size_t>(config::s3_write_buffer_size) * 5 / 2, 3);
+    ASSERT_GE(mock_store().create_multipart_requests, 1);
+    // No append at all -> empty object, still one gate + one callback.
+    run("empty", 0, 1);
+    ASSERT_EQ(mock_store().keys_with_prefix(kBucket, kVaultPrefix + std::string("/hooks/")).size(),
+              3);
+}
+
+// The scenario behind the fast-path cancellation check: a query cancelled before close() must
+// not start a new upload for its last buffer; the part is refused, nothing is put, the budget
+// stays balanced.
+TEST_F(SpillFileS3Test, CancelledQueryCloseIssuesNoUpload) {
+    config::spill_file_part_size_bytes = 1024 * 1024;
+    _create_manager();
+    auto* budget = _manager->remote_upload_budget();
+    std::mt19937 rng(37);
+    SpillFileSPtr spill_file;
+    ASSERT_TRUE(_manager->create_spill_file("query_13/sort-1-0-1", spill_file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    // Well below one 8 KiB buffer: nothing is submitted before close().
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), _random_string_block(rng, 8, 100)).ok());
+    ASSERT_EQ(mock_store().put_requests, 0);
+
+    _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test cancel"));
+    auto st = writer->close();
+    ASSERT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
+    ASSERT_EQ(mock_store().put_requests, 0);
+    ASSERT_EQ(mock_store().create_multipart_requests, 0);
+    ASSERT_EQ(budget->inflight_bytes(), 0);
+    ASSERT_EQ(budget->total_acquired_bytes(), 0);
+    ASSERT_FALSE(spill_file->ready_for_reading());
+    writer.reset();
+    spill_file.reset();
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
 TEST_F(SpillFileS3Test, UploadFailureIsReportedAndReconciled) {
