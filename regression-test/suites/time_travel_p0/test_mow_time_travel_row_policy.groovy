@@ -38,7 +38,8 @@ suite("test_mow_time_travel_row_policy", "nonConcurrent,p0,auth") {
     sql """
         CREATE TABLE ${dbName}.${tableName} (
             k INT,
-            v INT
+            v INT,
+            `v1.v2` INT
         )
         UNIQUE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -51,16 +52,16 @@ suite("test_mow_time_travel_row_policy", "nonConcurrent,p0,auth") {
         )
     """
 
-    sql "INSERT INTO ${dbName}.${tableName} VALUES (1, 10), (2, 20), (3, 30), (5, 50)"
+    sql "INSERT INTO ${dbName}.${tableName} VALUES (1, 10, 100), (2, 20, 200), (3, 30, 300), (5, 50, 500)"
     sql "SET show_hidden_columns = true"
     long snapshotTso = sql("SELECT MAX(__DORIS_COMMIT_TSO_COL__) FROM ${dbName}.${tableName}")[0][0] as Long
     sql "SET show_hidden_columns = false"
 
     // The historical left branch contains unchanged keys 1 and 5. The row-binlog right branch
     // restores updated key 2 and deleted key 3. A new key 4 must not appear in the snapshot.
-    sql "INSERT INTO ${dbName}.${tableName} VALUES (2, 200)"
+    sql "INSERT INTO ${dbName}.${tableName} VALUES (2, 200, 2000)"
     sql "DELETE FROM ${dbName}.${tableName} WHERE k = 3"
-    sql "INSERT INTO ${dbName}.${tableName} VALUES (4, 40)"
+    sql "INSERT INTO ${dbName}.${tableName} VALUES (4, 40, 400)"
 
     sql "CREATE USER '${user}' IDENTIFIED BY '${password}'"
     sql "GRANT SELECT_PRIV ON internal.${dbName}.${tableName} TO ${user}"
@@ -91,6 +92,16 @@ suite("test_mow_time_travel_row_policy", "nonConcurrent,p0,auth") {
         // missing policy marker on either scan leaks key 5 or key 2 respectively.
         order_qt_historical_image """
             SELECT k, v FROM ${tableName} FOR VERSION AS OF ${snapshotTso} ORDER BY k
+        """
+
+        // Keep the raw name of a dotted primitive column through both union branches. Exercise
+        // unqualified and table-qualified binding because UnboundSlot.getName() renders backticks.
+        order_qt_historical_dotted_column_unqualified """
+            SELECT `v1.v2` FROM ${tableName} FOR VERSION AS OF ${snapshotTso} ORDER BY k
+        """
+        order_qt_historical_dotted_column_qualified """
+            SELECT ${tableName}.`v1.v2` FROM ${tableName} FOR VERSION AS OF ${snapshotTso}
+            ORDER BY ${tableName}.k
         """
     }
 }

@@ -5,3 +5,11 @@
 -- !historical_image --
 1	10
 3	30
+
+-- !historical_dotted_column_unqualified --
+100
+300
+
+-- !historical_dotted_column_qualified --
+100
+300

@@ -1084,7 +1084,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private LogicalPlan projectFromUnboundSlots(LogicalPlan plan, List<UnboundSlot> wantedSlots) {
         List<NamedExpression> project = new ArrayList<>(wantedSlots.size());
         for (UnboundSlot wanted : wantedSlots) {
-            project.add(new Alias(wanted, wanted.getName()));
+            List<String> nameParts = wanted.getNameParts();
+            int nameIndex = nameParts.size() - 1;
+            project.add(new Alias(wanted, nameParts.get(nameIndex),
+                    nameParts.subList(0, nameIndex)));
         }
         return new LogicalProject<>(project, plan);
     }
