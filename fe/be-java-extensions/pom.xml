@@ -30,6 +30,7 @@ under the License.
         <module>hive-apache-shade</module>
         <module>java-udf</module>
         <module>jdbc-scanner</module>
+        <module>paimon-s3-shade</module>
         <module>paimon-scanner</module>
         <module>max-compute-connector</module>
         <module>trino-connector-scanner</module>
