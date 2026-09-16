@@ -164,9 +164,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private SelectedPartitions selectedPartitions = SelectedPartitions.NOT_PRUNED;
 
     // Memoizes the one-shot resolution of an unknown total partition count (see
-    // resolveUnknownTotalPartitionNum); an UNAVAILABLE connector view leaves the count unknown, so without this
-    // flag every later render of the same node would rebuild the whole view for the same answer.
+    // resolveUnknownTotalPartitionNum), including a FAILED one: an UNAVAILABLE connector view leaves the count
+    // unknown and a connector error aborts the render, so without this flag every later render of the same node
+    // would rebuild the whole view for the same answer - and the render callers are allowed to swallow the throw
+    // (the profile path logs and ignores it), so a failure has to be remembered and rethrown rather than
+    // re-queried.
     private boolean totalPartitionNumResolved;
+    private RuntimeException totalPartitionNumFailure;
 
     // Cached isBatchMode() result. isBatchMode is read on both the dispatch (FileQueryScanNode)
     // and explain (FileScanNode) paths and num_partitions_in_batch_mode is fuzzy, so cache it to
@@ -1220,11 +1224,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * leaves the count unknown, which the renderers write as {@code ?} - never as a fabricated 0.</p>
      */
     private void resolveUnknownTotalPartitionNum() {
-        // Memoized: an UNAVAILABLE view leaves the count unknown, so without this flag every later render of the
-        // same node (toString, getPlanTreeExplainStr, Profile.updateSummary) would ask the connector again and
-        // rebuild the whole view for the same answer. Only a COMPLETED attempt is memoized - caching a failed one
-        // would downgrade a hard failure in the first render to a silent `?` in every later one.
+        // Memoized, failure included: an UNAVAILABLE view leaves the count unknown, so without the flag every
+        // later render of the same node (toString, getPlanTreeExplainStr, Profile.updateSummary) would ask the
+        // connector again and rebuild the whole view for the same answer. A FAILED attempt is remembered and
+        // rethrown instead of re-asked, because its caller may swallow the throw: StmtExecutor.updateProfile
+        // catches Throwable with a WARN, and re-querying there would both repeat the enumeration and keep
+        // aborting the profile update.
         if (totalPartitionNumResolved) {
+            if (totalPartitionNumFailure != null) {
+                throw totalPartitionNumFailure;
+            }
             return;
         }
         if (totalPartitionNum >= 0) {
@@ -1242,8 +1251,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         PluginDrivenExternalTable pluginDrivenTable = (PluginDrivenExternalTable) table;
         Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(pluginDrivenTable,
                 Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
-        totalPartitionNum = totalPartitionNumFromUnfilteredView(totalPartitionNum,
-                pluginDrivenTable.getNameToPartitionItemsForScan(snapshot));
+        try {
+            totalPartitionNum = totalPartitionNumFromUnfilteredView(totalPartitionNum,
+                    pluginDrivenTable.getNameToPartitionItemsForScan(snapshot));
+        } catch (RuntimeException e) {
+            totalPartitionNumFailure = e;
+            totalPartitionNumResolved = true;
+            throw e;
+        }
         totalPartitionNumResolved = true;
     }
 
