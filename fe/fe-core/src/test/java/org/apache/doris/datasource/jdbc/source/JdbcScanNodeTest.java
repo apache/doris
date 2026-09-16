@@ -48,6 +48,23 @@ import java.util.List;
 public class JdbcScanNodeTest {
 
     @Test
+    public void testZonedTimestampLiteralStaysLocal() throws Exception {
+        Method method = JdbcScanNode.class.getDeclaredMethod("shouldPushDownConjunct",
+                TOdbcTableType.class, Expr.class);
+        method.setAccessible(true);
+        SlotRef slot = new SlotRef(null, "event_time");
+        slot.setType(ScalarType.createTimeStampTzType(6));
+        DateLiteral literal = new DateLiteral(java.time.LocalDateTime.parse("2020-01-02T04:01:00.111333"),
+                ScalarType.createTimeStampTzType(6));
+        for (TOdbcTableType dialect : TOdbcTableType.values()) {
+            Assert.assertEquals(false, method.invoke(null, dialect,
+                    new BinaryPredicate(Operator.EQ, slot, literal)));
+            Assert.assertEquals(false, method.invoke(null, dialect,
+                    new InPredicate(slot, Arrays.asList(literal), false)));
+        }
+    }
+
+    @Test
     public void testBinaryInPredicatesStayLocal() throws Exception {
         Method method = JdbcScanNode.class.getDeclaredMethod("shouldPushDownConjunct",
                 TOdbcTableType.class, Expr.class);

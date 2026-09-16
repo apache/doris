@@ -40,7 +40,6 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
@@ -679,12 +678,6 @@ public class ColumnDef {
             case JSONB:
                 if (defaultValue.length() > scalarType.getLength()) {
                     throw new AnalysisException("Default value is too long: " + defaultValue);
-                }
-                break;
-            case VARBINARY:
-                // SQL string defaults become UTF-8 bytes; VARBINARY limits bytes, not characters.
-                if (defaultValue.getBytes(StandardCharsets.UTF_8).length > scalarType.getLength()) {
-                    throw new AnalysisException("Default value is too long for VARBINARY");
                 }
                 break;
             case BITMAP:

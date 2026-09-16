@@ -73,6 +73,9 @@ public class JdbcSQLServerClient extends JdbcClient {
             }
             case "date":
                 return ScalarType.createDateV2Type();
+            case "datetimeoffset":
+                // DATETIMEOFFSET carries an instant; SQL Server TIMESTAMP is a rowversion, not a time.
+                return ScalarType.createTimeStampTzType(Math.min(fieldSchema.getDecimalDigits().orElse(0), 6));
             case "datetime":
             case "datetime2":
             case "smalldatetime": {
@@ -90,7 +93,6 @@ public class JdbcSQLServerClient extends JdbcClient {
             case "text":
             case "ntext":
             case "time":
-            case "datetimeoffset":
             case "uniqueidentifier":
             case "timestamp":
                 return ScalarType.createStringType();

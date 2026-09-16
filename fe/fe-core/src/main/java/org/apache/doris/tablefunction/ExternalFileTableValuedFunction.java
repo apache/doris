@@ -251,10 +251,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 FileFormatConstants.PROP_ENABLE_MAPPING_VARBINARY, "false");
         fileFormatProperties.enableMappingVarbinary = Boolean.parseBoolean(enableMappingVarbinaryStr);
 
-        // Parse enable_mapping_timestamp_tz property
-        String enableMappingTimestampTzStr = getOrDefaultAndRemove(copiedProps,
-                FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, "false");
-        fileFormatProperties.enableMappingTimestampTz = Boolean.parseBoolean(enableMappingTimestampTzStr);
+        // Consume the legacy option, but let file logical types determine timezone semantics.
+        copiedProps.remove(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ);
+        fileFormatProperties.enableMappingTimestampTz = true;
 
         String hiveParquetTimeZone = getOrDefaultAndRemove(copiedProps,
                 FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "");

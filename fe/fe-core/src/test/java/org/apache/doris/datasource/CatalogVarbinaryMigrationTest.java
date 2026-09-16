@@ -41,6 +41,34 @@ class CatalogVarbinaryMigrationTest {
     private static final String MARKER = CatalogProperty.ENABLE_MAPPING_VARBINARY;
 
     @Test
+    void testTimestampMarkerIsJournaledAndCannotBeDisabledByAlter() throws Exception {
+        String timestampMarker = CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ;
+        CatalogMgr manager = new CatalogMgr();
+        Map<String, String> properties = new HashMap<>();
+        properties.put(MARKER, "true");
+        properties.put(timestampMarker, "false");
+        BinaryCatalog catalog = new BinaryCatalog(48, properties);
+        catalog.gsonPostProcess();
+        Assertions.assertEquals("false", catalog.getProperties().get(timestampMarker));
+        addCatalog(manager, catalog);
+        List<CatalogLog> persisted = new ArrayList<>();
+        Env env = journalEnv(persisted);
+        try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
+            mocked.when(Env::getCurrentEnv).thenReturn(env);
+            manager.migrateVarbinaryMappingProperties();
+            manager.migrateVarbinaryMappingProperties();
+            Assertions.assertEquals(1, persisted.size());
+            Assertions.assertEquals(Collections.singletonMap(timestampMarker, "true"), persisted.get(0).getNewProps());
+            Assertions.assertEquals("true", catalog.getProperties().get(timestampMarker));
+            Map<String, String> requested = Collections.singletonMap(timestampMarker, "false");
+            manager.alterCatalogProps(catalog.getName(), requested);
+            Assertions.assertEquals("false", requested.get(timestampMarker));
+            Assertions.assertEquals("true", persisted.get(1).getNewProps().get(timestampMarker));
+            Assertions.assertTrue(catalog.getEnableMappingTimestampTz());
+        }
+    }
+
+    @Test
     void testAlterPersistsNormalizedMarkerWithoutMutatingCaller() throws Exception {
         CatalogMgr manager = new CatalogMgr();
         BinaryCatalog catalog = new BinaryCatalog(41, Collections.singletonMap(MARKER, "true"));
@@ -79,6 +107,7 @@ class CatalogVarbinaryMigrationTest {
         for (long id = 43; id <= 45; id++) {
             Map<String, String> properties = new HashMap<>();
             properties.put("custom.property", "preserved");
+            properties.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
             if (id != 44) {
                 properties.put(MARKER, id == 43 ? "false" : "true");
             }
@@ -139,6 +168,7 @@ class CatalogVarbinaryMigrationTest {
         BinaryCatalog catalog = new BinaryCatalog(47, Collections.singletonMap(MARKER, "false"));
         catalog.setDefaultPropsIfMissing(false);
         Assertions.assertEquals("true", catalog.getProperties().get(MARKER));
+        Assertions.assertEquals("true", catalog.getProperties().get(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ));
     }
 
     private static Env journalEnv(List<CatalogLog> persisted) throws Exception {

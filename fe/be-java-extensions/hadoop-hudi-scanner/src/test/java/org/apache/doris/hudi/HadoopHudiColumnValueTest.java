@@ -31,21 +31,33 @@ import java.time.ZoneId;
 
 public class HadoopHudiColumnValueTest {
     @Test
-    public void testInt64TimestampUsesSessionTimezone() {
+    public void testInstantTimestampUsesUtcComponents() {
+        HadoopHudiColumnValue value = new HadoopHudiColumnValue(ZoneId.of("Asia/Shanghai"));
+        value.setField(ColumnType.parseType("ts", "timestamptz(6)"), null);
+        value.setRow(new LongWritable(-1));
+        Assert.assertEquals(LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000), value.getTimeStampTz());
+        value.setField(ColumnType.parseType("ts", "timestamptz(6)"),
+                PrimitiveObjectInspectorFactory.writableTimestampObjectInspector);
+        value.setRow(new TimestampWritableV2(Timestamp.ofEpochSecond(1, 111333000)));
+        Assert.assertEquals(LocalDateTime.of(1970, 1, 1, 0, 0, 1, 111333000), value.getTimeStampTz());
+    }
+
+    @Test
+    public void testInt64LocalTimestampIgnoresSessionTimezone() {
         HadoopHudiColumnValue value = new HadoopHudiColumnValue(ZoneId.of("America/Los_Angeles"));
         value.setField(ColumnType.parseType("ts", "datetimev2(6)"), null);
         value.setRow(new LongWritable(0));
 
-        Assert.assertEquals(LocalDateTime.of(1969, 12, 31, 16, 0), value.getDateTime());
+        Assert.assertEquals(LocalDateTime.of(1970, 1, 1, 0, 0), value.getDateTime());
     }
 
     @Test
-    public void testInt96TimestampUsesSessionTimezone() {
+    public void testInt96LocalTimestampIgnoresSessionTimezone() {
         HadoopHudiColumnValue value = new HadoopHudiColumnValue(ZoneId.of("America/Los_Angeles"));
         value.setField(ColumnType.parseType("ts", "datetimev2(6)"),
                 PrimitiveObjectInspectorFactory.writableTimestampObjectInspector);
         value.setRow(new TimestampWritableV2(Timestamp.ofEpochSecond(0)));
 
-        Assert.assertEquals(LocalDateTime.of(1969, 12, 31, 16, 0), value.getDateTime());
+        Assert.assertEquals(LocalDateTime.of(1970, 1, 1, 0, 0), value.getDateTime());
     }
 }

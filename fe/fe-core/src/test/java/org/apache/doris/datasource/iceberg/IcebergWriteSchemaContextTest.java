@@ -173,7 +173,7 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
-    public void testLegacyTimestamptzWriteDefaultUsesSessionLocalWallTime() {
+    public void testTimestamptzWriteDefaultPreservesInstantWithoutFlag() {
         long instantMicros = DateTimeUtil.isoTimestamptzToMicros(
                 "2025-01-18T01:02:03.654321+00:00");
         Types.NestedField field = defaultField(
@@ -185,7 +185,7 @@ public class IcebergWriteSchemaContextTest {
         try {
             IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.forSchema(
                     new Schema(field), 3, false, false);
-            Assertions.assertEquals("2025-01-18 09:02:03.654321",
+            Assertions.assertEquals("2025-01-18 01:02:03.654321+00:00",
                     stringValue(writeContext.resolveWriteDefault(
                             writeContext.getColumns().get(0))));
         } finally {

@@ -710,7 +710,7 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testLegacyTimestamptzMissingColumnExpressionUsesSessionTimeZone() {
+    public void testTimestamptzMissingColumnExpressionPreservesOffsetWithoutFlag() {
         Types.NestedField field = Types.NestedField.optional("event_time")
                 .withId(1)
                 .ofType(Types.TimestampType.withZone())
@@ -720,7 +720,7 @@ public class IcebergUtilsTest {
         context.getSessionVariable().setTimeZone("Asia/Shanghai");
         context.setThreadLocalInfo();
         try {
-            Assert.assertEquals("2025-01-18 09:02:03.654321",
+            Assert.assertEquals("2025-01-18 01:02:03.654321+00:00",
                     IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, false));
             Assert.assertEquals("2025-01-18 01:02:03.654321+00:00",
                     IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, true));

@@ -320,7 +320,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         sql """ drop database if exists ${view_db}"""
         sql """ create database if not exists ${view_db}"""
         sql """use ${view_db}"""
-        // Include binary columns so view expansion exercises the catalog's native VARBINARY mapping.
+        // Views preserve external VARBINARY execution types without introducing native storage support.
         sql """ create view test_tst_1 as select * from ${catalog_name}.`db1`.all_table; """
         sql """ create view test_tst_2 as select * from ${catalog_name}.`db1`.all_table_with_parquet; """
         sql """ create view test_tst_5 as select * from ${catalog_name}.`db1`.array_nested; """

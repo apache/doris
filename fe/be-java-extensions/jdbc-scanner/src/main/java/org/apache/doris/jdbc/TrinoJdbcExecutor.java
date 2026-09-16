@@ -31,6 +31,8 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -58,6 +60,11 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
     @Override
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
         switch (type.getType()) {
+            case TIMESTAMPTZ: {
+                // JNI carries instants as UTC components, not the source zone's wall clock.
+                ZonedDateTime value = resultSet.getObject(columnIndex + 1, ZonedDateTime.class);
+                return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
+            }
             case BOOLEAN:
                 return resultSet.getObject(columnIndex + 1, Boolean.class);
             case TINYINT:
@@ -133,6 +140,15 @@ public class TrinoJdbcExecutor extends BaseJdbcExecutor {
                 List<LocalDate> result = Lists.newArrayList();
                 for (Object element : array) {
                     result.add(element != null ? ((Date) element).toLocalDate() : null);
+                }
+                return result;
+            }
+            case TIMESTAMPTZ: {
+                List<LocalDateTime> result = Lists.newArrayList();
+                // Trino JDBC exposes timestamp-with-zone array elements as java.sql.Timestamp.
+                for (Object element : array) {
+                    result.add(element == null ? null
+                            : LocalDateTime.ofInstant(((Timestamp) element).toInstant(), ZoneOffset.UTC));
                 }
                 return result;
             }

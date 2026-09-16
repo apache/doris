@@ -31,6 +31,8 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
     public SQLServerJdbcExecutor(byte[] thriftParams) throws Exception {
@@ -68,6 +70,11 @@ public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
     @Override
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
         switch (type.getType()) {
+            case TIMESTAMPTZ: {
+                // JNI carries instants as UTC components, not the source zone's wall clock.
+                OffsetDateTime value = resultSet.getObject(columnIndex + 1, OffsetDateTime.class);
+                return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
+            }
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:

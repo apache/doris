@@ -734,7 +734,8 @@ public class IcebergUtils {
             case DATE:
                 return ScalarType.createDateV2Type();
             case TIMESTAMP:
-                if (enableMappingTimestampTz && ((TimestampType) primitive).shouldAdjustToUTC()) {
+                // Preserve the logical distinction between instants and wall-clock timestamps.
+                if (((TimestampType) primitive).shouldAdjustToUTC()) {
                     return ScalarType.createTimeStampTzType(ICEBERG_DATETIME_SCALE_MS);
                 }
                 return ScalarType.createDatetimeV2Type(ICEBERG_DATETIME_SCALE_MS);
@@ -1052,7 +1053,7 @@ public class IcebergUtils {
         if (typeId == TypeID.UUID) {
             return false;
         }
-        return !enableMappingTimestampTz || typeId != TypeID.TIMESTAMP
+        return typeId != TypeID.TIMESTAMP
                 || !((TimestampType) type).shouldAdjustToUTC();
     }
 
@@ -1496,12 +1497,6 @@ public class IcebergUtils {
             // Iceberg formats timestamps as ISO-8601 (for example 2024-01-01T00:00:00), while
             // Doris' DATETIMEV2 default parser requires a space between the date and time.
             String dorisValue = humanValue.replace('T', ' ');
-            Types.TimestampType timestampType = (Types.TimestampType) type;
-            if (timestampType.shouldAdjustToUTC() && !enableMappingTimestampTz) {
-                // Preserve the instant and its offset through FE-to-BE transport. The BE converts
-                // it to the session-local DATETIMEV2 wall time immediately before materialization.
-                return dorisValue;
-            }
             return dorisValue;
         }
         if (isBinaryLike(type)) {
@@ -1525,16 +1520,7 @@ public class IcebergUtils {
             Types.NestedField field, boolean enableMappingTimestampTz) {
         Preconditions.checkArgument(field.initialDefault() != null,
                 "Iceberg field %s has no initial default", field.fieldId());
-        if (field.type().typeId() == TypeID.TIMESTAMP
-                && ((Types.TimestampType) field.type()).shouldAdjustToUTC()
-                && !enableMappingTimestampTz) {
-            long micros = (Long) field.initialDefault();
-            long seconds = Math.floorDiv(micros, 1_000_000L);
-            int nanos = Math.toIntExact(Math.floorMod(micros, 1_000_000L) * 1_000L);
-            LocalDateTime localDateTime = LocalDateTime.ofInstant(
-                    Instant.ofEpochSecond(seconds, nanos), TimeUtils.getDorisZoneId());
-            return localDateTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME).replace('T', ' ');
-        }
+        // TIMESTAMPTZ defaults must retain their offset, not become session-local wall times.
         return getSerializedInitialDefault(field, enableMappingTimestampTz);
     }
 

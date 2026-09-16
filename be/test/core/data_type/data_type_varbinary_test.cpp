@@ -261,7 +261,7 @@ TEST_F(DataTypeVarbinaryTest, SerDeWriteColumnToMysql) {
 
 TEST_F(DataTypeVarbinaryTest, GetStorageFieldType) {
     DataTypeVarbinary dt;
-    EXPECT_EQ(dt.get_storage_field_type(), doris::FieldType::OLAP_FIELD_TYPE_VARBINARY);
+    EXPECT_THROW(dt.get_storage_field_type(), doris::Exception);
 }
 
 TEST_F(DataTypeVarbinaryTest, GetFieldFromTExprNodeWithEmbeddedNull) {

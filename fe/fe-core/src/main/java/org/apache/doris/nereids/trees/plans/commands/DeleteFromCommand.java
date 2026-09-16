@@ -347,13 +347,6 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         }
         Column column = slotReference.getOriginalColumn().get();
 
-        // Storage delete predicates use Thrift strings, which cannot preserve arbitrary binary bytes.
-        // Let the existing fallback use MOW row deletion, or reject unsupported table models early.
-        if (column.getType().isVarbinaryType()) {
-            throw new AnalysisException(
-                    "VARBINARY delete predicates require a Unique table with merge-on-write enabled");
-        }
-
         if (Column.DELETE_SIGN.equalsIgnoreCase(column.getName())) {
             return;
         }

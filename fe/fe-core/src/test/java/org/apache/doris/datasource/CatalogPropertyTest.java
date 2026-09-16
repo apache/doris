@@ -38,6 +38,15 @@ import java.util.concurrent.atomic.AtomicReference;
 public class CatalogPropertyTest {
 
     @Test
+    public void testTimestampMappingCannotBeDisabled() {
+        CatalogProperty properties = new CatalogProperty(null,
+                new HashMap<>(Collections.singletonMap(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "false")));
+        Assert.assertTrue(properties.getEnableMappingTimestampTz());
+        properties.setEnableMappingTimestampTz(false);
+        Assert.assertEquals("true", properties.getProperties().get(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ));
+    }
+
+    @Test
     public void testVarbinaryMappingCannotBeDisabled() {
         Map<String, String> properties = new HashMap<>();
         properties.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "false");

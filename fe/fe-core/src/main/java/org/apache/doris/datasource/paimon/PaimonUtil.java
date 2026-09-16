@@ -358,10 +358,8 @@ public class PaimonUtil {
                         tsScale = 6;
                     }
                 }
-                if (enableTimestampTzMapping) {
-                    return ScalarType.createTimeStampTzType(tsScale);
-                }
-                return ScalarType.createDatetimeV2Type(tsScale);
+                // Local-zoned timestamps are instants, regardless of legacy catalog properties.
+                return ScalarType.createTimeStampTzType(tsScale);
             case VARIANT:
                 // External-table schemas are cached and shared, so the physical marker must not
                 // depend on enable_variant_v2. PaimonScanNode checks the global switch per query.

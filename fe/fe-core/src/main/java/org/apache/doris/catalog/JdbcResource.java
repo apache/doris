@@ -161,7 +161,7 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.USE_META_CACHE,
                 String.valueOf(ExternalCatalog.DEFAULT_USE_META_CACHE));
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "true");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.

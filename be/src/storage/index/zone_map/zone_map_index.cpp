@@ -167,7 +167,7 @@ void TypedZoneMapIndexWriter<Type>::_update_page_zonemap(const ValType& min_valu
     // For string types, truncate to MAX_ZONE_MAP_INDEX_SIZE (matching the old
     // Field-based path) and copy bytes into _page_{min,max}_storage so the
     // StringRef stays valid across add_values() calls.
-    if constexpr (is_string_type(Type) || Type == TYPE_VARBINARY) {
+    if constexpr (is_string_type(Type)) {
         auto truncate_into = [](const StringRef& src, std::string& dst) {
             auto sz = std::min<size_t>(src.size, MAX_ZONE_MAP_INDEX_SIZE);
             dst.assign(src.data, sz);
@@ -197,13 +197,8 @@ void TypedZoneMapIndexWriter<Type>::_materialize_page_minmax() {
     if (!_page_zone_map.has_not_null) {
         return;
     }
-    if constexpr (Type == TYPE_VARBINARY) {
-        _page_zone_map.min_value = Field::create_field<TYPE_VARBINARY>(StringView(_page_min));
-        _page_zone_map.max_value = Field::create_field<TYPE_VARBINARY>(StringView(_page_max));
-    } else {
-        _page_zone_map.min_value = doris::Field::create_field_from_olap_value<Type>(_page_min);
-        _page_zone_map.max_value = doris::Field::create_field_from_olap_value<Type>(_page_max);
-    }
+    _page_zone_map.min_value = doris::Field::create_field_from_olap_value<Type>(_page_min);
+    _page_zone_map.max_value = doris::Field::create_field_from_olap_value<Type>(_page_max);
 }
 
 template <PrimitiveType Type>
@@ -257,21 +252,6 @@ void TypedZoneMapIndexWriter<Type>::modify_index_before_flush(
         auto& str = zone_map.max_value.get<Type>();
         if (str.size() == MAX_ZONE_MAP_INDEX_SIZE) {
             str[str.size() - 1] += 1;
-        }
-    }
-    if constexpr (Type == TYPE_VARBINARY) {
-        std::string upper = zone_map.max_value.get<TYPE_VARBINARY>().str();
-        if (upper.size() == MAX_ZONE_MAP_INDEX_SIZE) {
-            // Binary prefixes can end in 0xff. Carry through those bytes; wrapping the last
-            // byte would lower the upper bound and incorrectly prune matching rows.
-            const auto last = upper.find_last_not_of(static_cast<char>(0xff));
-            if (last == std::string::npos) {
-                zone_map.pass_all = true;
-            } else {
-                upper.resize(last + 1);
-                upper[last] = static_cast<char>(static_cast<unsigned char>(upper[last]) + 1);
-                zone_map.max_value = Field::create_field<TYPE_VARBINARY>(StringView(upper));
-            }
         }
     }
 }
@@ -424,7 +404,6 @@ ZoneMapIndexReader::~ZoneMapIndexReader() = default;
     M(TYPE_IPV6)                 \
     M(TYPE_VARCHAR)              \
     M(TYPE_STRING)               \
-    M(TYPE_VARBINARY)            \
     M(TYPE_DECIMAL32)            \
     M(TYPE_DECIMAL64)            \
     M(TYPE_DECIMAL128I)          \

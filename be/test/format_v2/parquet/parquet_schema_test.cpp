@@ -33,6 +33,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
+#include "format/parquet/schema_desc.h"
 #include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/parquet_column_schema.h"
@@ -41,6 +42,29 @@
 #include "format_v2/parquet/reader/native_column_reader.h"
 
 namespace doris::format::parquet {
+
+TEST(ParquetSchemaTest, UnannotatedInt96DoesNotAcquireTimezoneFromMappingFlag) {
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(1);
+    tparquet::SchemaElement timestamp;
+    timestamp.__set_name("event_time");
+    timestamp.__set_type(tparquet::Type::INT96);
+    timestamp.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
+    for (bool legacy_flag : {false, true}) {
+        NativeFieldDescriptor native;
+        native.set_enable_mapping_timestamp_tz(legacy_flag);
+        ASSERT_TRUE(native.parse_from_thrift({root, timestamp}).ok());
+        EXPECT_EQ(remove_nullable(native.get_column(0)->data_type)->get_primitive_type(),
+                  TYPE_DATETIMEV2);
+        doris::FieldDescriptor legacy;
+        legacy.set_enable_mapping_timestamp_tz(legacy_flag);
+        ASSERT_TRUE(legacy.parse_from_thrift({root, timestamp}).ok());
+        EXPECT_EQ(remove_nullable(legacy.get_column(0)->data_type)->get_primitive_type(),
+                  TYPE_DATETIMEV2);
+    }
+}
+
 namespace {
 
 std::vector<tparquet::SchemaElement> unshredded_variant_schema(

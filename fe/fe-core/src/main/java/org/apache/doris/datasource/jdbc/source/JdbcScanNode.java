@@ -31,6 +31,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.TableIf;
@@ -68,6 +69,7 @@ public class JdbcScanNode extends ExternalScanNode {
     private String graphQueryString = "";
     private boolean isTableValuedFunction = false;
     private String query = "";
+    private boolean projectsTimestampArrays;
 
     private JdbcTable tbl;
     private long catalogId;
@@ -155,9 +157,22 @@ public class JdbcScanNode extends ExternalScanNode {
 
     private void createJdbcColumns() {
         columns.clear();
+        projectsTimestampArrays = false;
         for (SlotDescriptor slot : desc.getSlots()) {
             Column col = slot.getColumn();
-            columns.add(tbl.getProperRemoteColumnName(jdbcType, col.getName()));
+            String remoteName = tbl.getProperRemoteColumnName(jdbcType, col.getName());
+            org.apache.doris.catalog.Type leaf = col.getType();
+            while (leaf.isArrayType()) {
+                leaf = ((ArrayType) leaf).getItemType();
+            }
+            if (jdbcType == TOdbcTableType.CLICKHOUSE && col.getType().isArrayType() && leaf.isTimeStampTz()) {
+                // Older ClickHouse drivers expose array timestamps as zone-less LocalDateTime.
+                // Send epoch microseconds so nested instants survive every supported driver.
+                columns.add(clickHouseTimestampArrayProjection(remoteName, col.getType(), 0) + " AS " + remoteName);
+                projectsTimestampArrays = true;
+            } else {
+                columns.add(remoteName);
+            }
         }
         if (columns.isEmpty()) {
             columns.add("*");
@@ -166,6 +181,28 @@ public class JdbcScanNode extends ExternalScanNode {
 
     private boolean shouldPushDownLimit() {
         return limit != -1 && conjuncts.size() == pushedDownConjuncts.size();
+    }
+
+    private static String clickHouseTimestampArrayProjection(String value, org.apache.doris.catalog.Type type,
+            int depth) {
+        if (type.isArrayType()) {
+            String element = "t" + depth;
+            return "arrayMap(" + element + " -> "
+                    + clickHouseTimestampArrayProjection(element, ((ArrayType) type).getItemType(), depth + 1)
+                    + ", " + value + ")";
+        }
+        return "toUnixTimestamp64Micro(toDateTime64(" + value + ", 6))";
+    }
+
+    private String getTvfQuery() {
+        if (!projectsTimestampArrays) {
+            return query;
+        }
+        String source = query.trim();
+        if (source.endsWith(";")) {
+            source = source.substring(0, source.length() - 1);
+        }
+        return "SELECT " + Joiner.on(", ").join(columns) + " FROM (" + source + ") doris_jdbc_source";
     }
 
     private String getJdbcQueryStr() {
@@ -219,7 +256,7 @@ public class JdbcScanNode extends ExternalScanNode {
         if (isTableValuedFunction) {
             output.append(prefix).append("TABLE VALUE FUNCTION\n");
             output.append(prefix).append("CATALOG ID: ").append(catalogId).append("\n");
-            output.append(prefix).append("QUERY: ").append(query).append("\n");
+            output.append(prefix).append("QUERY: ").append(getTvfQuery()).append("\n");
         } else {
             output.append(prefix).append("CATALOG ID: ").append(catalogId).append("\n");
             output.append(prefix).append("TABLE: ").append(tableName).append("\n");
@@ -260,7 +297,7 @@ public class JdbcScanNode extends ExternalScanNode {
         msg.jdbc_scan_node.setTupleId(desc.getId().asInt());
         msg.jdbc_scan_node.setTableName(tableName);
         if (isTableValuedFunction) {
-            msg.jdbc_scan_node.setQueryString(query);
+            msg.jdbc_scan_node.setQueryString(getTvfQuery());
         } else {
             msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
         }
@@ -285,6 +322,13 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+        // JDBC dialects do not share Doris' zoned literal syntax or session timezone.
+        // Keep instant comparisons local until each dialect has a lossless literal serializer.
+        List<DateLiteral> dates = Lists.newArrayList();
+        expr.collect(DateLiteral.class, dates);
+        if (dates.stream().anyMatch(date -> date.getType().isTimeStampTz())) {
+            return false;
+        }
         // These dialects do not accept Doris X'...' as binary literals (PostgreSQL reads bit
         // strings, DB2 uses BX, and Oracle modes require HEXTORAW). Keep these predicates local.
         if ((tableType == TOdbcTableType.POSTGRESQL || tableType == TOdbcTableType.ORACLE

@@ -50,7 +50,7 @@ public abstract class FileFormatProperties {
     // TVFs are schema-on-read entry points, so callers must opt in before their result contract
     // changes from STRING to VARBINARY. Catalog binary mappings do not use this setting.
     public boolean enableMappingVarbinary = false;
-    public boolean enableMappingTimestampTz = false;
+    public boolean enableMappingTimestampTz = true;
 
     public FileFormatProperties(TFileFormatType fileFormatType, String formatName) {
         this.fileFormatType = fileFormatType;

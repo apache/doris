@@ -42,7 +42,6 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
-#include "core/column/column_varbinary.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
@@ -50,7 +49,6 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
-#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
@@ -332,26 +330,6 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
     };
 
     switch (type->get_primitive_type()) {
-    case TYPE_VARBINARY: {
-        const auto* binary_type =
-                assert_cast<const DataTypeVarbinary*>(remove_nullable(type).get());
-        const auto* binary = assert_cast<const ColumnVarbinary*>(real_column_ptr.get());
-        int limit = config::string_type_length_soft_limit_bytes;
-        if (binary_type->len() >= 0) {
-            limit = std::min(limit, binary_type->len());
-        }
-        // VARBINARY(n) limits bytes, including nested leaves; text truncation would corrupt keys.
-        for (size_t j = 0; j < row_count; ++j) {
-            const auto row = rows ? (*rows)[j] : j;
-            if (need_to_validate(j, row, _filter_map, null_map) &&
-                binary->get_data_at(j).size > limit) {
-                fmt::format_to(error_msg, "binary length exceeds schema: limit {}; actual {}; ",
-                               limit, binary->get_data_at(j).size);
-                RETURN_IF_ERROR(set_invalid_and_append_error_msg(row));
-            }
-        }
-        break;
-    }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {

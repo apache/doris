@@ -65,7 +65,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -470,6 +469,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 // the live CatalogProperty. Do not mutate the caller's possibly immutable map.
                 loggedProperties.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "true");
             }
+            if (catalog instanceof ExternalCatalog
+                    && loggedProperties.containsKey(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ)) {
+                // Replicate the effective type policy so older followers infer the same schema.
+                loggedProperties.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
+            }
             log.setNewProps(loggedProperties);
             replayAlterCatalogProps(log, oldProperties, false);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
@@ -578,13 +582,19 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     continue;
                 }
                 ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
-                if (Boolean.parseBoolean(
-                        externalCatalog.getProperties().get(CatalogProperty.ENABLE_MAPPING_VARBINARY))) {
+                Map<String, String> migratedProperties = Maps.newHashMap();
+                for (String marker : new String[] {CatalogProperty.ENABLE_MAPPING_VARBINARY,
+                        CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ}) {
+                    if (!Boolean.parseBoolean(externalCatalog.getProperties().get(marker))) {
+                        migratedProperties.put(marker, "true");
+                    }
+                }
+                if (migratedProperties.isEmpty()) {
                     continue;
                 }
                 CatalogLog log = new CatalogLog();
                 log.setCatalogId(catalog.getId());
-                log.setNewProps(Collections.singletonMap(CatalogProperty.ENABLE_MAPPING_VARBINARY, "true"));
+                log.setNewProps(migratedProperties);
                 // Use the existing ALTER format so running older followers can replay the change.
                 // Journal first: a failed write must leave the marker eligible for a retry.
                 Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);

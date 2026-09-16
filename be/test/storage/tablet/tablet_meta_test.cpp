@@ -32,22 +32,6 @@
 
 namespace doris {
 
-TEST(TabletMetaTest, VarbinaryShortKeyLengthIsBounded) {
-    TColumn source;
-    source.__set_column_name("payload");
-    source.__set_is_key(true);
-    source.column_type.__set_type(TPrimitiveType::VARBINARY);
-    source.column_type.__set_len(INT32_MAX);
-    ColumnPB column;
-    TabletMeta::init_column_from_tcolumn(0, source, &column);
-    EXPECT_EQ(column.type(), "VARBINARY");
-    EXPECT_EQ(column.length(), INT32_MAX);
-    EXPECT_EQ(column.index_length(), 10);
-    source.column_type.__set_index_len(8);
-    TabletMeta::init_column_from_tcolumn(0, source, &column);
-    EXPECT_EQ(column.index_length(), 8);
-}
-
 TEST(TabletMetaTest, SaveAndParse) {
     std::string meta_path = "./be/test/storage/test_data/tablet_meta_test.hdr";
 

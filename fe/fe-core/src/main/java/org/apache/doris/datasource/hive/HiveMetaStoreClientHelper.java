@@ -723,8 +723,8 @@ public class HiveMetaStoreClientHelper {
             return ScalarType.createDecimalV3Type(precision, scale);
         }
         if (lowerCaseType.startsWith("timestamp with local time zone")) {
-            return enableMappingTimeStampTz ? ScalarType.createTimeStampTzType(timeScale)
-                    : ScalarType.createDatetimeV2Type(timeScale);
+            // The external logical type defines instant semantics, including inside containers.
+            return ScalarType.createTimeStampTzType(timeScale);
         }
         return Type.UNSUPPORTED;
     }

@@ -151,8 +151,8 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 if (scale > 6) {
                     scale = 6;
                 }
-                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
-                        : ScalarType.createDatetimeV2Type(scale);
+                // Never discard the instant semantics declared by PostgreSQL timestamptz.
+                return ScalarType.createTimeStampTzType(scale);
             }
             case "date":
                 return ScalarType.createDateV2Type();

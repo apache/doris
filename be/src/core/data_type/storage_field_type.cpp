@@ -99,13 +99,12 @@ FieldType primitive_type_to_storage_field_type(PrimitiveType type) {
         return FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT;
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ;
-    case PrimitiveType::TYPE_VARBINARY:
-        return FieldType::OLAP_FIELD_TYPE_VARBINARY;
     case PrimitiveType::TYPE_BINARY:
     case static_cast<PrimitiveType>(14): // TYPE_DECIMAL (deprecated)
     case static_cast<PrimitiveType>(21): // TYPE_TIME (deprecated)
     case static_cast<PrimitiveType>(33): // TYPE_LAMBDA_FUNCTION (deprecated)
     case PrimitiveType::TYPE_FIXED_LENGTH_OBJECT:
+    case PrimitiveType::TYPE_VARBINARY:
         break;
     }
 
@@ -190,8 +189,6 @@ PrimitiveType storage_field_type_to_primitive_type(FieldType type) {
         return PrimitiveType::TYPE_IPV6;
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
         return PrimitiveType::TYPE_TIMESTAMPTZ;
-    case FieldType::OLAP_FIELD_TYPE_VARBINARY:
-        return PrimitiveType::TYPE_VARBINARY;
     case FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
     case FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
     case FieldType::OLAP_FIELD_TYPE_DISCRETE_DOUBLE:

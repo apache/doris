@@ -155,13 +155,9 @@ public class JdbcOracleClient extends JdbcClient {
             if (scale > 6) {
                 scale = 6;
             }
-            if (oracleType.contains("LOCAL TIME ZONE")) {
-                //TIMESTAMP(s) WITH LOCAL TIME ZONE
-                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
-                        : ScalarType.createDatetimeV2Type(scale);
-            } else if (oracleType.contains("TIME ZONE")) {
-                //TIMESTAMP(s) WITH TIME ZONE
-                return Type.UNSUPPORTED;
+            if (oracleType.contains("TIME ZONE")) {
+                // Both Oracle zoned timestamp variants represent instants, not wall-clock values.
+                return ScalarType.createTimeStampTzType(scale);
             } else {
                 //TIMESTAMP(s)
                 oracleType = "TIMESTAMP";

@@ -723,8 +723,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                         parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
                 break;
             case TIMESTAMPTZ:
+                // JNI supplies UTC components; valueOf would reinterpret them in the JVM timezone.
                 preparedStatement.setObject(
-                        parameterIndex, Timestamp.valueOf(column.getTimeStampTz(rowIdx)));
+                        parameterIndex,
+                        Timestamp.from(column.getTimeStampTz(rowIdx).toInstant(java.time.ZoneOffset.UTC)));
                 break;
             case CHAR:
             case VARCHAR:

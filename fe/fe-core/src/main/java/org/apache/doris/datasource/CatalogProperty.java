@@ -121,18 +121,20 @@ public class CatalogProperty {
     }
 
     /**
-     * @return true if timestamp_tz mapping is enabled, false otherwise
+     * @return true because external instant types always retain their timezone semantics
      */
+    @Deprecated
     public boolean getEnableMappingTimestampTz() {
-        return Boolean.parseBoolean(getOrDefault(ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
+        return true;
     }
 
     /**
-     * Set enable mapping timestamp_tz property.
-     * @param enable true to enable timestamp_tz mapping, false to disable
+     * Keep the persisted compatibility marker enabled for older FE and BE binaries.
+     * @param enable ignored because instant-to-wall-clock mapping is no longer supported
      */
+    @Deprecated
     public void setEnableMappingTimestampTz(boolean enable) {
-        addProperty(ENABLE_MAPPING_TIMESTAMP_TZ, String.valueOf(enable));
+        addProperty(ENABLE_MAPPING_TIMESTAMP_TZ, "true");
     }
 
     public void modifyCatalogProps(Map<String, String> props) {

@@ -163,7 +163,7 @@ public class PaimonUtilTest {
     }
 
     @Test
-    public void testTimestampWriteTypeMappingUsesDateTimeV2() {
+    public void testTimestampMappingPreservesLogicalSemanticsWithoutFlag() {
         RowType rowType = DataTypes.ROW(
                 DataTypes.FIELD(0, "ntz", DataTypes.TIMESTAMP(6)),
                 DataTypes.FIELD(1, "ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)),
@@ -174,10 +174,10 @@ public class PaimonUtilTest {
 
         Assert.assertEquals(PrimitiveType.DATETIMEV2,
                 writeType.getFields().get(0).getType().getPrimitiveType());
-        Assert.assertEquals(PrimitiveType.DATETIMEV2,
+        Assert.assertEquals(PrimitiveType.TIMESTAMPTZ,
                 writeType.getFields().get(1).getType().getPrimitiveType());
         ArrayType nestedLtz = (ArrayType) writeType.getFields().get(2).getType();
-        Assert.assertEquals(PrimitiveType.DATETIMEV2,
+        Assert.assertEquals(PrimitiveType.TIMESTAMPTZ,
                 nestedLtz.getItemType().getPrimitiveType());
     }
 

@@ -118,8 +118,6 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = FieldType::OLAP_FIELD_TYPE_VARCHAR;
     } else if (0 == upper_type_str.compare("STRING")) {
         type = FieldType::OLAP_FIELD_TYPE_STRING;
-    } else if (0 == upper_type_str.compare("VARBINARY")) {
-        type = FieldType::OLAP_FIELD_TYPE_VARBINARY;
     } else if (0 == upper_type_str.compare("JSONB")) {
         type = FieldType::OLAP_FIELD_TYPE_JSONB;
     } else if (0 == upper_type_str.compare("VARIANT")) {
@@ -273,8 +271,6 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case FieldType::OLAP_FIELD_TYPE_STRING:
         return "STRING";
-    case FieldType::OLAP_FIELD_TYPE_VARBINARY:
-        return "VARBINARY";
 
     case FieldType::OLAP_FIELD_TYPE_BOOL:
         return "BOOLEAN";
@@ -378,12 +374,6 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::STRING:
     case TPrimitiveType::VARIANT:
         return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
-    case TPrimitiveType::VARBINARY: {
-        // The prefix-inclusive schema bound must fit ColumnPB's signed length even for VARBINARY(MAX).
-        constexpr uint32_t prefix_size = sizeof(OLAP_STRING_MAX_LENGTH);
-        return std::min(string_length, static_cast<uint32_t>(INT32_MAX) - prefix_size) +
-               prefix_size;
-    }
     case TPrimitiveType::JSONB:
         return string_length + sizeof(OLAP_JSONB_MAX_LENGTH);
     case TPrimitiveType::STRUCT:

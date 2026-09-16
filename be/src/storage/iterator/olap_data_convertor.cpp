@@ -35,7 +35,6 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
-#include "core/column/column_varbinary.h"
 #include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
@@ -155,9 +154,6 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorVarChar>(false);
     }
     case FieldType::OLAP_FIELD_TYPE_STRING: {
-        return std::make_unique<OlapColumnDataConvertorVarChar>(true);
-    }
-    case FieldType::OLAP_FIELD_TYPE_VARBINARY: {
         return std::make_unique<OlapColumnDataConvertorVarChar>(true);
     }
     case FieldType::OLAP_FIELD_TYPE_DATE: {
@@ -660,24 +656,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap(
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap() {
     assert(_typed_column.column);
-    if (remove_nullable(_typed_column.type)->get_primitive_type() == TYPE_VARBINARY) {
-        const IColumn* source = _typed_column.column.get();
-        if (_nullmap) {
-            source = &assert_cast<const ColumnNullable&>(*source).get_nested_column();
-        }
-        const auto& binary = assert_cast<const ColumnVarbinary&>(*source);
-        // Retain the source column and expose payload slices, never the StringView object bytes.
-        for (size_t row = 0; row < _num_rows; ++row) {
-            const size_t source_row = _row_pos + row;
-            _slice[row] =
-                    _nullmap && _nullmap[source_row] ? StringRef() : binary.get_data_at(source_row);
-            if (_slice[row].size > config::string_type_length_soft_limit_bytes) {
-                return Status::NotSupported(
-                        "VARBINARY exceeds string_type_length_soft_limit_bytes");
-            }
-        }
-        return Status::OK();
-    }
     const ColumnString* column_string = nullptr;
     if (_nullmap) {
         const auto* nullable_column =

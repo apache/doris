@@ -470,6 +470,9 @@ public class CreateTableInfo {
                 throw new AnalysisException(
                         "Disable to create table column with name start with __DORIS_: " + columnNameUpperCase);
             }
+            if (columnDef.getType().isVarBinaryType()) {
+                throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
+            }
             if (columnDef.getType().isVariantType()) {
                 if (columnNameUpperCase.indexOf('.') != -1) {
                     throw new AnalysisException(
@@ -558,8 +561,7 @@ public class CreateTableInfo {
                                 break;
                             }
                             keys.add(column.getName());
-                            // Variable-length binary keys, like VARCHAR, terminate the short-key prefix.
-                            if (type.isVarcharType() || type.isVarBinaryType()) {
+                            if (type.isVarcharType()) {
                                 break;
                             }
                         }

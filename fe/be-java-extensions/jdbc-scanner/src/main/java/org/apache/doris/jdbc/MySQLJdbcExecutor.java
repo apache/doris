@@ -168,7 +168,9 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 return data;
             }
             case TIMESTAMPTZ: {
-                return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
+                // Preserve the driver's resolved instant before encoding UTC components for JNI.
+                java.sql.Timestamp value = resultSet.getTimestamp(columnIndex + 1);
+                return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), java.time.ZoneOffset.UTC);
             }
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());

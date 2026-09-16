@@ -207,8 +207,6 @@ public abstract class Type {
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
-        // Nested binary leaves retain the same byte-preserving storage as scalar VARBINARY.
-        arraySubTypes.add(VARBINARY);
         arraySubTypes.add(DECIMAL32);
         arraySubTypes.add(DECIMAL64);
         arraySubTypes.add(DECIMAL128);
@@ -239,7 +237,6 @@ public abstract class Type {
         mapSubTypes.add(CHAR);
         mapSubTypes.add(VARCHAR);
         mapSubTypes.add(STRING);
-        mapSubTypes.add(VARBINARY);
         mapSubTypes.add(NULL);
         mapSubTypes.add(ARRAY);
         mapSubTypes.add(MAP);
@@ -266,7 +263,6 @@ public abstract class Type {
         structSubTypes.add(CHAR);
         structSubTypes.add(VARCHAR);
         structSubTypes.add(STRING);
-        structSubTypes.add(VARBINARY);
         structSubTypes.add(NULL);
         structSubTypes.add(ARRAY);
         structSubTypes.add(MAP);

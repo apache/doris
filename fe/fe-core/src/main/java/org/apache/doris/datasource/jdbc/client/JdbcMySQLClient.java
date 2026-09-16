@@ -320,8 +320,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 if (convertDateToNull) {
                     fieldSchema.setAllowNull(true);
                 }
-                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
-                        : ScalarType.createDatetimeV2Type(scale);
+                // MySQL TIMESTAMP is an instant; DATETIME below remains a wall-clock value.
+                return ScalarType.createTimeStampTzType(scale);
             }
             case "DATETIME": {
                 // mysql can support microsecond

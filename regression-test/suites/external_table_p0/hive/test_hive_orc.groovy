@@ -252,26 +252,24 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
                     + "ORDER BY int_col, binary_col LIMIT 100")
             def binarySource = "(${binaryQuery}) binary_src"
             def expectedBinary = sql "SELECT from_binary(binary_col) FROM ${binarySource} ORDER BY binary_col"
-            // Derived objects must preserve the catalog's binary type and payload, not silently become STRING.
+            // Views retain execution types; materialized objects still obey native storage restrictions.
             sql "CREATE VIEW test_view_varbinary AS SELECT binary_col FROM ${binarySource}"
             assertEquals(expectedBinary,
                     sql("SELECT from_binary(binary_col) FROM test_view_varbinary ORDER BY binary_col"))
-            sql """CREATE TABLE test_ctas_varbinary DISTRIBUTED BY RANDOM BUCKETS 2
-                   PROPERTIES ('replication_num'='1') AS SELECT binary_col FROM ${binarySource}"""
-            assertEquals(expectedBinary,
-                    sql("SELECT from_binary(binary_col) FROM test_ctas_varbinary ORDER BY binary_col"))
-            sql """ CREATE MATERIALIZED VIEW test_mv_varbinary
+            test {
+                sql """CREATE TABLE test_ctas_varbinary DISTRIBUTED BY RANDOM BUCKETS 2
+                       PROPERTIES ('replication_num'='1') AS SELECT binary_col FROM ${binarySource}"""
+                exception "varbinary"
+            }
+            test {
+                sql """ CREATE MATERIALIZED VIEW test_mv_varbinary
                         BUILD DEFERRED REFRESH AUTO ON MANUAL
                         DISTRIBUTED BY RANDOM BUCKETS 2
                         PROPERTIES ('replication_num' = '1')
                         AS SELECT binary_col FROM ${binarySource}"""
-            sql "REFRESH MATERIALIZED VIEW test_mv_varbinary COMPLETE"
-            waitingMTMVTaskFinishedByMvName("test_mv_varbinary", "test_view_varbinary_db")
-            assertEquals(expectedBinary,
-                    sql("SELECT from_binary(binary_col) FROM test_mv_varbinary ORDER BY binary_col"))
-            ["test_view_varbinary", "test_ctas_varbinary", "test_mv_varbinary"].each { name ->
-                assertTrue(sql("DESC ${name}")[0][1].toLowerCase().startsWith("varbinary"))
+                exception "varbinary"
             }
+            assertTrue(sql("DESC test_view_varbinary")[0][1].toLowerCase().startsWith("varbinary"))
             assertEquals(sql("SELECT count(*) FROM ${binarySource}")[0][0].toString(),
                     sql("SELECT coalesce(sum(n), 0) FROM (SELECT count(*) n FROM ${binarySource} GROUP BY binary_col) g")[0][0].toString())
             assertEquals(sql("SELECT coalesce(sum(n*n), 0) FROM (SELECT count(*) n FROM ${binarySource} "

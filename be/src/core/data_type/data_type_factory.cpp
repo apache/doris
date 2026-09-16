@@ -176,9 +176,6 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_STRING:
         result = std::make_shared<DataTypeString>(-1, TYPE_STRING);
         break;
-    case FieldType::OLAP_FIELD_TYPE_VARBINARY:
-        result = std::make_shared<DataTypeVarbinary>();
-        break;
     case FieldType::OLAP_FIELD_TYPE_VARIANT:
         result = std::make_shared<DataTypeVariant>(0, false);
         break;
@@ -645,7 +642,7 @@ DataTypePtr DataTypeFactory::create_data_type(
             // Do nothing
             nested = std::make_shared<DataTypeAggState>();
         } else if (primitive_type == TYPE_VARBINARY) {
-            // Load-channel descriptors must retain VARBINARY(n)'s byte limit across RPCs.
+            // Serialized execution types must retain VARBINARY(n)'s byte limit across RPCs.
             return create_data_type(primitive_type, is_nullable, 0, 0,
                                     scalar_type.has_len() ? scalar_type.len() : -1);
         } else if (primitive_type == TYPE_VARIANT) {

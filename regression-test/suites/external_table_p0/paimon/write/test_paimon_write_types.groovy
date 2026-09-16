@@ -107,9 +107,12 @@ suite("test_paimon_write_types", "p0,external,paimon") {
     def originalTimeZone = sql """SELECT @@time_zone"""
 
     try {
-        def assertTableEquals = { String tableName, String columns, String orderBy ->
+        // Compare civil fields explicitly in the generic type checks; instant checks below retain offsets.
+        sql "SET time_zone = 'Asia/Shanghai'"
+        spark_paimon "SET TIME ZONE 'Asia/Shanghai'"
+        def assertTableEquals = { String tableName, String columns, String orderBy, String dorisColumns = columns ->
             def sparkRows = spark_paimon """SELECT ${columns} FROM paimon.${dbName}.${tableName} ${orderBy}"""
-            def dorisRows = sql """SELECT ${columns} FROM ${tableName} ${orderBy}"""
+            def dorisRows = sql """SELECT ${dorisColumns} FROM ${tableName} ${orderBy}"""
             assertSparkDorisResultEquals(sparkRows, dorisRows)
         }
 
@@ -131,13 +134,17 @@ suite("test_paimon_write_types", "p0,external,paimon") {
              CAST(12345678.90 AS DECIMAL(10,2)), 'hello', 'fixed_len',
              DATE '2024-06-15', TIMESTAMP '2024-06-15 12:00:00.123456')
         """
-        order_qt_types_basic """SELECT * FROM t_types ORDER BY c_int"""
+        order_qt_types_basic """SELECT c_boolean, c_int, c_bigint, c_float, c_double, c_decimal,
+            c_string, c_varchar, c_date, CAST(c_datetime AS DATETIMEV2(6)) FROM t_types ORDER BY c_int"""
         assertTableEquals("t_types", """
                 c_boolean, c_int, c_bigint,
                 c_float / 1.0E38,
                 c_double / 1.0E308,
                 c_decimal, c_string, c_varchar, c_date, c_datetime
-                """, "ORDER BY c_int")
+                """, "ORDER BY c_int", """
+                c_boolean, c_int, c_bigint, c_float / 1.0E38, c_double / 1.0E308,
+                c_decimal, c_string, c_varchar, c_date, CAST(c_datetime AS DATETIMEV2(6))
+                """)
 
         // FT-040: NULL handling
         sql """INSERT INTO t_types_null VALUES (1, 100, 'data', 1.5, true)"""
@@ -169,8 +176,8 @@ suite("test_paimon_write_types", "p0,external,paimon") {
             (DATE '2024-06-15', TIMESTAMP '2024-06-15 12:00:00'),
             (DATE '2099-12-31', TIMESTAMP '2099-12-31 23:59:59.999999')
         """
-        order_qt_types_dt """SELECT d, dt FROM t_types_dt ORDER BY d"""
-        assertTableEquals("t_types_dt", "*", "ORDER BY d")
+        order_qt_types_dt """SELECT d, CAST(dt AS DATETIMEV2(6)) FROM t_types_dt ORDER BY d"""
+        assertTableEquals("t_types_dt", "*", "ORDER BY d", "d, CAST(dt AS DATETIMEV2(6))")
 
         // FT-027: Spark TIMESTAMP maps to Paimon's local-zoned timestamp. Values
         // written in different Doris session timezones must represent the same instant
@@ -215,8 +222,8 @@ suite("test_paimon_write_types", "p0,external,paimon") {
             for (boolean jni : [false, true]) {
                 sql """SET force_jni_scanner = ${jni}"""
                 assertEquals([
-                    [1, "2023-11-05 08:30:00.123456"],
-                    [2, "2023-11-05 09:30:00.123456"]
+                    [1, "2023-11-05 08:30:00.123456+00:00"],
+                    [2, "2023-11-05 09:30:00.123456+00:00"]
                 ], sql("""SELECT id, CAST(event_time AS STRING) FROM t_types_fold ORDER BY id"""))
             }
         } finally {

@@ -278,9 +278,7 @@ public abstract class ExternalCatalog
         // can migrate them through a replicated ALTER log rather than a process-local rewrite.
         if (!isReplay) {
             catalogProperty.setEnableMappingVarbinary(true);
-        }
-        if (catalogProperty.getOrDefault(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "").isEmpty()) {
-            catalogProperty.setEnableMappingTimestampTz(false);
+            catalogProperty.setEnableMappingTimestampTz(true);
         }
     }
 

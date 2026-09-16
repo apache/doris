@@ -803,9 +803,6 @@ public class Column implements GsonPostProcessable {
                 return stringLength + 2; // sizeof(OLAP_VARCHAR_MAX_LENGTH)
             case STRING:
                 return stringLength + 4; // sizeof(OLAP_STRING_MAX_LENGTH)
-            case VARBINARY:
-                // Match BE's length prefix without overflowing an unbounded binary column's metadata.
-                return Math.min(stringLength, Integer.MAX_VALUE - 4) + 4;
             case JSONB:
                 return stringLength + 4; // sizeof(OLAP_JSONB_MAX_LENGTH)
             case ARRAY:
@@ -883,9 +880,7 @@ public class Column implements GsonPostProcessable {
         builder.setLength(length);
         builder.setIndexLength(length);
         if (this.getDataType().toThrift() == TPrimitiveType.VARCHAR
-                || this.getDataType().toThrift() == TPrimitiveType.STRING
-                || this.getDataType().toThrift() == TPrimitiveType.VARBINARY) {
-            // Binary key indexes store a bounded prefix, not the declared maximum payload length.
+                || this.getDataType().toThrift() == TPrimitiveType.STRING) {
             builder.setIndexLength(this.getOlapColumnIndexSize());
         }
 

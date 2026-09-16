@@ -17,15 +17,10 @@
 
 package org.apache.doris.nereids.types;
 
-import org.apache.doris.analysis.ColumnDef;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.util.PlanChecker;
-import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -33,30 +28,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
-import java.util.Collections;
 
 public class VarBinarySqlSupportTest extends TestWithFeService {
     @Test
-    public void testCloudBinaryColumnMetadata() throws Exception {
-        Column column = new Column("payload", ScalarType.createVarbinaryType(Integer.MAX_VALUE));
-        column.setIsKey(true);
-        OlapFile.ColumnPB proto = column.toPb(Collections.emptySet(), Collections.emptyList());
-        Assertions.assertEquals("VARBINARY", proto.getType());
-        Assertions.assertEquals(Integer.MAX_VALUE, proto.getLength());
-        Assertions.assertEquals(PrimitiveType.VARBINARY.getOlapColumnIndexSize(), proto.getIndexLength());
-        Column bounded = new Column("bounded", ScalarType.createVarbinaryType(2));
-        Assertions.assertEquals(6, bounded.toPb(Collections.emptySet(), Collections.emptyList()).getLength());
-        Column nested = new Column("nested", new org.apache.doris.catalog.ArrayType(column.getType(), true));
-        Assertions.assertEquals(Integer.MAX_VALUE, nested.toPb(Collections.emptySet(), Collections.emptyList())
-                .getChildrenColumns(0).getLength());
-    }
-
-    @Test
-    public void testDefaultValueUsesByteLength() throws Exception {
-        ColumnDef.validateDefaultValue(ScalarType.createVarbinaryType(2), "é", null);
-        Assertions.assertThrows(AnalysisException.class,
-                () -> ColumnDef.validateDefaultValue(ScalarType.createVarbinaryType(1), "é", null));
-        ColumnDef.validateDefaultValue(ScalarType.createVarbinaryType(0), "", null);
+    public void testNativeVarbinaryRemainsUnsupported() {
+        assertVarbinaryRejected(() -> createTable(
+                "create table native_binary (id int, payload varbinary(16)) duplicate key(id) "
+                        + "distributed by hash(id) buckets 1 properties ('replication_num'='1')"));
     }
 
     @Test
@@ -143,24 +121,27 @@ public class VarBinarySqlSupportTest extends TestWithFeService {
     public void testCreateTableAsSelect() throws Exception {
         connectContext.setQueryId(new TUniqueId(1, 1));
         connectContext.getState().reset();
-        createTable("create table binary_ctas distributed by hash(id) buckets 1 "
+        assertVarbinaryRejected(() -> createTable(
+                "create table binary_ctas distributed by hash(id) buckets 1 "
                 + "properties ('replication_num'='1') "
-                + "as select id, cast(encoded as varbinary) as payload from source_bytes");
-        Assertions.assertTrue(Env.getCurrentInternalCatalog().getDbOrDdlException("binary_sql")
-                .getTableOrDdlException("binary_ctas").getColumn("payload").getType().isVarbinaryType());
-        createTable("create table binary_only_ctas distributed by hash(payload) buckets 1 "
+                + "as select id, cast(encoded as varbinary) as payload from source_bytes"));
+        assertVarbinaryRejected(() -> createTable(
+                "create table binary_only_ctas distributed by hash(payload) buckets 1 "
                 + "properties ('replication_num'='1') "
-                + "as select cast(encoded as varbinary) as payload from source_bytes");
-        Assertions.assertTrue(Env.getCurrentInternalCatalog().getDbOrDdlException("binary_sql")
-                .getTableOrDdlException("binary_only_ctas").getColumn("payload").getType().isVarbinaryType());
+                + "as select cast(encoded as varbinary) as payload from source_bytes"));
     }
 
     @Test
     public void testMaterializedView() throws Exception {
-        createMvByNereids("create materialized view binary_mv build deferred refresh complete on manual "
+        assertVarbinaryRejected(() -> createMvByNereids(
+                "create materialized view binary_mv build deferred refresh complete on manual "
                 + "distributed by hash(id) buckets 1 properties ('replication_num'='1') "
-                + "as select id, cast(encoded as varbinary) as payload from source_bytes");
-        Assertions.assertTrue(Env.getCurrentInternalCatalog().getDbOrDdlException("binary_sql")
-                .getTableOrDdlException("binary_mv").getColumn("payload").getType().isVarbinaryType());
+                + "as select id, cast(encoded as varbinary) as payload from source_bytes"));
+    }
+
+    private static void assertVarbinaryRejected(org.junit.jupiter.api.function.Executable statement) {
+        Exception error = Assertions.assertThrows(Exception.class, statement);
+        Assertions.assertTrue(error.getMessage().toLowerCase(java.util.Locale.ROOT).contains("varbinary"),
+                error.getMessage());
     }
 }

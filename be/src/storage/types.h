@@ -206,10 +206,6 @@ struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_STRING> {
     using CppType = Slice;
 };
 template <>
-struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_VARBINARY> {
-    using CppType = Slice;
-};
-template <>
 struct CppTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB> {
     using CppType = Slice;
 };
@@ -339,10 +335,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_STRING>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {};
 
 template <>
-struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARBINARY>
-        : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {};
-
-template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR> {
     static int cmp(const void* left, const void* right) {
@@ -437,7 +429,6 @@ inline size_t field_type_size(FieldType field_type) {
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_CHAR)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_VARCHAR)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_STRING)
-        DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_VARBINARY)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_JSONB)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_VARIANT)
         DORIS_FIELD_TYPE_SIZE_CASE(OLAP_FIELD_TYPE_HLL)
