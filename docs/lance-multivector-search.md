@@ -114,3 +114,29 @@ multi-vector data, empty/null rows, cosine IVF_FLAT indexes, and a subsequent
 append. Additional fixtures cover small-distance TopK, batch-independent indexed
 TopK, and actual invalid stored elements. Its distance oracle computes scores
 independently of Lance.
+
+## Regression coverage
+
+`test_lance_multivector_coverage` supplements the basic search suite with:
+
+- Float16/Float32/Float64 columns at dimensions 1, 3, 8, and 128, unequal subvector
+  counts, empty/null outer rows, and rejected nullable-subvector/integer schemas.
+- Independent L2, cosine, and dot scoring oracles, including repeated query
+  subvectors, Float16 overflow rejection, and nested payload round trips with
+  TopN lazy materialization enabled and disabled.
+- 768-row, 128-dimensional IVF_FLAT and IVF_PQ datasets with four partitions,
+  two separately committed index segments, and one unindexed fragment. IDs are
+  interleaved across fragments to exercise global TopK/offset, filters, empty
+  results, and row-ID materialization of vectors and nullable payload columns.
+
+The representative index tests probe all four partitions and overfetch before
+refinement to compare this fixed fixture with an independent exact oracle.
+They do not assert that arbitrary ANN settings guarantee exhaustive recall.
+The fixture generator checks both original payloads and physical index coverage.
+
+The third-party build applies the Lance v11 community patch chain followed by
+merged lance-c PR #83. Its patch records the upstream commit and the context
+adaptation needed to retain the scalar-segment execution path from PR #79.
+Previously extracted lance-c sources carrying the older patch chain must be
+removed before rebuilding; the patch driver rejects the stale marker instead
+of silently linking an old library.

@@ -721,20 +721,20 @@ fi
 # Apply Doris lance-c patches as one chain to the pinned release archive.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        # Apply the merged PRs first; the latest PR #73 and #79 both require Lance v11.
-        # PR #80 explicitly initializes OpenDAL for statically linked C/C++ callers.
-        for lance_patch in pr-74 pr-75-pr-78 pr-77 pr-73 pr-79 pr-80; do
+    LANCE_C_PATCHED_MARK="${PATCHED_MARK}_community_pr83"
+    # Older source caches carry a different PR #73 and cannot accept this chain incrementally.
+    if [[ -f "${PATCHED_MARK}" && ! -f "${LANCE_C_PATCHED_MARK}" ]]; then
+        echo "The lance-c patch chain changed; remove ${TP_SOURCE_DIR}/${LANCE_C_SOURCE} and rebuild."
+        exit 1
+    fi
+    if [[ ! -f "${LANCE_C_PATCHED_MARK}" ]]; then
+        # PR #77 provides Lance v11 for the following community patches. PR #83
+        # retains PR #79's scalar-segment path when adding multi-vector execution.
+        for lance_patch in pr-74 pr-75-pr-78 pr-77 pr-73 pr-79 pr-80 pr-83; do
             patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
                 -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-${lance_patch}.patch"
         done
-        touch "${PATCHED_MARK}"
-    fi
-    # Existing source trees may already carry the earlier Lance patches.
-    if [[ ! -f "${PATCHED_MARK}_multivector" ]]; then
-        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-            -p1 <"${TP_PATCH_DIR}/lance-c-0.1.9-multivector.patch"
-        touch "${PATCHED_MARK}_multivector"
+        touch "${PATCHED_MARK}" "${LANCE_C_PATCHED_MARK}"
     fi
     cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
