@@ -468,6 +468,102 @@ public class StatementContextTest {
         }
     }
 
+    @Test
+    public void testDeferredScanPartitionViewIsMaterializedOnTheDefaultConfiguration() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        // Deliberately the DEFAULT switch state: the lock-scope step must not depend on the opt-in preload var.
+        SessionVariable sessionVariable = new SessionVariable();
+        org.junit.jupiter.api.Assertions.assertFalse(sessionVariable.isEnablePreloadExternalMetadata());
+        org.junit.jupiter.api.Assertions.assertTrue(sessionVariable.isEnableMaterializedViewRewrite());
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(21L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Optional<Map<String, PartitionItem>> scanView =
+                Optional.of(ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)));
+        Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(scanView);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
+
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+
+            // MUTATION: dropping this pre-lock step moves the enumeration back inside the MV partition
+            // collector, i.e. under the statement's internal table read locks.
+            ExternalTablePreloadInfo preloadInfo = statementContext.getExternalTablePreloadInfo(21L).get();
+            org.junit.jupiter.api.Assertions.assertTrue(preloadInfo.hasScanPartitionView());
+            org.junit.jupiter.api.Assertions.assertEquals(scanView, preloadInfo.getScanPartitionView());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testDeferredScanPartitionViewIsSkippedWithoutInternalReadLock() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+
+        // No internal table of this statement is locked during planning, so enumerating the external view
+        // blocks nothing and must not be paid for.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(false);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(22L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
+
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+
+            org.junit.jupiter.api.Assertions.assertFalse(
+                    statementContext.getExternalTablePreloadInfo(22L).get().hasScanPartitionView());
+            Mockito.verify(hiveExternalTable, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testDeferredScanPartitionViewIsSkippedWhenMvRewriteIsDisabled() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setEnableMaterializedViewRewrite(false);
+
+        // The materialized view has no consumer once MV rewrite is off, so this warmup is pure cost there.
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(23L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
+
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+
+            org.junit.jupiter.api.Assertions.assertFalse(
+                    statementContext.getExternalTablePreloadInfo(23L).get().hasScanPartitionView());
+            Mockito.verify(hiveExternalTable, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
     private ExternalMetadataPreloadResult executePreload(StatementContext statementContext) {
         ExternalMetadataPreloadResult result = new PreloadExternalMetadata().executePreload(statementContext);
         statementContext.setExternalMetadataPreloadResult(result);

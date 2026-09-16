@@ -17,10 +17,8 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.ExternalMetadataPreloadResult;
 import org.apache.doris.nereids.ExternalTablePreloadInfo;
 import org.apache.doris.nereids.StatementContext;
@@ -33,7 +31,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -114,7 +111,9 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
         }
         if (preloadPartition) {
             table.initSelectedPartitions(statementContext.getSnapshot(table));
-            preloadDeferredScanPartitionView(statementContext, preloadInfo, table);
+            // Materialize the deferred scan partition view (see the method's javadoc). NereidsPlanner performs
+            // the same step unconditionally before the lock, so a run with this switch off is not left behind.
+            statementContext.preloadDeferredScanPartitionView(preloadInfo);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("{} preloaded external metadata for table {} "
@@ -125,31 +124,6 @@ public class PreloadExternalMetadata implements AnalysisRuleFactory {
                     preloadInfo.hasNonLatestRelation(), TimeUtils.getElapsedTimeMs(preloadStartTime));
         }
         return preloadLatestSnapshot || preloadSchema || preloadPartition;
-    }
-
-    /**
-     * Materializes the partition view a DEFERRED (not yet enumerated) plugin-driven scan will read, before the
-     * internal table locks are taken, and records it on the table's preload entry for reuse.
-     *
-     * <p>WHY this cannot wait: a connector that can prune from a predicate intentionally materializes NO view in
-     * {@code initSelectedPartitions} (it returns the {@code DEFERRED} sentinel), and the Nereids MV partition
-     * collector runs from {@code afterRewrite} - i.e. AFTER {@link StatementContext#lock()}. For an unfiltered
-     * scan (the only shape that is still {@code DEFERRED} by then) the collector needs the table's full view for
-     * the MV union-compensation decision, so resolving it there would hold read locks on every internal table of
-     * the same query across an unbounded connector round-trip and an O(all partitions) item build. Materializing
-     * it here keeps that work outside the lock window; {@code QueryPartitionCollector} reuses the recorded view
-     * instead of asking the connector again. Only the LATEST reference is warmed, which is also the only shape
-     * the collector reuses it for.
-     */
-    private static void preloadDeferredScanPartitionView(StatementContext statementContext,
-            ExternalTablePreloadInfo preloadInfo, ExternalTable table) {
-        if (!(table instanceof PluginDrivenExternalTable)
-                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()) {
-            return;
-        }
-        Optional<Map<String, PartitionItem>> view = ((PluginDrivenExternalTable) table)
-                .getNameToPartitionItemsForScan(statementContext.getSnapshot(table));
-        preloadInfo.setScanPartitionView(view);
     }
 
     private String getPreloadQueryIdentifier(StatementContext statementContext) {
