@@ -168,4 +168,34 @@ TEST(NewJsonReaderCowTest, PopBackLastInsertedValueMutatesOwnerColumn) {
     EXPECT_EQ(original_int_column.get_data()[1], 8);
 }
 
+TEST(NewJsonReaderSchemaTest, DisambiguatesDuplicateJsonPathLeafNames) {
+    std::vector<std::vector<JsonPath>> parsed_jsonpaths;
+    for (const std::string& jsonpath : {"$.left.id", "$.right.id", "$.city"}) {
+        std::vector<JsonPath> parsed_path;
+        JsonFunctions::parse_json_paths(jsonpath, &parsed_path);
+        parsed_jsonpaths.emplace_back(std::move(parsed_path));
+    }
+
+    std::vector<std::string> column_names;
+    ASSERT_TRUE(
+            json_reader_detail::derive_jsonpath_column_names(parsed_jsonpaths, &column_names).ok());
+
+    EXPECT_EQ(column_names, (std::vector<std::string> {"left_id", "right_id", "city"}));
+}
+
+TEST(NewJsonReaderSchemaTest, PreservesUniqueJsonPathLeafNames) {
+    std::vector<std::vector<JsonPath>> parsed_jsonpaths;
+    for (const std::string& jsonpath : {"$.left.id", "$.city"}) {
+        std::vector<JsonPath> parsed_path;
+        JsonFunctions::parse_json_paths(jsonpath, &parsed_path);
+        parsed_jsonpaths.emplace_back(std::move(parsed_path));
+    }
+
+    std::vector<std::string> column_names;
+    ASSERT_TRUE(
+            json_reader_detail::derive_jsonpath_column_names(parsed_jsonpaths, &column_names).ok());
+
+    EXPECT_EQ(column_names, (std::vector<std::string> {"id", "city"}));
+}
+
 } // namespace doris
