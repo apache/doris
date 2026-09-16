@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -16,12 +16,10 @@
 # specific language governing permissions and limitations
 # under the License.
 
-NOTEBOOK_SERVER_PORT=8888
-SPARK_DRIVER_UI_PORT=8080
-SPARK_HISTORY_UI_PORT=10000
-SPARK_THRIFT_PORT=11000
-REST_CATALOG_PORT=18181
-MINIO_UI_PORT=9000
-MINIO_API_PORT=19001
-
-ICEBERG_SCAN_PLANNING_REST_PORT=18182
+set -eu
+mc alias set local http://minio:9000 admin password
+mc mb --ignore-existing local/scan-planning
+mc anonymous set none local/scan-planning
+mc admin user add local scan_data_reader ScanDataOnly2026
+mc admin policy create local scan-data-only /fixtures/data-only-policy.json
+mc admin policy attach local scan-data-only --user scan_data_reader
