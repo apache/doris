@@ -322,7 +322,8 @@ protected:
         cfg.source.tablet_schema = _tablet->tablet_schema();
         cfg.source.base_tablet = _tablet;
         cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
-        std::vector<RowBinlogColumnUidMapping> uid_mappings;
+        PRowBinlogWriteColumnMappings uid_mappings;
+        uid_mappings.set_need_historical_value(cfg.need_historical_value);
         for (ColumnId source_cid = 0; source_cid < cfg.source.tablet_schema->num_columns();
              ++source_cid) {
             const auto& source_column = cfg.source.tablet_schema->column(source_cid);
@@ -332,10 +333,10 @@ protected:
             const int32_t current_cid =
                     row_binlog_context.tablet_schema->field_index(source_column.name());
             DORIS_CHECK_GE(current_cid, 0);
-            uid_mappings.push_back(
-                    {source_column.unique_id(),
-                     row_binlog_context.tablet_schema->column(current_cid).unique_id(),
-                     std::nullopt});
+            auto* mapping = uid_mappings.add_entries();
+            mapping->set_source_column_unique_id(source_column.unique_id());
+            mapping->set_current_column_unique_id(
+                    row_binlog_context.tablet_schema->column(current_cid).unique_id());
         }
         cfg.column_mappings = DORIS_TRY(segment_v2::resolve_row_binlog_column_mappings(
                 *cfg.source.tablet_schema, *row_binlog_context.tablet_schema, uid_mappings));
@@ -392,17 +393,18 @@ protected:
             WriteRequest group_req;
             init_write_requests(&data_req, &binlog_req, &group_req);
             auto* source_index = data_req.table_schema_param->indexes()[0];
-            source_index->row_binlog_need_historical_value = historical;
+            source_index->row_binlog_column_mappings.set_need_historical_value(historical);
             if (historical && !key_only) {
-                source_index->row_binlog_column_mappings[1].before_uid = 5;
+                source_index->row_binlog_column_mappings.mutable_entries(1)
+                        ->set_before_column_unique_id(5);
             }
             RuntimeProfile profile("CloudTxnMappingLifetime");
             CloudGroupRowsetBuilder builder(*_engine, group_req, data_req, binlog_req, &profile);
             builder.set_skip_writing_rowset_metadata(true);
             ASSERT_TRUE(builder.init().ok());
             // The snapshot must be captured at init, not reread when the writer closes.
-            source_index->row_binlog_column_mappings.clear();
-            source_index->row_binlog_need_historical_value = !historical;
+            source_index->row_binlog_column_mappings.clear_entries();
+            source_index->row_binlog_column_mappings.set_need_historical_value(!historical);
             ASSERT_TRUE(builder.rowset_writer()->flush().ok());
             ASSERT_TRUE(builder.build_rowset().ok());
             builder.set_skip_writing_rowset_metadata(false);

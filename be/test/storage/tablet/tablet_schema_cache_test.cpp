@@ -141,13 +141,13 @@ TEST(TabletSchemaCacheTest, RowBinlogColumnMappingsRoundTrip) {
     OlapTableSchemaParam param;
     ASSERT_TRUE(param.init(pschema).ok());
     ASSERT_EQ(1, param.indexes().size());
-    EXPECT_TRUE(param.indexes()[0]->row_binlog_need_historical_value);
-    ASSERT_EQ(1, param.indexes()[0]->row_binlog_column_mappings.size());
-    const auto& internal_mapping = param.indexes()[0]->row_binlog_column_mappings[0];
-    EXPECT_EQ(1, internal_mapping.source_uid);
-    EXPECT_EQ(11, internal_mapping.current_uid);
-    ASSERT_TRUE(internal_mapping.before_uid.has_value());
-    EXPECT_EQ(12, *internal_mapping.before_uid);
+    EXPECT_TRUE(param.indexes()[0]->row_binlog_column_mappings.need_historical_value());
+    ASSERT_EQ(1, param.indexes()[0]->row_binlog_column_mappings.entries_size());
+    const auto& internal_mapping = param.indexes()[0]->row_binlog_column_mappings.entries(0);
+    EXPECT_EQ(1, internal_mapping.source_column_unique_id());
+    EXPECT_EQ(11, internal_mapping.current_column_unique_id());
+    ASSERT_TRUE(internal_mapping.has_before_column_unique_id());
+    EXPECT_EQ(12, internal_mapping.before_column_unique_id());
 
     POlapTableSchemaParam round_trip;
     param.to_protobuf(&round_trip);

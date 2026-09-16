@@ -36,10 +36,13 @@
 
 #include "storage/transform/row_binlog_derive.h"
 
+#include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
+#include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 #include "common/config.h"
@@ -49,7 +52,6 @@
 #include "storage/binlog.h"
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/partial_update_info.h"
-#include "storage/tablet_info.h"
 #include "storage/transform/block_transform.h"
 
 namespace doris {
@@ -361,10 +363,27 @@ protected:
         rwc.insert_segment_allocated_lsns(0, make_seg_lsn(num_rows));
     }
 
+    static PRowBinlogWriteColumnMappings make_mapping_snapshot(
+            bool historical,
+            const std::vector<std::tuple<int32_t, int32_t, std::optional<int32_t>>>& entries) {
+        PRowBinlogWriteColumnMappings snapshot;
+        snapshot.set_need_historical_value(historical);
+        for (const auto& [source, current, before] : entries) {
+            auto* mapping = snapshot.add_entries();
+            mapping->set_source_column_unique_id(source);
+            mapping->set_current_column_unique_id(current);
+            if (before.has_value()) {
+                mapping->set_before_column_unique_id(*before);
+            }
+        }
+        return snapshot;
+    }
+
     void set_test_column_mappings(RowsetWriterContext& rwc, bool need_historical_value) {
         auto& cfg = rwc.write_binlog_opt().write_binlog_config();
         cfg.need_historical_value = need_historical_value;
-        std::vector<RowBinlogColumnUidMapping> uid_mappings;
+        PRowBinlogWriteColumnMappings uid_mappings;
+        uid_mappings.set_need_historical_value(need_historical_value);
         for (ColumnId source_cid = 0; source_cid < cfg.source.tablet_schema->num_columns();
              ++source_cid) {
             const auto& source_column = cfg.source.tablet_schema->column(source_cid);
@@ -373,16 +392,17 @@ protected:
             }
             const int32_t current_cid = rwc.tablet_schema->field_index(source_column.name());
             ASSERT_GE(current_cid, 0);
-            std::optional<int32_t> before_uid;
+            auto* mapping = uid_mappings.add_entries();
+            mapping->set_source_column_unique_id(source_column.unique_id());
+            mapping->set_current_column_unique_id(
+                    rwc.tablet_schema->column(current_cid).unique_id());
             if (need_historical_value && source_column.visible() && !source_column.is_key()) {
                 const int32_t before_cid = rwc.tablet_schema->field_index(
                         binlog::build_before_column_name(source_column.name()));
                 ASSERT_GE(before_cid, 0);
-                before_uid = rwc.tablet_schema->column(before_cid).unique_id();
+                mapping->set_before_column_unique_id(
+                        rwc.tablet_schema->column(before_cid).unique_id());
             }
-            uid_mappings.push_back({source_column.unique_id(),
-                                    rwc.tablet_schema->column(current_cid).unique_id(),
-                                    before_uid});
         }
         auto result = segment_v2::resolve_row_binlog_column_mappings(
                 *cfg.source.tablet_schema, *rwc.tablet_schema, uid_mappings);
@@ -409,8 +429,8 @@ TEST_F(RowBinlogDeriveTest, ResolvesExplicitUidMappings) {
                     {202, "op", "BIGINT"},
             },
             2, 4, 6);
-    const std::vector<RowBinlogColumnUidMapping> uid_mappings {
-            {10, 100, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}};
+    const auto uid_mappings = make_mapping_snapshot(
+            true, {{10, 100, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}});
 
     auto result = segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema,
                                                                  uid_mappings);
@@ -478,22 +498,23 @@ TEST_F(RowBinlogDeriveTest, RejectsInvalidUidMappings) {
                     {202, "op", "BIGINT"},
             },
             2, 4, 6);
-    const std::vector<std::vector<RowBinlogColumnUidMapping>> invalid_mappings {
-            {{999, 100, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}},
-            {{10, 999, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}},
-            {{10, 100, std::nullopt}, {11, 101, 999}, {13, 102, std::nullopt}},
-            {{10, 100, std::nullopt}, {10, 101, 103}, {13, 102, std::nullopt}},
-            {{10, 100, std::nullopt}, {11, 100, 103}, {13, 102, std::nullopt}},
-            {{10, 100, std::nullopt}, {11, 101, 103}, {13, 102, 103}},
-            {{10, 100, std::nullopt}, {11, 101, 103}},
-            {{10, 200, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}},
-            {{10, 100, std::nullopt}, {11, 101, 100}, {13, 102, std::nullopt}},
-            {{10, 101, std::nullopt}, {11, 100, 103}, {13, 102, std::nullopt}},
-    };
+    const std::vector<std::vector<std::tuple<int32_t, int32_t, std::optional<int32_t>>>>
+            invalid_mappings {
+                    {{999, 100, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}},
+                    {{10, 999, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}},
+                    {{10, 100, std::nullopt}, {11, 101, 999}, {13, 102, std::nullopt}},
+                    {{10, 100, std::nullopt}, {10, 101, 103}, {13, 102, std::nullopt}},
+                    {{10, 100, std::nullopt}, {11, 100, 103}, {13, 102, std::nullopt}},
+                    {{10, 100, std::nullopt}, {11, 101, 103}, {13, 102, 103}},
+                    {{10, 100, std::nullopt}, {11, 101, 103}},
+                    {{10, 200, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}},
+                    {{10, 100, std::nullopt}, {11, 101, 100}, {13, 102, std::nullopt}},
+                    {{10, 101, std::nullopt}, {11, 100, 103}, {13, 102, std::nullopt}},
+            };
 
     for (const auto& mappings : invalid_mappings) {
-        auto result = segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema,
-                                                                     mappings);
+        auto result = segment_v2::resolve_row_binlog_column_mappings(
+                *source_schema, *target_schema, make_mapping_snapshot(true, mappings));
         EXPECT_FALSE(result.has_value());
     }
 
@@ -511,7 +532,9 @@ TEST_F(RowBinlogDeriveTest, RejectsInvalidUidMappings) {
             2, 4, 7);
     EXPECT_FALSE(segment_v2::resolve_row_binlog_column_mappings(
                          *source_schema, *target_with_extra,
-                         {{10, 100, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}})
+                         make_mapping_snapshot(true, {{10, 100, std::nullopt},
+                                                      {11, 101, 103},
+                                                      {13, 102, std::nullopt}}))
                          .has_value());
 
     auto target_with_bad_type = create_test_schema(
@@ -527,7 +550,9 @@ TEST_F(RowBinlogDeriveTest, RejectsInvalidUidMappings) {
             2, 4, 6);
     EXPECT_FALSE(segment_v2::resolve_row_binlog_column_mappings(
                          *source_schema, *target_with_bad_type,
-                         {{10, 100, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}})
+                         make_mapping_snapshot(true, {{10, 100, std::nullopt},
+                                                      {11, 101, 103},
+                                                      {13, 102, std::nullopt}}))
                          .has_value());
 }
 
@@ -554,7 +579,9 @@ TEST_F(RowBinlogDeriveTest, PlainUsesExplicitInterleavedTargetCids) {
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
     cfg.column_mappings = *segment_v2::resolve_row_binlog_column_mappings(
             *source_schema, *target_schema,
-            {{10, 100, std::nullopt}, {11, 101, std::nullopt}, {12, 102, std::nullopt}});
+            make_mapping_snapshot(
+                    false,
+                    {{10, 100, std::nullopt}, {11, 101, std::nullopt}, {12, 102, std::nullopt}}));
     register_segment_lsns(rwc, 1);
 
     Block block = source_schema->create_storage_block();

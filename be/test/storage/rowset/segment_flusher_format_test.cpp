@@ -3334,7 +3334,8 @@ protected:
         options.source.mow_context = std::move(source_mow_context);
         options.source.is_transient_rowset_writer = source_is_transient;
         options.source.source_write_type = DataWriteType::TYPE_DIRECT;
-        std::vector<RowBinlogColumnUidMapping> uid_mappings;
+        PRowBinlogWriteColumnMappings uid_mappings;
+        uid_mappings.set_need_historical_value(need_before);
         for (ColumnId source_cid = 0; source_cid < options.source.tablet_schema->num_columns();
              ++source_cid) {
             const auto& source_column = options.source.tablet_schema->column(source_cid);
@@ -3343,16 +3344,17 @@ protected:
             }
             const int32_t current_cid = context.tablet_schema->field_index(source_column.name());
             ASSERT_GE(current_cid, 0);
-            std::optional<int32_t> before_uid;
+            auto* mapping = uid_mappings.add_entries();
+            mapping->set_source_column_unique_id(source_column.unique_id());
+            mapping->set_current_column_unique_id(
+                    context.tablet_schema->column(current_cid).unique_id());
             if (need_before && source_column.visible() && !source_column.is_key()) {
                 const int32_t before_cid = context.tablet_schema->field_index(
                         binlog::build_before_column_name(source_column.name()));
                 ASSERT_GE(before_cid, 0);
-                before_uid = context.tablet_schema->column(before_cid).unique_id();
+                mapping->set_before_column_unique_id(
+                        context.tablet_schema->column(before_cid).unique_id());
             }
-            uid_mappings.push_back({source_column.unique_id(),
-                                    context.tablet_schema->column(current_cid).unique_id(),
-                                    before_uid});
         }
         auto mappings = segment_v2::resolve_row_binlog_column_mappings(
                 *options.source.tablet_schema, *context.tablet_schema, uid_mappings);
