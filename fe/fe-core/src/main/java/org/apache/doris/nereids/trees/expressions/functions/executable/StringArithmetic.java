@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 
@@ -52,7 +53,9 @@ import java.math.BigInteger;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -1143,6 +1146,69 @@ public class StringArithmetic {
         } catch (UnsupportedEncodingException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Executable arithmetic function encode
+     */
+    @ExecFunction(name = "encode")
+    public static Expression encode(StringLikeLiteral source, StringLikeLiteral characterSet) {
+        Charset charset = supportedCharacterSet(characterSet.getValue());
+        try {
+            ByteBuffer encoded = charset.newEncoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .encode(CharBuffer.wrap(source.getValue()));
+            byte[] bytes = new byte[encoded.remaining()];
+            encoded.get(bytes);
+            return new VarBinaryLiteral(bytes);
+        } catch (CharacterCodingException e) {
+            throw new IllegalArgumentException("Failed to encode value using " + characterSet.getValue(), e);
+        }
+    }
+
+    /**
+     * Executable arithmetic function decode
+     */
+    @ExecFunction(name = "decode")
+    public static Expression decode(VarBinaryLiteral binary, StringLikeLiteral characterSet) {
+        Charset charset = supportedCharacterSet(characterSet.getValue());
+        try {
+            CharBuffer decoded = charset.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap((byte[]) binary.getValue()));
+            return new StringLiteral(decoded.toString());
+        } catch (CharacterCodingException e) {
+            throw new IllegalArgumentException("Failed to decode value using " + characterSet.getValue(), e);
+        }
+    }
+
+    private static Charset supportedCharacterSet(String name) {
+        String canonicalName;
+        switch (name.toUpperCase(Locale.ROOT)) {
+            case "US-ASCII":
+                canonicalName = "US-ASCII";
+                break;
+            case "ISO-8859-1":
+                canonicalName = "ISO-8859-1";
+                break;
+            case "UTF-8":
+                canonicalName = "UTF-8";
+                break;
+            case "UTF-16BE":
+                canonicalName = "UTF-16BE";
+                break;
+            case "UTF-16LE":
+                canonicalName = "UTF-16LE";
+                break;
+            case "UTF-16":
+                canonicalName = "UTF-16";
+                break;
+            default:
+                throw new IllegalArgumentException("Unsupported character set: " + name);
+        }
+        return Charset.forName(canonicalName);
     }
 
     /**
