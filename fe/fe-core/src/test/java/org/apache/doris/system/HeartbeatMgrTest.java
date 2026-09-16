@@ -19,12 +19,12 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.ha.FrontendNodeType;
-import org.apache.doris.proto.Cloud.ClusterStatus;
 import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
 import org.apache.doris.system.HeartbeatMgr.FrontendHeartbeatHandler;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;

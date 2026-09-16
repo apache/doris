@@ -19,6 +19,7 @@ package org.apache.doris.system;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -29,7 +30,6 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
-import org.apache.doris.proto.Cloud.ClusterStatus;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeDiskInfo;
