@@ -93,7 +93,10 @@ struct RowsetReaderContext {
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
-    int64_t ttl_seconds = 0;
+    // Absolute timestamp (seconds since epoch) after which cache blocks filled by this
+    // read stop being TTL protected; 0 means no TTL.
+    // See TabletMeta::file_cache_ttl_expiration_time().
+    int64_t file_cache_expiration_time = 0;
 
     std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
 

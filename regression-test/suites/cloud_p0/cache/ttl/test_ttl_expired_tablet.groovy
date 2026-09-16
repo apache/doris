@@ -17,7 +17,13 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_ttl_seconds") {
+// The file cache TTL deadline is the tablet creation time plus file_cache_ttl_seconds.
+// Once a tablet is past that deadline, the load, query and warm up paths must all stamp the
+// blocks they create as NORMAL right away. Before the deadline was defined in one place,
+// those paths passed the raw ttl_seconds instead, so every block went into the TTL queue and
+// the background sweep pulled it straight back out, over and over, for the rest of the
+// tablet's life. This test pins that down: past the deadline, nothing reaches the TTL queue.
+suite("test_ttl_expired_tablet") {
     def custoBeConfig = [
         enable_evict_file_cache_in_advance : false,
         file_cache_enter_disk_resource_limit_mode_percent : 99,
@@ -33,7 +39,9 @@ suite("test_ttl_seconds") {
     assertTrue(!clusters.isEmpty())
     def validCluster = clusters[0][0]
     sql """use @${validCluster};""";
-    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="5") """
+
+    def ttlSeconds = 30
+    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="${ttlSeconds}") """
     String[][] backends = sql """ show backends """
     String backendId;
     def backendIdToBackendIP = [:]
@@ -50,7 +58,6 @@ suite("test_ttl_seconds") {
 
     backendId = backendIdToBackendIP.keySet()[0]
     def url = backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendHttpPort.get(backendId) + """/api/file_cache?op=clear&sync=true"""
-    logger.info(url)
     def clearFileCache = { check_func ->
         httpTest {
             endpoint ""
@@ -61,10 +68,68 @@ suite("test_ttl_seconds") {
         }
     }
 
-    sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
-    def load_customer_once =  { String table ->
-        sql (new File("""${context.file.parent}/../ddl/${table}.sql""").text + ttlProperties)
-        sql """ alter table ${table} set ("disable_auto_compaction" = "true") """ // no influence from compaction
+    def getMetricsMethod = { check_func ->
+        httpTest {
+            endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
+            uri "/brpc_metrics"
+            op "get"
+            check check_func
+        }
+    }
+
+    def getTtlCacheSize = {
+        long ttlCacheSize = -1
+        getMetricsMethod.call() {
+            respCode, body ->
+                assertEquals("${respCode}".toString(), "200")
+                String out = "${body}".toString()
+                for (String line in out.split('\n')) {
+                    if (line.startsWith("#")) {
+                        continue
+                    }
+                    if (line.contains("ttl_cache_size")) {
+                        def i = line.indexOf(' ')
+                        ttlCacheSize = line.substring(i).toLong()
+                        break
+                    }
+                }
+        }
+        assertTrue(ttlCacheSize >= 0, "ttl_cache_size metric not found")
+        return ttlCacheSize
+    }
+
+    def getTabletIds = { String tableName ->
+        def tablets = sql "show tablets from ${tableName}"
+        assertTrue(tablets.size() > 0, "No tablets found for table ${tableName}")
+        tablets.collect { it[0] as Long }
+    }
+
+    def waitForFileCacheType = { List<Long> tabletIds, String expectedType, long timeoutMs = 60000L, long intervalMs = 1000L ->
+        long start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            boolean allMatch = true
+            for (Long tabletId in tabletIds) {
+                def rows = sql "select type from information_schema.file_cache_info where tablet_id = ${tabletId}"
+                if (rows.isEmpty()) {
+                    allMatch = false
+                    break
+                }
+                def mismatch = rows.find { row -> !row[0]?.toString()?.equalsIgnoreCase(expectedType) }
+                if (mismatch) {
+                    logger.info("tablet ${tabletId} has cache types ${rows.collect { it[0] }} while waiting for ${expectedType}")
+                    allMatch = false
+                    break
+                }
+            }
+            if (allMatch) {
+                return
+            }
+            sleep(intervalMs)
+        }
+        assertTrue(false, "Timeout waiting for file_cache_info type ${expectedType} for tablets ${tabletIds}")
+    }
+
+    def loadCustomerRows = { String table ->
         def totalRows = 200
         def batchSize = 100
         def commentSuffix = ' ' + ('X' * 50)
@@ -90,81 +155,39 @@ suite("test_ttl_seconds") {
         }
     }
 
-    def getMetricsMethod = { check_func ->
-        httpTest {
-            endpoint backendIdToBackendIP.get(backendId) + ":" + backendIdToBackendBrpcPort.get(backendId)
-            uri "/brpc_metrics"
-            op "get"
-            check check_func
-        }
-    }
-
-    def getTabletIds = { String tableName ->
-        def tablets = sql "show tablets from ${tableName}"
-        assertTrue(tablets.size() > 0, "No tablets found for table ${tableName}")
-        tablets.collect { it[0] as Long }
-    }
-
-    def waitForFileCacheType = { List<Long> tabletIds, String expectedType, long timeoutMs = 60000L, long intervalMs = 1000L ->
-        long start = System.currentTimeMillis()
-        while (System.currentTimeMillis() - start < timeoutMs) {
-            boolean allMatch = true
-            for (Long tabletId in tabletIds) {
-                def rows = sql "select type from information_schema.file_cache_info where tablet_id = ${tabletId}"
-                if (rows.isEmpty()) {
-                    logger.warn("file_cache_info is empty for tablet ${tabletId} while waiting for ${expectedType}")
-                    allMatch = false
-                    break
-                }
-                def mismatch = rows.find { row -> !row[0]?.toString()?.equalsIgnoreCase(expectedType) }
-                if (mismatch) {
-                    logger.info("tablet ${tabletId} has cache types ${rows.collect { it[0] }} while waiting for ${expectedType}")
-                    allMatch = false
-                    break
-                }
-            }
-            if (allMatch) {
-                logger.info("All file cache entries for tablets ${tabletIds} are ${expectedType}")
-                return
-            }
-            sleep(intervalMs)
-        }
-        assertTrue(false, "Timeout waiting for file_cache_info type ${expectedType} for tablets ${tabletIds}")
-    }
-
+    sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     clearFileCache.call() {
         respCode, body -> {}
     }
-    sleep(30000)
+    sleep(10000)
+    assertEquals(0L, getTtlCacheSize.call())
 
-    load_customer_once("customer_ttl")
+    // Create the table, then let its TTL deadline pass before writing a single row.
+    sql (new File("""${context.file.parent}/../ddl/customer_ttl.sql""").text + ttlProperties)
+    sql """ alter table customer_ttl set ("disable_auto_compaction" = "true") """
+    sleep((ttlSeconds + 15) * 1000L)
+
+    loadCustomerRows("customer_ttl")
     def tabletIds = getTabletIds.call("customer_ttl")
-    // No wait for the "ttl" type here. The TTL deadline is the tablet creation time plus
-    // file_cache_ttl_seconds, and with a 5s ttl the load itself outlives it, so most of the
-    // data is written straight into the normal queue and the table never has all of its
-    // blocks in the TTL queue at once.
-    sleep(30000) // 30s
-    getMetricsMethod.call() {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag1 = false;
-            for (String line in strs) {
-                if (flag1) break;
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    logger.info("ttl_cache_size after load: " + line)
-                    assertEquals(line.substring(i).toLong(), 0)
-                    flag1 = true
-                }
-            }
-            assertTrue(flag1)
+
+    // The tablet is past its deadline, so the load path must have written every block into
+    // the normal queue directly.
+    waitForFileCacheType.call(tabletIds, "normal", 60000L)
+
+    // And it must stay there. Sample repeatedly: with the deadline stamped per block, the
+    // background sweep has nothing to convert, so the TTL queue never grows. When the write
+    // path passed a raw ttl_seconds instead, this is where the promote/demote churn showed up.
+    for (int i = 0; i < 10; i++) {
+        assertEquals(0L, getTtlCacheSize.call())
+        sleep(1000)
     }
 
-    waitForFileCacheType.call(tabletIds, "normal", 60000L)
+    // Reading the data back must not promote it either.
+    sql """ select count(*) from customer_ttl """
+    sleep(5000)
+    waitForFileCacheType.call(tabletIds, "normal", 30000L)
+    assertEquals(0L, getTtlCacheSize.call())
+
+    sql new File("""${context.file.parent}/../ddl/customer_ttl_delete.sql""").text
     }
 }

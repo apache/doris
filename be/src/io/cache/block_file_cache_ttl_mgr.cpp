@@ -230,8 +230,12 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                                              old_info_it->second.ttl == 0);
                         _ttl_info_map[tablet_id] = TtlInfo {ttl, tablet_ctime};
 
-                        // If TTL changed from 0 to non-zero, convert blocks to TTL type
-                        if (was_zero_ttl) {
+                        // If TTL changed from 0 to non-zero, convert blocks to TTL type.
+                        // Skip a tablet that is already past its deadline: the expiration
+                        // sweep below would take those blocks straight back out again, and
+                        // the write and read paths no longer put new ones in.
+                        bool expired = tablet_ctime + ttl < static_cast<uint64_t>(UnixSeconds());
+                        if (was_zero_ttl && !expired) {
                             FileBlocks blocks = get_file_blocks_from_tablet_id(tablet_id);
                             for (auto& block : blocks) {
                                 if (block->cache_type() != FileCacheType::TTL) {
