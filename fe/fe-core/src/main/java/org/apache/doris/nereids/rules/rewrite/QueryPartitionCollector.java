@@ -21,9 +21,9 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.ExternalTablePreloadInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -91,6 +91,13 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
                     tableUsedPartitionNameMap.put(table.getFullQualifiers(),
                             Pair.of(catalogRelation.getRelationId(), tablePartitions));
                 }
+            } else if (selectedPartitions.isNotPruned()) {
+                // NOT_PRUNED is the "pruning did not run" sentinel, NOT a concrete selection: its map is empty
+                // because partitioning never got enumerated (an unrepresentable connector partition makes the
+                // whole view unavailable, and PruneFileScanPartition then returns this sentinel), yet the scan
+                // reads EVERY partition. Recording the empty map would tell the compensator the query reads no
+                // partitions at all and reject an otherwise eligible MV rewrite.
+                tableUsedPartitionNameMap.put(table.getFullQualifiers(), PartitionCompensator.ALL_PARTITIONS);
             } else {
                 tablePartitions.addAll(selectedPartitions.selectedPartitions.keySet());
                 tableUsedPartitionNameMap.put(table.getFullQualifiers(),
@@ -122,12 +129,39 @@ public class QueryPartitionCollector extends DefaultPlanVisitor<Void, CascadesCo
      * scan (the only way {@code DEFERRED} survives {@code PruneFileScanPartition}, whose connector-declined path
      * materializes a local selection) it is exactly the query's own selection; on a plan collected before that
      * pruning it is a superset, which can only make the compensator union MORE base partitions, never fewer.</p>
+     *
+     * <p>WHY the reuse below: this visitor runs from {@code InitMaterializationContextHook.afterRewrite}, i.e.
+     * while {@link StatementContext#lock()} is still held, so enumerating here would block metadata writers and
+     * DDL on every internal table of the statement for a whole connector round-trip. The pre-lock preload pass
+     * therefore materializes this exact view for a latest reference and records it; reuse it and take connector
+     * I/O only when no preload ran - the preload switch is opt-in, and with it off this is no worse than the
+     * pre-change eager materialization, which enumerated the same view at bind time under the same lock.</p>
      */
     private static Set<String> materializeDeferredPartitions(PluginDrivenExternalTable table, LogicalFileScan scan,
             CascadesContext context) {
-        Optional<MvccSnapshot> snapshot = context.getStatementContext().getSnapshot(table,
-                scan.getTableSnapshot(), scan.getScanParams());
-        Optional<Map<String, PartitionItem>> partitions = table.getNameToPartitionItemsForScan(snapshot);
+        Optional<Map<String, PartitionItem>> preloaded = preloadedScanPartitionView(
+                context.getStatementContext(), table, scan);
+        Optional<Map<String, PartitionItem>> partitions = preloaded != null ? preloaded
+                : table.getNameToPartitionItemsForScan(context.getStatementContext().getSnapshot(table,
+                        scan.getTableSnapshot(), scan.getScanParams()));
         return partitions.map(Map::keySet).orElse(null);
+    }
+
+    /**
+     * The scan partition view the pre-lock preload pass materialized for this scan, or {@code null} when the
+     * scan must resolve it itself. An {@link Optional#empty()} return is a materialized-but-unavailable view.
+     *
+     * <p>Only a reference without a version selector is served: that is the only shape the preload pass warms,
+     * and a selector-carrying reference must enumerate its own generation.</p>
+     */
+    static Optional<Map<String, PartitionItem>> preloadedScanPartitionView(StatementContext statementContext,
+            PluginDrivenExternalTable table, LogicalFileScan scan) {
+        if (scan.getTableSnapshot().isPresent() || scan.getScanParams().isPresent()) {
+            return null;
+        }
+        return statementContext.getExternalTablePreloadInfo(table.getId())
+                .filter(ExternalTablePreloadInfo::hasScanPartitionView)
+                .map(ExternalTablePreloadInfo::getScanPartitionView)
+                .orElse(null);
     }
 }
