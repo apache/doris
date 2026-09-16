@@ -40,6 +40,7 @@
 
 namespace doris {
 
+class HiveCsvParser;
 class SlotDescriptor;
 class RuntimeProfile;
 class RuntimeState;
@@ -178,7 +179,7 @@ public:
               const TFileScanRangeParams& params, const TFileRangeDesc& range,
               const std::vector<SlotDescriptor*>& file_slot_descs, size_t batch_size,
               io::IOContext* io_ctx, std::shared_ptr<io::IOContext> io_ctx_holder = nullptr);
-    ~CsvReader() override = default;
+    ~CsvReader() override;
 
     Status init_reader(bool is_load);
 
@@ -207,7 +208,7 @@ protected:
     virtual Status _create_line_reader();
     virtual Status _deserialize_one_cell(DataTypeSerDeSPtr serde, IColumn& column, Slice& slice);
     virtual Status _deserialize_nullable_string(IColumn& column, Slice& slice);
-    virtual bool _empty_line_as_record() const { return false; }
+    virtual bool _empty_line_as_record() const { return _hive_csv_parser != nullptr; }
     // check the utf8 encoding of a line.
     // return error status to stop processing.
     // If return Status::OK but "success" is false, which means this is load request
@@ -286,6 +287,8 @@ private:
     // When we fetch range start from 0, header_type="csv_with_names_and_types" skip first two line
     // When we fetch range doesn't start from 0 will always skip the first line
     int _skip_lines;
+    std::unique_ptr<HiveCsvParser> _hive_csv_parser;
+    bool _hive_csv_bom_checked = false;
     char _enclose = 0;
     bool _trim_double_quotes = false;
     bool _trim_tailing_spaces = false;

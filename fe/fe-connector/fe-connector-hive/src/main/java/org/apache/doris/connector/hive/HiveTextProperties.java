@@ -182,11 +182,9 @@ public final class HiveTextProperties {
                     + "separatorChar, quoteChar and escapeChar must be distinct when non-NUL");
         }
         result.put(ScanNodePropertyKeys.TEXT_COLUMN_SEPARATOR, separator);
-        // OpenCSVSerde does not use table-level line.delim to frame records. Preserve the existing
-        // SerDe-only override; applying a table property here can merge otherwise valid newline records.
-        String lineDelimiter = params == null ? null : params.get(LINE_DELIM);
-        result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER,
-                lineDelimiter == null ? DEFAULT_LINE_DELIM : lineDelimiter);
+        // TextInputFormat owns physical records; neither table nor SerDe line.delim changes its reader.
+        result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER, DEFAULT_LINE_DELIM);
+        result.put(ScanNodePropertyKeys.TEXT_HIVE_OPEN_CSV, "true");
         result.put(ScanNodePropertyKeys.TEXT_ENCLOSE, quoteChar);
         // BE's extra double-quote trimming is valid only for the effective double-quote enclosure.
         result.put(ScanNodePropertyKeys.TEXT_TRIM_DOUBLE_QUOTES, String.valueOf("\"".equals(quoteChar)));

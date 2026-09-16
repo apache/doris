@@ -22,6 +22,17 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
         return
     }
 
+    def checkBothScanners = { Closure check ->
+        def originalScannerV2 = sql("SHOW VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
+        try {
+            for (boolean scannerV2 : [false, true]) {
+                sql "SET enable_file_scanner_v2 = ${scannerV2}"
+                check()
+            }
+        } finally {
+            sql "SET enable_file_scanner_v2 = ${originalScannerV2}"
+        }
+    }
     setHivePrefix("hive3")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String hmsPort = context.config.otherConfigs.get("hive3HmsPort")
@@ -114,8 +125,10 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
             }
             for (String query : queries) {
                 def expected = hive_docker(String.format(query, "csv_table_properties_db.source_rows"))
-                def actual = sql(String.format(query, layout.table))
-                assertEquals(expected, actual)
+                checkBothScanners {
+                    def actual = sql(String.format(query, layout.table))
+                    assertEquals(expected, actual)
+                }
             }
         }
     }
@@ -167,7 +180,63 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
             def expected = hive_docker "SELECT label, payload FROM csv_table_properties_db.source_rows ORDER BY label"
             def hiveRows = hive_docker "SELECT label, payload FROM csv_table_properties_db.${table} ORDER BY label"
             assertEquals(expected, hiveRows)
-            assertEquals(hiveRows, sql("SELECT label, payload FROM ${table} ORDER BY label"))
+            checkBothScanners {
+                assertEquals(hiveRows, sql("SELECT label, payload FROM ${table} ORDER BY label"))
+            }
+        }
+    }
+
+    // Write raw single-column TEXTFILE rows before switching SerDe. The CSV writer would normalize
+    // embedded quotes and hide reader-state bugs; hex literals also preserve binary NULs in fixtures.
+    def rawRecords = [
+        "x|  qa|bq|c", "abcqleft|rightq|tail", "qleft\nrightq|tail", "left|qunclosed",
+        "qaqqbq,tail", "eeabc,tail", "a\u0000b,tail", "", "|", ",", "qleftq|tail",
+        "x|\u2003\u2003qa|bq|c", "a\u0000\u0000b,tail", "a\\b,tail"
+    ]
+    String rawExpressions = rawRecords.collect {
+        "decode(unhex('${it.getBytes('UTF-8').encodeHex()}'), 'UTF-8')"
+    }.join(", ")
+    def dialects = [
+        [table: "csv_raw_custom", separator: "|", quote: "q", escape: "e"],
+        [table: "csv_raw_no_escape", separator: ",", quote: "q", escape: "\\000"],
+        [table: "csv_raw_no_quote", separator: ",", quote: "\\000", escape: "e"],
+        [table: "csv_raw_disabled", separator: ",", quote: "\\000", escape: "\\000"]
+    ]
+    for (def dialect : dialects) {
+        hive_docker "DROP TABLE IF EXISTS csv_table_properties_db.${dialect.table}"
+        hive_docker """
+            CREATE TABLE csv_table_properties_db.${dialect.table} (raw_record STRING) STORED AS TEXTFILE
+        """
+        hive_docker """
+            INSERT INTO csv_table_properties_db.${dialect.table}
+            SELECT explode(array(${rawExpressions}))
+        """
+        hive_docker """
+            ALTER TABLE csv_table_properties_db.${dialect.table}
+            REPLACE COLUMNS (first_value STRING, second_value STRING, third_value STRING)
+        """
+        hive_docker """
+            ALTER TABLE csv_table_properties_db.${dialect.table}
+            SET SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+        """
+        hive_docker """
+            ALTER TABLE csv_table_properties_db.${dialect.table} SET TBLPROPERTIES (
+                'separatorChar'='${dialect.separator}', 'quoteChar'='${dialect.quote}',
+                'escapeChar'='${dialect.escape}'
+            )
+        """
+        sql "REFRESH DATABASE csv_table_properties_catalog.csv_table_properties_db"
+        for (String query : [
+            "SELECT coalesce(hex(first_value), 'NULL'), coalesce(hex(second_value), 'NULL'), " +
+                "coalesce(hex(third_value), 'NULL') FROM %s ORDER BY 1, 2, 3",
+            "SELECT count(*), count(first_value), count(second_value), count(third_value) FROM %s",
+            "SELECT coalesce(hex(third_value), 'NULL'), hex(first_value) FROM %s " +
+                "WHERE first_value IS NOT NULL ORDER BY 1, 2"
+        ]) {
+            def expected = hive_docker(String.format(query, "csv_table_properties_db.${dialect.table}"))
+            checkBothScanners {
+                assertEquals(expected, sql(String.format(query, dialect.table)))
+            }
         }
     }
 

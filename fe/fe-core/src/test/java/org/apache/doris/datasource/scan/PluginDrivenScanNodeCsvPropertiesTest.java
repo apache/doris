@@ -42,7 +42,7 @@ class PluginDrivenScanNodeCsvPropertiesTest {
         Map<String, String> properties = Map.of("separatorChar", "ss", "quoteChar", "qq", "escapeChar", "ee",
                 "line.delim", "|");
         assertWireProperties(toWire(Map.of(), properties), "s", 'q', 'e', false);
-        assertWireProperties(toWire(properties, Map.of("line.delim", "|")), "s", 'q', 'e', false, "|");
+        assertWireProperties(toWire(properties, Map.of("line.delim", "|")), "s", 'q', 'e', false);
     }
 
     @Test
@@ -106,11 +106,23 @@ class PluginDrivenScanNodeCsvPropertiesTest {
         assertWireProperties(toWire(properties, Map.of()), ",", '\0', '\0', false);
     }
 
+    @Test
+    void testOtherHiveSerdesDoNotEnableOpenCsvParsing() throws Exception {
+        for (String serde : List.of(HiveTextProperties.HIVE_TEXT_SERDE, HiveTextProperties.HIVE_JSON_SERDE)) {
+            TFileAttributes attributes = propertiesToWire(HiveTextProperties.extract(serde, Map.of(), Map.of()));
+            Assertions.assertFalse(attributes.isSetHiveOpenCsv());
+            Assertions.assertFalse(attributes.isHiveOpenCsv());
+        }
+    }
+
     private static TFileAttributes toWire(Map<String, String> serdeProperties,
             Map<String, String> tableProperties) throws Exception {
+        return propertiesToWire(HiveTextProperties.extract(CSV_SERDE, serdeProperties, tableProperties));
+    }
+
+    private static TFileAttributes propertiesToWire(Map<String, String> properties) throws Exception {
         PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
-        Deencapsulation.setField(node, "scanNodeProperties",
-                HiveTextProperties.extract(CSV_SERDE, serdeProperties, tableProperties));
+        Deencapsulation.setField(node, "scanNodeProperties", properties);
         Deencapsulation.setField(node, "sessionVariable", new SessionVariable());
         // Exercise the real scan-node consumer and wire encoding: map assertions cannot detect byte truncation.
         TFileAttributes attributes = node.getFileAttributes();
@@ -127,6 +139,7 @@ class PluginDrivenScanNodeCsvPropertiesTest {
 
     private static void assertWireProperties(TFileAttributes attributes, String separator,
             char quote, char escape, boolean trim, String lineDelimiter) {
+        Assertions.assertTrue(attributes.isHiveOpenCsv());
         TFileTextScanRangeParams text = attributes.getTextParams();
         Assertions.assertEquals(separator, text.getColumnSeparator());
         Assertions.assertEquals(lineDelimiter, text.getLineDelimiter());

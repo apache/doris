@@ -28,10 +28,16 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Random;
 
 class HiveCsvReaderCompatibilityTest {
     @Test
@@ -82,6 +88,52 @@ class HiveCsvReaderCompatibilityTest {
         }
     }
 
+    @Test
+    void testRecordOracle() throws Exception {
+        // This corpus is also consumed by both BE readers. Generate expectations with Hive itself,
+        // including null trailing fields and binary NULs, rather than a second hand-written parser.
+        List<String> records = new ArrayList<>(List.of("x|  qa|bq|c", "qaqqbq,tail", "eeabc,tail",
+                "qleft", "rightq|tail", "abcqleft|rightq|tail", "a\0b,tail", "", ",", "||",
+                "left|qunclosed", "qleftq|tail", "qleftqqrightq|tail", "x|\t qa|bq|c",
+                "x|\u2003\u2003qa|bq|c", "x|\u00a0qa|bq|c", "éqleft|rightq|tail",
+                "😀qleft|rightq|tail", "abcqleftérightqétail", "qéqétail", "\"\"\"x\"\",tail"));
+        Random random = new Random(7321);
+        String alphabet = "aqe|, \\" + '"' + '\0';
+        for (int row = 0; row < 80; row++) {
+            StringBuilder record = new StringBuilder();
+            for (int i = 0, length = random.nextInt(24); i < length; i++) {
+                record.append(alphabet.charAt(random.nextInt(alphabet.length())));
+            }
+            records.add(record.toString());
+        }
+        List<String> corpus = new ArrayList<>();
+        for (String tuple : List.of("|qe", ",q\0", ",\0e", ",\0\0", ",\"\\", "éqe")) {
+            OpenCSVSerde serde = hiveSerde(Map.of("separatorChar", tuple.substring(0, 1),
+                    "quoteChar", tuple.substring(1, 2), "escapeChar", tuple.substring(2, 3)), 3);
+            for (String record : records) {
+                List<?> result = (List<?>) serde.deserialize(new Text(record));
+                StringBuilder encoded = new StringBuilder(hex(tuple)).append('\t').append(hex(record));
+                for (Object value : result) {
+                    encoded.append('\t').append(value == null ? "NULL" : hex(value.toString()));
+                }
+                corpus.add(encoded.toString());
+            }
+        }
+        String output = System.getProperty("hive.csv.oracle.output");
+        if (output != null) {
+            Files.write(Path.of(output), corpus, StandardCharsets.UTF_8);
+        }
+        try (var input = getClass().getResourceAsStream("/hive-csv-oracle.tsv")) {
+            Assertions.assertNotNull(input);
+            Assertions.assertEquals(corpus,
+                    new String(input.readAllBytes(), StandardCharsets.UTF_8).lines().toList());
+        }
+    }
+
+    private static String hex(String value) {
+        return value.isEmpty() ? "EMPTY" : HexFormat.of().formatHex(value.getBytes(StandardCharsets.UTF_8));
+    }
+
     private static void assertAcceptance(boolean accepted, Map<String, String> serdeProperties,
             Map<String, String> tableProperties) {
         if (accepted) {
@@ -94,9 +146,13 @@ class HiveCsvReaderCompatibilityTest {
     }
 
     private static OpenCSVSerde hiveSerde(Map<String, String> properties) throws SerDeException {
+        return hiveSerde(properties, 2);
+    }
+
+    private static OpenCSVSerde hiveSerde(Map<String, String> properties, int columns) throws SerDeException {
         Properties serdeProperties = new Properties();
-        serdeProperties.setProperty("columns", "first,second");
-        serdeProperties.setProperty("columns.types", "string:string");
+        serdeProperties.setProperty("columns", columns == 2 ? "first,second" : "first,second,third");
+        serdeProperties.setProperty("columns.types", columns == 2 ? "string:string" : "string:string:string");
         serdeProperties.putAll(properties);
         OpenCSVSerde serde = new OpenCSVSerde();
         serde.initialize(null, serdeProperties);

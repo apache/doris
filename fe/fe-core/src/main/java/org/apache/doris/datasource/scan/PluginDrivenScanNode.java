@@ -1102,6 +1102,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             attrs.setTrimDoubleQuotes(true);
         }
 
+        if ("true".equals(props.get(ScanNodePropertyKeys.TEXT_HIVE_OPEN_CSV))) {
+            attrs.setHiveOpenCsv(true);
+        }
         attrs.setTextParams(textParams);
         attrs.setHeaderType("");
         attrs.setEnableTextValidateUtf8(sessionVariable.enableTextValidateUtf8);

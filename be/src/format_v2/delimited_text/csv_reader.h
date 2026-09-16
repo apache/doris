@@ -26,6 +26,7 @@
 
 namespace doris {
 class EncloseCsvLineReaderCtx;
+class HiveCsvParser;
 class SlotDescriptor;
 } // namespace doris
 
@@ -62,9 +63,11 @@ private:
                                  Slice value) override;
     Slice _normalize_value(Slice value) const override;
     bool _can_split() const override;
+    bool _empty_line_as_record() const override { return _hive_csv_parser != nullptr; }
     void _on_bom_removed(size_t bom_size) override;
 
     TFileFormatType::type _file_format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+    std::unique_ptr<HiveCsvParser> _hive_csv_parser;
     char _enclose = 0;
     bool _trim_double_quotes = false;
     bool _trim_tailing_spaces = false;

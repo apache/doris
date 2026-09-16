@@ -45,6 +45,25 @@
 // leave these 2 size small for debugging
 
 namespace doris {
+
+const uint8_t* HiveCsvLineReaderCtx::read_line(const uint8_t* start, size_t len) {
+    for (size_t i = 0; i < len; ++i) {
+        if (start[i] == '\n') {
+            _delimiter_length = 1;
+            return start + i;
+        }
+        if (start[i] == '\r') {
+            // Wait for lookahead when CR straddles input buffers. At EOF the parser removes it.
+            if (i + 1 == len) {
+                return nullptr;
+            }
+            _delimiter_length = start[i + 1] == '\n' ? 2 : 1;
+            return start + i;
+        }
+    }
+    return nullptr;
+}
+
 const uint8_t* EncloseCsvLineReaderCtx::read_line_impl(const uint8_t* start, const size_t length) {
     if (_skip_utf8_bom && !_first_record_prefix_checked && _idx == 0) {
         constexpr uint8_t UTF8_BOM[] = {0xEF, 0xBB, 0xBF};

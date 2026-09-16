@@ -218,14 +218,14 @@ public class HiveTextPropertiesTest {
     }
 
     @Test
-    public void testCsvIgnoresTableRecordDelimiter() {
+    public void testCsvIgnoresTableAndSerdeRecordDelimiters() {
         for (String value : new String[] {"|", "", "\r\n"}) {
             Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE, sd(), sd("line.delim", value));
             Assertions.assertEquals("\n", result.get(PREFIX + "line_delimiter"));
         }
         Map<String, String> result = HiveTextProperties.extract(OPEN_CSV_SERDE,
                 sd("line.delim", "\r\n"), sd("line.delim", "|"));
-        Assertions.assertEquals("\r\n", result.get(PREFIX + "line_delimiter"));
+        Assertions.assertEquals("\n", result.get(PREFIX + "line_delimiter"));
     }
 
     @Test
