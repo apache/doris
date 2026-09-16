@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.alter;
 
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -153,6 +154,44 @@ public class CloudSchemaChangeHandlerTest {
         Assertions.assertEquals(Arrays.asList(101L, 102L), syncRequests.get(1).getTabletIdsList());
         Assertions.assertEquals(Arrays.asList(103L), syncRequests.get(2).getTabletIdsList());
         Assertions.assertEquals(Arrays.asList(103L), syncRequests.get(3).getTabletIdsList());
+    }
+
+    @Test
+    public void testUpdateBinlogConfigUsesCloudTabletMeta() throws Exception {
+        CloudSchemaChangeHandler handler = new CloudSchemaChangeHandler();
+        Database db = createMockDatabaseWithThreeTablets();
+        BinlogConfig binlogConfig = new BinlogConfig(true, 3600L, 4096L, 7L,
+                BinlogConfig.BinlogFormat.ROW, true);
+
+        MetaServiceProxy metaServiceProxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(metaServiceProxy.updateTablet(Mockito.any())).thenReturn(okUpdateTabletResponse());
+        Config.enable_debug_points = true;
+        DebugPointUtil.addDebugPoint("CloudSchemaChangeHandler.notifyBackendsToSyncTabletMeta.skip");
+
+        try (MockedStatic<MetaServiceProxy> metaProxyMock = Mockito.mockStatic(MetaServiceProxy.class)) {
+            metaProxyMock.when(MetaServiceProxy::getInstance).thenReturn(metaServiceProxy);
+            handler.updatePartitionProperties(db, "tbl", "p1", -1, -1, binlogConfig,
+                    null, null, -1, -1, -1);
+        }
+
+        ArgumentCaptor<Cloud.UpdateTabletRequest> updateCaptor =
+                ArgumentCaptor.forClass(Cloud.UpdateTabletRequest.class);
+        Mockito.verify(metaServiceProxy, Mockito.times(2)).updateTablet(updateCaptor.capture());
+        List<Cloud.TabletMetaInfoPB> tabletMetaInfos = updateCaptor.getAllValues().stream()
+                .flatMap(request -> request.getTabletMetaInfosList().stream())
+                .collect(Collectors.toList());
+        Assertions.assertEquals(Arrays.asList(101L, 102L, 103L), tabletMetaInfos.stream()
+                .map(Cloud.TabletMetaInfoPB::getTabletId).collect(Collectors.toList()));
+        for (Cloud.TabletMetaInfoPB tabletMetaInfo : tabletMetaInfos) {
+            Assertions.assertTrue(tabletMetaInfo.hasBinlogConfig());
+            Assertions.assertTrue(tabletMetaInfo.getBinlogConfig().getEnable());
+            Assertions.assertEquals(3600L, tabletMetaInfo.getBinlogConfig().getTtlSeconds());
+            Assertions.assertEquals(4096L, tabletMetaInfo.getBinlogConfig().getMaxBytes());
+            Assertions.assertEquals(7L, tabletMetaInfo.getBinlogConfig().getMaxHistoryNums());
+            Assertions.assertEquals(org.apache.doris.proto.OlapFile.BinlogFormatPB.ROW,
+                    tabletMetaInfo.getBinlogConfig().getBinlogFormat());
+            Assertions.assertTrue(tabletMetaInfo.getBinlogConfig().getNeedHistoricalValue());
+        }
     }
 
     @Test

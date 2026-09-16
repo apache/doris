@@ -1577,6 +1577,7 @@ Status CloudTablet::sync_meta() {
     auto new_disable_auto_compaction = tablet_meta->tablet_schema()->disable_auto_compaction();
     auto new_vertical_compaction_num_columns_per_group =
             tablet_meta->vertical_compaction_num_columns_per_group();
+    auto new_binlog_config = tablet_meta->binlog_config();
 
     {
         std::unique_lock wlock(_meta_lock);
@@ -1621,6 +1622,7 @@ Status CloudTablet::sync_meta() {
             _tablet_meta->set_vertical_compaction_num_columns_per_group(
                     new_vertical_compaction_num_columns_per_group);
         }
+        _tablet_meta->set_binlog_config(new_binlog_config);
     }
 
     last_sync_tablet_meta_time_s = ::time(nullptr);
