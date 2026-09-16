@@ -126,17 +126,17 @@ suite("test_array_function_doc", "p0") {
 
     test {
         sql """ SELECT ARRAYS_OVERLAP(array_struct, array_struct) from ${tableName}; """
-        exception "arrays_overlap does not support types: ARRAY<STRUCT<id:INT,name:TEXT>>"
+        exception "arrays_overlap does not support element type STRUCT<id:INT,name:TEXT>"
     }
 
     test {
         sql """ SELECT ARRAYS_OVERLAP(array_array, array_array) from ${tableName}; """
-        exception "arrays_overlap does not support types: ARRAY<ARRAY<INT>>"
+        exception "arrays_overlap does not support element type ARRAY<INT>"
     }
 
     test {
         sql """ SELECT ARRAYS_OVERLAP(array_map, array_map) from ${tableName}; """
-        exception "arrays_overlap does not support types: ARRAY<MAP<TEXT,INT>>"
+        exception "arrays_overlap does not support element type MAP<TEXT,INT>"
     }
 
 
@@ -146,7 +146,7 @@ suite("test_array_function_doc", "p0") {
 
     test {
         sql """ SELECT ARRAYS_OVERLAP(ARRAY(ARRAY('hello', 'aloha'), ARRAY('hi', 'hey')), ARRAY(ARRAY('hello', 'hi', 'hey'), ARRAY('aloha', 'hi'))); """
-        exception "arrays_overlap does not support types: ARRAY<ARRAY<TEXT>>"
+        exception "arrays_overlap does not support element type ARRAY<TEXT>"
     }
 
     qt_sql """ SELECT ARRAYS_OVERLAP(ARRAY('HELLO', 'ALOHA'), NULL); """
@@ -437,12 +437,12 @@ suite("test_array_function_doc", "p0") {
 
     test {
         sql """ SELECT ARRAY_REMOVE(array(array(1, 2), array(3, 4)), array(1, 2)); """
-        exception "array_remove does not support types: ARRAY<ARRAY<TINYINT>>"
+        exception "array_remove does not support element type ARRAY<TINYINT>"
     }
 
     test {
         sql """ SELECT CountEqual(array(array(1, 2), array(3, 4)), array(1, 2)); """
-        exception "countequal does not support types: ARRAY<ARRAY<TINYINT>>"
+        exception "countequal does not support element type ARRAY<TINYINT>"
     }
 
     qt_sql """ SELECT ARRAY_REMOVE(ARRAY(1, 2, 3, 2, null), 2); """

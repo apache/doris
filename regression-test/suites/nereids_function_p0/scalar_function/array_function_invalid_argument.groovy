@@ -132,6 +132,15 @@ suite("array_function_invalid_argument") {
     }
 
     test {
+        sql """
+            select array_enumerate_uniq(
+                array(to_bitmap(1), to_bitmap(1)),
+                array(to_bitmap(2), to_bitmap(2)))
+        """
+        exception "array_enumerate_uniq does not support element type BITMAP"
+    }
+
+    test {
         sql "select array_position(array(to_bitmap(1)), to_bitmap(1))"
         exception "array_position does not support element type BITMAP"
     }
@@ -173,6 +182,16 @@ suite("array_function_invalid_argument") {
 
     test {
         sql "select array_sort(array(array(to_bitmap(1)), array(to_bitmap(2))))"
+        exception "array_sort does not support types"
+    }
+
+    test {
+        sql """
+            select array_sort(
+                (x, y) -> if(bitmap_count(x) < bitmap_count(y), -1,
+                    if(bitmap_count(x) = bitmap_count(y), 0, 1)),
+                array(to_bitmap(2), to_bitmap(1)))
+        """
         exception "array_sort does not support types"
     }
 

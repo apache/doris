@@ -48,6 +48,19 @@ public final class ArrayFunctionTypeChecker {
         return !dataType.isOnlyMetricType();
     }
 
+    /** Whether the element type is supported by the lambda array_sort implementation. */
+    public static boolean isSupportedByArraySortLambdaFunction(DataType dataType) {
+        return dataType.isNumericType() || dataType.isBooleanType() || dataType.isStringLikeType()
+                || dataType.isVarBinaryType() || dataType.isArrayType() || dataType.isIPType()
+                || dataType.isDateLikeType() || dataType.isTimeType();
+    }
+
+    /** Whether the element type supports the serialized-key path used by variadic array functions. */
+    public static boolean isSupportedByArraySerializedKeyFunctions(DataType dataType) {
+        return isSupportedByArrayEqualityFunctions(dataType) || dataType.isVarBinaryType()
+                || dataType.isJsonType();
+    }
+
     /** Whether the element type is supported by array_min and array_max. */
     public static boolean isSupportedByArrayMinMaxFunctions(DataType dataType) {
         return isSupportedByArraySetFunctions(dataType);

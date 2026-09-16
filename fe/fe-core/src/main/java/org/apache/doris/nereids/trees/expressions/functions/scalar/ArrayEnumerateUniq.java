@@ -66,6 +66,7 @@ public class ArrayEnumerateUniq extends ScalarFunction
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        boolean useSerializedKeys = getArguments().size() > 1;
         for (Expression arg : getArguments()) {
             DataType argType = arg.getDataType();
             if (argType.isArrayType()) {
@@ -73,17 +74,16 @@ public class ArrayEnumerateUniq extends ScalarFunction
                 if (itemType.isComplexType()) {
                     throw new AnalysisException("array_enumerate_uniq does not support types: " + toSql());
                 }
-            }
-        }
-        if (getArguments().size() != 1) {
-            return;
-        }
-        DataType argType = getArgument(0).getDataType();
-        if (argType.isArrayType()) {
-            DataType itemType = ((ArrayType) argType).getItemType();
-            if (!ArrayFunctionTypeChecker.isSupportedByArrayEqualityFunctions(itemType)) {
-                throw new AnalysisException("array_enumerate_uniq does not support element type "
-                        + itemType.toSql());
+                if (useSerializedKeys
+                        && !ArrayFunctionTypeChecker.isSupportedByArraySerializedKeyFunctions(itemType)) {
+                    throw new AnalysisException("array_enumerate_uniq does not support element type "
+                            + itemType.toSql());
+                }
+                if (!useSerializedKeys
+                        && !ArrayFunctionTypeChecker.isSupportedByArrayEqualityFunctions(itemType)) {
+                    throw new AnalysisException("array_enumerate_uniq does not support element type "
+                            + itemType.toSql());
+                }
             }
         }
     }
