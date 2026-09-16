@@ -34,6 +34,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -160,6 +161,8 @@ Status IndexDiskUsageReader::init_reader() {
             .query_id = &_state->query_id(),
             .is_inverted_index = true,
     };
+    _io_ctx.inverted_index_snii_read_no_write_file_cache =
+            _state->query_options().inverted_index_snii_read_no_write_file_cache;
     if (auto* query_ctx = _state->get_query_ctx(); query_ctx != nullptr) {
         _io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
     }
@@ -210,13 +213,38 @@ Status IndexDiskUsageReader::_collect_tablet(const TIndexDiskUsageTablet& target
                 Version(0, target.version), CaptureRowsetOps {}));
         rowsets = std::move(captured.rowsets);
     }
-    *current_schema = tablet->tablet_schema();
+    *current_schema = label_schema(tablet->tablet_schema(), rowsets);
 
+    const io::IOContext io_ctx = tablet_io_context(_io_ctx, tablet->ttl_seconds());
+    segment_v2::IndexDiskUsageOptions options = _options;
+    options.io_ctx = &io_ctx;
     for (const RowsetSharedPtr& rowset : rowsets) {
-        RETURN_IF_ERROR(segment_v2::collect_rowset_index_disk_usage(rowset, _options,
+        RETURN_IF_ERROR(segment_v2::collect_rowset_index_disk_usage(rowset, options,
                                                                     target.tablet_id, rows));
     }
     return Status::OK();
+}
+
+TabletSchemaSPtr IndexDiskUsageReader::label_schema(const TabletSchemaSPtr& tablet_schema,
+                                                    const std::vector<RowsetSharedPtr>& rowsets) {
+    std::vector<RowsetMetaSharedPtr> rowset_metas;
+    rowset_metas.reserve(rowsets.size());
+    for (const RowsetSharedPtr& rowset : rowsets) {
+        if (rowset->rowset_meta()->tablet_schema() != nullptr) {
+            rowset_metas.push_back(rowset->rowset_meta());
+        }
+    }
+    if (rowset_metas.empty()) {
+        return tablet_schema;
+    }
+    return BaseTablet::tablet_schema_with_merged_max_schema_version(rowset_metas);
+}
+
+io::IOContext IndexDiskUsageReader::tablet_io_context(const io::IOContext& query_io_ctx,
+                                                      int64_t ttl_seconds) {
+    io::IOContext io_ctx = query_io_ctx;
+    io_ctx.expiration_time = ttl_seconds;
+    return io_ctx;
 }
 
 Status IndexDiskUsageReader::_fill_block(Block* block, const TIndexDiskUsageTablet& target,
