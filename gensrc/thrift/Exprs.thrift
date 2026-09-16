@@ -159,7 +159,8 @@ struct TIPv6Literal {
 }
 
 struct TUUIDLiteral {
-  1: required string value
+  1: required i64 hi
+  2: required i64 lo
 }
 
 struct TInPredicate {

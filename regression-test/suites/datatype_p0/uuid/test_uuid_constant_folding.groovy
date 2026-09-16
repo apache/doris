@@ -29,6 +29,16 @@ suite("test_uuid_constant_folding", "p0") {
              CAST(NULL AS UUID), CAST('invalid' AS UUID),
              CAST('' AS UUID), CAST(' 00112233445566778899aabbccddeeff' AS UUID),
              CAST('00112233445566778899aabbccddeeff ' AS UUID)"""
+        qt_integer_literals """SELECT
+             CAST('00000000-0000-0000-0000-000000000000' AS UUID),
+             CAST('00000000-0000-0000-0000-000000000001' AS UUID),
+             CAST('00000000-0000-0000-8000-000000000000' AS UUID),
+             CAST('00000000-0000-0000-ffff-ffffffffffff' AS UUID),
+             CAST('00000000-0000-0001-0000-000000000000' AS UUID),
+             CAST('7fffffff-ffff-ffff-ffff-ffffffffffff' AS UUID),
+             CAST('80000000-0000-0000-0000-000000000000' AS UUID),
+             CAST('ffffffff-ffff-ffff-ffff-ffffffffffff' AS UUID)
+             ORDER BY 1"""
     }
     sql "SET debug_skip_fold_constant = true"
     sql "SET enable_strict_cast = true"

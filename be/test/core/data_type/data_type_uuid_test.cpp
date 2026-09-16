@@ -28,11 +28,13 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <orc/Type.hh>
 #include <orc/Vector.hh>
 #include <string>
 #include <tuple>
+#include <vector>
 
 #include "agent/be_exec_version_manager.h"
 #include "core/block/block.h"
@@ -48,10 +50,12 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_uuid_serde.h"
 #include "core/value/uuid_value.h"
+#include "exprs/vexpr.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -80,6 +84,20 @@ protected:
         strings->insert_data("ffffffff-ffff-ffff-ffff-ffffffffffff", 36);
         return strings;
     }
+
+    void check_thrift_round_trip(const TExprNode& node, UUIDValueType value, const char* text) {
+        for (bool compact : {false, true}) {
+            ThriftSerializer serializer(compact, 128);
+            std::vector<uint8_t> bytes;
+            ASSERT_TRUE(serializer.serialize(&node, &bytes).ok());
+            TExprNode restored;
+            uint32_t length = bytes.size();
+            ASSERT_TRUE(deserialize_thrift_msg(bytes.data(), &length, compact, &restored).ok());
+            const auto restored_value = type->get_field(restored).get<TYPE_UUID>();
+            EXPECT_EQ(restored_value, value);
+            EXPECT_EQ(UUIDValue::to_string(restored_value), text);
+        }
+    }
 };
 
 TEST_F(DataTypeUUIDTest, MetadataAndDefault) {
@@ -102,7 +120,8 @@ TEST_F(DataTypeUUIDTest, MetadataAndDefault) {
 TEST_F(DataTypeUUIDTest, LiteralAndTextSerde) {
     TExprNode node;
     node.node_type = TExprNodeType::UUID_LITERAL;
-    node.uuid_literal.value = "550E8400E29B41D4A716446655440000";
+    node.uuid_literal.__set_hi(0x550e8400e29b41d4LL);
+    node.uuid_literal.__set_lo(static_cast<int64_t>(0xa716446655440000ULL));
     node.__isset.uuid_literal = true;
     const auto field = type->get_field(node);
     EXPECT_EQ(UUIDValue::to_string(field.get<TYPE_UUID>()), "550e8400-e29b-41d4-a716-446655440000");
@@ -115,6 +134,41 @@ TEST_F(DataTypeUUIDTest, LiteralAndTextSerde) {
     StringRef invalid {"550e8400-e29b-41d4-a716-44665544000g"};
     EXPECT_FALSE(serde->from_string(invalid, *column, {}).ok());
     EXPECT_EQ(column->size(), 1);
+}
+
+TEST_F(DataTypeUUIDTest, IntegerLiteralThriftRoundTrip) {
+    const std::array<std::tuple<const char*, int64_t, int64_t>, 9> cases {{
+            {"00000000-0000-0000-0000-000000000000", 0, 0},
+            {"00000000-0000-0000-0000-000000000001", 0, 1},
+            {"00000000-0000-0000-8000-000000000000", 0, INT64_MIN},
+            {"00000000-0000-0000-ffff-ffffffffffff", 0, -1},
+            {"00000000-0000-0001-0000-000000000000", 1, 0},
+            {"7fffffff-ffff-ffff-ffff-ffffffffffff", INT64_MAX, -1},
+            {"80000000-0000-0000-0000-000000000000", INT64_MIN, 0},
+            {"ffffffff-ffff-ffff-ffff-ffffffffffff", -1, -1},
+            {"00112233-4455-6677-8899-aabbccddeeff", 0x0011223344556677LL,
+             static_cast<int64_t>(0x8899aabbccddeeffULL)},
+    }};
+    for (const auto& [text, high, low] : cases) {
+        UUIDValueType value;
+        ASSERT_TRUE(UUIDValue::from_string(value, text));
+        EXPECT_EQ(UUIDValue::from_parts(high, low), value);
+        TExprNode node;
+        node.__set_num_children(0);
+        ASSERT_TRUE(create_texpr_literal_node<TYPE_UUID>(&value, &node).ok());
+        EXPECT_EQ(node.uuid_literal.hi, high);
+        EXPECT_EQ(node.uuid_literal.lo, low);
+        check_thrift_round_trip(node, value, text);
+    }
+}
+
+TEST_F(DataTypeUUIDTest, IntegerLiteralRequiresBothHalves) {
+    for (uint8_t field_id : {1, 2}) {
+        const std::array<uint8_t, 12> bytes {10, 0, field_id, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+        TUUIDLiteral literal;
+        uint32_t length = bytes.size();
+        EXPECT_FALSE(deserialize_thrift_msg(bytes.data(), &length, false, &literal).ok());
+    }
 }
 
 TEST_F(DataTypeUUIDTest, ProtobufRoundTripAndValidation) {

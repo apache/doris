@@ -65,6 +65,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Visitor that converts any {@link Expr} node into its Thrift {@link TExprNode}
@@ -258,7 +259,8 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     @Override
     public Void visitUuidLiteral(UuidLiteral expr, TExprNode msg) {
         msg.node_type = TExprNodeType.UUID_LITERAL;
-        msg.uuid_literal = new TUUIDLiteral(expr.getValue());
+        UUID value = UUID.fromString(expr.getValue());
+        msg.uuid_literal = new TUUIDLiteral(value.getMostSignificantBits(), value.getLeastSignificantBits());
         return null;
     }
 

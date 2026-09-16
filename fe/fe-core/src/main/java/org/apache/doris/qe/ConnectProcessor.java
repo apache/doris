@@ -751,7 +751,7 @@ public abstract class ConnectProcessor {
                         literalType.isTimeStampNs() ? literalType : null);
             case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
-            case UUID_LITERAL: return new UuidLiteral(node.uuid_literal.value);
+            case UUID_LITERAL: return new UuidLiteral(new UUID(node.uuid_literal.hi, node.uuid_literal.lo).toString());
             default: throw new AnalysisException("Wrong type from thrift;");
         }
     }

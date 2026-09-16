@@ -34,6 +34,10 @@ public:
     // Generate independent values for each row, sharing the SQL function's V7 sequence.
     static void generate(UUIDValueType* values, size_t count, bool version7);
 
+    static UUIDValueType from_parts(uint64_t high, uint64_t low) {
+        return (static_cast<UUIDValueType>(high) << 64) | low;
+    }
+
     static UUIDValueType from_big_endian(const uint8_t* bytes) {
         UUIDValueType value = 0;
         for (size_t i = 0; i < BINARY_LENGTH; ++i) {
