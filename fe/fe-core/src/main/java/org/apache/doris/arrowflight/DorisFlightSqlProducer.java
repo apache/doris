@@ -332,10 +332,6 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
                     () -> executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(),
                             descriptor));
-        } catch (FlightRuntimeException e) {
-            // Already carries the status meant for the client, e.g. UNAVAILABLE from the session's
-            // command lock; wrapping it as INTERNAL would hide that.
-            throw e;
         } catch (Throwable e) {
             if (e instanceof FlightRuntimeException) {
                 FlightRuntimeException flightError = (FlightRuntimeException) e;
