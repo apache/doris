@@ -31,15 +31,14 @@
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
-#include "exec/scan/scanner.h"
-#include "format/csv/csv_reader.h"
-#include "format/csv/hive_csv_parser.h"
 #include "format_v2/delimited_text/csv_reader.h"
+#include "format_v2/delimited_text/hive_csv_line_reader.h"
+#include "format_v2/delimited_text/hive_csv_parser.h"
 #include "io/io_common.h"
 #include "testutil/desc_tbl_builder.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris {
+namespace doris::format::csv {
 namespace {
 
 using OracleRow = std::array<std::optional<std::string>, 3>;
@@ -170,10 +169,9 @@ TFileScanRangeParams hive_csv_params(const std::string& tuple, const std::vector
     return params;
 }
 
-void check_reader_rows(CsvReader* v1, format::csv::CsvReader* v2,
-                       const std::vector<SlotDescriptor*>& slots, const DataTypePtr& type,
-                       const std::vector<OracleRecord>& records, const std::vector<int>& projection,
-                       size_t skipped_rows, bool count) {
+void check_reader_rows(CsvReader* reader, const std::vector<SlotDescriptor*>& slots,
+                       const DataTypePtr& type, const std::vector<OracleRecord>& records,
+                       const std::vector<int>& projection, size_t skipped_rows) {
     size_t row_index = skipped_rows;
     bool eof = false;
     while (!eof) {
@@ -182,14 +180,10 @@ void check_reader_rows(CsvReader* v1, format::csv::CsvReader* v2,
             block.insert({type->create_column(), type, slot->col_name()});
         }
         size_t rows = 0;
-        auto status =
-                v2 ? v2->get_block(&block, &rows, &eof) : v1->get_next_block(&block, &rows, &eof);
+        auto status = reader->get_block(&block, &rows, &eof);
         ASSERT_TRUE(status.ok()) << status;
         for (size_t row = 0; row < rows; ++row, ++row_index) {
             ASSERT_LT(row_index, records.size());
-            if (count) {
-                continue;
-            }
             for (size_t col = 0; col < projection.size(); ++col) {
                 const auto& column =
                         static_cast<const ColumnNullable&>(*block.get_by_position(col).column);
@@ -205,7 +199,7 @@ void check_reader_rows(CsvReader* v1, format::csv::CsvReader* v2,
     EXPECT_EQ(row_index, records.size());
 }
 
-void check_reader_count(format::csv::CsvReader* reader, size_t expected) {
+void check_reader_count(CsvReader* reader, size_t expected) {
     format::FileAggregateRequest request;
     request.agg_type = TPushAggOp::COUNT;
     format::FileAggregateResult result;
@@ -213,11 +207,10 @@ void check_reader_count(format::csv::CsvReader* reader, size_t expected) {
     EXPECT_EQ(result.count, expected);
 }
 
-class HiveOpenCsvReaderTest : public testing::TestWithParam<bool> {
+class HiveOpenCsvReaderTest : public testing::Test {
 protected:
     void SetUp() override {
-        _directory = std::filesystem::temp_directory_path() /
-                     (GetParam() ? "hive_csv_reader_v2" : "hive_csv_reader_v1");
+        _directory = std::filesystem::temp_directory_path() / "hive_csv_reader_v2";
         std::filesystem::create_directories(_directory);
     }
     void TearDown() override { std::filesystem::remove_all(_directory); }
@@ -248,54 +241,35 @@ protected:
         auto slots = builder.build()->get_tuple_descriptor(0)->slots();
         auto params = hive_csv_params(tuple, projection, slots, hive_open_csv);
         ASSERT_EQ(params.file_attributes.__isset.hive_open_csv, hive_open_csv);
-        ScannerCounter counter;
-        TFileRangeDesc range;
-        range.__set_path(path);
-        range.__set_start_offset(start_offset);
-        range.__set_size(std::filesystem::file_size(path) - start_offset);
-        range.__set_file_size(std::filesystem::file_size(path));
-        std::unique_ptr<CsvReader> v1;
-        std::unique_ptr<format::csv::CsvReader> v2;
-        if (GetParam()) {
-            auto properties = std::make_shared<io::FileSystemProperties>();
-            properties->system_type = TFileType::FILE_LOCAL;
-            auto description = std::make_unique<io::FileDescription>();
-            description->path = path;
-            description->range_start_offset = start_offset;
-            description->range_size = range.size;
-            description->file_size = range.file_size;
-            v2 = std::make_unique<format::csv::CsvReader>(properties, description, nullptr,
-                                                          &profile, &params, slots);
-            ASSERT_TRUE(v2->init(&state).ok());
-            auto request = std::make_shared<format::FileScanRequest>();
-            for (size_t i = 0; i < projection.size(); ++i) {
-                format::LocalColumnId id(projection[i]);
-                request->non_predicate_columns.push_back(format::LocalColumnIndex::top_level(id));
-                request->local_positions.emplace(id, format::LocalIndex(i));
-            }
-            ASSERT_TRUE(v2->open(request).ok());
-            if (count) {
-                check_reader_count(v2.get(), records.size() - skipped_rows);
-                ASSERT_TRUE(v2->close().ok());
-                return;
-            }
-        } else {
-            v1 = CsvReader::create_unique(&state, &profile, &counter, params, range, slots, 7,
-                                          nullptr);
-            ASSERT_TRUE(v1->init_reader(false).ok());
-            if (count) {
-                v1->set_push_down_agg_type(TPushAggOp::COUNT);
-            }
+        const auto file_size = std::filesystem::file_size(path);
+        auto properties = std::make_shared<io::FileSystemProperties>();
+        properties->system_type = TFileType::FILE_LOCAL;
+        auto description = std::make_unique<io::FileDescription>();
+        description->path = path;
+        description->range_start_offset = start_offset;
+        description->range_size = file_size - start_offset;
+        description->file_size = file_size;
+        CsvReader reader(properties, description, nullptr, &profile, &params, slots);
+        ASSERT_TRUE(reader.init(&state).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        for (size_t i = 0; i < projection.size(); ++i) {
+            format::LocalColumnId id(projection[i]);
+            request->non_predicate_columns.push_back(format::LocalColumnIndex::top_level(id));
+            request->local_positions.emplace(id, format::LocalIndex(i));
         }
-        check_reader_rows(v1.get(), v2.get(), slots, type, records, projection, skipped_rows,
-                          count);
-        ASSERT_TRUE((GetParam() ? v2->close() : v1->close()).ok());
+        ASSERT_TRUE(reader.open(request).ok());
+        if (count) {
+            check_reader_count(&reader, records.size() - skipped_rows);
+        } else {
+            check_reader_rows(&reader, slots, type, records, projection, skipped_rows);
+        }
+        ASSERT_TRUE(reader.close().ok());
     }
 
     std::filesystem::path _directory;
 };
 
-TEST_P(HiveOpenCsvReaderTest, HiveRecordOracleAcrossBatchesAndProjections) {
+TEST_F(HiveOpenCsvReaderTest, HiveRecordOracleAcrossBatchesAndProjections) {
     for (const auto& [tuple, records] : read_oracle()) {
         for (const std::string delimiter : {"\n", "\r\n", "\r"}) {
             check_file(tuple, records, delimiter, {0, 1, 2});
@@ -305,7 +279,7 @@ TEST_P(HiveOpenCsvReaderTest, HiveRecordOracleAcrossBatchesAndProjections) {
     }
 }
 
-TEST_P(HiveOpenCsvReaderTest, UnterminatedQuotesDoNotJoinPhysicalRecordsOrSplits) {
+TEST_F(HiveOpenCsvReaderTest, UnterminatedQuotesDoNotJoinPhysicalRecordsOrSplits) {
     std::vector<OracleRecord> records = {
             {.input = "qleft", .expected = {}},
             {.input = "rightq|tail", .expected = {}},
@@ -315,14 +289,14 @@ TEST_P(HiveOpenCsvReaderTest, UnterminatedQuotesDoNotJoinPhysicalRecordsOrSplits
     check_file("|qe", records, "\n", {2, 0}, 2, 1);
 }
 
-TEST_P(HiveOpenCsvReaderTest, BomIsOnlyStrippedAtFileStart) {
+TEST_F(HiveOpenCsvReaderTest, BomIsOnlyStrippedAtFileStart) {
     std::vector<OracleRecord> records(9, {.input = "plain", .expected = {"plain", {}, {}}});
     records[0].input = "\xef\xbb\xbfplain";
     records[7] = {.input = "\xef\xbb\xbfplain", .expected = {"\xef\xbb\xbfplain", {}, {}}};
     check_file("|qe", records, "\n", {0, 1, 2});
 }
 
-TEST_P(HiveOpenCsvReaderTest, AbsentSemanticFlagRetainsLegacyDecoding) {
+TEST_F(HiveOpenCsvReaderTest, AbsentSemanticFlagRetainsLegacyDecoding) {
     // The same bytes distinguish a pre-flag request from the OpenCSV opt-in on a new backend.
     std::string tuple(",\0e", 3);
     std::vector<OracleRecord> records = {
@@ -332,7 +306,5 @@ TEST_P(HiveOpenCsvReaderTest, AbsentSemanticFlagRetainsLegacyDecoding) {
     check_file(tuple, records, "\n", {0, 1, 2});
 }
 
-INSTANTIATE_TEST_SUITE_P(BothScanners, HiveOpenCsvReaderTest, testing::Bool());
-
 } // namespace
-} // namespace doris
+} // namespace doris::format::csv

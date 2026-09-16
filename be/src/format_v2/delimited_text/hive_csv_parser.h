@@ -23,7 +23,7 @@
 
 #include "util/slice.h"
 
-namespace doris {
+namespace doris::format::csv {
 
 // OpenCSVSerde runs one OpenCSV 2.3 reader per Hadoop TextInputFormat record.
 // Returned slices reference this parser's decoded buffer until the next parse().
@@ -42,4 +42,4 @@ private:
     std::vector<size_t> _field_ends;
 };
 
-} // namespace doris
+} // namespace doris::format::csv

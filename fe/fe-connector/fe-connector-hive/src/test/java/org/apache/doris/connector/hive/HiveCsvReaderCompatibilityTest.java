@@ -90,7 +90,7 @@ class HiveCsvReaderCompatibilityTest {
 
     @Test
     void testRecordOracle() throws Exception {
-        // This corpus is also consumed by both BE readers. Generate expectations with Hive itself,
+        // This corpus is also consumed by FileScannerV2. Generate expectations with Hive itself,
         // including null trailing fields and binary NULs, rather than a second hand-written parser.
         List<String> records = new ArrayList<>(List.of("x|  qa|bq|c", "qaqqbq,tail", "eeabc,tail",
                 "qleft", "rightq|tail", "abcqleft|rightq|tail", "a\0b,tail", "", ",", "||",

@@ -130,16 +130,6 @@ public:
     inline void refresh_impl() {}
 };
 
-class HiveCsvLineReaderCtx final : public TextLineReaderContextIf {
-public:
-    const uint8_t* read_line(const uint8_t* start, size_t len) override;
-    size_t line_delimiter_length() const override { return _delimiter_length; }
-    void refresh() override {}
-
-private:
-    size_t _delimiter_length = 1;
-};
-
 enum class ReaderState { START, NORMAL, PRE_MATCH_ENCLOSE, MATCH_ENCLOSE };
 struct ReaderStateWrapper {
     inline void forward_to(ReaderState state) {

@@ -42,7 +42,6 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "exec/scan/scanner.h"
-#include "format/csv/hive_csv_parser.h"
 #include "format/file_reader/new_plain_binary_line_reader.h"
 #include "format/file_reader/new_plain_text_line_reader.h"
 #include "format/line_reader.h"
@@ -223,8 +222,6 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
     _init_file_description();
     _serdes = create_data_type_serdes(_file_slot_descs);
 }
-
-CsvReader::~CsvReader() = default;
 
 void CsvReader::_init_system_properties() {
     if (_range.__isset.file_type) {
@@ -583,12 +580,6 @@ Status CsvReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
     auto& null_column = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
     auto& string_column = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(
             null_column.get_nested_column());
-    if (_hive_csv_parser) {
-        // The Hive parser already decoded the field. Reapplying CSV escapes loses literal bytes.
-        string_column.insert_data(slice.data, slice.size);
-        null_column.get_null_map_data().push_back(0);
-        return Status::OK();
-    }
     if (_empty_field_as_null && slice.size == 0) {
         string_column.insert_default();
         null_column.get_null_map_data().push_back(1);
@@ -658,19 +649,6 @@ Status CsvReader::_init_options() {
     if (_params.file_attributes.text_params.__isset.empty_field_as_null) {
         _empty_field_as_null = _params.file_attributes.text_params.empty_field_as_null;
     }
-    if (_params.file_attributes.hive_open_csv) {
-        // Hadoop strips BOM only at file offset zero, even when that record is a skipped header.
-        _hive_csv_bom_checked = _skip_lines != 0;
-        size_t fields = _file_slot_descs.size();
-        for (int index : _params.column_idxs) {
-            fields = std::max(fields, static_cast<size_t>(index) + 1);
-        }
-        _hive_csv_parser =
-                std::make_unique<HiveCsvParser>(_value_separator, _enclose, _escape, fields);
-        _options.escape_char = 0;
-        _options.converted_from_string = false;
-        _options.null_len = 0;
-    }
     return Status::OK();
 }
 
@@ -719,9 +697,7 @@ Status CsvReader::_create_file_reader(bool need_schema) {
 
 Status CsvReader::_create_line_reader() {
     std::shared_ptr<TextLineReaderContextIf> text_line_reader_ctx;
-    if (_hive_csv_parser) {
-        text_line_reader_ctx = std::make_shared<HiveCsvLineReaderCtx>();
-    } else if (_enclose == 0) {
+    if (_enclose == 0) {
         text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _keep_cr);
         _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
@@ -797,10 +773,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, std::vector<MutableColum
             col_ptr = columns[_file_slot_idx_map[i]].get();
         }
 
-        if (_hive_csv_parser && col_idx >= _split_values.size()) {
-            // OpenCSV returns NULL for missing fields, but an explicitly empty field is a string.
-            col_ptr->insert_default();
-        } else if (_use_nullable_string_opt[i]) {
+        if (_use_nullable_string_opt[i]) {
             // For load task, we always read "string" from file.
             // So serdes[i] here must be DataTypeNullableSerDe, and DataTypeNullableSerDe -> nested_serde must be DataTypeStringSerDe.
             // So we use deserialize_nullable_string and stringSerDe to reduce virtual function calls.
@@ -913,11 +886,7 @@ Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
 
 void CsvReader::_split_line(const Slice& line) {
     _split_values.clear();
-    if (_hive_csv_parser) {
-        _hive_csv_parser->parse(line, &_split_values);
-    } else {
-        _fields_splitter->split_line(line, &_split_values);
-    }
+    _fields_splitter->split_line(line, &_split_values);
 }
 
 Status CsvReader::_parse_col_nums(size_t* col_nums) {
@@ -973,12 +942,6 @@ Status CsvReader::_parse_col_types(size_t col_nums, std::vector<DataTypePtr>* co
 }
 
 const uint8_t* CsvReader::_remove_bom(const uint8_t* ptr, size_t& size) {
-    if (_hive_csv_parser) {
-        if (_hive_csv_bom_checked || _start_offset != 0) {
-            return ptr;
-        }
-        _hive_csv_bom_checked = true;
-    }
     if (size >= 3 && ptr[0] == 0xEF && ptr[1] == 0xBB && ptr[2] == 0xBF) {
         LOG(INFO) << "remove bom";
         constexpr size_t bom_size = 3;

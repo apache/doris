@@ -26,11 +26,12 @@
 
 namespace doris {
 class EncloseCsvLineReaderCtx;
-class HiveCsvParser;
 class SlotDescriptor;
 } // namespace doris
 
 namespace doris::format::csv {
+
+class HiveCsvParser;
 
 // FileScannerV2 CSV reader.
 //

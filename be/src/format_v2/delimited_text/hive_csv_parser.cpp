@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/csv/hive_csv_parser.h"
+#include "format_v2/delimited_text/hive_csv_parser.h"
 
 #include <unicode/uchar.h>
 #include <unicode/utf8.h>
@@ -23,7 +23,7 @@
 #include <string_view>
 #include <utility>
 
-namespace doris {
+namespace doris::format::csv {
 namespace {
 
 UChar32 next_character(std::string_view input, size_t& pos) {
@@ -117,4 +117,4 @@ void HiveCsvParser::parse(const Slice& line, std::vector<Slice>* fields) {
     }
 }
 
-} // namespace doris
+} // namespace doris::format::csv

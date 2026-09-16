@@ -22,13 +22,11 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
         return
     }
 
-    def checkBothScanners = { Closure check ->
+    def checkV2 = { Closure check ->
         def originalScannerV2 = sql("SHOW VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
         try {
-            for (boolean scannerV2 : [false, true]) {
-                sql "SET enable_file_scanner_v2 = ${scannerV2}"
-                check()
-            }
+            sql "SET enable_file_scanner_v2 = true"
+            check()
         } finally {
             sql "SET enable_file_scanner_v2 = ${originalScannerV2}"
         }
@@ -125,7 +123,7 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
             }
             for (String query : queries) {
                 def expected = hive_docker(String.format(query, "csv_table_properties_db.source_rows"))
-                checkBothScanners {
+                checkV2 {
                     def actual = sql(String.format(query, layout.table))
                     assertEquals(expected, actual)
                 }
@@ -180,7 +178,7 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
             def expected = hive_docker "SELECT label, payload FROM csv_table_properties_db.source_rows ORDER BY label"
             def hiveRows = hive_docker "SELECT label, payload FROM csv_table_properties_db.${table} ORDER BY label"
             assertEquals(expected, hiveRows)
-            checkBothScanners {
+            checkV2 {
                 assertEquals(hiveRows, sql("SELECT label, payload FROM ${table} ORDER BY label"))
             }
         }
@@ -191,16 +189,19 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
     def rawRecords = [
         "x|  qa|bq|c", "abcqleft|rightq|tail", "qleft\nrightq|tail", "left|qunclosed",
         "qaqqbq,tail", "eeabc,tail", "a\u0000b,tail", "", "|", ",", "qleftq|tail",
-        "x|\u2003\u2003qa|bq|c", "a\u0000\u0000b,tail", "a\\b,tail"
+        "x|\u2003\u2003qa|bq|c", "a\u0000\u0000b,tail", "a\\b,tail",
+        '"a""b",tail', '"a\\"b",tail', "abcqleftérightqétail"
     ]
     String rawExpressions = rawRecords.collect {
         "decode(unhex('${it.getBytes('UTF-8').encodeHex()}'), 'UTF-8')"
     }.join(", ")
+    // PostgreSQL-backed Hive metastores cannot persist NUL in text properties. Disabled quote/escape
+    // settings remain covered by the Hive SerDe oracle and V2 reader unit tests, without a metastore.
     def dialects = [
         [table: "csv_raw_custom", separator: "|", quote: "q", escape: "e"],
-        [table: "csv_raw_no_escape", separator: ",", quote: "q", escape: "\\000"],
-        [table: "csv_raw_no_quote", separator: ",", quote: "\\000", escape: "e"],
-        [table: "csv_raw_disabled", separator: ",", quote: "\\000", escape: "\\000"]
+        [table: "csv_raw_backslash", separator: ",", quote: "q", escape: sqlBackslash],
+        [table: "csv_raw_default", separator: ",", quote: '"', escape: sqlBackslash],
+        [table: "csv_raw_utf8", separator: "é", quote: "q", escape: "e"]
     ]
     for (def dialect : dialects) {
         hive_docker "DROP TABLE IF EXISTS csv_table_properties_db.${dialect.table}"
@@ -234,7 +235,7 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
                 "WHERE first_value IS NOT NULL ORDER BY 1, 2"
         ]) {
             def expected = hive_docker(String.format(query, "csv_table_properties_db.${dialect.table}"))
-            checkBothScanners {
+            checkV2 {
                 assertEquals(expected, sql(String.format(query, dialect.table)))
             }
         }
