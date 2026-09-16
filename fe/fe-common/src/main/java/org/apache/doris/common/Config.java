@@ -2008,9 +2008,11 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
+    // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
+    public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = TIMESTAMP_NS_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

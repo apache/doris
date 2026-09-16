@@ -185,6 +185,8 @@ public final class HiveTextProperties {
         // TextInputFormat owns physical records; neither table nor SerDe line.delim changes its reader.
         result.put(ScanNodePropertyKeys.TEXT_LINE_DELIMITER, DEFAULT_LINE_DELIM);
         result.put(ScanNodePropertyKeys.TEXT_HIVE_OPEN_CSV, "true");
+        // Smooth-upgrade sources may still use the pre-flag reader at the new query execution version.
+        result.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS, "Hive OpenCSVSerde semantics");
         result.put(ScanNodePropertyKeys.TEXT_ENCLOSE, quoteChar);
         // BE's extra double-quote trimming is valid only for the effective double-quote enclosure.
         result.put(ScanNodePropertyKeys.TEXT_TRIM_DOUBLE_QUOTES, String.valueOf("\"".equals(quoteChar)));

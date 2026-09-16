@@ -25,6 +25,7 @@
 #include <optional>
 #include <sstream>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
@@ -112,6 +113,13 @@ TEST(HiveCsvParserTest, HiveRecordOracle) {
     }
 }
 
+TEST(HiveCsvCompatibilityTest, AdvertisesOpenCsvExecutionVersion) {
+    // Version 15 identifies the backend generation that implements the OpenCSV semantic flag.
+    EXPECT_GE(BeExecVersionManager::get_newest_version(), 15);
+    EXPECT_TRUE(BeExecVersionManager::check_be_exec_version(15).ok());
+    EXPECT_TRUE(BeExecVersionManager::check_be_exec_version(14).ok());
+}
+
 TEST(HiveCsvLineReaderTest, CrLfAcrossBuffersAndQuotes) {
     HiveCsvLineReaderCtx context;
     const std::string input = "qleft\r\nrightq|tail\n";
@@ -129,13 +137,19 @@ TEST(HiveCsvLineReaderTest, CrLfAcrossBuffersAndQuotes) {
 }
 
 TFileScanRangeParams hive_csv_params(const std::string& tuple, const std::vector<int>& projection,
-                                     const std::vector<SlotDescriptor*>& slots) {
+                                     const std::vector<SlotDescriptor*>& slots,
+                                     bool hive_open_csv = true) {
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_CSV_PLAIN);
     params.__set_file_type(TFileType::FILE_LOCAL);
     params.__set_compress_type(TFileCompressType::PLAIN);
     params.__set_column_idxs(projection);
-    params.file_attributes.__set_hive_open_csv(true);
+    if (hive_open_csv) {
+        params.file_attributes.__set_hive_open_csv(true);
+    } else {
+        // Thrift marks explicit defaults as set on construction; model an older sender omitting the field.
+        params.file_attributes.__isset.hive_open_csv = false;
+    }
     params.file_attributes.__set_header_type("");
     params.file_attributes.__set_trim_double_quotes(true);
     auto& text = params.file_attributes.text_params;
@@ -210,7 +224,8 @@ protected:
 
     void check_file(const std::string& tuple, const std::vector<OracleRecord>& records,
                     const std::string& delimiter, const std::vector<int>& projection,
-                    int64_t start_offset = 0, size_t skipped_rows = 0, bool count = false) {
+                    int64_t start_offset = 0, size_t skipped_rows = 0, bool count = false,
+                    bool hive_open_csv = true) {
         const auto path = (_directory / "records.csv").string();
         {
             std::ofstream output(path, std::ios::binary);
@@ -231,7 +246,8 @@ protected:
             tuple_builder << TupleDescBuilder::SlotType {type, "c" + std::to_string(index)};
         }
         auto slots = builder.build()->get_tuple_descriptor(0)->slots();
-        auto params = hive_csv_params(tuple, projection, slots);
+        auto params = hive_csv_params(tuple, projection, slots, hive_open_csv);
+        ASSERT_EQ(params.file_attributes.__isset.hive_open_csv, hive_open_csv);
         ScannerCounter counter;
         TFileRangeDesc range;
         range.__set_path(path);
@@ -304,6 +320,16 @@ TEST_P(HiveOpenCsvReaderTest, BomIsOnlyStrippedAtFileStart) {
     records[0].input = "\xef\xbb\xbfplain";
     records[7] = {.input = "\xef\xbb\xbfplain", .expected = {"\xef\xbb\xbfplain", {}, {}}};
     check_file("|qe", records, "\n", {0, 1, 2});
+}
+
+TEST_P(HiveOpenCsvReaderTest, AbsentSemanticFlagRetainsLegacyDecoding) {
+    // The same bytes distinguish a pre-flag request from the OpenCSV opt-in on a new backend.
+    std::string tuple(",\0e", 3);
+    std::vector<OracleRecord> records = {
+            {.input = "eeabc,tail,last", .expected = {"eabc", "tail", "last"}}};
+    check_file(tuple, records, "\n", {0, 1, 2}, 0, 0, false, false);
+    records[0].expected[0] = "abc";
+    check_file(tuple, records, "\n", {0, 1, 2});
 }
 
 INSTANTIATE_TEST_SUITE_P(BothScanners, HiveOpenCsvReaderTest, testing::Bool());
