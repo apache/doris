@@ -19,16 +19,27 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <future>
+#include <limits>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "bthread/bthread.h"
+#include "common/exception.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner_v2.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/table/hive_reader.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/work_thread_pool.hpp"
 
 namespace doris {
 
@@ -411,6 +422,489 @@ TEST_F(SubmitExternalScanTasksTest, ThrownExceptionReachesTheCaller) {
     });
     EXPECT_FALSE(result.ok());
     EXPECT_NE(result.to_string().find("scanner threw"), std::string::npos);
+}
+
+// Keep accepted tasks queued until the test explicitly runs them. This models a
+// saturated rowid fetch pool and lets submission failures race with pending work.
+class QueuedRowIdFetchPool : public FifoThreadPool {
+public:
+    QueuedRowIdFetchPool() : FifoThreadPool(0, 8, "rowid-queued-test") {}
+
+    bool try_offer(WorkFunction task) override {
+        if (tasks.size() == fail_at) {
+            if (throw_on_submit) {
+                throw std::runtime_error("pool submission exception");
+            }
+            return false;
+        }
+        tasks.push_back(std::move(task));
+        return true;
+    }
+
+    size_t fail_at = std::numeric_limits<size_t>::max();
+    bool throw_on_submit = false;
+    std::vector<WorkFunction> tasks;
+};
+
+class ParallelRowIdFetchTest : public RowIdStorageReaderTest {
+protected:
+    static void submit(FifoThreadPool* pool, size_t count, int concurrency,
+                       std::function<Status(size_t)> read, std::function<void(Status)> finish) {
+        RowIdStorageReader::submit_internal_read_tasks(pool, count, concurrency, std::move(read),
+                                                       std::move(finish));
+    }
+};
+
+TEST_F(ParallelRowIdFetchTest, QueuesBoundedWorkersAndReadsEveryTaskOnce) {
+    QueuedRowIdFetchPool pool;
+    std::vector<int> visits(7, 0);
+    int completions = 0;
+    submit(
+            &pool, visits.size(), 3,
+            [&](size_t idx) {
+                EXPECT_EQ(bthread_self(), 0);
+                ++visits[idx];
+                return Status::OK();
+            },
+            [&](Status status) {
+                EXPECT_TRUE(status.ok()) << status;
+                EXPECT_EQ(visits, std::vector<int>(7, 1));
+                ++completions;
+            });
+    ASSERT_EQ(pool.tasks.size(), 3);
+    EXPECT_EQ(completions, 0);
+    for (auto& task : pool.tasks) {
+        task();
+    }
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, EmptyRequestCompletesWithoutSubmitting) {
+    QueuedRowIdFetchPool pool;
+    int completions = 0;
+    submit(
+            &pool, 0, 8,
+            [](size_t) {
+                ADD_FAILURE() << "Empty request must not schedule a read";
+                return Status::OK();
+            },
+            [&](Status status) {
+                EXPECT_TRUE(status.ok());
+                ++completions;
+            });
+    EXPECT_TRUE(pool.tasks.empty());
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, FastWorkersDoNotCompleteDuringSubmission) {
+    class CountingInlinePool : public FifoThreadPool {
+    public:
+        CountingInlinePool() : FifoThreadPool(0, 8, "rowid-inline-test") {}
+
+        bool try_offer(WorkFunction task) override {
+            ++submissions;
+            task();
+            return true;
+        }
+        int submissions = 0;
+    } pool;
+    int completions = 0;
+    submit(
+            &pool, 7, 3, [](size_t) { return Status::OK(); },
+            [&](Status status) {
+                EXPECT_TRUE(status.ok());
+                EXPECT_EQ(pool.submissions, 3);
+                ++completions;
+            });
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, RejectedSubmissionCompletesAfterAcceptedWorkers) {
+    for (bool throw_on_submit : {false, true}) {
+        for (size_t fail_at : {0, 1, 2}) {
+            QueuedRowIdFetchPool pool;
+            pool.fail_at = fail_at;
+            pool.throw_on_submit = throw_on_submit;
+            int completions = 0;
+            submit(
+                    &pool, 7, 3,
+                    [](size_t) {
+                        ADD_FAILURE() << "Pending reads should stop after submission failure";
+                        return Status::OK();
+                    },
+                    [&](Status status) {
+                        EXPECT_FALSE(status.ok());
+                        EXPECT_NE(status.to_string().find(throw_on_submit ? "submission exception"
+                                                                          : "queue full"),
+                                  std::string::npos);
+                        ++completions;
+                    });
+            ASSERT_EQ(pool.tasks.size(), fail_at);
+            EXPECT_EQ(completions, fail_at == 0 ? 1 : 0);
+            for (auto& task : pool.tasks) {
+                task();
+            }
+            EXPECT_EQ(completions, 1);
+        }
+    }
+}
+
+TEST_F(ParallelRowIdFetchTest, DiscardedQueuedWorkersCompleteWithCancellation) {
+    QueuedRowIdFetchPool pool;
+    int completions = 0;
+    submit(
+            &pool, 7, 3,
+            [](size_t) {
+                ADD_FAILURE() << "Discarded tasks must not execute";
+                return Status::OK();
+            },
+            [&](Status status) {
+                EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status;
+                ++completions;
+            });
+    EXPECT_EQ(completions, 0);
+    pool.tasks.clear();
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, DiscardedWorkersPreserveEarlierReadError) {
+    QueuedRowIdFetchPool pool;
+    int completions = 0;
+    submit(
+            &pool, 7, 3,
+            [](size_t) { return Status::InternalError("read failed before shutdown"); },
+            [&](Status status) {
+                EXPECT_NE(status.to_string().find("read failed before shutdown"),
+                          std::string::npos);
+                ++completions;
+            });
+    pool.tasks.front()();
+    EXPECT_EQ(completions, 0);
+    pool.tasks.clear();
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, ReadErrorsAndExceptionsReachCompletion) {
+    for (int error_kind : {0, 1, 2}) {
+        QueuedRowIdFetchPool pool;
+        int completions = 0;
+        int reads = 0;
+        submit(
+                &pool, 7, 3,
+                [&](size_t) -> Status {
+                    ++reads;
+                    if (error_kind == 1) {
+                        throw Exception(ErrorCode::INTERNAL_ERROR, "parallel read exception");
+                    }
+                    if (error_kind == 2) {
+                        throw std::runtime_error("parallel read exception");
+                    }
+                    return Status::InternalError("parallel read exception");
+                },
+                [&](Status status) {
+                    EXPECT_FALSE(status.ok());
+                    EXPECT_NE(status.to_string().find("parallel read exception"),
+                              std::string::npos);
+                    ++completions;
+                });
+        for (auto& task : pool.tasks) {
+            task();
+        }
+        EXPECT_EQ(completions, 1);
+        EXPECT_EQ(reads, 1);
+    }
+}
+
+TEST_F(ParallelRowIdFetchTest, SingleThreadPoolReleasesParentBeforeReading) {
+    auto pool = std::make_unique<FifoThreadPool>(1, 8, "rowid-single-thread-test");
+    std::promise<Status> completion;
+    auto result = completion.get_future();
+    std::thread::id parent_thread;
+    std::atomic<bool> parent_returned = false;
+    std::atomic<int> reads = 0;
+    ASSERT_TRUE(pool->try_offer([&]() {
+        parent_thread = std::this_thread::get_id();
+        submit(
+                pool.get(), 7, 3,
+                [&](size_t) {
+                    EXPECT_EQ(bthread_self(), 0);
+                    EXPECT_EQ(std::this_thread::get_id(), parent_thread);
+                    EXPECT_TRUE(parent_returned);
+                    ++reads;
+                    return Status::OK();
+                },
+                [&](Status status) { completion.set_value(status); });
+        parent_returned = true;
+    }));
+    EXPECT_EQ(result.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    pool->shutdown();
+    pool->join();
+    pool.reset();
+    ASSERT_EQ(result.wait_for(std::chrono::seconds(0)), std::future_status::ready);
+    EXPECT_TRUE(result.get().ok());
+    EXPECT_EQ(reads, 7);
+}
+
+// GTest assertion macros inflate the complexity of this synchronized two-worker scenario.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(ParallelRowIdFetchTest, RunsConcurrentlyWithinLimitAndWaitsForActiveReads) {
+    for (bool fail : {false, true}) {
+        auto pool = std::make_unique<FifoThreadPool>(4, 8, "rowid-concurrency-test");
+        std::promise<void> first_started;
+        auto first_ready = first_started.get_future().share();
+        std::promise<void> second_started;
+        auto second_ready = second_started.get_future().share();
+        std::promise<Status> completion;
+        auto result = completion.get_future();
+        std::atomic<int> active = 0;
+        std::atomic<int> peak = 0;
+        std::atomic<bool> second_finished = false;
+        submit(
+                pool.get(), 8, 2,
+                [&](size_t idx) {
+                    EXPECT_EQ(bthread_self(), 0);
+                    const int running = ++active;
+                    int previous = peak.load();
+                    while (previous < running && !peak.compare_exchange_weak(previous, running)) {
+                    }
+                    if (idx == 0) {
+                        first_started.set_value();
+                        EXPECT_EQ(second_ready.wait_for(std::chrono::seconds(10)),
+                                  std::future_status::ready);
+                    } else if (idx == 1) {
+                        second_started.set_value();
+                        EXPECT_EQ(first_ready.wait_for(std::chrono::seconds(10)),
+                                  std::future_status::ready);
+                        second_finished = true;
+                    }
+                    --active;
+                    return fail && idx == 0 ? Status::InternalError("active read failed")
+                                            : Status::OK();
+                },
+                [&](Status status) {
+                    EXPECT_EQ(active, 0);
+                    EXPECT_TRUE(second_finished);
+                    completion.set_value(status);
+                });
+        EXPECT_EQ(result.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+        pool->shutdown();
+        pool->join();
+        pool.reset();
+        ASSERT_EQ(result.wait_for(std::chrono::seconds(0)), std::future_status::ready);
+        EXPECT_EQ(result.get().ok(), !fail);
+        EXPECT_EQ(peak, 2);
+    }
+}
+
+TEST_F(ParallelRowIdFetchTest, FullPoolRejectsWorkersWithoutCompletingActiveRead) {
+    std::promise<void> started;
+    auto ready = started.get_future();
+    // Make the first worker start before the next submission fills the real queue.
+    class StartedWorkerPool : public FifoThreadPool {
+    public:
+        explicit StartedWorkerPool(std::future<void>& ready)
+                : FifoThreadPool(1, 1, "rowid-full-test"), _ready(ready) {}
+
+        bool try_offer(WorkFunction task) override {
+            const bool accepted = FifoThreadPool::try_offer(std::move(task));
+            if (++_submissions == 1) {
+                EXPECT_TRUE(accepted);
+                EXPECT_EQ(_ready.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+            }
+            return accepted;
+        }
+
+    private:
+        std::future<void>& _ready;
+        int _submissions = 0;
+    };
+    std::promise<void> release;
+    auto released = release.get_future();
+    std::promise<Status> completion;
+    auto result = completion.get_future();
+    std::atomic<bool> reading = false;
+    std::atomic<int> completions = 0;
+    auto pool = std::make_unique<StartedWorkerPool>(ready);
+    submit(
+            pool.get(), 7, 3,
+            [&](size_t) {
+                reading = true;
+                started.set_value();
+                EXPECT_EQ(released.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+                reading = false;
+                return Status::OK();
+            },
+            [&](Status status) {
+                EXPECT_FALSE(reading);
+                ++completions;
+                completion.set_value(status);
+            });
+    EXPECT_EQ(pool->get_queue_size(), 1);
+    EXPECT_EQ(completions, 0);
+    EXPECT_EQ(result.wait_for(std::chrono::seconds(0)), std::future_status::timeout);
+    release.set_value();
+    EXPECT_EQ(result.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    pool->shutdown();
+    pool->join();
+    pool.reset();
+    ASSERT_EQ(result.wait_for(std::chrono::seconds(0)), std::future_status::ready);
+    EXPECT_TRUE(result.get().is<ErrorCode::SERVICE_UNAVAILABLE>());
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, StoppedPoolRejectsWorkersImmediately) {
+    FifoThreadPool pool(1, 8, "rowid-stopped-test");
+    pool.shutdown();
+    pool.join();
+    int completions = 0;
+    submit(
+            &pool, 7, 3,
+            [](size_t) {
+                ADD_FAILURE() << "Stopped pool must not execute reads";
+                return Status::OK();
+            },
+            [&](Status status) {
+                EXPECT_TRUE(status.is<ErrorCode::SERVICE_UNAVAILABLE>());
+                ++completions;
+            });
+    EXPECT_EQ(completions, 1);
+}
+
+TEST_F(ParallelRowIdFetchTest, PoolDestructionCancelsQueuedWorkersAfterActiveReadExits) {
+    auto pool = std::make_unique<FifoThreadPool>(1, 8, "rowid-shutdown-test");
+    auto state = std::make_shared<int>(0);
+    std::weak_ptr<int> weak_state = state;
+    std::promise<void> started;
+    auto ready = started.get_future();
+    std::promise<void> release;
+    auto released = release.get_future();
+    std::atomic<int> completions = 0;
+    std::atomic<bool> reading = false;
+    submit(
+            pool.get(), 7, 3,
+            [&, state](size_t idx) {
+                reading = true;
+                if (idx == 0) {
+                    started.set_value();
+                    EXPECT_EQ(released.wait_for(std::chrono::seconds(10)),
+                              std::future_status::ready);
+                }
+                ++*state;
+                reading = false;
+                return Status::OK();
+            },
+            [&](Status status) {
+                EXPECT_FALSE(reading);
+                EXPECT_FALSE(weak_state.expired());
+                EXPECT_TRUE(status.is<ErrorCode::CANCELLED>()) << status;
+                ++completions;
+            });
+    state.reset();
+    EXPECT_EQ(ready.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    pool->shutdown();
+    EXPECT_EQ(completions, 0);
+    EXPECT_FALSE(weak_state.expired());
+    release.set_value();
+    pool->join();
+    EXPECT_EQ(completions, 0);
+    pool.reset();
+    EXPECT_EQ(completions, 1);
+    EXPECT_TRUE(weak_state.expired());
+}
+
+TEST_F(ParallelRowIdFetchTest, KeepsReadStateAliveUntilAllWorkersComplete) {
+    QueuedRowIdFetchPool pool;
+    auto state = std::make_shared<int>(0);
+    std::weak_ptr<int> weak_state = state;
+    int completions = 0;
+    submit(
+            &pool, 7, 3,
+            [state](size_t) {
+                ++*state;
+                return Status::OK();
+            },
+            [&](Status status) {
+                EXPECT_TRUE(status.ok());
+                auto retained = weak_state.lock();
+                ASSERT_NE(retained, nullptr);
+                EXPECT_EQ(*retained, 7);
+                ++completions;
+            });
+    state.reset();
+    EXPECT_FALSE(weak_state.expired());
+    for (auto& task : pool.tasks) {
+        task();
+    }
+    EXPECT_EQ(completions, 1);
+    // Request state must also be released when the pool keeps the task closures.
+    EXPECT_TRUE(weak_state.expired());
+}
+
+class RowIdFetchRequestTest : public RowIdStorageReaderTest {
+protected:
+    void SetUp() override {
+        _previous_manager = std::exchange(ExecEnv::GetInstance()->_id_manager, &_manager);
+        _request.mutable_query_id()->set_hi(1);
+        _request.mutable_query_id()->set_lo(2);
+    }
+
+    void TearDown() override { ExecEnv::GetInstance()->_id_manager = _previous_manager; }
+
+    IdManager _manager;
+    IdManager* _previous_manager = nullptr;
+    PMultiGetRequestV2 _request;
+    PMultiGetResponseV2 _response;
+    QueuedRowIdFetchPool _pool;
+};
+
+TEST_F(RowIdFetchRequestTest, MissingMappingPreservesEmptyResponseBlocks) {
+    _request.add_request_block_descs();
+    _request.add_request_block_descs();
+    int completions = 0;
+    RowIdStorageReader::read_by_rowids(_request, &_response, &_pool, [&](Status status) {
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_EQ(_response.blocks_size(), 2);
+        ++completions;
+    });
+    EXPECT_EQ(completions, 1);
+    EXPECT_TRUE(_pool.tasks.empty());
+}
+
+TEST_F(RowIdFetchRequestTest, MissingFileMappingCompletesWithError) {
+    _manager.add_id_file_map(_request.query_id(), 60);
+    auto* desc = _request.add_request_block_descs();
+    desc->add_file_id(0);
+    desc->add_row_id(0);
+    int completions = 0;
+    RowIdStorageReader::read_by_rowids(_request, &_response, &_pool, [&](Status status) {
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("file_mapping not found"), std::string::npos);
+        ++completions;
+    });
+    EXPECT_EQ(completions, 1);
+    EXPECT_TRUE(_pool.tasks.empty());
+}
+
+TEST_F(RowIdFetchRequestTest, ParallelRequestUsesSuppliedPoolAndPropagatesRejection) {
+    auto mapping = _manager.add_id_file_map(_request.query_id(), 60);
+    auto* desc = _request.add_request_block_descs();
+    RowsetId rowset_id;
+    rowset_id.init(1);
+    for (uint32_t segment_id = 0; segment_id < 3; ++segment_id) {
+        auto file_mapping = std::make_shared<FileMapping>(42, rowset_id, segment_id);
+        desc->add_file_id(mapping->get_file_mapping_id(file_mapping));
+        desc->add_row_id(0);
+    }
+    _request.set_parallel_batch_rows(1);
+    _pool.fail_at = 0;
+    int completions = 0;
+    RowIdStorageReader::read_by_rowids(_request, &_response, &_pool, [&](Status status) {
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Row id fetch queue full"), std::string::npos);
+        ++completions;
+    });
+    EXPECT_EQ(completions, 1);
+    EXPECT_TRUE(_pool.tasks.empty());
 }
 
 } // namespace doris

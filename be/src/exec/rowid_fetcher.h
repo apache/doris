@@ -38,6 +38,8 @@ class RuntimeState;
 class TQueryOptions;
 class TupleDescriptor;
 class ScannerScheduler;
+template <bool Priority>
+class WorkThreadPool;
 namespace io {
 enum class FileCacheMissPolicy : uint8_t;
 }
@@ -79,13 +81,24 @@ public:
     static const std::string TopNLazyMaterializationSecondPhaseRowsRead;
     static const std::string TopNLazyMaterializationSecondPhaseSegmentsRead;
 
-    static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
+    // Request/response and pool must remain alive until on_complete is called.
+    // Runs from the dedicated rowid fetch pool; parallel reads use that same pool.
+    static void read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response,
+                               WorkThreadPool<false>* pool,
+                               std::function<void(Status)> on_complete);
 
 private:
     static bool should_use_file_scanner_v2(const TQueryOptions& query_options,
                                            const TFileScanRangeParams& scan_params,
                                            const TFileRangeDesc& range);
     struct ExternalFetchStatistics;
+
+    struct InternalReadState;
+    struct ReadRequestState;
+
+    static void submit_internal_read_tasks(WorkThreadPool<false>* pool, size_t task_count,
+                                           int concurrency, std::function<Status(size_t)> run_task,
+                                           std::function<void(Status)> on_complete);
 
     static Status read_doris_format_row(
             const std::shared_ptr<IdFileMap>& id_file_map,
@@ -96,13 +109,6 @@ private:
             int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
             std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
             io::FileCacheMissPolicy file_cache_miss_policy, Block& result_block);
-
-    static Status read_batch_doris_format_row(
-            const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
-            std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
-            OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
-            int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
-            io::FileCacheMissPolicy file_cache_miss_policy);
 
     static Status read_batch_external_row(
             const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
