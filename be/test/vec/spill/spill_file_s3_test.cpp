@@ -43,6 +43,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/spill_counters.h"
+#include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
@@ -506,7 +507,7 @@ protected:
 
     // Build a manager with one remote store bound to the mock file system.
     void _create_manager(bool bind_fs = true) {
-        auto store = std::make_unique<SpillDataDir>(SpillDataDir::Remote {}, "vault-1", kBootId);
+        auto store = std::make_unique<RemoteSpillDataDir>("vault-1", kBootId);
         if (bind_fs) {
             store->init_remote_fs(_s3_fs, kBackendId);
         }
@@ -598,7 +599,7 @@ protected:
     std::unique_ptr<RuntimeProfile> _custom_profile;
     std::unique_ptr<RuntimeProfile> _common_profile;
     SpillFileManager* _manager = nullptr;
-    SpillDataDir* _data_dir = nullptr;
+    RemoteSpillDataDir* _data_dir = nullptr;
     int64_t _saved_part_size = 0;
     int64_t _saved_buffer_size = 0;
     int64_t _saved_limit = 0;
