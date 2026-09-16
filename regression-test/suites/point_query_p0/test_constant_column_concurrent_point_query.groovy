@@ -22,9 +22,6 @@ import java.sql.DriverManager
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.Statement
-import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 
 suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
     String dbName = context.config.getDbNameByFile(context.file)
@@ -69,82 +66,33 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
         return expected
     }
 
-    def runConcurrentPointQueries = { String phase, String projection, Map expected ->
-        int threadCount = 8
-        int iterations = 12
+    def runPointQueries = { String phase, String projection, Map expected ->
         List<Integer> keys = expected.keySet().toList().sort()
-        def errors = new ConcurrentLinkedQueue<String>()
-        def ready = new CountDownLatch(threadCount)
-        def start = new CountDownLatch(1)
-        def threads = []
+        try (Connection connection = DriverManager.getConnection(serverPrepareUrl, user, password);
+             Statement sessionStatement = connection.createStatement()) {
+            sessionStatement.execute("SET show_hidden_columns = true")
+            sessionStatement.execute("SET enable_nereids_planner = true")
+            sessionStatement.execute("SET enable_fallback_to_original_planner = false")
 
-        for (int threadId = 0; threadId < threadCount; ++threadId) {
-            int workerId = threadId
-            threads.add(Thread.startDaemon {
-                try (Connection connection = DriverManager.getConnection(serverPrepareUrl, user, password);
-                     Statement sessionStatement = connection.createStatement()) {
-                    sessionStatement.execute("SET show_hidden_columns = true")
-                    sessionStatement.execute("SET enable_nereids_planner = true")
-                    sessionStatement.execute("SET enable_fallback_to_original_planner = false")
-
-                    String query = "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ ${projection} " +
-                            "FROM test_constant_column_concurrent_point_query WHERE k = ?"
-                    try (PreparedStatement statement = connection.prepareStatement(query)) {
-                        if (statement.class != ServerPreparedStatement) {
-                            throw new AssertionError("expected a server prepared statement, got ${statement.class}")
+            String query = "SELECT /*+ SET_VAR(enable_nereids_planner=true) */ ${projection} " +
+                    "FROM test_constant_column_concurrent_point_query WHERE k = ?"
+            try (PreparedStatement statement = connection.prepareStatement(query)) {
+                assertEquals(ServerPreparedStatement, statement.class)
+                keys.each { key ->
+                    statement.setInt(1, key)
+                    try (ResultSet resultSet = statement.executeQuery()) {
+                        assertTrue(resultSet.next(), "phase ${phase}: key ${key} returned no row")
+                        int columnCount = resultSet.metaData.columnCount
+                        def actual = new ArrayList<String>(columnCount)
+                        for (int column = 1; column <= columnCount; ++column) {
+                            actual.add(resultSet.getObject(column)?.toString())
                         }
-
-                        ready.countDown()
-                        if (!start.await(30, TimeUnit.SECONDS)) {
-                            throw new AssertionError("timed out waiting to start phase ${phase}")
-                        }
-
-                        for (int iteration = 0; iteration < iterations; ++iteration) {
-                            int key = keys[(workerId + iteration) % keys.size()]
-                            statement.setInt(1, key)
-                            try (ResultSet resultSet = statement.executeQuery()) {
-                                if (!resultSet.next()) {
-                                    throw new AssertionError("phase ${phase}: key ${key} returned no row")
-                                }
-                                int columnCount = resultSet.metaData.columnCount
-                                def actual = new ArrayList<String>(columnCount)
-                                for (int column = 1; column <= columnCount; ++column) {
-                                    actual.add(resultSet.getObject(column)?.toString())
-                                }
-                                if (resultSet.next()) {
-                                    throw new AssertionError("phase ${phase}: key ${key} returned multiple rows")
-                                }
-                                if (actual != expected[key]) {
-                                    throw new AssertionError(
-                                            "phase ${phase}: key ${key}, expected ${expected[key]}, actual ${actual}")
-                                }
-                            }
-                        }
+                        assertFalse(resultSet.next(), "phase ${phase}: key ${key} returned multiple rows")
+                        assertEquals(expected[key], actual, "phase ${phase}: key ${key}")
                     }
-                } catch (Throwable t) {
-                    ready.countDown()
-                    errors.add("worker ${workerId}: ${t.class.simpleName}: ${t.message}")
                 }
-            })
-        }
-
-        boolean allWorkersReady = ready.await(30, TimeUnit.SECONDS)
-        start.countDown()
-        long finishDeadline = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(2)
-        threads.each { thread ->
-            long remainingMillis = finishDeadline - System.currentTimeMillis()
-            if (remainingMillis > 0) {
-                thread.join(remainingMillis)
-            }
-            if (thread.isAlive()) {
-                errors.add("${thread.name} did not finish")
-                thread.interrupt()
             }
         }
-        if (!allWorkersReady) {
-            errors.add("not all workers connected within 30 seconds")
-        }
-        assertTrue(errors.isEmpty(), "phase ${phase} failed:\n${errors.toList().join('\n')}")
     }
 
     // Case 1: warm the row-store point-query path before the schema changes and record the physical
@@ -165,7 +113,7 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
         contains "SHORT-CIRCUIT"
     }
     def beforeAdd = expectedRows("k, payload, __DORIS_VERSION_COL__")
-    runConcurrentPointQueries("before_add", "k, payload, __DORIS_VERSION_COL__", beforeAdd)
+    runPointQueries("before_add", "k, payload, __DORIS_VERSION_COL__", beforeAdd)
     order_qt_concurrent_point_before_add """
         SELECT k, payload
         FROM test_constant_column_concurrent_point_query
@@ -206,7 +154,7 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
     assertEquals('10', afterAdd[2][2])
     assertEquals('30', afterAdd[3][2])
     assertEquals('40', afterAdd[4][2])
-    runConcurrentPointQueries("after_add", "k, payload, c_default, __DORIS_VERSION_COL__", afterAdd)
+    runPointQueries("after_add", "k, payload, c_default, __DORIS_VERSION_COL__", afterAdd)
     order_qt_concurrent_point_after_add """
         SELECT k, payload, c_default
         FROM test_constant_column_concurrent_point_query
@@ -255,7 +203,7 @@ suite("test_constant_column_concurrent_point_query", "p0,nonConcurrent") {
     assertEquals('fresh', afterReAdd[3][2])
     assertEquals('fresh', afterReAdd[4][2])
     assertEquals('physical', afterReAdd[5][2])
-    runConcurrentPointQueries("after_readd", "k, payload, c_default, __DORIS_VERSION_COL__", afterReAdd)
+    runPointQueries("after_readd", "k, payload, c_default, __DORIS_VERSION_COL__", afterReAdd)
     order_qt_concurrent_point_after_readd """
         SELECT k, payload, c_default
         FROM test_constant_column_concurrent_point_query

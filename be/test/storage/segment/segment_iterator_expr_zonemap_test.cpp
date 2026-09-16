@@ -167,6 +167,19 @@ TabletSchemaSPtr make_schema_with_added_default_column() {
     return tablet_schema;
 }
 
+TabletSchemaSPtr make_schema_with_added_indexed_default_column() {
+    auto tablet_schema = make_schema_with_added_default_column();
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(1);
+    index_pb.set_index_name("idx_added_value");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(1);
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+    return tablet_schema;
+}
+
 TabletSchemaSPtr make_schema_with_added_nullable_variant() {
     auto tablet_schema = make_key_only_tablet_schema();
     TabletColumn variant_column;
@@ -703,6 +716,64 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingOrdinaryColumnUsesSchemaDefault) {
     MutableColumnPtr added_value_column;
     ASSERT_NO_FATAL_FAILURE(read_column(segment, 1, read_options, &added_value_column));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(added_value_column, 42));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, MissingIndexedColumnUsesDefaultWithoutPhysicalIndex) {
+    // Case: an inverted index is added after an old segment was written. The current schema lists
+    // the index, but the old segment has neither the column nor an index file. It must evaluate the
+    // synthesized default instead of reporting a missing-index error when fallback is disabled.
+    _tablet_schema = make_schema_with_added_indexed_default_column();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
+
+    RuntimeState runtime_state;
+    TQueryOptions query_options;
+    query_options.__set_enable_inverted_index_query(true);
+    query_options.__set_enable_fallback_on_missing_inverted_index(false);
+    runtime_state.set_query_options(query_options);
+
+    StorageReadOptions read_options(_stats);
+    read_options.tablet_schema = _tablet_schema;
+    read_options.runtime_state = &runtime_state;
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+
+    const auto& added_column = _tablet_schema->column(1);
+    const auto indexes = _tablet_schema->inverted_indexs(added_column);
+    ASSERT_EQ(1, indexes.size());
+    std::unique_ptr<IndexIterator> index_iterator;
+    auto st = segment->new_index_iterator(added_column, indexes.front(), read_options,
+                                          &index_iterator);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(nullptr, index_iterator);
+
+    auto predicate = std::shared_ptr<ColumnPredicate>(
+            new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ>(
+                    1, added_column.name(), Field::create_field<TYPE_BIGINT>(42)));
+    read_options.column_predicates.push_back(predicate);
+    auto block_predicate = AndBlockColumnPredicate::create_shared();
+    block_predicate->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+    read_options.col_id_to_predicates.emplace(1, std::move(block_predicate));
+
+    auto read_schema = make_read_schema(_tablet_schema);
+    std::unique_ptr<RowwiseIterator> iterator;
+    st = segment->new_iterator(read_schema, read_options, &iterator);
+    ASSERT_TRUE(st.ok()) << st;
+    auto* segment_iterator = dynamic_cast<SegmentIterator*>(iterator.get());
+    ASSERT_NE(nullptr, segment_iterator);
+    ASSERT_EQ(2, segment_iterator->_index_iterators.size());
+    EXPECT_EQ(nullptr, segment_iterator->_index_iterators[1]);
+
+    Block block = read_schema->create_read_block();
+    st = iterator->next_batch(&block);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(kRuntimeColumnRows, block.rows());
+    const auto* added_values =
+            check_and_get_column<ColumnInt64>(block.get_by_position(1).column.get());
+    ASSERT_NE(nullptr, added_values);
+    for (size_t row = 0; row < added_values->size(); ++row) {
+        EXPECT_EQ(42, added_values->get_element(row));
+    }
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, SchemaDefaultFeedsMinMaxStatisticsIterator) {

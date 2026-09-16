@@ -348,6 +348,8 @@ private:
     RowSourcesBuffer* _row_sources_buf;
     VerticalCompactionContextStats* _context_stats;
     uint32_t _merged_rows = 0;
+    // StorageReadOptions is supplied by init(), after this iterator is constructed, and must be
+    // retained for lazily initialized segment contexts.
     std::optional<StorageReadOptions> _opts;
     bool _record_rowids = false;
     std::vector<RowLocation> _block_row_locations;
@@ -402,6 +404,8 @@ private:
     RowSourcesBuffer* _row_sources_buf;
     VerticalCompactionContextStats* _context_stats;
     uint32_t _merged_rows = 0;
+    // StorageReadOptions is supplied by init(), after this iterator is constructed, and must be
+    // retained for lazily initialized segment contexts.
     std::optional<StorageReadOptions> _opts;
     bool _record_rowids = false;
     std::vector<RowLocation> _block_row_locations;
@@ -468,6 +472,8 @@ private:
     size_t _filtered_rows = 0;
     RowSourcesBuffer* _row_sources_buf;
     VerticalCompactionContextStats* _context_stats;
+    // StorageReadOptions is supplied by init(), after this iterator is constructed, and must be
+    // retained for lazily initialized segment contexts.
     std::optional<StorageReadOptions> _opts;
     CompactionSampleInfo* _sample_info = nullptr;
 };

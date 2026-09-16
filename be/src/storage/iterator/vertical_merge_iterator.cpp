@@ -592,7 +592,7 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
                  ++next_order) {
                 auto& next_ctx = _ori_iter_ctx[next_order];
                 DCHECK(next_ctx);
-                RETURN_IF_ERROR(next_ctx->init(_opts));
+                RETURN_IF_ERROR(next_ctx->init(*_opts));
                 if (next_ctx->valid()) {
                     _merge_heap.push(next_ctx.get());
                     break;
@@ -786,7 +786,7 @@ Status VerticalMaskMergeIterator::next_row(IteratorRowRef* ref) {
     uint16_t order = row_source.get_source_num();
     auto& ctx = _origin_iter_ctx[order];
     // init ctx and this ctx must be valid
-    RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
+    RETURN_IF_ERROR(ctx->init(*_opts, _sample_info));
     DCHECK(ctx->valid());
 
     if (UNLIKELY(ctx->is_first_row())) {
@@ -820,7 +820,7 @@ Status VerticalMaskMergeIterator::unique_key_next_row(IteratorRowRef* ref) {
         auto row_source = _row_sources_buf->current();
         uint16_t order = row_source.get_source_num();
         auto& ctx = _origin_iter_ctx[order];
-        RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
+        RETURN_IF_ERROR(ctx->init(*_opts, _sample_info));
         DCHECK(ctx->valid());
         if (!ctx->valid()) {
             LOG(INFO) << "VerticalMergeIteratorContext not valid";
@@ -877,7 +877,7 @@ Status VerticalMaskMergeIterator::unique_key_next_batch(std::vector<RowBatch>* b
         auto& ctx = _origin_iter_ctx[order];
 
         // Initialize context
-        RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
+        RETURN_IF_ERROR(ctx->init(*_opts, _sample_info));
         if (!ctx->valid()) {
             return Status::InternalError("VerticalMergeIteratorContext not valid");
         }
@@ -963,7 +963,7 @@ Status VerticalMaskMergeIterator::next_batch(Block* block) {
         uint16_t order = _row_sources_buf->current().get_source_num();
         DCHECK(order < _origin_iter_ctx.size());
         auto& ctx = _origin_iter_ctx[order];
-        RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
+        RETURN_IF_ERROR(ctx->init(*_opts, _sample_info));
         DCHECK(ctx->valid());
         if (!ctx->valid()) {
             LOG(INFO) << "VerticalMergeIteratorContext not valid";

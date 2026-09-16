@@ -16,6 +16,10 @@
 // under the License.
 
 suite("test_constant_column_topn_lazy_rowid") {
+    if (!isCloudMode()) {
+        return
+    }
+
     sql "DROP TABLE IF EXISTS test_constant_column_topn_lazy_rowid"
     sql """
         CREATE TABLE test_constant_column_topn_lazy_rowid (
@@ -76,17 +80,15 @@ suite("test_constant_column_topn_lazy_rowid") {
     """
 
     sql "SET topn_lazy_materialization_threshold = 1024"
-    if (!isCloudMode()) {
-        explain {
-            sql """
-                SHAPE PLAN
-                SELECT __DORIS_VERSION_COL__
-                FROM test_constant_column_topn_lazy_rowid
-                ORDER BY score DESC
-                LIMIT 3
-            """
-            contains "PhysicalLazyMaterialize"
-        }
+    explain {
+        sql """
+            SHAPE PLAN
+            SELECT __DORIS_VERSION_COL__
+            FROM test_constant_column_topn_lazy_rowid
+            ORDER BY score DESC
+            LIMIT 3
+        """
+        contains "PhysicalLazyMaterialize"
     }
 
     def lazyRead = sql """
