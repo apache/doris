@@ -55,6 +55,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
@@ -303,18 +304,44 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         List<Column> schema = IcebergUtils.getIcebergSchema(this, snapshot);
         schema = new ArrayList<>(schema);
 
-        if (Util.showHiddenColumns() || needInternalHiddenColumns()) {
-            schema.add(createIcebergRowIdColumn());
-        }
-
         Optional<Table> snapshotTable = snapshot
                 .filter(IcebergMvccSnapshot.class::isInstance)
                 .map(IcebergMvccSnapshot.class::cast)
                 .flatMap(value -> value.getSnapshotCacheValue().getIcebergTable());
         // Row-lineage fields are part of the pinned schema generation, not the refreshable table.
-        schema = IcebergUtils.appendRowLineageColumnsForV3(
-                schema, snapshotTable.orElseGet(this::getIcebergTable));
-        return schema;
+        return appendHiddenColumns(schema, snapshotTable.orElseGet(this::getIcebergTable));
+    }
+
+    public List<Column> getBaseSchemaForDisplay() {
+        return getBaseSchemaForDisplay(Util.showHiddenColumns() || needInternalHiddenColumns());
+    }
+
+    /** Schema display uses declared nullability, independently of scan nullability. */
+    public List<Column> getBaseSchemaForDisplay(boolean full) {
+        if (isView()) {
+            return getBaseSchema(full);
+        }
+        try {
+            return catalog.getExecutionAuthenticator().execute(() -> {
+                // Schema-only changes need not advance the current snapshot. Resolve the current
+                // table schema and hidden columns from one retained metadata generation.
+                Table table = IcebergSnapshotCacheValue.retainTableGeneration(getIcebergTable());
+                List<Column> schema = IcebergUtils.parseSchemaForDisplay(table.schema(),
+                        catalog.getEnableMappingVarbinary(), catalog.getEnableMappingTimestampTz());
+                new SchemaCacheValue(schema).validateSchema();
+                schema = appendHiddenColumns(schema, table);
+                return full ? schema : schema.stream().filter(Column::isVisible).collect(Collectors.toList());
+            });
+        } catch (Exception e) {
+            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        }
+    }
+
+    private List<Column> appendHiddenColumns(List<Column> schema, Table table) {
+        if (Util.showHiddenColumns() || needInternalHiddenColumns()) {
+            schema.add(createIcebergRowIdColumn());
+        }
+        return IcebergUtils.appendRowLineageColumnsForV3(schema, table);
     }
 
     private Column createIcebergRowIdColumn() {
