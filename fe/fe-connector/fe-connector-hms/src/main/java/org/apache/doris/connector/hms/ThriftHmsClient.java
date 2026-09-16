@@ -98,7 +98,6 @@ public class ThriftHmsClient implements HmsClient {
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = tbl -> null;
     private static final long POOL_BORROW_TIMEOUT_MS = 60_000L;
     private static final int ADD_PARTITIONS_BATCH_SIZE = 20;
-    private static final int MAX_FILTERED_PARTITIONS = HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE;
     private static final String TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
 
     private final HiveConf hiveConf;
@@ -242,20 +241,21 @@ public class ThriftHmsClient implements HmsClient {
 
     @Override
     public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
+        int threshold = filteredPartitionThreshold();
         FilteredPartitionPage page = execute(client ->
-                fetchFilteredPartitionPage(client, dbName, tableName, filter));
+                fetchFilteredPartitionPage(client, dbName, tableName, filter, threshold));
         // The saturation decision MUST use the RAW metastore page size, not the hook-filtered list: the
         // metastore filter hook runs after the raw cap, so a hidden entry in a truncated first page would
         // otherwise make the response look complete and silently drop matching partitions.
-        if (isFilteredPartitionResponseSaturated(page.rawCount)) {
-            throw new HmsPartitionFilterSaturatedException(MAX_FILTERED_PARTITIONS);
+        if (isFilteredPartitionResponseSaturated(page.rawCount, threshold)) {
+            throw new HmsPartitionFilterSaturatedException(threshold);
         }
         return page.partitions.stream().map(ThriftHmsClient::convertPartition).collect(Collectors.toList());
     }
 
     private static FilteredPartitionPage fetchFilteredPartitionPage(IMetaStoreClient client, String dbName,
-            String tableName, String filter) throws Exception {
-        int pageLimit = MAX_FILTERED_PARTITIONS + 1;
+            String tableName, String filter, int threshold) throws Exception {
+        int pageLimit = threshold + 1;
         if (client instanceof HmsRawPartitionFilterPageSource) {
             HmsRawPartitionFilterPage page = ((HmsRawPartitionFilterPageSource) client)
                     .listPartitionsByFilterRawPage(dbName, tableName, filter, pageLimit);
@@ -279,8 +279,22 @@ public class ThriftHmsClient implements HmsClient {
         }
     }
 
-    static boolean isFilteredPartitionResponseSaturated(int partitionCount) {
-        return partitionCount > MAX_FILTERED_PARTITIONS;
+    /**
+     * The saturation threshold of one filtered request: the connector's configured partition batch size
+     * ({@code hive.hms_partitions_batch_size_per_rpc}), so an operator can bring the probe below a metastore
+     * hardened with a smaller {@code metastore.limit.partition.request} - the metastore validates the REQUESTED
+     * {@code max_parts}, so probing above its limit fails every filter call instead of returning a page.
+     *
+     * <p>Capped at {@code Short.MAX_VALUE - 1}: the probe is {@code threshold + 1} and the Thrift field is a
+     * short, so a threshold at the cap would be narrowed on the wire and a saturated page would look complete.
+     */
+    private int filteredPartitionThreshold() {
+        return Math.max(1, Math.min(partitionBatchSize, Short.MAX_VALUE - 1));
+    }
+
+    /** Whether a raw (pre-hook) page of {@code partitionCount} entries means the request was capped. */
+    static boolean isFilteredPartitionResponseSaturated(int partitionCount, int threshold) {
+        return partitionCount > threshold;
     }
 
     @Override

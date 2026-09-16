@@ -41,6 +41,7 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class StatementContextTest {
 
@@ -469,6 +470,150 @@ public class StatementContextTest {
     }
 
     @Test
+    public void testDeferredScanPartitionViewIsMaterializedWithOnlyDmlMvRewrite() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        // The DML switch alone: AddInitMaterializationHook registers InitConsistentMaterializationContextHook
+        // (a subclass of the hook whose afterRewrite collects partitions) from this variable, so the collector
+        // still runs - and a gate that only looked at the query-level switch would enumerate under the lock.
+        sessionVariable.setEnableMaterializedViewRewrite(false);
+        sessionVariable.setEnableDmlMaterializedViewRewrite(true);
+
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(24L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hiveExternalTable.supportsConnectorPartitionPruning()).thenReturn(true);
+        Optional<Map<String, PartitionItem>> scanView =
+                Optional.of(ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)));
+        Mockito.when(hiveExternalTable.getNameToPartitionItemsForScan(Mockito.any())).thenReturn(scanView);
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+            statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
+
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+
+            org.junit.jupiter.api.Assertions.assertEquals(scanView,
+                    statementContext.getExternalTablePreloadInfo(24L).get().getScanPartitionView());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testResolveScanPartitionViewMaterializesOncePerTableReference() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(25L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+
+        Optional<Map<String, PartitionItem>> scanView =
+                Optional.of(ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)));
+        AtomicInteger enumerations = new AtomicInteger();
+
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
+
+            // The MV partition collector reads first and records; the physical scan must then see the SAME
+            // generation instead of enumerating its own (a second read can observe a partition the compensation
+            // union never covers, which silently drops that partition's rows from a rewritten query).
+            Optional<Map<String, PartitionItem>> first = statementContext.resolveScanPartitionView(hiveExternalTable,
+                    Optional.empty(), Optional.empty(), () -> {
+                        enumerations.incrementAndGet();
+                        return scanView;
+                    });
+            Optional<Map<String, PartitionItem>> second = statementContext.resolveScanPartitionView(hiveExternalTable,
+                    Optional.empty(), Optional.empty(), () -> {
+                        enumerations.incrementAndGet();
+                        return Optional.of(ImmutableMap.of("later", Mockito.mock(PartitionItem.class)));
+                    });
+
+            org.junit.jupiter.api.Assertions.assertEquals(scanView, first);
+            org.junit.jupiter.api.Assertions.assertEquals(scanView, second,
+                    "the recorded generation must be reused, not re-enumerated");
+            org.junit.jupiter.api.Assertions.assertEquals(1, enumerations.get());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testResolveScanPartitionViewRemembersTheUnavailableView() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(26L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+
+        AtomicInteger enumerations = new AtomicInteger();
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.registerExternalTableForPreload(hiveExternalTable, Optional.empty(), Optional.empty());
+
+            Optional<Map<String, PartitionItem>> view = statementContext.resolveScanPartitionView(hiveExternalTable,
+                    Optional.empty(), Optional.empty(), () -> {
+                        enumerations.incrementAndGet();
+                        return Optional.empty();
+                    });
+            Optional<Map<String, PartitionItem>> again = statementContext.resolveScanPartitionView(hiveExternalTable,
+                    Optional.empty(), Optional.empty(), () -> {
+                        enumerations.incrementAndGet();
+                        return Optional.of(ImmutableMap.of("p1", Mockito.mock(PartitionItem.class)));
+                    });
+
+            org.junit.jupiter.api.Assertions.assertFalse(view.isPresent());
+            org.junit.jupiter.api.Assertions.assertFalse(again.isPresent(),
+                    "an unavailable view must stay unavailable for the whole statement");
+            org.junit.jupiter.api.Assertions.assertEquals(1, enumerations.get());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void testResolveScanPartitionViewLeavesVersionedReferencesAlone() {
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
+        SessionVariable sessionVariable = new SessionVariable();
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(hiveExternalTable.getId()).thenReturn(27L);
+        Mockito.when(hiveExternalTable.supportsExternalMetadataPreload()).thenReturn(true);
+
+        AtomicInteger enumerations = new AtomicInteger();
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("select 1", 0));
+        try {
+            statementContext.registerExternalTableForPreload(hiveExternalTable,
+                    Optional.of(new TableSnapshot("2024-01-01 00:00:00", TableSnapshot.VersionType.TIME)),
+                    Optional.empty());
+
+            for (int i = 0; i < 2; i++) {
+                statementContext.resolveScanPartitionView(hiveExternalTable,
+                        Optional.of(new TableSnapshot("2024-01-01 00:00:00", TableSnapshot.VersionType.TIME)),
+                        Optional.empty(), () -> {
+                            enumerations.incrementAndGet();
+                            return Optional.of(ImmutableMap.of("asOf", Mockito.mock(PartitionItem.class)));
+                        });
+            }
+
+            // The record is per table and holds the LATEST generation, so a FOR-TIME reference must enumerate its
+            // own generation every time rather than be served a partition set it never reads.
+            org.junit.jupiter.api.Assertions.assertEquals(2, enumerations.get());
+            org.junit.jupiter.api.Assertions.assertFalse(
+                    statementContext.getExternalTablePreloadInfo(27L).get().hasScanPartitionView());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
     public void testDeferredScanPartitionViewIsMaterializedOnTheDefaultConfiguration() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
@@ -541,8 +686,10 @@ public class StatementContextTest {
         PluginDrivenExternalTable hiveExternalTable = Mockito.mock(PluginDrivenExternalTable.class);
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setEnableMaterializedViewRewrite(false);
+        sessionVariable.setEnableDmlMaterializedViewRewrite(false);
 
-        // The materialized view has no consumer once MV rewrite is off, so this warmup is pure cost there.
+        // The materialized view has no consumer once BOTH MV rewrite switches are off, so this warmup is pure
+        // cost there.
         Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
         Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
         Mockito.when(hiveExternalTable.getId()).thenReturn(23L);
