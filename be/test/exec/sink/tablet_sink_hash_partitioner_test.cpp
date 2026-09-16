@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/column/column_vector.h"
@@ -45,6 +46,7 @@
 #include "exec/operator/operator_helper.h"
 #include "exec/sink/sink_test_utils.h"
 #include "exec/sink/vtablet_finder.h"
+#include "exprs/vexpr.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
@@ -150,18 +152,13 @@ std::unique_ptr<TabletSinkHashPartitioner> _create_partitioner(
 }
 
 TExprNode _make_uuid_literal(const std::string& value) {
+    UUIDValueType parsed;
+    DORIS_CHECK(UUIDValue::from_string(parsed, value)) << value;
     TExprNode node;
-    node.__set_node_type(TExprNodeType::UUID_LITERAL);
     node.__set_num_children(0);
     node.__set_output_scale(0);
-
-    TUUIDLiteral literal;
-    literal.__set_value(value);
-    node.__set_uuid_literal(literal);
-
-    TTypeDesc type_desc = create_type_desc(PrimitiveType::TYPE_UUID);
-    type_desc.__set_is_nullable(false);
-    node.__set_type(type_desc);
+    EXPECT_TRUE(create_texpr_literal_node<TYPE_UUID>(&parsed, &node).ok());
+    node.type.__set_is_nullable(false);
     node.__set_is_nullable(false);
     return node;
 }
