@@ -82,4 +82,9 @@ public class ExternalTablePreloadInfo {
     public void setScanPartitionView(Optional<Map<String, PartitionItem>> scanPartitionView) {
         this.scanPartitionView = scanPartitionView;
     }
+
+    /** Drops the recorded view so a later execution of a reused statement does not read a stale one. */
+    public void clearScanPartitionView() {
+        this.scanPartitionView = null;
+    }
 }

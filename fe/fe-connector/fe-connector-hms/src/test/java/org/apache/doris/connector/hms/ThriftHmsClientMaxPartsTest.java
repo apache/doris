@@ -106,9 +106,13 @@ public class ThriftHmsClientMaxPartsTest {
     @Test
     public void testFilteredPartitionResponseIsBounded() {
         Assertions.assertFalse(ThriftHmsClient.isFilteredPartitionResponseSaturated(
-                HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE));
+                HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE, HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE));
         Assertions.assertTrue(ThriftHmsClient.isFilteredPartitionResponseSaturated(
-                HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE + 1));
+                HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE + 1, HmsClientConfig.DEFAULT_PARTITION_BATCH_SIZE));
+        // The threshold follows the per-catalog batch size, so a metastore whose request limit is lower than the
+        // default can be matched by lowering hive.hms_partitions_batch_size_per_rpc.
+        Assertions.assertFalse(ThriftHmsClient.isFilteredPartitionResponseSaturated(500, 500));
+        Assertions.assertTrue(ThriftHmsClient.isFilteredPartitionResponseSaturated(501, 500));
     }
 
     @Test
