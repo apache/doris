@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -790,14 +789,13 @@ public class VariantSubPathPruning implements CustomRewriter {
             if (!(elementAt.left() instanceof ElementAt || elementAt.left() instanceof SlotReference)) {
                 return null;
             }
+            // Storage sub-paths address object keys only. An integer index selects an array element of the
+            // VARIANT value, so the sub-path stops before it and the index is applied to the extracted value.
             Expression key = elementAt.right();
-            if (key instanceof StringLikeLiteral) {
-                subPath.add(((StringLikeLiteral) key).getStringValue());
-            } else if (key instanceof Literal && key.getDataType().isIntegerLikeType()) {
-                subPath.add(((Literal) key).getStringValue());
-            } else {
+            if (!(key instanceof StringLikeLiteral)) {
                 return null;
             }
+            subPath.add(((StringLikeLiteral) key).getStringValue());
             if (elementAt.left() instanceof SlotReference) {
                 // ElementAt's left child is SlotReference
                 // reverse subPath because we put them by reverse order
