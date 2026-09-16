@@ -36,6 +36,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Locale;
+
 public class StructLiteralTest {
 
     @Test
@@ -72,6 +74,24 @@ public class StructLiteralTest {
                 new StringLiteral("metric"), new NullLiteral(BigIntType.INSTANCE));
         StructType nullableType = (StructType) nullable.customSignature().returnType;
         Assertions.assertTrue(nullableType.getFields().get(0).isNullable());
+    }
+
+    @Test
+    public void testNamedStructFieldIdentityUsesRootLocale() {
+        Locale originalLocale = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            CreateNamedStruct namedStruct = new CreateNamedStruct(
+                    new StringLiteral("I"), new IntegerLiteral(1),
+                    new StringLiteral("ı"), new IntegerLiteral(2));
+
+            Assertions.assertDoesNotThrow(namedStruct::checkLegalityBeforeTypeCoercion);
+            StructType type = (StructType) namedStruct.customSignature().returnType;
+            Assertions.assertEquals("i", type.getFields().get(0).getName());
+            Assertions.assertEquals("ı", type.getFields().get(1).getName());
+        } finally {
+            Locale.setDefault(originalLocale);
+        }
     }
 
     @Test

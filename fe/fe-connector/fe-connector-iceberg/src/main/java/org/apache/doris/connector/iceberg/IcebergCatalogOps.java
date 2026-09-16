@@ -531,10 +531,14 @@ public interface IcebergCatalogOps {
         public void modifyColumn(String dbName, String tableName, IcebergColumnChange column,
                 boolean commentSpecified, ConnectorColumnPosition position) {
             withTable(dbName, tableName, table -> {
-                Types.NestedField current = table.schema().findField(column.getName());
+                Schema schema = table.schema();
+                Types.NestedField current = IcebergNestedColumnEvolution.findTopLevelField(
+                        schema, column.getName());
                 if (current == null) {
                     throw new DorisConnectorException("Column " + column.getName() + " does not exist");
                 }
+                // Iceberg update paths are case-sensitive, so stage every change with the persisted spelling.
+                String currentName = current.name();
                 // Iceberg can widen required -> optional but never optional -> required (existing data may hold
                 // nulls), so a NOT NULL request on an already-nullable column fails loud — legacy parity
                 // (IcebergMetadataOps.validateForModifyColumn / validateForModifyComplexColumn).
@@ -555,7 +559,7 @@ public interface IcebergCatalogOps {
                         throw new DorisConnectorException("Modify column type from complex to primitive is not"
                                 + " supported: " + column.getName());
                     }
-                    updateSchema.updateColumn(column.getName(), newType.asPrimitiveType(), targetComment);
+                    updateSchema.updateColumn(currentName, newType.asPrimitiveType(), targetComment);
                 } else {
                     // A complex (STRUCT/ARRAY/MAP) modify diffs the new type against the current one field-by-field
                     // (IcebergComplexTypeDiff); the top-level column doc is updated separately, as in legacy.
@@ -563,16 +567,17 @@ public interface IcebergCatalogOps {
                         throw new DorisConnectorException("Modify column type from non-complex to complex is not"
                                 + " supported: " + column.getName());
                     }
-                    IcebergComplexTypeDiff.apply(updateSchema, column.getName(), current.type(), newType,
+                    IcebergComplexTypeDiff.apply(updateSchema, currentName, current.type(), newType,
                             column.getSourceType());
                     if (!Objects.equals(current.doc(), targetComment)) {
-                        updateSchema.updateColumnDoc(column.getName(), targetComment);
+                        updateSchema.updateColumnDoc(currentName, targetComment);
                     }
                 }
                 if (column.isNullable()) {
-                    updateSchema.makeColumnOptional(column.getName());
+                    updateSchema.makeColumnOptional(currentName);
                 }
-                applyPosition(updateSchema, position, column.getName());
+                IcebergNestedColumnEvolution.applyTopLevelPosition(
+                        updateSchema, position, currentName, schema, "modify");
                 updateSchema.commit();
                 return null;
             });

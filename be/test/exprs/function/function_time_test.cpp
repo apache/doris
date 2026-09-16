@@ -36,6 +36,14 @@
 namespace doris {
 using namespace ut_type;
 
+TEST(VTimestampFunctionsTest, current_timestamp_ns_precision_test) {
+    TimezoneUtils::load_timezones_to_cache();
+    InputTypeSet input_types = {ConstedNotnull {PrimitiveType::TYPE_INT}};
+    DataSet data_set = {{{int32_t {9}}, std::string("2019-08-06 01:38:57.805000000")}};
+
+    static_cast<void>(check_function<DataTypeTimeStampNs>("now", input_types, data_set));
+}
+
 TEST(VTimestampFunctionsTest, day_of_week_test) {
     std::string func_name = "dayofweek";
 
@@ -87,6 +95,27 @@ TEST(VTimestampFunctionsTest, year_test) {
 
     static_cast<void>(check_function<DataTypeInt16, true>(func_name, input_types, data_set));
 }
+
+TEST(VTimestampFunctionsTest, nanosecond_v2_test) {
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATEV2}};
+        DataSet data_set = {{{std::string("0000-01-01")}, int32_t {0}},
+                            {{std::string("1970-01-01")}, int32_t {0}},
+                            {{std::string("9999-12-31")}, int32_t {0}}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>("nanosecond", input_types, data_set));
+    }
+    {
+        InputTypeSet input_types = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
+        DataSet data_set = {{{std::string("0000-01-01 00:00:00.000001")}, int32_t {1000}},
+                            {{std::string("1970-01-01 00:00:00.000000")}, int32_t {0}},
+                            {{std::string("2026-08-27 17:50:00.123456")}, int32_t {123456000}},
+                            {{std::string("9999-12-31 23:59:59.999999")}, int32_t {999999000}}};
+
+        static_cast<void>(check_function<DataTypeInt32, true>("nanosecond", input_types, data_set));
+    }
+}
+
 TEST(VTimestampFunctionsTest, century_test) {
     std::string func_name = "century";
 
@@ -422,6 +451,21 @@ TEST(VTimestampFunctionsTest, date_test) {
     };
 
     static_cast<void>(check_function<DataTypeDateV2, true>(func_name, input_types, data_set));
+}
+
+TEST(VTimestampFunctionsTest, date_floor_null_period_validation_test) {
+    const InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_DATEV2},
+                                      Consted {PrimitiveType::TYPE_INT}};
+
+    // NULL input rows must be returned as NULL before validating a constant period.
+    const DataSet null_date_data_set = {{{Null(), int32_t {0}}, Null()}};
+    static_cast<void>(
+            check_function<DataTypeDateV2, true>("month_floor", input_types, null_date_data_set));
+
+    // A non-NULL input row must still reject an invalid constant period.
+    const DataSet non_null_date_data_set = {{{std::string("2023-01-01"), int32_t {0}}, Null()}};
+    static_cast<void>(check_function<DataTypeDateV2, true>("month_floor", input_types,
+                                                           non_null_date_data_set, -1, -1, true));
 }
 
 TEST(VTimestampFunctionsTest, week_test) {

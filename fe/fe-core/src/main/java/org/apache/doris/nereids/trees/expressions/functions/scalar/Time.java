@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 
 import com.google.common.base.Preconditions;
@@ -38,7 +39,8 @@ public class Time extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(TimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD));
+            FunctionSignature.ret(TimeV2Type.WILDCARD).args(DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(TimeV2Type.MAX).args(TimeStampNsType.INSTANCE));
 
     /**
      * constructor with 1 argument.

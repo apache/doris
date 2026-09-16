@@ -135,13 +135,13 @@ ScannerScheduler* FileScanLocalState::scan_scheduler(RuntimeState* state) const 
 bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& query_options,
                                                          bool is_load,
                                                          const TFileScanRangeParams& scan_params) {
-    return _should_use_file_scanner_v2(query_options, is_load, scan_params);
+    return should_use_file_scanner_v2(query_options, is_load, scan_params);
 }
 #endif
 
-bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_options,
-                                                     bool is_load,
-                                                     const TFileScanRangeParams& scan_params) {
+bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                                    bool is_load,
+                                                    const TFileScanRangeParams& scan_params) {
     // ADBC only has a FileScannerV2 reader, and enable_file_scanner_v2 is a session variable marked
     // fuzzy=true, so the regression harness flips it to false at random. Without letting adbc
     // through unconditionally, those queries land in v1, which has no "adbc" branch, and come back
@@ -190,7 +190,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
     // TODO: Use scanner v2 for all queries.
     const bool use_file_scanner_v2 =
-            _should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
+            should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
     _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
     const auto* output_tuple_desc = state()->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DORIS_CHECK(output_tuple_desc != nullptr);

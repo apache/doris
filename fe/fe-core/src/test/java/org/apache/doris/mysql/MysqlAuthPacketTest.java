@@ -17,9 +17,9 @@
 
 package org.apache.doris.mysql;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -29,7 +29,7 @@ public class MysqlAuthPacketTest {
 
     private ByteBuffer byteBuffer;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         MysqlSerializer serializer = MysqlSerializer.newInstance();
 
@@ -65,12 +65,12 @@ public class MysqlAuthPacketTest {
     @Test
     public void testRead() {
         MysqlAuthPacket packet = new MysqlAuthPacket();
-        Assert.assertTrue(packet.readFrom(byteBuffer));
-        Assert.assertEquals("palo-user", packet.getUser());
-        Assert.assertEquals("testDb", packet.getDb());
-        Assert.assertEquals("oidc-token", new String(packet.getAuthResponse(), StandardCharsets.UTF_8));
-        Assert.assertEquals(OIDC_PLUGIN_NAME, packet.getPluginName());
-        Assert.assertEquals("mysql", packet.getConnectAttributes().get("_client_name"));
-        Assert.assertEquals("9.2.0", packet.getConnectAttributes().get("_client_version"));
+        Assertions.assertTrue(packet.readFrom(byteBuffer));
+        Assertions.assertEquals("palo-user", packet.getUser());
+        Assertions.assertEquals("testDb", packet.getDb());
+        Assertions.assertEquals("oidc-token", new String(packet.getAuthResponse(), StandardCharsets.UTF_8));
+        Assertions.assertEquals(OIDC_PLUGIN_NAME, packet.getPluginName());
+        Assertions.assertEquals("mysql", packet.getConnectAttributes().get("_client_name"));
+        Assertions.assertEquals("9.2.0", packet.getConnectAttributes().get("_client_version"));
     }
 }

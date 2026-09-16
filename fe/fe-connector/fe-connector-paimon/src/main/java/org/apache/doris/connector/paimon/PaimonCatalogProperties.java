@@ -53,7 +53,7 @@ public final class PaimonCatalogProperties {
 
     private static final Logger LOG = LogManager.getLogger(PaimonCatalogProperties.class);
 
-    /** Paimon catalog backend type: filesystem, hms, rest, jdbc. */
+    /** Paimon catalog backend type: filesystem, hms, dlf, rest, jdbc. */
     public static final String PAIMON_CATALOG_TYPE = "paimon.catalog.type";
 
     /**
@@ -78,6 +78,7 @@ public final class PaimonCatalogProperties {
     // ---- Flavor literals (the accepted paimon.catalog.type values) ----
     public static final String FILESYSTEM = "filesystem";
     public static final String HMS = "hms";
+    public static final String DLF = "dlf";
     public static final String REST = "rest";
     public static final String JDBC = "jdbc";
 
@@ -93,7 +94,7 @@ public final class PaimonCatalogProperties {
     private static final String DEAD_TABLE_CACHE_PREFIX = "meta.cache.paimon.table.";
 
     @ConnectorProperty(names = {PAIMON_CATALOG_TYPE}, required = false,
-            description = "The metastore backend: filesystem, hms, rest or jdbc.")
+            description = "The metastore backend: filesystem, hms, dlf, rest or jdbc.")
     private String catalogType = DEFAULT_CATALOG_TYPE;
 
     @ConnectorProperty(names = {ENABLE_MAPPING_VARBINARY}, required = false,
@@ -136,7 +137,11 @@ public final class PaimonCatalogProperties {
      * @return this, so the provider can call it in one expression
      */
     public PaimonCatalogProperties checkCreateTimeOnlyRules() {
-        checkMetaCacheProperties(raw);
+        return checkCreateTimeOnlyRules(raw);
+    }
+
+    public PaimonCatalogProperties checkCreateTimeOnlyRules(Map<String, String> submittedProperties) {
+        checkMetaCacheProperties(raw, submittedProperties);
         warnIgnoredDeadTableCacheKeys(raw);
         // #65955: an unknown or unparseable paimon.table-option.* must fail the CREATE/ALTER CATALOG.
         // Upstream got this from AbstractPaimonProperties.initNormalizeAndCheckProps(), which the SPI
@@ -158,7 +163,9 @@ public final class PaimonCatalogProperties {
      * {@code table.enable} must be boolean, {@code table.ttl-second} must be a long &ge; -1,
      * {@code table.capacity} must be a long &ge; 0. Absent keys are skipped.
      */
-    private static void checkMetaCacheProperties(Map<String, String> properties) {
+    private static void checkMetaCacheProperties(
+            Map<String, String> properties, Map<String, String> submittedProperties) {
+        CacheSpec.checkWeightProperties(properties, submittedProperties, "paimon", "partition_view");
         CacheSpec.checkBooleanProperty(properties.get(PaimonConnector.TABLE_CACHE_ENABLE),
                 PaimonConnector.TABLE_CACHE_ENABLE);
         CacheSpec.checkLongProperty(properties.get(PaimonConnector.TABLE_CACHE_TTL_SECOND),

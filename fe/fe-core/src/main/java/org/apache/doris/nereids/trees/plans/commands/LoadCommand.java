@@ -496,7 +496,7 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             }
             LoadManager loadManager = ctx.getEnv().getLoadManager();
             if (etlJobType == EtlJobType.LOCAL_FILE) {
-                if (!ctx.getCapability().supportClientLocalFile()) {
+                if (getDataDescriptions().get(0).isClientLocal() && !ctx.getCapability().supportClientLocalFile()) {
                     ctx.getState().setError(ErrorCode.ERR_NOT_ALLOWED_COMMAND, "This client is not support"
                             + " to load client local file.");
                     return;

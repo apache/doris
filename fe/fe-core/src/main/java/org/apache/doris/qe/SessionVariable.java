@@ -33,8 +33,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.metrics.Event;
-import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
@@ -457,7 +455,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String REWRITE_OR_TO_IN_PREDICATE_THRESHOLD = "rewrite_or_to_in_predicate_threshold";
 
     public static final String NEREIDS_CBO_PENALTY_FACTOR = "nereids_cbo_penalty_factor";
-    public static final String ENABLE_NEREIDS_TRACE = "enable_nereids_trace";
     public static final String ENABLE_EXPR_TRACE = "enable_expr_trace";
 
     public static final String ENABLE_DPHYP_TRACE = "enable_dphyp_trace";
@@ -508,8 +505,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_SAVE_STATISTICS_SYNC_JOB = "enable_save_statistics_sync_job";
 
-    public static final String NEREIDS_TRACE_EVENT_MODE = "nereids_trace_event_mode";
-
     public static final String PARTITION_PRUNING_EXPAND_THRESHOLD = "partition_pruning_expand_threshold";
 
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
@@ -559,8 +554,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
     public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
-
-    public static final String MINIDUMP_PATH = "minidump_path";
 
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
@@ -808,8 +801,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
-
-    public static final String ENABLE_PAIMON_CPP_READER = "enable_paimon_cpp_reader";
 
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
@@ -1171,7 +1162,7 @@ public class SessionVariable implements Serializable, Writable {
             + "read data of FileScanNode, default 16")
     public int maxFileScannersConcurrency = 16;
 
-    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, fuzzy = true, description = "When enabled, "
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_SCANNER_V2, needForward = true, description = "When enabled, "
             + "FileScanNode uses FileScannerV2 for supported query scans. Enabled by default.")
     public boolean enableFileScannerV2 = true;
 
@@ -1473,6 +1464,7 @@ public class SessionVariable implements Serializable, Writable {
         NONE,
         IGNORE_JNI,
         IGNORE_NATIVE,
+        // Deprecated compatibility value. It behaves like NONE because no C++ splits are emitted.
         IGNORE_PAIMON_CPP
     }
 
@@ -2151,9 +2143,6 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR, needForward = true)
     private double nereidsCboPenaltyFactor = 0.7;
 
-    @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_TRACE)
-    private boolean enableNereidsTrace = false;
-
     @VarAttrDef.VarAttr(name = ENABLE_EXPR_TRACE)
     private boolean enableExprTrace = false;
 
@@ -2498,11 +2487,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
-
-    // Internal state, not a session variable: it is turned on only by MinidumpUtils while replaying
-    // a minidump file (PLAY '<dumpfile>'), where tables and statistics come from the dump instead of
-    // the catalog. It is intentionally not settable through SET, not forwarded and not serialized.
-    private boolean planNereidsDump = false;
 
     // If set to true, all query will be executed without returning result
     @VarAttrDef.VarAttr(name = DRY_RUN_QUERY, needForward = true)
@@ -2931,11 +2915,6 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = "Force the use of jni mode to read external table")
     private boolean forceJniScanner = false;
-
-    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_CPP_READER,
-            fuzzy = true,
-            description = "Use paimon-cpp for non-native Paimon reads")
-    private boolean enablePaimonCppReader = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -3642,10 +3621,9 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalExchange = random.nextBoolean();
         this.enableSharedExchangeSinkBuffer = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
-        // Randomize the external file scanner engine (FileScannerV2 vs the legacy V1 path). Kept
-        // here rather than in setFuzzyForCatalog() so it also runs in the external regression
-        // pipeline, which enables fuzzy sessions with fuzzy_test_type=p1 (not "external").
-        this.enableFileScannerV2 = random.nextBoolean();
+        // Fuzzy sessions must exercise the production-default V2 path consistently. Dedicated
+        // compatibility cases can still select the legacy scanner explicitly after initialization.
+        this.enableFileScannerV2 = true;
         this.disableStreamPreaggregations = random.nextBoolean();
         this.enableStreamingAggHashJoinForcePassthrough = random.nextBoolean();
         this.enableLocalExchangeBeforeAgg = random.nextBoolean();
@@ -3811,8 +3789,6 @@ public class SessionVariable implements Serializable, Writable {
 
         // jni
         this.forceJniScanner = random.nextBoolean();
-        this.enablePaimonCppReader = random.nextBoolean();
-
         // statistics
         this.fetchHiveRowCountSync = random.nextBoolean();
 
@@ -3852,17 +3828,6 @@ public class SessionVariable implements Serializable, Writable {
         return Joiner.on(",").join(res);
     }
 
-    /**
-     * syntax:
-     * all -> use all event
-     * all except event_1, event_2, ..., event_n -> use all events excluding the event_1~n
-     * event_1, event_2, ..., event_n -> use event_1~n
-     */
-    @VarAttrDef.VarAttr(name = NEREIDS_TRACE_EVENT_MODE, checker = "checkNereidsTraceEventMode")
-    public String nereidsTraceEventMode = "all";
-
-    private Set<Class<? extends Event>> parsedNereidsEventMode = EventSwitchParser.parse(Lists.newArrayList("all"));
-
     public boolean isInDebugMode() {
         return showHiddenColumns || skipDeleteBitmap || skipDeletePredicate || skipDeleteSign || skipStorageEngineMerge
                 || skipMissingVersion || skipBadTablet;
@@ -3893,29 +3858,6 @@ public class SessionVariable implements Serializable, Writable {
             }
         }
         return Joiner.on(",").join(res);
-    }
-
-    public void setEnableNereidsTrace(boolean enableNereidsTrace) {
-        this.enableNereidsTrace = enableNereidsTrace;
-    }
-
-    public void setNereidsTraceEventMode(String nereidsTraceEventMode) {
-        checkNereidsTraceEventMode(nereidsTraceEventMode);
-        this.nereidsTraceEventMode = nereidsTraceEventMode;
-    }
-
-    public void checkNereidsTraceEventMode(String nereidsTraceEventMode) {
-        List<String> strings = EventSwitchParser.checkEventModeStringAndSplit(nereidsTraceEventMode);
-        if (strings != null) {
-            parsedNereidsEventMode = EventSwitchParser.parse(strings);
-        }
-        if (parsedNereidsEventMode == null) {
-            throw new UnsupportedOperationException("nereids_trace_event_mode syntax error, please check");
-        }
-    }
-
-    public Set<Class<? extends Event>> getParsedNereidsEventMode() {
-        return parsedNereidsEventMode;
     }
 
     public String getBlockEncryptionMode() {
@@ -5259,10 +5201,6 @@ public class SessionVariable implements Serializable, Writable {
         this.nereidsCboPenaltyFactor = penaltyFactor;
     }
 
-    public boolean isEnableNereidsTrace() {
-        return enableNereidsTrace;
-    }
-
     public void setEnableExprTrace(boolean enableExprTrace) {
         this.enableExprTrace = enableExprTrace;
     }
@@ -5601,7 +5539,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
         tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
-        tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
         tResult.setAiContextWindowSize(aiContextWindowSize);
@@ -5980,14 +5917,6 @@ public class SessionVariable implements Serializable, Writable {
         return "";
     }
 
-    public boolean isPlayNereidsDump() {
-        return planNereidsDump;
-    }
-
-    public void setPlanNereidsDump(boolean planNereidsDump) {
-        this.planNereidsDump = planNereidsDump;
-    }
-
     public boolean isDumpNereidsMemo() {
         return dumpNereidsMemo;
     }
@@ -6352,6 +6281,10 @@ public class SessionVariable implements Serializable, Writable {
         return enableDmlMaterializedViewRewrite;
     }
 
+    public void setEnableDmlMaterializedViewRewrite(boolean enableDmlMaterializedViewRewrite) {
+        this.enableDmlMaterializedViewRewrite = enableDmlMaterializedViewRewrite;
+    }
+
     public boolean isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness() {
         return enableDmlMaterializedViewRewriteWhenBaseTableUnawareness;
     }
@@ -6418,10 +6351,6 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
-    public boolean isEnablePaimonCppReader() {
-        return enablePaimonCppReader;
-    }
-
     public String getIgnoreSplitType() {
         return ignoreSplitType;
     }
@@ -6441,10 +6370,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
-    }
-
-    public void setEnablePaimonCppReader(boolean enable) {
-        enablePaimonCppReader = enable;
     }
 
     public boolean isEnableCountPushDownForExternalTable() {

@@ -26,7 +26,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorType;
 
@@ -35,6 +34,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Locale;
 
 class ConnectorColumnConverterTest {
 
@@ -118,6 +118,48 @@ class ConnectorColumnConverterTest {
     }
 
     @Test
+    void mixedCaseStructFieldKeepsSchemaSpellingAndNormalizedRuntimeName() {
+        ConnectorType connectorType = ConnectorType.structOf(
+                Arrays.asList("CaseSensitive"), Arrays.asList(ConnectorType.of("INT")));
+
+        StructType converted = (StructType) ConnectorColumnConverter.convertType(connectorType);
+        StructField field = converted.getFields().get(0);
+
+        Assertions.assertEquals("casesensitive", field.getName());
+        Assertions.assertEquals("CaseSensitive", field.getOriginalName());
+        Assertions.assertEquals("struct<CaseSensitive:int>", converted.toSql());
+        Assertions.assertEquals("casesensitive",
+                converted.toThrift().getTypes().get(0).getStructFields().get(0).getName());
+    }
+
+    @Test
+    void structRuntimeNamesUseRootLocale() {
+        Locale originalLocale = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            ConnectorType connectorType = ConnectorType.structOf(
+                    Arrays.asList("I", "ı"),
+                    Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")));
+
+            StructType catalogType = (StructType) ConnectorColumnConverter.convertType(connectorType);
+            Assertions.assertEquals("i", catalogType.getFields().get(0).getName());
+            Assertions.assertEquals("ı", catalogType.getFields().get(1).getName());
+            Assertions.assertSame(catalogType.getFields().get(0), catalogType.getField("i"));
+            Assertions.assertSame(catalogType.getFields().get(1), catalogType.getField("ı"));
+
+            org.apache.doris.nereids.types.StructType nereidsType =
+                    (org.apache.doris.nereids.types.StructType)
+                            org.apache.doris.nereids.types.DataType.fromCatalogType(catalogType);
+            Assertions.assertEquals("i", nereidsType.getFields().get(0).getName());
+            Assertions.assertEquals("ı", nereidsType.getFields().get(1).getName());
+            Assertions.assertSame(nereidsType.getFields().get(0), nereidsType.getField("i"));
+            Assertions.assertSame(nereidsType.getFields().get(1), nereidsType.getField("ı"));
+        } finally {
+            Locale.setDefault(originalLocale);
+        }
+    }
+
+    @Test
     void testNestedComplexType() {
         // ARRAY<MAP<STRING, INT>>
         MapType innerMap = new MapType(ScalarType.createStringType(), ScalarType.INT);
@@ -147,25 +189,19 @@ class ConnectorColumnConverterTest {
 
     @Test
     void testComputeVariantCarrierConversion() {
-        boolean originalEnableVariantV2 = Config.enable_variant_v2;
-        try {
-            Config.enable_variant_v2 = false;
-            Type type = ConnectorColumnConverter.convertType(ConnectorType.of("VARIANT_COMPUTE_V2"));
-            Assertions.assertInstanceOf(ConnectorComputeVariantType.class, type);
-            Assertions.assertTrue(type.toThrift().types.get(0).scalar_type.variant_is_v2,
-                    "external compute carriers must remain V2 independently of storage defaults");
+        Type type = ConnectorColumnConverter.convertType(ConnectorType.of("VARIANT_COMPUTE_V2"));
+        Assertions.assertInstanceOf(ConnectorComputeVariantType.class, type);
+        Assertions.assertTrue(type.toThrift().types.get(0).scalar_type.variant_is_v2,
+                "external compute carriers must remain V2");
 
-            Type nested = ArrayType.create(type, true);
-            ConnectorType connectorType = ConnectorColumnConverter.toConnectorType(nested);
-            Assertions.assertEquals("VARIANT_COMPUTE_V2",
-                    connectorType.getChildren().get(0).getTypeName(),
-                    "nested execution carriers must not become persisted VARIANT schemas on the write path");
-            Type roundTripped = ConnectorColumnConverter.convertType(connectorType);
-            Assertions.assertInstanceOf(ConnectorComputeVariantType.class,
-                    ((ArrayType) roundTripped).getItemType());
-        } finally {
-            Config.enable_variant_v2 = originalEnableVariantV2;
-        }
+        Type nested = ArrayType.create(type, true);
+        ConnectorType connectorType = ConnectorColumnConverter.toConnectorType(nested);
+        Assertions.assertEquals("VARIANT_COMPUTE_V2",
+                connectorType.getChildren().get(0).getTypeName(),
+                "nested execution carriers must not become persisted VARIANT schemas on the write path");
+        Type roundTripped = ConnectorColumnConverter.convertType(connectorType);
+        Assertions.assertInstanceOf(ConnectorComputeVariantType.class,
+                ((ArrayType) roundTripped).getItemType());
     }
 
     @Test

@@ -20,8 +20,8 @@ package org.apache.doris.persist;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -52,21 +52,21 @@ public class DropPartitionInfoTest {
 
         DropPartitionInfo rInfo1 = DropPartitionInfo.read(dis);
 
-        Assert.assertEquals(Long.valueOf(1L), rInfo1.getDbId());
-        Assert.assertEquals(Long.valueOf(2L), rInfo1.getTableId());
-        Assert.assertEquals(Long.valueOf(3L), rInfo1.getPartitionId());
-        Assert.assertEquals("test_partition", rInfo1.getPartitionName());
-        Assert.assertFalse(rInfo1.isTempPartition());
-        Assert.assertTrue(rInfo1.isForceDrop());
+        Assertions.assertEquals(Long.valueOf(1L), rInfo1.getDbId());
+        Assertions.assertEquals(Long.valueOf(2L), rInfo1.getTableId());
+        Assertions.assertEquals(Long.valueOf(3L), rInfo1.getPartitionId());
+        Assertions.assertEquals("test_partition", rInfo1.getPartitionName());
+        Assertions.assertFalse(rInfo1.isTempPartition());
+        Assertions.assertTrue(rInfo1.isForceDrop());
 
-        Assert.assertEquals(rInfo1, info1);
-        Assert.assertNotEquals(rInfo1, this);
-        Assert.assertNotEquals(info1, new DropPartitionInfo(-1L, 2L, 3L, "test_partition", false, true, 0, 0L, 0L));
-        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, -2L, 3L, "test_partition", false, true, 0, 0L, 0L));
-        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, 3L, "test_partition1", false, true, 0, 0L, 0L));
-        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, 3L, "test_partition", true, true, 0, 0L, 0L));
-        Assert.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, 3L, "test_partition", false, false, 0, 0L, 0L));
-        Assert.assertEquals(info1, new DropPartitionInfo(1L, 2L, 3L, "test_partition", false, true, 0, 0L, 0L));
+        Assertions.assertEquals(rInfo1, info1);
+        Assertions.assertNotEquals(rInfo1, this);
+        Assertions.assertNotEquals(info1, new DropPartitionInfo(-1L, 2L, 3L, "test_partition", false, true, 0, 0L, 0L));
+        Assertions.assertNotEquals(info1, new DropPartitionInfo(1L, -2L, 3L, "test_partition", false, true, 0, 0L, 0L));
+        Assertions.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, 3L, "test_partition1", false, true, 0, 0L, 0L));
+        Assertions.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, 3L, "test_partition", true, true, 0, 0L, 0L));
+        Assertions.assertNotEquals(info1, new DropPartitionInfo(1L, 2L, 3L, "test_partition", false, false, 0, 0L, 0L));
+        Assertions.assertEquals(info1, new DropPartitionInfo(1L, 2L, 3L, "test_partition", false, true, 0, 0L, 0L));
 
         // 3. delete files
         dis.close();

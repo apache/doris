@@ -320,6 +320,24 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
     }
 
     @Test
+    void testHavingAggregateFunctionDoesNotLeakHelperOutput() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("SELECT 1 FROM t1 HAVING SUM(a1) > 0")
+                .getPlan();
+        Assertions.assertEquals(1, plan.getOutput().size());
+
+        PlanChecker.from(connectContext)
+                .analyze("SELECT (SELECT 1 FROM t1 HAVING SUM(a1) > 0)");
+
+        ExceptionChecker.expectThrowsWithMsg(
+                AnalysisException.class,
+                "Multiple columns returned by subquery are not yet supported. Found 2",
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT (SELECT 1, 2 FROM t1 HAVING SUM(a1) > 0)"
+                ));
+    }
+
+    @Test
     void testJoinWithHaving() {
         String sql = "SELECT a1, sum(a2) FROM t1, t2 WHERE t1.pk = t2.pk GROUP BY a1 HAVING a1 > sum(b1)";
         SlotReference a1 = new SlotReference(
@@ -353,6 +371,27 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                         ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(new Cast(a1, BigIntType.INSTANCE),
                                         sumB1.toSlot()))))
                         ).when(FieldChecker.check("projects", Lists.newArrayList(a1.toSlot(), sumA2.toSlot()))));
+    }
+
+    @Test
+    void testHavingLambdaLocalSlots() {
+        String mapSql = "SELECT a1, COUNT(*) AS n FROM t1 GROUP BY a1 "
+                + "HAVING map_exists((k, v) -> v > 1, map(1, COUNT(*)))";
+        Assertions.assertNotNull(PlanChecker.from(connectContext).analyze(mapSql).getPlan());
+
+        String arraySql = "SELECT a1, COUNT(*) AS n FROM t1 GROUP BY a1 "
+                + "HAVING array_match_any(array_map(x -> x > 1, array(COUNT(*))))";
+        Assertions.assertNotNull(PlanChecker.from(connectContext).analyze(arraySql).getPlan());
+
+        ExceptionChecker.expectThrowsWithMsg(
+                AnalysisException.class,
+                "HAVING expression 'a2' must appear in the GROUP BY clause"
+                        + " or be used in an aggregate function.",
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT a1, COUNT(*) AS n FROM t1 GROUP BY a1 "
+                                + "HAVING array_match_any(array_map(x -> x > 1, "
+                                + "array(COUNT(*) + a2)))"
+                ));
     }
 
     @Test

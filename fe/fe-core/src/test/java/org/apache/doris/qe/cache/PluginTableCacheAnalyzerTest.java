@@ -29,7 +29,7 @@ import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -78,7 +78,7 @@ public class PluginTableCacheAnalyzerTest {
         PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
         PluginDrivenScanNode node = mockPluginScanNode(table, 3L);
         boolean recognized = Deencapsulation.invoke(analyzer, "isExternalCacheableScanNode", node);
-        Assert.assertTrue("a PluginDrivenMvccExternalTable scan must be cacheable", recognized);
+        Assertions.assertTrue(recognized, "a PluginDrivenMvccExternalTable scan must be cacheable");
     }
 
     /**
@@ -91,8 +91,7 @@ public class PluginTableCacheAnalyzerTest {
         FunctionGenTable tvfTable = Mockito.mock(FunctionGenTable.class);
         PluginDrivenScanNode node = mockPluginScanNode(tvfTable, 0L);
         boolean recognized = Deencapsulation.invoke(analyzer, "isExternalCacheableScanNode", node);
-        Assert.assertFalse("a jdbc-query TVF (FunctionGenTable) has no token and must not be cacheable",
-                recognized);
+        Assertions.assertFalse(recognized, "a jdbc-query TVF (FunctionGenTable) has no token and must not be cacheable");
     }
 
     /** A scan node with no tuple descriptor is defensively excluded (no NPE). */
@@ -101,7 +100,7 @@ public class PluginTableCacheAnalyzerTest {
         PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class);
         Mockito.when(node.getTupleDesc()).thenReturn(null);
         boolean recognized = Deencapsulation.invoke(analyzer, "isExternalCacheableScanNode", node);
-        Assert.assertFalse(recognized);
+        Assertions.assertFalse(recognized);
     }
 
     /**
@@ -126,9 +125,9 @@ public class PluginTableCacheAnalyzerTest {
         CacheAnalyzer.CacheTable cacheTable =
                 Deencapsulation.invoke(analyzer, "buildCacheTableForExternalScanNode", node);
 
-        Assert.assertSame(table, cacheTable.table);
-        Assert.assertEquals(token, cacheTable.latestPartitionTime);
-        Assert.assertEquals(5L, cacheTable.partitionNum);
+        Assertions.assertSame(table, cacheTable.table);
+        Assertions.assertEquals(token, cacheTable.latestPartitionTime);
+        Assertions.assertEquals(5L, cacheTable.partitionNum);
     }
 
     /**
@@ -157,8 +156,7 @@ public class PluginTableCacheAnalyzerTest {
         CacheAnalyzer.CacheTable cacheTable =
                 Deencapsulation.invoke(analyzer, "buildCacheTableForExternalScanNode", node);
 
-        Assert.assertEquals("BE PCache version key stays the raw token", token, cacheTable.latestPartitionTime);
-        Assert.assertEquals("the quiet-window gate value is the wall-clock millis", wallClockMillis,
-                cacheTable.latestPartitionUpdateMillis);
+        Assertions.assertEquals(token, cacheTable.latestPartitionTime, "BE PCache version key stays the raw token");
+        Assertions.assertEquals(wallClockMillis, cacheTable.latestPartitionUpdateMillis, "the quiet-window gate value is the wall-clock millis");
     }
 }

@@ -58,6 +58,13 @@ public class ElementAtTest {
     }
 
     @Test
+    public void testVariantEmptyObjectKeyIsLegal() {
+        ElementAt emptyKey = new ElementAt(
+                new MockVariantExpression(new VariantType(100)), new VarcharLiteral(""));
+        Assertions.assertDoesNotThrow(emptyKey::checkLegalityBeforeTypeCoercion);
+    }
+
+    @Test
     public void testComputeSignatureSingleVariant() {
         VariantType variantType = new VariantType(100);
         ElementAt elementAt = new ElementAt(new MockVariantExpression(variantType), new VarcharLiteral("k"));

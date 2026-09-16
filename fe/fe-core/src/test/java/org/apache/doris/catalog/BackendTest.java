@@ -26,10 +26,10 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -57,7 +57,7 @@ public class BackendTest {
     private FakeEnv fakeEnv;
     private FakeEditLog fakeEditLog;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         env = AccessTestUtil.fetchAdminCatalog();
 
@@ -72,7 +72,7 @@ public class BackendTest {
         backend.updateOnce(bePort, httpPort, beRpcPort);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (fakeEnv != null) {
             fakeEnv.close();
@@ -84,24 +84,24 @@ public class BackendTest {
 
     @Test
     public void getMethodTest() {
-        Assert.assertEquals(backendId, backend.getId());
-        Assert.assertEquals(host, backend.getHost());
-        Assert.assertEquals(heartbeatPort, backend.getHeartbeatPort());
-        Assert.assertEquals(bePort, backend.getBePort());
+        Assertions.assertEquals(backendId, backend.getId());
+        Assertions.assertEquals(host, backend.getHost());
+        Assertions.assertEquals(heartbeatPort, backend.getHeartbeatPort());
+        Assertions.assertEquals(bePort, backend.getBePort());
 
         // set new port
         int newBePort = 31235;
         int newHttpPort = 31237;
         backend.updateOnce(newBePort, newHttpPort, beRpcPort);
-        Assert.assertEquals(newBePort, backend.getBePort());
+        Assertions.assertEquals(newBePort, backend.getBePort());
 
         // check alive
-        Assert.assertTrue(backend.isAlive());
+        Assertions.assertTrue(backend.isAlive());
     }
 
     @Test
     public void testLocationTagIsSafelyPublished() throws NoSuchFieldException {
-        Assert.assertTrue(Modifier.isVolatile(Backend.class.getDeclaredField("locationTag").getModifiers()));
+        Assertions.assertTrue(Modifier.isVolatile(Backend.class.getDeclaredField("locationTag").getModifiers()));
     }
 
     @Test
@@ -118,17 +118,17 @@ public class BackendTest {
 
         // first update
         backend.updateDisks(diskInfos);
-        Assert.assertEquals(disk1.getDiskTotalCapacity() + disk2.getDiskTotalCapacity(),
+        Assertions.assertEquals(disk1.getDiskTotalCapacity() + disk2.getDiskTotalCapacity(),
                 backend.getTotalCapacityB());
-        Assert.assertEquals(1, backend.getAvailableCapacityB());
+        Assertions.assertEquals(1, backend.getAvailableCapacityB());
 
         // second update
         diskInfos.remove(disk1.getRootPath());
         backend.updateDisks(diskInfos);
-        Assert.assertEquals(disk2.getDiskTotalCapacity(), backend.getTotalCapacityB());
-        Assert.assertEquals(disk2.getDiskAvailableCapacity() + 1, backend.getAvailableCapacityB());
-        Assert.assertFalse(backend.hasSpecifiedStorageMedium(TStorageMedium.SSD));
-        Assert.assertTrue(backend.hasSpecifiedStorageMedium(TStorageMedium.HDD));
+        Assertions.assertEquals(disk2.getDiskTotalCapacity(), backend.getTotalCapacityB());
+        Assertions.assertEquals(disk2.getDiskAvailableCapacity() + 1, backend.getAvailableCapacityB());
+        Assertions.assertFalse(backend.hasSpecifiedStorageMedium(TStorageMedium.SSD));
+        Assertions.assertTrue(backend.hasSpecifiedStorageMedium(TStorageMedium.HDD));
     }
 
     @Test
@@ -169,44 +169,44 @@ public class BackendTest {
         for (int count = 0; count < 200; ++count) {
             Backend backend = Backend.read(dis);
             list2.add(backend);
-            Assert.assertEquals(count, backend.getId());
-            Assert.assertEquals("10.120.22.32" + count, backend.getHost());
+            Assertions.assertEquals(count, backend.getId());
+            Assertions.assertEquals("10.120.22.32" + count, backend.getHost());
         }
 
         // check isAlive
         Backend backend100 = list2.get(100);
-        Assert.assertTrue(backend100.isAlive());
+        Assertions.assertTrue(backend100.isAlive());
         // check disksRef
         ImmutableMap<String, DiskInfo> backend100DiskRef = backend100.getDisks();
-        Assert.assertEquals(2, backend100DiskRef.size());
-        Assert.assertTrue(backend100DiskRef.containsKey("disk1"));
-        Assert.assertTrue(backend100DiskRef.containsKey("disk2"));
+        Assertions.assertEquals(2, backend100DiskRef.size());
+        Assertions.assertTrue(backend100DiskRef.containsKey("disk1"));
+        Assertions.assertTrue(backend100DiskRef.containsKey("disk2"));
         DiskInfo backend100DiskInfo1 = backend100DiskRef.get("disk1");
-        Assert.assertEquals("/disk1", backend100DiskInfo1.getRootPath());
+        Assertions.assertEquals("/disk1", backend100DiskInfo1.getRootPath());
         DiskInfo backend100DiskInfo2 = backend100DiskRef.get("disk2");
-        Assert.assertEquals("/disk2", backend100DiskInfo2.getRootPath());
+        Assertions.assertEquals("/disk2", backend100DiskInfo2.getRootPath());
         // check backend status
         Backend.BackendStatus backend100BackendStatus = backend100.getBackendStatus();
-        Assert.assertEquals(100, backend100BackendStatus.lastStreamLoadTime);
+        Assertions.assertEquals(100, backend100BackendStatus.lastStreamLoadTime);
 
         for (int count = 0; count < 200; count++) {
-            Assert.assertEquals(list1.get(count), list2.get(count));
+            Assertions.assertEquals(list1.get(count), list2.get(count));
         }
-        Assert.assertNotEquals(list1.get(1), list1.get(2));
-        Assert.assertNotEquals(list1.get(1), this);
-        Assert.assertEquals(list1.get(1), list1.get(1));
+        Assertions.assertNotEquals(list1.get(1), list1.get(2));
+        Assertions.assertNotEquals(list1.get(1), this);
+        Assertions.assertEquals(list1.get(1), list1.get(1));
 
         Backend back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
         Backend back2 = new Backend(2, "a", 1);
         back2.updateOnce(1, 1, 1);
-        Assert.assertNotEquals(back1, back2);
+        Assertions.assertNotEquals(back1, back2);
 
         back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
         back2 = new Backend(1, "b", 1);
         back2.updateOnce(1, 1, 1);
-        Assert.assertNotEquals(back1, back2);
+        Assertions.assertNotEquals(back1, back2);
 
         back1 = new Backend(1, "a", 1);
         back1.updateOnce(1, 1, 1);
@@ -216,10 +216,10 @@ public class BackendTest {
         tagMap.put(Tag.TYPE_LOCATION, "l1");
         tagMap.put("compute", "c1");
         back2.setTagMap(tagMap);
-        Assert.assertNotEquals(back1, back2);
+        Assertions.assertNotEquals(back1, back2);
 
-        Assert.assertTrue(back1.toString().contains("tags: {location=default}"));
-        Assert.assertEquals("{\"compute\" : \"c1\", \"location\" : \"l1\"}", back2.getTagMapString());
+        Assertions.assertTrue(back1.toString().contains("tags: {location=default}"));
+        Assertions.assertEquals("{\"compute\" : \"c1\", \"location\" : \"l1\"}", back2.getTagMapString());
 
         // 3. delete files
         dis.close();

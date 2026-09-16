@@ -72,15 +72,15 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.AnalysisManager;
-import org.apache.doris.statistics.ColStatsMeta;
-import org.apache.doris.statistics.ColumnStatistic;
-import org.apache.doris.statistics.Histogram;
-import org.apache.doris.statistics.PartitionColumnStatistic;
-import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
-import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.AnalysisManager;
+import org.apache.doris.statistics.analysis.ColStatsMeta;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Histogram;
+import org.apache.doris.statistics.model.PartitionColumnStatistic;
+import org.apache.doris.statistics.repository.ResultRow;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -261,8 +261,9 @@ public class StatisticsUtil {
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
-                return DateLiteralUtils.createDateLiteral(columnValue, type);
+                return DateLiteralUtils.createLiteral(columnValue, type);
             case CHAR:
             case VARCHAR:
             case STRING:
@@ -313,6 +314,7 @@ public class StatisticsUtil {
                     return literal.getDouble();
 
                 case DATETIMEV2:
+                case TIMESTAMP_NS:
                 case DATETIME:
                     DateTimeLiteral dateTimeLiteral = new DateTimeLiteral(columnValue);
                     return dateTimeLiteral.getDouble();

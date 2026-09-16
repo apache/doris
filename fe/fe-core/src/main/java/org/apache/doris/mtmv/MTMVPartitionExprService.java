@@ -19,8 +19,10 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Interface for materialized view partitioning function
@@ -47,7 +49,8 @@ public interface MTMVPartitionExprService {
      * @throws AnalysisException
      */
     PartitionKeyDesc generateRollUpPartitionKeyDesc(
-            PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable)
+            PartitionKeyDesc partitionKeyDesc, MTMVPartitionInfo mvPartitionInfo, MTMVRelatedTableIf pctTable,
+            Optional<MvccSnapshot> snapshot)
             throws AnalysisException;
 
     /**

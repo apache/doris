@@ -16,11 +16,15 @@
 // under the License.
 
 #include <cctz/time_zone.h>
+#include <fmt/format.h>
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <iterator>
+#include <limits>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "common/exception.h"
@@ -36,12 +40,14 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "exprs/function_context.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::CastWrapper::variant_v2_internal {
 namespace {
@@ -57,7 +63,8 @@ enum GroupIndex : size_t {
     DECIMAL_GROUP_BEGIN = DOUBLE_GROUP + 1,
     DATE_GROUP = DECIMAL_GROUP_BEGIN + DECIMAL_SCALE_COUNT,
     TIMESTAMP_NTZ_GROUP = DATE_GROUP + 1,
-    TIMESTAMP_TZ_GROUP = TIMESTAMP_NTZ_GROUP + 1,
+    TIMESTAMP_NANOS_GROUP = TIMESTAMP_NTZ_GROUP + 1,
+    TIMESTAMP_TZ_GROUP = TIMESTAMP_NANOS_GROUP + 1,
     STRING_GROUP = TIMESTAMP_TZ_GROUP + 1,
     GROUP_COUNT = STRING_GROUP + 1,
 };
@@ -203,6 +210,29 @@ void append_timestamp(ScalarGroups& groups, size_t row, int64_t micros, bool utc
     group.source_rows.push_back(row);
 }
 
+void append_timestamp_nanos(FunctionContext* context, ScalarGroups& groups, size_t row,
+                            int64_t nanos, bool utc_adjusted) {
+    if (utc_adjusted) {
+        DORIS_CHECK(context != nullptr);
+        DORIS_CHECK(context->state() != nullptr);
+        const auto seconds = TimeStampNsValue(nanos).epoch_seconds();
+        const auto instant = cctz::time_point<cctz::seconds>(cctz::seconds(seconds));
+        const auto offset = context->state()->timezone_obj().lookup(instant).offset;
+        const auto local_nanos = static_cast<__int128>(nanos) +
+                                 static_cast<__int128>(offset) * TimeStampNsValue::NANOS_PER_SECOND;
+        if (local_nanos < std::numeric_limits<int64_t>::min() ||
+            local_nanos > std::numeric_limits<int64_t>::max()) {
+            append_invalid(groups, row);
+            return;
+        }
+        nanos = static_cast<int64_t>(local_nanos);
+    }
+    auto& group = initialize_group(groups, TIMESTAMP_NANOS_GROUP,
+                                   [] { return std::make_shared<DataTypeTimeStampNs>(); });
+    assert_cast<ColumnTimeStampNs&>(*group.values).insert_value(TimeStampNsValue(nanos));
+    group.source_rows.push_back(row);
+}
+
 void append_string(ScalarGroups& groups, size_t row, StringRef value) {
     auto& group = initialize_group(groups, STRING_GROUP,
                                    [] { return std::make_shared<DataTypeString>(); });
@@ -210,7 +240,25 @@ void append_string(ScalarGroups& groups, size_t row, StringRef value) {
     group.source_rows.push_back(row);
 }
 
-void classify_value(ScalarGroups& groups, size_t row, VariantRef value, bool forced_null) {
+void append_timestamp_nanos_string(FunctionContext* context, ScalarGroups& groups, size_t row,
+                                   int64_t nanos, bool utc_adjusted) {
+    const TimeStampNsValue value(nanos);
+    if (!utc_adjusted) {
+        const std::string text = value.to_string();
+        append_string(groups, row, StringRef(text.data(), text.size()));
+        return;
+    }
+
+    DORIS_CHECK(context != nullptr);
+    DORIS_CHECK(context->state() != nullptr);
+    const auto instant = cctz::time_point<cctz::seconds>(cctz::seconds(value.epoch_seconds()));
+    std::string text = cctz::format("%Y-%m-%d %H:%M:%S", instant, context->state()->timezone_obj());
+    fmt::format_to(std::back_inserter(text), ".{:09}", value.nanosecond());
+    append_string(groups, row, StringRef(text.data(), text.size()));
+}
+
+void classify_value(FunctionContext* context, ScalarGroups& groups, size_t row, VariantRef value,
+                    PrimitiveType target_primitive, bool forced_null) {
     if (forced_null) {
         append_invalid(groups, row);
         return;
@@ -267,9 +315,26 @@ void classify_value(ScalarGroups& groups, size_t row, VariantRef value, bool for
         append_timestamp(groups, row, value.get_timestamp_ntz_micros(), false);
         return;
     case VariantPrimitiveId::TIMESTAMP_NANOS:
+        if (target_primitive == TYPE_STRING) {
+            append_timestamp_nanos_string(context, groups, row, value.get_timestamp_nanos(), true);
+            return;
+        }
+        if (target_primitive == TYPE_TIMESTAMP_NS) {
+            append_timestamp_nanos(context, groups, row, value.get_timestamp_nanos(), true);
+            return;
+        }
         append_timestamp(groups, row, nanos_to_micros(value.get_timestamp_nanos()), true);
         return;
     case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
+        if (target_primitive == TYPE_STRING) {
+            append_timestamp_nanos_string(context, groups, row, value.get_timestamp_ntz_nanos(),
+                                          false);
+            return;
+        }
+        if (target_primitive == TYPE_TIMESTAMP_NS) {
+            append_timestamp_nanos(context, groups, row, value.get_timestamp_ntz_nanos(), false);
+            return;
+        }
         append_timestamp(groups, row, nanos_to_micros(value.get_timestamp_ntz_nanos()), false);
         return;
     case VariantPrimitiveId::STRING:
@@ -284,7 +349,7 @@ Status execute_non_strict_scalar_cast(FunctionContext* context, const ColumnPtr&
                                       const DataTypePtr& target_type, const char* source_name,
                                       size_t rows, ColumnPtr* output) {
     if (context == nullptr) {
-        return Status::InvalidArgument("Variant V2 scalar CAST requires a FunctionContext");
+        return Status::InternalError("Variant V2 scalar CAST requires a FunctionContext");
     }
     auto cast_context = context->clone();
     cast_context->set_enable_strict_mode(false);
@@ -404,6 +469,7 @@ bool is_supported_scalar_target(const DataTypePtr& type) {
     case TYPE_DATEV2:
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP_NS:
     case TYPE_TIMESTAMPTZ:
     case TYPE_IPV4:
     case TYPE_IPV6:
@@ -417,7 +483,7 @@ Status cast_scalar_to_variant(const ColumnPtr& source, const DataTypePtr& source
                               ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!source || source->size() != rows ||
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid scalar input shape for Variant V2 CAST");
+        return Status::InternalError("Invalid scalar input shape for Variant V2 CAST");
     }
     auto nulls = ColumnUInt8::create(rows, 0);
     if (!forced_nulls.empty()) {
@@ -433,7 +499,7 @@ Status cast_typed_variant_to_scalar(FunctionContext* context, const ColumnVarian
                                     const DataTypePtr& target_type, size_t rows,
                                     ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!source.is_typed() || source.size() != rows) {
-        return Status::InvalidArgument("Expected a typed Variant V2 source with {} rows", rows);
+        return Status::InternalError("Expected a typed Variant V2 source with {} rows", rows);
     }
     ColumnPtr converted;
     RETURN_IF_ERROR(execute_typed_cast(context, source.typed_column().get_ptr(),
@@ -445,12 +511,13 @@ Status cast_variant_refs_to_scalar(FunctionContext* context, std::span<const Var
                                    const DataTypePtr& target_type, ForcedNulls forced_nulls,
                                    ColumnPtr* output) {
     if (!forced_nulls.empty() && forced_nulls.size() != values.size()) {
-        return Status::InvalidArgument("Variant V2 CAST null map has {} rows, expected {}",
-                                       forced_nulls.size(), values.size());
+        return Status::InternalError("Variant V2 CAST null map has {} rows, expected {}",
+                                     forced_nulls.size(), values.size());
     }
     ScalarGroups groups;
     for (size_t row = 0; row < values.size(); ++row) {
-        classify_value(groups, row, values[row], !forced_nulls.empty() && forced_nulls[row] != 0);
+        classify_value(context, groups, row, values[row], target_type->get_primitive_type(),
+                       !forced_nulls.empty() && forced_nulls[row] != 0);
     }
     return assemble_groups(context, groups, target_type, values.size(), output);
 }
@@ -460,11 +527,12 @@ Status cast_encoded_variant_to_scalar(FunctionContext* context, const ColumnVari
                                       ForcedNulls forced_nulls, ColumnPtr* output) {
     if (source.is_typed() || source.size() != rows ||
         (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid encoded Variant V2 input for scalar CAST");
+        return Status::InternalError("Invalid encoded Variant V2 input for scalar CAST");
     }
     ScalarGroups groups;
     for (size_t row = 0; row < rows; ++row) {
-        classify_value(groups, row, source.get_value_ref(row),
+        classify_value(context, groups, row, source.get_value_ref(row),
+                       target_type->get_primitive_type(),
                        !forced_nulls.empty() && forced_nulls[row] != 0);
     }
     return assemble_groups(context, groups, target_type, rows, output);
@@ -474,12 +542,15 @@ Status cast_variant_values_to_scalar(FunctionContext* context, const ColumnVaria
                                      const DataTypePtr& target_type, size_t rows,
                                      ForcedNulls forced_nulls, ColumnPtr* output) {
     if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
-        return Status::InvalidArgument("Invalid Variant V2 input for canonical scalar CAST");
+        return Status::InternalError("Invalid Variant V2 input for canonical scalar CAST");
     }
     ScalarGroups groups;
     visit_variant_v2_values(
             source, 0, rows, forced_nulls, [&](size_t row) { append_invalid(groups, row); },
-            [&](size_t row, VariantRef value) { classify_value(groups, row, value, false); });
+            [&](size_t row, VariantRef value) {
+                classify_value(context, groups, row, value, target_type->get_primitive_type(),
+                               false);
+            });
     return assemble_groups(context, groups, target_type, rows, output);
 }
 
@@ -492,15 +563,15 @@ ColumnPtr make_all_null_column(const DataTypePtr& nested_type, size_t rows) {
 
 Status apply_forced_nulls(ColumnPtr column, ForcedNulls forced_nulls, ColumnPtr* output) {
     if (!column) {
-        return Status::InvalidArgument("Cannot apply a null map to an empty Variant V2 result");
+        return Status::InternalError("Cannot apply a null map to an empty Variant V2 result");
     }
     if (forced_nulls.empty()) {
         *output = std::move(column);
         return Status::OK();
     }
     if (forced_nulls.size() != column->size()) {
-        return Status::InvalidArgument("Variant V2 CAST null map has {} rows, expected {}",
-                                       forced_nulls.size(), column->size());
+        return Status::InternalError("Variant V2 CAST null map has {} rows, expected {}",
+                                     forced_nulls.size(), column->size());
     }
     auto nulls = ColumnUInt8::create(column->size(), 0);
     if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {

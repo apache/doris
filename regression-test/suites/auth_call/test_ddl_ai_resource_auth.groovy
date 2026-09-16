@@ -89,6 +89,32 @@ suite("test_ddl_ai_resource_auth","p0,auth_call") {
         assertTrue(res.size() == 0)
     }
 
+    sql """CREATE RESOURCE "${resourceName}"
+            PROPERTIES(
+                'type' = 'ai',
+                'ai.provider_type' = 'deepseek',
+                'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
+                'ai.model_name' = 'deepseek-chat',
+                'ai.api_key' = 'sk-xxx',
+                'ai.temperature' = '0.7',
+                'ai.max_token' = '1024',
+                'ai.max_retries' = '3',
+                'ai.retry_delay_second' = '1',
+                'ai.validity_check' = 'false'
+            );"""
+    connect(user, "${pwd}", context.config.jdbcUrl) {
+        test {
+            sql """ALTER RESOURCE '${resourceName}' PROPERTIES ('ai.temperature' = '0.8');"""
+            exception "Only root user can modify root-created AI resource"
+        }
+        test {
+            sql """DROP RESOURCE '${resourceName}'"""
+            exception "Only root user can modify root-created AI resource"
+        }
+    }
+    sql """ALTER RESOURCE '${resourceName}' PROPERTIES ('ai.temperature' = '0.8');"""
+    sql """DROP RESOURCE '${resourceName}'"""
+
     try_sql("""DROP RESOURCE '${resourceName}'""")
     sql """drop database if exists ${dbName}"""
     try_sql("DROP USER ${user}")

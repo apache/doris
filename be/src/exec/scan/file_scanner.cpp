@@ -76,9 +76,7 @@
 #include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/jdbc_jni_reader.h"
 #include "format/table/max_compute_jni_reader.h"
-#include "format/table/paimon_cpp_reader.h"
 #include "format/table/paimon_jni_reader.h"
-#include "format/table/paimon_predicate_converter.h"
 #include "format/table/paimon_reader.h"
 #include "format/table/partition_column_filler.h"
 #include "format/table/remote_doris_reader.h"
@@ -582,8 +580,14 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
 
             // Read next block.
             // Some of column in block may not be filled (column not exist in file)
-            RETURN_IF_ERROR(
-                    _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
+            Status st = _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof);
+            // Lazy open may surface NOT_FOUND on the first read; skip as above.
+            if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
+                _cur_reader_eof = true;
+                COUNTER_UPDATE(_not_found_file_counter, 1);
+                continue;
+            }
+            RETURN_IF_ERROR(st);
         }
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
@@ -1085,50 +1089,11 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                const auto& paimon_params = range.table_format_params.paimon_params;
-                bool use_paimon_cpp_reader = false;
-                if (paimon_params.__isset.reader_type) {
-                    switch (paimon_params.reader_type) {
-                    case TPaimonReaderType::PAIMON_CPP:
-                        use_paimon_cpp_reader = true;
-                        break;
-                    case TPaimonReaderType::PAIMON_JNI:
-                        break;
-                    case TPaimonReaderType::PAIMON_NATIVE:
-                        return Status::InternalError(
-                                "invalid PAIMON_NATIVE reader_type for paimon FORMAT_JNI split, "
-                                "possibly caused by FE/BE protocol mismatch");
-                    default:
-                        return Status::InternalError(
-                                "unknown paimon reader_type for paimon FORMAT_JNI split, possibly "
-                                "caused by FE/BE protocol mismatch");
-                    }
-                } else {
-                    // TODO: Remove this fallback after all FE versions set TPaimonReaderType.
-                    use_paimon_cpp_reader =
-                            _state->query_options().__isset.enable_paimon_cpp_reader &&
-                            _state->query_options().enable_paimon_cpp_reader;
-                }
-                if (use_paimon_cpp_reader) {
-                    auto cpp_reader = PaimonCppReader::create_unique(_file_slot_descs, _state,
-                                                                     _profile, range, _params);
-                    if (!_is_load && !_push_down_conjuncts.empty()) {
-                        PaimonPredicateConverter predicate_converter(_file_slot_descs, _state);
-                        auto predicate = predicate_converter.build(_push_down_conjuncts);
-                        if (predicate) {
-                            cpp_reader->set_predicate(std::move(predicate));
-                        }
-                    }
-                    init_status =
-                            static_cast<GenericReader*>(cpp_reader.get())->init_reader(&jni_ctx);
-                    _cur_reader = std::move(cpp_reader);
-                } else {
-                    auto paimon_reader = PaimonJniReader::create_unique(_file_slot_descs, _state,
-                                                                        _profile, range, _params);
-                    init_status =
-                            static_cast<GenericReader*>(paimon_reader.get())->init_reader(&jni_ctx);
-                    _cur_reader = std::move(paimon_reader);
-                }
+                auto paimon_reader = PaimonJniReader::create_unique(_file_slot_descs, _state,
+                                                                    _profile, range, _params);
+                init_status =
+                        static_cast<GenericReader*>(paimon_reader.get())->init_reader(&jni_ctx);
+                _cur_reader = std::move(paimon_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "hudi") {
                 auto hudi_reader = HudiJniReader::create_unique(
@@ -1874,7 +1839,6 @@ Status FileScanner::_init_expr_ctxes() {
 
     if (_is_load) {
         // follow desc expr map is only for load task.
-        bool has_slot_id_map = _params->__isset.dest_sid_to_src_sid_without_trans;
         int idx = 0;
         for (auto* slot_desc : _output_tuple_desc->slots()) {
             auto it = _params->expr_of_dest_slot.find(slot_desc->id());
@@ -1892,20 +1856,17 @@ Status FileScanner::_init_expr_ctxes() {
             _dest_vexpr_ctx.emplace_back(ctx);
             _dest_slot_name_to_idx[slot_desc->col_name()] = idx++;
 
-            if (has_slot_id_map) {
-                auto it1 = _params->dest_sid_to_src_sid_without_trans.find(slot_desc->id());
-                if (it1 == std::end(_params->dest_sid_to_src_sid_without_trans)) {
-                    _src_slot_descs_order_by_dest.emplace_back(nullptr);
-                } else {
-                    auto _src_slot_it = full_src_slot_map.find(it1->second);
-                    if (_src_slot_it == std::end(full_src_slot_map)) {
-                        return Status::InternalError("No src slot {} in src slot descs",
-                                                     it1->second);
-                    }
-                    _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
-                                                         full_src_index_map[_src_slot_it->first]);
-                    _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
+            auto it1 = _params->dest_sid_to_src_sid_without_trans.find(slot_desc->id());
+            if (it1 == std::end(_params->dest_sid_to_src_sid_without_trans)) {
+                _src_slot_descs_order_by_dest.emplace_back(nullptr);
+            } else {
+                auto _src_slot_it = full_src_slot_map.find(it1->second);
+                if (_src_slot_it == std::end(full_src_slot_map)) {
+                    return Status::InternalError("No src slot {} in src slot descs", it1->second);
                 }
+                _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
+                                                     full_src_index_map[_src_slot_it->first]);
+                _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }
         }
     }

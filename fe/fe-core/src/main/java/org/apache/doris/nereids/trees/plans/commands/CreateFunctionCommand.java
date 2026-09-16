@@ -398,6 +398,20 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
     }
 
+    /**
+     * Parses and validates {@code EXPIRATION_TIME}, which is <b>accepted but no longer acted on</b>.
+     *
+     * <p>Its only consumer was the UDF class cache in the old shared {@code java-udf} runtime, which
+     * expired a loaded class after this many minutes. Plugin isolation replaced that cache with one
+     * keyed and bounded by the plugin runtime, and nothing reads the value any more - it is still
+     * carried on the {@code Function}, still serialized to the BE in {@code TFunction}, and still
+     * echoed back verbatim by {@code SHOW CREATE FUNCTION}, so a catalog defined with it round-trips
+     * unchanged. Kept rather than rejected for exactly that reason: failing the DDL would break every
+     * existing definition and every replayed edit log carrying the property.
+     *
+     * <p>Still validated, because a value that is one day acted on again must not have been allowed
+     * to be nonsense in the meantime.
+     */
     private void extractExpirationTime() throws AnalysisException {
         String expirationTimeString = properties.get(EXPIRATION_TIME);
         if (expirationTimeString != null) {
@@ -529,10 +543,12 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         function = ScalarFunction.createUdf(binaryType,
                 functionName, argsDef.getArgTypes(),
-                ((ArrayType) (returnType.toCatalogDataType())).getItemType(), argsDef.isVariadic(),
+                ((ArrayType) (returnType.toCatalogDataType())).getItemType(), false,
                 location, symbol, null, null);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
+        function.setStaticLoad(isStaticLoad);
+        function.setExpirationTime(expirationTime);
         function.setUDTFunction(true);
         function.setRuntimeVersion(runtimeVersion);
         function.setFunctionCode(functionCode);
@@ -551,7 +567,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             location = null;
         }
         builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.toCatalogDataType())
-                .hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.toCatalogDataType())
+                .hasVarArgs(false).intermediateType(intermediateType.toCatalogDataType())
                 .location(location);
         String initFnSymbol = properties.get(INIT_KEY);
         if (initFnSymbol == null && !(binaryType == Function.BinaryType.JAVA_UDF
@@ -641,7 +657,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         function = ScalarFunction.createUdf(binaryType,
                 functionName, argsDef.getArgTypes(),
-                returnType.toCatalogDataType(), argsDef.isVariadic(),
+                returnType.toCatalogDataType(), false,
                 location, symbol, prepareFnSymbol, closeFnSymbol);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
@@ -1068,6 +1084,9 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             case TIMEV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIMEV2);
                 break;
+            case TIMESTAMP_NS:
+                typeBuilder.setId(Types.PGenericType.TypeId.TIMESTAMP_NS);
+                break;
             case TIMESTAMPTZ:
                 typeBuilder.setId(Types.PGenericType.TypeId.TIMESTAMPTZ);
                 break;
@@ -1174,7 +1193,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
         }
         Map<String, String> sessionVariables = ConnectContextUtil.getAffectQueryResultInPlanVariables(ctx);
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
-                Type.VARCHAR, argsDef.isVariadic(), parameters, translateToLegacyExpr(originFunction, ctx),
+                Type.VARCHAR, false, parameters, translateToLegacyExpr(originFunction, ctx),
                 sessionVariables);
     }
 

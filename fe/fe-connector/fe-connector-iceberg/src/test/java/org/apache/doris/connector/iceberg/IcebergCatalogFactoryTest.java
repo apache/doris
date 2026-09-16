@@ -128,19 +128,9 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
-    public void resolveCatalogImplRejectsRemovedDlfFlavor() {
-        // WHY: iceberg.catalog.type=dlf (DLF 1.0 over the vendored thrift ProxyMetaStoreClient) was removed, so
-        // it must now hit the default arm and fail loud like any unknown flavor — never resolve to a class that
-        // no longer ships. MUTATION: re-adding a dlf arm -> red.
-        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> IcebergCatalogFactory.resolveCatalogImpl("dlf"));
-        // Assert on the supported-types LIST only: the message also echoes the rejected input, so a naive
-        // contains("dlf") over the whole message would match the echo and never fail.
-        String supported = ex.getMessage().substring(ex.getMessage().indexOf("Supported types:"));
-        Assertions.assertFalse(supported.contains("dlf"),
-                "the supported-types list must no longer advertise dlf: " + supported);
-        Assertions.assertTrue(supported.contains("glue"),
-                "glue is the iceberg-native backend and must stay supported: " + supported);
+    public void resolveCatalogImplMapsDlfToDlfCatalog() {
+        Assertions.assertEquals("org.apache.doris.connector.iceberg.dlf.DLFCatalog",
+                IcebergCatalogFactory.resolveCatalogImpl("dlf"));
     }
 
     @Test

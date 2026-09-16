@@ -42,8 +42,12 @@ jobs:
             echo "::error::Unable to read the pull request title from the event payload."
             exit 1
           fi
-          # Same regex as the previously used deepakputhraya/action-pr-title submodule.
-          if ! grep -qE '\[([a-zA-Z0-9 \-_])+\]\(([a-zA-Z0-9 \-_])+\)(.*)' <<< "${TITLE}"; then
+          # Same character set as the previously used deepakputhraya/action-pr-title submodule,
+          # rewritten for POSIX ERE: that action was JavaScript, where '\-' inside a bracket
+          # expression escapes a literal hyphen. POSIX has no such escape -- a backslash there is
+          # just a backslash -- so '[a-zA-Z0-9 \-_]' made '\' a member and '-_' a range, dropping
+          # the hyphen itself. A literal hyphen has to be last in the bracket expression instead.
+          if ! grep -qE '\[([a-zA-Z0-9 _-])+\]\(([a-zA-Z0-9 _-])+\)(.*)' <<< "${TITLE}"; then
             echo "::error::PR title \"${TITLE}\" does not match the required pattern: [type](scope) description"
             gh pr comment "${PR_NUM}" --body "PR title \`${TITLE}\` does not match the required pattern: \`[type](scope) description\`"
             exit 1

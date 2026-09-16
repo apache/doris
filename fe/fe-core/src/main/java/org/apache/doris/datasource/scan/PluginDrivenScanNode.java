@@ -71,6 +71,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
+import org.apache.doris.datasource.split.SplitAssignment;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
@@ -106,6 +107,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -504,6 +506,68 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         writeScanProfilesInto(summaryProfile.getExecutionSummary(), profiles);
     }
 
+    private void collectAndAppendConnectorScanProfiles(ConnectorScanPlanProvider scanProvider) {
+        List<ConnectorScanProfile> profiles = onPluginClassLoader(scanProvider,
+                () -> scanProvider.collectScanProfiles(connectorSession));
+        appendConnectorScanProfiles(profiles);
+    }
+
+    static <T> T executeWithProfileFinalization(Supplier<T> operation, Runnable profileFinalizer) {
+        boolean operationCompleted = false;
+        try {
+            T result = operation.get();
+            operationCompleted = true;
+            profileFinalizer.run();
+            return result;
+        } catch (RuntimeException failure) {
+            if (!operationCompleted) {
+                try {
+                    profileFinalizer.run();
+                } catch (RuntimeException profileFailure) {
+                    failure.addSuppressed(profileFailure);
+                }
+            }
+            throw failure;
+        }
+    }
+
+    static final class SubmittedTaskFinalizer {
+        private final Runnable finalizer;
+        private final AtomicInteger outstandingTasks = new AtomicInteger();
+        private final AtomicBoolean dispatchClosed = new AtomicBoolean();
+        private final AtomicBoolean finalized = new AtomicBoolean();
+
+        SubmittedTaskFinalizer(Runnable finalizer) {
+            this.finalizer = finalizer;
+        }
+
+        void taskSubmitted() {
+            outstandingTasks.incrementAndGet();
+        }
+
+        void taskFinished() {
+            outstandingTasks.decrementAndGet();
+            finalizeIfReady();
+        }
+
+        void closeDispatch() {
+            dispatchClosed.set(true);
+            finalizeIfReady();
+        }
+
+        private void finalizeIfReady() {
+            if (dispatchClosed.get() && outstandingTasks.get() == 0
+                    && finalized.compareAndSet(false, true)) {
+                finalizer.run();
+            }
+        }
+    }
+
+    private List<Split> finishPrunedToZeroScan(ConnectorScanPlanProvider scanProvider) {
+        collectAndAppendConnectorScanProfiles(scanProvider);
+        return Collections.emptyList();
+    }
+
     /**
      * Transcribe connector-supplied scan profiles into {@code executionSummary}: get-or-create a group named
      * {@link ConnectorScanProfile#getGroupName()}, add a child named {@link ConnectorScanProfile#getScanLabel()},
@@ -515,18 +579,36 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (executionSummary == null || profiles == null || profiles.isEmpty()) {
             return;
         }
-        for (ConnectorScanProfile profile : profiles) {
-            RuntimeProfile group = executionSummary.getChildMap().get(profile.getGroupName());
-            if (group == null) {
-                group = new RuntimeProfile(profile.getGroupName());
-                executionSummary.addChild(group, true);
+        // Batch-mode scan nodes can publish from different metadata workers at the same time. Serialize the
+        // complete get-or-create/add sequence on the shared execution summary so two workers cannot replace one
+        // another's group. Duplicate labels are retained with a suffix (self-join / repeated scan), rather than
+        // relying on RuntimeProfile.addChild's replace-by-name behavior.
+        synchronized (executionSummary) {
+            for (ConnectorScanProfile profile : profiles) {
+                RuntimeProfile group = executionSummary.getChildMap().get(profile.getGroupName());
+                if (group == null) {
+                    group = new RuntimeProfile(profile.getGroupName());
+                    executionSummary.addChild(group, true);
+                }
+                String scanLabel = uniqueScanLabel(group, profile.getScanLabel());
+                RuntimeProfile scan = new RuntimeProfile(scanLabel);
+                for (Map.Entry<String, String> entry : profile.getMetrics().entrySet()) {
+                    scan.addInfoString(entry.getKey(), entry.getValue());
+                }
+                group.addChild(scan, true);
             }
-            RuntimeProfile scan = new RuntimeProfile(profile.getScanLabel());
-            for (Map.Entry<String, String> entry : profile.getMetrics().entrySet()) {
-                scan.addInfoString(entry.getKey(), entry.getValue());
-            }
-            group.addChild(scan, true);
         }
+    }
+
+    private static String uniqueScanLabel(RuntimeProfile group, String requestedLabel) {
+        if (!group.getChildMap().containsKey(requestedLabel)) {
+            return requestedLabel;
+        }
+        int suffix = 2;
+        while (group.getChildMap().containsKey(requestedLabel + " #" + suffix)) {
+            suffix++;
+        }
+        return requestedLabel + " #" + suffix;
     }
 
     @Override
@@ -700,8 +782,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * Everything else falls through to {@code super} (partition key / regular).
      */
     @Override
-    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
-        String name = slot.getColumn().getName();
+    protected TColumnCategory classifyColumn(String name, List<String> partitionKeys) {
         if (name.startsWith(Column.GLOBAL_ROWID_COL)) {
             return TColumnCategory.SYNTHESIZED;
         }
@@ -712,7 +793,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (category == ConnectorColumnCategory.GENERATED) {
             return TColumnCategory.GENERATED;
         }
-        return super.classifyColumn(slot, partitionKeys);
+        return super.classifyColumn(name, partitionKeys);
     }
 
     /**
@@ -872,9 +953,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * Builds the query-finish callback that releases a connector's per-query read transaction. Hive full-ACID /
      * insert-only reads open a metastore read transaction + shared read lock during {@code planScan}; this
      * callback commits it (releasing the lock) when the query finishes. Registered UNCONDITIONALLY for every
-     * plugin scan in {@link #getSplits} — connector-agnostic, since a connector that opens no read transaction
-     * inherits the no-op {@link ConnectorScanPlanProvider#releaseReadTransaction} default and the callback is
-     * inert for it. The release runs on the StmtExecutor thread at query finish, whose TCCL is the fe-core app
+     * plugin scan before synchronous or asynchronous split planning — connector-agnostic, since a connector that
+     * opens no read transaction inherits the no-op {@link ConnectorScanPlanProvider#releaseReadTransaction}
+     * default and the callback is inert for it. The release runs on the StmtExecutor thread at query finish,
+     * whose TCCL is the fe-core app
      * loader, so it MUST be pinned to the provider's plugin classloader ({@link #onPluginClassLoader}) or the
      * commit's by-name class resolution (metastore/thrift) would split-brain against the app loader's copies.
      * Extracted as a pure function of {@code (scanProvider, queryId)} so the release + TCCL-pin behavior is
@@ -886,6 +968,53 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             scanProvider.releaseReadTransaction(queryId);
             return null;
         });
+    }
+
+    static final class QueryFinishCleanup implements Runnable {
+        private final String queryId;
+        private final ConnectorStatementScope statementScope;
+        private volatile ConnectorScanPlanProvider scanProvider;
+
+        private QueryFinishCleanup(ConnectorSession connectorSession) {
+            this.queryId = connectorSession.getQueryId();
+            this.statementScope = connectorSession.getStatementScope();
+        }
+
+        void bind(ConnectorScanPlanProvider scanProvider) {
+            this.scanProvider = scanProvider;
+        }
+
+        @Override
+        public void run() {
+            try {
+                ConnectorScanPlanProvider provider = scanProvider;
+                if (provider != null) {
+                    buildReadTransactionReleaseCallback(provider, queryId).run();
+                }
+            } finally {
+                if (statementScope != ConnectorStatementScope.NONE) {
+                    statementScope.closeAll();
+                }
+            }
+        }
+    }
+
+    static QueryFinishCleanup registerQueryFinishCleanup(ConnectorSession connectorSession) {
+        QueryFinishCleanup cleanup = new QueryFinishCleanup(connectorSession);
+        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(connectorSession.getQueryId(), cleanup);
+        return cleanup;
+    }
+
+    static void publishBatchFailure(AtomicReference<UserException> batchException,
+            SplitAssignment splitAssignment, UserException failure) {
+        if (batchException.compareAndSet(null, failure)) {
+            splitAssignment.setException(failure);
+            return;
+        }
+        UserException primaryFailure = batchException.get();
+        if (primaryFailure != failure) {
+            primaryFailure.addSuppressed(failure);
+        }
     }
 
     /**
@@ -1026,9 +1155,21 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             return;
         }
         ConnectorMetadata metadata = metadata();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         ConnectorFilterConstraint constraint = buildFilterConstraint(conjuncts);
-        Optional<FilterApplicationResult<ConnectorTableHandle>> result =
-                metadata.applyFilter(connectorSession, currentHandle, constraint);
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result;
+        try {
+            result = metadata.applyFilter(connectorSession, currentHandle, constraint);
+        } catch (RuntimeException failure) {
+            if (scanProvider != null) {
+                try {
+                    collectAndAppendConnectorScanProfiles(scanProvider);
+                } catch (RuntimeException profileFailure) {
+                    failure.addSuppressed(profileFailure);
+                }
+            }
+            throw failure;
+        }
         if (result.isPresent()) {
             FilterApplicationResult<ConnectorTableHandle> filterResult = result.get();
             currentHandle = filterResult.getHandle();
@@ -1136,7 +1277,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // loaded, checks this reference's own pin), so it catches the latest-masked / @incr / MTMV-refresh
         // cases the version-blind analysis-time binding cannot. Per user decision 2026-07-13: throw for now;
         // the per-reference version-aware schema-binding refactor is tracked as D-MVCC-VERSION-SCHEMA. A
-        // latest / @incr / hive scan carries a null pinnedSchema -> no-op; so does a sys-table scan on a
+        // reference without a pinned schema is a no-op; so is a sys-table scan on a
         // connector that rejects sys-table time travel (resolveSysTableSnapshotPin returns empty). A sys-table
         // scan on a connector that DOES honor it (iceberg) is excluded inside the guard — see there.
         if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
@@ -1165,12 +1306,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * (BE matches iceberg columns by id, so a rename that keeps the id is fine, a renumber / added column is
      * caught); {@code uniqueId < 0} (paimon has no top-level field-id) matches by name. Reader-synthesized
      * row-id columns ({@link Column#GLOBAL_ROWID_COL}) are skipped — they are not table columns and are
-     * absent from every pinned schema by construction.</p>
+     * absent from every pinned schema by construction. Connector-synthesized columns are likewise exempt
+     * on a schema miss; their classification comes from the scan provider, not connector-specific names.</p>
      *
      * <p>Two no-ops, both because the guard's precondition — {@code boundColumns} and {@code pinnedSchema}
      * describe the SAME table — does not hold:
      * <ul>
-     *   <li>A {@code null} pinnedSchema (latest / {@code @incr} / hive reference): nothing to compare.</li>
+     *   <li>A {@code null} pinnedSchema (e.g. {@code @incr} or an unversioned schema): nothing to compare.</li>
      *   <li>A {@code table} that is a {@link PluginDrivenSysExternalTable}: a sys-table scan's pin is BY
      *       CONSTRUCTION resolved off the SOURCE table ({@code resolveSysTableSnapshotPin}), so pinnedSchema
      *       carries the source's columns while boundColumns carries the sys table's synthetic ones
@@ -1183,7 +1325,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * The guard keeps full strength for real MVCC tables: {@link PluginDrivenSysExternalTable} and
      * {@link PluginDrivenMvccExternalTable} are sibling subclasses, so no normal table matches.</p>
      */
-    static void assertBoundColumnsResolveInPinnedSchema(List<Column> boundColumns,
+    void assertBoundColumnsResolveInPinnedSchema(List<Column> boundColumns,
             SchemaCacheValue pinnedSchema, TableIf table) throws UserException {
         if (pinnedSchema == null || table instanceof PluginDrivenSysExternalTable) {
             return;
@@ -1207,7 +1349,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             boolean resolved = bound.getUniqueId() >= 0
                     ? pinnedFieldIds.contains(bound.getUniqueId())
                     : pinnedNames.contains(bound.getName().toLowerCase());
-            if (!resolved) {
+            // Request-scoped synthesized columns do not belong to a physical schema generation.
+            // GENERATED columns still read file data and must pass the schema check.
+            if (!resolved && classifyColumnByConnector(bound.getName()) != ConnectorColumnCategory.SYNTHESIZED) {
                 throw new UserException("Reading the same table at multiple versions with different schemas "
                         + "in one statement is not supported yet: column '" + bound.getName() + "' of table '"
                         + tableName + "' is bound at a different version than the one this reference scans. "
@@ -1461,6 +1605,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
+        QueryFinishCleanup queryFinishCleanup = registerQueryFinishCleanup(connectorSession);
         checkSysTableScanConstraints();
 
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
@@ -1477,21 +1622,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // no-op). The callback runs on the StmtExecutor thread at query finish, whose TCCL is the fe-core app
         // loader, so the release is pinned to the provider's plugin classloader (see the helper). One string:
         // connectorSession.getQueryId() == the query-finish registry key == the connector's txnMap key.
-        String readTxnQueryId = connectorSession.getQueryId();
-        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId,
-                buildReadTransactionReleaseCallback(scanProvider, readTxnQueryId));
-
-        // Deterministic close of the per-statement metadata scope, on the SAME query-finish hook and the SAME
-        // query-id key as the read-transaction release above. This is the PRIMARY close: getSplits runs only for
-        // coordinated scans, all of which reach unregisterQuery, so it fires after off-thread pump quiescence and
-        // leaves no dangling registry entry. Object-capture (scope::closeAll binds THIS scope instance) so a retry
-        // / prepared-EXECUTE that swaps the StatementContext field can never let this callback touch a successor
-        // scope. Skip NONE (off-thread / no-ConnectContext builds carry NONE and hold nothing to close). Non-scan
-        // statements (DDL / SHOW / EXPLAIN via Command.run) never reach here and are closed by StatementContext.
-        ConnectorStatementScope statementScope = connectorSession.getStatementScope();
-        if (statementScope != ConnectorStatementScope.NONE) {
-            QeProcessorImpl.INSTANCE.registerQueryFinishCallback(readTxnQueryId, statementScope::closeAll);
-        }
+        queryFinishCleanup.bind(scanProvider);
 
         // Push the Nereids partition-pruning result down to the connector so the read session
         // covers only the surviving partitions. A pruned-to-zero set means no data to read,
@@ -1513,7 +1644,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             this.totalPartitionNum = partitionCounts[1];
         }
         if (requiredPartitions != null && requiredPartitions.isEmpty()) {
-            return Collections.emptyList();
+            return finishPrunedToZeroScan(scanProvider);
         }
 
         List<ConnectorColumnHandle> columns = buildColumnHandles();
@@ -1567,8 +1698,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // Connectors that just list files are unaffected: they never read this.
                 .explainOnly(isExplainOnly())
                 .build();
-        List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
-                () -> scanProvider.planScan(connectorSession, request));
+        List<ConnectorScanRange> ranges = executeWithProfileFinalization(
+                () -> onPluginClassLoader(scanProvider,
+                        () -> scanProvider.planScan(connectorSession, request)),
+                () -> collectAndAppendConnectorScanProfiles(scanProvider));
 
         if (variantCompatibilityDeferred) {
             checkVariantBackendCompatibility(
@@ -1597,13 +1730,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 () -> scanProvider.scannedPartitionCount(ranges));
         this.selectedPartitionNum = resolveSelectedPartitionNum(
                 this.selectedPartitionNum, countPushdown, connectorScannedPartitions);
-        // FIX-SCAN-METRICS: drain the connector's SDK scan diagnostics (harvested during planScan, keyed by
-        // queryId) and write them into the query profile. connector-agnostic: the connector supplies the
-        // group/label/metrics, the engine only transcribes them (no source branch). Default empty for
-        // connectors that don't harvest. Same thread as planScan, so the harvest is complete.
-        List<ConnectorScanProfile> scanProfiles = onPluginClassLoader(scanProvider,
-                () -> scanProvider.collectScanProfiles(connectorSession));
-        appendConnectorScanProfiles(scanProfiles);
         long pushDownRowCount = resolvePushDownRowCount(countPushdown, ranges);
         if (pushDownRowCount >= 0) {
             // Only set when a range actually carries a precomputed count (e.g. paimon's collapsed count
@@ -1861,10 +1987,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     @Override
     public void startSplit(int numBackends) {
+        QueryFinishCleanup queryFinishCleanup = registerQueryFinishCleanup(connectorSession);
         if (streamingBatch) {
             // File-count streaming flavor (FIX-M3): pump a connector-driven lazy source instead of
             // slicing partitions. Mutually exclusive with the partition-slicing path below.
-            startStreamingSplit();
+            startStreamingSplit(queryFinishCleanup);
             return;
         }
         try {
@@ -1909,6 +2036,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
         final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        queryFinishCleanup.bind(scanProvider);
         // One request for the whole batched scan; each batch re-scopes it to its own partitions. No row
         // limit and no COUNT(*) pushdown on this path (batch mode is entered before either applies),
         // matching what the batched call passed before the request object existed.
@@ -1918,51 +2046,82 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         final List<String> allPartitions =
                 new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
         final int batchSize = sessionVariable.getNumPartitionsInBatchMode();
+        SummaryProfile batchSummaryProfile = SummaryProfile.getSummaryProfile(ConnectContext.get());
+        final RuntimeProfile batchExecutionSummary = batchSummaryProfile == null
+                ? null : batchSummaryProfile.getExecutionSummary();
 
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         AtomicReference<UserException> batchException = new AtomicReference<>(null);
-        AtomicInteger numFinishedPartitions = new AtomicInteger(0);
-
-        CompletableFuture.runAsync(() -> {
-            for (int begin = 0; begin < allPartitions.size(); begin += batchSize) {
-                int end = Math.min(begin + batchSize, allPartitions.size());
-                if (batchException.get() != null || splitAssignment.isStop()) {
-                    break;
+        SubmittedTaskFinalizer profileFinalizer = new SubmittedTaskFinalizer(() -> {
+            try {
+                List<ConnectorScanProfile> profiles = onPluginClassLoader(scanProvider,
+                        () -> scanProvider.collectScanProfiles(connectorSession));
+                writeScanProfilesInto(batchExecutionSummary, profiles);
+            } catch (Exception e) {
+                UserException profileFailure = new UserException(e.getMessage(), e);
+                UserException primaryFailure = batchException.get();
+                if (primaryFailure == null) {
+                    publishBatchFailure(batchException, splitAssignment, profileFailure);
+                } else {
+                    primaryFailure.addSuppressed(profileFailure);
                 }
-                List<String> batch = allPartitions.subList(begin, end);
-                int curBatchSize = end - begin;
-                try {
-                    CompletableFuture.runAsync(() -> {
-                        try {
-                            List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
-                                    () -> scanProvider.planScanForPartitionBatch(
-                                            connectorSession, batchRequest, batch));
-                            List<Split> batchSplits = new ArrayList<>(ranges.size());
-                            for (ConnectorScanRange range : ranges) {
-                                batchSplits.add(new PluginDrivenSplit(range));
-                            }
-                            if (splitAssignment.needMoreSplit()) {
-                                splitAssignment.addToQueue(batchSplits);
-                            }
-                        } catch (Exception e) {
-                            batchException.set(new UserException(e.getMessage(), e));
-                        } finally {
-                            if (batchException.get() != null) {
-                                splitAssignment.setException(batchException.get());
-                            }
-                            if (numFinishedPartitions.addAndGet(curBatchSize) == allPartitions.size()) {
-                                splitAssignment.finishSchedule();
-                            }
-                        }
-                    }, scheduleExecutor);
-                } catch (Exception e) {
-                    batchException.set(new UserException(e.getMessage(), e));
-                }
-                if (batchException.get() != null) {
-                    splitAssignment.setException(batchException.get());
-                }
+            } finally {
+                splitAssignment.finishSchedule();
             }
-        }, scheduleExecutor);
+        });
+
+        Runnable dispatch = () -> {
+            try {
+                for (int begin = 0; begin < allPartitions.size(); begin += batchSize) {
+                    int end = Math.min(begin + batchSize, allPartitions.size());
+                    if (batchException.get() != null || splitAssignment.isStop()) {
+                        break;
+                    }
+                    List<String> batch = allPartitions.subList(begin, end);
+                    profileFinalizer.taskSubmitted();
+                    try {
+                        CompletableFuture.runAsync(() -> {
+                            try {
+                                List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
+                                        () -> scanProvider.planScanForPartitionBatch(
+                                                connectorSession, batchRequest, batch));
+                                List<Split> batchSplits = new ArrayList<>(ranges.size());
+                                for (ConnectorScanRange range : ranges) {
+                                    batchSplits.add(new PluginDrivenSplit(range));
+                                }
+                                if (splitAssignment.needMoreSplit()) {
+                                    splitAssignment.addToQueue(batchSplits);
+                                }
+                            } catch (Exception e) {
+                                publishBatchFailure(batchException, splitAssignment,
+                                        new UserException(e.getMessage(), e));
+                            } finally {
+                                profileFinalizer.taskFinished();
+                            }
+                        }, scheduleExecutor);
+                    } catch (Exception e) {
+                        try {
+                            publishBatchFailure(batchException, splitAssignment,
+                                    new UserException(e.getMessage(), e));
+                        } finally {
+                            profileFinalizer.taskFinished();
+                        }
+                    }
+                }
+            } finally {
+                profileFinalizer.closeDispatch();
+            }
+        };
+        try {
+            CompletableFuture.runAsync(dispatch, scheduleExecutor);
+        } catch (Exception e) {
+            try {
+                publishBatchFailure(batchException, splitAssignment,
+                        new UserException(e.getMessage(), e));
+            } finally {
+                profileFinalizer.closeDispatch();
+            }
+        }
     }
 
     /**
@@ -1972,7 +2131,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * flavor stays on the {@link #startSplit} partition-slicing path. Deliberately does NOT push the limit
      * (passes {@code -1}): the LIMIT-split optimization stays on the non-batch {@link #getSplits} path only.
      */
-    private void startStreamingSplit() {
+    private void startStreamingSplit(QueryFinishCleanup queryFinishCleanup) {
         try {
             checkSysTableScanConstraints();
         } catch (UserException e) {
@@ -2007,6 +2166,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
         final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        queryFinishCleanup.bind(scanProvider);
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         CompletableFuture.runAsync(() -> {
             ConnectorSplitSource source = null;

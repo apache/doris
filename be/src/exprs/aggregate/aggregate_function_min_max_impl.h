@@ -59,6 +59,10 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_DATETIMEV2>>>>(
                 argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        return creator_without_type::create_unary_arguments<
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_TIMESTAMP_NS>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_TIMESTAMPTZ>>>>(

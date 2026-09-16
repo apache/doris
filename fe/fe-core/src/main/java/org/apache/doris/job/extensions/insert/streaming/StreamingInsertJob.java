@@ -568,6 +568,30 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
+    /**
+     * Move the job to {@code newStatus} only if it is still in {@code expectedStatus}.
+     *
+     * <p>{@link #createStreamingTask()} hands the task to {@code StreamingTaskScheduler} before the
+     * caller has marked the job RUNNING, so that scheduler thread may already have failed the task
+     * and paused the job. Writing RUNNING unconditionally would drop that PAUSED, and the job would
+     * then sit in RUNNING with a canceled task forever: handleRunningState() never creates a task
+     * for a TVF source, and the auto resume handler only runs while PAUSED.
+     *
+     * @return true when the status was updated, false when another thread already moved the job
+     */
+    public boolean updateJobStatusIfCurrent(JobStatus expectedStatus, JobStatus newStatus) throws JobException {
+        lock.writeLock().lock();
+        try {
+            if (!expectedStatus.equals(getJobStatus())) {
+                return false;
+            }
+            updateJobStatus(newStatus);
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public void resetFailureInfo(FailureReason reason) {
         this.setFailureReason(reason);
         // Currently, only delayMsg is present here, which needs to be cleared when the status changes.
