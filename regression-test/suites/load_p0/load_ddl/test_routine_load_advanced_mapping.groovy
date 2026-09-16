@@ -21,9 +21,7 @@ import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_routine_load_advanced_mapping","p0") {
-    def kafkaCsvTpoics = [
-                  "load_ddl_basic_data_json_by_line",
-                ]
+    def kafkaTopic = "load_ddl_basic_data_json_by_line"
 
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
     String kafka_port = context.config.otherConfigs.get("kafka_port")
@@ -64,14 +62,12 @@ suite("test_routine_load_advanced_mapping","p0") {
         }
         logger.info("Kafka connect success")
 
-        for (String kafkaCsvTopic in kafkaCsvTpoics) {
-            def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.json""").text
-            def lines = txt.readLines()
-            lines.each { line ->
-                logger.info("=====${line}========")
-                def record = new ProducerRecord<>(kafkaCsvTopic, null, line)
-                producer.send(record)
-            }
+        def txt = new File("""${context.file.parent}/data/${kafkaTopic}.json""").text
+        def lines = txt.readLines()
+        lines.each { line ->
+            logger.info("=====${line}========")
+            def record = new ProducerRecord<>(kafkaTopic, null, line)
+            producer.send(record)
         }
     }
 
@@ -156,39 +152,48 @@ suite("test_routine_load_advanced_mapping","p0") {
                 FROM KAFKA
                 (
                     "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
-                    "kafka_topic" = "basic_data_json_by_line",
+                    "kafka_topic" = "${kafkaTopic}",
                     "property.kafka_default_offsets" = "OFFSET_BEGINNING"
                 );
             """
             sql "sync"
 
+            def getRoutineLoadJob = {
+                def res = sql_return_maparray "show routine load for ${jobName}"
+                assert !res.isEmpty(): "Routine load job ${jobName} not found"
+                def job = res[0]
+                if (job.State != "RUNNING") {
+                    logger.info("Routine load ${jobName}: state=${job.State}, "
+                            + "reason=${job.ReasonOfStateChanged}, errorLogUrls=${job.ErrorLogUrls}")
+                }
+                return job
+            }
             def count = 0
             while (true) {
                 sleep(1000)
-                def res = sql "show routine load for ${jobName}"
-                def state = res[0][8].toString()
+                def job = getRoutineLoadJob()
+                def state = job.State.toString()
                 if (state != "RUNNING") {
                     count++
-                    if (count > 60) {
-                        assertEquals(1, 2)
-                    } 
+                    assert count <= 60: "Timed out waiting for routine load ${jobName} to run: "
+                            + "state=${state}, reason=${job.ReasonOfStateChanged}, errorLogUrls=${job.ErrorLogUrls}"
                     continue;
                 }
-                log.info("reason of state changed: ${res[0][11].toString()}".toString())
-                def json = parseJson(res[0][11])
-                assertEquals("(`k00` = 8)", json.whereExpr.toString())
+                log.info("routine load job properties: ${job.JobProperties}")
+                def json = parseJson(job.JobProperties)
+                assertEquals("(k00 = 8)", json.whereExpr.toString())
                 break;
             }
             while (true) {
                 sleep(1000)
-                def res = sql "show routine load for ${jobName}"
-                log.info("routine load statistic: ${res[0][14].toString()}".toString())
-                def json = parseJson(res[0][14])
+                def job = getRoutineLoadJob()
+                log.info("routine load statistic: ${job.Statistic}")
+                def json = parseJson(job.Statistic)
                 if (json.unselectedRows.toString() != "19") {
                     count++
-                    if (count > 60) {
-                        assertEquals(1, 2)
-                    } 
+                    assert count <= 60: "Timed out waiting for routine load ${jobName} unselectedRows=19: "
+                            + "state=${job.State}, reason=${job.ReasonOfStateChanged}, "
+                            + "statistic=${job.Statistic}, errorLogUrls=${job.ErrorLogUrls}"
                     continue;
                 }
                 break;

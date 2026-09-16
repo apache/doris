@@ -113,13 +113,22 @@ class Http {
         }
     }
 
+    static String basicAuthorization(String user, String password) {
+        String credentials = "${user}:${password ?: ''}"
+        return 'Basic ' + credentials.getBytes('UTF-8').encodeBase64().toString()
+    }
+
     static Object GET(url, isJson = false, printText = true) {
+        return GET(url, isJson, printText, 'root', '')
+    }
+
+    static Object GET(url, isJson, printText, String user, String password) {
         if (enableTls) {
             url = url.replace("http://", "https://")
         }
         def conn = new URL(url).openConnection()
         conn.setRequestMethod('GET')
-        conn.setRequestProperty('Authorization', 'Basic cm9vdDo=') //token for root
+        conn.setRequestProperty('Authorization', basicAuthorization(user, password))
         def code = conn.responseCode
         def text = conn.content.text
         if (printText) {
@@ -138,12 +147,16 @@ class Http {
     }
 
     static Object POST(url, data = null, isJson = false) {
+        return POST(url, data, isJson, 'root', '')
+    }
+
+    static Object POST(url, data, isJson, String user, String password) {
         if (enableTls) {
             url = url.replace("http://", "https://")
         }
         def conn = new URL(url).openConnection()
         conn.setRequestMethod('POST')
-        conn.setRequestProperty('Authorization', 'Basic cm9vdDo=') //token for root
+        conn.setRequestProperty('Authorization', basicAuthorization(user, password))
         if (data) {
             if (isJson) {
                 conn.setRequestProperty('Content-Type', 'application/json')

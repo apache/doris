@@ -1166,7 +1166,9 @@ class Config {
     void fetchCloudMode() {
         if (runMode == RunMode.UNKNOWN) {
             try {
-                def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'cloud_unique_id'")
+                def result = getRootConnection().withCloseable { conn ->
+                    JdbcUtils.executeToMapArray(conn, "SHOW FRONTEND CONFIG LIKE 'cloud_unique_id'")
+                }
                 runMode = result[0].Value.toString().isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
             } catch (Throwable t) {
                 throw new IllegalStateException("Fetch server config 'cloud_unique_id' failed, jdbcUrl: ${jdbcUrl}", t)
@@ -1176,7 +1178,9 @@ class Config {
 
     boolean isClusterKeyEnabled() {
         try {
-            def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'random_add_order_by_keys_for_mow'")
+            def result = getRootConnection().withCloseable { conn ->
+                JdbcUtils.executeToMapArray(conn, "SHOW FRONTEND CONFIG LIKE 'random_add_order_by_keys_for_mow'")
+            }
             log.info("show random_add_order_by_keys_for_mow config: ${result}".toString())
             return result[0].Value.toString().equalsIgnoreCase("true")
         } catch (Throwable t) {
@@ -1220,8 +1224,12 @@ class Config {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
     }
 
+    String getRootPassword() {
+        return (jdbcUser == 'root' && jdbcPassword) ? jdbcPassword : ''
+    }
+
     Connection getRootConnection() {
-        return DriverManager.getConnection(jdbcUrl, 'root', '')
+        return DriverManager.getConnection(jdbcUrl, 'root', getRootPassword())
     }
 
     Connection getConnectionByDbName(String dbName) {

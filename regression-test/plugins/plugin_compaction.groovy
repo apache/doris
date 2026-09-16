@@ -163,7 +163,8 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             return null
         }
     }
-    Awaitility.await().atMost(timeout_seconds, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until(() -> {
+    // Parallel suites own their worker failures; do not capture uncaught exceptions from other suites.
+    Awaitility.await().dontCatchUncaughtExceptions().atMost(timeout_seconds, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until(() -> {
         for (tablet in triggered_tablets) {
             def be_host = backendId_to_backendIP["${tablet.BackendId}"]
             def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
