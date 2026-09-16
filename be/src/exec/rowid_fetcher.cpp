@@ -67,6 +67,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 #include "util/jsonb/serialize.h"
+#include "util/work_thread_pool.hpp"
 
 namespace doris {
 
@@ -515,7 +516,7 @@ struct RowIdStorageReader::ReadRequestState {
 
 namespace {
 
-// Both storage reads and scheduler submission can throw. Convert exceptions on the
+// Both storage reads and pool submission can throw. Convert exceptions on the
 // same pthread where they originated, before publishing completion.
 template <typename Func>
 Status rowid_read_status(Func&& func) {
@@ -528,7 +529,7 @@ Status rowid_read_status(Func&& func) {
     return status;
 }
 
-struct RowIdScanDispatch {
+struct RowIdReadDispatch {
     size_t task_count = 0;
     std::function<Status(size_t)> run_task;
     std::function<void(Status)> on_complete;
@@ -538,8 +539,8 @@ struct RowIdScanDispatch {
     std::atomic<size_t> remaining = 1;
     AtomicStatus status;
 
-    ~RowIdScanDispatch() {
-        // Scheduler shutdown may destroy queued closures without executing them.
+    ~RowIdReadDispatch() {
+        // Pool shutdown may destroy queued closures without executing them.
         // The last closure can disappear only after all running reads have exited.
         if (on_complete) {
             SCOPED_INIT_THREAD_CONTEXT();
@@ -547,14 +548,14 @@ struct RowIdScanDispatch {
             if (!thread_context()->is_attach_task()) {
                 task_context.emplace(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
             }
-            status.update(Status::Cancelled("Row id scan tasks discarded by scheduler shutdown"));
+            status.update(Status::Cancelled("Row id read tasks discarded by pool shutdown"));
             complete();
         }
     }
 
     void complete() {
         // Release request buffers while the rowid tracker is attached, even if
-        // the scheduler retains finished task closures for longer.
+        // the pool retains finished task closures for longer.
         auto completion = std::move(on_complete);
         completion(status.status());
         run_task = {};
@@ -569,13 +570,13 @@ struct RowIdScanDispatch {
 
 } // namespace
 
-void RowIdStorageReader::submit_internal_scan_tasks(ScannerScheduler* scheduler, size_t task_count,
+void RowIdStorageReader::submit_internal_read_tasks(FifoThreadPool* pool, size_t task_count,
                                                     int concurrency,
                                                     std::function<Status(size_t)> run_task,
                                                     std::function<void(Status)> on_complete) {
-    std::shared_ptr<RowIdScanDispatch> dispatch;
+    std::shared_ptr<RowIdReadDispatch> dispatch;
     auto setup_status = rowid_read_status([&]() {
-        dispatch = std::make_shared<RowIdScanDispatch>();
+        dispatch = std::make_shared<RowIdReadDispatch>();
         dispatch->task_count = task_count;
         dispatch->run_task = std::move(run_task);
         dispatch->on_complete = std::move(on_complete);
@@ -586,33 +587,34 @@ void RowIdStorageReader::submit_internal_scan_tasks(ScannerScheduler* scheduler,
         return;
     }
     // Launch only a bounded number of workers, each pulling the next segment range.
-    // Never block a scanner thread waiting for work submitted to its own scheduler.
+    // Never block a pool thread waiting for work submitted to its own pool.
     DCHECK_GT(concurrency, 0);
     const size_t workers = std::min(task_count, static_cast<size_t>(concurrency));
     for (size_t i = 0; i < workers; ++i) {
         dispatch->remaining.fetch_add(1);
         auto status = rowid_read_status([&]() {
-            return scheduler->submit_scan_task(
-                    SimplifiedScanTask(
-                            [dispatch]() {
-                                std::optional<AttachTask> task_context;
-                                dispatch->status.update(rowid_read_status([&]() {
-                                    task_context.emplace(
-                                            ExecEnv::GetInstance()->rowid_storage_reader_tracker());
-                                    while (dispatch->status.ok()) {
-                                        const auto idx = dispatch->next_task.fetch_add(1);
-                                        if (idx >= dispatch->task_count) {
-                                            break;
-                                        }
-                                        RETURN_IF_ERROR(dispatch->run_task(idx));
-                                    }
-                                    return Status::OK();
-                                }));
-                                dispatch->finish_worker();
-                                return true;
-                            },
-                            nullptr, nullptr),
-                    fmt::format("rowid-fetch-{}-{}", fmt::ptr(dispatch.get()), i));
+            // FifoThreadPool has no fallible bookkeeping after publishing a task.
+            // A rejection or exception therefore means this worker will never run.
+            if (!pool->try_offer([dispatch]() {
+                    std::optional<AttachTask> task_context;
+                    dispatch->status.update(rowid_read_status([&]() {
+                        task_context.emplace(
+                                ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+                        while (dispatch->status.ok()) {
+                            const auto idx = dispatch->next_task.fetch_add(1);
+                            if (idx >= dispatch->task_count) {
+                                break;
+                            }
+                            RETURN_IF_ERROR(dispatch->run_task(idx));
+                        }
+                        return Status::OK();
+                    }));
+                    dispatch->finish_worker();
+                })) {
+                return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+                        "Row id fetch queue full or pool stopped: {}", pool->get_info());
+            }
+            return Status::OK();
         });
         if (!status.ok()) {
             dispatch->status.update(status);
@@ -624,7 +626,7 @@ void RowIdStorageReader::submit_internal_scan_tasks(ScannerScheduler* scheduler,
 }
 
 void RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
-                                        PMultiGetResponseV2* response, ScannerScheduler* scheduler,
+                                        PMultiGetResponseV2* response, FifoThreadPool* pool,
                                         std::function<void(Status)> on_complete) {
     std::shared_ptr<ReadRequestState> state;
     auto status = rowid_read_status([&]() {
@@ -646,8 +648,8 @@ void RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         finish(Status::OK());
         return;
     }
-    submit_internal_scan_tasks(
-            scheduler, state->tasks.size(), state->concurrency,
+    submit_internal_read_tasks(
+            pool, state->tasks.size(), state->concurrency,
             [state](size_t idx) {
                 signal::set_signal_task_id(state->request.query_id());
                 const auto& task = state->tasks[idx];

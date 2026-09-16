@@ -241,7 +241,9 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                   config::brpc_arrow_flight_work_pool_max_queue_size != -1
                                           ? config::brpc_arrow_flight_work_pool_max_queue_size
                                           : std::max(20480, CpuInfo::num_cores() * 640),
-                                  "brpc_arrow_flight") {
+                                  "brpc_arrow_flight"),
+          _rowid_fetch_pool(CpuInfo::num_cores(), std::max(10240, CpuInfo::num_cores() * 320),
+                            "rowid_fetch") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(peer_fetch_work_pool_queue_size,
@@ -288,6 +290,10 @@ PInternalServiceImpl::PInternalServiceImpl(StorageEngine& engine, ExecEnv* exec_
 PInternalServiceImpl::~PInternalServiceImpl() = default;
 
 PInternalService::~PInternalService() {
+    // Finish active readers before tearing down service-level I/O state.
+    _rowid_fetch_pool.shutdown();
+    _rowid_fetch_pool.join();
+
     DEREGISTER_HOOK_METRIC(heavy_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(peer_fetch_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(light_work_pool_queue_size);
@@ -2006,50 +2012,52 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
         return;
     }
 
-    doris::TaskScheduler* exec_sched = nullptr;
-    ScannerScheduler* scan_sched = nullptr;
-    ScannerScheduler* remote_scan_sched = nullptr;
-    wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
-    DCHECK(remote_scan_sched);
-
     // Retain the RPC until every asynchronous internal read finishes.
     auto closure_guard = std::make_shared<brpc::ClosureGuard>(done);
-    // A queued parent task may also be discarded during scheduler shutdown.
+    // A queued parent task may also be discarded during pool shutdown.
     Status::Cancelled("Row id fetch task discarded before execution")
             .to_protobuf(response->mutable_status());
-    st = remote_scan_sched->submit_scan_task(
-            SimplifiedScanTask(
-                    [request, response, closure_guard, remote_scan_sched]() {
-                        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
-                        signal::set_signal_task_id(request->query_id());
-                        MonotonicStopWatch watch;
-                        watch.start();
-                        Status status;
-                        try {
-                            ASSIGN_STATUS_IF_CATCH_EXCEPTION(
-                                    RowIdStorageReader::read_by_rowids(
-                                            *request, response, remote_scan_sched,
-                                            [response, closure_guard, watch](Status result) {
-                                                result.to_protobuf(response->mutable_status());
-                                                LOG(INFO) << "multiget_data finished, cost(us):"
-                                                          << watch.elapsed_time() / 1000;
-                                                // Complete while the rowid tracker is attached.
-                                                closure_guard->reset(nullptr);
-                                            }),
-                                    status);
-                        } catch (const std::exception& e) {
-                            status = Status::InternalError("Row id fetch failed because {}",
-                                                           e.what());
-                        }
-                        if (!status.ok()) {
-                            status.to_protobuf(response->mutable_status());
-                            closure_guard->reset(nullptr);
-                        }
-                        return true;
-                    },
-                    nullptr, nullptr),
-            fmt::format("{}-multiget_data_v2-{}", print_id(request->query_id()),
-                        fmt::ptr(request)));
+    auto task = [this, request, response, closure_guard]() {
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+        signal::set_signal_task_id(request->query_id());
+        MonotonicStopWatch watch;
+        watch.start();
+        Status status;
+        try {
+            ASSIGN_STATUS_IF_CATCH_EXCEPTION(
+                    RowIdStorageReader::read_by_rowids(
+                            *request, response, &_rowid_fetch_pool,
+                            [response, closure_guard, watch](Status result) {
+                                result.to_protobuf(response->mutable_status());
+                                LOG(INFO) << "multiget_data finished, cost(us):"
+                                          << watch.elapsed_time() / 1000;
+                                // Complete while the rowid tracker is attached.
+                                closure_guard->reset(nullptr);
+                            }),
+                    status);
+        } catch (const std::exception& e) {
+            status = Status::InternalError("Row id fetch failed because {}", e.what());
+        }
+        if (!status.ok()) {
+            status.to_protobuf(response->mutable_status());
+            closure_guard->reset(nullptr);
+        }
+    };
+    // Use the dedicated pool for both preparation and internal reads. Preparation
+    // returns after submitting its workers, so even a one-thread pool can progress.
+    try {
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(
+                {
+                    if (!_rowid_fetch_pool.try_offer(std::move(task))) {
+                        st = Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+                                "Row id fetch queue full or pool stopped: {}",
+                                _rowid_fetch_pool.get_info());
+                    }
+                },
+                st);
+    } catch (const std::exception& e) {
+        st = Status::InternalError("Row id fetch submission failed because {}", e.what());
+    }
 
     if (!st.ok()) {
         st.to_protobuf(response->mutable_status());

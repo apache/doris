@@ -38,6 +38,8 @@ class RuntimeState;
 class TQueryOptions;
 class TupleDescriptor;
 class ScannerScheduler;
+template <bool Priority>
+class WorkThreadPool;
 namespace io {
 enum class FileCacheMissPolicy : uint8_t;
 }
@@ -79,10 +81,10 @@ public:
     static const std::string TopNLazyMaterializationSecondPhaseRowsRead;
     static const std::string TopNLazyMaterializationSecondPhaseSegmentsRead;
 
-    // Request/response and scheduler must remain alive until on_complete is called.
-    // Runs from the request's scanner scheduler; parallel reads use that same scheduler.
+    // Request/response and pool must remain alive until on_complete is called.
+    // Runs from the dedicated rowid fetch pool; parallel reads use that same pool.
     static void read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response,
-                               ScannerScheduler* scheduler,
+                               WorkThreadPool<false>* pool,
                                std::function<void(Status)> on_complete);
 
 private:
@@ -94,7 +96,7 @@ private:
     struct InternalReadState;
     struct ReadRequestState;
 
-    static void submit_internal_scan_tasks(ScannerScheduler* scheduler, size_t task_count,
+    static void submit_internal_read_tasks(WorkThreadPool<false>* pool, size_t task_count,
                                            int concurrency, std::function<Status(size_t)> run_task,
                                            std::function<void(Status)> on_complete);
 
