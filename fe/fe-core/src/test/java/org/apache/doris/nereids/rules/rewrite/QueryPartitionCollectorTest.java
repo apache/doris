@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.CascadesContext;
@@ -76,6 +77,33 @@ public class QueryPartitionCollectorTest {
             assertRecordedPartitions(statementContext, "p1", "p2");
             // MUTATION: re-enumerating through the connector here puts a full HMS round-trip back under the
             // reader's locks, which is exactly the hazard the preload hand-off exists to remove.
+            Mockito.verify(table, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+        } finally {
+            statementContext.close();
+        }
+    }
+
+    @Test
+    public void defaultConfigurationMaterializesTheViewBeforeTheLock() {
+        // No session variable is touched: with the opt-in preload switch OFF, the pre-lock step NereidsPlanner
+        // runs just before lock() must still materialize the view, so the collector needs no connector I/O.
+        PluginDrivenExternalTable table = table(SelectedPartitions.DEFERRED_PARTITION_PRUNING);
+        Mockito.when(table.supportsConnectorPartitionPruning()).thenReturn(true);
+        Mockito.when(table.getNameToPartitionItemsForScan(Mockito.any()))
+                .thenReturn(Optional.of(partitions("p1", "p2")));
+        StatementContext statementContext = statementContextWithInternalReadLock();
+        try {
+            Assertions.assertFalse(statementContext.getConnectContext().getSessionVariable()
+                    .isEnablePreloadExternalMetadata(), "this test must stay on the default preload switch");
+            statementContext.registerExternalTableForPreload(table, Optional.empty(), Optional.empty());
+
+            statementContext.preloadDeferredScanPartitionViewsBeforeLock();
+            // Everything after this point runs while the statement holds its internal table read locks.
+            Mockito.clearInvocations(table);
+
+            collect(scan(table, Optional.empty()), statementContext);
+
+            assertRecordedPartitions(statementContext, "p1", "p2");
             Mockito.verify(table, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
         } finally {
             statementContext.close();
@@ -226,5 +254,14 @@ public class QueryPartitionCollectorTest {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
         return new StatementContext(connectContext, new OriginStatement("select 1", 0));
+    }
+
+    /** A statement that mixes an internal table needing a plan-time read lock with the external table. */
+    private static StatementContext statementContextWithInternalReadLock() {
+        StatementContext statementContext = statementContext();
+        TableIf internalTable = Mockito.mock(TableIf.class);
+        Mockito.when(internalTable.needReadLockWhenPlan()).thenReturn(true);
+        statementContext.getTables().put(ImmutableList.of("ctl", "db", "internal"), internalTable);
+        return statementContext;
     }
 }
