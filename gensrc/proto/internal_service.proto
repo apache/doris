@@ -471,6 +471,8 @@ message PKinesisLoadInfo {
 
 message PKinesisMetaProxyRequest {
     optional PKinesisLoadInfo kinesis_info = 1;
+    // Resolve initial LATEST positions before data tasks are created.
+    repeated string shard_ids_for_latest_sequences = 2;
 };
 
 message PShardInfo {
@@ -482,6 +484,8 @@ message PShardInfo {
 message PKinesisMetaProxyResult {
     repeated string shard_ids = 1;  // Deprecated, use shard_infos instead
     repeated PShardInfo shard_infos = 2;
+    // Last retained sequence, or TRIM_HORIZON when the scanned shard is empty.
+    map<string, string> shard_latest_sequences = 3;
 };
 
 message PProxyRequest {

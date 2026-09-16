@@ -49,9 +49,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.KinesisLatestPositionOperation;
+import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -77,6 +80,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * KinesisRoutineLoadJob is a RoutineLoadJob that fetches data from AWS Kinesis streams.
@@ -128,6 +136,11 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     // Will be updated periodically by calling hasMoreDataToConsume()
     private Map<String, Long> cachedShardWithMillsBehindLatest = Maps.newConcurrentMap();
 
+    // A tail scan belongs to job preparation, before task creation and beginTxn.
+    private transient Future<InternalService.PProxyResult> latestSequenceFetch;
+    private transient Set<String> latestSequenceShards = Collections.emptySet();
+    private transient long latestSequenceDeadlineNs;
+
     // newly discovered shards from Kinesis.
     private List<String> newCurrentKinesisShards = Lists.newArrayList();
 
@@ -174,7 +187,96 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     public void prepare() throws UserException {
         // should reset converted properties each time the job being prepared.
         // because the file info can be changed anytime.
-        convertCustomProperties(true);
+        writeLock();
+        try {
+            convertCustomProperties(true);
+            if (state != JobState.NEED_SCHEDULE) {
+                return;
+            }
+            if (latestSequenceFetch == null) {
+                Set<String> shards = getUnresolvedLatestShards();
+                if (shards.isEmpty()) {
+                    return;
+                }
+                int timeout = Config.kinesis_latest_sequence_timeout_second;
+                if (timeout != -1 && timeout <= 0) {
+                    throw new LoadException("kinesis_latest_sequence_timeout_second must be -1 or positive");
+                }
+                latestSequenceDeadlineNs = timeout == -1 ? 0
+                        : System.nanoTime() + TimeUnit.SECONDS.toNanos(timeout);
+                latestSequenceFetch = KinesisUtil.getLatestSequenceNumbersAsync(
+                        region, stream, endpoint, convertedCustomProperties, shards, timeout);
+                latestSequenceShards = shards;
+                LOG.info("Resolving initial Kinesis LATEST positions, job: {}, shards: {}", id, shards);
+            }
+            if (latestSequenceDeadlineNs != 0 && System.nanoTime() - latestSequenceDeadlineNs >= 0) {
+                resetLatestSequenceFetch();
+                throw new LoadException("Kinesis latest sequence scan timed out before reaching the shard tips");
+            }
+            if (!latestSequenceFetch.isDone()) {
+                return;
+            }
+            try {
+                InternalService.PProxyResult result = latestSequenceFetch.get();
+                if (result.getStatus().getStatusCode() != TStatusCode.OK.getValue()) {
+                    throw new LoadException("Kinesis latest sequence scan failed: "
+                            + result.getStatus().getErrorMsgsList());
+                }
+                Map<String, String> positions = result.getKinesisMetaResult().getShardLatestSequencesMap();
+                if (!positions.keySet().equals(latestSequenceShards)) {
+                    throw new LoadException("BE did not return all requested Kinesis latest positions; "
+                            + "ensure the BE supports latest sequence scans");
+                }
+                KinesisLatestPositionOperation operation = new KinesisLatestPositionOperation(id, positions);
+                // A task must never observe these positions before the journal write succeeds.
+                Env.getCurrentEnv().getEditLog().logKinesisLatestPosition(operation);
+                replayLatestPosition(operation);
+                LOG.info("Resolved initial Kinesis positions, job: {}, positions: {}", id, positions);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new LoadException("Interrupted while resolving Kinesis latest positions");
+            } catch (ExecutionException | CancellationException e) {
+                throw new LoadException("Failed to resolve Kinesis latest positions: " + e.getMessage());
+            } finally {
+                resetLatestSequenceFetch();
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private Set<String> getUnresolvedLatestShards() {
+        return openKinesisShards.stream().filter(shard -> {
+            String position = ((KinesisProgress) progress).getSequenceNumberByShard(shard);
+            return KinesisProgress.POSITION_LATEST.equalsIgnoreCase(position)
+                    || KinesisProgress.LATEST_VAL.equals(position);
+        }).collect(Collectors.toSet());
+    }
+
+    @Override
+    protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
+        super.unprotectUpdateState(jobState, reason, isReplay);
+        if (jobState == JobState.PAUSED || jobState.isFinalState()) {
+            resetLatestSequenceFetch();
+        }
+    }
+
+    private void resetLatestSequenceFetch() {
+        if (latestSequenceFetch != null) {
+            latestSequenceFetch.cancel(true);
+            latestSequenceFetch = null;
+        }
+        latestSequenceShards = Collections.emptySet();
+    }
+
+    public void replayLatestPosition(KinesisLatestPositionOperation operation) {
+        writeLock();
+        try {
+            operation.getShardPositions().forEach((shard, position) ->
+                    ((KinesisProgress) progress).addShardPosition(Pair.of(shard, position)));
+        } finally {
+            writeUnlock();
+        }
     }
 
     private void convertCustomProperties(boolean rebuild) throws DdlException {
@@ -214,6 +316,10 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         writeLock();
         try {
             if (state == JobState.NEED_SCHEDULE) {
+                if (!getUnresolvedLatestShards().isEmpty()) {
+                    // prepare() will collect the scan result on a later scheduler round.
+                    return;
+                }
                 // Combine open and closed shards for task assignment
                 List<String> allShards = Lists.newArrayList();
                 allShards.addAll(openKinesisShards);
@@ -706,6 +812,8 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             boolean hasExplicitShardPositions = false;
 
             if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
+                // A result for the old source/positions must not survive an explicit ALTER.
+                resetLatestSequenceFetch();
                 shardPositions = dataSourceProperties.getKinesisShardPositions();
                 customKinesisProperties = dataSourceProperties.getCustomKinesisProperties();
                 hasExplicitShardPositions = !shardPositions.isEmpty();

@@ -26,6 +26,7 @@
 #include <stdint.h>
 
 #include <ctime>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -186,7 +187,7 @@ private:
 // and sequence numbers (strings) instead of offsets (integers).
 class KinesisDataConsumer : public DataConsumer {
 public:
-    KinesisDataConsumer(std::shared_ptr<StreamLoadContext> ctx);
+    KinesisDataConsumer(std::shared_ptr<StreamLoadContext> ctx, int scan_request_timeout_ms = 0);
     virtual ~KinesisDataConsumer();
 
     // DataConsumer interface implementation
@@ -208,8 +209,15 @@ public:
     // Get list of shard IDs
     Status get_shard_list(std::vector<std::string>* shard_ids);
 
+    // Resolve LATEST by scanning retained records without loading them into Doris.
+    Status get_latest_sequence_number(const std::string& shard_id,
+                                      const std::function<Status()>& check_status,
+                                      std::string* sequence_number);
+
 private:
     // Configuration - Basic AWS settings
+    // Nonzero only for dedicated metadata scan consumers.
+    const int _scan_request_timeout_ms;
     std::string _region;
     std::string _stream;
     std::string _endpoint; // Optional custom endpoint (e.g., LocalStack)
