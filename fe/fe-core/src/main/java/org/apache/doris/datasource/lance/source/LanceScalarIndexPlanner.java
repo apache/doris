@@ -20,9 +20,10 @@ package org.apache.doris.datasource.lance.source;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.datasource.lance.LanceFragmentInfo;
-import org.apache.doris.datasource.lance.LanceIndexSegmentInfo;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.lance.index.LanceIndexSegmentGroup;
+import org.apache.doris.datasource.lance.index.LanceIndexSegmentInfo;
+import org.apache.doris.datasource.lance.metadata.LanceFragmentInfo;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 
 import org.lance.index.IndexType;
 
@@ -31,17 +32,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
-import java.util.stream.Collectors;
 
 /** Assigns one BTree/Bitmap/LabelList segment and a disjoint fragment domain to each ordinary scan task. */
 final class LanceScalarIndexPlanner {
     static final class Plan {
         final String indexName;
-        final IndexSegmentSplitPlan splits;
+        final LanceSplitBuilder splits;
         private final long coveredRows;
 
-        Plan(String indexName, IndexSegmentSplitPlan splits, long coveredRows) {
+        Plan(String indexName, LanceSplitBuilder splits, long coveredRows) {
             this.indexName = indexName;
             this.splits = splits;
             this.coveredRows = coveredRows;
@@ -50,20 +49,21 @@ final class LanceScalarIndexPlanner {
 
     static Plan plan(LanceTableMetadata metadata, List<Expr> pushedConjuncts,
             Map<Long, LanceFragmentInfo> visibleFragments) {
-        if (metadata.getVersion() <= 0) {
+        if (metadata.getVersion() <= 0
+                || !metadata.getIndexMetadataState().canPlanIndexSegments()) {
             return null;
         }
         Set<Integer> filterFields = collectFilterFields(metadata, pushedConjuncts);
         if (filterFields.isEmpty()) {
             return null;
         }
-        // Group all segments of each logical index before checking coverage. Name order
+        // Metadata already groups physical segments by logical index. Name order
         // provides a stable winner when multiple indices cover the same number of rows.
-        Map<String, List<LanceIndexSegmentInfo>> indices = metadata.getIndexSegments().stream()
-                .collect(Collectors.groupingBy(LanceIndexSegmentInfo::getIndexName,
-                        TreeMap::new, Collectors.toList()));
+        List<LanceIndexSegmentGroup> indices = new ArrayList<>(metadata.getIndexes());
+        indices.sort(java.util.Comparator.comparing(LanceIndexSegmentGroup::getName));
         Plan selected = null;
-        for (List<LanceIndexSegmentInfo> segments : indices.values()) {
+        for (LanceIndexSegmentGroup logicalIndex : indices) {
+            List<LanceIndexSegmentInfo> segments = logicalIndex.getSegments();
             // PR #79 supports one top-level key in BTree/Bitmap/LabelList indices. Lance
             // performs the final typed driver selection and falls back within the same domain.
             LanceIndexSegmentInfo index = segments.get(0);
@@ -104,7 +104,7 @@ final class LanceScalarIndexPlanner {
 
     private static Plan groupFragments(LanceTableMetadata metadata, List<LanceIndexSegmentInfo> segments,
             Map<Long, LanceFragmentInfo> visibleFragments) {
-        IndexSegmentSplitPlan splits = new IndexSegmentSplitPlan(
+        LanceSplitBuilder splits = new LanceSplitBuilder(
                 metadata.getDatasetUri(), metadata.getVersion(), segments.size());
         Set<Long> coveredFragments = new HashSet<>();
         long coveredRows = 0;
@@ -127,7 +127,7 @@ final class LanceScalarIndexPlanner {
                     return null;
                 }
                 fragments.add(fragmentId);
-                physicalRows += Math.max(fragment.getPhysicalRows(), 1);
+                physicalRows += fragment.getSchedulingWeight();
                 coveredRows += Math.max(fragment.getPhysicalRows(), 0);
             }
             if (!fragments.isEmpty()) {

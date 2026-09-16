@@ -23,6 +23,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.lance.index.LancePhysicalIndexEntry;
+import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
+import org.apache.doris.datasource.lance.metadata.LanceMvccSnapshot;
+import org.apache.doris.datasource.lance.metadata.LanceSchemaHelper;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -33,9 +38,8 @@ import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
@@ -48,18 +52,8 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema() {
-        return Optional.of(new SchemaCacheValue(toDorisColumns(loadMetadata())));
-    }
-
-    static List<Column> toDorisColumns(LanceTableMetadata metadata) {
-        List<Column> columns = new ArrayList<>(metadata.getSchema().getFields().size());
-        int position = 0;
-        for (Field field : metadata.getSchema().getFields()) {
-            String comment = field.getMetadata() == null ? null : field.getMetadata().get("comment");
-            columns.add(new Column(field.getName(), LanceTypeConverter.toDorisType(field), false,
-                    null, field.isNullable(), comment, true, position++));
-        }
-        return columns;
+        Schema schema = ((LanceExternalCatalog) catalog).loadTableSchema(db.getRemoteName(), remoteName);
+        return Optional.of(new SchemaCacheValue(LanceSchemaHelper.toDorisColumns(schema)));
     }
 
     public LanceTableMetadata loadMetadata() {
@@ -71,8 +65,12 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
                 db.getRemoteName(), remoteName);
     }
 
-    public List<LanceLogicalIndex> loadIndexMetadata() throws AnalysisException {
-        return ((LanceExternalCatalog) catalog).loadTableIndexMetadata(
+    public LanceTableMetadata loadBasicMetadata() {
+        return ((LanceExternalCatalog) catalog).loadBasicTableMetadata(db.getRemoteName(), remoteName);
+    }
+
+    public List<LanceShowIndexInfo> loadIndexesForShow() throws AnalysisException {
+        return ((LanceExternalCatalog) catalog).loadTableIndexesForShow(
                 db.getRemoteName(), remoteName);
     }
 
@@ -111,7 +109,7 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
     @Override
     public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
         if (snapshot.isPresent()) {
-            return toDorisColumns(getMetadata(snapshot));
+            return LanceSchemaHelper.toDorisColumns(getMetadata(snapshot).getSchema());
         }
         return getFullSchema();
     }

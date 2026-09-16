@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.datasource.lance.index.LanceIndexInspection;
+import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
+
 import org.lance.schema.LanceField;
 
 import java.nio.charset.StandardCharsets;
@@ -31,11 +34,11 @@ import java.util.Set;
  * the dataset version, the user logical indexes, the physical index entries (including the
  * physical index type name), and the top-level schema fields the schema contract is built
  * from. Everything is read inside a single {@code Dataset.open} call by
- * {@link LanceIndexMetadataLoader#loadAdmissionSnapshot}, and every list is materialized into
+ * {@link LanceIndexInspection#readAdmissionSnapshot}, and every list is materialized into
  * plain Java values before the Dataset closes — the snapshot holds no native handle, Arrow
  * allocator, or Dataset reference ({@link LanceField} is a pure POJO).
  *
- * <p>All bounds mirror the limits already enforced by {@link LanceIndexMetadataLoader}.
+ * <p>All bounds mirror the limits already enforced by {@link LanceIndexInspection}.
  * Construction validates eagerly so a malformed or oversized provider result fails closed at
  * the boundary. In particular, two physical entries sharing one name — a stale post-REPLACE
  * entry coexisting with its replacement until VACUUM — make the whole snapshot ambiguous, so
@@ -45,12 +48,12 @@ import java.util.Set;
 public final class LanceIndexAdmissionSnapshot {
     private final long datasetVersion;
     private final String datasetUri;
-    private final List<LanceLogicalIndex> logicalIndexes;
+    private final List<LanceShowIndexInfo> logicalIndexes;
     private final List<PhysicalIndexInfo> physicalIndexes;
     private final List<LanceField> topLevelFields;
 
     public LanceIndexAdmissionSnapshot(long datasetVersion, String datasetUri,
-            List<LanceLogicalIndex> logicalIndexes, List<PhysicalIndexInfo> physicalIndexes,
+            List<LanceShowIndexInfo> logicalIndexes, List<PhysicalIndexInfo> physicalIndexes,
             List<LanceField> topLevelFields) {
         if (datasetVersion <= 0) {
             throw new IllegalArgumentException("Lance dataset version must be positive");
@@ -67,16 +70,16 @@ public final class LanceIndexAdmissionSnapshot {
         this.topLevelFields = copyTopLevelFields(topLevelFields);
     }
 
-    private static List<LanceLogicalIndex> copyLogicalIndexes(List<LanceLogicalIndex> source) {
+    private static List<LanceShowIndexInfo> copyLogicalIndexes(List<LanceShowIndexInfo> source) {
         if (source == null) {
             throw new IllegalArgumentException("Lance logical indexes must not be null");
         }
-        if (source.size() > LanceIndexMetadataLoader.MAX_LOGICAL_INDEXES) {
+        if (source.size() > LanceIndexInspection.MAX_LOGICAL_INDEXES) {
             throw new IllegalArgumentException("Lance logical index count exceeds limit "
-                    + LanceIndexMetadataLoader.MAX_LOGICAL_INDEXES);
+                    + LanceIndexInspection.MAX_LOGICAL_INDEXES);
         }
-        List<LanceLogicalIndex> copy = new ArrayList<>(source.size());
-        for (LanceLogicalIndex index : source) {
+        List<LanceShowIndexInfo> copy = new ArrayList<>(source.size());
+        for (LanceShowIndexInfo index : source) {
             if (index == null) {
                 throw new IllegalArgumentException("Lance logical index must not be null");
             }
@@ -89,9 +92,9 @@ public final class LanceIndexAdmissionSnapshot {
         if (source == null) {
             throw new IllegalArgumentException("Lance physical index entries must not be null");
         }
-        if (source.size() > LanceIndexMetadataLoader.MAX_PHYSICAL_INDEX_ENTRIES) {
+        if (source.size() > LanceIndexInspection.MAX_PHYSICAL_INDEX_ENTRIES) {
             throw new IllegalArgumentException("Lance physical index entry count exceeds limit "
-                    + LanceIndexMetadataLoader.MAX_PHYSICAL_INDEX_ENTRIES);
+                    + LanceIndexInspection.MAX_PHYSICAL_INDEX_ENTRIES);
         }
         List<PhysicalIndexInfo> copy = new ArrayList<>(source.size());
         Set<String> names = new HashSet<>();
@@ -114,9 +117,9 @@ public final class LanceIndexAdmissionSnapshot {
         if (source == null) {
             throw new IllegalArgumentException("Lance schema fields must not be null");
         }
-        if (source.size() > LanceIndexMetadataLoader.MAX_SCHEMA_FIELDS) {
+        if (source.size() > LanceIndexInspection.MAX_SCHEMA_FIELDS) {
             throw new IllegalArgumentException("Lance schema field count exceeds limit "
-                    + LanceIndexMetadataLoader.MAX_SCHEMA_FIELDS);
+                    + LanceIndexInspection.MAX_SCHEMA_FIELDS);
         }
         List<LanceField> copy = new ArrayList<>(source.size());
         for (LanceField field : source) {
@@ -136,7 +139,7 @@ public final class LanceIndexAdmissionSnapshot {
         return datasetUri;
     }
 
-    public List<LanceLogicalIndex> getLogicalIndexes() {
+    public List<LanceShowIndexInfo> getLogicalIndexes() {
         return logicalIndexes;
     }
 
@@ -176,9 +179,9 @@ public final class LanceIndexAdmissionSnapshot {
                 throw new IllegalArgumentException(valueType + " must not be null or empty");
             }
             if (value.getBytes(StandardCharsets.UTF_8).length
-                    > LanceIndexMetadataLoader.MAX_EXTERNAL_STRING_BYTES) {
+                    > LanceIndexInspection.MAX_EXTERNAL_STRING_BYTES) {
                 throw new IllegalArgumentException(valueType + " exceeds limit "
-                        + LanceIndexMetadataLoader.MAX_EXTERNAL_STRING_BYTES + " UTF-8 bytes");
+                        + LanceIndexInspection.MAX_EXTERNAL_STRING_BYTES + " UTF-8 bytes");
             }
             return value;
         }

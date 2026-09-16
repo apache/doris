@@ -37,7 +37,7 @@ import org.apache.doris.datasource.lance.LanceExternalDatabase;
 import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot;
 import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot.PhysicalIndexInfo;
-import org.apache.doris.datasource.lance.LanceLogicalIndex;
+import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.datasource.lance.job.LanceIndexJob;
 import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
 import org.apache.doris.datasource.lance.job.LanceIndexJobMutationType;
@@ -190,7 +190,7 @@ public class AlterTableCommandLanceAdmissionTest {
             ((Map<String, CatalogIf>) nameToCatalog.get(catalogMgr)).put(CTL, catalog);
         }
 
-        void respondWithSnapshot(List<LanceLogicalIndex> logical, List<PhysicalIndexInfo> physical)
+        void respondWithSnapshot(List<LanceShowIndexInfo> logical, List<PhysicalIndexInfo> physical)
                 throws Exception {
             // Mirrors the pinned SDK: the LanceField tree carries no children for a fixed-size
             // list; the element lives only in the synthesized child of the reconstructed Arrow
@@ -397,7 +397,7 @@ public class AlterTableCommandLanceAdmissionTest {
         Config.enable_lance_index_mutation = true;
         try (LanceFixture fixture = new LanceFixture(false)) {
             fixture.respondWithSnapshot(
-                    Collections.singletonList(new LanceLogicalIndex("idx",
+                    Collections.singletonList(new LanceShowIndexInfo("idx",
                             Collections.singletonList("v"), "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
                     Collections.singletonList(
                             new PhysicalIndexInfo("idx", "uuid-1", DATASET_VERSION, "VECTOR")));
@@ -439,7 +439,7 @@ public class AlterTableCommandLanceAdmissionTest {
         Config.enable_lance_index_mutation = true;
         try (LanceFixture fixture = new LanceFixture(false)) {
             fixture.respondWithSnapshot(
-                    Collections.singletonList(new LanceLogicalIndex("idx",
+                    Collections.singletonList(new LanceShowIndexInfo("idx",
                             Collections.singletonList("v"), "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
                     Collections.singletonList(
                             new PhysicalIndexInfo("idx", "uuid-1", DATASET_VERSION, "VECTOR")));
@@ -461,7 +461,7 @@ public class AlterTableCommandLanceAdmissionTest {
         Config.enable_lance_index_mutation = true;
         try (LanceFixture fixture = new LanceFixture(false)) {
             fixture.respondWithSnapshot(
-                    Collections.singletonList(new LanceLogicalIndex("idx",
+                    Collections.singletonList(new LanceShowIndexInfo("idx",
                             Collections.singletonList("c"), "BTREE", "{}")),
                     Collections.singletonList(
                             new PhysicalIndexInfo("idx", "uuid-1", DATASET_VERSION, "SCALAR")));

@@ -29,8 +29,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalTable;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
-import org.apache.doris.datasource.lance.LanceTypeConverter;
+import org.apache.doris.datasource.lance.metadata.LanceSchemaHelper;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -46,6 +46,7 @@ import org.apache.doris.thrift.TSearchFilter;
 import org.apache.doris.thrift.TSearchFilterFormat;
 
 import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -164,7 +165,7 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
         LanceTableMetadata metadata;
         try {
             metadata = loadIndexMetadata
-                    ? sourceTable.loadMetadataForSearch() : sourceTable.loadMetadata();
+                    ? sourceTable.loadMetadataForSearch() : sourceTable.loadBasicMetadata();
         } catch (RuntimeException e) {
             throw new AnalysisException("Failed to load Lance metadata for " + searchDescription
                     + " on " + sourceTableName + ": " + e.getMessage(), e);
@@ -196,6 +197,25 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
         return new PreparedSearch(common, fieldId, searchRequest, columns);
     }
 
+    /** Resolves a unique field while preserving its physical Lance name for backend requests. */
+    protected static Field requireSearchColumn(Schema schema, String column, String searchDescription)
+            throws AnalysisException {
+        Field match = null;
+        for (Field field : schema.getFields()) {
+            if (field.getName().equalsIgnoreCase(column)) {
+                if (match != null) {
+                    throw new AnalysisException("Lance " + searchDescription + " column '" + column
+                            + "' is ambiguous under case-insensitive matching");
+                }
+                match = field;
+            }
+        }
+        if (match == null) {
+            throw new AnalysisException("Lance " + searchDescription + " column '" + column + "' does not exist");
+        }
+        return match;
+    }
+
     protected static int requireLanceFieldId(LanceTableMetadata metadata, Field field,
             String searchDescription) throws AnalysisException {
         OptionalInt fieldId = metadata.getLanceFieldId(field.getName());
@@ -225,17 +245,12 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
                 throw new AnalysisException("Lance table already contains reserved "
                         + searchDescription + " column '" + resultColumn + "'");
             }
-            String comment = field.getMetadata() == null
-                    ? null : field.getMetadata().get("comment");
-            Type type;
             try {
-                type = LanceTypeConverter.toDorisType(field);
+                result.add(LanceSchemaHelper.toDorisColumn(field, position++));
             } catch (RuntimeException e) {
                 throw new AnalysisException("Invalid Lance type for column '" + field.getName()
                         + "': " + e.getMessage(), e);
             }
-            result.add(new Column(field.getName(), type, false, null,
-                    field.isNullable(), comment, true, position++));
         }
         result.add(new Column(resultColumn, Type.FLOAT, false, null,
                 true, null, true, position));

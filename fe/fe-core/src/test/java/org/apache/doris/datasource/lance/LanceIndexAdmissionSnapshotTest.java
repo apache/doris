@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -44,8 +46,8 @@ public class LanceIndexAdmissionSnapshotTest {
 
     @Test
     public void testConstructionIsImmutableAndDefensivelyCopied() {
-        List<LanceLogicalIndex> logical = new ArrayList<>(Collections.singletonList(
-                new LanceLogicalIndex("idx", Collections.singletonList("embedding"),
+        List<LanceShowIndexInfo> logical = new ArrayList<>(Collections.singletonList(
+                new LanceShowIndexInfo("idx", Collections.singletonList("embedding"),
                         "IVF_PQ", "{}")));
         List<LanceIndexAdmissionSnapshot.PhysicalIndexInfo> physical = new ArrayList<>(
                 Collections.singletonList(physical("idx", "uuid-1", 7, "VECTOR")));
@@ -78,7 +80,7 @@ public class LanceIndexAdmissionSnapshotTest {
 
     @Test
     public void testRejectsInvalidVersionAndUri() {
-        List<LanceLogicalIndex> logical = Collections.emptyList();
+        List<LanceShowIndexInfo> logical = Collections.emptyList();
         List<LanceIndexAdmissionSnapshot.PhysicalIndexInfo> physical = Collections.emptyList();
         List<LanceField> fields = Collections.emptyList();
         Assertions.assertThrows(IllegalArgumentException.class,
@@ -190,14 +192,14 @@ public class LanceIndexAdmissionSnapshotTest {
 
     @Test
     public void testEntryCountsAreBounded() {
-        List<LanceLogicalIndex> logicalAtLimit = new ArrayList<>();
+        List<LanceShowIndexInfo> logicalAtLimit = new ArrayList<>();
         for (int index = 0; index < 256; ++index) {
-            logicalAtLimit.add(new LanceLogicalIndex("idx_" + index,
+            logicalAtLimit.add(new LanceShowIndexInfo("idx_" + index,
                     Collections.singletonList("c"), "BTREE", "{}"));
         }
         new LanceIndexAdmissionSnapshot(1, "file:///tmp/t.lance", logicalAtLimit,
                 Collections.emptyList(), Collections.emptyList());
-        logicalAtLimit.add(new LanceLogicalIndex("idx_over_limit",
+        logicalAtLimit.add(new LanceShowIndexInfo("idx_over_limit",
                 Collections.singletonList("c"), "BTREE", "{}"));
         IllegalArgumentException logicalOver = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> new LanceIndexAdmissionSnapshot(1, "file:///tmp/t.lance", logicalAtLimit,
