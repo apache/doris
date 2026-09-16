@@ -219,6 +219,11 @@ public interface SourceOffsetProvider {
     /** Discard a lag value that was calculated from an offset explicitly replaced by the user. */
     default void resetLag() {}
 
+    /** Discard the saved source schema so it is loaded again when the reader is rebuilt. */
+    default void resetSourceSchema() {
+        throw new UnsupportedOperationException("Source schema reload is not supported");
+    }
+
     /** Get source lag as a numeric string for SHOW output. */
     default String getLag() {
         return String.valueOf(getLagBytes());

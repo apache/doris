@@ -127,6 +127,11 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      */
     protected final transient Object splitsLock = new Object();
 
+    @Override
+    public void resetSourceSchema() {
+        tableSchemas = null;
+    }
+
     /**
      * No-arg constructor for subclass use.
      */
