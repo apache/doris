@@ -86,14 +86,17 @@ Status SniiStatsProvider::doc_freq(std::string_view term, uint64_t* df) const {
     return Status::OK();
 }
 
-Status SniiStatsProvider::encoded_norm(uint32_t docid, uint8_t* out) const {
+Status SniiStatsProvider::encoded_norm(uint32_t docid, std::optional<uint8_t>* out) const {
     if (out == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null out");
     if (!has_norms_) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
-                "stats_provider: index has no norms");
+        *out = std::nullopt;
+        return Status::OK();
     }
-    return norms_reader_.try_encoded_norm(docid, out);
+    uint8_t norm = 0;
+    RETURN_IF_ERROR(norms_reader_.try_encoded_norm(docid, &norm));
+    *out = norm;
+    return Status::OK();
 }
 
 } // namespace doris::snii::stats

@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
 // Bm25Scorer -- classic Okapi BM25 relevance scoring over SNII native stats.
 //
@@ -27,7 +28,9 @@
 // per-document contribution of a term then is:
 //   score = idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl / avgdl))
 // where tf is the in-doc term frequency, dl the document length decoded from the
-// 1-byte encoded norm, and avgdl the average document length.
+// 1-byte encoded norm, and avgdl the average document length. An index written
+// without norms has no dl: its documents are scored as if dl were avgdl, which
+// drops length normalization from the formula.
 //
 // Norm encode/decode (DOCUMENTED CONTRACT): the writer stores doc length as a
 // byte-quantized value floor-clamped to [1, 255]; decode is the identity map
@@ -67,8 +70,10 @@ public:
     uint64_t df() const { return df_; }
 
     // Scores one document occurrence: tf is the in-doc term frequency, encoded_norm
-    // the doc's 1-byte length norm, avgdl the collection average length.
-    double score(double tf, uint8_t encoded_norm, double avgdl, const Bm25Params& params) const;
+    // the doc's 1-byte length norm (std::nullopt when the index stores no norms),
+    // avgdl the collection average length.
+    double score(double tf, std::optional<uint8_t> encoded_norm, double avgdl,
+                 const Bm25Params& params) const;
 
 private:
     double idf_ = 0.0;

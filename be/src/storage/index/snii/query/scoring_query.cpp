@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <numeric>
+#include <optional>
 #include <span>
 #include <unordered_map>
 #include <vector>
@@ -157,7 +158,7 @@ Status score_decoded(const stats::SniiStatsProvider& stats, const ScorerContext&
     DCHECK_EQ(docids.size(), tfs.size());
     out->reserve(docids.size());
     for (size_t i = 0; i < docids.size(); ++i) {
-        uint8_t norm = 0;
+        std::optional<uint8_t> norm;
         RETURN_IF_ERROR(stats.encoded_norm(docids[i], &norm));
         out->push_back({docids[i], ctx.score(tfs[i], norm, avgdl, params)});
     }
@@ -184,7 +185,7 @@ Status accumulate_decoded_candidate_scores(const stats::SniiStatsProvider& stats
             ++candidate_index;
             continue;
         }
-        uint8_t norm = 0;
+        std::optional<uint8_t> norm;
         RETURN_IF_ERROR(stats.encoded_norm(docids[doc_index], &norm));
         scores[candidate_index] += scorer.score(tfs[doc_index], norm, avgdl, params);
         ++doc_index;

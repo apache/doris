@@ -453,8 +453,9 @@ protected:
         return file_writer.finish_close();
     }
 
-    // A normal analyzed SNII segment with positions and norms, as emitted for scoring indexes.
-    Status write_snii_scoring_segment(const std::string& segment_path) {
+    // A normal analyzed SNII segment with positions, and with norms unless the index was written
+    // with norms turned off.
+    Status write_snii_scoring_segment(const std::string& segment_path, bool with_norms = true) {
         const std::string index_path_prefix {
                 segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
         io::FileWriterPtr file_writer;
@@ -483,7 +484,9 @@ protected:
         input.index_id = 1;
         input.config = snii::format::IndexConfig::kDocsPositions;
         input.doc_count = 2;
-        input.encoded_norms = {snii::query::encode_norm(2), snii::query::encode_norm(1)};
+        if (with_norms) {
+            input.encoded_norms = {snii::query::encode_norm(2), snii::query::encode_norm(1)};
+        }
         input.terms = {std::move(alpha), std::move(beta)};
 
         RETURN_IF_ERROR(writer.add_logical_index(input));
@@ -628,17 +631,15 @@ protected:
 
     struct SniiScoringFieldInput {
         SniiScoringFieldInput(std::wstring field_name, uint64_t index_doc_count,
-                              uint64_t sum_total_term_freq, bool has_norms = true)
+                              uint64_t sum_total_term_freq)
                 : field_name(std::move(field_name)),
                   index_doc_count(index_doc_count),
-                  sum_total_term_freq(sum_total_term_freq),
-                  has_norms(has_norms) {}
+                  sum_total_term_freq(sum_total_term_freq) {}
 
         std::wstring field_name;
         uint64_t index_doc_count = 0;
         uint64_t sum_total_term_freq = 0;
         bool has_positions = true;
-        bool has_norms = true;
     };
 
     Status stage_snii_fields_for_test(
@@ -647,7 +648,7 @@ protected:
         for (const auto& field : fields) {
             RETURN_IF_ERROR(statistics->admit_snii_scoring_segment(
                     field.field_name, field.index_doc_count, field.sum_total_term_freq,
-                    field.has_positions, field.has_norms, segment_accumulator));
+                    field.has_positions, segment_accumulator));
         }
         return Status::OK();
     }
@@ -662,9 +663,9 @@ protected:
 
     Status admit_snii_segment_for_test(CollectionStatistics* statistics,
                                        const std::wstring& field_name, uint64_t index_doc_count,
-                                       uint64_t sum_total_term_freq, bool has_norms = true) {
-        return admit_snii_fields_for_test(
-                statistics, {{field_name, index_doc_count, sum_total_term_freq, has_norms}});
+                                       uint64_t sum_total_term_freq) {
+        return admit_snii_fields_for_test(statistics,
+                                          {{field_name, index_doc_count, sum_total_term_freq}});
     }
 
     Status stage_snii_fields_then_file_not_found_for_test(
@@ -933,6 +934,32 @@ TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
     expect_collected_term(L"1", L"alpha", 2);
 }
 
+// A segment written with norms turned off is admitted like any other: its token count comes from
+// the stats block, so avgdl stays the physical average.
+TEST_F(CollectionStatisticsTest, SniiScoringAdmitsSegmentWithoutNorms) {
+    auto tablet_schema = create_snii_schema();
+    auto expr_contexts = create_match_expr_contexts("alpha");
+
+    const std::string segment_path = test_dir_ + "/snii_scoring_without_norms_0.dat";
+    auto write_status = write_snii_scoring_segment(segment_path, /*with_norms=*/false);
+    ASSERT_TRUE(write_status.ok()) << write_status;
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    auto status =
+            stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
+
+    ASSERT_TRUE(status.ok()) << status;
+    expect_collected_stats(L"1", 2, 3);
+    expect_collected_term(L"1", L"alpha", 2);
+    EXPECT_FLOAT_EQ(stats_->get_or_calculate_avg_dl(L"1"), 1.5F);
+}
+
 TEST_F(CollectionStatisticsTest, SniiScoringLookupUsesCallerIoContext) {
     snii::snii_test::ScopedEnv force_nonresident_dict("SNII_DICT_RESIDENT_MAX", "0");
     auto tablet_schema = create_snii_schema();
@@ -1090,9 +1117,10 @@ protected:
     std::unique_ptr<TestableCollectionStatistics> stats_;
 };
 
-// SNII scoring requires only positions and norms; statistics come directly from the stats block.
+// SNII scoring requires only positions; statistics come directly from the stats block, whether or
+// not the segment carries norms.
 TEST(CollectionStatisticsSniiScoringTest, ResolveUsesPhysicalDocAndTokenCounts) {
-    auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/true, /*has_norms=*/true);
+    auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/true);
 
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result->doc_count, 3U);
@@ -1100,22 +1128,15 @@ TEST(CollectionStatisticsSniiScoringTest, ResolveUsesPhysicalDocAndTokenCounts) 
 }
 
 TEST(CollectionStatisticsSniiScoringTest, ResolveAcceptsEmptySegment) {
-    auto result = resolve_snii_scoring_segment(0, 0, /*has_positions=*/true, /*has_norms=*/true);
+    auto result = resolve_snii_scoring_segment(0, 0, /*has_positions=*/true);
 
     ASSERT_TRUE(result.has_value()) << result.error();
     EXPECT_EQ(result->doc_count, 0U);
     EXPECT_EQ(result->token_count, 0U);
 }
 
-TEST(CollectionStatisticsSniiScoringTest, ResolveRejectsSegmentWithoutNorms) {
-    auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/true, /*has_norms=*/false);
-
-    ASSERT_FALSE(result.has_value());
-    EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-}
-
 TEST(CollectionStatisticsSniiScoringTest, ResolveRejectsSegmentWithoutPositions) {
-    auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/false, /*has_norms=*/true);
+    auto result = resolve_snii_scoring_segment(3, 7, /*has_positions=*/false);
 
     ASSERT_FALSE(result.has_value());
     EXPECT_EQ(result.error().code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
@@ -1130,17 +1151,6 @@ TEST_F(CollectionStatisticsTest, CollectionStatisticsInstancesKeepAdmissionState
 
     EXPECT_FLOAT_EQ(first.get_or_calculate_avg_dl(L"1"), 3.0F);
     EXPECT_FLOAT_EQ(second.get_or_calculate_avg_dl(L"1"), 5.0F);
-}
-
-// An older segment without norms disables scoring for the whole collection and clears its stats.
-TEST_F(CollectionStatisticsTest, SegmentWithoutNormsRejectsWholeCollection) {
-    ASSERT_TRUE(admit_snii_segment_for_test(stats_.get(), L"1", 2, 6).ok());
-
-    auto status = admit_snii_segment_for_test(stats_.get(), L"1", 3, 7, /*has_norms=*/false);
-
-    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
-    expect_no_collected_tokens(L"1");
-    EXPECT_THROW(stats_->get_doc_num(), Exception);
 }
 
 TEST_F(CollectionStatisticsTest, SegmentsAccumulatePhysicalStatistics) {

@@ -224,7 +224,7 @@ Status score_phrase_matches(const IndexQueryContextPtr& context, std::string_vie
     for (const auto& match : matches) {
         DCHECK(final_candidates.contains(match.docid));
         DCHECK_NE(match.frequency, 0);
-        uint8_t norm = 0;
+        std::optional<uint8_t> norm;
         RETURN_IF_ERROR(segment_stats.encoded_norm(match.docid, &norm));
         scored_docs.push_back({.docid = match.docid,
                                .score = scorer.score(match.frequency, norm, collection_avgdl,

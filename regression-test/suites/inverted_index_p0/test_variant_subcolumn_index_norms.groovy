@@ -21,7 +21,8 @@
 // This covers both an index declared with a field_pattern and a whole-column
 // index on a VARIANT column, whose per-subcolumn copies inherit the properties of the index they
 // come from. BM25 scoring keeps working with and without norms.
-suite("test_variant_subcolumn_index_norms", "p0") {
+// It flips a BE config, so it must not share the cluster with other suites.
+suite("test_variant_subcolumn_index_norms", "p0,nonConcurrent") {
     if (isCloudMode()) {
         return
     }
