@@ -46,6 +46,7 @@
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/pb_helper.h"
+#include "storage/row_ttl.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -194,6 +195,10 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     auto cloned_meta_file = fmt::format("{}/{}.hdr", clone_dir, tablet_id);
     TabletMetaPB cloned_tablet_meta_pb;
     RETURN_IF_ERROR_RESULT(TabletMeta::load_from_file(cloned_meta_file, &cloned_tablet_meta_pb));
+    if (target_tablet_schema != nullptr) {
+        RETURN_IF_ERROR_RESULT(check_row_ttl_restore_tablet_meta_compatible(cloned_tablet_meta_pb,
+                                                                            *target_tablet_schema));
+    }
 
     TabletMetaPB new_tablet_meta_pb;
     new_tablet_meta_pb = cloned_tablet_meta_pb;

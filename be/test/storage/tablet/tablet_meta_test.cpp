@@ -81,6 +81,25 @@ TEST(TabletMetaTest, SaveAsBufferAndParse) {
     }
 }
 
+TEST(TabletMetaTest, RowBinlogTtlMetadataRoundTrip) {
+    TabletMeta tablet_meta(1, 2, 3, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                           TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F);
+    tablet_meta.set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    BinlogConfig binlog_config(true, 60, 1024, 10, BinlogFormatPB::ROW, false);
+    binlog_config.set_row_ttl_enabled(true);
+    tablet_meta.set_binlog_config(binlog_config);
+
+    TabletMetaPB tablet_meta_pb;
+    tablet_meta.to_meta_pb(&tablet_meta_pb, false);
+    ASSERT_TRUE(tablet_meta_pb.has_binlog_config());
+    EXPECT_TRUE(tablet_meta_pb.binlog_config().row_ttl_enabled());
+
+    TabletMeta restored;
+    restored.init_from_pb(tablet_meta_pb);
+    EXPECT_TRUE(restored.binlog_config().row_ttl_enabled());
+    EXPECT_EQ(restored.binlog_config().ttl_seconds(), 60);
+}
+
 TEST(TabletMetaTest, TopLevelInvertedIndexFormatOverridesSharedSchemaFormat) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(1);
@@ -106,6 +125,48 @@ TEST(TabletMetaTest, TopLevelInvertedIndexFormatOverridesSharedSchemaFormat) {
     EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
     EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
               serialized.schema().inverted_index_storage_format());
+}
+
+TEST(TabletMetaTest, DisableAutoCompactionDoesNotMutateSharedSchema) {
+    TabletMetaPB pb;
+    pb.set_tablet_id(101);
+    pb.set_tablet_role(TabletRolePB::TABLET_ROLE_ROW_BINLOG);
+    pb.mutable_schema()->set_schema_version(8123);
+    pb.mutable_schema()->set_disable_auto_compaction(true);
+
+    TabletMeta changed;
+    changed.init_from_pb(pb);
+    pb.set_tablet_id(102);
+    TabletMeta unchanged;
+    unchanged.init_from_pb(pb);
+    ASSERT_EQ(changed.tablet_schema(), unchanged.tablet_schema());
+    auto shared_schema = unchanged.tablet_schema();
+
+    changed.set_disable_auto_compaction(false);
+    EXPECT_FALSE(changed.disable_auto_compaction());
+    EXPECT_TRUE(unchanged.disable_auto_compaction());
+    EXPECT_EQ(shared_schema, changed.tablet_schema());
+    EXPECT_FALSE(shared_schema->disable_auto_compaction());
+
+    // A later cache lookup must still agree with the original persisted configuration.
+    TabletMeta loaded_later;
+    loaded_later.init_from_pb(pb);
+    EXPECT_TRUE(loaded_later.disable_auto_compaction());
+
+    TabletMetaPB serialized;
+    changed.to_meta_pb(&serialized, false);
+    TabletMeta restored;
+    restored.init_from_pb(serialized);
+    EXPECT_FALSE(restored.disable_auto_compaction());
+    EXPECT_EQ(changed, restored);
+    TabletMeta copied(changed);
+    EXPECT_FALSE(copied.disable_auto_compaction());
+
+    changed.set_disable_auto_compaction(true);
+    EXPECT_TRUE(changed.disable_auto_compaction());
+    EXPECT_FALSE(copied.disable_auto_compaction());
+    EXPECT_NE(changed, copied);
+    EXPECT_EQ(changed.tablet_schema(), unchanged.tablet_schema());
 }
 
 TEST(TabletMetaTest, LegacySchemaInvertedIndexFormatIsFallback) {

@@ -38,6 +38,7 @@ import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -375,6 +376,7 @@ class OlapScanNodeBackendSelectionConfigTest {
 
     private Backend backend(long backendId, String group) throws Exception {
         Backend backend = new Backend(backendId, "127.0.0." + backendId, 9050);
+        backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend.setAlive(true);
         backend.setBePort(9060);
         backend.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, group));

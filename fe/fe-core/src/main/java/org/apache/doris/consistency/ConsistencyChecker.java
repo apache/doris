@@ -26,7 +26,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
@@ -279,6 +282,13 @@ public class ConsistencyChecker extends MasterDaemon {
                     OlapTable table = (OlapTable) chosenOne;
                     table.readLock();
                     try {
+                        if (table.hasRowTtl()) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("table[{}] has row ttl. skip consistency check", table.getId());
+                            }
+                            continue;
+                        }
+
                         // sort partitions
                         Queue<MetaObject> partitionQueue =
                                 new PriorityQueue<>(Math.max(table.getAllPartitions().size(), 1), COMPARATOR);
@@ -399,7 +409,36 @@ public class ConsistencyChecker extends MasterDaemon {
     }
 
     // manually adding tablets to check
-    public void addTabletsToCheck(List<Long> tabletIds) {
+    public void addTabletsToCheck(List<Long> tabletIds) throws DdlException {
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        for (Long tabletId : tabletIds) {
+            TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+            if (tabletMeta == null) {
+                continue;
+            }
+
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
+            if (db == null) {
+                continue;
+            }
+
+            Table table = db.getTableNullable(tabletMeta.getTableId());
+            if (table == null) {
+                continue;
+            }
+
+            table.readLock();
+            try {
+                OlapTable olapTable = (OlapTable) table;
+                if (olapTable.hasRowTtl()) {
+                    throw new DdlException(
+                            "Checksum consistency check is not supported for row ttl tablet " + tabletId);
+                }
+            } finally {
+                table.readUnlock();
+            }
+        }
+
         for (Long tabletId : tabletIds) {
             CheckConsistencyJob job = new CheckConsistencyJob(tabletId);
             addJob(job);

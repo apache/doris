@@ -69,6 +69,7 @@ import org.apache.doris.qe.cache.RowBatchBuilder;
 import org.apache.doris.qe.cache.SqlCache;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -466,10 +467,13 @@ public class OlapQueryCacheTest {
         CacheCoordinator cp = CacheCoordinator.getInstance();
         cp.debugModel = true;
         Backend bd1 = new Backend(1, "", 1000);
+        bd1.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         bd1.updateOnce(0, 0, 0);
         Backend bd2 = new Backend(2, "", 2000);
+        bd2.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         bd2.updateOnce(0, 0, 0);
         Backend bd3 = new Backend(3, "", 3000);
+        bd3.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         bd3.updateOnce(0, 0, 0);
         cp.addBackend(bd1);
         cp.addBackend(bd2);

@@ -94,6 +94,16 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ROW_TTL_ENABLED)
+                || properties.containsKey("binlog.effective_row_ttl_seconds")) {
+            throw new AnalysisException("ROW binlog TTL metadata properties are reserved for internal use");
+        }
+        String rowTtlPrefix = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL;
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL)
+                || properties.keySet().stream().anyMatch(key -> key.startsWith(rowTtlPrefix))) {
+            throw new AnalysisException("TTL properties can only be specified when creating a table");
+        }
 
         if (properties.size() != 1
                 && !TableProperty.isSamePrefixProperties(

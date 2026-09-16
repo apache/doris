@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.ConfigBase;
-import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.meta.MetaContext;
@@ -33,17 +33,16 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Random;
 
 public class EnvTest {
 
@@ -131,27 +130,65 @@ public class EnvTest {
     }
 
     @Test
-    public void testSaveLoadHeader() throws Exception {
-        String dir = "testLoadHeader";
-        mkdir(dir);
-        File file = new File(dir, "image");
-        file.createNewFile();
-        CountingDataOutputStream dos = new CountingDataOutputStream(new FileOutputStream(file));
-        Env env = Env.getCurrentEnv();
-        MetaContext.get().setMetaVersion(FeConstants.meta_version);
+    public void testSaveLoadHeaderUses141WithoutRowTtl() throws Exception {
+        Env env = new Env(false);
+        // A context used to read an old image must not downgrade newly saved metadata.
+        MetaContext.get().setMetaVersion(FeMetaVersion.VERSION_140);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        long savedChecksum;
+        try (CountingDataOutputStream output = new CountingDataOutputStream(bytes)) {
+            savedChecksum = env.saveHeader(output, 123L, 0);
+        }
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            Assertions.assertEquals(FeMetaVersion.VERSION_141, input.readInt());
+        }
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            Assertions.assertEquals(savedChecksum, env.loadHeader(input, MetaHeader.EMPTY_HEADER, 0));
+            Assertions.assertEquals(FeMetaVersion.VERSION_141, MetaContext.get().getMetaVersion());
+        }
+    }
 
-        long checksum1 = env.saveHeader(dos, new Random().nextLong(), 0);
-        env.clear();
-        env = null;
-        dos.close();
+    @Test
+    public void testLoad140ImageBeforeUpgrading() throws Exception {
+        Env env = new Env(false);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream output = new DataOutputStream(bytes)) {
+            output.writeInt(FeMetaVersion.VERSION_140);
+            output.writeLong(123L);
+            output.writeLong(456L);
+            output.writeBoolean(true);
+        }
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            Assertions.assertEquals(FeMetaVersion.VERSION_140 ^ 123L ^ 456L,
+                    env.loadHeader(input, MetaHeader.EMPTY_HEADER, 0));
+            Assertions.assertEquals(FeMetaVersion.VERSION_140, MetaContext.get().getMetaVersion());
+        }
+        bytes.reset();
+        try (CountingDataOutputStream output = new CountingDataOutputStream(bytes)) {
+            env.saveHeader(output, 123L, 0);
+        }
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            Assertions.assertEquals(FeMetaVersion.VERSION_141, input.readInt());
+        }
+    }
 
-        DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
-        env = Env.getCurrentEnv();
-        long checksum2 = env.loadHeader(dis, MetaHeader.EMPTY_HEADER, 0);
-        Assertions.assertEquals(checksum1, checksum2);
-        dis.close();
+    @Test
+    public void testRejectImageAboveCurrentVersion() throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream output = new DataOutputStream(bytes)) {
+            output.writeInt(FeMetaVersion.VERSION_CURRENT + 1);
+        }
+        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            IOException exception = Assertions.assertThrows(IOException.class,
+                    () -> Env.getCurrentEnv().loadHeaderCOR1(input, 0));
+            Assertions.assertTrue(exception.getMessage().contains("FE current version 141"));
+        }
+    }
 
-        deleteDir(dir);
+    @Test
+    public void testJournalVersionWithoutThreadContextUses141() {
+        mockedMetaContext.when(MetaContext::get).thenReturn(null);
+        Assertions.assertEquals(FeMetaVersion.VERSION_141, Env.getCurrentEnvJournalVersion());
     }
 
     @Test

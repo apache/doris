@@ -698,13 +698,15 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_META_VERSION: {
-                    String versionString = ((Text) journal.getData()).toString();
-                    int version = Integer.parseInt(versionString);
-                    if (version > FeConstants.meta_version) {
+                    int version = Integer.parseInt(((Text) journal.getData()).toString());
+                    try {
+                        validateMetaVersionForReplay(version, FeConstants.meta_version);
+                    } catch (UnsupportedOperationException e) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
-                                        + "please update FeConstants.meta_version and restart.", version,
+                                        + "please upgrade FE and restart.", version,
                                 FeConstants.meta_version);
                         System.exit(-1);
+                        return;
                     }
                     MetaContext.get().setMetaVersion(version);
                     break;
@@ -1538,6 +1540,13 @@ public class EditLog {
             } else {
                 LOG.warn("Skip replay Operation Type {} due to exception, log id: {}", opCode, logId, e);
             }
+        }
+    }
+
+    static void validateMetaVersionForReplay(int version, int maximumSupportedVersion) {
+        if (version > maximumSupportedVersion) {
+            throw new UnsupportedOperationException("Meta version " + version
+                    + " exceeds maximum supported version " + maximumSupportedVersion);
         }
     }
 

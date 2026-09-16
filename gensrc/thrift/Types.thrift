@@ -580,6 +580,7 @@ struct TBackend {
     4: optional TPort brpc_port
     5: optional bool is_alive
     6: optional i64 id
+    7: optional i64 node_feature_flags
 }
 
 struct TReplicaInfo {

@@ -29,6 +29,7 @@ import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.spi.BackendSelectionProvider;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -352,6 +353,7 @@ class CoordinatorBackendSelectionTest {
 
     private Backend backend(long id, String host, int bePort, String tag) throws Exception {
         Backend backend = new Backend(id, host, bePort + 1000);
+        backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend.setAlive(true);
         backend.setBePort(bePort);
         backend.setTagMap(Tag.create(Tag.TYPE_LOCATION, tag).toMap());

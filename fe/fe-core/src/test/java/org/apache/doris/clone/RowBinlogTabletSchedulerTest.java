@@ -41,6 +41,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.CloneTask;
@@ -612,6 +613,7 @@ public class RowBinlogTabletSchedulerTest {
 
     private Backend backend(long backendId, String host) {
         Backend backend = new Backend(backendId, host, 9050);
+        backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend.setAlive(true);
         return backend;
     }

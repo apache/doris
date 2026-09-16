@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocation;
@@ -54,10 +55,15 @@ public class SimpleSchedulerTest {
         SimpleScheduler.init();
         Config.heartbeat_interval_second = 2;
         be1 = new Backend(1000L, "192.168.100.0", 9050);
+        be1.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         be2 = new Backend(1001L, "192.168.100.1", 9050);
+        be2.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         be3 = new Backend(1002L, "192.168.100.2", 9050);
+        be3.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         be4 = new Backend(1003L, "192.168.100.3", 9050);
+        be4.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         be5 = new Backend(1004L, "192.168.100.4", 9050);
+        be5.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
 
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         for (Backend be : genBackends().values()) {

@@ -69,6 +69,7 @@ Status CumulativeCompaction::prepare_compact() {
         return st;
     }
 
+    snapshot_row_binlog_ttl();
     tablet()->calculate_cumulative_point();
     VLOG_CRITICAL << "after calculate, current cumulative point is "
                   << tablet()->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
@@ -140,7 +141,8 @@ Status CumulativeCompaction::execute_compact() {
 }
 
 Status CumulativeCompaction::pick_rowsets_to_compact() {
-    auto candidate_rowsets = tablet()->pick_candidate_rowsets_to_cumulative_compaction();
+    auto candidate_rowsets =
+            tablet()->pick_candidate_rowsets_to_cumulative_compaction(_row_binlog_ttl_cutoff_tso);
     if (candidate_rowsets.empty()) {
         return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("candidate_rowsets is empty");
     }
@@ -175,6 +177,9 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
                         .tag("table_id", _tablet->table_id());
             }
         }
+    }
+    if (pick_expired_row_binlog_rowset(candidate_rowsets)) {
+        return Status::OK();
     }
 
     int64_t max_score = tablet()->is_row_binlog_tablet()

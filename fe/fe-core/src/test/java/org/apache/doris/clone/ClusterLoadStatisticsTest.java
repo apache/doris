@@ -27,6 +27,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -55,6 +56,7 @@ public class ClusterLoadStatisticsTest {
         // be1
         // 50%, 95%, 2%
         be1 = new Backend(10001, "192.168.0.1", 9051);
+        be1.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         Map<String, DiskInfo> disks = Maps.newHashMap();
         DiskInfo diskInfo1 = new DiskInfo("/path1");
         diskInfo1.setTotalCapacityB(1_000_000);
@@ -82,6 +84,7 @@ public class ClusterLoadStatisticsTest {
 
         // be2
         be2 = new Backend(10002, "192.168.0.2", 9052);
+        be2.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         disks = Maps.newHashMap();
         diskInfo1 = new DiskInfo("/path1");
         diskInfo1.setTotalCapacityB(2_000_000);
@@ -102,6 +105,7 @@ public class ClusterLoadStatisticsTest {
 
         // be3
         be3 = new Backend(10003, "192.168.0.3", 9053);
+        be3.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         disks = Maps.newHashMap();
         diskInfo1 = new DiskInfo("/path1");
         diskInfo1.setTotalCapacityB(4_000_000);
@@ -129,6 +133,7 @@ public class ClusterLoadStatisticsTest {
 
         // compute role node
         be4 = new Backend(10004, "192.168.0.4", 9053);
+        be4.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         disks = Maps.newHashMap();
         diskInfo1 = new DiskInfo("/path1");
         diskInfo1.setTotalCapacityB(4_000_000);

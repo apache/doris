@@ -60,6 +60,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
@@ -298,6 +299,7 @@ public class CloudIndexTest {
         CloudSystemInfoService sysInfoSpy = Mockito.spy(sysInfo);
         Mockito.doAnswer(invocation -> {
             Backend backend = new Backend(10001L, "host1", 123);
+            backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
             backend.setAlive(true);
             backend.setBePort(456);
             backend.setHttpPort(789);

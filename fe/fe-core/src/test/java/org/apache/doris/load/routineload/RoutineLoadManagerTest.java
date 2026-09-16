@@ -49,6 +49,7 @@ import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
@@ -80,6 +81,7 @@ public class RoutineLoadManagerTest {
 
     private void mockAvailableBackend(long beId) {
         Backend backend = new Backend(beId, "host" + beId, 9050);
+        backend.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
         backend.setAlive(true);
         Mockito.when(systemInfoService.getBackend(beId)).thenReturn(backend);
     }

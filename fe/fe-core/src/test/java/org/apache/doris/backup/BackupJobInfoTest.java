@@ -17,6 +17,10 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -26,6 +30,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.Collections;
 
 public class BackupJobInfoTest {
 
@@ -161,5 +166,14 @@ public class BackupJobInfoTest {
 
         Assertions.assertEquals(1, jobInfo.newBackupObjects.views.size());
         Assertions.assertEquals("view1", jobInfo.newBackupObjects.views.get(0).name);
+        Assertions.assertEquals(FeConstants.meta_version, jobInfo.metaVersion);
+    }
+
+    @Test
+    public void testBackupWithoutRowTtlUsesCurrentMetaVersion() {
+        BackupMeta backupMeta = new BackupMeta(Collections.emptyList(), Collections.emptyList());
+        BackupJobInfo jobInfo = BackupJobInfo.fromCatalog(1L, "snapshot", "db", 2L,
+                BackupCommand.BackupContent.ALL, backupMeta, Collections.emptyMap(), Collections.emptyMap());
+        Assertions.assertEquals(FeMetaVersion.VERSION_141, jobInfo.metaVersion);
     }
 }

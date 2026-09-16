@@ -126,7 +126,9 @@ public:
 
 // UT
 #ifdef BE_TEST
-    TabletMeta(TabletSchemaSPtr tablet_schema) : _schema(tablet_schema) {}
+    TabletMeta(TabletSchemaSPtr tablet_schema) : _schema(tablet_schema) {
+        _disable_auto_compaction.store(tablet_schema->disable_auto_compaction());
+    }
 #endif
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
@@ -193,6 +195,10 @@ public:
     const TabletSchemaSPtr& tablet_schema() const;
 
     TabletSchema* mutable_tablet_schema();
+
+    // This mutable tablet property must not modify the shared, cached schema.
+    bool disable_auto_compaction() const { return _disable_auto_compaction.load(); }
+    void set_disable_auto_compaction(bool value) { _disable_auto_compaction.store(value); }
 
     const RowsetMetaMapContainer& all_rs_metas() const;
     RowsetMetaMapContainer& all_mutable_rs_metas();
@@ -374,6 +380,8 @@ private:
     // the lifetime of tablemeta and _schema is same with tablet
     TabletSchemaSPtr _schema;
     Cache::Handle* _handle = nullptr;
+    // Scheduling reads this without _meta_lock; persist it in the existing schema PB field.
+    std::atomic<bool> _disable_auto_compaction {false};
 
     RowsetMetaMapContainer _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.

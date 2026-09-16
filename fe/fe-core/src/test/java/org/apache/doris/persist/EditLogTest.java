@@ -19,8 +19,12 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
+import org.apache.doris.meta.MetaContext;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -259,6 +263,42 @@ public class EditLogTest {
                 } finally {
                     editLog.close();
                 }
+            }
+        }
+    }
+
+    @Test
+    public void testOlderFrontendRejectsCurrentJournalVersion() {
+        UnsupportedOperationException exception = Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> EditLog.validateMetaVersionForReplay(
+                        FeMetaVersion.VERSION_CURRENT, FeMetaVersion.VERSION_140));
+        Assertions.assertTrue(exception.getMessage().contains("Meta version 141"));
+        Assertions.assertTrue(exception.getMessage().contains("maximum supported version 140"));
+        EditLog.validateMetaVersionForReplay(FeMetaVersion.VERSION_140, FeMetaVersion.VERSION_CURRENT);
+        EditLog.validateMetaVersionForReplay(FeMetaVersion.VERSION_141, FeMetaVersion.VERSION_CURRENT);
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> EditLog.validateMetaVersionForReplay(
+                        FeMetaVersion.VERSION_CURRENT + 1, FeMetaVersion.VERSION_CURRENT));
+    }
+
+    @Test
+    public void testReplayCurrentVersionWithoutRowTtl() throws Exception {
+        Env env = Env.getCurrentEnv();
+        MetaContext previousContext = MetaContext.get();
+        MetaContext context = new MetaContext();
+        context.setMetaVersion(FeMetaVersion.VERSION_140);
+        context.setThreadLocalInfo();
+        try {
+            JournalEntity journal = new JournalEntity();
+            journal.setOpCode(OperationType.OP_META_VERSION);
+            journal.setData(new Text(Integer.toString(FeMetaVersion.VERSION_CURRENT)));
+            EditLog.loadJournal(env, 1L, journal);
+            Assertions.assertEquals(FeMetaVersion.VERSION_141, context.getMetaVersion());
+        } finally {
+            if (previousContext == null) {
+                MetaContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
             }
         }
     }

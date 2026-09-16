@@ -47,6 +47,7 @@ import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.resource.computegroup.MergedComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -375,10 +376,12 @@ public class ComputeGroupTest {
 
             {
                 Backend be1 = new Backend(10001, "192.168.1.1", 9050);
+                be1.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
                 be1.setTagMap(beTag1.toMap());
                 be1.setAlive(true);
 
                 Backend be2 = new Backend(10002, "192.168.1.2", 9050);
+                be2.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
                 be2.setTagMap(beTag1.toMap());
                 be2.setAlive(true);
 
@@ -388,10 +391,12 @@ public class ComputeGroupTest {
 
             {
                 Backend be1 = new Backend(10003, "192.168.1.3", 9050);
+                be1.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
                 be1.setTagMap(beTag2.toMap());
                 be1.setAlive(true);
 
                 Backend be2 = new Backend(10004, "192.168.1.4", 9050);
+                be2.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
                 be2.setTagMap(beTag2.toMap());
                 be2.setAlive(true);
                 systemInfoService.addBackend(be1);
@@ -400,6 +405,7 @@ public class ComputeGroupTest {
 
             {
                 Backend be3 = new Backend(10005, "192.168.1.5", 9050);
+                be3.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
                 be3.setTagMap(beTag3.toMap());
                 be3.setAlive(true);
                 systemInfoService.addBackend(be3);
@@ -435,10 +441,12 @@ public class ComputeGroupTest {
 
             {
                 tag1Be = new Backend(10001, "192.168.1.1", 9050);
+                tag1Be.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
                 tag1Be.setTagMap(beTag1.toMap());
                 tag1Be.setAlive(true);
 
                 defaultBe = new Backend(10002, "192.168.1.2", 9050);
+                defaultBe.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
                 defaultBe.setTagMap(beTag2.toMap());
                 defaultBe.setAlive(true);
 
