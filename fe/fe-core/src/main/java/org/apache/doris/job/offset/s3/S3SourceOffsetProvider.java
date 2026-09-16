@@ -50,6 +50,7 @@ import java.util.stream.Collectors;
 @Log4j2
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
     private final boolean onceMode;
+    private volatile S3Offset noMoreFilesAfterOffset;
     volatile S3Offset currentOffset;
     volatile String maxEndFile;
 
@@ -169,7 +170,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
         Map<String, String> copiedProps = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         copiedProps.putAll(properties);
         StorageAdapter storageAdapter = StorageAdapter.of(copiedProps);
-        String startFile = currentOffset == null ? null : currentOffset.endFile;
+        S3Offset offsetAtScan = currentOffset;
+        String startFile = offsetAtScan == null ? null : offsetAtScan.endFile;
         try (FileSystem fileSystem = FileSystemFactory.getFileSystem(storageAdapter)) {
             String uri = storageAdapter.validateAndGetUri(copiedProps);
             String filePath = storageAdapter.validateAndNormalizeUri(uri);
@@ -178,6 +180,9 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 throw new java.io.IOException("debug point: simulated S3 auth error");
             }
             GlobListing globListing = fileSystem.globListWithLimit(Location.of(filePath), startFile, 1, 1);
+            if (onceMode) {
+                noMoreFilesAfterOffset = globListing.getFiles().isEmpty() ? offsetAtScan : null;
+            }
             if (!globListing.getFiles().isEmpty() && StringUtils.isNotEmpty(globListing.getMaxFile())) {
                 maxEndFile = globListing.getMaxFile();
             }
@@ -201,7 +206,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasReachedEnd() {
-        return onceMode && currentOffset != null && currentOffset.isLastBatch();
+        S3Offset offset = currentOffset;
+        return onceMode && offset != null && (offset.isLastBatch() || noMoreFilesAfterOffset == offset);
     }
 
     @Override
