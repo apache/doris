@@ -1979,7 +1979,7 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
                     continue;
                 }
 
-                int64_t expiration_time = _tablet_meta->ttl_seconds();
+                int64_t expiration_time = _tablet_meta->file_cache_ttl_expiration_time();
                 g_file_cache_cloud_tablet_submitted_segment_num << 1;
                 if (seg.file_size() > 0) {
                     g_file_cache_cloud_tablet_submitted_segment_size << seg.file_size();

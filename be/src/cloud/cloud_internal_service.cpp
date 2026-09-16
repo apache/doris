@@ -1270,7 +1270,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                       << " us, tablet_id: " << rs_meta.tablet_id()
                       << ", rowset_id: " << rowset_id.to_string();
         }
-        int64_t expiration_time = tablet_meta->ttl_seconds();
+        int64_t expiration_time = tablet_meta->file_cache_ttl_expiration_time();
 
         if (!tablet->add_rowset_warmup_state(rs_meta, WarmUpTriggerSource::EVENT_DRIVEN)) {
             LOG(INFO) << "found duplicate warmup task for rowset " << rowset_id.to_string()

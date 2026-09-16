@@ -242,7 +242,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         _read_options.condition_cache_digest = _read_context->condition_cache_digest;
     }
 
-    _read_options.io_ctx.expiration_time = read_context->ttl_seconds;
+    _read_options.io_ctx.expiration_time = read_context->file_cache_expiration_time;
 
     bool enable_segment_cache = true;
     auto* state = read_context->runtime_state;
