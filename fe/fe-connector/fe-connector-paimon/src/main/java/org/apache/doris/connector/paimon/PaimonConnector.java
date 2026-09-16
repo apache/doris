@@ -498,7 +498,7 @@ public class PaimonConnector implements Connector {
     }
 
     Options buildCatalogOptions() {
-        return PaimonCatalogFactory.buildCatalogOptions(catalogProps);
+        return PaimonCatalogFactory.buildCatalogOptions(catalogProps, metaCache.hasEnclosingWeightLimit());
     }
 
     /**
