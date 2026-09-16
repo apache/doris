@@ -717,7 +717,8 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         const auto* value = reinterpret_cast<const UUIDValueType*>(data);
         (*node).__set_node_type(TExprNodeType::UUID_LITERAL);
         TUUIDLiteral literal;
-        literal.__set_value(CastToString::from_uuid(*value));
+        literal.__set_hi(static_cast<int64_t>(static_cast<uint64_t>(*value >> 64)));
+        literal.__set_lo(static_cast<int64_t>(static_cast<uint64_t>(*value)));
         (*node).__set_uuid_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_UUID));
     } else if constexpr (T == TYPE_TIMEV2) {

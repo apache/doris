@@ -727,11 +727,7 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
         break;
     }
     case TExprNodeType::UUID_LITERAL: {
-        UUIDValueType value;
-        if (!UUIDValue::from_string(value, t_expr.uuid_literal.value)) {
-            return Status::InternalError("invalid UUID literal in partition column, value={}",
-                                         t_expr.uuid_literal.value);
-        }
+        UUIDValueType value = UUIDValue::from_parts(t_expr.uuid_literal.hi, t_expr.uuid_literal.lo);
         column->insert_data(reinterpret_cast<const char*>(&value), 0);
         break;
     }

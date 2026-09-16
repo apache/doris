@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "common/exception.h"
 #include "core/data_type/data_type_number_base.h"
 #include "core/data_type_serde/data_type_uuid_serde.h"
 #include "core/value/uuid_value.h"
@@ -33,12 +32,8 @@ public:
     bool equals(const IDataType& rhs) const override;
 
     Field get_field(const TExprNode& node) const override {
-        UUIDValueType value;
-        if (!UUIDValue::from_string(value, node.uuid_literal.value)) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid value: {} for type UUID",
-                            node.uuid_literal.value);
-        }
-        return Field::create_field<TYPE_UUID>(value);
+        return Field::create_field<TYPE_UUID>(
+                UUIDValue::from_parts(node.uuid_literal.hi, node.uuid_literal.lo));
     }
 
     MutableColumnPtr create_column() const override;
