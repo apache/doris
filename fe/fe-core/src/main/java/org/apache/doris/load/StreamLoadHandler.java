@@ -340,13 +340,22 @@ public class StreamLoadHandler {
             return;
         }
         long sinkBackendId = request.isSetBackendId() ? request.getBackendId() : -1L;
+        assignAdaptiveRandomBucket(params, sinkBackendId, request.getDb(), request.getTbl());
+    }
+
+    public static void assignAdaptiveRandomBucket(TPipelineFragmentParams params, long sinkBackendId,
+            String dbName, String tableName) {
+        TOlapTableSink sink = getOlapTableSink(params);
+        if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
+            return;
+        }
         if (sinkBackendId <= 0 || !sink.isSetLocation() || sink.getLocation() == null) {
             // Old clients do not report the executing BE, and without the sink backend id or the
             // tablet locations no assignment consistent with the receiver side can be computed
             // here. Fall back to the non-adaptive per-batch routing, which never depends on the
             // bucket owner. This is a normal compatibility fallback, not an error.
             LOG.info("disable adaptive random bucket, stream load sink backend id is {}, db={}, table={}",
-                    sinkBackendId, request.getDb(), request.getTbl());
+                    sinkBackendId, dbName, tableName);
             sink.unsetEnableAdaptiveRandomBucket();
             return;
         }
@@ -361,7 +370,7 @@ public class StreamLoadHandler {
             // Nothing could be assigned, so the sink would stay in adaptive mode without any
             // routing and the BE would guess the bucket owner again.
             LOG.warn("disable adaptive random bucket, no partition could be assigned for backend {}, "
-                            + "db={}, table={}", sinkBackendId, request.getDb(), request.getTbl());
+                            + "db={}, table={}", sinkBackendId, dbName, tableName);
             sink.unsetEnableAdaptiveRandomBucket();
             return;
         }
