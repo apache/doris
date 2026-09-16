@@ -208,6 +208,14 @@ public class IndexDiskUsageTableValuedFunctionTest {
     }
 
     @Test
+    public void testTabletLimit() {
+        // The default path reads index file metadata of every segment, so a wide scan must be narrowed.
+        sessionVariable.indexDiskUsageMaxTablets = 2;
+        assertAnalysisError("index_disk_usage covers 3 tablets, exceeding "
+                + "index_disk_usage_max_tablets=2; narrow partitions or indexes", params());
+    }
+
+    @Test
     public void testPositionDetailTabletLimit() {
         sessionVariable.indexDiskUsagePositionDetailMaxTablets = 2;
         assertAnalysisError("position_detail covers 3 tablets, exceeding "

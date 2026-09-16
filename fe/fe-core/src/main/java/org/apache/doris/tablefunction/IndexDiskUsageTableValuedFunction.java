@@ -223,7 +223,7 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
         this.partitionNames = resolvedPartitionNames;
         this.materializedIndexNames = resolvedMaterializedIndexNames;
         this.tabletTargets = ImmutableList.copyOf(targets);
-        checkPositionDetailLimit();
+        checkTabletLimits();
     }
 
     public List<TabletTarget> getTabletTargets() {
@@ -382,15 +382,23 @@ public class IndexDiskUsageTableValuedFunction extends MetadataTableValuedFuncti
         return names;
     }
 
-    private void checkPositionDetailLimit() {
+    // Every tablet costs index file metadata reads, so a wide scan must be narrowed explicitly.
+    private void checkTabletLimits() {
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        int limit = sessionVariable.indexDiskUsageMaxTablets;
+        if (tabletTargets.size() > limit) {
+            throw new AnalysisException(String.format("index_disk_usage covers %d tablets, exceeding "
+                    + "index_disk_usage_max_tablets=%d; narrow partitions or indexes",
+                    tabletTargets.size(), limit));
+        }
         if (!positionDetail) {
             return;
         }
-        int limit = ConnectContext.get().getSessionVariable().indexDiskUsagePositionDetailMaxTablets;
-        if (tabletTargets.size() > limit) {
+        int positionDetailLimit = sessionVariable.indexDiskUsagePositionDetailMaxTablets;
+        if (tabletTargets.size() > positionDetailLimit) {
             throw new AnalysisException(String.format("position_detail covers %d tablets, exceeding "
                     + "index_disk_usage_position_detail_max_tablets=%d; narrow partitions or indexes",
-                    tabletTargets.size(), limit));
+                    tabletTargets.size(), positionDetailLimit));
         }
     }
 }
