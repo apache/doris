@@ -22,6 +22,7 @@ suite("test_partition_create_tablet_rr", "docker") {
     def options = new ClusterOptions()
     options.beNum = 1
     options.feConfigs.add('disable_balance=true')
+    options.feConfigs.add('max_bucket_num_per_partition=12000')
     def partition_disk_index_lru_size = 50
     options.beConfigs += [
         'report_tablet_interval_seconds=1',
