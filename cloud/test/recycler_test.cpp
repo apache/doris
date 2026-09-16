@@ -5093,6 +5093,9 @@ TEST(RecyclerTest, recycle_deleted_instance_with_orphan_tmp_rowset) {
     schema.set_schema_version(0);
     auto rowset = create_rowset("orphan_tmp_rowset_test", tablet_id, index_id, 2, schema, txn_id);
     ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false));
+    // Spill objects left by a BE of the instance: not referenced by any rowset, must go too.
+    ASSERT_EQ(accessor->put_file("spill/10001/boots/1000", ""), 0);
+    ASSERT_EQ(accessor->put_file("spill/10001/data/1000/q1/sort-1-0-1/0", "spill"), 0);
 
     // Verify the data file exists
     {
@@ -5115,12 +5118,13 @@ TEST(RecyclerTest, recycle_deleted_instance_with_orphan_tmp_rowset) {
     // Recycle deleted instance
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
 
-    // All data files must be deleted
+    // All data files, including the spill objects, must be deleted
     {
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         ASSERT_FALSE(list_iter->has_next());
     }
+    EXPECT_NE(accessor->exists("spill/10001/data/1000/q1/sort-1-0-1/0"), 0);
 
     // All ref_count keys must be cleaned up
     {

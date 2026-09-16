@@ -30,11 +30,16 @@ Status SpillRemoteUploadBudget::acquire(int64_t bytes, const std::function<bool(
     MonotonicStopWatch watch;
     watch.start();
     std::unique_lock<std::mutex> lock(_mutex);
+    // A cancelled query must not start a new (billed) upload, whether the budget is available
+    // right away, or became available while it was waiting.
+    if (is_cancelled && is_cancelled()) {
+        return Status::Cancelled("query cancelled before acquiring spill upload budget");
+    }
     while (_inflight_bytes > 0 && _inflight_bytes + bytes > _limit_bytes) {
+        _cv.wait_for(lock, std::chrono::milliseconds(100));
         if (is_cancelled && is_cancelled()) {
             return Status::Cancelled("query cancelled while waiting for spill upload budget");
         }
-        _cv.wait_for(lock, std::chrono::milliseconds(100));
     }
     _inflight_bytes += bytes;
     _total_acquired_bytes += bytes;

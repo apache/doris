@@ -1002,6 +1002,23 @@ int InstanceRecycler::recycle_deleted_instance_data() {
                             instance_info().snapshot_switch_status() !=
                                     SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED;
     if (snapshot_enabled) {
+        // Only referenced rowsets are recycled selectively below; spill objects of the
+        // instance's BEs (spill/ prefix, see recycle_expired_spill_objects) are not referenced
+        // by anything and no BE of a deleted instance is alive to clean them, so drop them
+        // outright before the metadata that identifies them goes away.
+        for (auto& [resource_id, accessor] : accessor_map_) {
+            if (stopped()) {
+                return ret;
+            }
+            int del_ret = accessor->delete_prefix("spill/");
+            if (del_ret != 0) {
+                LOG_WARNING("failed to delete spill objects of deleted instance")
+                        .tag("instance_id", instance_id_)
+                        .tag("resource_id", resource_id)
+                        .tag("ret", del_ret);
+                return -1;
+            }
+        }
         bool has_unrecycled_rowsets = false;
         if (recycle_ref_rowsets(&has_unrecycled_rowsets) != 0) {
             LOG_WARNING("failed to recycle ref rowsets").tag("instance_id", instance_id_);
