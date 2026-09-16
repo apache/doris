@@ -27,6 +27,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HashDistributionInfo.HashType;
@@ -42,6 +43,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -221,6 +223,14 @@ public class HashDistributionPrunerTest {
 
         nullKey.pushColumn(new StringLiteral("A"), PrimitiveType.VARCHAR);
         Assertions.assertEquals(65, nullKey.getIdentityHashValue(257));
+    }
+
+    @Test
+    public void testIdentityTimestampNsCanonicalBytes() {
+        PartitionKey timestamp = new PartitionKey();
+        timestamp.pushColumn(new TimeStampNsLiteral(
+                LocalDateTime.of(1970, 1, 1, 0, 0, 0, 1)), PrimitiveType.TIMESTAMP_NS);
+        Assertions.assertEquals(1, timestamp.getIdentityHashValue(257));
     }
 
     @Test

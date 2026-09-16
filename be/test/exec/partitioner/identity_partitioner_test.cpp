@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -225,6 +226,18 @@ TEST(IdentityHashTest, FixedWidthAndLegacyTypes) {
     const uint32_t fraction_hash = hash_bytes(&fraction, sizeof(fraction));
     EXPECT_EQ(hash_bytes(&integer, sizeof(integer), fraction_hash),
               RawValue::identity_hash(&decimal, sizeof(decimal), TYPE_DECIMALV2, 0, n));
+}
+
+TEST(IdentityHashTest, TimestampNsCanonicalBytes) {
+    constexpr uint32_t n = 257;
+    const TimeStampNsValue one_nanosecond(1);
+    EXPECT_EQ(1u, RawValue::identity_hash(&one_nanosecond, sizeof(one_nanosecond),
+                                          TYPE_TIMESTAMP_NS, 0, n));
+
+    const TimeStampNsValue before_epoch(-1);
+    EXPECT_EQ(
+            std::numeric_limits<uint64_t>::max() % n,
+            RawValue::identity_hash(&before_epoch, sizeof(before_epoch), TYPE_TIMESTAMP_NS, 0, n));
 }
 
 TEST(IdentityHashTest, IpCanonicalBytes) {

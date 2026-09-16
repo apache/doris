@@ -97,6 +97,7 @@ inline uint32_t RawValue::identity_hash(const void* v, size_t len, const Primiti
     case TYPE_DOUBLE:
     case TYPE_TIMEV2:
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP_NS:
     case TYPE_TIMESTAMPTZ:
     case TYPE_DECIMAL64:
         append_little_endian(v, 8);
