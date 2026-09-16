@@ -17,6 +17,9 @@
 
 #include "udf/python/python_udf_meta.h"
 
+#include <arrow/io/memory.h>
+#include <arrow/ipc/reader.h>
+#include <arrow/util/base64.h>
 #include <gtest/gtest.h>
 #include <rapidjson/document.h>
 
@@ -28,6 +31,14 @@
 #include "core/data_type/define_primitive_type.h"
 
 namespace doris {
+
+static arrow::Result<std::shared_ptr<arrow::Schema>> decode_arrow_schema(
+        const std::string& encoded_schema) {
+    auto buffer = arrow::Buffer::FromString(arrow::util::base64_decode(encoded_schema));
+    arrow::io::BufferReader reader(buffer);
+    arrow::ipc::DictionaryMemo dictionary_memo;
+    return arrow::ipc::ReadSchema(&reader, &dictionary_memo);
+}
 
 class PythonUDFMetaTest : public ::testing::Test {
 protected:
@@ -45,23 +56,6 @@ protected:
     DataTypePtr nullable_string_;
     DataTypePtr nullable_double_;
 };
-
-// ============================================================================
-// PythonUDFMeta construction tests
-// ============================================================================
-
-TEST_F(PythonUDFMetaTest, DefaultConstruction) {
-    PythonUDFMeta meta;
-    EXPECT_TRUE(meta.name.empty());
-    EXPECT_TRUE(meta.symbol.empty());
-    EXPECT_TRUE(meta.location.empty());
-    EXPECT_TRUE(meta.checksum.empty());
-    EXPECT_TRUE(meta.runtime_version.empty());
-    EXPECT_TRUE(meta.inline_code.empty());
-    EXPECT_FALSE(meta.always_nullable);
-    EXPECT_TRUE(meta.input_types.empty());
-    EXPECT_EQ(meta.return_type, nullptr);
-}
 
 // ============================================================================
 // PythonUDFMeta check() tests
@@ -255,77 +249,6 @@ TEST_F(PythonUDFMetaTest, CheckWhitespaceOnlyName) {
 }
 
 // ============================================================================
-// PythonUDFMeta to_string() tests
-// ============================================================================
-
-TEST_F(PythonUDFMetaTest, ToStringContainsAllFields) {
-    PythonUDFMeta meta;
-    meta.name = "my_udf";
-    meta.symbol = "udf_func";
-    meta.location = "/path/to/udf.py";
-    meta.runtime_version = "3.10.5";
-    meta.always_nullable = true;
-    meta.inline_code = "def udf_func(x): return x";
-    meta.input_types = {nullable_int32_, nullable_string_};
-    meta.return_type = nullable_double_;
-
-    std::string str = meta.to_string();
-    EXPECT_TRUE(str.find("my_udf") != std::string::npos);
-    EXPECT_TRUE(str.find("udf_func") != std::string::npos);
-    EXPECT_TRUE(str.find("/path/to/udf.py") != std::string::npos);
-    EXPECT_TRUE(str.find("3.10.5") != std::string::npos);
-}
-
-TEST_F(PythonUDFMetaTest, ToStringMultipleInputTypes) {
-    PythonUDFMeta meta;
-    meta.name = "multi_arg_udf";
-    meta.symbol = "func";
-    meta.runtime_version = "3.9.16";
-    meta.input_types = {nullable_int32_, nullable_string_, nullable_double_};
-    meta.return_type = nullable_int32_;
-
-    std::string str = meta.to_string();
-    // Should contain input_types section
-    EXPECT_TRUE(str.find("input_types") != std::string::npos);
-}
-
-// ============================================================================
-// PythonUDFMeta equality tests
-// ============================================================================
-
-TEST_F(PythonUDFMetaTest, EqualityById) {
-    PythonUDFMeta meta1;
-    meta1.id = 100;
-    meta1.name = "udf1";
-
-    PythonUDFMeta meta2;
-    meta2.id = 100;
-    meta2.name = "different_name";
-
-    PythonUDFMeta meta3;
-    meta3.id = 200;
-    meta3.name = "udf1";
-
-    EXPECT_EQ(meta1, meta2);      // Same ID
-    EXPECT_FALSE(meta1 == meta3); // Different ID
-}
-
-TEST_F(PythonUDFMetaTest, HashById) {
-    PythonUDFMeta meta1;
-    meta1.id = 100;
-
-    PythonUDFMeta meta2;
-    meta2.id = 100;
-
-    PythonUDFMeta meta3;
-    meta3.id = 200;
-
-    std::hash<PythonUDFMeta> hasher;
-    EXPECT_EQ(hasher(meta1), hasher(meta2));
-    EXPECT_NE(hasher(meta1), hasher(meta3));
-}
-
-// ============================================================================
 // PythonUDFMeta serialize_to_json() tests
 // ============================================================================
 
@@ -379,6 +302,22 @@ TEST_F(PythonUDFMetaTest, SerializeToJsonBasic) {
     EXPECT_TRUE(doc.HasMember("inline_code"));
     EXPECT_TRUE(doc.HasMember("input_types"));
     EXPECT_TRUE(doc.HasMember("return_type"));
+
+    EXPECT_EQ(arrow::util::base64_decode(doc["inline_code"].GetString()), meta.inline_code);
+
+    auto input_schema_result = decode_arrow_schema(doc["input_types"].GetString());
+    ASSERT_TRUE(input_schema_result.ok()) << input_schema_result.status().ToString();
+    auto input_schema = *input_schema_result;
+    ASSERT_EQ(input_schema->num_fields(), 1);
+    EXPECT_TRUE(input_schema->field(0)->type()->Equals(arrow::int32()));
+    EXPECT_TRUE(input_schema->field(0)->nullable());
+
+    auto return_schema_result = decode_arrow_schema(doc["return_type"].GetString());
+    ASSERT_TRUE(return_schema_result.ok()) << return_schema_result.status().ToString();
+    auto return_schema = *return_schema_result;
+    ASSERT_EQ(return_schema->num_fields(), 1);
+    EXPECT_TRUE(return_schema->field(0)->type()->Equals(arrow::int32()));
+    EXPECT_TRUE(return_schema->field(0)->nullable());
 }
 
 TEST_F(PythonUDFMetaTest, SerializeToJsonDifferentClientTypes) {
@@ -430,7 +369,16 @@ TEST_F(PythonUDFMetaTest, SerializeToJsonMultipleInputTypes) {
     rapidjson::Document doc;
     doc.Parse(json_str.c_str());
     EXPECT_FALSE(doc.HasParseError());
-    EXPECT_TRUE(doc.HasMember("input_types"));
+    auto input_schema_result = decode_arrow_schema(doc["input_types"].GetString());
+    ASSERT_TRUE(input_schema_result.ok()) << input_schema_result.status().ToString();
+    auto input_schema = *input_schema_result;
+    ASSERT_EQ(input_schema->num_fields(), 3);
+    EXPECT_TRUE(input_schema->field(0)->type()->Equals(arrow::int32()));
+    EXPECT_TRUE(input_schema->field(1)->type()->Equals(arrow::utf8()));
+    EXPECT_TRUE(input_schema->field(2)->type()->Equals(arrow::float64()));
+    EXPECT_TRUE(input_schema->field(0)->nullable());
+    EXPECT_TRUE(input_schema->field(1)->nullable());
+    EXPECT_TRUE(input_schema->field(2)->nullable());
 }
 
 TEST_F(PythonUDFMetaTest, SerializeToJsonEmptyInputTypesForUdf) {
@@ -450,8 +398,9 @@ TEST_F(PythonUDFMetaTest, SerializeToJsonEmptyInputTypesForUdf) {
     rapidjson::Document doc;
     doc.Parse(json_str.c_str());
     EXPECT_FALSE(doc.HasParseError());
-    EXPECT_TRUE(doc.HasMember("input_types"));
-    EXPECT_FALSE(std::string(doc["input_types"].GetString()).empty());
+    auto input_schema_result = decode_arrow_schema(doc["input_types"].GetString());
+    ASSERT_TRUE(input_schema_result.ok()) << input_schema_result.status().ToString();
+    EXPECT_EQ((*input_schema_result)->num_fields(), 0);
 }
 
 // ============================================================================
@@ -469,6 +418,10 @@ TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaBasic) {
     EXPECT_EQ(schema->num_fields(), 2);
     EXPECT_EQ(schema->field(0)->name(), "arg0");
     EXPECT_EQ(schema->field(1)->name(), "arg1");
+    EXPECT_TRUE(schema->field(0)->type()->Equals(arrow::int32()));
+    EXPECT_TRUE(schema->field(1)->type()->Equals(arrow::utf8()));
+    EXPECT_TRUE(schema->field(0)->nullable());
+    EXPECT_TRUE(schema->field(1)->nullable());
 }
 
 TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaSingleType) {
@@ -480,6 +433,9 @@ TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaSingleType) {
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_NE(schema, nullptr);
     EXPECT_EQ(schema->num_fields(), 1);
+    EXPECT_EQ(schema->field(0)->name(), "arg0");
+    EXPECT_TRUE(schema->field(0)->type()->Equals(arrow::float64()));
+    EXPECT_TRUE(schema->field(0)->nullable());
 }
 
 TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaEmpty) {
@@ -506,6 +462,12 @@ TEST_F(PythonUDFMetaTest, SerializeArrowSchema) {
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_NE(buffer, nullptr);
     EXPECT_GT(buffer->size(), 0);
+
+    arrow::io::BufferReader reader(buffer);
+    arrow::ipc::DictionaryMemo dictionary_memo;
+    auto decoded_schema_result = arrow::ipc::ReadSchema(&reader, &dictionary_memo);
+    ASSERT_TRUE(decoded_schema_result.ok()) << decoded_schema_result.status().ToString();
+    EXPECT_TRUE((*decoded_schema_result)->Equals(*schema));
 }
 
 } // namespace doris

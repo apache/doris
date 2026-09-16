@@ -18,6 +18,8 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
+import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.cache.JvmSizeUtils;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
@@ -32,6 +34,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -92,6 +95,42 @@ public class HiveConnectorMetadataPartitionViewCacheTest {
 
     private static List<String> names(List<ConnectorPartitionInfo> infos) {
         return infos.stream().map(ConnectorPartitionInfo::getPartitionName).collect(Collectors.toList());
+    }
+
+    @Test
+    public void largePartitionViewCanBeEstimatedWithoutTheReflectiveVisitLimit() {
+        List<ConnectorPartitionInfo> partitions = new ArrayList<>();
+        for (int index = 0; index < 20_000; index++) {
+            String value = Integer.toString(index);
+            partitions.add(new ConnectorPartitionInfo("p=" + value,
+                    Collections.singletonMap("p", value), Collections.emptyMap(),
+                    Collections.singletonList(value), Collections.emptyList()));
+        }
+
+        Assertions.assertTrue(HivePartitionViewSizeEstimator.estimateEntry(
+                new ConnectorTableKey("db", "table", -1L, -1L), partitions).isComplete());
+    }
+
+    @Test
+    public void partitionViewWeightIncludesTailAtEveryPosition() {
+        List<String> partitionNames = new ArrayList<>(Collections.nCopies(1000, "year=x/month=01"));
+        ConnectorTableKey key = new ConnectorTableKey("db1", "t1", -1L, -1L);
+        List<ConnectorPartitionInfo> baseline = metadataWithCache(
+                new CountingHmsClient(partitionNames), null).listPartitions(null, handle(), Optional.empty());
+        long baselineBytes = HivePartitionViewSizeEstimator.estimateEntry(key, baseline).getBytes();
+        String large = "x".repeat(1024 * 1024);
+        String largeName = "year=" + large + "/month=01";
+        long growth = JvmSizeUtils.stringSize(largeName) - JvmSizeUtils.stringSize("year=x/month=01")
+                + 2 * (JvmSizeUtils.stringSize(large) - JvmSizeUtils.stringSize("x"));
+        for (int position : new int[] {0, 333, 998, 999}) {
+            List<String> names = new ArrayList<>(partitionNames);
+            names.set(position, largeName);
+            List<ConnectorPartitionInfo> view = metadataWithCache(
+                    new CountingHmsClient(names), null).listPartitions(null, handle(), Optional.empty());
+            Assertions.assertEquals(baselineBytes + growth,
+                    HivePartitionViewSizeEstimator.estimateEntry(key, view).getBytes(),
+                    "the tail must neither be missed nor extrapolated at index " + position);
+        }
     }
 
     @Test

@@ -17,7 +17,7 @@
 
 package org.apache.doris.maxcompute;
 
-import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.jni.spi.vec.ColumnValue;
 
 import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.vector.BigIntVector;
@@ -41,7 +41,8 @@ import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.complex.StructVector;
 import org.apache.arrow.vector.holders.NullableTimeStampMicroHolder;
 import org.apache.arrow.vector.types.pojo.ArrowType;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -57,7 +58,7 @@ import java.util.List;
  * MaxCompute Column value in vector column
  */
 public class MaxComputeColumnValue implements ColumnValue {
-    private static final Logger LOG = Logger.getLogger(MaxComputeColumnValue.class);
+    private static final Logger LOG = LoggerFactory.getLogger(MaxComputeColumnValue.class);
     private int idx;
     private ValueVector column;
     private ZoneId timeZone;

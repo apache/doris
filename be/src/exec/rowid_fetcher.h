@@ -35,6 +35,7 @@
 namespace doris {
 
 class RuntimeState;
+class TQueryOptions;
 class TupleDescriptor;
 class ScannerScheduler;
 namespace io {
@@ -81,6 +82,9 @@ public:
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
 
 private:
+    static bool should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                           const TFileScanRangeParams& scan_params,
+                                           const TFileRangeDesc& range);
     struct ExternalFetchStatistics;
 
     static Status read_internal_segment_groups(
@@ -121,6 +125,13 @@ private:
             const TFileScanRangeParams& rpc_scan_params,
             const std::unordered_map<std::string, int>& colname_to_slot_id,
             std::counting_semaphore<>& semaphore, TupleDescriptor& tuple_desc);
+
+    static TFileRangeDesc build_external_fetch_range(const TFileRangeDesc& source_range);
+
+    static TFileScanRangeParams build_external_scan_params(
+            const TFileScanRangeParams& source_params, const TFileRangeDesc& range,
+            const std::vector<SlotDescriptor>& scan_slots,
+            const std::vector<uint32_t>& scan_column_idxs);
 
     static std::string source_column_key(const SlotDescriptor& slot, uint32_t column_idx);
 

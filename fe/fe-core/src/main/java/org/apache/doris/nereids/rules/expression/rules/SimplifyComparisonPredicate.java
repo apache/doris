@@ -544,6 +544,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
 
     private static Expression processTypeRangeLimitComparison(ComparisonPredicate cp, Expression left,
             NumericLiteral right) {
+        Expression nullabilityExpression = left;
         BigDecimal typeMinValue = null;
         BigDecimal typeMaxValue = null;
         // cmp float like have lost precision, for example float.max_value + 0.01 still eval to float.max_value
@@ -559,7 +560,11 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         // cast(child as dataType2) range should be:
         //  [ max(childDataType.min_value, dataType2.min_value), min(childDataType.max_value, dataType2.max_value)]
         if (left instanceof Cast) {
-            left = ((Cast) left).child();
+            Cast cast = (Cast) left;
+            left = cast.child();
+            if (!Cast.castNullable(false, left.getDataType(), cast.getDataType())) {
+                nullabilityExpression = left;
+            }
             if (left.getDataType().isIntegerLikeType() || left.getDataType().isDecimalV3Type()) {
                 Optional<Pair<BigDecimal, BigDecimal>> minMaxOpt =
                         TypeCoercionUtils.getDataTypeMinMaxValue(left.getDataType());
@@ -582,7 +587,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         int cmpMax = literal.compareTo(typeMaxValue);
         if (cp instanceof EqualTo) {
             if (cmpMin < 0 || cmpMax > 0) {
-                return ExpressionUtils.falseOrNull(left);
+                return ExpressionUtils.falseOrNull(nullabilityExpression);
             }
         } else if (cp instanceof NullSafeEqual) {
             if (cmpMin < 0 || cmpMax > 0) {
@@ -590,37 +595,37 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
             }
         } else if (cp instanceof GreaterThan) {
             if (cmpMin < 0) {
-                return ExpressionUtils.trueOrNull(left);
+                return ExpressionUtils.trueOrNull(nullabilityExpression);
             }
             if (cmpMax >= 0) {
-                return ExpressionUtils.falseOrNull(left);
+                return ExpressionUtils.falseOrNull(nullabilityExpression);
             }
         } else if (cp instanceof GreaterThanEqual) {
             if (cmpMin <= 0) {
-                return ExpressionUtils.trueOrNull(left);
+                return ExpressionUtils.trueOrNull(nullabilityExpression);
             }
             if (cmpMax == 0) {
                 return new EqualTo(cp.left(), cp.right());
             }
             if (cmpMax > 0) {
-                return ExpressionUtils.falseOrNull(left);
+                return ExpressionUtils.falseOrNull(nullabilityExpression);
             }
         } else if (cp instanceof LessThan) {
             if (cmpMin <= 0) {
-                return ExpressionUtils.falseOrNull(left);
+                return ExpressionUtils.falseOrNull(nullabilityExpression);
             }
             if (cmpMax > 0) {
-                return ExpressionUtils.trueOrNull(left);
+                return ExpressionUtils.trueOrNull(nullabilityExpression);
             }
         } else if (cp instanceof LessThanEqual) {
             if (cmpMin < 0) {
-                return ExpressionUtils.falseOrNull(left);
+                return ExpressionUtils.falseOrNull(nullabilityExpression);
             }
             if (cmpMin == 0) {
                 return new EqualTo(cp.left(), cp.right());
             }
             if (cmpMax >= 0) {
-                return ExpressionUtils.trueOrNull(left);
+                return ExpressionUtils.trueOrNull(nullabilityExpression);
             }
         }
         return cp;

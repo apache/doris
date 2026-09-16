@@ -17,10 +17,12 @@
 
 package org.apache.doris.connector.adbc;
 
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -49,8 +51,8 @@ public class AdbcConnectorProvider implements ConnectorProvider {
     /**
      * Binds and validates every property this connector owns, by building the typed holder and throwing
      * away the result: the checking is the point, and constructing it is how the checks are expressed.
-     * This guards ALTER as well as CREATE -- the SPI's default {@code validatePropertiesForUpdate} merges
-     * the change into the stored properties and calls this method with the candidate.
+     * ALTER validates the merged candidate separately, tolerating unknown cache entries from older images
+     * but rejecting unknown entries explicitly submitted by that statement.
      *
      * <p>Cheap presence checks only. Resolving {@code driver_url} to a path needs adbc.conf's
      * {@code drivers_dir} and {@code driver_secure_path}, which arrive through the connector context
@@ -59,6 +61,17 @@ public class AdbcConnectorProvider implements ConnectorProvider {
     @Override
     public void validateProperties(Map<String, String> properties) {
         AdbcCatalogProperties.of(properties);
+        CacheSpec.checkWeightProperties(properties, properties, "adbc", "metadata");
+    }
+
+    @Override
+    public void validatePropertiesForUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+        AdbcCatalogProperties.of(candidate);
+        CacheSpec.checkWeightProperties(candidate, updatedProperties, "adbc", "metadata");
     }
 
     @Override

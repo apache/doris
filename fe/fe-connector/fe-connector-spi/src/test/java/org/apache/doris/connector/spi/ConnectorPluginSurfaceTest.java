@@ -55,9 +55,15 @@ import java.util.TreeSet;
  * {@code fe/fe-connector/pom.xml} in the SAME commit.
  *
  * <p>{@code Plugin} / {@code PluginFactory} / {@code PluginContext} from fe-extension-spi are frozen here
- * too, and identically in the other three families' baselines. They are loaded parent-first for every family
- * (see {@code ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES}), so a change to them breaks all four
- * plugin kinds at once — and turns all four baselines red at once, each asking for its own bump.
+ * too. They are loaded parent-first for every family (see
+ * {@code ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES}), so a change to them breaks all five plugin
+ * kinds at once — but it does not turn all five baselines red at once, and waiting for four more red tests
+ * is the wrong way to read one. This renderer records erased signatures: no declaration kind, no
+ * constructors, no modifiers, no type parameters. A method signature changing does turn all five red;
+ * a {@code final} removed from {@code PluginContext}, a constructor added to it, or one of its type
+ * parameters changed shows up in the AUTHORIZATION baseline alone, which is the only renderer that records
+ * those. Until this one records what that one does, treat a change to a shared type as a five-family bump by
+ * reading the change. See {@code fe/fe-authorization/AGENTS.md}, obligation 1.
  *
  * <p>Signatures are recorded with their return type, unlike the older
  * {@code connector-metadata-methods.txt} baseline: a changed return type is a MAJOR change by the same
@@ -75,9 +81,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Storage predicate pruning and provider-level DDL validation both changed the public surface in
-        // major 7. An older FE must reject plugins using either addition before linking incompatible bytecode.
-        Assertions.assertEquals("7.0", version.getProperty("api.version"));
+        // Latest-schema publication is explicit in major 8; older engines cannot honor the opt-in contract.
+        Assertions.assertEquals("8.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -87,6 +92,8 @@ public class ConnectorPluginSurfaceTest {
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorTableSchema.class,
+            org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
+            org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
             ConnectorWriteHandle.class,
             ConnectorWritePlanProvider.class,

@@ -786,7 +786,6 @@ import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
-import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
@@ -1784,12 +1783,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public ReplayCommand visitReplay(DorisParser.ReplayContext ctx) {
-        LogicalPlan plan = plan(ctx.replayCommand().replayType().query());
-        return new ReplayCommand(PlanType.REPLAY_COMMAND, plan);
-    }
-
-    @Override
     public MTMVRefreshSchedule visitRefreshSchedule(RefreshScheduleContext ctx) {
         int interval = Integer.parseInt(ctx.INTEGER_VALUE().getText());
         String startTime = ctx.STARTS() == null ? null
@@ -2610,7 +2603,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ctx.EXISTS() != null, new TableNameInfo(nameParts), Optional.of(filterType),
                 ctx.user == null ? null : visitUserIdentify(ctx.user),
                 ctx.roleName == null ? null : ctx.roleName.getText(),
-                Optional.of(getExpression(ctx.booleanExpression())), ImmutableMap.of());
+                Optional.of(getExpression(ctx.booleanExpression())),
+                // The predicate is kept as the user wrote it, because that text - not a rendering of the
+                // parsed tree - is what the authorization layer hands back to the planner.
+                getOriginSql(ctx.booleanExpression()), ImmutableMap.of());
     }
 
     @Override
@@ -2620,7 +2616,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 : Maps.newHashMap();
         return new CreatePolicyCommand(PolicyTypeEnum.STORAGE, ctx.name.getText(),
                 ctx.EXISTS() != null, null, Optional.empty(),
-                null, null, Optional.empty(), properties);
+                null, null, Optional.empty(), null, properties);
     }
 
     @Override

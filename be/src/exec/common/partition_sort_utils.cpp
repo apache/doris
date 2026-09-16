@@ -17,6 +17,8 @@
 
 #include "exec/common/partition_sort_utils.h"
 
+#include <algorithm>
+
 namespace doris {
 
 Status PartitionBlocks::append_block_by_selector(const Block* input_block, bool eos) {
@@ -40,19 +42,25 @@ Status PartitionBlocks::append_block_by_selector(const Block* input_block, bool 
         _init_rows = _init_rows - selector_rows;
         _current_input_rows = _current_input_rows + selector_rows;
         _selector.clear();
-        // maybe better could change by user PARTITION_SORT_ROWS_THRESHOLD
         if (!eos && _partition_sort_info->_partition_inner_limit != -1 &&
-            _current_input_rows >= PARTITION_SORT_ROWS_THRESHOLD &&
+            _current_input_rows >= _partition_sort_rows_threshold &&
             _partition_sort_info->_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL) {
-            create_or_reset_sorter_state();
+            create_sorter_if_needed();
             RETURN_IF_ERROR(do_partition_topn_sort());
+            // Amortize reprocessing retained peers over at least as many fresh rows.
+            _partition_sort_rows_threshold =
+                    std::max(PARTITION_SORT_ROWS_THRESHOLD,
+                             static_cast<size_t>(_partition_topn_sorter->get_output_rows()));
+            // Retained rows are already in _blocks. Release the completed pass's
+            // unread blocks and previous peer cursor before buffering more input.
+            _partition_topn_sorter->reset_sorter_state(_partition_sort_info->_runtime_state);
             _current_input_rows = 0; // reset record
         }
     }
     return Status::OK();
 }
 
-void PartitionBlocks::create_or_reset_sorter_state() {
+void PartitionBlocks::create_sorter_if_needed() {
     if (_partition_topn_sorter == nullptr) {
         _previous_row = std::make_unique<SortCursorCmp>();
         _partition_topn_sorter = PartitionSorter::create_unique(
@@ -65,8 +73,6 @@ void PartitionBlocks::create_or_reset_sorter_state() {
                 _partition_sort_info->_partition_inner_limit,
                 _partition_sort_info->_top_n_algorithm, _previous_row.get());
         _partition_topn_sorter->init_profile(_partition_sort_info->_runtime_profile);
-    } else {
-        _partition_topn_sorter->reset_sorter_state(_partition_sort_info->_runtime_state);
     }
 }
 

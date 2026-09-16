@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.AnalysisException;
@@ -64,6 +65,10 @@ public class AlterResourceCommand extends AlterCommand implements NeedAuditEncry
         if (resource == null) {
             throw new AnalysisException("Unknown resource: " + resourceName);
         }
+        if (resource instanceof AIResource && ((AIResource) resource).isCreatedByRoot()
+                && (ctx.getCurrentUserIdentity() == null || !ctx.getCurrentUserIdentity().isRootUser())) {
+            throw new AnalysisException("Only root user can modify root-created AI resource: " + resourceName);
+        }
         // check properties
         resource.checkProperties(properties);
     }
@@ -86,4 +91,3 @@ public class AlterResourceCommand extends AlterCommand implements NeedAuditEncry
         return true;
     }
 }
-
