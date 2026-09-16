@@ -17,6 +17,8 @@
 
 // Analyzed indexes on variant subcolumns must not write dense BM25 norms (.nrm, one byte per row),
 // while analyzed indexes on ordinary columns still do. BM25 scoring keeps working on both.
+// This holds both for an index declared with a field_pattern and for a whole-column index on a
+// VARIANT column, whose per-subcolumn copies inherit the properties of the index they come from.
 suite("test_variant_subcolumn_index_norms", "p0") {
     if (isCloudMode()) {
         return
@@ -37,6 +39,14 @@ suite("test_variant_subcolumn_index_norms", "p0") {
                 't_*' : text,
                 PROPERTIES("variant_max_subcolumns_count"="0")
             >,
+            vd variant<
+                'a_*' : text,
+                PROPERTIES("variant_max_subcolumns_count"="0")
+            >,
+            vn variant<
+                'b_*' : text,
+                PROPERTIES("variant_max_subcolumns_count"="0")
+            >,
             INDEX idx_content (content) USING INVERTED PROPERTIES(
                 "parser"="english",
                 "support_phrase"="true"
@@ -51,6 +61,15 @@ suite("test_variant_subcolumn_index_norms", "p0") {
                 "support_phrase"="true",
                 "field_pattern"="t_*",
                 "norms"="true"
+            ),
+            INDEX idx_vd (vd) USING INVERTED PROPERTIES(
+                "parser"="english",
+                "support_phrase"="true"
+            ),
+            INDEX idx_vn (vn) USING INVERTED PROPERTIES(
+                "parser"="english",
+                "support_phrase"="true",
+                "norms"="true"
             )
         ) ENGINE=OLAP DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -61,10 +80,18 @@ suite("test_variant_subcolumn_index_norms", "p0") {
         )
     """
     sql """ insert into test_variant_subcolumn_index_norms values
-            (1, 'alpha database server', parse_to_variant('{"s_host":"alpha database server"}')),
-            (2, 'beta server cluster', parse_to_variant('{"s_host":"beta server cluster", "s_note":"alpha", "t_note":"alpha"}')),
-            (3, 'alpha', parse_to_variant('{"s_note":"alpha alpha beta", "t_note":"alpha beta"}')),
-            (4, 'gamma', parse_to_variant('{"other":"alpha"}'))
+            (1, 'alpha database server', parse_to_variant('{"s_host":"alpha database server"}'),
+                parse_to_variant('{"a_host":"alpha database server"}'),
+                parse_to_variant('{"b_host":"alpha database server"}')),
+            (2, 'beta server cluster', parse_to_variant('{"s_host":"beta server cluster", "s_note":"alpha", "t_note":"alpha"}'),
+                parse_to_variant('{"a_host":"beta server cluster"}'),
+                parse_to_variant('{"b_host":"beta server cluster"}')),
+            (3, 'alpha', parse_to_variant('{"s_note":"alpha alpha beta", "t_note":"alpha beta"}'),
+                parse_to_variant('{"a_host":"alpha"}'),
+                parse_to_variant('{"b_host":"alpha"}')),
+            (4, 'gamma', parse_to_variant('{"other":"alpha"}'),
+                parse_to_variant('{"other":"alpha"}'),
+                parse_to_variant('{"other":"alpha"}'))
     """
     sql " sync "
 
@@ -115,4 +142,8 @@ suite("test_variant_subcolumn_index_norms", "p0") {
     assertEquals(false, normsOf("s_host"))
     assertEquals(false, normsOf("s_note"))
     assertEquals(true, normsOf("t_note"))
+    // a whole-column index on a VARIANT column has no suffix of its own, but every subcolumn copy
+    // inherits its properties: idx_vd drops norms by default, idx_vn keeps them because it asks to
+    assertEquals(false, normsOf("a_host"))
+    assertEquals(true, normsOf("b_host"))
 }
