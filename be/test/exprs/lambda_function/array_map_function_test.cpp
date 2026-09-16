@@ -1307,6 +1307,39 @@ TEST(ArrayMapFunctionTest, NamedLambdaWithFewerArgumentsThanArraysUsesDeclaredBi
     EXPECT_EQ(values.get_element(2), 30);
 }
 
+TEST(ArrayMapFunctionTest, ArraySortSkipsComparatorForOuterNullRow) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto int8_type = std::make_shared<DataTypeInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto nullable_array_int_type = std::make_shared<DataTypeNullable>(array_int_type);
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, 2, "array_sort"));
+    auto lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int8_type, {"left", "right"}));
+    lambda->add_child(std::make_shared<MockBodyExpr>(int8_type, "unused_comparator"));
+    root->add_child(lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(make_nullable_int_array_column({{2, 1}}, {1}),
+                                                     nullable_array_int_type, "input"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, 1, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+    EXPECT_TRUE(nullable_result.is_null_at(0));
+    const auto& result_array = assert_cast<const ColumnArray&>(nullable_result.get_nested_column());
+    ASSERT_EQ(result_array.get_offsets()[0], 2);
+    const auto& values = assert_cast<const ColumnInt32&>(
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+    EXPECT_EQ(values.get_element(0), 2);
+    EXPECT_EQ(values.get_element(1), 1);
+}
+
 TEST(ArrayMapFunctionTest, NestedArraySortInsideArrayMapSkipsArrayMapArgumentInference) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto int8_type = std::make_shared<DataTypeInt8>();

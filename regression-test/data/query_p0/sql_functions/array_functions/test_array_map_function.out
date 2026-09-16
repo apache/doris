@@ -134,5 +134,8 @@
 
 -- !array_map_null_container --
 1	\N
-2	[32]
+2	[42, 33]
 
+-- !array_sort_null_container --
+1	\N
+2	["10", "20"]

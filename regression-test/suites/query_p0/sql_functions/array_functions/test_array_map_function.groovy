@@ -176,8 +176,8 @@ suite("test_array_map_function") {
         """
         sql """
             INSERT INTO array_map_null_container VALUES
-                (1, ['bad-number'], [100, 101]),
-                (2, ['10'], [20])
+                (1, ['bad-number', 'also-bad'], [100, 101]),
+                (2, ['20', '10'], [20, 21])
         """
         sql "SET enable_strict_cast = true"
         sql "SET short_circuit_evaluation = false"
@@ -186,6 +186,13 @@ suite("test_array_map_function") {
                    array_map((x, y) -> cast(x AS INT) + y + id,
                              if(id = 1, cast(NULL AS ARRAY<STRING>), string_values),
                              int_values)
+            FROM array_map_null_container
+            ORDER BY id
+        """
+        order_qt_array_sort_null_container """
+            SELECT id,
+                   array_sort((x, y) -> if(cast(x AS INT) < cast(y AS INT), -1, 1),
+                              if(id = 1, cast(NULL AS ARRAY<STRING>), string_values))
             FROM array_map_null_container
             ORDER BY id
         """
