@@ -25,6 +25,7 @@ import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -192,6 +193,8 @@ public class KinesisRoutineLoadJobTest {
 
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
         Assertions.assertFalse(progress.hasShards());
+        Assertions.assertFalse((Boolean) Deencapsulation.getField(routineLoadJob,
+                "kinesisInitialPositionSet"));
         Map<String, Long> cachedLag = Deencapsulation.getField(routineLoadJob, "cachedShardWithMillsBehindLatest");
         Assertions.assertTrue(cachedLag.isEmpty());
     }
@@ -294,6 +297,8 @@ public class KinesisRoutineLoadJobTest {
         Deencapsulation.invoke(routineLoadJob, "updateProgressAndOffsetsCache", attachment);
 
         KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
+        Assertions.assertTrue((Boolean) Deencapsulation.getField(routineLoadJob,
+                "kinesisInitialPositionSet"));
         Assertions.assertFalse(progress.containsShard("shard-parent"));
         Assertions.assertTrue(progress.containsShard("shard-child-0"));
         Assertions.assertTrue(progress.containsShard("shard-child-1"));
@@ -309,6 +314,33 @@ public class KinesisRoutineLoadJobTest {
         Deencapsulation.setField(routineLoadJob, "newCurrentKinesisShards",
                 Lists.newArrayList("shard-child-0", "shard-child-1"));
         Assertions.assertFalse((Boolean) Deencapsulation.invoke(routineLoadJob, "isKinesisShardsChanged"));
+    }
+
+    @Test
+    public void testNewShardUsesTrimHorizonAfterProgressBecomesEmpty() throws Exception {
+        KinesisRoutineLoadJob routineLoadJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        1L, "us-east-1", "stream-1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "progress", new KinesisProgress(new HashMap<>()));
+        Deencapsulation.setField(routineLoadJob, "openKinesisShards", Lists.newArrayList("initial-shard"));
+        Deencapsulation.setField(routineLoadJob, "closedKinesisShards", Lists.newArrayList());
+        Deencapsulation.setField(routineLoadJob, "kinesisDefaultPosition", KinesisProgress.POSITION_LATEST);
+
+        Deencapsulation.invoke(routineLoadJob, "updateNewShardProgress");
+        KinesisProgress progress = Deencapsulation.getField(routineLoadJob, "progress");
+        Assertions.assertEquals(KinesisProgress.POSITION_LATEST,
+                progress.getSequenceNumberByShard("initial-shard"));
+        Assertions.assertTrue((Boolean) Deencapsulation.getField(routineLoadJob,
+                "kinesisInitialPositionSet"));
+        Assertions.assertTrue(GsonUtils.GSON.toJson(routineLoadJob).contains("\"kips\":true"));
+
+        // The completed parent was removed from progress before this child was discovered.
+        progress.getShardIdToSequenceNumber().clear();
+        Deencapsulation.setField(routineLoadJob, "openKinesisShards", Lists.newArrayList("child-shard"));
+        Deencapsulation.invoke(routineLoadJob, "updateNewShardProgress");
+
+        Assertions.assertEquals(KinesisProgress.TRIM_HORIZON_VAL,
+                progress.getSequenceNumberByShard("child-shard"));
     }
 
     @Test
