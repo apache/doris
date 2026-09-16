@@ -56,8 +56,8 @@ protected:
         _state.set_desc_tbl(descriptor_table);
         _tuple_id = thrift_table.tupleDescriptors[0].id;
         _slot_id = thrift_table.slotDescriptors[0].id;
-        _row_descriptor = std::make_unique<RowDescriptor>(
-                *descriptor_table, std::vector<TTupleId> {_tuple_id}, std::vector<bool> {false});
+        _row_descriptor = std::make_unique<RowDescriptor>(*descriptor_table,
+                                                          std::vector<TTupleId> {_tuple_id});
     }
 
     TExpr slot_ref() const {

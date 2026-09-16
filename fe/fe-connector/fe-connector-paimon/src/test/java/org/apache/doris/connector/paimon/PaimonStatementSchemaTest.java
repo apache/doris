@@ -295,7 +295,7 @@ public class PaimonStatementSchemaTest {
             }
             List<Integer> originalRows = readIds(fallback);
             PaimonTableHandle handle = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
-            handle.setPaimonTable(new FallbackReadFileStoreTable(main, fallback));
+            handle.setPaimonTable(new FallbackReadFileStoreTable(main, fallback, true));
             PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog);
             PaimonCatalogProperties props = PaimonCatalogProperties.of(Collections.emptyMap());
             PaimonConnectorMetadata md = new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
@@ -306,7 +306,7 @@ public class PaimonStatementSchemaTest {
             FileStoreTable replacement = main.switchToBranch("backup");
             Assertions.assertEquals(oldSchema, replacement.schema().toString());
             Assertions.assertNotEquals(originalRows, readIds(replacement));
-            handle.setPaimonTable(new FallbackReadFileStoreTable(main, replacement));
+            handle.setPaimonTable(new FallbackReadFileStoreTable(main, replacement, true));
             PaimonTableHandle pinned = (PaimonTableHandle) md.applySnapshot(null, handle, pin);
             Assertions.assertTrue(Assertions.assertThrows(RuntimeException.class,
                     () -> new PaimonScanPlanProvider(props, ops).resolveScanTable(pinned))
@@ -328,7 +328,7 @@ public class PaimonStatementSchemaTest {
             append(main, GenericRow.of(1));
             Assertions.assertNull(fallback.snapshotManager().latestSnapshotId());
             PaimonTableHandle handle = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
-            handle.setPaimonTable(new FallbackReadFileStoreTable(main, fallback));
+            handle.setPaimonTable(new FallbackReadFileStoreTable(main, fallback, true));
             PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog);
             PaimonCatalogProperties props = PaimonCatalogProperties.of(Collections.emptyMap());
             PaimonConnectorMetadata md = new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
@@ -358,7 +358,7 @@ public class PaimonStatementSchemaTest {
             fallback.schemaManager().commitChanges(SchemaChange.setOption("read.batch-size", "64"));
             fallback.schemaManager().commitChanges(SchemaChange.addColumn("added", DataTypes.INT()));
             PaimonTableHandle handle = new PaimonTableHandle("db", "t", Collections.emptyList(), Collections.emptyList());
-            handle.setPaimonTable(new FallbackReadFileStoreTable(main, fallback));
+            handle.setPaimonTable(new FallbackReadFileStoreTable(main, fallback, true));
             PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog);
             PaimonCatalogProperties props = PaimonCatalogProperties.of(Collections.emptyMap());
             PaimonConnectorMetadata md = new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
@@ -369,9 +369,9 @@ public class PaimonStatementSchemaTest {
             FileStoreTable scan = (FileStoreTable) new PaimonScanPlanProvider(props, ops).resolveScanTable(pinned);
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) scan;
             Assertions.assertEquals(1, pair.wrapped().schema().id());
-            Assertions.assertEquals(2, pair.fallback().schema().id());
-            Assertions.assertEquals(pair.wrapped().rowType(), pair.fallback().rowType());
-            Assertions.assertEquals("backup", pair.fallback().coreOptions().branch());
+            Assertions.assertEquals(2, pair.other().schema().id());
+            Assertions.assertEquals(pair.wrapped().rowType(), pair.other().rowType());
+            Assertions.assertEquals("backup", pair.other().coreOptions().branch());
             Assertions.assertTrue(readIds(scan).contains(1));
             Assertions.assertThrows(RuntimeException.class,
                     () -> PaimonScanParams.applyOptionsWithoutTimeTravel(main, pinned.getScanOptions()));
@@ -668,15 +668,15 @@ public class PaimonStatementSchemaTest {
                         return null;
                     });
             FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                    new FallbackReadFileStoreTable(warm, fallback), checker, id);
+                    new FallbackReadFileStoreTable(warm, fallback, true), checker, id);
             FileStoreTable pinned = PaimonScanParams.applyOptionsWithoutTimeTravel(privileged,
                     PaimonScanParams.withBoundSchema(
                             PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), 1), latest.schema().id()));
             Assertions.assertInstanceOf(PrivilegedFileStoreTable.class, pinned);
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable)
                     ((DelegatedFileStoreTable) pinned).wrapped();
-            Assertions.assertEquals("backup", pair.fallback().coreOptions().branch());
-            Assertions.assertEquals(fallback.schema().id(), pair.fallback().schema().id());
+            Assertions.assertEquals("backup", pair.other().coreOptions().branch());
+            Assertions.assertEquals(fallback.schema().id(), pair.other().schema().id());
             Assertions.assertEquals(latest.schema().id(), pair.wrapped().schema().id());
             List<Integer> ids = readIds(pinned);
             Collections.sort(ids);
