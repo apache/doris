@@ -34,12 +34,11 @@
 // real stored value instead.
 suite("test_variant_bool_numeric_widening", "p0") {
     def variantV2Function = "parse_to_variant"
-    def table_name = "test_variant_bool_numeric_widening"
 
-    sql "drop table if exists ${table_name}"
+    sql "drop table if exists test_variant_bool_numeric_widening"
 
     sql """
-        create table ${table_name} (
+        create table test_variant_bool_numeric_widening (
             id int,
             var variant<properties("variant_max_subcolumns_count" = "0")>
         ) engine = olap
@@ -53,7 +52,7 @@ suite("test_variant_bool_numeric_widening", "p0") {
     // "fwd": bool first, then numbers -- the buggy order.
     // "rev": a number first, then a bool -- the pre-existing, already-correct control order.
     sql """
-        insert into ${table_name} (id, var) values
+        insert into test_variant_bool_numeric_widening (id, var) values
             (1, ${variantV2Function}('{"fwd": true}')),
             (2, ${variantV2Function}('{"fwd": 1}')),
             (3, ${variantV2Function}('{"fwd": 0}')),
@@ -67,13 +66,13 @@ suite("test_variant_bool_numeric_widening", "p0") {
     // The raw values must keep their JSON kind: id=1's `true` must print as `true`, not `1`.
     qt_sql_fwd_values """
         select id, var['fwd']
-        from ${table_name}
+        from test_variant_bool_numeric_widening
         where var['fwd'] is not null
         order by id
     """
     qt_sql_rev_values """
         select id, var['rev']
-        from ${table_name}
+        from test_variant_bool_numeric_widening
         where var['rev'] is not null
         order by id
     """
@@ -84,14 +83,14 @@ suite("test_variant_bool_numeric_widening", "p0") {
     // the result is deterministic.
     qt_sql_fwd_group """
         select count(*) as cnt, min(id) as first_id
-        from ${table_name}
+        from test_variant_bool_numeric_widening
         where var['fwd'] is not null
         group by var['fwd']
         order by first_id
     """
     qt_sql_rev_group """
         select count(*) as cnt, min(id) as first_id
-        from ${table_name}
+        from test_variant_bool_numeric_widening
         where var['rev'] is not null
         group by var['rev']
         order by first_id
@@ -100,11 +99,11 @@ suite("test_variant_bool_numeric_widening", "p0") {
     // Comparing a raw Variant path directly is rejected by design (independent of this bug); confirm
     // that restriction still applies the same way for both the buggy and the control order.
     test {
-        sql """ select id from ${table_name} where var['fwd'] = ${variantV2Function}('1') """
+        sql """ select id from test_variant_bool_numeric_widening where var['fwd'] = ${variantV2Function}('1') """
         exception "CAST to a concrete type first"
     }
     test {
-        sql """ select id from ${table_name} where var['rev'] = ${variantV2Function}('1') """
+        sql """ select id from test_variant_bool_numeric_widening where var['rev'] = ${variantV2Function}('1') """
         exception "CAST to a concrete type first"
     }
 

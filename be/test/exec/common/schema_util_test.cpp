@@ -1026,16 +1026,20 @@ TEST_F(SchemaUtilTest, UpdateLeastSchemaKeepsBooleanDistinctFromNumbers) {
 TEST_F(SchemaUtilTest, CompactionSubcolumnsKeepBooleanDistinctFromNumbers) {
     const DataTypePtr nullable_bool = make_nullable(std::make_shared<DataTypeBool>());
     const DataTypePtr nullable_bigint = make_nullable(std::make_shared<DataTypeInt64>());
+    const DataTypePtr nullable_double = make_nullable(std::make_shared<DataTypeFloat64>());
     doris::variant_util::PathToDataTypes path_to_data_types;
     path_to_data_types[PathInData("k")] = {nullable_bool, nullable_bigint};
     path_to_data_types[PathInData("a")] = {
             make_nullable(std::make_shared<DataTypeArray>(nullable_bool)),
             make_nullable(std::make_shared<DataTypeArray>(nullable_bigint))};
+    // A boolean merged with a floating point number takes a different branch of the numeric tower
+    // than the integer case above, so it needs its own path.
+    path_to_data_types[PathInData("d")] = {nullable_bool, nullable_double};
     path_to_data_types[PathInData("n")] = {make_nullable(std::make_shared<DataTypeInt32>()),
                                            nullable_bigint};
 
     const auto expect_types = [](const TabletSchemaSPtr& output_schema) {
-        bool found_k = false, found_a = false, found_n = false;
+        bool found_k = false, found_a = false, found_d = false, found_n = false;
         for (const auto& column : output_schema->columns()) {
             if (column->name().ends_with(".k")) {
                 found_k = true;
@@ -1044,12 +1048,15 @@ TEST_F(SchemaUtilTest, CompactionSubcolumnsKeepBooleanDistinctFromNumbers) {
                 found_a = true;
                 ASSERT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_ARRAY);
                 EXPECT_EQ(column->get_sub_column(0).type(), FieldType::OLAP_FIELD_TYPE_JSONB);
+            } else if (column->name().ends_with(".d")) {
+                found_d = true;
+                EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_JSONB);
             } else if (column->name().ends_with(".n")) {
                 found_n = true;
                 EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_BIGINT);
             }
         }
-        EXPECT_TRUE(found_k && found_a && found_n);
+        EXPECT_TRUE(found_k && found_a && found_d && found_n);
     };
 
     for (int32_t max_subcolumns_count : {10, 0}) {
@@ -1067,6 +1074,7 @@ TEST_F(SchemaUtilTest, CompactionSubcolumnsKeepBooleanDistinctFromNumbers) {
         if (max_subcolumns_count > 0) {
             paths_set_info.sub_path_set.insert("k");
             paths_set_info.sub_path_set.insert("a");
+            paths_set_info.sub_path_set.insert("d");
             paths_set_info.sub_path_set.insert("n");
             variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
                     paths_set_info, parent_column, schema, path_to_data_types, {}, output_schema);
@@ -1085,15 +1093,20 @@ TEST_F(SchemaUtilTest, CompactionSubcolumnsKeepBooleanDistinctFromNumbers) {
     nested_output->append_column(nested_variant);
     TabletSchema::PathsSetInfo nested_paths_set_info;
     const PathInData nested_path("items.flag");
-    std::unordered_set<PathInData, PathInData::Hash> nested_paths {nested_path};
+    const PathInData nested_float_path("items.ratio");
+    std::unordered_set<PathInData, PathInData::Hash> nested_paths {nested_path, nested_float_path};
     doris::variant_util::PathToDataTypes nested_types;
     nested_types[nested_path] = {nullable_bool, nullable_bigint};
+    nested_types[nested_float_path] = {nullable_bool, nullable_double};
     ASSERT_TRUE(
             variant_util::VariantCompactionUtil::get_compaction_nested_columns(
                     nested_paths, nested_types, nested_parent, nested_output, nested_paths_set_info)
                     .ok());
-    ASSERT_EQ(nested_output->num_columns(), 2);
-    EXPECT_EQ(nested_output->column(1).type(), FieldType::OLAP_FIELD_TYPE_JSONB);
+    // The paths come from an unordered set, so check every produced subcolumn instead of one index.
+    ASSERT_EQ(nested_output->num_columns(), 3);
+    for (size_t i = 1; i < nested_output->num_columns(); ++i) {
+        EXPECT_EQ(nested_output->column(i).type(), FieldType::OLAP_FIELD_TYPE_JSONB);
+    }
 }
 
 TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema) {

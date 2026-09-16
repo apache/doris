@@ -310,6 +310,25 @@ void get_least_supertype_jsonb(const PrimitiveTypeSet& types, DataTypePtr* type)
         }
     }
 
+    /// Doris has no unsigned 8-bit type: DataTypeUInt8 is TYPE_BOOLEAN, so a BOOLEAN reaching this
+    /// function is a JSON boolean - of a Variant path, or of one JSON array's elements.
+    /// get_numeric_type() below counts BOOLEAN as an 8-bit unsigned integer, which would fold
+    /// true/false into the numeric tower and store them as 1/0 - values that then compare, group
+    /// and print like the numbers. JSONB holds booleans and numbers in one column without
+    /// converting either.
+    {
+        bool have_boolean = false;
+        bool have_number = false;
+        for (const auto& nested_type : types) {
+            have_boolean |= nested_type == PrimitiveType::TYPE_BOOLEAN;
+            have_number |= is_int(nested_type) || is_float_or_double(nested_type);
+        }
+        if (have_boolean && have_number) {
+            *type = std::make_shared<DataTypeJsonb>();
+            return;
+        }
+    }
+
     /// For numeric types, the most complicated part.
     DataTypePtr numeric_type = nullptr;
     get_numeric_type(types, &numeric_type);
