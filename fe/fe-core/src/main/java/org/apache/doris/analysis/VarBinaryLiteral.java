@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -109,6 +110,12 @@ public class VarBinaryLiteral extends LiteralExpr {
     @Override
     public String getStringValue() {
         return new String(value, StandardCharsets.ISO_8859_1);
+    }
+
+    @Override
+    public ByteBuffer getHashValue(PrimitiveType type) {
+        // Bucket pruning must hash the raw bytes used by BE routing, not a UTF-8 re-encoding.
+        return ByteBuffer.wrap(value);
     }
 
     @Override

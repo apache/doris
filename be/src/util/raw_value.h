@@ -55,6 +55,8 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const PrimitiveT
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_STRING:
+    // Tablet routing and FE bucket pruning must hash the same unmodified binary bytes.
+    case TYPE_VARBINARY:
     case TYPE_CHAR: {
         return HashUtil::zlib_crc_hash(v, (uint32_t)len, seed);
     }

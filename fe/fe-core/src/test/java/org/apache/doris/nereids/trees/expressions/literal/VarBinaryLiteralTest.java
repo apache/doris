@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarBinaryType;
@@ -28,6 +29,17 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 
 public class VarBinaryLiteralTest {
+
+    @Test
+    public void testParentExpressionUsesContentHash() {
+        Expression first = new EqualTo(new VarBinaryLiteral(new byte[] {0, (byte) 0xff}),
+                new VarBinaryLiteral(new byte[] {1}));
+        Expression second = new EqualTo(new VarBinaryLiteral(new byte[] {0, (byte) 0xff}),
+                new VarBinaryLiteral(new byte[] {1}));
+        Assertions.assertEquals(first, second);
+        Assertions.assertEquals(first.hashCode(), second.hashCode());
+        Assertions.assertTrue(new java.util.HashSet<>(java.util.Collections.singleton(first)).contains(second));
+    }
 
     private static byte[] bytes(String s) {
         return s.getBytes();

@@ -36,8 +36,20 @@
 #include "core/string_ref.h"
 #include "core/string_view.h"
 #include "core/types.h"
+#include "util/raw_value.h"
 
 namespace doris {
+
+TEST(ColumnVarbinaryStorageTest, TabletRoutingHashesRawBinaryBytes) {
+    for (const std::string& value :
+         {std::string(), std::string("abc"), std::string("\0\xff", 2), std::string(64, '\x80')}) {
+        for (uint32_t seed : {0U, 31U}) {
+            EXPECT_EQ(HashUtil::zlib_crc_hash(value.data(), static_cast<uint32_t>(value.size()),
+                                              seed),
+                      RawValue::zlib_crc32(value.data(), value.size(), TYPE_VARBINARY, seed));
+        }
+    }
+}
 
 TEST(ColumnVarbinaryStorageTest, FieldsOwnLongBinaryValues) {
     const std::string expected(64, '\xff');

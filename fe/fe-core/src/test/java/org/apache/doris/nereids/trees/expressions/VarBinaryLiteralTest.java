@@ -81,9 +81,10 @@ public class VarBinaryLiteralTest {
         Assertions.assertTrue(a.compareLiteral(c) < 0);
         Assertions.assertTrue(c.compareLiteral(a) > 0);
 
-        // different length with trailing zero semantics
+        // A trailing zero is a significant byte, not padding.
         VarBinaryLiteral withZero = new VarBinaryLiteral(new byte[] { 'a', 'b', 0x00 });
-        Assertions.assertEquals(0, a.compareLiteral(withZero));
+        Assertions.assertTrue(a.compareLiteral(withZero) < 0);
+        Assertions.assertTrue(withZero.compareLiteral(a) > 0);
 
         // null literal is treated as less than any value
         Assertions.assertTrue(a.compareLiteral(new NullLiteral()) > 0);
