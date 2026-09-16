@@ -221,7 +221,7 @@ public class LineageEventProcessor {
                     plugins.add(plugin);
                     LOG.info("Loaded lineage plugin: {}, pluginPath={}", pluginName, props.get("plugin.path"));
                 }
-            } catch (Exception | LinkageError e) {
+            } catch (Exception | LinkageError | ServiceConfigurationError e) {
                 // create() and initialize() are the first calls into the plugin implementation (the
                 // factory only named it): a dependency it lacks arrives here as NoClassDefFoundError,
                 // which must cost this plugin alone, not FE startup. Everything published for it goes
@@ -244,7 +244,7 @@ public class LineageEventProcessor {
         }
         try {
             plugin.close();
-        } catch (Exception | LinkageError e) {
+        } catch (Exception | LinkageError | ServiceConfigurationError e) {
             LOG.warn("Failed to close lineage plugin {} after its initialization failed", pluginName, e);
         }
     }

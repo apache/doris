@@ -27,6 +27,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 
 
 /**
@@ -122,7 +123,7 @@ public class StorageDesc extends ResourceDesc implements GsonPostProcessable {
         // initStorageAdapter() lazily, so the job binds at use and fails there with a Status.
         try {
             initStorageAdapter();
-        } catch (RuntimeException | LinkageError e) {
+        } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
             LOG.warn("Storage descriptor (name={}, type={}) could not bind its filesystem provider at"
                     + " load; the binding is retried at use: {}", name, storageType, e.getMessage());
         }

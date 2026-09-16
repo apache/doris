@@ -36,6 +36,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.ServiceConfigurationError;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -63,7 +64,7 @@ public class RepositoryMgr extends Daemon implements Writable, GsonPostProcessab
                 if (!repo.ping()) {
                     LOG.warn("Failed to connect repository {}. msg: {}", repo.getName(), repo.getErrorMsg());
                 }
-            } catch (Exception | LinkageError e) {
+            } catch (Exception | LinkageError | ServiceConfigurationError e) {
                 // ping() reports through errMsg and never throws by contract; if it ever does, the
                 // repositories after this one in the cycle must still be checked.
                 LOG.warn("Failed to ping repository {}", repo.getName(), e);

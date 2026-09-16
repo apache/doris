@@ -243,8 +243,11 @@ public class ConnectorPluginManager {
         Set<String> engineNames;
         try {
             type = provider.getType();
-            engineNames = provider.acceptedCreateTableEngineNames();
-        } catch (RuntimeException | LinkageError e) {
+            // A host-owned copy: the plugin's set is traversed here, under the guard, not later while
+            // the problem checks and the claims walk it (a lazy set may link a missing class then).
+            Set<String> answered = provider.acceptedCreateTableEngineNames();
+            engineNames = answered == null ? null : new HashSet<>(answered);
+        } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
             // The first calls into plugin code after loading: a getType() that touches a class the
             // plugin neither bundles nor inherits arrives here as a LinkageError the loader never saw.
             // For a directory plugin that is one plugin's problem, not the FE's - same guard as

@@ -72,6 +72,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -195,7 +196,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             job.setEnv(env);
             try {
                 job.run();
-            } catch (Exception | LinkageError e) {
+            } catch (Exception | LinkageError | ServiceConfigurationError e) {
                 // One job's throw must not skip every job after it in this cycle, nor go unrecorded:
                 // a job that keeps throwing here is retried each cycle until its timeout, so the log
                 // is the only place its cause shows up.
@@ -257,7 +258,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             StorageAdapter mergedStorage;
             try {
                 mergedStorage = StorageAdapter.of(mergedProps);
-            } catch (RuntimeException | LinkageError e) {
+            } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
                 throw new DdlException("Failed to alter repository " + repoName
                         + ": the merged properties do not bind a filesystem provider: " + e.getMessage());
             }

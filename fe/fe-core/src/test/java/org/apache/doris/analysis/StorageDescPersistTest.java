@@ -18,7 +18,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.extension.spi.Plugin;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.StoragePropertiesException;
+import org.apache.doris.fs.FileSystemPluginManager;
 import org.apache.doris.fs.TestFileSystemPluginManagers;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
@@ -30,6 +35,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 
 public class StorageDescPersistTest {
 
@@ -113,6 +119,70 @@ public class StorageDescPersistTest {
             StorageAdapter.initPluginManager(TestFileSystemPluginManagers.withoutProviders());
             Assertions.assertEquals("S3", restoredDesc.getStorageAdapter().getStorageName(),
                     "with the provider back, the same descriptor binds");
+        } finally {
+            StorageAdapter.initPluginManager(null);
+        }
+    }
+
+    /**
+     * Post-admission: a loaded provider's probe or bind may itself run a nested ServiceLoader lookup and
+     * fail with ServiceConfigurationError, which is an Error but no LinkageError. At replay that has to
+     * be contained like the absent-provider case, or the journal kills the follower.
+     */
+    @Test
+    public void testBrokerLoadJobRoundTripSurvivesAProviderThrowingServiceConfigurationError() throws Exception {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
+        properties.put("s3.region", "us-east-1");
+        properties.put("s3.access_key", "ak");
+        properties.put("s3.secret_key", "sk");
+        BrokerDesc brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, properties);
+        BrokerLoadJob job = new BrokerLoadJob();
+        setField(BrokerLoadJob.class.getSuperclass(), job, "brokerDesc", brokerDesc);
+        String json = GsonUtils.GSON.toJson(job);
+
+        // Registered under the name the registry consults first, so it is the first one bindPrimary probes.
+        FileSystemPluginManager manager = TestFileSystemPluginManagers.withoutProviders();
+        manager.registerProvider(new FileSystemProvider<FileSystemProperties>() {
+            @Override
+            public String name() {
+                return "JFS";
+            }
+
+            @Override
+            public String description() {
+                return "a provider whose probe runs a malformed nested service lookup";
+            }
+
+            @Override
+            public boolean supports(Map<String, String> props) {
+                throw new ServiceConfigurationError("org.example.Driver: Provider org.example.Missing not found");
+            }
+
+            @Override
+            public boolean supportsExplicit(Map<String, String> props) {
+                throw new ServiceConfigurationError("org.example.Driver: Provider org.example.Missing not found");
+            }
+
+            @Override
+            public FileSystem create(Map<String, String> props) {
+                throw new ServiceConfigurationError("org.example.Driver: Provider org.example.Missing not found");
+            }
+
+            @Override
+            public Plugin create() {
+                return new Plugin() {
+                };
+            }
+        });
+        StorageAdapter.initPluginManager(manager);
+        try {
+            BrokerLoadJob restored = Assertions.assertDoesNotThrow(
+                    () -> GsonUtils.GSON.fromJson(json, BrokerLoadJob.class));
+            BrokerDesc restoredDesc = (BrokerDesc) getField(BrokerLoadJob.class.getSuperclass(), restored, "brokerDesc");
+            Assertions.assertNull(getField(StorageDesc.class, restoredDesc, "storageAdapter"));
+            Assertions.assertThrows(ServiceConfigurationError.class, restoredDesc::getStorageAdapter,
+                    "the first use reports the provider's own failure");
         } finally {
             StorageAdapter.initPluginManager(null);
         }

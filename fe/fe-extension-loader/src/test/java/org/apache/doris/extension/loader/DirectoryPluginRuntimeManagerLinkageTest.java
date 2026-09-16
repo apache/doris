@@ -20,7 +20,9 @@ package org.apache.doris.extension.loader;
 import org.apache.doris.extension.loader.testplugins.AbsentDependencyProbe;
 import org.apache.doris.extension.loader.testplugins.AbsentStaticInitTestPluginFactory;
 import org.apache.doris.extension.loader.testplugins.AbsentSuperclassTestPluginFactory;
+import org.apache.doris.extension.loader.testplugins.MalformedServiceLookupTestPluginFactory;
 import org.apache.doris.extension.loader.testplugins.MetadataTestPluginFactory;
+import org.apache.doris.extension.loader.testplugins.NestedService;
 import org.apache.doris.extension.loader.testplugins.NotAFactory;
 import org.apache.doris.extension.loader.testplugins.ThrowingStaticInitTestPluginFactory;
 import org.apache.doris.extension.spi.PluginFactory;
@@ -39,6 +41,7 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
@@ -158,6 +161,33 @@ class DirectoryPluginRuntimeManagerLinkageTest {
         Assertions.assertTrue(failure.getMessage().contains("does not implement " + PluginFactory.class.getName()),
                 () -> "the message must name the factory type the class was expected to implement: "
                         + failure.getMessage());
+    }
+
+    @Test
+    void testAMalformedNestedServiceLookupIsAFailureNotAThrow() throws IOException {
+        // A plugin's own driver discovery: its service file for NestedService names a class that does
+        // not exist, so the lookup in its static initializer throws ServiceConfigurationError - an
+        // Error that is neither a LinkageError nor a RuntimeException, and that used to escape both
+        // catch sites, abort the rest of the family and leak the classloader.
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        entries.put(MalformedServiceLookupTestPluginFactory.class.getName().replace('.', '/') + ".class",
+                classBytes(MalformedServiceLookupTestPluginFactory.class));
+        entries.put("META-INF/services/" + NestedService.class.getName(),
+                "org.example.MissingNestedProvider\n".getBytes(StandardCharsets.UTF_8));
+        Path root = tempDir.resolve("plugins");
+        writeJar(root.resolve("malformed-service").resolve("malformed-service.jar"),
+                MalformedServiceLookupTestPluginFactory.class.getName(), entries);
+
+        LoadReport<PluginFactory> report = load(root);
+        Assertions.assertTrue(report.getSuccesses().isEmpty(), "the plugin cannot have loaded");
+        Assertions.assertEquals(1, report.getFailures().size());
+        LoadFailure failure = report.getFailures().get(0);
+        Assertions.assertEquals(LoadFailure.STAGE_INSTANTIATE, failure.getStage());
+        Assertions.assertInstanceOf(ServiceConfigurationError.class, failure.getCause(),
+                () -> "the nested lookup's own error is the cause, got " + failure.getCause());
+        Assertions.assertTrue(failure.getMessage().contains("; caused by java.util.ServiceConfigurationError"),
+                failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("MissingNestedProvider"), failure.getMessage());
     }
 
     @Test

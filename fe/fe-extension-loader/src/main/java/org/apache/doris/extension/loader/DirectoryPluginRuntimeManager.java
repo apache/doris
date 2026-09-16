@@ -35,6 +35,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.ServiceConfigurationError;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -281,7 +282,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
             Class<?> discoveredClass;
             try {
                 discoveredClass = classLoader.loadClass(factoryClassName);
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError | ServiceConfigurationError e) {
                 // LinkageError included: defining the factory class resolves its supertypes, so a
                 // dependency the plugin neither bundles nor inherits from its parent surfaces here as
                 // NoClassDefFoundError - an Error, not a ReflectiveOperationException. Left uncaught it
@@ -316,7 +317,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
                 @SuppressWarnings("unchecked")
                 Class<? extends F> factoryClass = (Class<? extends F>) discoveredClass.asSubclass(factoryType);
                 factory = factoryClass.getDeclaredConstructor().newInstance();
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError | ServiceConfigurationError e) {
                 // newInstance() is where the factory class is first initialized. A static initializer
                 // that fails arrives either as the Error itself - NoClassDefFoundError for a missing
                 // dependency - or, for a non-Error, wrapped in ExceptionInInitializerError; both are
@@ -342,7 +343,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         String pluginName;
         try {
             pluginName = factory.name();
-        } catch (RuntimeException | LinkageError e) {
+        } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
             closeClassLoader(classLoader);
             throw new PluginLoadException(
                     normalizedDir,
@@ -366,7 +367,7 @@ public class DirectoryPluginRuntimeManager<F extends PluginFactory> {
         String description;
         try {
             description = factory.description();
-        } catch (RuntimeException | LinkageError e) {
+        } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
             closeClassLoader(classLoader);
             throw new PluginLoadException(
                     normalizedDir,

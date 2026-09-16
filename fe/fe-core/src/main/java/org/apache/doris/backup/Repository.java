@@ -72,6 +72,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 import java.util.Set;
 import java.util.UUID;
 
@@ -277,7 +278,7 @@ public class Repository implements Writable, GsonPostProcessable {
             try {
                 StorageAdapter storageAdapter = StorageAdapter.of(props);
                 fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(storageAdapter, "");
-            } catch (RuntimeException | LinkageError e) {
+            } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
                 // A typed legacy record names its storage type ("S3", "HDFS", "AZURE", ...); a broker
                 // record names its broker. The descriptor carries an explicit type and is persisted by
                 // the next checkpoint, so a wrong guess here is permanent: a typed record must never
@@ -309,7 +310,7 @@ public class Repository implements Writable, GsonPostProcessable {
                 try {
                     StorageAdapter brokerAdapter = StorageAdapter.ofBroker(fsName, props);
                     fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(brokerAdapter, fsName);
-                } catch (RuntimeException | LinkageError e2) {
+                } catch (RuntimeException | LinkageError | ServiceConfigurationError e2) {
                     unavailableReason = "legacy record was not migrated: " + e2.getMessage();
                     errMsg = unavailableReason;
                     LOG.error("Repository '{}': {}", name, errMsg);
@@ -330,7 +331,7 @@ public class Repository implements Writable, GsonPostProcessable {
                 StorageAdapter storageAdapter = StorageAdapter.of(fsProps);
                 this.normalizedLocation = storageAdapter.validateAndNormalizeUri(location);
                 this.spiFs = FileSystemFactory.getFileSystem(storageAdapter);
-            } catch (IOException | RuntimeException | LinkageError e) {
+            } catch (IOException | RuntimeException | LinkageError | ServiceConfigurationError e) {
                 // Same reasoning as above: the plugin may be absent (the FE serves without it) or
                 // half-installed. The repository stays in metadata and reports this on every use.
                 unavailableReason = "filesystem provider did not bind at load: " + e.getMessage();
@@ -532,7 +533,7 @@ public class Repository implements Writable, GsonPostProcessable {
                 }
                 return Status.OK;
             }
-        } catch (IOException | LinkageError e) {
+        } catch (IOException | LinkageError | ServiceConfigurationError e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed to init repository: " + e.getMessage());
         } finally {
             releaseSpiFs(fs);
@@ -631,7 +632,7 @@ public class Repository implements Writable, GsonPostProcessable {
             errMsg = TimeUtils.longToTimeString(System.currentTimeMillis())
                     + ": Invalid path. " + path + ", error: " + e.getMessage();
             return false;
-        } catch (IOException | RuntimeException | LinkageError e) {
+        } catch (IOException | RuntimeException | LinkageError | ServiceConfigurationError e) {
             // RuntimeException and LinkageError too: ping runs in the RepositoryMgr daemon over every
             // repository, and one that throws would leave its errMsg unset and skip the repositories
             // after it. A LinkageError is a filesystem that bound but links a missing class only at its
@@ -696,7 +697,7 @@ public class Repository implements Writable, GsonPostProcessable {
             }
             snapshotNames.addAll(ssNameSet);
             return Status.OK;
-        } catch (IOException | LinkageError e) {
+        } catch (IOException | LinkageError | ServiceConfigurationError e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed to list snapshots: " + e.getMessage());
         } finally {
             releaseSpiFs(fs);
@@ -820,7 +821,7 @@ public class Repository implements Writable, GsonPostProcessable {
                 fs.delete(Location.of(finalRemotePath), false);
                 spiUploadFile(fs, localFilePath, finalRemotePath);
             }
-        } catch (IOException | LinkageError e) {
+        } catch (IOException | LinkageError | ServiceConfigurationError e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed to upload " + localFilePath + ": " + e.getMessage());
         } finally {
             releaseSpiFs(fs);
@@ -917,7 +918,7 @@ public class Repository implements Writable, GsonPostProcessable {
             return Status.OK;
         } catch (FileNotFoundException e) {
             return new Status(ErrCode.NOT_FOUND, "file " + localFilePath + " does not exist");
-        } catch (IOException | LinkageError e) {
+        } catch (IOException | LinkageError | ServiceConfigurationError e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed to download file: " + e.getMessage());
         } finally {
             releaseSpiFs(fs);
@@ -948,7 +949,7 @@ public class Repository implements Writable, GsonPostProcessable {
         // task construction that follows.
         try {
             fileSystemDescriptor.getBackendConfigProperties();
-        } catch (RuntimeException | LinkageError e) {
+        } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
             return new Status(ErrCode.COMMON_ERROR, "Repository '" + name + "' is not available: "
                     + e.getMessage());
         }
@@ -1090,7 +1091,7 @@ public class Repository implements Writable, GsonPostProcessable {
                     info.add(FeConstants.null_string);
                     info.add("ERROR: No info file found");
                 }
-            } catch (IOException | LinkageError e) {
+            } catch (IOException | LinkageError | ServiceConfigurationError e) {
                 info.add(snapshotName);
                 info.add(FeConstants.null_string);
                 info.add("ERROR: Failed to get info: " + e.getMessage());

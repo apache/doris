@@ -43,6 +43,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -182,7 +183,7 @@ public class FileSystemPluginManager {
             Set<String> sensitiveKeys;
             try {
                 sensitiveKeys = provider.sensitivePropertyKeys();
-            } catch (RuntimeException | LinkageError e) {
+            } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
                 runtimeManager.discard(handle.getPluginName());
                 LOG.warn("Skip filesystem plugin '{}' from {}: sensitivePropertyKeys() failed",
                         handle.getPluginName(), handle.getPluginDir(), e);

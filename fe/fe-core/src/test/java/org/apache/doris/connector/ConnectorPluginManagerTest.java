@@ -379,6 +379,38 @@ public class ConnectorPluginManagerTest {
         Assertions.assertFalse(Assertions.assertDoesNotThrow(() -> manager.registerDiscovered(nullEngines, false)),
                 "a provider answering null engine names must be refused, not thrown");
         Assertions.assertTrue(manager.getRegisteredTypes().isEmpty(), "nothing may have been registered");
+
+        // The set is the plugin's: a lazy one may link a missing class only when it is first walked,
+        // which has to happen inside the guard rather than in the checks and claims that follow.
+        ConnectorProvider lazyEngines = new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return "lazy_engines";
+            }
+
+            @Override
+            public Set<String> acceptedCreateTableEngineNames() {
+                return new java.util.AbstractSet<String>() {
+                    @Override
+                    public java.util.Iterator<String> iterator() {
+                        throw new NoClassDefFoundError("org/example/OptionalEngineCatalog");
+                    }
+
+                    @Override
+                    public int size() {
+                        return 1;
+                    }
+                };
+            }
+
+            @Override
+            public Connector create(Map<String, String> properties, ConnectorContext context) {
+                return null;
+            }
+        };
+        Assertions.assertFalse(Assertions.assertDoesNotThrow(() -> manager.registerDiscovered(lazyEngines, false)),
+                "a set that fails when walked must be refused, not thrown");
+        Assertions.assertTrue(manager.getRegisteredTypes().isEmpty(), "no type name may be left claimed");
     }
 
     private static ConnectorProvider createProviderWithEngines(String type, String... engineNames) {
