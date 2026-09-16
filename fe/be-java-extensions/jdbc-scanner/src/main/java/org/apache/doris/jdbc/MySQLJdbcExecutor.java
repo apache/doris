@@ -77,7 +77,7 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
 
     @Override
     protected void initializeStatement(Connection conn, JdbcDataSourceConfig config, String sql) throws SQLException {
-        if (config.getTableType() == TOdbcTableType.MYSQL) {
+        if (usesMySqlTimestampProtocol(config)) {
             // MySQL sends TIMESTAMP as session-local fields. An explicit UTC session and Calendar
             // preserve instants even when Connector/J's connection timezone differs from the JVM.
             // Set this on every checkout because pooled sessions may have been modified by a query.
@@ -183,7 +183,7 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 return data;
             }
             case TIMESTAMPTZ: {
-                Timestamp value = config.getTableType() == TOdbcTableType.MYSQL
+                Timestamp value = usesMySqlTimestampProtocol(config)
                         ? resultSet.getTimestamp(columnIndex + 1, getTimestampCalendar())
                         : resultSet.getTimestamp(columnIndex + 1);
                 return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
@@ -191,6 +191,11 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
+    }
+
+    private static boolean usesMySqlTimestampProtocol(JdbcDataSourceConfig config) {
+        // OceanBase's MySQL mode shares both the TIMESTAMP mapping and session-local wire format.
+        return config.getTableType() == TOdbcTableType.MYSQL || config.getTableType() == TOdbcTableType.OCEANBASE;
     }
 
     private Calendar getTimestampCalendar() {
@@ -203,7 +208,7 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
 
     @Override
     protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
-        if (config.getTableType() == TOdbcTableType.MYSQL) {
+        if (usesMySqlTimestampProtocol(config)) {
             // Timestamp.from alone still lets the driver serialize in its configured connection zone.
             preparedStatement.setTimestamp(parameterIndex, Timestamp.from(value.toInstant(ZoneOffset.UTC)),
                     getTimestampCalendar());

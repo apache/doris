@@ -218,6 +218,26 @@ void VIcebergTableWriter::_init_static_partition_values() {
                 }
                 _partition_column_static_path_values[i] =
                         _partition_value_to_human_string(i, column->get_data_at(0).to_string());
+            } else if (type->get_primitive_type() == TYPE_TIMESTAMPTZ) {
+                // Static literals and dynamic rows must commit the same UTC value even if their
+                // input offsets differ. Unqualified static literals still use the insert session.
+                auto non_null_type = remove_nullable(type);
+                auto column = non_null_type->create_column();
+                auto& encoded = _partition_column_static_values[i];
+                StringRef input(encoded.data(), encoded.size());
+                DataTypeSerDe::FormatOptions options;
+                options.timezone = &_state->timezone_obj();
+                auto status = non_null_type->get_serde()->from_string(input, *column, options);
+                if (!status.ok()) {
+                    throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid timestamp partition: {}",
+                                    status.to_string());
+                }
+                const auto value = assert_cast<const ColumnTimeStampTz&>(*column).get_data()[0];
+                encoded = _iceberg_partition_columns[i]
+                                  .partition_column_transform()
+                                  .get_partition_value(type, value);
+                _partition_column_static_path_values[i] =
+                        _partition_value_to_human_string(i, value);
             }
         } else {
             dynamic_count++;
@@ -851,6 +871,10 @@ std::any VIcebergTableWriter::_get_iceberg_partition_value(
     }
     case TYPE_DATETIMEV2: {
         return binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(*(int64_t*)item);
+    }
+    case TYPE_TIMESTAMPTZ: {
+        // Keep the UTC carrier typed through identity routing and FE commit serialization.
+        return assert_cast<const ColumnTimeStampTz&>(*col_ptr).get_data()[position];
     }
     case TYPE_DECIMALV2: {
         return *(Decimal128V2*)(item);

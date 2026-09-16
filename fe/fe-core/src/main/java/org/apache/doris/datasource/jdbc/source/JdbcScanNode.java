@@ -329,6 +329,12 @@ public class JdbcScanNode extends ExternalScanNode {
         if (dates.stream().anyMatch(date -> date.getType().isTimeStampTz())) {
             return false;
         }
+        if ((containsFunctionCallExpr(expr) || containsCastExpr(expr))
+                && expr.contains((Expr child) -> child.getType().isTimeStampTz())) {
+            // Calendar extraction and casts use the Doris session zone. A remote UTC session
+            // (or a ClickHouse column zone) can filter out rows before Doris evaluates them.
+            return false;
+        }
         // These dialects do not accept Doris X'...' as binary literals (PostgreSQL reads bit
         // strings, DB2 uses BX, and Oracle modes require HEXTORAW). Keep these predicates local.
         if ((tableType == TOdbcTableType.POSTGRESQL || tableType == TOdbcTableType.ORACLE

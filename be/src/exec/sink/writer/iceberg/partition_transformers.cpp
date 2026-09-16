@@ -118,10 +118,12 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
                 return std::make_unique<DateBucketPartitionColumnTransform>(source_type,
                                                                             parsed_width);
             }
-            case TYPE_DATETIMEV2: {
-                return std::make_unique<TimestampBucketPartitionColumnTransform>(source_type,
-                                                                                 parsed_width);
-            }
+            case TYPE_TIMESTAMPTZ:
+                return std::make_unique<TimestampBucketPartitionColumnTransform<TYPE_TIMESTAMPTZ>>(
+                        source_type, parsed_width);
+            case TYPE_DATETIMEV2:
+                return std::make_unique<TimestampBucketPartitionColumnTransform<>>(source_type,
+                                                                                   parsed_width);
             case TYPE_DECIMALV2: {
                 return std::make_unique<DecimalBucketPartitionColumnTransform<TYPE_DECIMALV2>>(
                         source_type, parsed_width);
@@ -158,9 +160,11 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
         case TYPE_DATEV2: {
             return std::make_unique<DateYearPartitionColumnTransform>(source_type);
         }
-        case TYPE_DATETIMEV2: {
-            return std::make_unique<TimestampYearPartitionColumnTransform>(source_type);
-        }
+        case TYPE_TIMESTAMPTZ:
+            return std::make_unique<TimestampYearPartitionColumnTransform<TYPE_TIMESTAMPTZ>>(
+                    source_type);
+        case TYPE_DATETIMEV2:
+            return std::make_unique<TimestampYearPartitionColumnTransform<>>(source_type);
         default: {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "Unsupported type {} for partition column transform {}",
@@ -172,9 +176,11 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
         case TYPE_DATEV2: {
             return std::make_unique<DateMonthPartitionColumnTransform>(source_type);
         }
-        case TYPE_DATETIMEV2: {
-            return std::make_unique<TimestampMonthPartitionColumnTransform>(source_type);
-        }
+        case TYPE_TIMESTAMPTZ:
+            return std::make_unique<TimestampMonthPartitionColumnTransform<TYPE_TIMESTAMPTZ>>(
+                    source_type);
+        case TYPE_DATETIMEV2:
+            return std::make_unique<TimestampMonthPartitionColumnTransform<>>(source_type);
         default: {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "Unsupported type {} for partition column transform {}",
@@ -186,9 +192,11 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
         case TYPE_DATEV2: {
             return std::make_unique<DateDayPartitionColumnTransform>(source_type);
         }
-        case TYPE_DATETIMEV2: {
-            return std::make_unique<TimestampDayPartitionColumnTransform>(source_type);
-        }
+        case TYPE_TIMESTAMPTZ:
+            return std::make_unique<TimestampDayPartitionColumnTransform<TYPE_TIMESTAMPTZ>>(
+                    source_type);
+        case TYPE_DATETIMEV2:
+            return std::make_unique<TimestampDayPartitionColumnTransform<>>(source_type);
         default: {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "Unsupported type {} for partition column transform {}",
@@ -197,9 +205,11 @@ std::unique_ptr<PartitionColumnTransform> PartitionColumnTransforms::create(
         }
     } else if (transform == "hour") {
         switch (source_type->get_primitive_type()) {
-        case TYPE_DATETIMEV2: {
-            return std::make_unique<TimestampHourPartitionColumnTransform>(source_type);
-        }
+        case TYPE_TIMESTAMPTZ:
+            return std::make_unique<TimestampHourPartitionColumnTransform<TYPE_TIMESTAMPTZ>>(
+                    source_type);
+        case TYPE_DATETIMEV2:
+            return std::make_unique<TimestampHourPartitionColumnTransform<>>(source_type);
         default: {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "Unsupported type {} for partition column transform {}",
@@ -278,6 +288,11 @@ std::string PartitionColumnTransform::get_partition_value(const DataTypePtr type
             char buf[64];
             char* pos = std::any_cast<DateV2Value<DateV2ValueType>>(value).to_string(buf);
             return std::string(buf, pos - buf - 1);
+        }
+        case TYPE_TIMESTAMPTZ: {
+            // Commit an explicit UTC offset so FE session settings cannot reinterpret the instant.
+            return std::any_cast<TimestampTzValue>(value).to_string(cctz::utc_time_zone(),
+                                                                    type->get_scale());
         }
         case TYPE_DATETIMEV2: {
             char buf[64];

@@ -23,12 +23,14 @@
 
 #include "common/exception.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
 #include "format/table/iceberg/partition_spec_parser.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/types.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -53,6 +55,57 @@ public:
     const std::string name = "part";
 };
 } // namespace
+
+TEST(VIcebergTableWriterTest, TimestampIdentityPreservesUtcCommitAndNull) {
+    std::vector<iceberg::NestedField> fields;
+    fields.emplace_back(false, 1, "event_time", std::make_unique<iceberg::TimestampType>(true),
+                        std::nullopt);
+    auto schema = std::make_shared<iceberg::Schema>(std::move(fields));
+    auto spec = iceberg::PartitionSpecParser::from_json(
+            schema,
+            R"({"spec-id":0,"fields":[{"name":"event_time","transform":"identity","source-id":1,"field-id":1000}]})");
+    auto type = std::make_shared<DataTypeTimeStampTz>(6);
+    TIcebergTableSink sink;
+    TDataSink data_sink;
+    data_sink.__set_iceberg_table_sink(sink);
+    VExprContextSPtrs exprs;
+    VIcebergTableWriter writer(data_sink, exprs);
+    RuntimeState state;
+    state.set_timezone("America/New_York");
+    writer._state = &state;
+    writer._schema = schema;
+    writer._iceberg_partition_columns.emplace_back(
+            spec->fields()[0], TYPE_TIMESTAMPTZ, 0,
+            std::make_unique<IdentityPartitionColumnTransform>(type));
+    auto column = ColumnTimeStampTz::create();
+    TimestampTzValue first;
+    first.unchecked_set_time(2021, 11, 7, 5, 30, 0, 123456);
+    TimestampTzValue second;
+    second.unchecked_set_time(2021, 11, 7, 6, 30, 0, 123456);
+    column->get_data().assign({first, second, TimestampTzValue()});
+    auto null_map = ColumnUInt8::create();
+    null_map->get_data().assign({0, 0, 1});
+    ColumnWithTypeAndName partition(ColumnNullable::create(std::move(column), std::move(null_map)),
+                                    make_nullable(type), "event_time");
+    std::vector<std::string> paths;
+    for (int row = 0; row < 3; ++row) {
+        auto value = writer._get_iceberg_partition_value(TYPE_TIMESTAMPTZ, partition, row);
+        IcebergPartitionData data({value});
+        paths.push_back(writer._partition_to_path(data));
+        const std::vector<std::string> expected = {"2021-11-07 05:30:00.123456+00:00",
+                                                   "2021-11-07 06:30:00.123456+00:00", "null"};
+        EXPECT_EQ(std::vector<std::string>({expected[row]}), writer._partition_values(data));
+    }
+    EXPECT_NE(paths[0], paths[1]);
+    EXPECT_EQ("event_time=null", paths[2]);
+    // Static literals with an offset must route to exactly the same partition as dynamic rows.
+    writer._t_sink.iceberg_table_sink.__set_static_partition_values(
+            {{"event_time", "2021-11-07 01:30:00.123456-05:00"}});
+    writer._init_static_partition_values();
+    EXPECT_EQ(paths[1], writer._static_partition_path);
+    EXPECT_EQ(std::vector<std::string>({"2021-11-07 06:30:00.123456+00:00"}),
+              writer._static_partition_value_list);
+}
 
 TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitValues) {
     for (int kind = 0; kind < 3; ++kind) {

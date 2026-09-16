@@ -38,8 +38,8 @@
 #include "core/data_type/data_type_variant_v2.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
 #include "exprs/function/parse/variant_string_parse.h"
-#include "format/table/iceberg/iceberg_arrow_write_converter.h"
 #include "format/table/iceberg/schema_parser.h"
+#include "format/transformer/viceberg_parquet_transformer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
@@ -90,9 +90,8 @@ TEST_F(VParquetTransformerTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
                                 .enable_int96_timestamps = false};
     // Iceberg Variant uses a physical struct, so its schema and converter must be selected
     // together.
-    VParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"payload"}, false,
-                                    options, &schema_json, schema.get(),
-                                    iceberg::iceberg_arrow_write_converter());
+    VIcebergParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"payload"},
+                                           false, options, &schema_json, *schema);
     ASSERT_TRUE(transformer.open().ok());
 
     JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
@@ -159,7 +158,8 @@ TEST_F(VParquetTransformerTest, WritesInt64TimestampSemantics) {
                                 .parquet_disable_dictionary = false,
                                 .enable_int96_timestamps = false};
     VParquetTransformer transformer(&state, file_writer.get(), output_exprs,
-                                    {"local_time", "instant"}, false, options, nullptr, nullptr);
+                                    std::vector<std::string> {"local_time", "instant"}, false,
+                                    options);
     ASSERT_TRUE(transformer.open().ok());
     ASSERT_TRUE(transformer.close().ok());
 
@@ -187,7 +187,7 @@ TEST_F(VParquetTransformerTest, WritesInt96DatetimeUsingWriterTimezone) {
                                 .parquet_disable_dictionary = false,
                                 .enable_int96_timestamps = true};
     VParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"local_time"}, false,
-                                    options, nullptr, nullptr);
+                                    options);
     ASSERT_TRUE(transformer.open().ok());
 
     DateV2Value<DateTimeV2ValueType> datetime;
@@ -318,9 +318,8 @@ TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {
                                 .parquet_version = TParquetVersion::PARQUET_1_0,
                                 .parquet_disable_dictionary = false,
                                 .enable_int96_timestamps = false};
-    VParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"events"}, false,
-                                    options, &schema_json, schema.get(),
-                                    iceberg::iceberg_arrow_write_converter());
+    VIcebergParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"events"},
+                                           false, options, &schema_json, *schema);
     ASSERT_TRUE(transformer.open().ok());
 
     JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,

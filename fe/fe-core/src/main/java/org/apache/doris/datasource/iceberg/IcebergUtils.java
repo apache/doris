@@ -1144,13 +1144,15 @@ public class IcebergUtils {
                 // (1970-01-01T00:00:00)
                 long timestampMicros = (Long) value;
                 TimestampType timestampType = (TimestampType) type;
+                // Floor the seconds so pre-epoch fractions still have a non-negative nanos field.
                 LocalDateTime timestamp = LocalDateTime.ofEpochSecond(
-                        timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000,
+                        Math.floorDiv(timestampMicros, 1_000_000),
+                        (int) Math.floorMod(timestampMicros, 1_000_000) * 1000,
                         ZoneOffset.UTC);
                 // type is timestamptz if timestampType.shouldAdjustToUTC() is true
                 if (timestampType.shouldAdjustToUTC()) {
-                    timestamp = timestamp.atZone(ZoneId.of("UTC")).withZoneSameInstant(ZoneId.of(timeZone))
-                            .toLocalDateTime();
+                    // Delete/overwrite commits must distinguish both instants in a DST overlap.
+                    return timestamp.atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
                 }
                 return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
@@ -1368,9 +1370,13 @@ public class IcebergUtils {
                 DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND));
 
         // Convert to microseconds
-        ZoneId zone = timestampType.shouldAdjustToUTC()
-                ? DateUtils.getTimeZone()
-                : ZoneId.of("UTC");
+        ZoneId zone = ZoneOffset.UTC;
+        if (timestampType.shouldAdjustToUTC()) {
+            // Dynamic BE commits carry an explicit offset. Only unqualified static literals
+            // should inherit the session zone; ignoring the offset corrupts partition metadata.
+            ZoneId explicitZone = temporal.query(java.time.temporal.TemporalQueries.zone());
+            zone = explicitZone != null ? explicitZone : DateUtils.getTimeZone();
+        }
 
         long epochSecond = ldt.atZone(zone).toInstant().getEpochSecond();
         long microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 1_000L;

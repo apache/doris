@@ -24,6 +24,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -46,6 +47,22 @@ import java.util.Arrays;
 import java.util.List;
 
 public class JdbcScanNodeTest {
+
+    @Test
+    public void testZonedTimestampCalendarFunctionsStayLocal() throws Exception {
+        Method method = JdbcScanNode.class.getDeclaredMethod("shouldPushDownConjunct",
+                TOdbcTableType.class, Expr.class);
+        method.setAccessible(true);
+        SlotRef slot = new SlotRef(null, "event_time");
+        slot.setType(ScalarType.createTimeStampTzType(6));
+        Expr year = new FunctionCallExpr("year", Arrays.asList(slot));
+        for (TOdbcTableType dialect : Arrays.asList(TOdbcTableType.MYSQL, TOdbcTableType.CLICKHOUSE)) {
+            Assert.assertEquals(false, method.invoke(null, dialect,
+                    new BinaryPredicate(Operator.EQ, year, new IntLiteral(2020))));
+        }
+        // A direct null check is timezone-independent and should still be pushed down.
+        Assert.assertEquals(true, method.invoke(null, TOdbcTableType.MYSQL, new IsNullPredicate(slot, false)));
+    }
 
     @Test
     public void testZonedTimestampLiteralStaysLocal() throws Exception {

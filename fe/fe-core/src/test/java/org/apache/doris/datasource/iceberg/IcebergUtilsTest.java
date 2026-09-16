@@ -93,6 +93,59 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergUtilsTest {
     @Test
+    public void testTimestampPartitionSerializationRoundTrip() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (Types.TimestampType type : Arrays.asList(Types.TimestampType.withZone(),
+                        Types.TimestampType.withoutZone())) {
+                    for (long micros : new long[] {-1L, -1_000_001L, 1636263000123456L, 1636266600123456L}) {
+                        // Partition metadata must retain the instant even in a DST overlap.
+                        String serialized = IcebergUtils.serializePartitionValue(type, micros, zone);
+                        Assert.assertEquals(micros, IcebergUtils.parsePartitionValueFromString(
+                                serialized.replace('T', ' '), type));
+                    }
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testTimestampPartitionCommitsPreserveExplicitOffsets() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/New_York")) {
+                context.getSessionVariable().setTimeZone(zone);
+                for (String value : Arrays.asList("2021-11-07T01:30:00.123456-04:00",
+                        "2021-11-07T01:30:00.123456-05:00", "1969-12-31T23:59:59.999999+00:00")) {
+                    java.time.Instant instant = java.time.OffsetDateTime.parse(value).toInstant();
+                    long expected = instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000;
+                    // BE commits include an offset so the FE session must not reinterpret their fields.
+                    Assert.assertEquals(expected, IcebergUtils.parsePartitionValueFromString(
+                            value.replace('T', ' '), Types.TimestampType.withZone()));
+                }
+                Assert.assertEquals(-1L, IcebergUtils.parsePartitionValueFromString(
+                        "1969-12-31 23:59:59.999999", Types.TimestampType.withoutZone()));
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void testStaticBinaryPartitionContextUsesTypedHex() {
         UnboundIcebergTableSink<?> sink = Mockito.mock(UnboundIcebergTableSink.class);
         Mockito.when(sink.hasStaticPartition()).thenReturn(true);

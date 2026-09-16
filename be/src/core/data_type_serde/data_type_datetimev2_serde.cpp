@@ -885,6 +885,13 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
             return Status::InternalError("get unix timestamp error.");
         }
 
+        // ORC-645 aliases this pre-epoch fraction to a positive timestamp on disk.
+        // Keep the same fail-fast contract as TIMESTAMPTZ instead of writing a wrong value.
+        if (timestamp == -1 && datetime_val.microsecond() >= 1000) {
+            return Status::NotSupported(
+                    "ORC cannot represent pre-epoch timestamp fractions in [-0.999, 0) seconds "
+                    "without data loss; use Parquet for these values");
+        }
         cur_batch->data[row_id] = timestamp;
         cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micro_to_nano_second;
     }

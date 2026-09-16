@@ -103,6 +103,34 @@ public class VarBinarySqlSupportTest extends TestWithFeService {
     }
 
     @Test
+    public void testUnsupportedBinaryCollectionsFailDuringAnalysis() {
+        String values = "array(cast(encoded as varbinary), X'', X'0080FF', NULL)";
+        for (String expression : new String[] {
+                "array_contains(" + values + ", X'0080FF')",
+                "array_position(" + values + ", X'0080FF')",
+                "countequal(" + values + ", X'0080FF')",
+                "array_distinct(" + values + ")",
+                "array_remove(" + values + ", X'0080FF')",
+                "array_enumerate_uniq(" + values + ")",
+                "array_contains_all(" + values + ", " + values + ")",
+                "arrays_overlap(" + values + ", " + values + ")",
+                "array_union(" + values + ", " + values + ")",
+                "array_except(" + values + ", " + values + ")",
+                "array_intersect(" + values + ", " + values + ")",
+                "collect_set(cast(encoded as varbinary))",
+                "collect_set(cast(encoded as varbinary), 2)"}) {
+            org.apache.doris.nereids.exceptions.AnalysisException error = Assertions.assertThrows(
+                    org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> PlanChecker.from(connectContext).analyze("select " + expression + " from source_bytes"),
+                    expression);
+            Assertions.assertTrue(error.getMessage().contains("does not support VARBINARY"), error.getMessage());
+        }
+        // Byte-agnostic array construction and element access remain supported.
+        PlanChecker.from(connectContext).analyze("select " + values + "[1] from source_bytes");
+        PlanChecker.from(connectContext).analyze("select collect_list(cast(encoded as varbinary)) from source_bytes");
+    }
+
+    @Test
     public void testJoin() {
         PlanChecker.from(connectContext).analyze("select a.id from source_bytes a join source_bytes b "
                 + "on cast(a.encoded as varbinary) = cast(b.encoded as varbinary)").rewrite();

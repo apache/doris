@@ -72,6 +72,22 @@ suite("test_varbinary_sql_support") {
         assertEquals([[0L]], sql("SELECT count(*) FROM ${table} WHERE payload NOT IN (SELECT payload FROM ${table})"))
         assertEquals([["", "FF"]], sql("SELECT from_binary(min(payload)), from_binary(max(payload)) FROM ${table}"))
 
+        // Unsupported binary collection kernels must fail in analysis, not with a BE internal error.
+        def binaryArray = "array(payload, X'', X'0080FF', NULL)"
+        ["array_contains(${binaryArray}, X'0080FF')", "array_position(${binaryArray}, X'0080FF')",
+         "countequal(${binaryArray}, X'0080FF')", "array_distinct(${binaryArray})",
+         "array_remove(${binaryArray}, X'0080FF')", "array_enumerate_uniq(${binaryArray})",
+         "array_contains_all(${binaryArray}, ${binaryArray})", "arrays_overlap(${binaryArray}, ${binaryArray})",
+         "array_union(${binaryArray}, ${binaryArray})", "array_except(${binaryArray}, ${binaryArray})",
+         "array_intersect(${binaryArray}, ${binaryArray})", "collect_set(payload)", "collect_set(payload, 2)"].each {
+            expression ->
+            test {
+                sql "SELECT ${expression} FROM ${table}"
+                exception "does not support VARBINARY"
+            }
+        }
+        assertEquals([[9L]], sql("SELECT array_size(collect_list(payload)) FROM ${table}"))
+
         sql "CREATE VIEW ${view} AS SELECT id, payload FROM ${table} WHERE payload <> X'AB00' OR payload IS NULL"
         assertEquals(bytes.findAll { it[0] != 6 }, readBytes(view))
         assertTrue(sql("DESC ${view}").find { it[0] == "payload" }[1].toLowerCase().startsWith("varbinary"))

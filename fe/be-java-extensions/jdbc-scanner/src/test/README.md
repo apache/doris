@@ -40,13 +40,19 @@ MySQL needs an existing test database and permission to create temporary tables.
 connection creates only a temporary table, which is removed when the connection closes.
 The test covers client/server prepared statements, three JVM timezones, two initial
 session timezones, and four Connector/J timezone configurations.
+Set `mysql.integration.tableType=OCEANBASE` to exercise the OceanBase MySQL-mode executor
+branch against the same wire protocol. This does not replace testing an OceanBase server.
 
-For ClickHouse or SQL Server, set the corresponding `clickhouse.integration.*` or
-`sqlserver.integration.*` properties (`url`, `driverJar`, `user`, `password`). Those tests
-only execute constant `SELECT` queries. Omitted URLs disable the corresponding tests.
+For ClickHouse, SQL Server, or PostgreSQL, set the corresponding `clickhouse.integration.*`,
+`sqlserver.integration.*`, or `postgresql.integration.*` properties (`url`, `driverJar`,
+`user`, `password`). Omitted URLs disable the corresponding tests. ClickHouse and PostgreSQL
+execute constant `SELECT` queries; PostgreSQL also varies the session timezone and reads
+nested timestamp arrays. SQL Server creates a connection-local temporary table for writes.
 For ClickHouse, test both the v1 and v2 implementations where the driver offers them
-(`clickhouse.jdbc.v1=true` selects v1 in the 0.9 driver). For SQL Server, include a legacy
-driver without JDBC 4.2 typed timestamp support as well as a current driver.
+(`clickhouse.jdbc.v1=true` selects v1 in the 0.9 driver). For SQL Server, include 6.2, 6.4,
+7.0 and a current driver: unsupported typed getters throw different exception classes
+across legacy releases. Reads resolve the stored offset with `getTimestamp`; writes bind
+an explicit UTC ISO timestamp, avoiding `Timestamp` parameters that lose their offset.
 
 MySQL execution sessions are explicitly set to UTC on each connection checkout. Both
 timestamp binding and retrieval use a UTC Calendar, independently of Connector/J's

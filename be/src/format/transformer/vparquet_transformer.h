@@ -31,7 +31,6 @@
 #include <optional>
 
 #include "format/arrow/arrow_block_convertor.h"
-#include "format/table/iceberg/schema.h"
 #include "format/transformer/vfile_format_transformer.h"
 
 namespace doris {
@@ -91,21 +90,18 @@ struct ParquetFileOptions {
 };
 
 // a wrapper of parquet output stream
-class VParquetTransformer final : public VFileFormatTransformer {
+class VParquetTransformer : public VFileFormatTransformer {
 public:
     VParquetTransformer(
             RuntimeState* state, doris::io::FileWriter* file_writer,
             const VExprContextSPtrs& output_vexpr_ctxs, std::vector<std::string> column_names,
             bool output_object_data, const ParquetFileOptions& parquet_options,
-            const std::string* iceberg_schema_json = nullptr,
-            const iceberg::Schema* iceberg_schema = nullptr,
             const ArrowWriteConverter& arrow_write_converter = plain_arrow_write_converter());
 
     VParquetTransformer(
             RuntimeState* state, doris::io::FileWriter* file_writer,
             const VExprContextSPtrs& output_vexpr_ctxs, std::vector<TParquetSchema> parquet_schemas,
             bool output_object_data, const ParquetFileOptions& parquet_options,
-            const std::string* iceberg_schema_json = nullptr,
             const ArrowWriteConverter& arrow_write_converter = plain_arrow_write_converter());
 
     ~VParquetTransformer() override = default;
@@ -118,11 +114,12 @@ public:
 
     int64_t written_len() override;
 
-    Status collect_file_statistics_after_close(TIcebergColumnStats* stats);
+protected:
+    virtual Status _parse_schema(std::shared_ptr<arrow::Schema>* schema);
+    std::shared_ptr<::parquet::FileMetaData> _file_metadata() const { return _writer->metadata(); }
 
 private:
     Status _parse_properties();
-    Status _parse_schema();
     arrow::Status _open_file_writer();
 
     std::shared_ptr<ParquetOutputStream> _outstream;
@@ -136,9 +133,7 @@ private:
     const ParquetFileOptions _parquet_options;
     std::string _timezone;
     cctz::time_zone _timezone_obj;
-    const std::string* _iceberg_schema_json;
     uint64_t _write_size = 0;
-    const iceberg::Schema* _iceberg_schema;
     const ArrowWriteConverter& _arrow_write_converter;
 };
 

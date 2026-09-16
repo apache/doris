@@ -22,6 +22,7 @@
 #include <limits>
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "format/table/iceberg/partition_spec.h"
 
@@ -70,6 +71,69 @@ TEST_F(PartitionTransformersTest, binary_transforms_preserve_raw_bytes) {
         auto result = transform->apply(nullable_block, 0);
         EXPECT_TRUE(result.column->is_null_at(1));
         EXPECT_FALSE(result.column->is_null_at(0));
+    }
+}
+
+TEST_F(PartitionTransformersTest, timestamp_transforms_use_utc_calendar_and_microseconds) {
+    for (const auto& type : std::vector<DataTypePtr> {std::make_shared<DataTypeDateTimeV2>(6),
+                                                      std::make_shared<DataTypeTimeStampTz>(6)}) {
+        auto column = type->create_column();
+        // The first two UTC values represent the repeated New York 01:30 with different offsets.
+        const std::vector<std::array<int, 7>> fields = {{2021, 11, 7, 5, 30, 0, 123456},
+                                                        {2021, 11, 7, 6, 30, 0, 123456},
+                                                        {1969, 12, 31, 23, 59, 59, 999999}};
+        const std::vector<Int64> micros = {1636263000123456, 1636266600123456, -1};
+        for (const auto& f : fields) {
+            DateV2Value<DateTimeV2ValueType> dt;
+            ASSERT_TRUE(dt.check_range_and_set_time(f[0], f[1], f[2], f[3], f[4], f[5], f[6]));
+            auto packed = dt.to_date_int_val();
+            column->insert_data(reinterpret_cast<const char*>(&packed), sizeof(packed));
+        }
+        column->insert_default();
+        auto null_map = ColumnUInt8::create();
+        null_map->get_data().assign({0, 0, 0, 1});
+        Block block({{ColumnNullable::create(std::move(column), std::move(null_map)),
+                      make_nullable(type), "event_time"}});
+        const std::vector<std::string> transforms = {"year", "month", "day", "hour", "bucket[16]"};
+        const std::vector<std::vector<Int32>> expected = {
+                {51, 51, -1}, {622, 622, -1}, {18938, 18938, -1}, {454517, 454518, -1}};
+        for (size_t t = 0; t < transforms.size(); ++t) {
+            SCOPED_TRACE(type->get_name() + " " + transforms[t]);
+            auto transform = PartitionColumnTransforms::create(
+                    iceberg::PartitionField(1, 1000, "event_partition", transforms[t]), type);
+            auto result = transform->apply(block, 0);
+            ASSERT_TRUE(result.column->is_null_at(3));
+            const auto& values =
+                    assert_cast<const ColumnInt32&>(
+                            assert_cast<const ColumnNullable&>(*result.column).get_nested_column())
+                            .get_data();
+            for (size_t row = 0; row < micros.size(); ++row) {
+                Int32 expected_value =
+                        t < 4 ? expected[t][row]
+                              : (HashUtil::murmur_hash3_32(&micros[row], sizeof(Int64), 0) &
+                                 INT32_MAX) %
+                                        16;
+                EXPECT_EQ(expected_value, values[row]);
+            }
+            if (transforms[t] == "hour") {
+                EXPECT_EQ("1969-12-31-23", transform->to_human_string(result.type, Int32(-1)));
+            }
+        }
+    }
+}
+
+TEST_F(PartitionTransformersTest, date_partitions_before_epoch_use_calendar_ordinals) {
+    auto type = std::make_shared<DataTypeDateV2>();
+    auto column = ColumnDateV2::create();
+    DateV2Value<DateV2ValueType> value;
+    value.unchecked_set_time(1969, 12, 31, 0, 0, 0);
+    column->insert_value(value.to_date_int_val());
+    Block block({{std::move(column), type, "event_date"}});
+    for (const auto& name : {"year", "month", "day"}) {
+        auto transform = PartitionColumnTransforms::create(
+                iceberg::PartitionField(1, 1000, "date_partition", name), type);
+        auto result = transform->apply(block, 0);
+        EXPECT_EQ(-1, assert_cast<const ColumnInt32&>(*result.column).get_data()[0]);
     }
 }
 

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -122,11 +123,12 @@ public class VarBinaryLiteralParserTest extends TestWithFeService {
         String createDbStmtStr = "CREATE DATABASE IF NOT EXISTS " + db;
         createDatabaseWithSql(createDbStmtStr);
         useDatabase(db);
-        createTable("create table exists_db.test_varbinary\n"
+        // VARBINARY is an external execution type, not a native storage type.
+        Assertions.assertThrows(AnalysisException.class, () -> createTable("create table exists_db.test_varbinary\n"
                         + "(k1 int, k2 VARBINARY)\n"
                         + "duplicate key(k1)\n"
                         + "distributed by hash(k1) buckets 1\n"
-                        + "properties ('replication_num'='1')", true);
+                        + "properties ('replication_num'='1')", true));
     }
 
     @Test
@@ -136,7 +138,7 @@ public class VarBinaryLiteralParserTest extends TestWithFeService {
         Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.CreateTableCommand);
         org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
                 (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
-        Assertions.assertDoesNotThrow(
+        Assertions.assertThrows(AnalysisException.class,
                 () -> cmd.getCreateTableInfo().validate(connectContext));
     }
 
@@ -147,7 +149,7 @@ public class VarBinaryLiteralParserTest extends TestWithFeService {
         Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.CreateTableCommand);
         org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
                 (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
-        Assertions.assertDoesNotThrow(
+        Assertions.assertThrows(AnalysisException.class,
                 () -> cmd.getCreateTableInfo().validate(connectContext));
     }
 
@@ -158,7 +160,7 @@ public class VarBinaryLiteralParserTest extends TestWithFeService {
         Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.CreateTableCommand);
         org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
                 (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
-        Assertions.assertDoesNotThrow(
+        Assertions.assertThrows(AnalysisException.class,
                 () -> cmd.getCreateTableInfo().validate(connectContext));
     }
 
@@ -169,7 +171,7 @@ public class VarBinaryLiteralParserTest extends TestWithFeService {
         Assertions.assertTrue(plan instanceof org.apache.doris.nereids.trees.plans.commands.CreateTableCommand);
         org.apache.doris.nereids.trees.plans.commands.CreateTableCommand cmd =
                 (org.apache.doris.nereids.trees.plans.commands.CreateTableCommand) plan;
-        Assertions.assertDoesNotThrow(
+        Assertions.assertThrows(AnalysisException.class,
                 () -> cmd.getCreateTableInfo().validate(connectContext));
     }
 

@@ -208,6 +208,16 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
                 }
                 return result;
             }
+            case TIMESTAMPTZ: {
+                List<LocalDateTime> result = new ArrayList<>(array.size());
+                for (Object element : array) {
+                    // pgjdbc returns Timestamp[] even for timestamptz arrays. Preserve the instant
+                    // before JNI materializes LocalDateTime[], including inside nested arrays.
+                    result.add(element == null ? null
+                            : LocalDateTime.ofInstant(((Timestamp) element).toInstant(), java.time.ZoneOffset.UTC));
+                }
+                return result;
+            }
             case ARRAY:
                 List<List<?>> resultArray = Lists.newArrayList();
                 for (Object element : array) {

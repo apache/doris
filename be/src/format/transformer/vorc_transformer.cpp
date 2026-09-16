@@ -569,9 +569,21 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
     } else if (const auto* ts_stats =
                        dynamic_cast<const orc::TimestampColumnStatistics*>(col_stats)) {
         if (ts_stats->hasMinimum() && ts_stats->hasMaximum()) {
+            // ORC stores milliseconds plus a sub-millisecond nanos tail. Dropping that tail
+            // makes Iceberg's upper bound smaller than real rows and causes false-negative pruning.
+            const int32_t min_nanos = ts_stats->getMinimumNanos();
+            const int32_t max_nanos = ts_stats->getMaximumNanos();
+            int64_t min_val;
+            int64_t max_val;
+            if (min_nanos < 0 || min_nanos > 999999 || max_nanos < 0 || max_nanos > 999999 ||
+                __builtin_mul_overflow(ts_stats->getMinimum(), int64_t(1000), &min_val) ||
+                __builtin_mul_overflow(ts_stats->getMaximum(), int64_t(1000), &max_val) ||
+                __builtin_add_overflow(min_val, int64_t(min_nanos / 1000), &min_val) ||
+                __builtin_add_overflow(max_val, int64_t((max_nanos + 999) / 1000), &max_val) ||
+                min_val > max_val) {
+                return false;
+            }
             has_bounds = true;
-            int64_t min_val = ts_stats->getMinimum() * 1000;
-            int64_t max_val = ts_stats->getMaximum() * 1000;
             (*lower_bounds)[field_id] =
                     std::string(reinterpret_cast<const char*>(&min_val), sizeof(int64_t));
             (*upper_bounds)[field_id] =

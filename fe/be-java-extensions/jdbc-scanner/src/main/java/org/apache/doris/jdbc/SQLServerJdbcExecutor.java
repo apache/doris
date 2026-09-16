@@ -28,16 +28,13 @@ import java.sql.Connection;
 import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 
 public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
-    private boolean useLegacyTimestampRead;
-
     public SQLServerJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
     }
@@ -74,17 +71,9 @@ public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
         switch (type.getType()) {
             case TIMESTAMPTZ: {
-                // JNI carries instants as UTC components, not the source zone's wall clock.
-                if (!useLegacyTimestampRead) {
-                    try {
-                        OffsetDateTime value = resultSet.getObject(columnIndex + 1, OffsetDateTime.class);
-                        return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
-                    } catch (SQLFeatureNotSupportedException e) {
-                        // Probe once per executor, not once per row on legacy drivers.
-                        useLegacyTimestampRead = true;
-                    }
-                }
-                // Pre-JDBC-4.2 drivers still resolve datetimeoffset's explicit offset in getTimestamp.
+                // getTimestamp resolves datetimeoffset's explicit offset on old and new drivers.
+                // Avoid probing typed getObject: legacy drivers report unsupported conversions
+                // with the same SQLException class as real database failures.
                 Timestamp value = resultSet.getTimestamp(columnIndex + 1);
                 return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
             }
@@ -112,6 +101,13 @@ public class SQLServerJdbcExecutor extends BaseJdbcExecutor {
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }
+    }
+
+    @Override
+    protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
+        // setObject(Timestamp) drops the offset and serializes JVM-local fields as datetime2.
+        // An ISO literal retains the UTC instant and precision even on pre-JDBC-4.2 drivers.
+        preparedStatement.setString(parameterIndex, DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(value) + "+00:00");
     }
 
     @Override

@@ -526,6 +526,13 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
         int64_t timestamp = 0;
         col_data[row_id].unix_timestamp(&timestamp, UTC);
 
+        // ORC-645 increments this second to zero, making it indistinguishable from a
+        // positive instant. Reject it before the writer can silently corrupt the value.
+        if (timestamp == -1 && col_data[row_id].microsecond() >= 1000) {
+            return Status::NotSupported(
+                    "ORC cannot represent pre-epoch timestamp fractions in [-0.999, 0) seconds "
+                    "without data loss; use Parquet for these values");
+        }
         cur_batch->data[row_id] = timestamp;
         cur_batch->nanoseconds[row_id] = col_data[row_id].microsecond() * micro_to_nano_second;
     }

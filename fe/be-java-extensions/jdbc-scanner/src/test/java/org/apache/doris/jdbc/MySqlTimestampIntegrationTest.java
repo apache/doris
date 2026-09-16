@@ -116,7 +116,9 @@ class MySqlTimestampIntegrationTest {
     private MySQLJdbcExecutor executor(Connection connection, TJdbcOperation operation, String sql) throws Exception {
         // Bypass only the JNI bootstrap; statements, result sets and timezone decoding use the real driver.
         MySQLJdbcExecutor executor = Mockito.mock(MySQLJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
-        JdbcDataSourceConfig config = new JdbcDataSourceConfig().setOp(operation).setTableType(TOdbcTableType.MYSQL);
+        // The OceanBase MySQL-mode path must share this wire contract, not just the schema mapping.
+        TOdbcTableType tableType = TOdbcTableType.valueOf(System.getProperty("mysql.integration.tableType", "MYSQL"));
+        JdbcDataSourceConfig config = new JdbcDataSourceConfig().setOp(operation).setTableType(tableType);
         executor.config = config;
         executor.initializeStatement(connection, config, sql);
         return executor;
