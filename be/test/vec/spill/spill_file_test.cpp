@@ -87,11 +87,11 @@ protected:
 
         _spill_dir = "./ut_dir/spill_file_test";
         _second_spill_dir = "./ut_dir/spill_file_test_second";
-        auto spill_data_dir =
-                std::make_unique<SpillDataDir>(_spill_dir, 1024L * 1024 * 128, TStorageMedium::SSD);
+        auto spill_data_dir = std::make_unique<LocalSpillDataDir>(_spill_dir, 1024L * 1024 * 128,
+                                                                  TStorageMedium::SSD);
         auto st = io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
         ASSERT_TRUE(st.ok()) << "create directory failed: " << st.to_string();
-        auto second_spill_data_dir = std::make_unique<SpillDataDir>(
+        auto second_spill_data_dir = std::make_unique<LocalSpillDataDir>(
                 _second_spill_dir, 1024L * 1024 * 128, TStorageMedium::HDD);
         st = io::global_local_filesystem()->create_directory(second_spill_data_dir->path(), false);
         ASSERT_TRUE(st.ok()) << "create directory failed: " << st.to_string();
@@ -130,7 +130,8 @@ protected:
     }
 
     void _write_and_release_spill_file(const TUniqueId& query_id, QueryContext* query_ctx,
-                                       SpillDataDir* data_dir, const std::string& relative_path) {
+                                       LocalSpillDataDir* data_dir,
+                                       const std::string& relative_path) {
         TQueryGlobals query_globals;
         auto runtime_state = std::make_unique<MockRuntimeState>(
                 query_id, 0, query_ctx->query_options(), query_globals, ExecEnv::GetInstance(),
@@ -162,7 +163,7 @@ protected:
         ASSERT_TRUE(st.ok()) << st.to_string();
     }
 
-    std::set<std::string> _gc_subdirectories(SpillDataDir* data_dir) {
+    std::set<std::string> _gc_subdirectories(LocalSpillDataDir* data_dir) {
         std::set<std::string> subdirectories;
         for (const auto& entry :
              std::filesystem::directory_iterator(data_dir->get_spill_data_gc_path())) {
@@ -179,8 +180,8 @@ protected:
     std::unique_ptr<RuntimeProfile> _common_profile;
     std::string _spill_dir;
     std::string _second_spill_dir;
-    SpillDataDir* _data_dir_ptr = nullptr;
-    SpillDataDir* _second_data_dir_ptr = nullptr;
+    LocalSpillDataDir* _data_dir_ptr = nullptr;
+    LocalSpillDataDir* _second_data_dir_ptr = nullptr;
 };
 
 // ═══════════════════════════════════════════════════════════════════════

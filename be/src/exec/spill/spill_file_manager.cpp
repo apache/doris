@@ -34,15 +34,13 @@
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
+#include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
-#include "storage/olap_define.h"
-#include "storage/storage_policy.h"
 #include "util/debug_points.h"
-#include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/time.h"
 
@@ -74,7 +72,20 @@ SpillFileManager::~SpillFileManager() {
 
 SpillFileManager::SpillFileManager(
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&& spill_store_map)
-        : _spill_store_map(std::move(spill_store_map)), _stop_background_threads_latch(1) {}
+        : _spill_store_map(std::move(spill_store_map)), _stop_background_threads_latch(1) {
+    for (auto& [path, store] : _spill_store_map) {
+        if (store->is_remote()) {
+            auto* remote = dynamic_cast<RemoteSpillDataDir*>(store.get());
+            DCHECK(remote != nullptr) << "remote spill store must be a RemoteSpillDataDir";
+            DCHECK(_remote_store == nullptr) << "at most one remote spill store";
+            _remote_store = remote;
+        } else {
+            auto* local = dynamic_cast<LocalSpillDataDir*>(store.get());
+            DCHECK(local != nullptr) << "local spill store must be a LocalSpillDataDir";
+            _local_stores.push_back(local);
+        }
+    }
+}
 
 void SpillFileManager::stop() {
     _stop_background_threads_latch.count_down();
@@ -96,15 +107,14 @@ Status SpillFileManager::init() {
     _remote_upload_budget =
             std::make_shared<SpillRemoteUploadBudget>(config::spill_s3_max_inflight_upload_bytes);
 
-    for (const auto& [path, store] : _spill_store_map) {
-        if (store->is_remote()) {
-            // Objects of previous boot generations are deleted by the GC thread once the store
-            // is ready. Nothing here may touch meta-service: BE has not received the FE
-            // heartbeat yet, so the backend id and the storage vault may be unavailable.
-            _remote_boot_marker_pending.store(true, std::memory_order_release);
-            _remote_startup_cleanup_pending.store(true, std::memory_order_release);
-            continue;
-        }
+    if (_remote_store != nullptr) {
+        // Objects of previous boot generations are deleted by the GC thread once the store
+        // is ready. Nothing here may touch meta-service: BE has not received the FE
+        // heartbeat yet, so the backend id and the storage vault may be unavailable.
+        _remote_boot_marker_pending.store(true, std::memory_order_release);
+        _remote_startup_cleanup_pending.store(true, std::memory_order_release);
+    }
+    for (auto* store : _local_stores) {
         auto gc_dir_root_dir = store->get_spill_data_gc_path();
         bool exists = true;
         RETURN_IF_ERROR(io::global_local_filesystem()->exists(gc_dir_root_dir, &exists));
@@ -246,17 +256,17 @@ Status SpillFileManager::_init_spill_store_map() {
 
 std::vector<SpillDataDir*> SpillFileManager::_get_stores_for_spill(
         TStorageMedium::type storage_medium) {
-    std::vector<std::pair<SpillDataDir*, double>> stores_with_usage;
-    for (auto& [_, store] : _spill_store_map) {
-        if (store->is_remote()) {
-            // Object storage has no medium; a remote store is the only store of the BE.
-            if (!store->reach_capacity_limit(0)) {
-                stores_with_usage.emplace_back(store.get(), 0.0);
-            }
-            continue;
+    if (_remote_store != nullptr) {
+        // Object storage has no medium; a remote store is the only store of the BE.
+        if (_remote_store->reach_capacity_limit(0)) {
+            return {};
         }
+        return {_remote_store};
+    }
+    std::vector<std::pair<SpillDataDir*, double>> stores_with_usage;
+    for (auto* store : _local_stores) {
         if (store->storage_medium() == storage_medium && !store->reach_capacity_limit(0)) {
-            stores_with_usage.emplace_back(store.get(), store->_get_disk_usage(0));
+            stores_with_usage.emplace_back(store, store->get_disk_usage(0));
         }
     }
     if (stores_with_usage.empty()) {
@@ -274,10 +284,8 @@ std::vector<SpillDataDir*> SpillFileManager::_get_stores_for_spill(
 
 Status SpillFileManager::create_spill_file(const std::string& relative_path,
                                            SpillFileSPtr& spill_file) {
-    for (auto& [_, store] : _spill_store_map) {
-        if (store->is_remote()) {
-            RETURN_IF_ERROR(store->ensure_ready());
-        }
+    if (_remote_store != nullptr) {
+        RETURN_IF_ERROR(_remote_store->ensure_ready());
     }
     auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
     if (data_dirs.empty()) {
@@ -388,11 +396,10 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
         }
     }};
     _retry_pending_query_spill_directories();
-    for (const auto& [path, store_dir] : _spill_store_map) {
-        if (store_dir->is_remote()) {
-            _remote_gc(store_dir.get());
-            continue;
-        }
+    if (_remote_store != nullptr) {
+        _remote_gc(_remote_store);
+    }
+    for (auto* store_dir : _local_stores) {
         std::string gc_root_dir = store_dir->get_spill_data_gc_path();
 
         std::error_code ec;
@@ -440,7 +447,7 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
     }
 }
 
-void SpillFileManager::_remote_gc(SpillDataDir* store) {
+void SpillFileManager::_remote_gc(RemoteSpillDataDir* store) {
     if (!store->ready()) {
         // Retry about once a minute at the default 2s GC interval. ensure_ready() only reads
         // what the vault refresh thread and the FE heartbeat already brought in.
@@ -493,7 +500,7 @@ void SpillFileManager::_remote_gc(SpillDataDir* store) {
     }
 }
 
-Status SpillFileManager::_remote_write_boot_marker(SpillDataDir* store) {
+Status SpillFileManager::_remote_write_boot_marker(RemoteSpillDataDir* store) {
     io::FileWriterPtr writer;
     RETURN_IF_ERROR(store->fs()->create_file(
             store->get_remote_boot_marker_path(std::to_string(store->boot_id())), &writer));
@@ -501,14 +508,12 @@ Status SpillFileManager::_remote_write_boot_marker(SpillDataDir* store) {
 }
 
 void SpillFileManager::flush_remote_spill_stats() {
-    for (auto& [path, store] : _spill_store_map) {
-        if (store->is_remote()) {
-            _report_remote_spill_stats(store.get(), /*final_report=*/true);
-        }
+    if (_remote_store != nullptr) {
+        _report_remote_spill_stats(_remote_store, /*final_report=*/true);
     }
 }
 
-void SpillFileManager::_report_remote_spill_stats(SpillDataDir* store, bool final_report) {
+void SpillFileManager::_report_remote_spill_stats(RemoteSpillDataDir* store, bool final_report) {
     std::lock_guard<std::mutex> lock(_remote_report_mutex);
     // About once a minute at the default 2s GC interval; a final report skips the cadence.
     if (!final_report && _remote_report_rounds++ % 30 != 0) {
@@ -534,7 +539,7 @@ void SpillFileManager::_report_remote_spill_stats(SpillDataDir* store, bool fina
     _reported_remote_put_requests = put_requests;
 }
 
-Status SpillFileManager::_remote_startup_cleanup(SpillDataDir* store, bool* done) {
+Status SpillFileManager::_remote_startup_cleanup(RemoteSpillDataDir* store, bool* done) {
     auto fs = store->fs();
     const auto current_boot_id = std::to_string(store->boot_id());
 
@@ -570,271 +575,4 @@ Status SpillFileManager::_remote_startup_cleanup(SpillDataDir* store, bool* done
     return Status::OK();
 }
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_limit, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_avail_capacity, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_data_size, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_has_spill_data, MetricUnit::BYTES);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_has_spill_gc_data, MetricUnit::BYTES);
-
-SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,
-                           TStorageMedium::type storage_medium)
-        : _path(std::move(path)),
-          _spill_root(fmt::format("{}/{}", _path, SPILL_DIR_PREFIX)),
-          _disk_capacity_bytes(capacity_bytes),
-          _storage_medium(storage_medium) {
-    spill_data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
-            std::string("spill_data_dir.") + _path, {{"path", _spill_root}});
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_capacity);
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_limit);
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_avail_capacity);
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_data_size);
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_data);
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_gc_data);
-}
-
-SpillDataDir::SpillDataDir(Remote, std::string vault_id, int64_t boot_id)
-        : _path(fmt::format("s3:{}", vault_id.empty() ? "default" : vault_id)),
-          _is_remote(true),
-          _vault_id(std::move(vault_id)),
-          _boot_id(boot_id),
-          _disk_capacity_bytes(0),
-          _storage_medium(TStorageMedium::S3) {
-    spill_data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
-            std::string("spill_data_dir.") + _path, {{"path", _path}});
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_capacity);
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_limit);
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_avail_capacity);
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_data_size);
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_data);
-    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_gc_data);
-}
-
-Status SpillDataDir::ensure_ready() {
-    if (!_is_remote || ready()) {
-        return Status::OK();
-    }
-    std::lock_guard<std::mutex> lock(_init_mutex);
-    if (ready()) {
-        return Status::OK();
-    }
-    if (!config::is_cloud_mode()) {
-        return Status::InternalError("spill to s3 is only supported in cloud mode");
-    }
-    int64_t backend_id = BackendOptions::get_backend_id();
-    if (backend_id <= 0) {
-        return Status::InternalError(
-                "spill to s3 is not ready: backend id is unknown, waiting for FE heartbeat");
-    }
-    // Resolve from what is already known locally; never trigger a meta-service sync here.
-    // The vault refresh thread and the heartbeat fill these in, and callers retry.
-    auto& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
-    std::string vault_id = _vault_id.empty() ? engine.default_vault_id() : _vault_id;
-    io::RemoteFileSystemSPtr fs =
-            vault_id.empty() ? engine.latest_fs() : doris::get_filesystem(vault_id);
-    if (fs == nullptr) {
-        return Status::InternalError(
-                "spill to s3 is not ready: storage vault '{}' not found (empty means the default "
-                "vault of the instance; set spill_s3_storage_vault to the vault ID in be.conf if "
-                "the instance has no default vault)",
-                vault_id);
-    }
-    if (fs->type() != io::FileSystemType::S3) {
-        return Status::NotSupported("spill to s3 only supports S3 storage vaults, vault '{}' is {}",
-                                    vault_id, fs->type());
-    }
-    init_remote_fs(fs, backend_id);
-    return Status::OK();
-}
-
-void SpillDataDir::init_remote_fs(io::FileSystemSPtr fs, int64_t backend_id) {
-    DCHECK(_is_remote);
-    _fs = std::move(fs);
-    _backend_id = backend_id;
-    _remote_be_root = fmt::format("{}/{}", SPILL_DIR_PREFIX, backend_id);
-    _spill_root = get_remote_boot_data_path(std::to_string(_boot_id));
-    _ready.store(true, std::memory_order_release);
-    LOG(INFO) << fmt::format(
-            "remote spill store is ready, vault_id={}, fs_id={}, root={}, limit={}",
-            _vault_id.empty() ? "<default>" : _vault_id, _fs->id(), _spill_root,
-            PrettyPrinter::print_bytes(config::spill_s3_storage_limit_bytes));
-}
-
-io::FileSystemSPtr SpillDataDir::fs() const {
-    if (_is_remote) {
-        return ready() ? _fs : nullptr;
-    }
-    return io::global_local_filesystem();
-}
-
-bool is_directory_empty(const std::filesystem::path& dir) {
-    // Spill cleanup may delete the directory while the iterator is constructed or advanced. Treat
-    // that race as empty for these presence metrics.
-    try {
-        return std::filesystem::is_directory(dir) &&
-               std::filesystem::directory_iterator(dir) ==
-                       std::filesystem::end(std::filesystem::directory_iterator {});
-    } catch (const std::filesystem::filesystem_error&) {
-        return true;
-    }
-}
-
-Status SpillDataDir::init() {
-    if (_is_remote) {
-        RETURN_IF_ERROR(update_capacity());
-        LOG(INFO) << fmt::format("remote spill store registered, vault_id={}, boot_id={}, limit={}",
-                                 _vault_id.empty() ? "<default>" : _vault_id, _boot_id,
-                                 PrettyPrinter::print_bytes(_spill_data_limit_bytes));
-        return Status::OK();
-    }
-    bool exists = false;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(_path, &exists));
-    if (!exists) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError("opendir failed, path={}", _path),
-                                       "check file exist failed");
-    }
-    RETURN_IF_ERROR(update_capacity());
-    LOG(INFO) << fmt::format(
-            "spill storage path: {}, capacity: {}, limit: {}, available: "
-            "{}",
-            _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
-            PrettyPrinter::print_bytes(_spill_data_limit_bytes),
-            PrettyPrinter::print_bytes(_available_bytes));
-    return Status::OK();
-}
-
-std::string SpillDataDir::get_spill_data_path(const std::string& query_id) const {
-    DCHECK(!_is_remote || ready()) << "remote spill store is not ready";
-    if (query_id.empty()) {
-        return _spill_root;
-    }
-    return fmt::format("{}/{}", _spill_root, query_id);
-}
-
-std::string SpillDataDir::get_spill_data_gc_path(const std::string& sub_dir_name) const {
-    auto dir = fmt::format("{}/{}", _path, SPILL_GC_DIR_PREFIX);
-    if (!sub_dir_name.empty()) {
-        dir = fmt::format("{}/{}", dir, sub_dir_name);
-    }
-    return dir;
-}
-
-Status SpillDataDir::update_capacity() {
-    std::lock_guard<std::mutex> l(_mutex);
-    if (_is_remote) {
-        // Object storage has no capacity to probe; only the configured byte limit applies.
-        _disk_capacity_bytes = 0;
-        _available_bytes = 0;
-        _spill_data_limit_bytes = config::spill_s3_storage_limit_bytes;
-        spill_disk_capacity->set_value(0);
-        spill_disk_avail_capacity->set_value(0);
-        spill_disk_limit->set_value(_spill_data_limit_bytes);
-        spill_disk_has_spill_data->set_value(_spill_data_bytes > 0 ? 1 : 0);
-        spill_disk_has_spill_gc_data->set_value(0);
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path, &_disk_capacity_bytes,
-                                                                  &_available_bytes));
-    spill_disk_capacity->set_value(_disk_capacity_bytes);
-    spill_disk_avail_capacity->set_value(_available_bytes);
-    auto disk_use_max_bytes =
-            (int64_t)(_disk_capacity_bytes * config::storage_flood_stage_usage_percent / 100);
-    bool is_percent = true;
-    _spill_data_limit_bytes = ParseUtil::parse_mem_spec(config::spill_storage_limit, -1,
-                                                        _disk_capacity_bytes, &is_percent);
-    if (_spill_data_limit_bytes <= 0) {
-        spill_disk_limit->set_value(_spill_data_limit_bytes);
-        auto err_msg = fmt::format("Failed to parse spill storage limit from '{}'",
-                                   config::spill_storage_limit);
-        LOG(WARNING) << err_msg;
-        return Status::InvalidArgument(err_msg);
-    }
-    if (is_percent) {
-        _spill_data_limit_bytes = (int64_t)(_spill_data_limit_bytes *
-                                            config::storage_flood_stage_usage_percent / 100);
-    }
-    _spill_data_limit_bytes = std::min(_spill_data_limit_bytes, disk_use_max_bytes);
-    spill_disk_limit->set_value(_spill_data_limit_bytes);
-
-    std::string spill_root_dir = get_spill_data_path();
-    std::string spill_gc_root_dir = get_spill_data_gc_path();
-    spill_disk_has_spill_data->set_value(is_directory_empty(spill_root_dir) ? 0 : 1);
-    spill_disk_has_spill_gc_data->set_value(is_directory_empty(spill_gc_root_dir) ? 0 : 1);
-
-    return Status::OK();
-}
-
-bool SpillDataDir::_reach_disk_capacity_limit(int64_t incoming_data_size) {
-    double used_pct = _get_disk_usage(incoming_data_size);
-    int64_t left_bytes = _available_bytes - incoming_data_size;
-    if (used_pct >= config::storage_flood_stage_usage_percent / 100.0 &&
-        left_bytes <= config::storage_flood_stage_left_capacity_bytes) {
-        LOG(WARNING) << "reach capacity limit. used pct: " << used_pct
-                     << ", left bytes: " << left_bytes << ", path: " << _path;
-        return true;
-    }
-    return false;
-}
-bool SpillDataDir::reach_capacity_limit(int64_t incoming_data_size) {
-    std::lock_guard<std::mutex> l(_mutex);
-    return _reach_limit_unlocked(incoming_data_size);
-}
-
-Status SpillDataDir::try_reserve(int64_t bytes, bool force) {
-    std::lock_guard<std::mutex> l(_mutex);
-    if (!force && _reach_limit_unlocked(bytes)) {
-        return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
-                "spill data total size exceed limit, path: {}, size limit: {}, spill data "
-                "size: {}",
-                _path, PrettyPrinter::print_bytes(_spill_data_limit_bytes),
-                PrettyPrinter::print_bytes(_spill_data_bytes));
-    }
-    _spill_data_bytes += bytes;
-    spill_disk_data_size->set_value(_spill_data_bytes);
-    return Status::OK();
-}
-
-bool SpillDataDir::_reach_limit_unlocked(int64_t incoming_data_size) {
-    if (_is_remote) {
-        // 0 means unlimited.
-        if (_spill_data_limit_bytes > 0 &&
-            _spill_data_bytes + incoming_data_size > _spill_data_limit_bytes) {
-            LOG_EVERY_T(WARNING, 1) << fmt::format(
-                    "remote spill data reach limit, store: {}, limit: {}, used: {}, incoming "
-                    "bytes: {}",
-                    _path, PrettyPrinter::print_bytes(_spill_data_limit_bytes),
-                    PrettyPrinter::print_bytes(_spill_data_bytes),
-                    PrettyPrinter::print_bytes(incoming_data_size));
-            return true;
-        }
-        return false;
-    }
-    if (_reach_disk_capacity_limit(incoming_data_size)) {
-        return true;
-    }
-    if (_spill_data_bytes + incoming_data_size > _spill_data_limit_bytes) {
-        LOG_EVERY_T(WARNING, 1) << fmt::format(
-                "spill data reach limit, path: {}, capacity: {}, limit: {}, used: {}, "
-                "available: "
-                "{}, "
-                "incoming "
-                "bytes: {}",
-                _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
-                PrettyPrinter::print_bytes(_spill_data_limit_bytes),
-                PrettyPrinter::print_bytes(_spill_data_bytes),
-                PrettyPrinter::print_bytes(_available_bytes),
-                PrettyPrinter::print_bytes(incoming_data_size));
-        return true;
-    }
-    return false;
-}
-std::string SpillDataDir::debug_string() {
-    return fmt::format(
-            "path: {}, capacity: {}, limit: {}, used: {}, available: "
-            "{}",
-            _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
-            PrettyPrinter::print_bytes(_spill_data_limit_bytes),
-            PrettyPrinter::print_bytes(_spill_data_bytes),
-            PrettyPrinter::print_bytes(_available_bytes));
-}
 } // namespace doris
