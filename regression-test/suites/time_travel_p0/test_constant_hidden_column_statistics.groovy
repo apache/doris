@@ -17,9 +17,6 @@
 
 suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_constant_hidden_column_statistics FORCE"
-    // MIN/MAX statistics pushdown on UNIQUE tables currently uses the merge-on-read plan with its
-    // delete-sign filter. Keep this suite on MOR so the explain assertions below prove that the
-    // hidden constant column reaches the statistics iterator.
     sql """
         CREATE TABLE test_constant_hidden_column_statistics (
             `k` INT NOT NULL,
@@ -29,9 +26,12 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         DISTRIBUTED BY HASH(`k`) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "false",
+            "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "true"
+            "disable_auto_compaction" = "true",
+            "binlog.enable" = "true",
+            "binlog.format" = "ROW",
+            "binlog.need_historical_value" = "true"
         )
     """
 
@@ -95,20 +95,12 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     def afterAlter = readHiddenState()
     assertEquals(beforeAlter, afterAlter)
 
-    // Case 2: with only the pre-ALTER rowset, the hidden version is a rowset-scoped constant. Its
-    // statistics are therefore [value, value], just like the ALTER-added column default.
-    sql "SET enable_pushdown_minmax_on_unique = false"
-    def oldMinMaxWithoutPushdown = readHiddenMinMax()
-
-    sql "SET enable_pushdown_minmax_on_unique = true"
-    explain {
-        sql("SELECT MIN(__DORIS_VERSION_COL__) FROM test_constant_hidden_column_statistics")
-        contains "pushAggOp=MINMAX"
-    }
-    def oldMinMaxWithPushdown = readHiddenMinMax()
-
-    assertEquals(oldMinMaxWithoutPushdown, oldMinMaxWithPushdown)
-    assertEquals([oldVersion, oldVersion], oldMinMaxWithPushdown)
+    // Case 2: with only the pre-ALTER rowset, the hidden version is a rowset-scoped constant. SQL
+    // MIN/MAX must observe that runtime value rather than the persisted zero placeholder. FE does
+    // not push this aggregate through a MOW delete bitmap; the direct statistics-iterator contract
+    // is covered by SegmentIteratorExprZonemapTest.HiddenConstantsFeedStatisticsIterator.
+    def oldMinMax = readHiddenMinMax()
+    assertEquals([oldVersion, oldVersion], oldMinMax)
 
     // Case 3: these predicates are evaluated against the constant zonemaps of the historical rowset.
     // c_default in the same predicates is also a constant because it was added after the write.
@@ -144,13 +136,8 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     assertTrue(afterInsert[3].version > oldVersion)
     def insertVersion = afterInsert[3].version
 
-    sql "SET enable_pushdown_minmax_on_unique = false"
-    def insertMinMaxWithoutPushdown = readHiddenMinMax()
-    sql "SET enable_pushdown_minmax_on_unique = true"
-    def insertMinMaxWithPushdown = readHiddenMinMax()
-
-    assertEquals(insertMinMaxWithoutPushdown, insertMinMaxWithPushdown)
-    assertEquals([oldVersion, insertVersion], insertMinMaxWithPushdown)
+    def insertMinMax = readHiddenMinMax()
+    assertEquals([oldVersion, insertVersion], insertMinMax)
 
     order_qt_hidden_version_range_after_insert """
         SELECT k, c_default
@@ -158,8 +145,7 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         WHERE __DORIS_VERSION_COL__ > ${oldVersion}
         ORDER BY k
     """
-    // Case 5: a MOR upsert updates key 2 while leaving key 1 visible in the original rowset. Keeping
-    // one visible row in every rowset makes pushed and non-pushed MIN/MAX directly comparable.
+    // Case 5: a MOW upsert updates key 2 while leaving key 1 visible in the original rowset.
     sql """
         INSERT INTO test_constant_hidden_column_statistics
             (k, v, c_default) VALUES (2, 200, 20)
@@ -178,17 +164,8 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
     assertTrue(afterUpdate[2].version > insertVersion)
     def updateVersion = afterUpdate[2].version
 
-    sql "SET enable_pushdown_minmax_on_unique = false"
-    def updateMinMaxWithoutPushdown = readHiddenMinMax()
-    sql "SET enable_pushdown_minmax_on_unique = true"
-    explain {
-        sql("SELECT MAX(__DORIS_VERSION_COL__) FROM test_constant_hidden_column_statistics")
-        contains "pushAggOp=MINMAX"
-    }
-    def updateMinMaxWithPushdown = readHiddenMinMax()
-
-    assertEquals(updateMinMaxWithoutPushdown, updateMinMaxWithPushdown)
-    assertEquals([oldVersion, updateVersion], updateMinMaxWithPushdown)
+    def updateMinMax = readHiddenMinMax()
+    assertEquals([oldVersion, updateVersion], updateMinMax)
 
     // Case 6: exact, range, and empty predicates cover the per-rowset hidden-column zonemaps after the
     // old constant rowset, post-ALTER insert, and update rowsets coexist.
@@ -223,6 +200,5 @@ suite("test_constant_hidden_column_statistics", "nonConcurrent") {
         ORDER BY k
     """
 
-    sql "SET enable_pushdown_minmax_on_unique = false"
     sql "SET show_hidden_columns = false"
 }
