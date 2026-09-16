@@ -20,8 +20,10 @@
 #include <stdint.h>
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <vector>
 
 #include "common/cast_set.h"
@@ -147,15 +149,17 @@ public:
 
 private:
     void actual_consume(std::shared_ptr<DataConsumer> consumer,
-                        BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
-                        int64_t max_running_time_ms, ConsumeFinishCallback cb);
+                        BlockingQueue<KinesisQueueItem>* queue, int64_t max_running_time_ms,
+                        ConsumeFinishCallback cb);
 
     bool _dequeue_and_process(io::StreamLoadPipe* pipe, int64_t& left_rows, int64_t& left_bytes,
                               Status& result_st) override;
     void _shutdown_queue() override { _queue.shutdown(); }
     void _on_finish(std::shared_ptr<StreamLoadContext> ctx) override;
 
-    BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>> _queue;
+    BlockingQueue<KinesisQueueItem> _queue;
+    std::map<std::string, std::string> _candidate_sequence_numbers;
+    std::set<std::string> _closed_shard_ids;
     TFileFormatType::type _format;
 };
 
