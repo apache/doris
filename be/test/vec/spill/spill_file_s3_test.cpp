@@ -1088,6 +1088,71 @@ TEST_F(SpillFileS3Test, UploadBudgetWaitIsCancellable) {
     ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
 }
 
+TEST_F(SpillFileS3Test, UploadBudgetRejectsCancelledQueryImmediately) {
+    // A cancelled query must not be admitted even when the budget is free (fast path)...
+    SpillRemoteUploadBudget budget(64 * 1024);
+    std::atomic<bool> cancelled {true};
+    int64_t wait_ns = 0;
+    auto st = budget.acquire(
+            8 * 1024, [&]() { return cancelled.load(); }, &wait_ns);
+    ASSERT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
+    ASSERT_EQ(budget.inflight_bytes(), 0);
+    ASSERT_EQ(budget.total_acquired_bytes(), 0);
+
+    // ...nor when it was waiting and the budget became available at the moment of the cancel.
+    cancelled = false;
+    ASSERT_TRUE(budget.acquire(64 * 1024, nullptr, nullptr).ok()); // budget full
+    std::atomic<bool> waiter_done {false};
+    Status waiter_status;
+    ScopedThread waiter([&]() {
+        waiter_status = budget.acquire(
+                8 * 1024, [&]() { return cancelled.load(); }, nullptr);
+        waiter_done = true;
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ASSERT_FALSE(waiter_done.load());
+    cancelled = true;
+    budget.release(64 * 1024); // wakes the waiter with room available and the query cancelled
+    for (int i = 0; i < 200 && !waiter_done.load(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    waiter.join();
+    ASSERT_TRUE(waiter_done.load());
+    ASSERT_TRUE(waiter_status.is<ErrorCode::CANCELLED>()) << waiter_status;
+    ASSERT_EQ(budget.inflight_bytes(), 0);
+    ASSERT_EQ(budget.total_acquired_bytes(), budget.total_released_bytes());
+}
+
+TEST_F(SpillFileS3Test, PartialBufferIsChargedAtCapacity) {
+    // The last buffer of a part is partially filled but keeps its full allocation; the budget
+    // must see the allocation, otherwise many small parts could hold unbounded memory.
+    config::spill_s3_max_inflight_upload_bytes = 64 * 1024;
+    _create_manager();
+    auto* budget = _manager->remote_upload_budget();
+    std::mt19937 rng(21);
+    std::vector<Block> blocks {_random_string_block(rng, 8, 100)}; // well below 8 KiB
+
+    mock_store().set_block_uploads(true);
+    Status write_status;
+    ScopedThread writer_thread(
+            [&]() { _write_blocks("query_12/agg-1-0-1", blocks, &write_status); });
+    Defer release_writer {[&]() {
+        mock_store().set_block_uploads(false);
+        _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
+    }};
+    for (int i = 0; i < 250 && budget->inflight_bytes() == 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    // One partial buffer in flight: charged at s3_write_buffer_size, not at its payload.
+    ASSERT_EQ(budget->inflight_bytes(), config::s3_write_buffer_size);
+    mock_store().set_block_uploads(false);
+    writer_thread.join();
+    ASSERT_TRUE(write_status.ok()) << write_status;
+    ASSERT_EQ(budget->inflight_bytes(), 0);
+    ASSERT_EQ(budget->total_acquired_bytes(), config::s3_write_buffer_size);
+    ASSERT_EQ(budget->total_acquired_bytes(), budget->total_released_bytes());
+}
+
 TEST_F(SpillFileS3Test, UploadFailureIsReportedAndReconciled) {
     _create_manager();
     mock_store().fail_uploads = true;

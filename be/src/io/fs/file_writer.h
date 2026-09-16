@@ -74,11 +74,13 @@ struct FileWriterOptions {
     // Upload flow control, honoured by S3FileWriter only (other writers ignore both hooks).
     //
     // upload_submit_gate is called on the appending thread (appendv, or close for the last
-    // buffer) right before a data buffer is submitted for upload, with the bytes the buffer
-    // carries. It may block. A non-OK status fails the writer: the buffer is dropped, no
-    // further data is accepted and close() reports the error.
+    // buffer) right before a data buffer is submitted for upload, with the allocated capacity
+    // of the buffer (s3_write_buffer_size, also for a partially filled last buffer) so that a
+    // budget built on it bounds memory, not payload. It may block. A non-OK status fails the
+    // writer: the buffer is dropped, no further data is accepted and close() reports the error.
     //
-    // upload_done_callback is called exactly once for every buffer that passed the gate, when
+    // upload_done_callback is called exactly once, with the same capacity, for every buffer
+    // that passed the gate, when
     // the upload of that buffer has finished (success, provider error, or skipped because an
     // earlier buffer failed) and also when its submission failed. It runs on the upload thread
     // strictly before the buffer's status is published, so it always happens before the writer
