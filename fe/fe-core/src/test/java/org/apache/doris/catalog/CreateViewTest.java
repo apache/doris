@@ -35,7 +35,9 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.UUID;
 
 public class CreateViewTest {
@@ -171,6 +173,25 @@ public class CreateViewTest {
         Assert.assertEquals(2, view8.getFullSchema().size());
         Assert.assertNotNull(view8.getColumn("id"));
         Assert.assertNotNull(view8.getColumn("c_array"));
+    }
+
+    @Test
+    public void testViewCommentDdlRoundTrip() throws Exception {
+        createView("create view test.view_comment_round_trip comment \"O'Reilly\" as select 1 as c");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View originalView = (View) db.getTableOrDdlException("view_comment_round_trip");
+        List<String> createViewStmts = new ArrayList<>();
+        Env.getDdlStmt(originalView, createViewStmts, null, null, false, true, -1L);
+
+        String exportedDdl = createViewStmts.get(0);
+        Assert.assertTrue(exportedDdl.contains(" COMMENT \"O'Reilly\""));
+        String copiedDdl = exportedDdl.replace("CREATE VIEW `view_comment_round_trip`",
+                "CREATE VIEW test.`view_comment_round_trip_copy`");
+        createView(copiedDdl);
+
+        View copiedView = (View) db.getTableOrDdlException("view_comment_round_trip_copy");
+        Assert.assertEquals(originalView.getComment(), copiedView.getComment());
     }
 
     @Test
