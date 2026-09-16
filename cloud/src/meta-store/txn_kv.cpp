@@ -33,6 +33,7 @@
 #include <variant>
 #include <vector>
 
+#include "client/client_connection_provider.h"
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/defer.h"
@@ -408,6 +409,19 @@ int Network::init() {
             return 1;
         }
         LOG(INFO) << "set fdb external client directory: " << config::fdb_external_client_directory;
+    }
+
+    if (!client::configure_fdb_network_options([&](FDBNetworkOption option,
+                                                   std::string_view value) {
+            err = fdb_network_set_option(option, reinterpret_cast<const uint8_t*>(value.data()),
+                                         value.size());
+            if (err != 0) {
+                LOG(WARNING) << "failed to set FDB network option=" << static_cast<int>(option)
+                             << ", err=" << fdb_get_error(err);
+            }
+            return err == 0;
+        })) {
+        return 1;
     }
 
     if (config::enable_fdb_locality_load_balance) {

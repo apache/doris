@@ -375,6 +375,11 @@ public class Config extends ConfigBase {
             + "thrift,mysql,http,arrowflight.")
     public static String tls_excluded_protocols = "";
 
+    @ConfField(description = "Protocols whose internal TLS clients skip server certificate hostname verification, "
+            + "comma separated, e.g. http,thrift,brpc,arrowflight,bdbje. Only hostname verification is skipped; "
+            + "certificate chain verification is preserved.")
+    public static String tls_client_skip_hostname_verification_protocols = "";
+
     @ConfField(description = "Peer certificate DNS SAN allowlist for private protocols. Syntax: "
             + "protocol=dns1,dns2;... . Currently supported protocols are thrift and brpc.")
     public static String tls_peer_cert_required_san_dns = "";

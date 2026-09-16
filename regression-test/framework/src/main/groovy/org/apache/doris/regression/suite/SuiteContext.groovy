@@ -169,10 +169,11 @@ class SuiteContext implements Closeable {
                 jdbcConn.withCloseable { conn -> JdbcUtils.executeToList(conn, sql) }
             }
         } catch (Throwable t) {
-            throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
+            throw new IllegalStateException(
+                    "Create database failed, jdbcUrl: ${Config.sanitizeJdbcUrlForLogging(jdbcUrl)}", t)
         }
         def dbUrl = Config.buildUrlWithDb(jdbcUrl, dbName)
-        log.info("connect to ${dbUrl}".toString())
+        log.info("connect to ${Config.sanitizeJdbcUrlForLogging(dbUrl)}".toString())
         return DriverManager.getConnection(dbUrl, config.jdbcUser, config.jdbcPassword)
     }
 
@@ -366,29 +367,26 @@ class SuiteContext implements Closeable {
         }
     }
 
+    // Use this explicitly for Doris FE connections. Generic connect must also support external
+    // databases and TLS tests that intentionally supply their own (or no) certificates.
+    public <T> T connectToDoris(String user, String password, String url, Closure<T> actionSupplier) {
+        if (!url.startsWith("jdbc:mysql:")) {
+            throw new IllegalArgumentException("Doris FE connections require a MySQL JDBC URL")
+        }
+        if (isTlsEnabled()) {
+            url = Config.buildTlsJdbcUrl(url,
+                    config.otherConfigs.get("keyStorePath")?.toString(),
+                    config.otherConfigs.get("keyStorePassword")?.toString(),
+                    config.otherConfigs.get("trustStorePath")?.toString(),
+                    config.otherConfigs.get("trustStorePassword")?.toString())
+        }
+        return connect(user, password, url, actionSupplier)
+    }
+
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
         def originConnection = threadLocalConn.get()
-        if ((config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-            String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"
-            String clientCAKey = "clientCertificateKeyStoreUrl=file:" + config.otherConfigs.get("keyStorePath")
-            String clientCAPwd = "clientCertificateKeyStorePassword=" + config.otherConfigs.get("keyStorePassword")
-            String trustCAKey = "trustCertificateKeyStoreUrl=file:" + config.otherConfigs.get("trustStorePath")
-            String trustCAPwd = "trustCertificateKeyStorePassword=" + config.otherConfigs.get("trustStorePassword")
-            String tlsUrl = useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
-            if (!url.contains("clientCertificateKeyStoreUrl")){
-                if (url.charAt(url.length() - 1) == '?') {
-                    return url + tlsUrl
-                    // e.g: jdbc:mysql://locahost:8080/dbname?a=b
-                } else if (url.contains('?')) {
-                    return url + '&' + tlsUrl
-                    // e.g: jdbc:mysql://locahost:8080/dbname
-                } else {
-                    return url + '?' + tlsUrl
-                }
-            }
-        }
         try {
-            log.info("Create new connection for user '${user}' to '${url}'")
+            log.info("Create new connection for user '${user}' to '${Config.sanitizeJdbcUrlForLogging(url)}'")
             return DriverManager.getConnection(url, user, password).withCloseable { newConn ->
                 def newConnInfo = new ConnectionInfo()
                 newConnInfo.conn = newConn
@@ -398,13 +396,17 @@ class SuiteContext implements Closeable {
                 return actionSupplier.call()
             }
         } finally {
-            log.info("Recover original connection to '${url}'")
+            log.info("Recover original connection to '${Config.sanitizeJdbcUrlForLogging(url)}'")
             if (originConnection == null) {
                 threadLocalConn.remove()
             } else {
                 threadLocalConn.set(originConnection)
             }
         }
+    }
+
+    private boolean isTlsEnabled() {
+        return (config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false
     }
 
     Connection getMasterConnectionByDbName(String dbName) {
@@ -418,7 +420,16 @@ class SuiteContext implements Closeable {
         }
         if (master) {
             log.info("master found: ${master.Host}:${master.HttpPort}")
-            def url = Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
+            def url = isTlsEnabled()
+                    ? Config.buildUrlWithDb(
+                            master.Host as String,
+                            master.QueryPort as Integer,
+                            dbName,
+                            config.otherConfigs.get("keyStorePath")?.toString(),
+                            config.otherConfigs.get("keyStorePassword")?.toString(),
+                            config.otherConfigs.get("trustStorePath")?.toString(),
+                            config.otherConfigs.get("trustStorePassword")?.toString())
+                    : Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
             def username = config.jdbcUser
             def password = config.jdbcPassword
 
@@ -440,7 +451,16 @@ class SuiteContext implements Closeable {
         }
         if (master) {
             log.info("master found: ${master.Host}:${master.HttpPort}")
-            def url = Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
+            def url = isTlsEnabled()
+                    ? Config.buildUrlWithDb(
+                            master.Host as String,
+                            master.QueryPort as Integer,
+                            dbName,
+                            config.otherConfigs.get("keyStorePath")?.toString(),
+                            config.otherConfigs.get("keyStorePassword")?.toString(),
+                            config.otherConfigs.get("trustStorePath")?.toString(),
+                            config.otherConfigs.get("trustStorePassword")?.toString())
+                    : Config.buildUrlWithDb(master.Host as String, master.QueryPort as Integer, dbName)
             ConnectionInfo connInfo = threadLocalConn.get()
             def userName = null
             def userPass = null
@@ -451,7 +471,7 @@ class SuiteContext implements Closeable {
                 userName = config.jdbcUser
                 userPass = config.jdbcPassword
             }
-            connectTo(url, connInfo.username, connInfo.password)
+            connectTo(url, userName, userPass)
             log.info("Successfully reconnected to the master")
         } else {
             throw new Exception("No master found to reconnect")

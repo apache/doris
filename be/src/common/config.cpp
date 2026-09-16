@@ -626,6 +626,9 @@ DEFINE_String(tls_ca_certificate_path, "");
 DEFINE_Int32(tls_cert_refresh_interval_seconds, "3600");
 // Comma-separated excluded server protocols: brpc,thrift,http,arrowflight
 DEFINE_String(tls_excluded_protocols, "");
+// Comma-separated internal TLS client protocols that skip hostname verification.
+// Certificate-chain verification is still required.
+DEFINE_String(tls_client_skip_hostname_verification_protocols, "");
 // Required peer certificate DNS SAN allowlist for private protocols, syntax: brpc=a.com;thrift=b.com.
 // Empty means allow all peers. Once configured, the list acts as an allowlist and only peers whose
 // DNS SAN matches at least one configured entry for that protocol are allowed.

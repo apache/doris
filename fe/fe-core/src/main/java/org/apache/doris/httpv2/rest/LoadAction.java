@@ -45,6 +45,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.tls.server.TlsProtocolSet;
 
 import com.google.common.base.Strings;
 import com.google.common.net.HostAndPort;
@@ -64,6 +65,7 @@ import org.springframework.web.servlet.view.RedirectView;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
@@ -854,8 +856,10 @@ public class LoadAction extends RestBaseController {
         }
         String redirectUrl = buildRedirectUrlToBackend(request, addr, modifiedPath, redirectQuery);
 
-        LOG.info("Redirect stream load forward url: {}, forward_to: {}",
-                "http://" + addr.getHostname() + ":" + addr.getPort() + modifiedPath, forwardTarget);
+        // redirectUrl can contain Basic Auth credentials in URI user-info and the original query string.
+        // Keep those values in the Location header, but never copy them into FE logs.
+        LOG.info("Redirect stream load forward to {}://{}:{}{}, forward_to: {}",
+                URI.create(redirectUrl).getScheme(), addr.getHostname(), addr.getPort(), modifiedPath, forwardTarget);
         RedirectView redirectView = new RedirectView(redirectUrl);
         redirectView.setContentType("text/html;charset=utf-8");
         redirectView.setStatusCode(org.springframework.http.HttpStatus.TEMPORARY_REDIRECT);
@@ -896,6 +900,12 @@ public class LoadAction extends RestBaseController {
 
         // Check if group commit forwarding is needed
         if (!Config.isCloudMode() || !groupCommit || !Config.enable_group_commit_streamload_be_forward) {
+            return selectRedirectBackend(request, groupCommit, tableId);
+        }
+        if (TlsProtocolSet.isHttpTlsActive()) {
+            LOG.debug("Group commit stream load BE forward is disabled under HTTP TLS,"
+                    + " falling back to a direct group-commit redirect: db={}, tbl={}, label={}",
+                    dbName, tableName, label);
             return selectRedirectBackend(request, groupCommit, tableId);
         }
 

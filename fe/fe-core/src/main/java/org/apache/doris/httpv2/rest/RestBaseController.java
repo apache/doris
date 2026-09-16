@@ -24,8 +24,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.HttpURLUtil;
-import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.BadRequestException;
@@ -39,7 +40,6 @@ import com.google.common.base.Strings;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.http.HttpEntity;
@@ -47,7 +47,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.view.RedirectView;
 
@@ -57,14 +56,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
-import javax.net.ssl.HttpsURLConnection;
 
 public class RestBaseController extends BaseController {
 
@@ -140,10 +137,12 @@ public class RestBaseController extends BaseController {
         return buildRedirectUrl(request.getScheme(), request, addr, requestPath, queryString);
     }
 
-    // BE's stream-load listener never terminates TLS, so BE-bound redirects must stay "http".
+    // Start from the BE's ordinary HTTP endpoint. An extension may normalize it to HTTPS.
     protected String buildRedirectUrlToBackend(HttpServletRequest request, TNetworkAddress addr,
             String requestPath, String queryString) {
-        return buildRedirectUrl("http", request, addr, requestPath, queryString);
+        String url = buildRedirectUrl("http", request, addr, requestPath, queryString);
+        return InternalHttpClientProviderFactory.getProvider()
+                .normalizeInternalUrl(url, InternalHttpClientProvider.Target.BE);
     }
 
     private String buildRedirectUrl(String scheme, HttpServletRequest request, TNetworkAddress addr,
@@ -183,7 +182,7 @@ public class RestBaseController extends BaseController {
         return redirectView;
     }
 
-    // Use for redirects whose destination is a BE (e.g. stream load), which never speaks HTTPS.
+    // Use for redirects whose destination is a BE (for example, stream load).
     public RedirectView redirectToBackend(HttpServletRequest request, TNetworkAddress addr) {
         RedirectView redirectView = new RedirectView(
                 buildRedirectUrlToBackend(request, addr, request.getRequestURI(), request.getQueryString()));
@@ -355,25 +354,8 @@ public class RestBaseController extends BaseController {
 
             HttpEntity<Object> entity = new HttpEntity<>(body, headers);
 
-            RestTemplate restTemplate;
-            if (Config.enable_https) {
-                SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
-                    @Override
-                    protected void prepareConnection(HttpURLConnection conn, String httpMethod)
-                            throws IOException {
-                        if (conn instanceof HttpsURLConnection) {
-                            HttpsURLConnection https = (HttpsURLConnection) conn;
-                            https.setSSLSocketFactory(
-                                    InternalHttpsUtils.getSslContext().getSocketFactory());
-                            https.setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
-                        }
-                        super.prepareConnection(conn, httpMethod);
-                    }
-                };
-                restTemplate = new RestTemplate(factory);
-            } else {
-                restTemplate = new RestTemplate();
-            }
+            RestTemplate restTemplate = InternalHttpClientProviderFactory.getProvider()
+                    .getRestTemplate(InternalHttpClientProvider.Target.FE);
 
             ResponseEntity<Object> responseEntity;
             switch (method) {

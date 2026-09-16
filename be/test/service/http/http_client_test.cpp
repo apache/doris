@@ -190,6 +190,19 @@ TEST_F(HttpClientTest, get_normal) {
     EXPECT_EQ(5, len);
 }
 
+TEST_F(HttpClientTest, get_internal) {
+    HttpClient client;
+    auto st = client.init_internal(hostname + "/simple_get");
+    ASSERT_TRUE(st.ok()) << st;
+    client.set_method(GET);
+    client.set_basic_auth("test1", "");
+
+    std::string response;
+    st = client.execute(&response);
+    EXPECT_TRUE(st.ok()) << st;
+    EXPECT_EQ("test1", response);
+}
+
 TEST_F(HttpClientTest, download) {
     HttpClient client;
     auto st = client.init(hostname + "/simple_get");

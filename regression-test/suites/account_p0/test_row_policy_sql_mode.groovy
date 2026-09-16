@@ -77,7 +77,7 @@ suite("test_row_policy_sql_mode") {
 
     // The rows, not how many of them: a filter admitting the wrong two rows is the failure this case is
     // about, and a count is green for it. The table holds cn/us/de and the policy admits the first two.
-    def filtered = connect(user, '123abc!@#', url) {
+    def filtered = connectToDoris(user, '123abc!@#', url) {
         sql "SELECT * FROM row_policy_sql_mode_tbl ORDER BY region"
     }
     assertEquals([['cn', 'a'], ['us', 'b']], filtered.collect { row -> [row[0].toString(), row[1].toString()] },

@@ -66,6 +66,9 @@ class Http {
         keyStorePath = keyPath
         keyStorePassword = keyPassword
         keyStoreType = keystoreType
+        if (!enableTls) {
+            return
+        }
         initSSLContext()
     }
 

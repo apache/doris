@@ -89,7 +89,7 @@ suite('test_schema_change_fail', 'p0,p2,nonConcurrent') {
         assertEquals('FINISHED', jobs[0].State)
 
         checkReplicaBad()
-        connect('root', '', followFeUrl) {
+        connectToDoris('root', '', followFeUrl) {
             checkReplicaBad()
         }
     } finally {

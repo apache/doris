@@ -63,7 +63,7 @@ suite("test_point_query_ck", "nonConcurrent") {
 
         def nprep_sql = { sql_str ->
             def url_without_prep = "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + realDb
-            connect(user, password, url_without_prep) {
+            connectToDoris(user, password, url_without_prep) {
                 // set to false to invalid cache correcly
                 sql "set enable_memtable_on_sink_node = false"
                 sql sql_str
@@ -138,7 +138,7 @@ suite("test_point_query_ck", "nonConcurrent") {
             sql """ INSERT INTO ${tableName} VALUES(252, 120939.11130, "${generateString(252)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 252, "7022-01-01 11:30:38", 0, 90696620686827832.374, [0], null) """
             sql """ INSERT INTO ${tableName} VALUES(298, 120939.11130, "${generateString(298)}", "laooq", "2030-01-02", "2020-01-01 12:36:38", 298, "7022-01-01 11:30:38", 1, 90696620686827832.374, [], []) """
 
-            def result1 = connect(user, password, prepare_url) {
+            def result1 = connectToDoris(user, password, prepare_url) {
                 def stmt = prepareStatement "select /*+ SET_VAR(enable_nereids_planner=true) */ * from ${tableName} where k1 = ? and k2 = ? and k3 = ?"
                 assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
                 stmt.setInt(1, 1231)

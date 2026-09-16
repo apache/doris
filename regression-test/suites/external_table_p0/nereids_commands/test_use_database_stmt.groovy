@@ -56,7 +56,7 @@ suite("test_use_database_stmt", "p0,external") {
         sql """CREATE USER ${user}@'%' IDENTIFIED BY '${pwd}';"""
         sql """GRANT SELECT_PRIV ON ${internal_catalog}.*.* TO '${user}'@'%';"""
 
-        connect(user, pwd, url) {
+        connectToDoris(user, pwd, url) {
             try {
                 sql """switch internal"""
                 sql """use ${internal_db_name}"""

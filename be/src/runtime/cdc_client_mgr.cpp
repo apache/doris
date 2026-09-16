@@ -32,12 +32,15 @@
 #include <sys/prctl.h>
 #endif
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <iterator>
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -46,10 +49,43 @@
 #include "common/status.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_client.h"
+#include "util/string_util.h"
 
 namespace doris {
 
 namespace {
+bool comma_separated_protocols_contains(const std::string& raw, std::string_view protocol) {
+    size_t start = 0;
+    while (start <= raw.size()) {
+        size_t pos = raw.find(',', start);
+        if (pos == std::string::npos) {
+            pos = raw.size();
+        }
+        std::string token = std::string(trim(raw.substr(start, pos - start)));
+        std::ranges::transform(token, token.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (token == protocol) {
+            return true;
+        }
+        if (pos == raw.size()) {
+            break;
+        }
+        start = pos + 1;
+    }
+    return false;
+}
+
+bool is_http_tls_included() {
+    return config::enable_tls &&
+           !comma_separated_protocols_contains(config::tls_excluded_protocols, "http");
+}
+
+bool is_http_hostname_verification_skipped() {
+    return is_http_tls_included() &&
+           comma_separated_protocols_contains(
+                   config::tls_client_skip_hostname_verification_protocols, "http");
+}
+
 // Handle SIGCHLD signal to prevent zombie processes
 void handle_sigchld(int sig_no) {
     int status = 0;
@@ -61,6 +97,7 @@ void handle_sigchld(int sig_no) {
 // Check CDC client health
 #ifndef BE_TEST
 Status check_cdc_client_health(int retry_times, int sleep_time, std::string& health_response) {
+    // The child control endpoint is loopback-only and independent of Doris internal HTTP TLS.
     const std::string cdc_health_url =
             "http://127.0.0.1:" + std::to_string(doris::config::cdc_client_port) +
             "/actuator/health";
@@ -180,6 +217,13 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     const std::string backend_http_port =
             "--backend.http.port=" + std::to_string(config::webserver_port);
     const std::string cluster_token = "--cluster.token=" + ExecEnv::GetInstance()->token();
+    const std::string backend_http_tls_enabled =
+            fmt::format("--backend.http.tls.enabled={}", is_http_tls_included());
+    const std::string backend_http_skip_hostname_verification =
+            fmt::format("--backend.http.skip-hostname-verification={}",
+                        is_http_hostname_verification_skipped());
+    const std::string backend_http_tls_ca_certificate_path =
+            "--backend.http.tls.ca-certificate-path=" + config::tls_ca_certificate_path;
     const std::string java_opts = "-Dlog.path=" + std::string(log_dir);
 
     // check cdc jar exists
@@ -224,6 +268,9 @@ Status CdcClientMgr::start_cdc_client(PRequestCdcClientResult* result) {
     argv_storage.emplace_back(cdc_jar_port);
     argv_storage.emplace_back(backend_http_port);
     argv_storage.emplace_back(cluster_token);
+    argv_storage.emplace_back(backend_http_tls_enabled);
+    argv_storage.emplace_back(backend_http_skip_hostname_verification);
+    argv_storage.emplace_back(backend_http_tls_ca_certificate_path);
 
     std::vector<char*> argv;
     argv.reserve(argv_storage.size() + 1);
@@ -318,6 +365,7 @@ void CdcClientMgr::request_cdc_client_impl(const PRequestCdcClientRequest* reque
 Status CdcClientMgr::send_request_to_cdc_client(const std::string& api,
                                                 const std::string& params_body,
                                                 std::string* response) {
+    // The child control endpoint is loopback-only and independent of Doris internal HTTP TLS.
     std::string remote_url_prefix =
             fmt::format("http://127.0.0.1:{}{}", doris::config::cdc_client_port, api);
 

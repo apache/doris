@@ -40,6 +40,10 @@ namespace doris {
 class CdcClientMgrTest : public testing::Test {
 public:
     void SetUp() override {
+        _original_cdc_client_port = config::cdc_client_port;
+        // Keep loopback requests isolated from services running on the test host.
+        config::cdc_client_port = 0;
+
         // Save original environment variables
         _original_doris_home = getenv("DORIS_HOME");
         _original_log_dir = getenv("LOG_DIR");
@@ -76,6 +80,8 @@ public:
     }
 
     void TearDown() override {
+        config::cdc_client_port = _original_cdc_client_port;
+
         // Restore original environment variables
         if (_original_doris_home) {
             setenv("DORIS_HOME", _original_doris_home, 1);
@@ -113,6 +119,7 @@ protected:
     const char* _original_java_home = nullptr;
     bool _jar_created = false;
     bool _log_dir_set = false;
+    int32_t _original_cdc_client_port = 0;
     std::unique_ptr<ClusterInfo> _cluster_info;
 };
 
