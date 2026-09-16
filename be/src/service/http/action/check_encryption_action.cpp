@@ -47,6 +47,12 @@ namespace doris {
 
 const std::string GET_FOOTER = "get_footer";
 
+// An encrypted file ends with a fixed-size footer region laid out as
+// [1 byte][uint64 encryption info length][encryption info][padding][8 byte magic code].
+constexpr size_t ENCRYPTION_FOOTER_SIZE = 256;
+constexpr size_t MAX_ENCRYPTION_INFO_SIZE =
+        ENCRYPTION_FOOTER_SIZE - sizeof(uint8_t) - sizeof(uint64_t);
+
 CheckEncryptionAction::CheckEncryptionAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                              TPrivilegeType::type type)
         : HttpHandlerWithAuth(exec_env, hier, type) {}
@@ -88,20 +94,25 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
             return;
         }
 
-        std::vector<std::string_view> file_paths;
+        // Owning strings: the V2 index path is built here and must outlive the loop below.
+        std::vector<std::string> file_paths;
         const auto& first_seg_path = maybe_seg_path.value();
         file_paths.emplace_back(first_seg_path);
         if (tablet->tablet_schema()->has_inverted_index() &&
             tablet->tablet_schema()->get_inverted_index_storage_format() == V2) {
-            std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
-                    InvertedIndexDescriptor::get_index_file_path_prefix(first_seg_path));
-            file_paths.emplace_back(inverted_index_file_path);
+            file_paths.emplace_back(InvertedIndexDescriptor::get_index_file_path_v2(
+                    InvertedIndexDescriptor::get_index_file_path_prefix(first_seg_path)));
         }
 
-        for (const auto path : file_paths) {
+        for (const auto& path : file_paths) {
             io::FileReaderSPtr reader;
             st = fs->open_file(path, &reader);
             if (!st) {
+                return;
+            }
+            if (reader->size() < sizeof(uint64_t)) {
+                st = Status::Corruption("file is too small to hold a magic code: path={}, size={}",
+                                        path, reader->size());
                 return;
             }
             std::vector<uint8_t> magic_code_buf;
@@ -110,6 +121,12 @@ Result<bool> is_tablet_encrypted(const BaseTabletSPtr& tablet) {
             size_t bytes_read;
             st = reader->read_at(reader->size() - sizeof(uint64_t), magic_code, &bytes_read);
             if (!st) {
+                return;
+            }
+            if (bytes_read != magic_code.size) {
+                st = Status::Corruption(
+                        "short read of the magic code: path={}, expected={}, got={}", path,
+                        magic_code.size, bytes_read);
                 return;
             }
 
@@ -151,19 +168,48 @@ Result<std::string> get_last_encrypt_footer(const BaseTabletSPtr& tablet) {
     io::FileReaderSPtr reader;
     RETURN_IF_ERROR_RESULT(fs->open_file(maybe_seg_path.value(), &reader));
 
+    // Every offset below is relative to the end of the file, so a file shorter than the footer
+    // region makes them underflow. On a packed slice such an underflow does not fail the read:
+    // it wraps into a neighbouring slice, whose bytes would then be decoded as this segment's
+    // footer.
+    if (reader->size() < ENCRYPTION_FOOTER_SIZE) {
+        return ResultError(Status::Corruption(
+                "file is too small to hold an encryption footer: path={}, size={}",
+                maybe_seg_path.value(), reader->size()));
+    }
+    const size_t footer_offset = reader->size() - ENCRYPTION_FOOTER_SIZE;
+
     std::vector<uint8_t> pb_len_buf;
     pb_len_buf.resize(sizeof(uint64_t));
     Slice pb_len_slice(pb_len_buf.data(), sizeof(uint64_t));
     size_t bytes_read;
     RETURN_IF_ERROR_RESULT(
-            reader->read_at(reader->size() - 256 + sizeof(uint8_t), pb_len_slice, &bytes_read));
+            reader->read_at(footer_offset + sizeof(uint8_t), pb_len_slice, &bytes_read));
+    if (bytes_read != pb_len_slice.size) {
+        return ResultError(Status::Corruption(
+                "short read of the encryption info length: path={}, expected={}, got={}",
+                maybe_seg_path.value(), pb_len_slice.size, bytes_read));
+    }
     auto info_pb_size = decode_fixed64_le(pb_len_buf.data());
+
+    // `get_footer=true` reaches this parser even when the scan above found unencrypted files, so
+    // the decoded length may well be arbitrary bytes. It can never exceed what the footer holds.
+    if (info_pb_size > MAX_ENCRYPTION_INFO_SIZE) {
+        return ResultError(Status::Corruption(
+                "encryption info length {} exceeds the {} bytes available in the footer: path={}",
+                info_pb_size, MAX_ENCRYPTION_INFO_SIZE, maybe_seg_path.value()));
+    }
 
     std::vector<uint8_t> info_pb_buf;
     info_pb_buf.resize(info_pb_size);
     Slice pb_slice(info_pb_buf.data(), info_pb_size);
-    RETURN_IF_ERROR_RESULT(reader->read_at(
-            reader->size() - 256 + sizeof(uint8_t) + sizeof(uint64_t), pb_slice, &bytes_read));
+    RETURN_IF_ERROR_RESULT(reader->read_at(footer_offset + sizeof(uint8_t) + sizeof(uint64_t),
+                                           pb_slice, &bytes_read));
+    if (bytes_read != pb_slice.size) {
+        return ResultError(Status::Corruption(
+                "short read of the encryption info: path={}, expected={}, got={}",
+                maybe_seg_path.value(), pb_slice.size, bytes_read));
+    }
 
     FileEncryptionInfoPB info_pb;
     if (!info_pb.ParseFromArray(info_pb_buf.data(), static_cast<int>(info_pb_buf.size()))) {
