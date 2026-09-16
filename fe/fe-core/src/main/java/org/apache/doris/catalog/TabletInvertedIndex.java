@@ -38,6 +38,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -90,14 +91,22 @@ public abstract class TabletInvertedIndex {
                              Set<Long> tabletFoundInMeta,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, Long> partitionVersionSyncMap,
-                             Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
-                             Map<Long, Map<Long, RowBinlogWriteMapping>> rowBinlogColumnMappings,
+                             Map<Long, Map<Long, RepublishVersionInfo>> transactionsToPublish,
                              SetMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<TTabletMetaInfo> tabletToUpdate,
                              List<CooldownConf> cooldownConfToPush,
                              List<CooldownConf> cooldownConfToUpdate) {
         throw new UnsupportedOperationException("tabletReport is not supported in TabletInvertedIndex");
+    }
+
+    public static class RepublishVersionInfo {
+        public final Set<TPartitionVersionInfo> partitionVersionInfos = new LinkedHashSet<>();
+        public final Map<Long, RowBinlogWriteMapping> rowBinlogColumnMappings;
+
+        public RepublishVersionInfo(Map<Long, RowBinlogWriteMapping> rowBinlogColumnMappings) {
+            this.rowBinlogColumnMappings = rowBinlogColumnMappings;
+        }
     }
 
     public TabletMeta getTabletMeta(long tabletId) {
