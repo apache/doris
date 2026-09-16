@@ -49,10 +49,9 @@ void SpillRemoteUploadBudget::release(int64_t bytes) {
         std::lock_guard<std::mutex> lock(_mutex);
         _inflight_bytes -= bytes;
         _total_released_bytes += bytes;
-        DCHECK_GE(_inflight_bytes, 0) << "spill upload budget released more than acquired";
-        if (_inflight_bytes < 0) {
-            _inflight_bytes = 0;
-        }
+        // Releasing more than was acquired means a callback was paired twice; the budget would
+        // silently over-admit from then on, so this must hold in release builds too.
+        DORIS_CHECK_GE(_inflight_bytes, 0) << "spill upload budget released more than acquired";
     }
     _cv.notify_all();
 }

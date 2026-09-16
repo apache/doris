@@ -145,11 +145,11 @@ public:
     /**
      * Report the object storage traffic of query spill of this BE process to meta-service.
      * Values are totals since the process started (boot_id); meta-service keeps one record per
-     * cloud_unique_id and replaces it for the same boot_id, so retries are idempotent. Retries
+     * backend_id and replaces it for the same boot_id, so retries are idempotent. Retries
      * are bounded (2 attempts): the caller re-reports periodically, and the final report on the
      * shutdown path must not stall the exit.
      */
-    Status report_spill_stats(int64_t boot_id, int64_t remote_write_bytes,
+    Status report_spill_stats(int64_t backend_id, int64_t boot_id, int64_t remote_write_bytes,
                               int64_t remote_put_requests);
 
     Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res);
