@@ -123,8 +123,7 @@ public class StreamingTaskScheduler extends MasterDaemon {
         // reject task if no more data to consume
         if (!job.hasMoreDataToConsume()) {
             if (job.hasReachedEnd()) {
-                job.updateJobStatus(JobStatus.FINISHED);
-                job.logUpdateOperation();
+                job.tryFinishJob();
                 return;
             }
             String delayMsg = "No data available for consumption at the moment, will retry after "

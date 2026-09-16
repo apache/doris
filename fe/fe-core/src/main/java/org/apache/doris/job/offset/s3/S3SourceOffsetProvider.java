@@ -50,7 +50,6 @@ import java.util.stream.Collectors;
 @Log4j2
 public class S3SourceOffsetProvider implements SourceOffsetProvider {
     private final boolean onceMode;
-    private volatile boolean reachedEnd;
     volatile S3Offset currentOffset;
     volatile String maxEndFile;
 
@@ -179,12 +178,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
                 throw new java.io.IOException("debug point: simulated S3 auth error");
             }
             GlobListing globListing = fileSystem.globListWithLimit(Location.of(filePath), startFile, 1, 1);
-            boolean hasFiles = !globListing.getFiles().isEmpty();
-            if (onceMode && startFile != null && !hasFiles) {
-                // After recovery, no files after the committed offset means the ONCE source is exhausted.
-                reachedEnd = true;
-            }
-            if (hasFiles && StringUtils.isNotEmpty(globListing.getMaxFile())) {
+            if (!globListing.getFiles().isEmpty() && StringUtils.isNotEmpty(globListing.getMaxFile())) {
                 maxEndFile = globListing.getMaxFile();
             }
         }
@@ -192,7 +186,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasMoreDataToConsume() {
-        if (onceMode && reachedEnd) {
+        if (hasReachedEnd()) {
             return false;
         }
         if (currentOffset == null || currentOffset.endFile == null) {
@@ -207,12 +201,7 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public boolean hasReachedEnd() {
-        return onceMode && reachedEnd;
-    }
-
-    @Override
-    public boolean hasReachedEnd(Offset taskOffset) {
-        return ((S3Offset) taskOffset).isLastBatch();
+        return onceMode && currentOffset != null && currentOffset.isLastBatch();
     }
 
     @Override

@@ -58,8 +58,7 @@ public class StreamingTaskSchedulerTest {
             StreamingTaskScheduler scheduler = new StreamingTaskScheduler();
 
             Deencapsulation.invoke(scheduler, "scheduleOneTask", exhaustedTask);
-            Mockito.verify(exhaustedJob).updateJobStatus(JobStatus.FINISHED);
-            Mockito.verify(exhaustedJob).logUpdateOperation();
+            Mockito.verify(exhaustedJob).tryFinishJob();
             Mockito.verify(exhaustedTask, Mockito.never()).execute();
 
             Deencapsulation.invoke(scheduler, "scheduleOneTask", continuedTask);
