@@ -272,50 +272,53 @@ public class Repository implements Writable, GsonPostProcessable {
             LOG.info("Repository '{}': migrating legacy 'fs' field to 'fs_descriptor'", name);
             Map<String, String> props = legacyFs.properties != null ? legacyFs.properties : new HashMap<>();
             String fsName = legacyFs.name != null ? legacyFs.name : "";
-            // Both binds run plugin code (bindPrimary probes every loaded provider) at image load and
-            // edit-log replay: LinkageError included, so a half-installed plugin costs this
-            // repository, not the FE - the same catch CatalogFactory uses for catalogs.
-            try {
-                StorageAdapter storageAdapter = StorageAdapter.of(props);
-                fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(storageAdapter, "");
-            } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
-                // A typed legacy record names its storage type ("S3", "HDFS", "AZURE", ...); a broker
-                // record names its broker. The descriptor carries an explicit type and is persisted by
-                // the next checkpoint, so a wrong guess here is permanent: a typed record must never
-                // become BROKER because its plugin failed to load, threw, or rejected the properties.
-                // So a name that is a shipped provider's is never read as a broker's, whatever brokers
-                // are registered (a broker may legally be called HDFS): the record is kept, with the
-                // reason - the provider is absent, or it is loaded and the binding failed. Only a name
-                // that is not a provider's and is a registered broker's is read as a broker record.
-                // Anything else is kept as it was, so the migration is retried at the next start, and
-                // every use reports the reason until then.
-                if (isStorageTypeName(fsName)) {
+            // The record's name is the one identity it carries: a typed legacy record names its storage
+            // type ("S3", "HDFS", "AZURE", ...), a broker record names its broker. The descriptor written
+            // here carries an explicit type and is persisted by the next checkpoint, so it has to be
+            // decided by that identity, not by whichever provider happens to claim the properties: a
+            // WITH BROKER repository commonly stores fs.defaultFS and the HDFS provider would claim it,
+            // and a typed repository must never become BROKER because its plugin failed to load, threw,
+            // or rejected the properties. So: a storage type's name binds that type, or is kept with the
+            // reason; a registered broker's name is a broker record; anything else - a name from before
+            // the type names, or a broker since dropped - is routed as it always was. A kept record is
+            // retried at the next start, and every use reports the reason until then. Every bind runs
+            // plugin code at image load and edit-log replay, so a LinkageError or a plugin's own
+            // ServiceConfigurationError costs this repository, not the FE - the catch CatalogFactory uses.
+            if (isStorageTypeName(fsName)) {
+                try {
+                    StorageAdapter storageAdapter = StorageAdapter.of(props);
+                    fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(storageAdapter, "");
+                } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
                     unavailableReason = "legacy record of storage type '" + fsName + "' was not migrated: "
                             + (StorageAdapter.hasProvider(fsName)
                                     ? "its filesystem provider is loaded but did not bind the properties ("
                                     : "its filesystem provider is not loaded (")
-                            + e.getMessage() + "). Repair the plugin or the properties and restart the FE.";
-                } else if (!isRegisteredBroker(fsName)) {
+                            + e.getMessage() + "). Repair the plugin or the properties and restart the FE;"
+                            + " if this repository was created WITH BROKER \"" + fsName + "\", DROP and"
+                            + " re-CREATE it.";
+                }
+            } else if (isRegisteredBroker(fsName)) {
+                try {
+                    StorageAdapter brokerAdapter = StorageAdapter.ofBroker(fsName, props);
+                    fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(brokerAdapter, fsName);
+                } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
+                    unavailableReason = "legacy record on broker '" + fsName + "' was not migrated: "
+                            + e.getMessage();
+                }
+            } else {
+                try {
+                    StorageAdapter storageAdapter = StorageAdapter.of(props);
+                    fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(storageAdapter, "");
+                } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
                     unavailableReason = "legacy record was not migrated: no loaded filesystem provider"
                             + " claims its properties (" + e.getMessage() + ") and '" + fsName
                             + "' is not a registered broker. After ADD BROKER, restart the FE.";
                 }
-                if (unavailableReason != null) {
-                    errMsg = unavailableReason;
-                    LOG.warn("Repository '{}': {}", name, errMsg);
-                    return;
-                }
-                LOG.warn("Repository '{}': primary storage migration failed ({}), migrating as a broker"
-                        + " repository on broker '{}'", name, e.getMessage(), fsName);
-                try {
-                    StorageAdapter brokerAdapter = StorageAdapter.ofBroker(fsName, props);
-                    fileSystemDescriptor = FileSystemDescriptor.fromStorageAdapter(brokerAdapter, fsName);
-                } catch (RuntimeException | LinkageError | ServiceConfigurationError e2) {
-                    unavailableReason = "legacy record was not migrated: " + e2.getMessage();
-                    errMsg = unavailableReason;
-                    LOG.error("Repository '{}': {}", name, errMsg);
-                    return;
-                }
+            }
+            if (unavailableReason != null) {
+                errMsg = unavailableReason;
+                LOG.warn("Repository '{}': {}", name, errMsg);
+                return;
             }
             fsProps = fileSystemDescriptor.getProperties();
         } else {

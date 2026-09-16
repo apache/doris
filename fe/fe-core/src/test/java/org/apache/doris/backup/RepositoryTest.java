@@ -578,6 +578,41 @@ public class RepositoryTest {
     }
 
     /**
+     * A WITH BROKER repository commonly stores the properties the HDFS provider would claim
+     * (fs.defaultFS, hadoop.username). Its identity is its broker name, not whichever provider claims
+     * the map: routing first would persist it as HDFS and every later backup would bypass the broker.
+     */
+    @Test
+    public void testLegacyBrokerRecordKeepsItsBrokerIdentityWhateverItsPropertiesRouteTo() {
+        String legacyJson = "{"
+                + "\"id\":36000,"
+                + "\"n\":\"brokerRepoHdfsProps\","
+                + "\"iro\":false,"
+                + "\"lo\":\"hdfs://ns/backup\","
+                + "\"ct\":-1,"
+                + "\"fs\":{\"n\":\"broker_0\",\"prop\":{\"fs.defaultFS\":\"hdfs://ns\","
+                + "\"hadoop.username\":\"hadoop\",\"hdfs.authentication.type\":\"simple\"}}"
+                + "}";
+        Mockito.when(mockedBrokerMgr.containsBroker("broker_0")).thenReturn(true);
+
+        Repository deserialized = GsonUtils.GSON.fromJson(legacyJson, Repository.class);
+
+        Assertions.assertEquals(FsStorageType.BROKER, deserialized.getFileSystemDescriptor().getStorageType(),
+                "the registered broker name decides, not the HDFS provider that claims the properties");
+        Assertions.assertEquals("broker_0", deserialized.getFileSystemDescriptor().getName());
+        Assertions.assertEquals("hdfs://ns", deserialized.getFileSystemDescriptor().getProperties().get("fs.defaultFS"),
+                "the broker's pass-through properties are kept");
+        Assertions.assertNull(deserialized.getUnavailableReason());
+
+        // What the checkpoint writes reloads as the same broker repository.
+        String checkpointed = GsonUtils.GSON.toJson(deserialized);
+        Assertions.assertTrue(checkpointed.contains("\"fs_type\":\"BROKER\""), checkpointed);
+        Repository reloaded = GsonUtils.GSON.fromJson(checkpointed, Repository.class);
+        Assertions.assertEquals(FsStorageType.BROKER, reloaded.getFileSystemDescriptor().getStorageType());
+        Assertions.assertEquals("broker_0", reloaded.getFileSystemDescriptor().getName());
+    }
+
+    /**
      * A broker may legally be named like a storage type. With that type's plugin absent, the typed
      * record still names an absent provider, and that - not the broker registry - explains why nothing
      * claims its properties. Persisting BROKER "HDFS" here would be the original defect through a

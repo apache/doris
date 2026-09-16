@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceConfigurationError;
@@ -117,8 +118,10 @@ public class FileSystemPluginManager {
                         // Snapshot all self-reported metadata (sensitive keys included)
                         // before mutating any store, so one throwing implementation is
                         // rejected cleanly instead of aborting startup or leaving an
-                        // inventory row for a provider that never became active.
-                        Set<String> sensitiveKeys = p.sensitivePropertyKeys();
+                        // inventory row for a provider that never became active. The
+                        // snapshot walks the provider's set here, so a lazy set that fails
+                        // when walked fails before anything is published.
+                        Set<String> sensitiveKeys = snapshotSensitiveKeys(p);
                         PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
                         DatasourcePrintableMap.registerSensitiveKeys(sensitiveKeys);
                         providers.add(p);
@@ -182,7 +185,7 @@ public class FileSystemPluginManager {
             // without its inventory row (or vice versa).
             Set<String> sensitiveKeys;
             try {
-                sensitiveKeys = provider.sensitivePropertyKeys();
+                sensitiveKeys = snapshotSensitiveKeys(provider);
             } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
                 runtimeManager.discard(handle.getPluginName());
                 LOG.warn("Skip filesystem plugin '{}' from {}: sensitivePropertyKeys() failed",
@@ -224,8 +227,31 @@ public class FileSystemPluginManager {
 
     /** Registers a provider at highest priority. For testing overrides. */
     public void registerProvider(FileSystemProvider provider) {
+        Set<String> sensitiveKeys = snapshotSensitiveKeys(provider);
         providers.add(0, provider);
-        DatasourcePrintableMap.registerSensitiveKeys(provider.sensitivePropertyKeys());
+        DatasourcePrintableMap.registerSensitiveKeys(sensitiveKeys);
+    }
+
+    /**
+     * A host-owned copy of the provider's sensitive aliases, walked and checked here - inside the
+     * caller's guard and before anything is published - because the set is the plugin's: a lazy one
+     * may link a missing class only when iterated, and a null element would fail the masking set's
+     * case-insensitive comparator later, with the provider already routable.
+     */
+    private static Set<String> snapshotSensitiveKeys(FileSystemProvider provider) {
+        Set<String> answered = provider.sensitivePropertyKeys();
+        if (answered == null) {
+            return Collections.emptySet();
+        }
+        Set<String> copy = new HashSet<>();
+        for (String key : answered) {
+            if (key == null) {
+                throw new IllegalArgumentException("sensitivePropertyKeys() of provider '" + provider.name()
+                        + "' contains a null alias");
+            }
+            copy.add(key);
+        }
+        return copy;
     }
 
     /** Returns an unmodifiable view of the loaded providers, in registration order. */
