@@ -106,42 +106,38 @@ TEST_P(CharColumnReadTest, EmbeddedNulRoundTrip) {
     Block physical;
     ASSERT_TRUE(read_rowset(rowset, schema, &physical).ok());
     ASSERT_EQ(physical.rows(), 1);
-    const auto& physical_column = *physical.get_by_position(cid).column;
-    auto expected = physical_column.clone_empty();
+    const auto& actual = physical.get_by_position(cid);
+    auto expected = actual.column->clone_empty();
     expected->insert(value);
     // Field equality does not compare ARRAY/MAP/STRUCT payloads; compare actual columns.
-    EXPECT_EQ(physical_column.compare_at(0, 0, *expected, 1), 0);
+    EXPECT_EQ(actual.column->compare_at(0, 0, *expected, 1), 0);
     auto gathered = expected->clone_empty();
     ASSERT_TRUE(
             BaseTablet::fetch_value_by_rowids(rowset, 0, {0}, schema->column(cid), gathered).ok());
     ASSERT_EQ(gathered->size(), 1);
     EXPECT_EQ(gathered->compare_at(0, 0, *expected, 1), 0);
 
-    // Check row-store agreement and primary-key identity once, with a CHAR key.
-    if (cid == 0) {
-        auto row_store = schema->create_storage_block({0});
-        ASSERT_TRUE(
-                BaseTablet::fetch_value_through_row_column(rowset, *schema, 0, {0}, {0}, row_store)
-                        .ok());
-        ASSERT_EQ(row_store.rows(), 1);
-        EXPECT_EQ(row_store.get_by_position(0).column->compare_at(0, 0, *expected, 1), 0);
-
-        OlapBlockDataConvertor convertor;
-        convertor.add_column_data_convertor(schema->column(0));
-        ASSERT_TRUE(convertor
-                            .set_source_content_with_specifid_column(physical.get_by_position(0), 0,
-                                                                     1, 0)
-                            .ok());
-        auto [status, key_column] = convertor.convert_column_data(0);
-        ASSERT_TRUE(status.ok()) << status;
-        RowKeyEncoder encoder(*schema, /*mow=*/true);
-        const auto encoded_key = encoder.full_encode_primary_keys({key_column}, 0);
-        RowLocation location;
-        std::vector<std::unique_ptr<SegmentCacheHandle>> caches(1);
-        auto lookup_status = tablet->lookup_row_key(Slice(encoded_key), schema.get(), false,
-                                                    {rowset}, &location, 2, caches);
-        EXPECT_TRUE(lookup_status.ok()) << lookup_status;
+    if (cid != 0) {
+        return;
     }
+    // Check row-store agreement and primary-key identity once, with a CHAR key.
+    auto row_store = schema->create_storage_block({0});
+    ASSERT_TRUE(BaseTablet::fetch_value_through_row_column(rowset, *schema, 0, {0}, {0}, row_store)
+                        .ok());
+    ASSERT_EQ(row_store.rows(), 1);
+    EXPECT_EQ(row_store.get_by_position(0).column->compare_at(0, 0, *expected, 1), 0);
+
+    OlapBlockDataConvertor convertor(schema.get());
+    convertor.set_source_content(&physical, 0, 1);
+    auto [status, key_column] = convertor.convert_column_data(0);
+    ASSERT_TRUE(status.ok()) << status;
+    RowKeyEncoder encoder(*schema, /*mow=*/true);
+    const auto encoded_key = encoder.full_encode_primary_keys({key_column}, 0);
+    RowLocation location;
+    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(1);
+    auto lookup_status = tablet->lookup_row_key(Slice(encoded_key), schema.get(), false, {rowset},
+                                                &location, 2, caches);
+    EXPECT_TRUE(lookup_status.ok()) << lookup_status;
 }
 
 INSTANTIATE_TEST_SUITE_P(CharProjection, CharColumnReadTest,

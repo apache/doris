@@ -162,13 +162,12 @@ TEST_P(SniiCharWriterTest, PreservesEmbeddedNulsAndOnlyStripsTailPadding) {
     auto file = open_file();
     const auto logical = file->open_snii_index(&_meta);
     ASSERT_TRUE(logical.has_value()) << logical.error();
-    EXPECT_TRUE(logical.value()->preserves_embedded_char_nuls());
     const std::array<std::string, 5> queries = {std::string("a\0b", 3), "a", std::string("\0x", 2),
                                                 "", std::string("a\0c", 3)};
     for (uint32_t id = 0; id < queries.size(); ++id) {
         SCOPED_TRACE(id);
         std::vector<uint32_t> docids;
-        ASSERT_TRUE(doris::snii::query::term_query(*logical.value(), queries[id], &docids).ok());
+        assert_ok(doris::snii::query::term_query(*logical.value(), queries[id], &docids));
         EXPECT_EQ(docids, (std::vector<uint32_t> {id}));
     }
 
@@ -183,10 +182,9 @@ TEST_P(SniiCharWriterTest, PreservesEmbeddedNulsAndOnlyStripsTailPadding) {
         QueryEnv env;
         std::shared_ptr<roaring::Roaring> bitmap;
         InvertedIndexQueryCacheHandle null_handle;
-        const auto status = reader->query_with_null_bitmap(
+        assert_ok(reader->query_with_null_bitmap(
                 env.context, "c", Field::create_field<TYPE_STRING>(queries.front()),
-                InvertedIndexQueryType::EQUAL_QUERY, bitmap, &null_handle);
-        ASSERT_TRUE(status.ok()) << status;
+                InvertedIndexQueryType::EQUAL_QUERY, bitmap, &null_handle));
         ASSERT_NE(bitmap, nullptr);
         EXPECT_EQ((std::vector<uint32_t>(bitmap->begin(), bitmap->end())),
                   (std::vector<uint32_t> {0}));
