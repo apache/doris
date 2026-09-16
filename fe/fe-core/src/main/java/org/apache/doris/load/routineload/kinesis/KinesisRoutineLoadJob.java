@@ -699,18 +699,43 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
                                           KinesisDataSourceProperties dataSourceProperties)
             throws UserException {
+        List<Pair<String, String>> shardPositions = Lists.newArrayList();
+        Map<String, String> customKinesisProperties = Maps.newHashMap();
+        boolean resetProgress = false;
+        boolean hasExplicitShardPositions = false;
         if (dataSourceProperties != null) {
-            List<Pair<String, String>> shardPositions = Lists.newArrayList();
-            Map<String, String> customKinesisProperties = Maps.newHashMap();
-            boolean resetProgress = false;
-            boolean hasExplicitShardPositions = false;
-
             if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
                 shardPositions = dataSourceProperties.getKinesisShardPositions();
                 customKinesisProperties = dataSourceProperties.getCustomKinesisProperties();
                 hasExplicitShardPositions = !shardPositions.isEmpty();
             }
+            resetProgress = !Strings.isNullOrEmpty(dataSourceProperties.getStream());
+        }
 
+        // Check membership before changing properties or the explicit shard list.
+        if (hasExplicitShardPositions && !resetProgress) {
+            ((KinesisProgress) progress).checkShards(shardPositions);
+        }
+
+        // Common property validation must also finish before changing Kinesis state.
+        if (!jobProperties.isEmpty()) {
+            Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
+            modifyCommonJobProperties(copiedJobProperties);
+            this.jobProperties.putAll(copiedJobProperties);
+            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
+                this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
+            }
+            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
+                String policy = jobProperties.get(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY);
+                if ("ERROR".equalsIgnoreCase(policy)) {
+                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
+                } else {
+                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
+                }
+            }
+        }
+
+        if (dataSourceProperties != null) {
             // Update custom properties
             if (!customKinesisProperties.isEmpty()) {
                 this.customProperties.putAll(customKinesisProperties);
@@ -720,7 +745,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             // Modify stream if provided
             if (!Strings.isNullOrEmpty(dataSourceProperties.getStream())) {
                 this.stream = dataSourceProperties.getStream();
-                resetProgress = true;
             }
 
             // Modify region if provided
@@ -751,27 +775,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             }
 
             if (!shardPositions.isEmpty()) {
-                if (!resetProgress) {
-                    ((KinesisProgress) progress).checkShards(shardPositions);
-                }
                 ((KinesisProgress) progress).modifyPosition(shardPositions);
-            }
-        }
-
-        if (!jobProperties.isEmpty()) {
-            Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
-            modifyCommonJobProperties(copiedJobProperties);
-            this.jobProperties.putAll(copiedJobProperties);
-            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
-                this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
-            }
-            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
-                String policy = jobProperties.get(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY);
-                if ("ERROR".equalsIgnoreCase(policy)) {
-                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
-                } else {
-                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
-                }
             }
         }
         LOG.info("modify the properties of kinesis routine load job: {}, jobProperties: {}, datasource properties: {}",
