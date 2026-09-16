@@ -393,7 +393,8 @@ Status TabletReader::_init_column_predicates(const ReaderParams& read_params) {
         }
         const auto& col = *_read_schema->column(predicate->column_id());
         const auto* tablet_index = _tablet_schema->get_ngram_bf_index(col.unique_id());
-        if (tablet_index && config::enable_query_like_bloom_filter) {
+        if (tablet_index && config::enable_query_like_bloom_filter &&
+            predicate->can_do_bloom_filter(true)) {
             std::unique_ptr<segment_v2::BloomFilter> ng_bf;
             std::string pattern = predicate->get_search_str();
             auto gram_bf_size = tablet_index->get_gram_bf_size();
