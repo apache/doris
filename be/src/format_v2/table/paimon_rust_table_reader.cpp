@@ -161,7 +161,13 @@ Status PaimonRustTableReader::init(format::TableReadOptions&& options) {
         // add deltas, so nested use would double-count instead of extending lifecycle coverage.
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.init_timer);
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctz);
+        // Materialize TIMESTAMP_LTZ in the session timezone — the same
+        // convention as the JNI reader (PaimonJniScanner reads time_zone from
+        // its scan params) and lance_reader. Timezone-naive (paimon TIMESTAMP)
+        // arrow values are decoded in UTC by the DateTimeV2 serde regardless
+        // of _ctz, so NTZ wall-clock semantics are preserved.
+        DORIS_CHECK(_runtime_state != nullptr);
+        _ctz = _runtime_state->timezone_obj();
         if (_scanner_profile != nullptr) {
             file_scan_profile::ensure_hierarchy(_scanner_profile);
             _rust_total_time = ADD_CHILD_TIMER(_scanner_profile, "PaimonRustReader",

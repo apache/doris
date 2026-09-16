@@ -132,7 +132,18 @@ private:
 
     std::unordered_map<std::string, std::pair<std::string, DataTypePtr>> _columns_by_name;
     const paimon_table* _table = nullptr;
-    cctz::time_zone _gmt_tz;
+    cctz::time_zone _utc_tz;
+
+#ifdef BE_TEST
+    // Exposed for unit tests so they can inspect the converted paimon_datum
+    // (tag / int_val / int_val2) without a live predicate build. Declared
+    // here, after DatumHolder, because the return type is not in the
+    // complete-class context and cannot reference a member declared later.
+    std::optional<DatumHolder> TEST_convert_literal(const VExprSPtr& expr,
+                                                    const DataTypePtr& column_type) const {
+        return _convert_literal(expr, column_type);
+    }
+#endif
 };
 
 } // namespace doris

@@ -39,7 +39,6 @@
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
-#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -106,9 +105,12 @@ PaimonRustPredicateConverter::PaimonRustPredicateConverter(
         _columns_by_name.emplace(_normalize_name(column_names[i]),
                                  std::make_pair(column_names[i], column_types[i]));
     }
-    if (!TimezoneUtils::find_cctz_time_zone("GMT", _gmt_tz)) {
-        TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _gmt_tz);
-    }
+    // Paimon TIMESTAMP (wall clock) is stored as epoch-millis-of-the-wall-time
+    // and the DateTimeV2 serde decodes timezone-naive arrow values in UTC, so
+    // timestamp literals convert wall->epoch in UTC. utc_time_zone() needs no
+    // tzdata lookup, so the conversion cannot silently fall back to a
+    // machine-local zone.
+    _utc_tz = cctz::utc_time_zone();
 }
 
 paimon_predicate* PaimonRustPredicateConverter::build(const VExprContextSPtrs& conjuncts) {
@@ -264,14 +266,21 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_binary(const VExprSPtr&
     }
     const char* column = field_meta->column.c_str();
 
-    if (expr->op() == TExprOpcode::EQ_FOR_NULL) {
-        return _take(paimon_predicate_is_null(_table, column));
-    }
-
+    // Convert the RHS first so EQ_FOR_NULL (<=>) only converts when the RHS is
+    // a convertible literal, mirroring the FE converter, which rejects a
+    // non-literal RHS. A column-to-column `a <=> b` must therefore stay in the
+    // Doris residual: it has no single-column rust predicate, and pushing
+    // `a IS NULL` would wrongly discard rows like (1, 1) — rows dropped by the
+    // pushed filter cannot be recovered by the residual conjunct.
     auto holder = _convert_literal(expr->get_child(1), field_meta->type);
     if (!holder) {
         return nullptr;
     }
+
+    if (expr->op() == TExprOpcode::EQ_FOR_NULL) {
+        return _take(paimon_predicate_is_null(_table, column));
+    }
+
     // `holder` is a local, so its storage stays put for the duration of the call.
     _bind_datum_storage(&holder->datum, holder->storage);
     const paimon_datum& datum = holder->datum;
@@ -483,13 +492,13 @@ PaimonRustPredicateConverter::_convert_literal(const VExprSPtr& expr,
             if (!dt.is_valid_date()) {
                 return std::nullopt;
             }
-            dt.unix_timestamp(&seconds, _gmt_tz);
+            dt.unix_timestamp(&seconds, _utc_tz);
         } else {
             const auto& dt = field.get<TYPE_DATEV2>();
             if (!dt.is_valid_date()) {
                 return std::nullopt;
             }
-            dt.unix_timestamp(&seconds, _gmt_tz);
+            dt.unix_timestamp(&seconds, _utc_tz);
         }
         datum.tag = kTagDate;
         datum.int_val = _seconds_to_days(seconds);
@@ -501,24 +510,31 @@ PaimonRustPredicateConverter::_convert_literal(const VExprSPtr& expr,
             return std::nullopt;
         }
         datum.tag = kTagTimestamp;
-        // nanos is left at 0 to match paimon-cpp's millisecond-granularity
-        // Timestamp::FromEpochMillis behaviour.
         if (literal_primitive == TYPE_DATETIME) {
             const auto& dt = field.get<TYPE_DATETIME>();
             if (!dt.is_valid_date()) {
                 return std::nullopt;
             }
             int64_t seconds = 0;
-            dt.unix_timestamp(&seconds, _gmt_tz);
+            dt.unix_timestamp(&seconds, _utc_tz);
+            // No sub-second part in datetime (v1): millis only, nanos stays 0.
             datum.int_val = seconds * 1000;
         } else {
             const auto& dt = field.get<TYPE_DATETIMEV2>();
             if (!dt.is_valid_date()) {
                 return std::nullopt;
             }
+            // ts is (seconds since epoch, the microsecond-of-second part);
+            // split it into the rust timestamp's (millis, nanos): truncating
+            // the sub-millisecond remainder would make an equality/IN predicate
+            // more selective than the original conjunct (e.g. .123456 pushed as
+            // .123000), wrongly discarding matching rows. DATETIMEV2 carries at
+            // most microseconds, and micros % 1000 * 1000 <= 999000 fits the
+            // nanos field, so the value is always representable exactly.
             std::pair<int64_t, int64_t> ts;
-            dt.unix_timestamp(&ts, _gmt_tz);
+            dt.unix_timestamp(&ts, _utc_tz);
             datum.int_val = ts.first * 1000 + ts.second / 1000;
+            datum.int_val2 = (ts.second % 1000) * 1000;
         }
         return holder;
     }

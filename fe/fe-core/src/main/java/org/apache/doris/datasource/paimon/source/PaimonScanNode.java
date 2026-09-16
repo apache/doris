@@ -417,14 +417,18 @@ public class PaimonScanNode extends FileQueryScanNode {
             // paimon-cpp and paimon-rust both consume Paimon native binary serialization,
             // which only supports DataSplit. Any other split type falls back to JNI.
             boolean nativeSplit = split instanceof DataSplit;
-            // paimon-rust additionally requires a FileStoreTable: BE opens the table
-            // via paimon_table_from_schema_json, which needs the resolved TableSchema
-            // that only FileStoreTable exposes via schema(). If the table is not a
-            // FileStoreTable (e.g. a sys table backed by DataSplit), we cannot ship a
-            // schema JSON, so fall back to CPP / JNI rather than sending an incomplete
-            // PAIMON_RUST request that BE would reject.
+            // paimon-rust additionally requires (a) FileScannerV2: the V1 FileScanner
+            // explicitly rejects PAIMON_RUST, so with enable_file_scanner_v2 disabled
+            // the split falls back to JNI instead of encoding a rust request that the
+            // selected scanner cannot consume, and (b) a FileStoreTable: BE opens the
+            // table via paimon_table_from_schema_json, which needs the resolved
+            // TableSchema that only FileStoreTable exposes via schema(). If the table
+            // is not a FileStoreTable (e.g. a sys table backed by DataSplit), we cannot
+            // ship a schema JSON, so fall back to CPP / JNI rather than sending an
+            // incomplete PAIMON_RUST request that BE would reject.
             Table paimonTable = source.getPaimonTable();
-            boolean canUseRust = sessionVariable.isEnablePaimonRustReader() && nativeSplit
+            boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
+                    && sessionVariable.enableFileScannerV2 && nativeSplit
                     && paimonTable instanceof FileStoreTable;
             if (canUseRust) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
