@@ -598,10 +598,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
             List<Long> partIds, List<Long> tabletIds, CascadesContext cascadesContext) {
         // Use unbound visible columns so each branch projection binds after its policy is expanded.
         // Otherwise the projections keep the scan's raw slots and can bypass data masking.
+        // Keep the original qualifier in the UnboundSlot name parts so projectFromUnboundSlots can
+        // preserve it on the projection alias.
         List<UnboundSlot> visibleOutput = baseScan.getOutput().stream()
                 .filter(slot -> !(slot instanceof SlotReference)
                         || ((SlotReference) slot).isVisible())
-                .map(slot -> new UnboundSlot(slot.getName()))
+                .map(slot -> new UnboundSlot(Utils.qualifiedNameParts(slot.getQualifier(), slot.getName())))
                 .collect(Collectors.toList());
 
         // left: base survived rows at t1 = delete_sign=0 AND commit_tso < targetTso, projected to visible.
