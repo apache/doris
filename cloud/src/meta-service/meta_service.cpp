@@ -3534,7 +3534,7 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
                                          const ReportSpillStatsRequest* request,
                                          ReportSpillStatsResponse* response,
                                          ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(report_spill_stats, put);
+    RPC_PREPROCESS(report_spill_stats, get, put);
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -3543,18 +3543,19 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
         return;
     }
     RPC_RATE_LIMIT(report_spill_stats)
-    if (!request->has_stats() || request->stats().cloud_unique_id().empty()) {
+    if (!request->has_stats()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "spill stats without cloud_unique_id";
+        msg = "spill stats missing";
         return;
     }
     const auto& spill_stats = request->stats();
-    if (spill_stats.boot_id() <= 0 || spill_stats.remote_write_bytes() < 0 ||
-        spill_stats.remote_put_requests() < 0) {
+    if (spill_stats.backend_id() <= 0 || spill_stats.boot_id() <= 0 ||
+        spill_stats.remote_write_bytes() < 0 || spill_stats.remote_put_requests() < 0) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("invalid spill stats, boot_id={} write_bytes={} put_requests={}",
-                          spill_stats.boot_id(), spill_stats.remote_write_bytes(),
-                          spill_stats.remote_put_requests());
+        msg = fmt::format(
+                "invalid spill stats, backend_id={} boot_id={} write_bytes={} put_requests={}",
+                spill_stats.backend_id(), spill_stats.boot_id(), spill_stats.remote_write_bytes(),
+                spill_stats.remote_put_requests());
         return;
     }
 
@@ -3564,11 +3565,13 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
         msg = fmt::format("failed to create txn, err={}", err);
         return;
     }
-    // One record per BE. The report carries totals since boot, so a report of the same boot
-    // replaces the previous one (a retry cannot double count). The first report of a new boot
-    // folds the previous process' totals into prior_boots_*, which keeps the record count
-    // bounded by the number of BEs instead of the number of BE restarts.
-    std::string key = stats_spill_key({instance_id, spill_stats.cloud_unique_id()});
+    // One record per BE (backend_id is FE-assigned and unique; cloud_unique_id is not, several
+    // BEs added by one statement share it). The report carries totals since boot, so a report of
+    // the same boot replaces the previous one (a retry cannot double count). The first report of
+    // a newer boot folds the previous process' totals into prior_boots_*, which keeps the record
+    // count bounded by the number of BEs instead of the number of BE restarts. A report of an
+    // older boot is a late duplicate from a dead process and is ignored.
+    std::string key = stats_spill_key({instance_id, spill_stats.backend_id()});
     std::string existing_val;
     err = txn->get(key, &existing_val);
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
@@ -3582,6 +3585,17 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
         if (!existing.ParseFromString(existing_val)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             msg = fmt::format("malformed spill stats, key={}", hex(key));
+            return;
+        }
+        if (existing.boot_id() > spill_stats.boot_id()) {
+            // Either a late duplicate from a dead process (harmless) or a live BE whose clock
+            // went backwards across a restart. Reject instead of silently accepting so that the
+            // live BE keeps logging the failure rather than believing it reported.
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format(
+                    "stale spill stats report: boot_id={} is older than the recorded boot_id={} "
+                    "of backend_id={} (clock went backwards across a restart?)",
+                    spill_stats.boot_id(), existing.boot_id(), spill_stats.backend_id());
             return;
         }
         int64_t prior_bytes = existing.prior_boots_write_bytes();
@@ -3606,8 +3620,8 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
-        msg = fmt::format("failed to commit spill stats, err={} cloud_unique_id={} boot_id={}", err,
-                          spill_stats.cloud_unique_id(), spill_stats.boot_id());
+        msg = fmt::format("failed to commit spill stats, err={} backend_id={} boot_id={}", err,
+                          spill_stats.backend_id(), spill_stats.boot_id());
         return;
     }
 }

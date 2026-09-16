@@ -7848,6 +7848,13 @@ int InstanceRecycler::recycle_expired_spill_objects() {
         LOG_INFO("recycle expired spill objects, cost={}s", cost).tag("instance_id", instance_id_);
     };
 
+    if (!config::force_immediate_recycle && config::spill_objects_expire_time_second <= 0) {
+        // A non-positive TTL would select objects of running queries; treat it as "disabled".
+        LOG_WARNING("skip recycling spill objects: spill_objects_expire_time_second must be > 0")
+                .tag("instance_id", instance_id_)
+                .tag("value", config::spill_objects_expire_time_second);
+        return 0;
+    }
     int64_t expiration_time =
             duration_cast<seconds>(system_clock::now().time_since_epoch()).count() -
             config::spill_objects_expire_time_second;
@@ -7865,7 +7872,8 @@ int InstanceRecycler::recycle_expired_spill_objects() {
         if (accessor->type() != AccessorType::S3 && accessor->type() != AccessorType::MOCK) {
             continue;
         }
-        // Objects are written by BE under "{vault prefix}/spill/{cloud_unique_id}/{boot_id}/...".
+        // Objects are written by BE under "{vault prefix}/spill/{backend_id}/data/{boot_id}/..."
+        // plus one boot marker per generation under "spill/{backend_id}/boots/{boot_id}".
         int ret1 = accessor->delete_prefix("spill/", expiration_time);
         if (ret1 != 0) {
             LOG(WARNING) << "failed to recycle expired spill objects, ret=" << ret1

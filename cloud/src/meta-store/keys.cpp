@@ -462,12 +462,12 @@ void stats_tablet_data_size_key(const StatsTabletKeyInfo& in, std::string* out) 
 void stats_spill_key(const StatsSpillKeyInfo& in, std::string* out) {
     encode_prefix(in, out);                   // 0x01 "stats" ${instance_id}
     encode_bytes(STATS_KEY_INFIX_SPILL, out); // "spill"
-    encode_bytes(std::get<1>(in), out);       // cloud_unique_id
+    encode_int64(std::get<1>(in), out);       // backend_id
 }
 
 std::string stats_spill_key_prefix(std::string_view instance_id) {
     std::string out;
-    encode_prefix(StatsSpillKeyInfo {std::string(instance_id), ""}, &out);
+    encode_prefix(StatsSpillKeyInfo {std::string(instance_id), 0}, &out);
     encode_bytes(STATS_KEY_INFIX_SPILL, &out);
     return out;
 }

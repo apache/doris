@@ -475,13 +475,15 @@ int main(int argc, char** argv) {
             LOG(ERROR) << "spill_storage_type=s3 is only supported in cloud mode";
             exit(-1);
         }
+        // Same rule as the dynamic update path in SpillFileManager: a budget below two upload
+        // buffers is allowed but serialises uploads (one buffer at a time).
         if (doris::config::spill_s3_max_inflight_upload_bytes <
             2 * doris::config::s3_write_buffer_size) {
-            LOG(ERROR) << "spill_s3_max_inflight_upload_bytes ("
-                       << doris::config::spill_s3_max_inflight_upload_bytes
-                       << ") must be at least 2 * s3_write_buffer_size ("
-                       << doris::config::s3_write_buffer_size << ")";
-            exit(-1);
+            LOG(WARNING) << "spill_s3_max_inflight_upload_bytes ("
+                         << doris::config::spill_s3_max_inflight_upload_bytes
+                         << ") is below 2 * s3_write_buffer_size ("
+                         << doris::config::s3_write_buffer_size
+                         << "); spill uploads will run one buffer at a time";
         }
         LOG(INFO) << "spill data will be written to object storage, spill_storage_root_path is "
                      "ignored";
