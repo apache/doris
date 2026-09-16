@@ -86,11 +86,11 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
             parse_bound(zone_map.max(), zone_map_info.max_value);
         }
 
-        // The writer raises the last byte of a cut max without carrying, so 0xff becomes 0x00 and
-        // the max drops below the rows it covers. A stored 0x00 there means exactly that.
+        // A max of all 0xff carries past its first byte and ends up all zero, which stands above
+        // nothing. Give up the range instead of ruling out rows with it.
         if (!zone_map_info.pass_all && is_string_type(field_type) &&
             zone_map.max().size() == MAX_ZONE_MAP_INDEX_SIZE &&
-            static_cast<unsigned char>(zone_map.max().back()) == 0x00) {
+            zone_map.max().find_first_not_of('\0') == std::string::npos) {
             zone_map_info.pass_all = true;
         }
 
@@ -241,11 +241,18 @@ void TypedZoneMapIndexWriter<Type>::modify_index_before_flush(
     // slightly larger than any real string that shares the same 512-byte prefix, ensuring no false negatives —
     // the zone map will never incorrectly skip a page that contains matching data.
     //
-    // In UTF8 encoding, here do not appear 0xff in last byte
+    // A string column holds arbitrary bytes, so the last byte can be 0xff. Adding one to it wraps
+    // to 0x00 and leaves a max below the data, so carry into the byte before it.
     if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
         auto& str = zone_map.max_value.get<Type>();
         if (str.size() == MAX_ZONE_MAP_INDEX_SIZE) {
-            str[str.size() - 1] += 1;
+            for (size_t i = str.size(); i > 0; --i) {
+                auto byte = static_cast<uint8_t>(str[i - 1]) + 1;
+                str[i - 1] = static_cast<char>(byte);
+                if (static_cast<uint8_t>(byte) != 0) {
+                    break;
+                }
+            }
         }
     }
 }

@@ -1610,6 +1610,7 @@ TEST_F(ColumnZoneMapTest, EmbeddedNulKeepsStringBound) {
     // CHAR pads with '\0' on write and cuts at the first '\0' on read, so its bound is
     // cut the same way and stays comparable with the rows the page returns.
     test_embedded_nul_bound<TYPE_CHAR>("embedded_nul_char", /*bound_is_cut=*/true);
+}
 
 // The writer raises the last byte of every cut max, including one that wraps. Storing the bound
 // anyway keeps it available to a reader that only needs an approximation, and the read side is
@@ -1633,19 +1634,20 @@ TEST_F(ColumnZoneMapTest, WriterRaisesEveryCutMax) {
         return Raised {zone_map.max_value.get<TYPE_STRING>(), zone_map.pass_all};
     };
 
-    // 511 'a' then 0xff: raising the last byte wraps it to 0x00, which leaves the max below the
-    // value it covers. The writer keeps the bound and hands the wrap to the read side.
+    // 511 'a' then 0xff: adding one to the last byte wraps it, so the carry goes into the byte
+    // before it and the max still stands above the value it covers.
     std::string trailing_ff(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
     trailing_ff.push_back(static_cast<char>(0xff));
-    const auto wrapped = raise_max(trailing_ff);
-    EXPECT_FALSE(wrapped.pass_all);
-    EXPECT_EQ(static_cast<unsigned char>(wrapped.max.back()), 0x00) << "0xff wraps to 0x00";
-    EXPECT_LT(wrapped.max, trailing_ff) << "the wrapped max is what the read side has to catch";
+    const auto carried = raise_max(trailing_ff);
+    EXPECT_FALSE(carried.pass_all);
+    EXPECT_EQ(std::string(MAX_ZONE_MAP_INDEX_SIZE - 2, 'a') + "b" + '\0', carried.max);
+    EXPECT_GT(carried.max, trailing_ff) << "max must stay above the value it covers";
 
-    // A max that is 0xff all the way down wraps the same way.
+    // A max that is 0xff all the way down carries past its first byte, so every byte ends at
+    // 0x00. The read side spots that the same way it spots an old wrap.
     const auto all_ff = raise_max(std::string(MAX_ZONE_MAP_INDEX_SIZE, static_cast<char>(0xff)));
     EXPECT_FALSE(all_ff.pass_all);
-    EXPECT_EQ(static_cast<unsigned char>(all_ff.max.back()), 0x00);
+    EXPECT_EQ(std::string(MAX_ZONE_MAP_INDEX_SIZE, '\0'), all_ff.max);
 
     // A plain max gets the plain raise.
     const std::string plain(MAX_ZONE_MAP_INDEX_SIZE, 'x');
@@ -1685,7 +1687,7 @@ TEST_F(ColumnZoneMapTest, WriterRaisesEveryCutMax) {
 // The writer raises every cut max, so a max that came from 0xff wrapped to 0x00 and now sits
 // below the rows it covers. The read side has to spot that and give up the range, or those rows
 // stay invisible. Segments written before this carry the same wrapped max.
-TEST_F(ColumnZoneMapTest, FromProtoGivesUpTheRangeForAWrappedCutMax) {
+TEST_F(ColumnZoneMapTest, FromProtoGivesUpTheRangeForAMaxThatCarriedPastItsEnd) {
     auto data_type = DataTypeFactory::instance().create_data_type(TYPE_STRING, true, 0, 0, -1);
 
     auto reads_back_as_pass_all = [&](const std::string& min, const std::string& max) {
@@ -1700,10 +1702,12 @@ TEST_F(ColumnZoneMapTest, FromProtoGivesUpTheRangeForAWrappedCutMax) {
         return zone_map.pass_all;
     };
 
-    // What the old writer stored for a page holding repeat('a', 511) || unhex('FF').
-    std::string wrapped(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
-    wrapped.push_back('\0');
-    EXPECT_TRUE(reads_back_as_pass_all("aaa", wrapped));
+    // A carry that stopped inside the bound left 0x00 in the last byte, but an earlier byte went
+    // up, so the max still stands above the rows. Only an all-zero max covers nothing.
+    std::string carried(MAX_ZONE_MAP_INDEX_SIZE - 2, 'a');
+    carried.push_back('b');
+    carried.push_back('\0');
+    EXPECT_FALSE(reads_back_as_pass_all("aaa", carried));
 
     // A max raised from a plain byte keeps its range.
     EXPECT_FALSE(
@@ -1723,10 +1727,13 @@ TEST_F(ColumnZoneMapTest, FromProtoGivesUpTheRangeForAWrappedCutMax) {
     cut_raised.push_back(static_cast<char>(0xb9));
     EXPECT_FALSE(reads_back_as_pass_all("aaa", cut_raised));
 
-    // Only the wrap leaves a 0x00 there. A max ending in 0xff was never raised into one.
+    // A max ending in 0xff was never raised into one, so it keeps its range.
     std::string ends_with_ff(MAX_ZONE_MAP_INDEX_SIZE - 1, 'a');
     ends_with_ff.push_back(static_cast<char>(0xff));
     EXPECT_FALSE(reads_back_as_pass_all("aaa", ends_with_ff));
+
+    // A max of all 0xff carries through every byte and ends up all zero, covering nothing.
+    EXPECT_TRUE(reads_back_as_pass_all("aaa", std::string(MAX_ZONE_MAP_INDEX_SIZE, '\0')));
 
     // A max shorter than the cut was never raised, so it is exact whatever bytes it holds.
     std::string short_ff = "abc";
