@@ -87,7 +87,8 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
     auto schema = create_schema();
     auto iter = new_auto_increment_iterator(schema, 10);
 
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -163,10 +164,9 @@ TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
     std::vector<ColumnId> column_ids {0, 1};
     ReadSchema schema(project_columns_by_ordinal(tablet_schema->columns(), column_ids));
     VStatisticsIterator iterator(segment, schema);
-    StorageReadOptions read_options;
     OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
     read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
-    read_options.stats = &stats;
     read_options.tablet_schema = tablet_schema;
     ASSERT_TRUE(iterator.init(read_options).ok());
 
@@ -194,7 +194,8 @@ TEST(VGenericIteratorsTest, Union) {
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
     auto iter = new_union_iterator(std::move(inputs), output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -239,7 +240,8 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -289,7 +291,8 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, true, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -413,7 +416,8 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
 
     auto iter = new_merge_iterator(std::move(inputs), seq_column_id, true, false, nullptr,
                                    output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -458,7 +462,8 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumnSmallSeqFirst) {
     auto iter = new_merge_iterator(std::move(inputs), seq_column_id, /*is_unique=*/true,
                                    /*is_reverse=*/false, /*merged_rows=*/nullptr, output_schema,
                                    /*small_seq_first=*/true);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -512,7 +517,8 @@ TEST(VGenericIteratorsTest, MergeKeepsAllBinlogEventsOrderedByTso) {
     auto iter = new_merge_iterator(std::move(inputs), seq_column_id, /*is_unique=*/false,
                                    /*is_reverse=*/false, /*merged_rows=*/nullptr, output_schema,
                                    /*small_seq_first=*/true);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
@@ -608,7 +614,8 @@ TEST(VGenericIteratorsTest, MergeRejectsProjectionMissingKeyPrefix) {
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.to_string().find("compare contract violated") != std::string::npos)
@@ -629,7 +636,8 @@ TEST(VGenericIteratorsTest, MergeRejectsProjectionWithoutLeadingKey) {
     inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
 
     auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
-    StorageReadOptions opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
     auto st = iter->init(opts);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.to_string().find("compare contract violated") != std::string::npos)

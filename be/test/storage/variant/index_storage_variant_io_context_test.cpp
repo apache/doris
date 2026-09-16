@@ -72,8 +72,7 @@ TEST_F(IndexStorageVariantIoContextTest,
     query_id.lo = 202;
     io::RemoteScanCacheWriteLimiter limiter(query_id, 0);
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
     read_options.tablet_schema = reader_schema;
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.io_ctx.query_id = &query_id;

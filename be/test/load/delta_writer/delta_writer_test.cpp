@@ -831,8 +831,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 
     // read data, verify the data correct
     OlapReaderStatistics stats;
-    StorageReadOptions opts;
-    opts.stats = &stats;
+    StorageReadOptions opts(stats);
     opts.tablet_schema = rowset->tablet_schema();
 
     std::unique_ptr<RowwiseIterator> iter;
@@ -1038,8 +1037,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     // read data from rowset 1, verify the data correct
     {
         OlapReaderStatistics stats;
-        StorageReadOptions opts;
-        opts.stats = &stats;
+        StorageReadOptions opts(stats);
         opts.tablet_schema = rowset1->tablet_schema();
         opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
                                               {rowset1->rowset_id(), 0, cur_version}));
@@ -1066,8 +1064,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     // read data from rowset 2, verify the data correct
     {
         OlapReaderStatistics stats;
-        StorageReadOptions opts;
-        opts.stats = &stats;
+        StorageReadOptions opts(stats);
         opts.tablet_schema = rowset2->tablet_schema();
         opts.delete_bitmap.emplace(0, tablet->tablet_meta()->delete_bitmap().get_agg(
                                               {rowset2->rowset_id(), 0, cur_version}));

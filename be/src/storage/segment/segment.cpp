@@ -26,7 +26,6 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
-#include <optional>
 #include <set>
 #include <sstream>
 #include <utility>
@@ -477,7 +476,7 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
     if (use_statistics_iterator) {
         iter->reset(new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
-        *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
+        *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema, read_options);
     }
 
     // TODO: Valid the opt not only in ReaderType::READER_QUERY
@@ -786,17 +785,10 @@ DataTypePtr Segment::get_data_type_of(const TabletColumn& read_column, const Dat
         return read_type;
     }
 
-    OlapReaderStatistics fallback_stats;
-    const StorageReadOptions* effective_options = &read_options;
-    std::optional<StorageReadOptions> options_with_stats;
-    if (read_options.stats == nullptr) {
-        options_with_stats.emplace(read_options);
-        options_with_stats->stats = &fallback_stats;
-        effective_options = &*options_with_stats;
-    }
+    DORIS_CHECK(read_options.stats != nullptr);
 
     std::shared_ptr<VariantColumnReader> variant_reader;
-    Status st = get_variant_root_reader(read_column, *effective_options, &variant_reader);
+    Status st = get_variant_root_reader(read_column, read_options, &variant_reader);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         // An ALTER-added VARIANT root has no physical metadata in an old segment, so its paths use
         // their declared schema types when materializing the root's NULL/default value.
@@ -808,7 +800,7 @@ DataTypePtr Segment::get_data_type_of(const TabletColumn& read_column, const Dat
     // Use the same plan as data reads. For example, a typed `v.age` returns INT, while `v.extra`
     // stored in the sparse binary column returns VARIANT so the caller allocates the right column.
     DataTypePtr type;
-    THROW_IF_ERROR(variant_reader->infer_data_type_for_path(&type, read_column, *effective_options,
+    THROW_IF_ERROR(variant_reader->infer_data_type_for_path(&type, read_column, read_options,
                                                             _column_reader_cache.get()));
     DORIS_CHECK(type != nullptr) << "variant read plan did not set a type for path "
                                  << path->get_path()

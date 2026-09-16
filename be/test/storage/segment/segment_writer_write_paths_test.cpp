@@ -229,8 +229,7 @@ protected:
                             .ok());
         auto read_schema = std::make_shared<ReadSchema>(schema->columns());
         OlapReaderStatistics stats;
-        StorageReadOptions read_options;
-        read_options.stats = &stats;
+        StorageReadOptions read_options(stats);
         read_options.tablet_schema = schema;
         std::unique_ptr<RowwiseIterator> iterator;
         ASSERT_TRUE(segment->new_iterator(read_schema, read_options, &iterator).ok());

@@ -617,6 +617,7 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
 Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts,
                                        CompactionSampleInfo* sample_info) {
     DCHECK(_origin_iters.size() == _iterator_init_flags.size());
+    _opts.emplace(opts);
     _record_rowids = opts.record_rowids;
     if (_origin_iters.empty()) {
         return Status::OK();
@@ -653,7 +654,6 @@ Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts,
         }
     }
 
-    _opts = opts;
     _block_row_max = opts.block_row_max;
     return Status::OK();
 }
@@ -696,8 +696,8 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
                 std::unique_ptr<VerticalMergeIteratorContext> next_ctx(
                         new VerticalMergeIteratorContext(
                                 std::move(next_iter), _rowset_ids[cur_order], cur_order,
-                                _seq_col_idx, _context_stats, _opts.use_insert_order_when_same));
-                RETURN_IF_ERROR(next_ctx->init(_opts));
+                                _seq_col_idx, _context_stats, _opts->use_insert_order_when_same));
+                RETURN_IF_ERROR(next_ctx->init(*_opts));
                 if (next_ctx->valid()) {
                     _cur_iter_ctx.swap(next_ctx);
                     break;
@@ -720,6 +720,7 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts,
                                        CompactionSampleInfo* sample_info) {
     DCHECK(_origin_iters.size() == _iterator_init_flags.size());
     DCHECK(_keys_type == KeysType::DUP_KEYS);
+    _opts.emplace(opts);
     _record_rowids = opts.record_rowids;
     if (_origin_iters.empty()) {
         return Status::OK();
@@ -747,7 +748,6 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts,
         break;
     }
 
-    _opts = opts;
     _block_row_max = opts.block_row_max;
     return Status::OK();
 }
@@ -988,12 +988,11 @@ Status VerticalMaskMergeIterator::next_batch(Block* block) {
 
 Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts,
                                        CompactionSampleInfo* sample_info) {
+    _opts.emplace(opts);
     if (_origin_iters.empty()) {
         return Status::OK();
     }
     _schema = &(*_origin_iters.begin())->schema();
-    _opts = opts;
-
     RowsetId rs_id;
     for (auto& iter : _origin_iters) {
         auto ctx = std::make_unique<VerticalMergeIteratorContext>(std::move(iter), rs_id, -1, -1,

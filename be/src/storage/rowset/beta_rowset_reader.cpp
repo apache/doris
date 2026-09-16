@@ -53,7 +53,10 @@ namespace doris {
 using namespace ErrorCode;
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
-        : _read_context(nullptr), _rowset(std::move(rowset)), _stats(&_owned_stats) {
+        : _read_context(nullptr),
+          _rowset(std::move(rowset)),
+          _stats(&_owned_stats),
+          _read_options(_owned_stats) {
     _rowset->acquire();
 }
 

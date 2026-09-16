@@ -73,7 +73,8 @@ class SegmentIterator : public RowwiseIterator {
 public:
     // Within SegmentIterator, ColumnId means an ordinal in the read schema.
     // Storage UIDs and caller-visible Block positions are named explicitly.
-    SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema);
+    SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema,
+                    const StorageReadOptions& opts);
     ~SegmentIterator() override;
 
     [[nodiscard]] Status init_iterators();

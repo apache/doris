@@ -572,8 +572,7 @@ public:
         }
 
         const auto scan_init_start = std::chrono::steady_clock::now();
-        StorageReadOptions read_options;
-        read_options.stats = &result->statistics;
+        StorageReadOptions read_options(result->statistics);
         read_options.tablet_schema = prepared.query_schema;
         read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
         read_options.use_page_cache = true;
@@ -802,8 +801,7 @@ public:
         DORIS_CHECK(prepared.fixture != nullptr);
         DORIS_CHECK(result != nullptr);
         DORIS_CHECK(!sample_whole || (checksum && prepared.target == ReadTarget::WHOLE));
-        StorageReadOptions options;
-        options.stats = &result->statistics;
+        StorageReadOptions options(result->statistics);
         options.tablet_schema = prepared.query_schema;
         options.io_ctx.reader_type = ReaderType::READER_QUERY;
         options.use_page_cache = true;

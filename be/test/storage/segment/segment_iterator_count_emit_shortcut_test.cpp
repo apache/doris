@@ -111,10 +111,10 @@ struct Fixture {
     Fixture() {
         tablet_schema = make_tablet_schema();
         read_schema = make_read_schema(tablet_schema);
-        iter = std::make_unique<SegmentIterator>(nullptr, read_schema);
+        StorageReadOptions opts(stats);
+        iter = std::make_unique<SegmentIterator>(nullptr, read_schema, opts);
         iter->_opts.tablet_schema = tablet_schema;
         iter->_opts.push_down_agg_type_opt = TPushAggOp::COUNT_ON_INDEX;
-        iter->_opts.stats = &stats;
         // State _lazy_init/_vec_init_lazy_materialization would have produced
         // for a count-fastpath scan: no predicate columns, no lazy
         // materialization, index fully answered every column's conditions.

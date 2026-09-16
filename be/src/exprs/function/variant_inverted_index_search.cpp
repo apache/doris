@@ -671,9 +671,9 @@ Status VariantNestedSearchEvaluator::evaluate(
     const ColumnId column_id = static_cast<ColumnId>(ordinal);
 
     std::shared_ptr<segment_v2::VariantColumnReader> variant_reader;
-    StorageReadOptions read_options;
+    DORIS_CHECK(index_exec_ctx->column_iter_opts().stats != nullptr);
+    StorageReadOptions read_options(*index_exec_ctx->column_iter_opts().stats);
     read_options.tablet_schema = segment->tablet_schema();
-    read_options.stats = index_exec_ctx->column_iter_opts().stats;
     read_options.io_ctx = index_exec_ctx->column_iter_opts().io_ctx;
     Status st = segment->get_variant_root_reader(segment->tablet_schema()->column(column_id),
                                                  read_options, &variant_reader);

@@ -957,9 +957,8 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<segment_v2::VariantColumnReader> variant_column_reader;
             OlapReaderStatistics stats;
-            StorageReadOptions read_options;
+            StorageReadOptions read_options(stats);
             read_options.tablet_schema = rs->tablet_schema();
-            read_options.stats = &stats;
             Status st =
                     segment->get_variant_root_reader(*column, read_options, &variant_column_reader);
             if (st.is<ErrorCode::NOT_FOUND>()) {
@@ -1005,9 +1004,8 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<segment_v2::VariantColumnReader> variant_column_reader;
             OlapReaderStatistics stats;
-            StorageReadOptions read_options;
+            StorageReadOptions read_options(stats);
             read_options.tablet_schema = rs->tablet_schema();
-            read_options.stats = &stats;
             Status st =
                     segment->get_variant_root_reader(*column, read_options, &variant_column_reader);
             if (st.is<ErrorCode::NOT_FOUND>()) {
@@ -1723,9 +1721,8 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
                 }
                 std::shared_ptr<segment_v2::VariantColumnReader> variant_column_reader;
                 OlapReaderStatistics stats;
-                StorageReadOptions read_options;
+                StorageReadOptions read_options(stats);
                 read_options.tablet_schema = tablet_schema;
-                read_options.stats = &stats;
                 st = segment->get_variant_root_reader(*column, read_options,
                                                       &variant_column_reader);
                 if (st.is<ErrorCode::NOT_FOUND>()) {

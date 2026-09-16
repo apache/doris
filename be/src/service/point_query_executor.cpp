@@ -602,8 +602,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                     auto& column = result_columns[pos];
                     std::unique_ptr<ColumnIterator> iter;
                     SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
-                    StorageReadOptions storage_read_options;
-                    storage_read_options.stats = &_read_stats;
+                    StorageReadOptions storage_read_options(_read_stats);
                     storage_read_options.io_ctx = io_ctx;
                     // A point lookup bypasses TabletReader, so supply the rowset context here. For
                     // example, reading __DORIS_VERSION_COL__ from rowset [7-7] must return 7

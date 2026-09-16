@@ -152,9 +152,8 @@ Status append_plan_from_rowset_reader(const RowsetReaderSharedPtr& input_rs_read
     for (const auto& segment : segment_cache.get_segments()) {
         std::shared_ptr<VariantColumnReader> variant_reader;
         OlapReaderStatistics stats;
-        StorageReadOptions read_options;
+        StorageReadOptions read_options(stats);
         read_options.tablet_schema = rowset->tablet_schema();
-        read_options.stats = &stats;
         const auto& variant_column = rowset->tablet_schema()->column_by_uid(variant_uid);
         Status st = segment->get_variant_root_reader(variant_column, read_options, &variant_reader);
         if (st.is<ErrorCode::NOT_FOUND>()) {

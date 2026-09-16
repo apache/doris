@@ -1454,8 +1454,7 @@ protected:
                 continue;
             }
             OlapReaderStatistics stats;
-            StorageReadOptions read_options;
-            read_options.stats = &stats;
+            StorageReadOptions read_options(stats);
             auto query_context = std::make_shared<IndexQueryContext>();
             query_context->stats = &stats;
             // Without this the inverted-index IO counters stay at zero and the remote comparison

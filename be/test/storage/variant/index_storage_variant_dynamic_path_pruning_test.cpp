@@ -237,8 +237,7 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest, StatisticsAggregatesFallBackFo
     auto read_schema = std::make_shared<ReadSchema>(
             std::vector<TabletColumnPtr> {tablet_schema()->columns().at(path_column_id)});
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
     read_options.tablet_schema = tablet_schema();
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.target_cast_type_for_variants[path_column.name()] = nullable_int64_target_type();

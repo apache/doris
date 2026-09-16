@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <list>
 #include <memory>
+#include <optional>
 #include <queue>
 #include <string>
 #include <utility>
@@ -347,7 +348,7 @@ private:
     RowSourcesBuffer* _row_sources_buf;
     VerticalCompactionContextStats* _context_stats;
     uint32_t _merged_rows = 0;
-    StorageReadOptions _opts;
+    std::optional<StorageReadOptions> _opts;
     bool _record_rowids = false;
     std::vector<RowLocation> _block_row_locations;
     std::vector<uint32_t> _key_group_cluster_key_idxes;
@@ -401,7 +402,7 @@ private:
     RowSourcesBuffer* _row_sources_buf;
     VerticalCompactionContextStats* _context_stats;
     uint32_t _merged_rows = 0;
-    StorageReadOptions _opts;
+    std::optional<StorageReadOptions> _opts;
     bool _record_rowids = false;
     std::vector<RowLocation> _block_row_locations;
 };
@@ -467,7 +468,7 @@ private:
     size_t _filtered_rows = 0;
     RowSourcesBuffer* _row_sources_buf;
     VerticalCompactionContextStats* _context_stats;
-    StorageReadOptions _opts;
+    std::optional<StorageReadOptions> _opts;
     CompactionSampleInfo* _sample_info = nullptr;
 };
 

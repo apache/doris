@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <future>
 #include <memory>
 #include <set>
 #include <string>
@@ -31,8 +32,10 @@
 #include "exprs/vexpr_context.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "storage/delete/delete_handler.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/iterators.h"
@@ -40,6 +43,7 @@
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/row_cursor.h"
+#include "storage/rowset/rowset_meta.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
@@ -368,8 +372,7 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesWholeSegmentByExprZonema
 
     auto expr_ctx = std::make_shared<VExprContext>(std::make_shared<IntMaxAtLeastExpr>(1, 2000));
     ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr_ctx));
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.runtime_state = &_runtime_state;
     read_options.tablet_schema = _tablet_schema;
     read_options.common_expr_ctxs_push_down = {expr_ctx};
@@ -391,8 +394,7 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorKeepsSegmentWhenExprZonemapMay
 
     auto expr_ctx = std::make_shared<VExprContext>(std::make_shared<IntMaxAtLeastExpr>(1, 500));
     ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr_ctx));
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.runtime_state = &_runtime_state;
     read_options.tablet_schema = _tablet_schema;
     read_options.common_expr_ctxs_push_down = {expr_ctx};
@@ -414,8 +416,7 @@ TEST_F(SegmentIteratorExprZonemapTest, StatisticsIteratorFallsBackWithoutZoneMap
     ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
     auto read_schema = make_read_schema(_tablet_schema);
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.tablet_schema = _tablet_schema;
     std::shared_ptr<ColumnReader> value_reader;
     auto st = segment->get_column_reader_for_pruning(_tablet_schema->column(1), read_options,
@@ -445,8 +446,7 @@ TEST_F(SegmentIteratorExprZonemapTest, CountStillUsesStatisticsIteratorWithoutZo
     ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
     auto read_schema = make_read_schema(_tablet_schema);
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.tablet_schema = _tablet_schema;
     read_options.push_down_agg_type_opt = TPushAggOp::COUNT;
 
@@ -488,8 +488,7 @@ TEST_F(SegmentIteratorExprZonemapTest, RuntimeColumnsUseCurrentReadOptions) {
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment));
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(0, 1);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -536,8 +535,7 @@ TEST_F(SegmentIteratorExprZonemapTest, RangeVersionUsesPhysicalValues) {
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment));
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 9);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
@@ -563,8 +561,7 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingPhysicalRuntimeColumnsUseReadOptio
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
@@ -583,6 +580,96 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingPhysicalRuntimeColumnsUseReadOptio
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, kCommitTso));
 }
 
+TEST_F(SegmentIteratorExprZonemapTest,
+       ConcurrentPointLookupReadsKeepRuntimeConstantsRequestScoped) {
+    _tablet_schema = make_runtime_column_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
+
+    constexpr int kTasks = 8;
+    constexpr int kReadsPerTask = 32;
+    auto slot_descriptor = TSlotDescriptorBuilder()
+                                   .type(TYPE_BIGINT)
+                                   .nullable(false)
+                                   .column_name(COMMIT_TSO_COL)
+                                   .column_pos(kCommitTsoCid)
+                                   .build();
+    slot_descriptor.__set_col_unique_id(kCommitTsoCid);
+    SlotDescriptor commit_tso_slot(slot_descriptor);
+    std::vector<std::future<std::string>> tasks;
+    tasks.reserve(kTasks);
+    for (int task_id = 0; task_id < kTasks; ++task_id) {
+        tasks.emplace_back(std::async(std::launch::async, [&, task_id]() -> std::string {
+            const int64_t expected_tso = 1000000 + task_id;
+            for (int read = 0; read < kReadsPerTask; ++read) {
+                OlapReaderStatistics stats;
+                StorageReadOptions read_options(stats);
+                read_options.tablet_schema = _tablet_schema;
+                read_options.version = Version(task_id, task_id);
+                read_options.commit_tso = TsoRange(expected_tso, expected_tso);
+                read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+
+                MutableColumnPtr dst = ColumnInt64::create();
+                std::unique_ptr<ColumnIterator> iterator_hint;
+                auto st = segment->seek_and_read_by_rowid(*_tablet_schema, &commit_tso_slot, {0},
+                                                          dst, read_options, iterator_hint);
+                if (!st.ok()) {
+                    return st.to_string();
+                }
+                const auto* values = check_and_get_column<ColumnInt64>(dst.get());
+                if (values == nullptr || values->size() != 1 ||
+                    values->get_element(0) != expected_tso) {
+                    return "runtime constant leaked across concurrent requests";
+                }
+            }
+            return {};
+        }));
+    }
+
+    for (auto& task : tasks) {
+        EXPECT_TRUE(task.get().empty());
+    }
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, HiddenConstantsFeedStatisticsIterator) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    _tablet_schema = make_runtime_column_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
+    auto read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(_tablet_schema->columns(), {kVersionCid, kCommitTsoCid}));
+
+    StorageReadOptions read_options(_stats);
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(7, 7);
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
+
+    std::unique_ptr<RowwiseIterator> iterator;
+    auto st = segment->new_iterator(read_schema, read_options, &iterator);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, dynamic_cast<VStatisticsIterator*>(iterator.get()));
+
+    Block block = read_schema->create_read_block();
+    st = iterator->next_batch(&block);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(2, block.rows());
+    const auto* version_values =
+            check_and_get_column<ColumnInt64>(block.get_by_position(0).column.get());
+    const auto* commit_tso_values =
+            check_and_get_column<ColumnInt64>(block.get_by_position(1).column.get());
+    ASSERT_NE(nullptr, version_values);
+    ASSERT_NE(nullptr, commit_tso_values);
+    EXPECT_EQ(7, version_values->get_element(0));
+    EXPECT_EQ(7, version_values->get_element(1));
+    EXPECT_EQ(kCommitTso, commit_tso_values->get_element(0));
+    EXPECT_EQ(kCommitTso, commit_tso_values->get_element(1));
+    EXPECT_TRUE(iterator->next_batch(&block).is<ErrorCode::END_OF_FILE>());
+}
+
 TEST_F(SegmentIteratorExprZonemapTest, MissingOrdinaryColumnUsesSchemaDefault) {
     _tablet_schema = make_schema_with_added_default_column();
 
@@ -592,8 +679,7 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingOrdinaryColumnUsesSchemaDefault) {
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.tablet_schema = _tablet_schema;
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
 
@@ -611,6 +697,80 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingOrdinaryColumnUsesSchemaDefault) {
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(added_value_column, 42));
 }
 
+TEST_F(SegmentIteratorExprZonemapTest, SchemaDefaultFeedsMinMaxStatisticsIterator) {
+    _tablet_schema = make_schema_with_added_default_column();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
+    auto read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(_tablet_schema->columns(), {1}));
+
+    StorageReadOptions read_options(_stats);
+    read_options.tablet_schema = _tablet_schema;
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
+
+    std::unique_ptr<RowwiseIterator> iterator;
+    auto st = segment->new_iterator(read_schema, read_options, &iterator);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, dynamic_cast<VStatisticsIterator*>(iterator.get()));
+
+    Block block = read_schema->create_read_block();
+    st = iterator->next_batch(&block);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(2, block.rows());
+    const auto* values = check_and_get_column<ColumnInt64>(block.get_by_position(0).column.get());
+    ASSERT_NE(nullptr, values);
+    EXPECT_EQ(42, values->get_element(0));
+    EXPECT_EQ(42, values->get_element(1));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, DeletePredicateFiltersSchemaDefault) {
+    _tablet_schema = make_schema_with_added_default_column();
+
+    // The old segment has no physical `added_value`; DELETE WHERE added_value = 42 must therefore
+    // evaluate against the synthesized default and delete every old row.
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    DeletePredicatePB delete_predicate;
+    auto* predicate = delete_predicate.add_sub_predicates_v2();
+    predicate->set_column_name("added_value");
+    predicate->set_column_unique_id(1);
+    predicate->set_op("=");
+    predicate->set_cond_value("42");
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    rowset_meta->set_tablet_schema(_tablet_schema);
+    rowset_meta->set_version(Version(2, 2));
+    rowset_meta->set_delete_predicate(delete_predicate);
+
+    DeleteHandler delete_handler;
+    std::vector<TabletColumn> dropped_columns;
+    auto st = delete_handler.init({rowset_meta}, /*version=*/100, read_schema, &dropped_columns);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(dropped_columns.empty());
+
+    StorageReadOptions read_options(_stats);
+    read_options.tablet_schema = _tablet_schema;
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    delete_handler.get_delete_conditions_after_version(
+            0, read_options.delete_condition_predicates.get(),
+            &read_options.del_predicates_for_zone_map);
+
+    std::unique_ptr<RowwiseIterator> iterator;
+    st = segment->new_iterator(read_schema, read_options, &iterator);
+    ASSERT_TRUE(st.ok()) << st;
+
+    Block block = read_schema->create_read_block();
+    st = iterator->next_batch(&block);
+    if (st.ok()) {
+        ASSERT_EQ(0, block.rows());
+        st = iterator->next_batch(&block);
+    }
+    EXPECT_TRUE(st.is<ErrorCode::END_OF_FILE>()) << st;
+}
+
 TEST_F(SegmentIteratorExprZonemapTest, MissingVariantSeparatesValueAndPhysicalReaderSemantics) {
     _tablet_schema = make_schema_with_added_nullable_variant();
 
@@ -620,8 +780,7 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingVariantSeparatesValueAndPhysicalRe
     std::shared_ptr<Segment> segment;
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.tablet_schema = _tablet_schema;
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
 
@@ -646,6 +805,28 @@ TEST_F(SegmentIteratorExprZonemapTest, MissingVariantSeparatesValueAndPhysicalRe
     MutableColumnPtr value_column;
     ASSERT_NO_FATAL_FAILURE(read_column(segment, 1, read_options, &value_column));
     ASSERT_NO_FATAL_FAILURE(expect_all_null(value_column));
+
+    // Reading a generated child path must use the missing root's logical NULL value. It must not
+    // attempt to cast the ConstantColumnReader to VariantColumnReader or search sparse metadata.
+    ColumnIteratorUPtr path_iterator;
+    st = segment->new_column_iterator(added_path, &path_iterator, &read_options);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, path_iterator);
+    ColumnIteratorOptions iterator_options;
+    iterator_options.stats = &_stats;
+    iterator_options.file_reader = segment->file_reader().get();
+    iterator_options.io_ctx = read_options.io_ctx;
+    st = path_iterator->init(iterator_options);
+    ASSERT_TRUE(st.ok()) << st;
+
+    MutableColumnPtr path_values = added_path.get_vec_type()->create_column();
+    size_t rows = kRuntimeColumnRows;
+    bool has_null = false;
+    st = path_iterator->next_batch(&rows, path_values, &has_null);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(has_null);
+    ASSERT_EQ(kRuntimeColumnRows, path_values->size());
+    ASSERT_NO_FATAL_FAILURE(expect_all_null(path_values));
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionValue) {
@@ -656,8 +837,7 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionVal
     ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment));
     auto read_schema = make_read_schema(_tablet_schema);
 
-    StorageReadOptions read_options;
-    read_options.stats = &_stats;
+    StorageReadOptions read_options(_stats);
     read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);

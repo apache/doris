@@ -18,6 +18,8 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -26,8 +28,12 @@
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/field.h"
+#include "core/value/bitmap_value.h"
+#include "core/value/hll.h"
+#include "storage/index/index_iterator.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/segment/column_reader.h"
@@ -40,6 +46,17 @@ using namespace doris::segment_v2;
 namespace doris {
 
 class ConstantColumnIteratorTest : public testing::Test {};
+
+namespace {
+TColumnAccessPath make_data_access_path(std::vector<std::string> path) {
+    TColumnAccessPath access_path;
+    access_path.__set_type(TAccessPathType::DATA);
+    TDataAccessPath data_access_path;
+    data_access_path.__set_path(std::move(path));
+    access_path.__set_data_access_path(std::move(data_access_path));
+    return access_path;
+}
+} // namespace
 
 TEST_F(ConstantColumnIteratorTest, ConstantColumnReaderExposesConstantValue) {
     const int64_t kValue = 8888;
@@ -268,6 +285,196 @@ TEST_F(ConstantColumnIteratorTest, DefaultFieldParsesSupportedDefaults) {
 
     map_column.set_default_value("{\"key\":\"value\"}");
     EXPECT_FALSE(Segment::get_default_value_field(map_column, &field).ok());
+}
+
+TEST_F(ConstantColumnIteratorTest, AllSupportedScalarDefaultsRoundTripThroughIterator) {
+    struct ScalarDefaultCase {
+        FieldType type;
+        std::string value;
+        int precision = 0;
+        int scale = 0;
+        int length = -1;
+    };
+    const std::vector<ScalarDefaultCase> cases {
+            {FieldType::OLAP_FIELD_TYPE_BOOL, "true"},
+            {FieldType::OLAP_FIELD_TYPE_TINYINT, "7"},
+            {FieldType::OLAP_FIELD_TYPE_SMALLINT, "32000"},
+            {FieldType::OLAP_FIELD_TYPE_INT, "123456789"},
+            {FieldType::OLAP_FIELD_TYPE_BIGINT, "9223372036854775807"},
+            {FieldType::OLAP_FIELD_TYPE_LARGEINT, "170141183460469231731687303715884105727"},
+            {FieldType::OLAP_FIELD_TYPE_FLOAT, "3.125"},
+            {FieldType::OLAP_FIELD_TYPE_DOUBLE, "2.718281828"},
+            {FieldType::OLAP_FIELD_TYPE_DECIMAL, "123456789.123456789", 27, 9},
+            {FieldType::OLAP_FIELD_TYPE_DECIMAL32, "1234567.89", 9, 2},
+            {FieldType::OLAP_FIELD_TYPE_DECIMAL64, "12345678901234.5678", 18, 4},
+            {FieldType::OLAP_FIELD_TYPE_DECIMAL128I, "12345678901234567890123456789.123456789", 38,
+             9},
+            {FieldType::OLAP_FIELD_TYPE_DECIMAL256,
+             "1234567890123456789012345678901234567890123456789012345678."
+             "123456789012345678",
+             76, 18},
+            {FieldType::OLAP_FIELD_TYPE_DATE, "2025-01-02"},
+            {FieldType::OLAP_FIELD_TYPE_DATETIME, "2025-01-02 03:04:05"},
+            {FieldType::OLAP_FIELD_TYPE_DATEV2, "2025-01-02"},
+            {FieldType::OLAP_FIELD_TYPE_DATETIMEV2, "2025-01-02 03:04:05.123456", 0, 6},
+            {FieldType::OLAP_FIELD_TYPE_TIMEV2, "12:34:56.123456", 0, 6},
+            {FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, "2025-01-02 03:04:05.123456789"},
+            {FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ, "2025-01-02 03:04:05.123456+00:00", 0, 6},
+            {FieldType::OLAP_FIELD_TYPE_CHAR, "oldchar", 0, 0, 8},
+            {FieldType::OLAP_FIELD_TYPE_VARCHAR, "old-varchar", 0, 0, 32},
+            {FieldType::OLAP_FIELD_TYPE_STRING, "old-string"},
+            {FieldType::OLAP_FIELD_TYPE_IPV4, "192.168.1.1"},
+            {FieldType::OLAP_FIELD_TYPE_IPV6, "2001:db8::1"},
+    };
+
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(static_cast<int>(test_case.type));
+        TabletColumn column;
+        column.set_type(test_case.type);
+        column.set_is_nullable(false);
+        column.set_precision(test_case.precision);
+        column.set_frac(test_case.scale);
+        if (test_case.length >= 0) {
+            column.set_length(test_case.length);
+        }
+        column.set_default_value(test_case.value);
+
+        Field field;
+        auto st = Segment::get_default_value_field(column, &field);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_FALSE(field.is_null());
+
+        ConstantColumnReader reader(field, test_case.type);
+        ColumnIteratorUPtr iterator;
+        st = reader.new_iterator(&iterator, &column, nullptr);
+        ASSERT_TRUE(st.ok()) << st;
+        auto data_type = column.get_vec_type();
+        MutableColumnPtr dst = data_type->create_column();
+        size_t rows = 3;
+        bool has_null = true;
+        st = iterator->next_batch(&rows, dst, &has_null);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_FALSE(has_null);
+        ASSERT_EQ(3, dst->size());
+        for (size_t row = 0; row < rows; ++row) {
+            EXPECT_EQ(field, (*dst)[row]);
+        }
+    }
+}
+
+TEST_F(ConstantColumnIteratorTest, ConstantReaderHasNoPhysicalIndexIterator) {
+    ConstantColumnReader reader(Field::create_field<TYPE_INT>(7), FieldType::OLAP_FIELD_TYPE_INT);
+    std::unique_ptr<IndexIterator> index_iterator;
+    auto st = reader.new_index_iterator(nullptr, nullptr, "rowset", 0, 10, &index_iterator);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(nullptr, index_iterator);
+}
+
+TEST_F(ConstantColumnIteratorTest, LegalObjectIdentityDefaultsRoundTripThroughIterator) {
+    std::vector<std::pair<FieldType, Field>> cases;
+    cases.emplace_back(FieldType::OLAP_FIELD_TYPE_BITMAP,
+                       Field::create_field<TYPE_BITMAP>(BitmapValue {}));
+    cases.emplace_back(FieldType::OLAP_FIELD_TYPE_HLL,
+                       Field::create_field<TYPE_HLL>(HyperLogLog {}));
+
+    for (const auto& [type, field] : cases) {
+        SCOPED_TRACE(static_cast<int>(type));
+        TabletColumn column;
+        column.set_type(type);
+        column.set_is_nullable(false);
+
+        ConstantColumnReader reader(field, type);
+        ColumnIteratorUPtr iterator;
+        auto st = reader.new_iterator(&iterator, &column, nullptr);
+        ASSERT_TRUE(st.ok()) << st;
+
+        MutableColumnPtr dst = column.get_vec_type()->create_column();
+        size_t rows = 2;
+        bool has_null = true;
+        st = iterator->next_batch(&rows, dst, &has_null);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_FALSE(has_null);
+        ASSERT_EQ(2, dst->size());
+        EXPECT_EQ(field, (*dst)[0]);
+        EXPECT_EQ(field, (*dst)[1]);
+    }
+}
+
+TEST_F(ConstantColumnIteratorTest, NullableObjectTypesUseTypedNullConstants) {
+    for (FieldType type :
+         {FieldType::OLAP_FIELD_TYPE_JSONB, FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE,
+          FieldType::OLAP_FIELD_TYPE_VARIANT}) {
+        SCOPED_TRACE(static_cast<int>(type));
+        TabletColumn column;
+        column.set_type(type);
+        column.set_is_nullable(true);
+
+        Field field;
+        auto st = Segment::get_default_value_field(column, &field);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_TRUE(field.is_null());
+
+        ConstantColumnReader reader(field, type);
+        ColumnIteratorUPtr iterator;
+        st = reader.new_iterator(&iterator, &column, nullptr);
+        ASSERT_TRUE(st.ok()) << st;
+
+        MutableColumnPtr dst = column.get_vec_type()->create_column();
+        size_t rows = 2;
+        bool has_null = false;
+        st = iterator->next_batch(&rows, dst, &has_null);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_TRUE(has_null);
+        const auto* nullable = check_and_get_column<ColumnNullable>(dst.get());
+        ASSERT_NE(nullptr, nullable);
+        ASSERT_EQ(2, nullable->size());
+        EXPECT_TRUE(nullable->is_null_at(0));
+        EXPECT_TRUE(nullable->is_null_at(1));
+    }
+}
+
+TEST_F(ConstantColumnIteratorTest, ComplexConstantsSupportPrunedDestinations) {
+    ConstantColumnIterator map_iterator(Field::create_field<TYPE_MAP>(Map {
+            Field::create_field<TYPE_ARRAY>(Array {}), Field::create_field<TYPE_ARRAY>(Array {})}));
+    map_iterator.set_column_name("m");
+    auto st = map_iterator.set_access_paths(
+            {make_data_access_path({"m", ColumnIterator::ACCESS_MAP_VALUES})}, {});
+    ASSERT_TRUE(st.ok()) << st;
+    map_iterator.remove_pruned_sub_iterators();
+
+    // The destination models a MAP after its value subtree has been projected to a different
+    // scalar type. An empty constant map must not depend on the pruned physical child layout.
+    MutableColumnPtr map_dst = ColumnMap::create(ColumnString::create(), ColumnInt32::create(),
+                                                 ColumnArray::ColumnOffsets::create());
+    size_t rows = 2;
+    bool has_null = true;
+    st = map_iterator.next_batch(&rows, map_dst, &has_null);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_FALSE(has_null);
+    const auto* map = assert_cast<const ColumnMap*>(map_dst.get());
+    ASSERT_EQ(2, map->size());
+    EXPECT_EQ(0, map->size_at(0));
+    EXPECT_EQ(0, map->size_at(1));
+
+    ConstantColumnIterator struct_iterator(Field());
+    struct_iterator.set_column_name("s");
+    st = struct_iterator.set_access_paths({make_data_access_path({"s", "kept"})}, {});
+    ASSERT_TRUE(st.ok()) << st;
+    struct_iterator.remove_pruned_sub_iterators();
+
+    // Nullable STRUCT defaults are NULL. Reading into a one-field projected STRUCT must preserve
+    // the row count and null map without requiring columns that were pruned from the destination.
+    MutableColumnPtr struct_dst = ColumnNullable::create(
+            ColumnStruct::create(Columns {ColumnInt32::create()}), ColumnUInt8::create());
+    rows = 2;
+    has_null = false;
+    st = struct_iterator.next_batch(&rows, struct_dst, &has_null);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_TRUE(has_null);
+    const auto* nullable_struct = assert_cast<const ColumnNullable*>(struct_dst.get());
+    ASSERT_EQ(2, nullable_struct->size());
+    EXPECT_TRUE(nullable_struct->is_null_at(0));
+    EXPECT_TRUE(nullable_struct->is_null_at(1));
 }
 
 TEST_F(ConstantColumnIteratorTest, DummyBinaryReaderFillsEmptyNonNullableMap) {

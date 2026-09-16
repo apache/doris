@@ -354,7 +354,8 @@ private:
     uint32_t _rowid_left;
 };
 
-SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema)
+SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema,
+                                 const StorageReadOptions& opts)
         : _segment(std::move(segment)),
           _schema(schema),
           _column_iterators(_schema->num_read_columns()),
@@ -362,7 +363,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPt
           _cur_rowid(0),
           _column_states(_schema->num_read_columns()),
           _lazy_inited(false),
-          _inited(false) {}
+          _inited(false),
+          _opts(opts) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     auto status = _init_impl(opts);

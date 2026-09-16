@@ -44,6 +44,10 @@ struct IteratorRowRef;
 
 class StorageReadOptions {
 public:
+    StorageReadOptions() = delete;
+
+    explicit StorageReadOptions(OlapReaderStatistics& stats_) noexcept : stats(&stats_) {}
+
     struct KeyRange {
         KeyRange()
                 : lower_key(nullptr),
@@ -109,8 +113,8 @@ public:
     // or COUNT_ON_INDEX columns, because the column values no longer affect filtering or counting.
     std::set<uint32_t> zonemap_always_true_pred_cols;
 
-    // REQUIRED (null is not allowed)
-    OlapReaderStatistics* stats = nullptr;
+    // Non-owning and initialized to a valid object by the constructor.
+    OlapReaderStatistics* stats;
     bool use_page_cache = false;
     uint32_t block_row_max = 4096 - 32; // see https://github.com/apache/doris/pull/11816
     // Effective adaptive batch size byte budget.

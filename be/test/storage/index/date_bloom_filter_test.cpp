@@ -113,10 +113,9 @@ protected:
     Status get_column_reader_for_pruning(const segment_v2::SegmentSharedPtr& segment,
                                          const TabletColumn& column,
                                          std::shared_ptr<ColumnReader>* reader,
-                                         OlapReaderStatistics* stats) const {
-        StorageReadOptions read_options;
+                                         OlapReaderStatistics& stats) const {
+        StorageReadOptions read_options(stats);
         read_options.tablet_schema = _tablet_schema;
-        read_options.stats = stats;
         return segment->get_column_reader_for_pruning(column, read_options, reader);
     }
 
@@ -184,7 +183,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
         st = get_column_reader_for_pruning(segment, _tablet_schema->column_by_uid(0), &reader,
-                                           &stats);
+                                           stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
@@ -208,7 +207,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
         st = get_column_reader_for_pruning(segment, _tablet_schema->column_by_uid(1), &reader,
-                                           &stats);
+                                           stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
@@ -275,7 +274,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
         st = get_column_reader_for_pruning(segment, _tablet_schema->column_by_uid(0), &reader,
-                                           &stats);
+                                           stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
@@ -343,7 +342,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
         st = get_column_reader_for_pruning(segment, _tablet_schema->column_by_uid(1), &reader,
-                                           &stats);
+                                           stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());

@@ -116,9 +116,9 @@ protected:
     }
 
     std::unique_ptr<SegmentIterator> make_iter(TrackingLazyColumnIterator** tracking_iter) {
-        auto iter = std::make_unique<SegmentIterator>(nullptr, _read_schema);
+        StorageReadOptions opts(_stats);
+        auto iter = std::make_unique<SegmentIterator>(nullptr, _read_schema, opts);
         iter->_opts.tablet_schema = _tablet_schema;
-        iter->_opts.stats = &_stats;
         iter->_lazy_pruned_ordinals.push_back(0);
         iter->_column_iterators.resize(1);
 
