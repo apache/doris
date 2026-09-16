@@ -208,11 +208,14 @@ public class IndexDiskUsageTableValuedFunctionTest {
     }
 
     @Test
-    public void testTabletLimit() {
+    public void testTabletLimit() throws Exception {
         // The default path reads index file metadata of every segment, so a wide scan must be narrowed.
         sessionVariable.indexDiskUsageMaxTablets = 2;
         assertAnalysisError("index_disk_usage covers 3 tablets, exceeding "
                 + "index_disk_usage_max_tablets=2; narrow partitions or indexes", params());
+        // The limit is checked before the tablets are copied and their versions are read.
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("logs");
+        Mockito.verify(table.getPartition("p1", false), Mockito.never()).getVisibleVersion();
     }
 
     @Test
