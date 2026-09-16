@@ -153,7 +153,6 @@ Status EnginePublishVersionTask::execute() {
                 transaction_id);
     }
     std::map<int64_t, std::shared_ptr<const PRowBinlogWriteColumnMappings>> mapping_snapshots;
-    // NOLINTNEXTLINE(modernize-loop-convert) - Index all three parallel lists together.
     for (size_t i = 0; i < index_ids.size(); ++i) {
         auto snapshot = std::make_shared<PRowBinlogWriteColumnMappings>();
         snapshot->set_need_historical_value(historical_values[i]);
