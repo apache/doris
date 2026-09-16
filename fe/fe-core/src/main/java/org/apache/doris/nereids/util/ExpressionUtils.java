@@ -28,11 +28,8 @@ import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
-import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
-import org.apache.doris.nereids.rules.expression.rules.ReplaceVariableByLiteral;
 import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -1456,11 +1453,7 @@ public class ExpressionUtils {
             throw new UserException(expression + " must be constant value");
         }
         ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
-        ExpressionRuleExecutor executor = new ExpressionRuleExecutor(ImmutableList.of(
-                ExpressionRewrite.bottomUp(ReplaceVariableByLiteral.INSTANCE)
-        ));
-        Expression rewrittenExpression = executor.rewrite(analyzedExpr, context);
-        Expression foldExpression = FoldConstantRule.evaluate(rewrittenExpression, context);
+        Expression foldExpression = FoldConstantRule.evaluate(analyzedExpr, context);
         if (foldExpression instanceof Literal) {
             return (Literal) foldExpression;
         } else {
