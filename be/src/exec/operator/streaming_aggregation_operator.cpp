@@ -356,17 +356,9 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
         Arena pass_through_arena;
         if (limit > 0) {
             DCHECK(do_sort_limit);
-            if (need_do_sort_limit == -1) {
-                // Only latch once the hash table can seed the heap. A smaller table keeps the
-                // state undecided so that aggregation resumed after a transient pass-through
-                // (e.g. a restored query memory limit) can still build the heap below.
-                const size_t hash_table_size = _get_hash_table_size();
-                if (hash_table_size >= limit) {
-                    need_do_sort_limit = 1;
-                    build_limit_heap(hash_table_size);
-                }
-            }
-
+            // The heap is only ever seeded on the aggregation path: the hash table can only
+            // grow there, and that path latches as soon as it holds `limit` groups. So here
+            // the heap either exists already or the table is still too small to build one.
             if (need_do_sort_limit == 1) {
                 // Only drop rows that the current boundary already excludes. The boundary must
                 // not be tightened from pass-through rows: they never enter the hash table, so
