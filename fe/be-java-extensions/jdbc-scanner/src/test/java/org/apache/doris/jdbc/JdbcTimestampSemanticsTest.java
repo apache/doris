@@ -37,6 +37,41 @@ class JdbcTimestampSemanticsTest {
     private static final LocalDateTime UTC_VALUE = LocalDateTime.ofInstant(INSTANT, ZoneOffset.UTC);
 
     @Test
+    void testMySqlInitializesUtcBeforePreparingEachStatement() throws Exception {
+        MySQLJdbcExecutor executor = Mockito.mock(MySQLJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
+        java.sql.Connection connection = Mockito.mock(java.sql.Connection.class);
+        java.sql.Statement timezoneStatement = Mockito.mock(java.sql.Statement.class);
+        java.sql.PreparedStatement statement = Mockito.mock(java.sql.PreparedStatement.class);
+        Mockito.when(connection.createStatement()).thenReturn(timezoneStatement);
+        Mockito.when(connection.prepareStatement(Mockito.anyString(), Mockito.anyInt(), Mockito.anyInt()))
+                .thenReturn(statement);
+        Mockito.when(connection.prepareStatement(Mockito.anyString())).thenReturn(statement);
+        JdbcDataSourceConfig config = new JdbcDataSourceConfig()
+                .setTableType(org.apache.doris.thrift.TOdbcTableType.MYSQL);
+        executor.initializeStatement(connection, config.setOp(org.apache.doris.thrift.TJdbcOperation.READ), "SELECT 1");
+        executor.initializeStatement(connection, config.setOp(org.apache.doris.thrift.TJdbcOperation.WRITE), "INSERT");
+        org.mockito.InOrder order = Mockito.inOrder(connection, timezoneStatement);
+        order.verify(connection).createStatement();
+        order.verify(timezoneStatement).execute("SET SESSION time_zone = '+00:00'");
+        order.verify(timezoneStatement).close();
+        order.verify(connection).prepareStatement("SELECT 1", ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+        order.verify(connection).createStatement();
+        order.verify(timezoneStatement).execute("SET SESSION time_zone = '+00:00'");
+        order.verify(timezoneStatement).close();
+        order.verify(connection).prepareStatement("INSERT");
+    }
+
+    @Test
+    void testMySqlTimestampWriteUsesExplicitUtcCalendar() throws Exception {
+        MySQLJdbcExecutor executor = Mockito.mock(MySQLJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
+        executor.config = new JdbcDataSourceConfig().setTableType(org.apache.doris.thrift.TOdbcTableType.MYSQL);
+        executor.preparedStatement = Mockito.mock(java.sql.PreparedStatement.class);
+        executor.setTimestampTz(1, UTC_VALUE);
+        Mockito.verify(executor.preparedStatement).setTimestamp(Mockito.eq(1), Mockito.eq(Timestamp.from(INSTANT)),
+                Mockito.argThat(calendar -> calendar.getTimeZone().getID().equals("UTC")));
+    }
+
+    @Test
     void testNestedTrinoTimestampRetainsInstant() throws Exception {
         TrinoJdbcExecutor executor = Mockito.mock(TrinoJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
         java.lang.reflect.Method convert = TrinoJdbcExecutor.class.getDeclaredMethod("convertArray",
@@ -65,7 +100,7 @@ class JdbcTimestampSemanticsTest {
 
     @Test
     void testTimestampWriteDoesNotUseJvmTimezone() throws Exception {
-        BaseJdbcExecutor executor = Mockito.mock(MySQLJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
+        BaseJdbcExecutor executor = Mockito.mock(PostgreSQLJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
         executor.preparedStatement = Mockito.mock(java.sql.PreparedStatement.class);
         org.apache.doris.common.jni.vec.VectorColumn column =
                 Mockito.mock(org.apache.doris.common.jni.vec.VectorColumn.class);
@@ -98,16 +133,40 @@ class JdbcTimestampSemanticsTest {
 
     @Test
     void testClickHouseTimestampRetainsInstantAndNull() throws Exception {
-        verifyZonedRead(ClickHouseJdbcExecutor.class, ZonedDateTime.class,
-                INSTANT.atZone(ZoneOffset.ofHours(8)));
+        BaseJdbcExecutor executor = Mockito.mock(ClickHouseJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
+        executor.resultSet = Mockito.mock(ResultSet.class);
+        Mockito.when(executor.resultSet.getLong(1)).thenReturn(
+                INSTANT.getEpochSecond() * 1_000_000 + INSTANT.getNano() / 1000, -1L, 0L);
+        Mockito.when(executor.resultSet.wasNull()).thenReturn(false, false, true);
+        ColumnType type = ColumnType.parseType("event_time", "timestamptz(6)");
+        Assertions.assertEquals(UTC_VALUE, executor.getColumnValue(0, type, new String[0]));
+        Assertions.assertEquals(LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000),
+                executor.getColumnValue(0, type, new String[0]));
+        Assertions.assertNull(executor.getColumnValue(0, type, new String[0]));
+    }
+
+    @Test
+    void testSqlServerLegacyDriverRetainsInstantAndNull() throws Exception {
+        BaseJdbcExecutor executor = Mockito.mock(SQLServerJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
+        executor.resultSet = Mockito.mock(ResultSet.class);
+        Mockito.when(executor.resultSet.getObject(1, OffsetDateTime.class))
+                .thenThrow(new java.sql.SQLFeatureNotSupportedException());
+        Mockito.when(executor.resultSet.getTimestamp(1)).thenReturn(Timestamp.from(INSTANT)).thenReturn(null);
+        ColumnType type = ColumnType.parseType("event_time", "timestamptz(6)");
+        Assertions.assertEquals(UTC_VALUE, executor.getColumnValue(0, type, new String[0]));
+        Assertions.assertNull(executor.getColumnValue(0, type, new String[0]));
+        Mockito.verify(executor.resultSet).getObject(1, OffsetDateTime.class);
     }
 
     @Test
     void testMySqlTimestampRetainsInstantAndNull() throws Exception {
         BaseJdbcExecutor executor = Mockito.mock(MySQLJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
+        executor.config = new JdbcDataSourceConfig().setTableType(org.apache.doris.thrift.TOdbcTableType.MYSQL);
         ResultSet resultSet = Mockito.mock(ResultSet.class);
         executor.resultSet = resultSet;
-        Mockito.when(resultSet.getTimestamp(1)).thenReturn(Timestamp.from(INSTANT)).thenReturn(null);
+        Mockito.when(resultSet.getTimestamp(Mockito.eq(1), Mockito.argThat((java.util.Calendar calendar) ->
+                calendar != null && calendar.getTimeZone().getID().equals("UTC"))))
+                .thenReturn(Timestamp.from(INSTANT)).thenReturn(null);
         ColumnType type = ColumnType.parseType("event_time", "timestamptz(6)");
         Assertions.assertEquals(UTC_VALUE, executor.getColumnValue(0, type, new String[0]));
         Assertions.assertNull(executor.getColumnValue(0, type, new String[0]));

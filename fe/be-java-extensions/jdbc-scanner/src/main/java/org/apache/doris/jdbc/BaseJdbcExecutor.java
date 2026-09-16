@@ -677,6 +677,11 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         return data.getNumRows();
     }
 
+    protected void setTimestampTz(int parameterIndex, java.time.LocalDateTime value) throws SQLException {
+        // JNI supplies UTC components; valueOf would reinterpret them in the JVM timezone.
+        preparedStatement.setObject(parameterIndex, Timestamp.from(value.toInstant(java.time.ZoneOffset.UTC)));
+    }
+
     private void insertColumn(int rowIdx, int colIdx, VectorColumn column) throws SQLException {
         int parameterIndex = colIdx + 1;
         ColumnType.Type dorisType = column.getColumnPrimitiveType();
@@ -723,10 +728,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                         parameterIndex, Timestamp.valueOf(column.getDateTime(rowIdx)));
                 break;
             case TIMESTAMPTZ:
-                // JNI supplies UTC components; valueOf would reinterpret them in the JVM timezone.
-                preparedStatement.setObject(
-                        parameterIndex,
-                        Timestamp.from(column.getTimeStampTz(rowIdx).toInstant(java.time.ZoneOffset.UTC)));
+                setTimestampTz(parameterIndex, column.getTimeStampTz(rowIdx));
                 break;
             case CHAR:
             case VARCHAR:

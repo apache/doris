@@ -80,6 +80,33 @@ public class MaxComputeJniWriterTest {
     }
 
     @Test
+    public void testTimestampVectorsAcrossTimezonesAndDstOverlap() {
+        java.util.TimeZone original = java.util.TimeZone.getDefault();
+        try (BufferAllocator allocator = new RootAllocator()) {
+            for (String zone : new String[] {"UTC", "Asia/Shanghai", "America/New_York"}) {
+                java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(zone));
+                try (org.apache.arrow.vector.TimeStampMicroTZVector vector =
+                        new org.apache.arrow.vector.TimeStampMicroTZVector("ts", allocator, zone)) {
+                    vector.allocateNew(1);
+                    vector.setValueCount(1);
+                    MaxComputeColumnValue value = new MaxComputeColumnValue(vector, 0, java.time.ZoneId.of(zone));
+                    for (long micros : new long[] {-1L, 0L, 1636263000123456L, 1636266600123456L}) {
+                        vector.setSafe(0, micros);
+                        java.time.Instant expected = java.time.Instant.ofEpochSecond(
+                                Math.floorDiv(micros, 1_000_000), Math.floorMod(micros, 1_000_000) * 1000);
+                        Assert.assertEquals(java.time.LocalDateTime.ofInstant(expected, java.time.ZoneOffset.UTC),
+                                value.getTimeStampTz());
+                    }
+                    vector.setNull(0);
+                    Assert.assertTrue(value.isNull());
+                }
+            }
+        } finally {
+            java.util.TimeZone.setDefault(original);
+        }
+    }
+
+    @Test
     public void testTimestampWriteKeepsUtcMicros() throws Exception {
         java.util.Map<String, String> params = new java.util.HashMap<>();
         params.put("endpoint", "http://localhost");

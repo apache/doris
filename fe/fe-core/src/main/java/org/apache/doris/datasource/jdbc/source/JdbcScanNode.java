@@ -69,7 +69,7 @@ public class JdbcScanNode extends ExternalScanNode {
     private String graphQueryString = "";
     private boolean isTableValuedFunction = false;
     private String query = "";
-    private boolean projectsTimestampArrays;
+    private boolean projectsTimestamps;
 
     private JdbcTable tbl;
     private long catalogId;
@@ -157,7 +157,7 @@ public class JdbcScanNode extends ExternalScanNode {
 
     private void createJdbcColumns() {
         columns.clear();
-        projectsTimestampArrays = false;
+        projectsTimestamps = false;
         for (SlotDescriptor slot : desc.getSlots()) {
             Column col = slot.getColumn();
             String remoteName = tbl.getProperRemoteColumnName(jdbcType, col.getName());
@@ -165,11 +165,11 @@ public class JdbcScanNode extends ExternalScanNode {
             while (leaf.isArrayType()) {
                 leaf = ((ArrayType) leaf).getItemType();
             }
-            if (jdbcType == TOdbcTableType.CLICKHOUSE && col.getType().isArrayType() && leaf.isTimeStampTz()) {
-                // Older ClickHouse drivers expose array timestamps as zone-less LocalDateTime.
-                // Send epoch microseconds so nested instants survive every supported driver.
-                columns.add(clickHouseTimestampArrayProjection(remoteName, col.getType(), 0) + " AS " + remoteName);
-                projectsTimestampArrays = true;
+            if (jdbcType == TOdbcTableType.CLICKHOUSE && leaf.isTimeStampTz()) {
+                // JDBC v1 loses the offset at DST overlaps, including for scalar ZonedDateTime.
+                // Send epoch microseconds for both scalar and nested instants before JDBC decoding.
+                columns.add(clickHouseTimestampProjection(remoteName, col.getType(), 0) + " AS " + remoteName);
+                projectsTimestamps = true;
             } else {
                 columns.add(remoteName);
             }
@@ -183,19 +183,19 @@ public class JdbcScanNode extends ExternalScanNode {
         return limit != -1 && conjuncts.size() == pushedDownConjuncts.size();
     }
 
-    private static String clickHouseTimestampArrayProjection(String value, org.apache.doris.catalog.Type type,
+    private static String clickHouseTimestampProjection(String value, org.apache.doris.catalog.Type type,
             int depth) {
         if (type.isArrayType()) {
             String element = "t" + depth;
             return "arrayMap(" + element + " -> "
-                    + clickHouseTimestampArrayProjection(element, ((ArrayType) type).getItemType(), depth + 1)
+                    + clickHouseTimestampProjection(element, ((ArrayType) type).getItemType(), depth + 1)
                     + ", " + value + ")";
         }
         return "toUnixTimestamp64Micro(toDateTime64(" + value + ", 6))";
     }
 
     private String getTvfQuery() {
-        if (!projectsTimestampArrays) {
+        if (!projectsTimestamps) {
             return query;
         }
         String source = query.trim();

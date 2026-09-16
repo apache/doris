@@ -38,6 +38,33 @@ import java.util.List;
 
 class JdbcTimestampProjectionTest {
     @Test
+    void testClickHouseScalarInstantsAreProjectedAsEpochMicros() throws Exception {
+        JdbcScanNode node = Mockito.mock(JdbcScanNode.class, Mockito.CALLS_REAL_METHODS);
+        TupleDescriptor descriptor = Mockito.mock(TupleDescriptor.class);
+        SlotDescriptor slot = Mockito.mock(SlotDescriptor.class);
+        JdbcTable table = Mockito.mock(JdbcTable.class);
+        Mockito.when(descriptor.getSlots()).thenReturn(new ArrayList<>(Collections.singletonList(slot)));
+        Mockito.when(slot.getColumn()).thenReturn(new Column("event_time", ScalarType.createTimeStampTzType(6)));
+        Mockito.when(table.getProperRemoteColumnName(TOdbcTableType.CLICKHOUSE, "event_time"))
+                .thenReturn("`event_time`");
+        node.setDesc(descriptor);
+        List<String> columns = new ArrayList<>();
+        setField(node, "columns", columns);
+        setField(node, "tbl", table);
+        setField(node, "jdbcType", TOdbcTableType.CLICKHOUSE);
+        Method create = JdbcScanNode.class.getDeclaredMethod("createJdbcColumns");
+        create.setAccessible(true);
+        create.invoke(node);
+        Assertions.assertEquals(Collections.singletonList(
+                "toUnixTimestamp64Micro(toDateTime64(`event_time`, 6)) AS `event_time`"), columns);
+        setField(node, "query", "SELECT event_time FROM event_stream;");
+        Method tvfQuery = JdbcScanNode.class.getDeclaredMethod("getTvfQuery");
+        tvfQuery.setAccessible(true);
+        Assertions.assertEquals("SELECT " + columns.get(0)
+                + " FROM (SELECT event_time FROM event_stream) doris_jdbc_source", tvfQuery.invoke(node));
+    }
+
+    @Test
     void testClickHouseNestedInstantsAreProjectedAsEpochMicros() throws Exception {
         JdbcScanNode node = Mockito.mock(JdbcScanNode.class, Mockito.CALLS_REAL_METHODS);
         TupleDescriptor descriptor = Mockito.mock(TupleDescriptor.class);

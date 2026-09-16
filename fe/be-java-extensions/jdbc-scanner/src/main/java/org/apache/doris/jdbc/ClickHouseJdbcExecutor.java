@@ -32,7 +32,6 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -58,9 +57,10 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
         switch (type.getType()) {
             case TIMESTAMPTZ: {
-                // JNI carries instants as UTC components, not the source zone's wall clock.
-                ZonedDateTime value = resultSet.getObject(columnIndex + 1, ZonedDateTime.class);
-                return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
+                // The projection preserves epoch microseconds before JDBC v1 can lose a DST-fold offset.
+                long micros = resultSet.getLong(columnIndex + 1);
+                return resultSet.wasNull() ? null : LocalDateTime.ofEpochSecond(Math.floorDiv(micros, 1_000_000),
+                        (int) Math.floorMod(micros, 1_000_000) * 1000, ZoneOffset.UTC);
             }
             case BOOLEAN:
                 return resultSet.getObject(columnIndex + 1, Boolean.class);
