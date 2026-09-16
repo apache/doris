@@ -219,7 +219,14 @@ TEST_F(IndexStorageVariantDynamicPathPruningTest, StatisticsAggregatesFallBackFo
                             probe->segments.front().variant_columns.end(),
                             [](const auto& column) { return column.is_sparse_column; }));
 
-    auto readable_rowsets = rowsets_with_variant_extended_schema(rowsets.value());
+    // Model the query-side schema for a path that remains only in the sparse map. Adding the path
+    // to the reader schema must not create a physical leaf in the segment; pruning lookup should
+    // therefore return NOT_FOUND and force aggregate pushdown back to the regular iterator.
+    auto reader_schema = build_schema_with_variant_path_column(
+            *tablet_schema(), kVariantUid, "dynamic_i", FieldType::OLAP_FIELD_TYPE_BIGINT);
+    ASSERT_NE(nullptr, reader_schema);
+    auto readable_rowsets =
+            inject_reader_schema_for_rowsets(rowsets.value(), std::move(reader_schema));
     ASSERT_TRUE(readable_rowsets.has_value()) << readable_rowsets.error();
     ASSERT_EQ(1, readable_rowsets->size());
     const int32_t path_column_id = column_id_by_path("v.dynamic_i");
