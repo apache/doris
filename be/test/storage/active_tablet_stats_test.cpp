@@ -84,26 +84,27 @@ public:
 
 private:
     static TabletMetaSharedPtr create_meta(int64_t tablet_id) {
-        auto meta = std::make_shared<TabletMeta>(std::make_shared<TabletSchema>());
-        meta->_tablet_id = tablet_id;
-        return meta;
+        return std::make_shared<TabletMeta>(std::make_shared<TabletSchema>(), tablet_id);
     }
 };
 
 // A tablet with a committed baseline at a fixed time for deterministic report windows.
+// The activity timestamps are wall clock and the reported baseline is monotonic, but the
+// tests drive both from the same number: only differences are ever asserted.
 std::shared_ptr<StatsTestTablet> make_baselined_tablet(int64_t tablet_id, int64_t baseline_ms) {
     auto tablet = std::make_shared<StatsTestTablet>(tablet_id);
-    tablet->last_reported_time_ms.store(baseline_ms);
+    tablet->last_reported_mono_ms.store(baseline_ms);
     tablet->last_query_scan_time_ms.store(baseline_ms);
     tablet->last_load_flush_time_ms.store(baseline_ms);
     return tablet;
 }
 
-// Drives one report round at a fixed wall clock instead of UnixMillis(), so the
-// delta windows the assertions check are exact.
+// Drives one report round at fixed clocks instead of UnixMillis() / MonotonicMillis(), so
+// the delta windows the assertions check are exact. The two clocks are driven from the
+// same number because only differences are ever asserted.
 void collect_at(ActiveTabletCollector& collector, const std::shared_ptr<BaseTablet>& tablet,
                 int64_t now_ms) {
-    collector._now_ms = now_ms;
+    collector.start(now_ms, now_ms);
     collector.collect(tablet);
 }
 
@@ -117,10 +118,21 @@ TEST(ActiveTabletStatsTest, TakesIndependentTopListsByRate) {
     const auto old_cap = config::report_active_tablet_max_num;
     config::report_active_tablet_max_num = 1;
 
-    ActiveTabletCollector collector;
-    collector._query_cands = {{1, 100, 10000, 0}, {2, 20, 1000, 0}};
-    collector._load_cands = {{3, 30, 1000, 0}, {4, 200, 10000, 0}};
+    // Same shape as the report walk: one start(), then one collect() per tablet.
+    auto slow_query = make_baselined_tablet(1, kNowMs - 10 * kReportIntervalMs);
+    slow_query->query_scan_count->increment(100);
+    auto fast_query = make_baselined_tablet(2, kNowMs - kReportIntervalMs);
+    fast_query->query_scan_count->increment(20);
+    auto fast_load = make_baselined_tablet(3, kNowMs - kReportIntervalMs);
+    fast_load->flush_finish_count->increment(30);
+    auto slow_load = make_baselined_tablet(4, kNowMs - 10 * kReportIntervalMs);
+    slow_load->flush_finish_count->increment(200);
 
+    ActiveTabletCollector collector;
+    collector.start(kNowMs, kNowMs);
+    for (const auto& tablet : {slow_query, fast_query, fast_load, slow_load}) {
+        collector.collect(tablet);
+    }
     collector.take_top_n();
     config::report_active_tablet_max_num = old_cap;
 
@@ -134,11 +146,11 @@ TEST(ActiveTabletStatsTest, TakesIndependentTopListsByRate) {
 // Construction establishes the zero-counter baseline, so the first report includes all
 // activity since construction and normalizes it by the actual elapsed window.
 TEST(ActiveTabletStatsTest, FirstRoundReportsActivitySinceConstruction) {
-    const int64_t before_ms = UnixMillis();
+    const int64_t before_ms = MonotonicMillis();
     auto tablet = std::make_shared<StatsTestTablet>(101);
-    const int64_t baseline_ms = tablet->last_reported_time_ms.load();
+    const int64_t baseline_ms = tablet->last_reported_mono_ms.load();
     EXPECT_GE(baseline_ms, before_ms);
-    EXPECT_LE(baseline_ms, UnixMillis());
+    EXPECT_LE(baseline_ms, MonotonicMillis());
     ASSERT_GT(baseline_ms, 0);
     EXPECT_EQ(tablet->last_reported_scan_count.load(), 0);
     EXPECT_EQ(tablet->last_reported_flush_count.load(), 0);
@@ -158,12 +170,12 @@ TEST(ActiveTabletStatsTest, FirstRoundReportsActivitySinceConstruction) {
     ASSERT_EQ(collector.load_candidates().size(), 1);
     EXPECT_EQ(collector.load_candidates().front().delta, 7);
     EXPECT_EQ(collector.load_candidates().front().window_ms, kReportIntervalMs);
-    EXPECT_EQ(tablet->last_reported_time_ms.load(), baseline_ms);
+    EXPECT_EQ(tablet->last_reported_mono_ms.load(), baseline_ms);
 
     collector.commit();
     EXPECT_EQ(tablet->last_reported_scan_count.load(), 42);
     EXPECT_EQ(tablet->last_reported_flush_count.load(), 7);
-    EXPECT_EQ(tablet->last_reported_time_ms.load(), report_ms);
+    EXPECT_EQ(tablet->last_reported_mono_ms.load(), report_ms);
 
     collector.clear();
     collect_at(collector, tablet, report_ms + kReportIntervalMs);
@@ -187,7 +199,7 @@ TEST(ActiveTabletStatsTest, CollectDoesNotAdvanceBaseline) {
         EXPECT_EQ(collector.query_candidates().front().delta, 10);
         EXPECT_EQ(collector.query_candidates().front().window_ms, kReportIntervalMs);
         EXPECT_EQ(tablet->last_reported_scan_count.load(), 0);
-        EXPECT_EQ(tablet->last_reported_time_ms.load(), kNowMs - kReportIntervalMs);
+        EXPECT_EQ(tablet->last_reported_mono_ms.load(), kNowMs - kReportIntervalMs);
     }
 }
 
@@ -203,7 +215,7 @@ TEST(ActiveTabletStatsTest, CommitAdvancesBaselineSoNextDeltaIsIncremental) {
     collector.commit();
     EXPECT_EQ(tablet->last_reported_scan_count.load(), 10);
     EXPECT_EQ(tablet->last_reported_flush_count.load(), 4);
-    EXPECT_EQ(tablet->last_reported_time_ms.load(), kNowMs);
+    EXPECT_EQ(tablet->last_reported_mono_ms.load(), kNowMs);
 
     const int64_t next_ms = kNowMs + kReportIntervalMs;
     tablet->query_scan_count->increment(3);

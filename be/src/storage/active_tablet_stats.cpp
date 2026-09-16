@@ -27,7 +27,12 @@
 namespace doris {
 
 void ActiveTabletCollector::start() {
-    _now_ms = UnixMillis();
+    start(UnixMillis(), MonotonicMillis());
+}
+
+void ActiveTabletCollector::start(int64_t now_ms, int64_t now_mono_ms) {
+    _now_ms = now_ms;
+    _now_mono_ms = now_mono_ms;
 }
 
 void ActiveTabletCollector::collect(const std::shared_ptr<BaseTablet>& tablet) {
@@ -39,8 +44,8 @@ void ActiveTabletCollector::collect(const std::shared_ptr<BaseTablet>& tablet) {
     // Snapshot only -- the baselines on the tablet stay untouched until commit().
     _pending.push_back({.tablet = tablet, .scan_count = scan_cur, .flush_count = flush_cur});
 
-    const int64_t prev_ms = tablet->last_reported_time_ms.load(std::memory_order_relaxed);
-    if (prev_ms == 0) {
+    const int64_t prev_mono_ms = tablet->last_reported_mono_ms.load(std::memory_order_relaxed);
+    if (prev_mono_ms == 0) {
         // Unreachable for normally constructed tablets: BaseTablet initializes the baseline time.
         return;
     }
@@ -48,7 +53,7 @@ void ActiveTabletCollector::collect(const std::shared_ptr<BaseTablet>& tablet) {
             scan_cur - tablet->last_reported_scan_count.load(std::memory_order_relaxed);
     const int64_t load_delta =
             flush_cur - tablet->last_reported_flush_count.load(std::memory_order_relaxed);
-    const int64_t win_ms = std::max<int64_t>(1, _now_ms - prev_ms);
+    const int64_t win_ms = std::max<int64_t>(1, _now_mono_ms - prev_mono_ms);
     const int64_t active_window_ms =
             static_cast<int64_t>(config::report_active_tablet_window_second) * 1000;
 
@@ -89,7 +94,7 @@ void ActiveTabletCollector::commit() {
         if (auto tablet = pending.tablet.lock()) {
             tablet->last_reported_scan_count.store(pending.scan_count, std::memory_order_relaxed);
             tablet->last_reported_flush_count.store(pending.flush_count, std::memory_order_relaxed);
-            tablet->last_reported_time_ms.store(_now_ms, std::memory_order_relaxed);
+            tablet->last_reported_mono_ms.store(_now_mono_ms, std::memory_order_relaxed);
         }
     }
 }

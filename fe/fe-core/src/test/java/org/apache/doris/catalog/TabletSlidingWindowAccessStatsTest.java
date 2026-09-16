@@ -173,7 +173,7 @@ public class TabletSlidingWindowAccessStatsTest {
                     Collections.emptyList());
             stats.updateFromReport(2L, List.of(queryStat(10L, 7L, now, 60_000L),
                     queryStat(20L, 900L, now - 120_000L, 60_000L)), Collections.emptyList());
-            Assertions.assertEquals(1_000L, stats.getAccessInfo(10L).accessCount);
+            Assertions.assertEquals(1_007L, stats.getAccessInfo(10L).accessCount);
             Assertions.assertNotNull(stats.getAccessInfo(20L));
 
             // Move the window past old accesses without delivering another report or sleeping.
@@ -208,22 +208,25 @@ public class TabletSlidingWindowAccessStatsTest {
     }
 
     // Retention is bounded, so a backend with a churning hot set cannot grow FE memory for a
-    // whole window. The oldest entries go first.
+    // whole window. The coldest entries go first: tablet 1 is the oldest of the three but by
+    // far the hottest, and everything here is inside the window already, so age alone would
+    // evict exactly the tablet the scheduler most needs to know about.
     @Test
-    public void testRetentionIsCappedByTopnKeepingTheNewest() {
+    public void testRetentionIsCappedByTopnKeepingTheHottest() {
         int originalTopn = Config.cloud_active_partition_scheduling_topn;
         Config.cloud_active_partition_scheduling_topn = 2;
         try {
             long now = System.currentTimeMillis();
             stats.updateFromReport(1L, List.of(
-                    queryStat(1L, 1L, now - 3_000L, 60_000L),
+                    queryStat(1L, 100L, now - 3_000L, 60_000L),
                     queryStat(2L, 1L, now - 2_000L, 60_000L)), Collections.emptyList());
             stats.updateFromReport(1L,
                     Collections.singletonList(queryStat(3L, 1L, now, 60_000L)), Collections.emptyList());
 
             Assertions.assertEquals(2L, stats.getActiveIdsInWindow());
-            Assertions.assertNull(stats.getAccessInfo(1L));
-            Assertions.assertNotNull(stats.getAccessInfo(2L));
+            Assertions.assertNotNull(stats.getAccessInfo(1L));
+            // Same rate as tablet 3, so the tie-break on recency drops it.
+            Assertions.assertNull(stats.getAccessInfo(2L));
             Assertions.assertNotNull(stats.getAccessInfo(3L));
         } finally {
             Config.cloud_active_partition_scheduling_topn = originalTopn;
@@ -260,8 +263,11 @@ public class TabletSlidingWindowAccessStatsTest {
         Assertions.assertEquals(1L, results.get(1).id);
     }
 
+    // Two backends each holding a replica of tablet 10. A scan range runs on exactly one
+    // replica, so the tablet's query traffic is 10 + 20; a load writes both replicas, so its
+    // load traffic is max(2, 1) and not their sum.
     @Test
-    public void testReplicaStatsAreMergedByMax() {
+    public void testReplicaQueryStatsSumWhileLoadStatsTakeTheMax() {
         long now = System.currentTimeMillis();
         stats.updateFromReport(1L,
                 Collections.singletonList(queryStat(10L, 10L, now - 100L, 60_000L)),
@@ -271,12 +277,19 @@ public class TabletSlidingWindowAccessStatsTest {
                 Collections.singletonList(loadStat(10L, 1L, now - 400L, 60_000L)));
 
         TabletSlidingWindowAccessStats.AccessStatsResult result = stats.getTopNActive(2).get(0);
-        Assertions.assertEquals(21L, result.accessCount);
+        Assertions.assertEquals(30L, result.scanCount);
+        Assertions.assertEquals(2L, result.loadCount);
+        Assertions.assertEquals(32L, result.accessCount);
         Assertions.assertEquals(now - 100L, result.lastAccessTime);
-        Assertions.assertEquals(20.0, result.scanRate);
+        Assertions.assertEquals(30.0, result.scanRate);
         Assertions.assertEquals(2.0, result.loadRate);
-        Assertions.assertEquals(21L, stats.getRecentAccessCountInWindow());
+        Assertions.assertEquals(32L, stats.getRecentAccessCountInWindow());
         Assertions.assertEquals(1L, stats.getActiveIdsInWindow());
+
+        // SHOW TABLET reads the same merged view, not whichever backend reported most.
+        TabletSlidingWindowAccessStats.AccessStatsResult shown = stats.getAccessInfo(10L);
+        Assertions.assertEquals(32L, shown.accessCount);
+        Assertions.assertEquals(now - 100L, shown.lastAccessTime);
     }
 
     @Test

@@ -47,6 +47,12 @@ public class TabletSlidingWindowAccessStats {
             Comparator.comparingDouble((AccessStatsResult r) -> r.loadRate)
                     .thenComparingLong(r -> r.lastAccessTime)
                     .reversed();
+    // Hottest on either dimension first, same tie-break. Decides what a backend's retention
+    // cap keeps, where the two dimensions are not yet separated into buckets.
+    private static final Comparator<AccessStatsResult> HEAT_COMPARATOR =
+            Comparator.comparingDouble((AccessStatsResult r) -> Math.max(r.scanRate, r.loadRate))
+                    .thenComparingLong(r -> r.lastAccessTime)
+                    .reversed();
 
     // beId -> (tabletId -> stats). A report updates the tablets it carries and ages out the
     // rest by active_tablet_sliding_window_time_window_second. Reads also filter expired entries
@@ -95,9 +101,8 @@ public class TabletSlidingWindowAccessStats {
         for (Map.Entry<Long, Accumulator> entry : accumulated.entrySet()) {
             long tabletId = entry.getKey();
             Accumulator acc = entry.getValue();
-            long accessCount = acc.scanDelta + acc.loadDelta;
-            reportedAccesses += accessCount;
-            backendStats.put(tabletId, new AccessStatsResult(tabletId, accessCount,
+            reportedAccesses += acc.scanDelta + acc.loadDelta;
+            backendStats.put(tabletId, new AccessStatsResult(tabletId, acc.scanDelta, acc.loadDelta,
                     Math.max(acc.lastQueryMs, acc.lastLoadMs), acc.scanRate(), acc.loadRate()));
         }
         totalAccessCount.addAndGet(reportedAccesses);
@@ -114,9 +119,12 @@ public class TabletSlidingWindowAccessStats {
      *
      * <p>Retention is bounded by cloud_active_partition_scheduling_topn: the scheduler never
      * consumes more actives than that in total, and a backend whose hot set churns would
-     * otherwise accumulate a whole window's worth of distinct tablets. The oldest are dropped
-     * first. lastAccessTime comes from the backend's clock while the cutoff comes from FE's,
-     * but a window measured in hours absorbs the skew between them.
+     * otherwise accumulate a whole window's worth of distinct tablets. The coldest are dropped
+     * first, by rate rather than by age - everything that survives the cutoff above is inside
+     * the window already, and dropping by age alone would evict a tablet hammered early in the
+     * window in favour of one touched once at the end. lastAccessTime comes from the backend's
+     * clock while the cutoff comes from FE's, but a window measured in hours absorbs the skew
+     * between them.
      */
     private static Map<Long, AccessStatsResult> retainWithinWindow(
             Map<Long, AccessStatsResult> previous, Map<Long, AccessStatsResult> reported) {
@@ -142,11 +150,11 @@ public class TabletSlidingWindowAccessStats {
             return merged;
         }
 
-        List<AccessStatsResult> byRecency = new ArrayList<>(merged.values());
-        byRecency.sort(Comparator.comparingLong((AccessStatsResult r) -> r.lastAccessTime).reversed());
+        List<AccessStatsResult> byHeat = new ArrayList<>(merged.values());
+        byHeat.sort(HEAT_COMPARATOR);
         Map<Long, AccessStatsResult> capped = Maps.newHashMapWithExpectedSize(retainLimit);
         for (int i = 0; i < retainLimit; i++) {
-            AccessStatsResult result = byRecency.get(i);
+            AccessStatsResult result = byHeat.get(i);
             capped.put(result.id, result);
         }
         return capped;
@@ -214,7 +222,10 @@ public class TabletSlidingWindowAccessStats {
     }
 
     /**
-     * Get access information for a tablet.
+     * Get access information for a tablet, merged across the backends holding its replicas the
+     * same way getTopNActive() does. Returning a single backend's record instead would report
+     * that backend's LastAccessTime even when another replica was touched more recently, and
+     * would show one replica's share of a split query load as the whole tablet's.
      */
     public AccessStatsResult getAccessInfo(long id) {
         if (!Config.enable_active_tablet_sliding_window_access_stats) {
@@ -226,9 +237,8 @@ public class TabletSlidingWindowAccessStats {
         AccessStatsResult result = null;
         for (Map<Long, AccessStatsResult> backendStats : beToStats.values()) {
             AccessStatsResult candidate = backendStats.get(id);
-            if (candidate != null && candidate.lastAccessTime >= oldestKept
-                    && (result == null || candidate.accessCount > result.accessCount)) {
-                result = candidate;
+            if (candidate != null && candidate.lastAccessTime >= oldestKept) {
+                result = (result == null) ? candidate : mergeReplicas(result, candidate);
             }
         }
         return result;
@@ -239,14 +249,22 @@ public class TabletSlidingWindowAccessStats {
      */
     public static class AccessStatsResult {
         public final long id;
+        // Kept apart because the two dimensions merge differently across replicas -- see
+        // mergeReplicas(). accessCount is their sum, the single number the SHOW / PROC
+        // views display.
+        public final long scanCount;
+        public final long loadCount;
         public final long accessCount;
         public final long lastAccessTime;
         public final double scanRate;
         public final double loadRate;
 
-        public AccessStatsResult(long id, long accessCount, long lastAccessTime, double scanRate, double loadRate) {
+        public AccessStatsResult(long id, long scanCount, long loadCount, long lastAccessTime,
+                double scanRate, double loadRate) {
             this.id = id;
-            this.accessCount = accessCount;
+            this.scanCount = scanCount;
+            this.loadCount = loadCount;
+            this.accessCount = scanCount + loadCount;
             this.lastAccessTime = lastAccessTime;
             this.scanRate = scanRate;
             this.loadRate = loadRate;
@@ -343,7 +361,7 @@ public class TabletSlidingWindowAccessStats {
     /**
      * Flatten beId -> tabletId -> stats into one view keyed by tablet. A tablet with several
      * replicas is reported once per backend holding one, so the collisions are resolved by
-     * mergeByMax().
+     * mergeReplicas().
      */
     private Map<Long, AccessStatsResult> mergeBackendStats() {
         int upperBound = 0;
@@ -359,7 +377,7 @@ public class TabletSlidingWindowAccessStats {
             for (AccessStatsResult result : backendStats.values()) {
                 if (result.lastAccessTime >= oldestKept) {
                     hasActiveStats = true;
-                    mergedStats.merge(result.id, result, TabletSlidingWindowAccessStats::mergeByMax);
+                    mergedStats.merge(result.id, result, TabletSlidingWindowAccessStats::mergeReplicas);
                 }
             }
             if (!hasActiveStats) {
@@ -371,16 +389,20 @@ public class TabletSlidingWindowAccessStats {
     }
 
     /**
-     * Per-field maximum, never a sum: each backend reports its own replica, so summing would
-     * make a three-replica tablet look three times hotter than a one-replica tablet carrying
-     * the same traffic. Every field independently answers "the busiest replica", which is what
-     * both consumers want - the rates rank tablets, and the raw count is only displayed.
+     * Query traffic SUMS across replicas, load traffic takes the MAX. The asymmetry is in how
+     * the two reach a replica: the planner assigns each scan range to exactly one replica, so
+     * a tablet's query traffic is split between its backends and only the sum is the tablet's
+     * real rate - taking the max would make a three-replica tablet read three times colder
+     * than a single-replica one carrying the same load. A load, by contrast, writes every
+     * replica, so each backend reports the same flushes and summing would multiply them by the
+     * replication factor. lastAccessTime is the most recent touch either way.
      */
-    private static AccessStatsResult mergeByMax(AccessStatsResult left, AccessStatsResult right) {
+    private static AccessStatsResult mergeReplicas(AccessStatsResult left, AccessStatsResult right) {
         return new AccessStatsResult(left.id,
-                Math.max(left.accessCount, right.accessCount),
+                left.scanCount + right.scanCount,
+                Math.max(left.loadCount, right.loadCount),
                 Math.max(left.lastAccessTime, right.lastAccessTime),
-                Math.max(left.scanRate, right.scanRate),
+                left.scanRate + right.scanRate,
                 Math.max(left.loadRate, right.loadRate));
     }
 
