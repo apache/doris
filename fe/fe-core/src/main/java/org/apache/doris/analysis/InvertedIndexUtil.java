@@ -70,6 +70,9 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_SUPPORT_PHRASE_KEY =
             InvertedIndexProperties.INVERTED_INDEX_SUPPORT_PHRASE_KEY;
 
+    public static String INVERTED_INDEX_NORMS_KEY =
+            InvertedIndexProperties.INVERTED_INDEX_NORMS_KEY;
+
     public static String INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY =
             InvertedIndexProperties.INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY;
 
@@ -202,6 +205,7 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_KEY_ALIAS,
                 INVERTED_INDEX_PARSER_MODE_KEY,
                 INVERTED_INDEX_SUPPORT_PHRASE_KEY,
+                INVERTED_INDEX_NORMS_KEY,
                 INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE,
                 INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN,
                 INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT,
@@ -286,6 +290,12 @@ public class InvertedIndexUtil {
         if (supportPhrase != null && !supportPhrase.matches("true|false")) {
             throw new AnalysisException("Invalid inverted index 'support_phrase' value: " + supportPhrase
                     + ", support_phrase must be true or false");
+        }
+
+        String norms = properties.get(INVERTED_INDEX_NORMS_KEY);
+        if (norms != null && !norms.matches("true|false")) {
+            throw new AnalysisException("Invalid inverted index 'norms' value: " + norms
+                    + ", norms must be true or false");
         }
 
         checkCharFilterProperties(properties);

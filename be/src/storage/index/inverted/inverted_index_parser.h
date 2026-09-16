@@ -89,6 +89,9 @@ const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY = "support_phrase";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES = "true";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO = "false";
 
+// Whether an analyzed index stores BM25 norms, which take one byte per row of the segment.
+const std::string INVERTED_INDEX_NORMS_KEY = "norms";
+
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT = "char_filter_replacement";
@@ -151,6 +154,12 @@ std::string get_parser_mode_string_from_properties(
         const std::map<std::string, std::string>& properties);
 std::string get_parser_phrase_support_string_from_properties(
         const std::map<std::string, std::string>& properties);
+
+// Whether this index writes BM25 norms. Norms cost one byte per row of the segment, including rows
+// that have no value for the field, so callers pass a default of false for indexes on variant paths,
+// where one segment holds one index per path. "norms" = "true" / "false" overrides the default.
+bool get_index_norms_from_properties(const std::map<std::string, std::string>& properties,
+                                     bool default_value);
 
 CharFilterMap get_parser_char_filter_map_from_properties(
         const std::map<std::string, std::string>& properties);

@@ -1390,8 +1390,6 @@ DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
-// Whether analyzed inverted indexes on variant subcolumns write BM25 norms (one byte per row).
-DECLARE_mBool(inverted_index_write_norms_for_variant_subcolumn);
 // G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
 // all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
 // import CPU; see the DEFINEs in config.cpp).

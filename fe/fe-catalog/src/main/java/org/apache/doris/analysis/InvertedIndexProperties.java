@@ -53,6 +53,10 @@ public class InvertedIndexProperties {
 
     public static String INVERTED_INDEX_SUPPORT_PHRASE_KEY = "support_phrase";
 
+    // Whether an analyzed index stores BM25 norms. Indexes on variant paths default to false
+    // because norms cost one byte per row of the segment for every indexed path.
+    public static String INVERTED_INDEX_NORMS_KEY = "norms";
+
     public static String INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY = "ignore_above";
 
     public static String INVERTED_INDEX_PARSER_LOWERCASE_KEY = "lower_case";

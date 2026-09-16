@@ -1337,10 +1337,6 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
-// Norms of a variant subcolumn index are dense even when the path is sparse, so a segment with
-// thousands of indexed paths pays rows * paths bytes. Off by default; enable it only when BM25 on
-// variant subcolumns needs document-length normalization.
-DEFINE_mBool(inverted_index_write_norms_for_variant_subcolumn, "false");
 // G16-h: zstd levels for the SNII dict-block compression and the .prx window
 // auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
 // sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import
