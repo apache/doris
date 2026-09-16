@@ -503,10 +503,9 @@ public class OlapTableSink extends DataSink {
         }
     }
 
-    private TDistributionHashType getTDistributionHashType(DistributionInfo distInfo) {
-        if (distInfo instanceof HashDistributionInfo
-                && ((HashDistributionInfo) distInfo).getHashType() == HashDistributionInfo.HashType.IDENTITY) {
-            return TDistributionHashType.IDENTITY;
+    TDistributionHashType getTDistributionHashType(DistributionInfo distInfo) {
+        if (distInfo instanceof HashDistributionInfo) {
+            return DataPartition.toTHashType(((HashDistributionInfo) distInfo).getHashType());
         }
         return TDistributionHashType.CRC32;
     }

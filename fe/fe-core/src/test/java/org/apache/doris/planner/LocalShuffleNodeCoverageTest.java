@@ -23,6 +23,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupingInfo;
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -32,6 +33,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -59,6 +61,29 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class LocalShuffleNodeCoverageTest {
     private static final AtomicInteger NEXT_ID = new AtomicInteger(1);
+
+    @Test
+    public void testIdentityHashTypeRequiresSupportedExecutionVersion() {
+        int originalVersion = Config.be_exec_version;
+        try {
+            Config.be_exec_version = Config.DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION - 1;
+            DataPartition identityPartition = new DataPartition(
+                    TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED,
+                    Collections.singletonList(new IntLiteral(1)), HashDistributionInfo.HashType.IDENTITY);
+            IllegalStateException exception = Assertions.assertThrows(IllegalStateException.class,
+                    identityPartition::toThrift);
+            Assertions.assertTrue(exception.getMessage().contains("IDENTITY distribution requires"));
+
+            Config.be_exec_version = Config.DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION;
+            Assertions.assertEquals(TDistributionHashType.IDENTITY,
+                    identityPartition.toThrift().getDistributionHashType());
+            Config.be_exec_version = Config.DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION - 1;
+            Assertions.assertEquals(TDistributionHashType.CRC32,
+                    DataPartition.toTHashType(HashDistributionInfo.HashType.CRC32));
+        } finally {
+            Config.be_exec_version = originalVersion;
+        }
+    }
 
     @Test
     public void testIdentityHashTypePropagatesThroughLocalExchangeAndFragment() {

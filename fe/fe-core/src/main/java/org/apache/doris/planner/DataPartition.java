@@ -25,6 +25,7 @@ import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TDistributionHashType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -117,6 +118,11 @@ public class DataPartition {
 
     public static TDistributionHashType toTHashType(HashDistributionInfo.HashType hashType) {
         if (hashType == HashDistributionInfo.HashType.IDENTITY) {
+            Preconditions.checkState(
+                    Config.be_exec_version >= Config.DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION,
+                    "IDENTITY distribution requires all participating backends to support execution version %s "
+                            + "or newer; current be_exec_version is %s",
+                    Config.DISTRIBUTION_HASH_TYPE_MIN_BE_EXEC_VERSION, Config.be_exec_version);
             return TDistributionHashType.IDENTITY;
         }
         return TDistributionHashType.CRC32;
