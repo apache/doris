@@ -89,11 +89,11 @@ public class UnCorrelatedApplyProjectFilter extends OneRewriteRuleFactory {
                     LogicalProject newProject = project.withProjectsAndChild(projects, child);
                     // every predicate which was already pulled into the apply is a condition of the
                     // join which unnests the apply, so it may not be replaced by the predicates of
-                    // this filter. for `t1.c1 in (select t3.c1 from (select t2.c1 from t2
-                    // where t2.c1 = t1.c1) t3 where t3.c1 > t1.c1)` this rule pulls
-                    // `t3.c1 > t1.c1` from the filter above the projection and `t2.c1 = t1.c1`
-                    // from the filter below it, in two applications of the rule: the join needs
-                    // both conditions
+                    // this filter. for the IN subquery of t1.c1 in (select t3.c1 from (select
+                    // t2.c1 from t2 where t2.c1 = t1.c1) t3 where t3.c1 > t1.c1) this rule pulls
+                    // t3.c1 > t1.c1 from the filter above the projection and t2.c1 = t1.c1 from
+                    // the filter below it, in two applications of the rule: the join needs both
+                    // conditions
                     List<Expression> newCorrelationFilter = new ArrayList<>();
                     apply.getCorrelationFilter().map(ExpressionUtils::extractConjunction)
                             .ifPresent(newCorrelationFilter::addAll);

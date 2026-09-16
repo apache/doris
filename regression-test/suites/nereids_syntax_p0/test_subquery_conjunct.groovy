@@ -47,24 +47,17 @@ suite("test_subquery_conjunct") {
         sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) != ( select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1 -1) + t1.id = t1.c1) order by t1.id, t1.c1; """
         exception "Unsupported correlated subquery with correlated predicate"
     }
-    test {
-        sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) != (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1) > t1.c1) order by t1.id; """
-        exception "scalar subquery's correlatedPredicates's operator must be EQ"
-    }
-    test {
-        sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) in (select sum(c1) from subquery_conjunct_table t2 where t2.c1 + 1 = t1.c1) order by t1.id, t1.c1; """
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
-    }
-    test {
-        sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) in (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1) = t1.c1) order by t1.id, t1.c1; """
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
-    }
-    test {
-        sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) not in (select sum(c1) from subquery_conjunct_table t2 where t2.c1 + 1= t1.c1) order by t1.id, t1.c1; """
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
-    }
-    test {
-        sql """ select * from subquery_conjunct_table t1 where abs(t1.c1) not in (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1 -1) = t1.c1) order by t1.id, t1.c1; """
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
-    }
+    // a scalar subquery whose correlated predicate is not an equality is evaluated on the
+    // aggregation of the domain of every outer row: the value of a sum over an empty domain is null
+    // (it is not the null of the left outer join, which the aggregation of the rewrite produces
+    // itself), and the outer row is kept when its value differs from that null
+    qt_select_ne_sum_gt """ select * from subquery_conjunct_table t1 where abs(t1.c1) != (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1) > t1.c1) order by t1.id; """
+    // IN over the aggregation of the correlated rows, with a non trivial expression on the left
+    // hand side of the IN: the expression is compared with the value of the select list of the
+    // subquery, and a row whose domain is empty compares with the aggregation of an empty domain
+    // (NULL for sum) instead of being dropped or compared with nothing
+    qt_select_in_sum """ select * from subquery_conjunct_table t1 where abs(t1.c1) in (select sum(c1) from subquery_conjunct_table t2 where t2.c1 + 1 = t1.c1) order by t1.id, t1.c1; """
+    qt_select_in_sum_abs """ select * from subquery_conjunct_table t1 where abs(t1.c1) in (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1) = t1.c1) order by t1.id, t1.c1; """
+    qt_select_not_in_sum """ select * from subquery_conjunct_table t1 where abs(t1.c1) not in (select sum(c1) from subquery_conjunct_table t2 where t2.c1 + 1= t1.c1) order by t1.id, t1.c1; """
+    qt_select_not_in_sum_abs """ select * from subquery_conjunct_table t1 where abs(t1.c1) not in (select sum(c1) from subquery_conjunct_table t2 where abs(t2.c1 -1) = t1.c1) order by t1.id, t1.c1; """
 }

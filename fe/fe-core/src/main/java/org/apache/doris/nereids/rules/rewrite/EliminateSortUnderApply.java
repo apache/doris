@@ -27,7 +27,7 @@ import java.util.List;
 
 /**
  * EliminateSortUnderApply.
- * SQL example: `select t1.c1 from t1 where t1.c1 in (select t2.c1 from t2 order by t2.c1)`;
+ * SQL example: select t1.c1 from t1 where t1.c1 in (select t2.c1 from t2 order by t2.c1);
  * the ORDER BY of the subquery does not carry any meaning for the apply (only the set of values
  * matters), so the LogicalSort is removed, also when it sits under a Project.
  * A sort which feeds a LIMIT (a TopN) is not the shape of this rule and is left alone.

@@ -356,6 +356,14 @@ suite("correlated_exists_having") {
                 " WHERE EXISTS (SELECT array_agg(i.k) FROM ceh_s_i i WHERE i.k = e.k HAVING count(*) = e.k)"
         exception "Unsupported correlated subquery with grouping and/or aggregation"
     }
+    // a predicate which the rule pulled out of a filter above the projection of the select list
+    // reads a column of that projection, which the aggregation of the rewrite cannot evaluate
+    test {
+        sql "SELECT e.k FROM ceh_e e" +
+                " WHERE EXISTS (SELECT x.c FROM (SELECT count(*) AS c, count(*) + 1 AS d FROM ceh_i i" +
+                " WHERE i.k = e.k) x WHERE x.d <= e.k)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
     // a filter which sits above the HAVING clause of the subquery (its predicate reads a volatile
     // column of the projection of the select list, so filter pushdown cannot push it below that
     // projection) was dropped by the rewrite: the subquery then returned a row for every outer row

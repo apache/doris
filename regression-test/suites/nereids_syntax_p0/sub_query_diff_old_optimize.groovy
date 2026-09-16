@@ -104,35 +104,27 @@ suite ("sub_query_diff_old_optimize") {
 
     sql "SET enable_fallback_to_original_planner=false"
 
-    test {
-        sql """
-            select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 < (select sum(sub_query_diff_old_optimize_subquery3.k3) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 < sub_query_diff_old_optimize_subquery1.k2) order by k1, k2
-        """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = scalar subquery's correlatedPredicates's operator must be EQ"
-    }
-
-    test {
-        sql """
-            select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 != (select sum(sub_query_diff_old_optimize_subquery3.k3) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 != sub_query_diff_old_optimize_subquery1.k2) order by k1, k2
-        """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = scalar subquery's correlatedPredicates's operator must be EQ"
-    }
-
-    test {
-        sql """
-            select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 = (select sum(sub_query_diff_old_optimize_subquery3.k3) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 > sub_query_diff_old_optimize_subquery1.k2) order by k1, k2
-        """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = scalar subquery's correlatedPredicates's operator must be EQ"
-    }
-
-    test {
-        sql """
-            select * from sub_query_diff_old_optimize_subquery1
-                where k1 = (select sum(k1) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery1.k1 != sub_query_diff_old_optimize_subquery3.v1 and sub_query_diff_old_optimize_subquery3.v2 = 2)
-                order by k1, k2
-        """
-        exception "java.sql.SQLException: errCode = 2, detailMessage = scalar subquery's correlatedPredicates's operator must be EQ"
-    }
+    // a scalar subquery whose correlated predicate is not an equality is evaluated on the
+    // aggregation of the domain of every outer row: the rows below are the rows of the outer table
+    // whose value compares with the aggregation of its own domain the way the predicate of the
+    // query asks (the aggregation of an empty domain is null for sum, so such a row is dropped by a
+    // comparison which is not true for null)
+    qt_scalar_sum_lt """
+        select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 < (select sum(sub_query_diff_old_optimize_subquery3.k3) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 < sub_query_diff_old_optimize_subquery1.k2) order by k1, k2
+    """
+    qt_scalar_sum_ne """
+        select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 != (select sum(sub_query_diff_old_optimize_subquery3.k3) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 != sub_query_diff_old_optimize_subquery1.k2) order by k1, k2
+    """
+    qt_scalar_sum_gt """
+        select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 = (select sum(sub_query_diff_old_optimize_subquery3.k3) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 > sub_query_diff_old_optimize_subquery1.k2) order by k1, k2
+    """
+    // a correlated predicate which does not define the whole domain of the outer row (the filter
+    // also holds the uncorrelated predicate v2 = 2, which stays below the aggregation)
+    qt_scalar_sum_with_another_predicate """
+        select * from sub_query_diff_old_optimize_subquery1
+            where k1 = (select sum(k1) from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery1.k1 != sub_query_diff_old_optimize_subquery3.v1 and sub_query_diff_old_optimize_subquery3.v2 = 2)
+            order by k1, k2
+    """
 
     //----------with subquery alias----------
     //----------remove temporarily-----------

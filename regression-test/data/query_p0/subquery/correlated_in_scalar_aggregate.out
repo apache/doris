@@ -29,6 +29,21 @@
 -1
 7
 
+-- !in_correlated_global_agg --
+1
+
+-- !not_in_correlated_global_agg --
+-1
+2
+7
+
+-- !in_correlated_global_agg_as_value --
+\N	\N
+-1	false
+1	true
+2	false
+7	false
+
 -- !exists_having_only_corr_ge --
 -1
 1
@@ -86,4 +101,25 @@
 1	true
 2	true
 7	true
+
+-- !scalar_lt_count --
+\N	0
+-1	0
+1	0
+2	1
+7	3
+
+-- !scalar_lt_sum --
+\N	\N
+-1	\N
+1	\N
+2	10
+7	40
+
+-- !scalar_nullsafe_equal_count --
+\N	1
+-1	0
+1	1
+2	1
+7	0
 

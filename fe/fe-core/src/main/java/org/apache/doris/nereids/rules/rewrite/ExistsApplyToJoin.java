@@ -76,15 +76,14 @@ import java.util.Optional;
  *                                               |
  *                                             queryPlan
  * SQL examples (t1/t2 are two tables with columns c1/c2):
- * - `select t1.c1 from t1 where exists (select 1 from t2 where t1.c1 = t2.c1)`
- *   becomes a LEFT_SEMI_JOIN on `t1.c1 = t2.c1`;
- * - `select t1.c1 from t1 where not exists (select 1 from t2 where t1.c1 = t2.c1)`
- *   becomes a LEFT_ANTI_JOIN on `t1.c1 = t2.c1`;
- * - `select t1.c1 from t1 where exists (select 1 from t2)`
- *   becomes a CROSS_JOIN with a limit(1) above t2;
- * - `select t1.c1 from t1 where not exists (select 1 from t2)`
- *   becomes FILTER(count(*) = 0) over a CROSS_JOIN whose right child is an aggregate count(*)
- *   over limit(1).
+ * - select t1.c1 from t1 where exists (select 1 from t2 where t1.c1 = t2.c1) becomes a
+ *   LEFT_SEMI_JOIN on t1.c1 = t2.c1;
+ * - select t1.c1 from t1 where not exists (select 1 from t2 where t1.c1 = t2.c1) becomes a
+ *   LEFT_ANTI_JOIN on t1.c1 = t2.c1;
+ * - select t1.c1 from t1 where exists (select 1 from t2) becomes a CROSS_JOIN with a limit(1)
+ *   above t2;
+ * - select t1.c1 from t1 where not exists (select 1 from t2) becomes FILTER(count(*) = 0) over a
+ *   CROSS_JOIN whose right child is an aggregate count(*) over limit(1).
  */
 public class ExistsApplyToJoin extends OneRewriteRuleFactory {
     @Override
@@ -93,8 +92,8 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
             // apply.isCorrelated() only check if correlated slot exits
             // but correlation filter may be eliminated by SimplifyConflictCompound rule
             // so we need check both correlated slot and correlation filter exists before creating LogicalJoin node
-            // e.g. `select t1.c1 from t1 where exists (select 1 from t2 where t2.c1 = t1.c1 or true)`:
-            // `t2.c1 = t1.c1 or true` folds to `true`, so isCorrelated() stays true while no
+            // e.g. select t1.c1 from t1 where exists (select 1 from t2 where t2.c1 = t1.c1 or true):
+            // the predicate t2.c1 = t1.c1 or true folds to true, so isCorrelated() stays true while no
             // correlation filter is left, and the uncorrelated branch is the correct one (exists
             // only asks whether t2 is non empty)
             if (apply.isCorrelated() && apply.getCorrelationFilter().isPresent()) {
@@ -132,7 +131,7 @@ public class ExistsApplyToJoin extends OneRewriteRuleFactory {
 
     private Plan unCorrelatedNotExist(LogicalApply<?, ?> unapply) {
         // count(*) is evaluated over limit(1), so it is 0 exactly when the subquery is empty:
-        // `select t1.c1 from t1 where not exists (select 1 from t2)` must keep every t1 row when t2 is empty
+        // select t1.c1 from t1 where not exists (select 1 from t2) must keep every t1 row when t2 is empty
         LogicalLimit<?> newLimit = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, (LogicalPlan) unapply.right());
         Alias alias = new Alias(new Count(), "count(*)");
         LogicalAggregate<?> newAgg = new LogicalAggregate<>(new ArrayList<>(),
