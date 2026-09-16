@@ -17,12 +17,16 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.profile.RuntimeProfile;
+import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -32,6 +36,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -92,14 +97,123 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(stmtExecutor.isDeferredForArrowFlight());
             Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
             // the reaper's bound is floored at the frozen value ...
-            Assertions.assertEquals(1234L, flightContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            Assertions.assertEquals(1234_000L, FlightProtocolAdapter.deferredBoundMs(stmtExecutor,
+                    Config.arrow_flight_deferred_query_idle_timeout_second));
             // ... even after the session value moved on, as it does when a SET_VAR hint is reverted
             flightContext.getSessionVariable().setQueryTimeoutS(5);
             Assertions.assertEquals(1234, stmtExecutor.getDeferredExecTimeoutS());
-            Assertions.assertEquals(1234L, flightContext.getFlightSqlDeferredExecutorsIdleTimeoutS());
+            Assertions.assertEquals(1234_000L, FlightProtocolAdapter.deferredBoundMs(stmtExecutor,
+                    Config.arrow_flight_deferred_query_idle_timeout_second));
         } finally {
             flightContext.closeFlightSqlDeferredExecutors();
             Config.arrow_flight_deferred_query_idle_timeout_second = savedIdleTimeout;
+        }
+    }
+
+    // A deferred query is finalized after the session may have run another statement -- a SET of the
+    // SetSessionOptions action -- which gives the context a new query id and start time. The query is
+    // unregistered under its own id (its registration, and the user's instance count, would leak
+    // otherwise) and the reaper counts from its own start.
+    @Test
+    public void testDeferForArrowFlightFreezesTheQueryIdAndStartTime() throws Exception {
+        ConnectContext flightContext = ConnectContext.forFlight("test-peer-identity");
+        flightContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        flightContext.setEnv(connectContext.getEnv());
+        TUniqueId deferredId = new TUniqueId(0x67966L, 0x1L);
+        TUniqueId laterId = new TUniqueId(0x67966L, 0x2L);
+        flightContext.setQueryId(deferredId);
+        flightContext.setStartTime();
+        long deferredStart = flightContext.getStartTime();
+        Coordinator coord = Mockito.mock(Coordinator.class);
+        Mockito.when(coord.getQueryOptions()).thenReturn(new TQueryOptions());
+        QeProcessorImpl.INSTANCE.registerQuery(deferredId, new QeProcessorImpl.QueryInfo(flightContext, "select 1", coord));
+        try {
+            StmtExecutor stmtExecutor = new StmtExecutor(flightContext,
+                    analyzeAndGetStmtByNereids("select 1", flightContext));
+            Assertions.assertNull(stmtExecutor.getDeferredQueryId());
+            Assertions.assertEquals(-1L, stmtExecutor.getDeferredStartTimeMs());
+
+            stmtExecutor.deferForArrowFlight();
+            Assertions.assertEquals(deferredId, stmtExecutor.getDeferredQueryId());
+            Assertions.assertEquals(deferredStart, stmtExecutor.getDeferredStartTimeMs());
+            Assertions.assertEquals(Lists.newArrayList(stmtExecutor), flightContext.getFlightSqlDeferredExecutors());
+
+            // Another statement of the session, before the deferred query is finalized.
+            flightContext.setQueryId(laterId);
+            flightContext.setStartTime();
+            Assertions.assertEquals(deferredId, stmtExecutor.getDeferredQueryId());
+            Assertions.assertEquals(deferredStart, stmtExecutor.getDeferredStartTimeMs());
+
+            Assertions.assertSame(coord, QeProcessorImpl.INSTANCE.getCoordinator(deferredId));
+            flightContext.closeFlightSqlDeferredExecutors();
+            Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(deferredId));
+            Assertions.assertTrue(flightContext.getFlightSqlDeferredExecutors().isEmpty());
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(deferredId);
+            flightContext.closeFlightSqlDeferredExecutors();
+        }
+    }
+
+    // A deferred query is a closed object from the moment it is deferred (see FlightProtocolAdapter):
+    // it is finalized after the session has moved on, and from whatever thread. Its profile was
+    // published as RUNNING when it was deferred; the final update follows that decision, whatever
+    // enable_profile says by then (a SET_VAR hint reverted, a SET of the SetSessionOptions action),
+    // and adds only what ends the query: what the session's later statements did to its query id,
+    // start time, database, state and variables does not reach the record.
+    @Test
+    public void testADeferredQueryIsFinalizedFromItsOwnRecordNotTheSessions() throws Exception {
+        ConnectContext flightContext = ConnectContext.forFlight("test-peer-identity");
+        flightContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+        flightContext.setEnv(connectContext.getEnv());
+        flightContext.setDatabase("testDb");
+        flightContext.getSessionVariable().enableProfile = true;
+        TUniqueId deferredId = new TUniqueId(0x67966L, 0x3L);
+        flightContext.setQueryId(deferredId);
+        flightContext.setStartTime();
+        Coordinator coord = Mockito.mock(Coordinator.class);
+        Mockito.when(coord.getQueryOptions()).thenReturn(new TQueryOptions());
+        Mockito.when(coord.getExecStatus()).thenReturn(Status.OK);
+        Mockito.when(coord.getBeToInstancesNum()).thenReturn(Maps.newTreeMap());
+        QeProcessorImpl.INSTANCE.registerQuery(deferredId,
+                new QeProcessorImpl.QueryInfo(flightContext, "select 1", coord));
+        flightContext.setThreadLocalInfo();
+        try {
+            StmtExecutor stmtExecutor = new StmtExecutor(flightContext,
+                    analyzeAndGetStmtByNereids("select 1", flightContext));
+            stmtExecutor.setCoord(coord);
+            // What executeAndSendResult does: the RUNNING summary, then the deferral.
+            stmtExecutor.updateProfile(false);
+            stmtExecutor.deferForArrowFlight();
+            RuntimeProfile summary = stmtExecutor.getProfile().getSummaryProfile().getSummary();
+            Assertions.assertEquals(DebugUtil.printId(deferredId), summary.getInfoString(SummaryProfile.PROFILE_ID));
+            Assertions.assertEquals("testDb", summary.getInfoString(SummaryProfile.DEFAULT_DB));
+            Assertions.assertEquals("RUNNING", summary.getInfoString(SummaryProfile.TASK_STATE));
+            Assertions.assertEquals("N/A", summary.getInfoString(SummaryProfile.END_TIME));
+
+            // The session moves on: a SET enable_profile = false and a USE of the SetSessionOptions
+            // action, each a statement with a query id and start time of its own.
+            flightContext.getSessionVariable().enableProfile = false;
+            flightContext.setQueryId(new TUniqueId(0x67966L, 0x4L));
+            flightContext.setStartTime();
+            flightContext.clearDatabase();
+            flightContext.getState().reset();
+
+            // Finalized from a thread that runs no command of the session (the timeout checker's,
+            // say): the session's context is not the thread's.
+            connectContext.setThreadLocalInfo();
+            flightContext.closeFlightSqlDeferredExecutors();
+            Mockito.verify(coord).close();
+            Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(deferredId));
+            // Finished under the decision it was published under ...
+            Assertions.assertNotEquals("N/A", summary.getInfoString(SummaryProfile.END_TIME));
+            Assertions.assertEquals("OK", summary.getInfoString(SummaryProfile.TASK_STATE));
+            // ... and from its own record: what was recorded when it ran stays.
+            Assertions.assertEquals(DebugUtil.printId(deferredId), summary.getInfoString(SummaryProfile.PROFILE_ID));
+            Assertions.assertEquals("testDb", summary.getInfoString(SummaryProfile.DEFAULT_DB));
+        } finally {
+            connectContext.setThreadLocalInfo();
+            QeProcessorImpl.INSTANCE.unregisterQuery(deferredId);
+            flightContext.closeFlightSqlDeferredExecutors();
         }
     }
 
