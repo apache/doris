@@ -39,6 +39,7 @@
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_headers.h"
+#include "util/client_connection_provider.h"
 #include "util/security.h"
 #include "util/stack_util.h"
 
@@ -359,6 +360,15 @@ void HttpClient::reset() {
 
 Status HttpClient::init(const std::string& url, bool set_fail_on_error,
                         AuthTokenMode auth_token_mode) {
+    return _init(url, set_fail_on_error, false, auth_token_mode);
+}
+
+Status HttpClient::init_internal(const std::string& url, bool set_fail_on_error) {
+    return _init(url, set_fail_on_error, true, AuthTokenMode::CLUSTER);
+}
+
+Status HttpClient::_init(const std::string& url, bool set_fail_on_error, bool internal,
+                         AuthTokenMode auth_token_mode) {
     reset();
     if (_curl == nullptr) {
         _curl = curl_easy_init();
@@ -427,6 +437,7 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error,
         LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
         return Status::InternalError("fail to set CURLOPT_URL");
     }
+    RETURN_IF_ERROR(client::configure_http_client(_curl, internal));
 
     if (auth_token_mode == AuthTokenMode::CLUSTER) {
 #ifndef BE_TEST

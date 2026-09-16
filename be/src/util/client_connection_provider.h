@@ -18,6 +18,7 @@
 #pragma once
 
 #include <brpc/channel.h>
+#include <curl/curl.h>
 #include <thrift/transport/TSocket.h>
 
 #include <memory>
@@ -28,6 +29,9 @@
 namespace doris::client {
 
 Status configure_brpc_channel_options(brpc::ChannelOptions* options);
+
+// Configures a curl handle for public (internal=false) or trusted Doris-internal requests.
+Status configure_http_client(CURL* curl, bool internal);
 
 std::shared_ptr<apache::thrift::transport::TSocket> create_thrift_client_socket(
         const std::string& host, int port);

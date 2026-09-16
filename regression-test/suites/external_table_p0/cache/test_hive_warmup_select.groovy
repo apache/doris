@@ -89,7 +89,7 @@ suite("test_hive_warmup_select", "p0,external") {
             sql """GRANT SELECT_PRIV ON ${catalog_name}.tpch1_parquet.lineitem TO ${user1}"""
 
             // Test: user with only SELECT privilege should be able to run WARM UP SELECT
-            connect(user1, "${pwd}", url) {
+            connectToDoris(user1, "${pwd}", url) {
                 sql "set enable_file_cache=true"
                 sql "set disable_file_cache=false"
 
@@ -106,7 +106,7 @@ suite("test_hive_warmup_select", "p0,external") {
             // Test: user without SELECT privilege should fail
             sql """REVOKE SELECT_PRIV ON ${catalog_name}.tpch1_parquet.lineitem FROM ${user1}"""
             
-            connect(user1, "${pwd}", url) {
+            connectToDoris(user1, "${pwd}", url) {
                 sql "set enable_file_cache=true"
                 sql "set disable_file_cache=false"
                 test {
@@ -118,7 +118,7 @@ suite("test_hive_warmup_select", "p0,external") {
             // Test: user with LOAD privilege but no SELECT privilege should also fail
             sql """GRANT LOAD_PRIV ON ${catalog_name}.tpch1_parquet.lineitem TO ${user1}"""
             
-            connect(user1, "${pwd}", url) {
+            connectToDoris(user1, "${pwd}", url) {
                 sql "set enable_file_cache=true"
                 sql "set disable_file_cache=false"
                 test {
