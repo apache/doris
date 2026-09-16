@@ -1168,12 +1168,13 @@ public class SessionVariable implements Serializable, Writable {
             + "data of ScanNode, default 4")
     public int maxScannersConcurrency = 4;
 
-    @VarAttrDef.VarAttr(name = INDEX_DISK_USAGE_MAX_TABLETS, description = "The max number of tablets "
-            + "index_disk_usage may scan in one query, default 20000")
+    @VarAttrDef.VarAttr(name = INDEX_DISK_USAGE_MAX_TABLETS, needForward = true, description = "The max number "
+            + "of tablets index_disk_usage may scan in one query, default 20000")
     public int indexDiskUsageMaxTablets = 20000;
 
-    @VarAttrDef.VarAttr(name = INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS, description = "The max number of "
-            + "tablets index_disk_usage may scan when position_detail is enabled, default 10000")
+    @VarAttrDef.VarAttr(name = INDEX_DISK_USAGE_POSITION_DETAIL_MAX_TABLETS, needForward = true,
+            description = "The max number of tablets index_disk_usage may scan when position_detail is enabled, "
+            + "default 10000")
     public int indexDiskUsagePositionDetailMaxTablets = 10000;
 
     @VarAttrDef.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = "The max threads to "
