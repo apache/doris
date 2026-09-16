@@ -2353,8 +2353,9 @@ public class Config extends ConfigBase {
             + "expansion entries kept per FE; a non-positive value disables the bound.")
     public static int hbo_expansion_cache_num = 5000;
 
-    @ConfField(mutable = true, description = "The default setting is 0.001. Relative threshold below which the optimizer's own "
-            + "filter estimate counts as 'extremely small' for HBO FILTER_SMALL pinned entries.")
+    @ConfField(mutable = true, description = "The default setting is 0.001. Relative threshold below which "
+            + "the optimizer's own filter estimate counts as 'extremely small' for HBO FILTER_SMALL "
+            + "pinned entries.")
     public static double hbo_filter_small_ratio = 0.001;
 
     @ConfField(description = "The default setting is 5000. Maximum number of manually injected "

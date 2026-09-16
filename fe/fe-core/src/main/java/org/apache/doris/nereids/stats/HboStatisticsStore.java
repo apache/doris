@@ -20,7 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.logging.log4j.LogManager;
