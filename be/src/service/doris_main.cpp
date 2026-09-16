@@ -485,6 +485,15 @@ int main(int argc, char** argv) {
                          << doris::config::s3_write_buffer_size
                          << "); spill uploads will run one buffer at a time";
         }
+        if (doris::config::spill_file_part_size_bytes < doris::config::s3_write_buffer_size) {
+            // Every part ends with a partially filled upload buffer that is charged to the
+            // upload budget at its full allocated size, so tiny parts waste budget.
+            LOG(WARNING) << "spill_file_part_size_bytes ("
+                         << doris::config::spill_file_part_size_bytes
+                         << ") is below s3_write_buffer_size ("
+                         << doris::config::s3_write_buffer_size
+                         << "); every spill part will hold a mostly empty upload buffer";
+        }
         LOG(INFO) << "spill data will be written to object storage, spill_storage_root_path is "
                      "ignored";
     } else {
