@@ -175,10 +175,14 @@ public class MetaCache<T> {
     public List<String> refreshNames() {
         throwIfInterrupted();
         // Retire any active load so the forced refresh is not blocked behind a stuck
-        // background refresh. Advance the generation so the old loader's publication
-        // predicate fails and it cannot overwrite the forced load's result.
+        // background refresh. Only advance the generation when the active load is still
+        // running (not done); a completed load has already been cleared by finishNamesLoad
+        // and cannot publish stale results.
         synchronized (namesMutationLock) {
-            advanceNamesGeneration();
+            if (activeNamesLoad != null && !activeNamesLoad.result.isDone()) {
+                advanceNamesGeneration();
+            }
+            activeNamesLoad = null;
             physicalNamesLoads.clear();
         }
         throwIfInterrupted();
@@ -452,7 +456,6 @@ public class MetaCache<T> {
         // Do not hold a cache-wide monitor during the blocking loader call
         // (buildDbForInit → connector I/O). Caffeine serializes same-key loads internally;
         // different keys can load in parallel without blocking updateCache/invalidate.
-        metaObjCache.invalidate(name);
         val = metaObjCache.get(name);
         if (val != null && val.isPresent()) {
             idToName.put(id, name);
