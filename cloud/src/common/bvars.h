@@ -852,6 +852,7 @@ extern mBvarInt64Adder g_bvar_rpc_kv_finish_restore_job_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_check_kv_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_obj_store_info_get_counter;
 // report_spill_stats
+extern mBvarInt64Adder g_bvar_rpc_kv_report_spill_stats_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_report_spill_stats_put_counter;
 // get_spill_stats
 extern mBvarInt64Adder g_bvar_rpc_kv_get_spill_stats_get_counter;
@@ -1001,6 +1002,7 @@ extern mBvarInt64Adder g_bvar_rpc_kv_finish_restore_job_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_check_kv_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_obj_store_info_get_bytes;
 // report_spill_stats
+extern mBvarInt64Adder g_bvar_rpc_kv_report_spill_stats_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_report_spill_stats_put_bytes;
 // get_spill_stats
 extern mBvarInt64Adder g_bvar_rpc_kv_get_spill_stats_get_bytes;

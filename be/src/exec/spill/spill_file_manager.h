@@ -21,6 +21,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -55,7 +56,7 @@ public:
                  TStorageMedium::type storage_medium = TStorageMedium::HDD);
 
     /// Remote (object storage) store. The file system and the object key root are resolved
-    /// lazily by ensure_ready(): the storage vault and cloud_unique_id may not be available
+    /// lazily by ensure_ready(): the storage vault and the backend id may not be available
     /// when BE starts (both come from meta-service / FE heartbeat).
     /// @param vault_id  storage vault id, empty means the default vault of the instance.
     /// @param boot_id   boot generation of this BE process, see get_spill_data_path().
@@ -71,11 +72,11 @@ public:
     bool ready() const { return _ready.load(std::memory_order_acquire); }
 
     /// Remote only: resolve the storage vault file system and bind it. Idempotent and thread
-    /// safe. Returns an error while cloud_unique_id or the storage vault is not available yet.
+    /// safe. Returns an error while the backend id or the storage vault is not available yet.
     Status ensure_ready();
 
     /// Remote only: bind a file system directly. Used by ensure_ready() and by tests.
-    void init_remote_fs(io::FileSystemSPtr fs, const std::string& cloud_unique_id);
+    void init_remote_fs(io::FileSystemSPtr fs, int64_t backend_id);
 
     /// File system used for all spill IO of this store. Remote stores return nullptr until ready.
     io::FileSystemSPtr fs() const;
@@ -84,7 +85,7 @@ public:
 
     /// Root of spill data of this store, optionally for one query:
     ///   local:  {path}/spill[/query_id]
-    ///   remote: spill/{cloud_unique_id}/{boot_id}[/query_id]   (relative to the vault prefix)
+    ///   remote: spill/{backend_id}/data/{boot_id}[/query_id]   (relative to the vault prefix)
     /// Every object written by this process lives under the current boot_id, so objects under
     /// another boot_id always belong to a dead process and can be deleted at startup without
     /// racing with running queries.
@@ -92,8 +93,26 @@ public:
 
     std::string get_spill_data_gc_path(const std::string& sub_dir_name = "") const;
 
-    /// Remote only: key prefix shared by all boot generations of this BE, spill/{cloud_unique_id}.
+    /// Remote only: key prefix shared by all boot generations of this BE, spill/{backend_id}.
+    /// backend_id is FE-assigned and unique per BE (cloud_unique_id is not: every BE added by
+    /// one ADD BACKEND statement shares it), so no two live processes ever share this prefix.
     const std::string& get_remote_be_root() const { return _remote_be_root; }
+    /// Remote only: spill/{backend_id}/data/{boot_id} — the data of one boot generation.
+    std::string get_remote_boot_data_path(std::string_view boot_id) const {
+        return fmt::format("{}/data/{}", _remote_be_root, boot_id);
+    }
+    /// Remote only: spill/{backend_id}/boots/{boot_id} — an empty marker object written once
+    /// the store is ready and refreshed daily. Startup cleanup lists only this small directory
+    /// to discover other boot generations instead of listing every spill object of the BE.
+    /// The meta-service recycler deletes markers like any other spill object once they are
+    /// older than spill_objects_expire_time_second (> 1 day by contract); the daily refresh keeps
+    /// the marker of a live process alive, and a generation whose marker is gone (crash before
+    /// the first GC round, TTL misconfigured) is only reclaimed by that recycler.
+    std::string get_remote_boot_marker_path(std::string_view boot_id) const {
+        return fmt::format("{}/boots/{}", _remote_be_root, boot_id);
+    }
+    std::string get_remote_boots_path() const { return fmt::format("{}/boots", _remote_be_root); }
+    int64_t backend_id() const { return _backend_id; }
 
     int64_t boot_id() const { return _boot_id; }
 
@@ -152,11 +171,12 @@ private:
     bool _is_remote = false;
     std::string _vault_id;
     int64_t _boot_id = 0;
+    int64_t _backend_id = 0;
     std::mutex _init_mutex;
     std::atomic<bool> _ready {false};
     io::FileSystemSPtr _fs;
     std::string _remote_be_root;
-    // Root of spill data: local "{path}/spill", remote "spill/{cloud_unique_id}/{boot_id}".
+    // Root of spill data: local "{path}/spill", remote "spill/{backend_id}/data/{boot_id}".
     std::string _spill_root;
 
     // protect _disk_capacity_bytes, _available_bytes, _spill_data_limit_bytes, _spill_data_bytes
@@ -253,7 +273,11 @@ private:
     void _retry_pending_query_spill_directories();
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
     void _remote_gc(SpillDataDir* store);
-    Status _remote_startup_cleanup(SpillDataDir* store);
+    /// Write the boot marker of the current generation (see get_remote_boot_marker_path).
+    Status _remote_write_boot_marker(SpillDataDir* store);
+    /// Delete the data of one other boot generation; `done` is set when none is left. Bounded
+    /// work per GC round: one listing of the boots directory and one generation.
+    Status _remote_startup_cleanup(SpillDataDir* store, bool* done);
     /// Send the since-boot totals to meta-service when they changed since the last report.
     /// `final_report` skips the cadence check.
     void _report_remote_spill_stats(SpillDataDir* store, bool final_report = false);
@@ -262,6 +286,8 @@ private:
 
     std::shared_ptr<SpillRemoteUploadBudget> _remote_upload_budget;
     std::atomic<bool> _remote_startup_cleanup_pending {false};
+    std::atomic<bool> _remote_boot_marker_pending {false};
+    int64_t _remote_boot_marker_rounds = 0;
     int64_t _remote_not_ready_rounds = 0;
     std::atomic<int64_t> _remote_write_bytes_since_boot {0};
     std::atomic<int64_t> _remote_put_requests_since_boot {0};
