@@ -61,6 +61,7 @@
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uint.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
@@ -134,11 +135,17 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
     case FieldType::OLAP_FIELD_TYPE_INT:
         result = std::make_shared<DataTypeInt32>();
         break;
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT:
+        result = std::make_shared<DataTypeUInt32>();
+        break;
     case FieldType::OLAP_FIELD_TYPE_FLOAT:
         result = std::make_shared<DataTypeFloat32>();
         break;
     case FieldType::OLAP_FIELD_TYPE_BIGINT:
         result = std::make_shared<DataTypeInt64>();
+        break;
+    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+        result = std::make_shared<DataTypeUInt64>();
         break;
     case FieldType::OLAP_FIELD_TYPE_LARGEINT:
         result = std::make_shared<DataTypeInt128>();
