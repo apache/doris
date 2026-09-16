@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_constant_column_topn_lazy_rowid") {
-    if (!isCloudMode()) {
-        return
-    }
-
     sql "DROP TABLE IF EXISTS test_constant_column_topn_lazy_rowid"
     sql """
         CREATE TABLE test_constant_column_topn_lazy_rowid (
