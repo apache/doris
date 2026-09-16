@@ -601,6 +601,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (!isActive()) {
                 return false;
             }
+            if (runningStreamTask != null && TaskStatus.PENDING.equals(runningStreamTask.getStatus())) {
+                // Cancel the waiting task when a metadata scan detects the end of the source.
+                cancelAllTasks(false);
+            }
             resetFailureInfo(null);
             updateJobStatus(JobStatus.FINISHED);
             logUpdateOperation();
