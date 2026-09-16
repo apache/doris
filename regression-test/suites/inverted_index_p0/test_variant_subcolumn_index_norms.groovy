@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Analyzed indexes on variant subcolumns must not write dense BM25 norms (.nrm, one byte per row),
-// while analyzed indexes on ordinary columns still do. BM25 scoring keeps working on both.
-// This holds both for an index declared with a field_pattern and for a whole-column index on a
-// VARIANT column, whose per-subcolumn copies inherit the properties of the index they come from.
+// An analyzed index writes dense BM25 norms (.nrm, one byte per segment row), on a variant path as
+// on any other column, and "norms" = "false" drops them. Norms on a variant path cost rows * paths
+// bytes, so inverted_index_skip_norms_for_variant leaves them out there whatever the property says.
+// This covers both an index declared with a field_pattern and a whole-column
+// index on a VARIANT column, whose per-subcolumn copies inherit the properties of the index they
+// come from. BM25 scoring keeps working with and without norms.
 suite("test_variant_subcolumn_index_norms", "p0") {
     if (isCloudMode()) {
         return
@@ -60,7 +62,7 @@ suite("test_variant_subcolumn_index_norms", "p0") {
                 "parser"="english",
                 "support_phrase"="true",
                 "field_pattern"="t_*",
-                "norms"="true"
+                "norms"="false"
             ),
             INDEX idx_vd (vd) USING INVERTED PROPERTIES(
                 "parser"="english",
@@ -69,7 +71,7 @@ suite("test_variant_subcolumn_index_norms", "p0") {
             INDEX idx_vn (vn) USING INVERTED PROPERTIES(
                 "parser"="english",
                 "support_phrase"="true",
-                "norms"="true"
+                "norms"="false"
             )
         ) ENGINE=OLAP DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -103,6 +105,13 @@ suite("test_variant_subcolumn_index_norms", "p0") {
         order by score() desc
         limit 10
     """
+    order_qt_variant_subcolumn_score_no_norms """
+        select id, round(score(), 4)
+        from test_variant_subcolumn_index_norms
+        where cast(v["t_note"] as string) match_phrase "alpha"
+        order by score() desc
+        limit 10
+    """
     order_qt_plain_column_score """
         select id, round(score(), 4)
         from test_variant_subcolumn_index_norms
@@ -114,36 +123,92 @@ suite("test_variant_subcolumn_index_norms", "p0") {
     def backendIdToIp = [:]
     def backendIdToHttpPort = [:]
     getBackendIpHttpPort(backendIdToIp, backendIdToHttpPort)
-    def tablet = sql_return_maparray("show tablets from test_variant_subcolumn_index_norms")[0]
-    def (code, out, err) = http_client("GET", String.format(
-            "http://%s:%s/api/show_nested_index_file?tablet_id=%s",
-            backendIdToIp.get(tablet.BackendId), backendIdToHttpPort.get(tablet.BackendId),
-            tablet.TabletId))
-    logger.info("show_nested_index_file code=${code}, out=${out}, err=${err}")
-    assertEquals(0, code)
-
-    def normsBySuffix = [:]
-    for (def rowset in parseJson(out.trim()).rowsets) {
-        for (def segment in rowset.segments) {
-            for (def index in segment.indices) {
-                normsBySuffix[index.index_suffix] = index.files.any { file -> file.name.endsWith(".nrm") }
+    def normsBySuffixOf = { tableName ->
+        def tablet = sql_return_maparray("show tablets from ${tableName}")[0]
+        def (code, out, err) = http_client("GET", String.format(
+                "http://%s:%s/api/show_nested_index_file?tablet_id=%s",
+                backendIdToIp.get(tablet.BackendId), backendIdToHttpPort.get(tablet.BackendId),
+                tablet.TabletId))
+        logger.info("show_nested_index_file of ${tableName} code=${code}, out=${out}, err=${err}")
+        assertEquals(0, code)
+        def norms = [:]
+        for (def rowset in parseJson(out.trim()).rowsets) {
+            for (def segment in rowset.segments) {
+                for (def index in segment.indices) {
+                    norms[index.index_suffix] = index.files.any { file -> file.name.endsWith(".nrm") }
+                }
             }
         }
+        logger.info("norms by index suffix of ${tableName}: ${norms}")
+        return norms
     }
-    logger.info("norms by index suffix: ${normsBySuffix}")
     // the suffix is the escaped variant path, e.g. v%2Es%5Fhost for v.s_host
-    def normsOf = { path ->
-        normsBySuffix.find { suffix, hasNorms ->
+    def normsOf = { norms, path ->
+        norms.find { suffix, hasNorms ->
             suffix.replace("%2E", ".").replace("%5F", "_").contains(path)
         }?.value
     }
-    // idx_content on an ordinary column keeps norms, idx_v_s drops them, idx_v_t asks for them back
+
+    def normsBySuffix = normsBySuffixOf("test_variant_subcolumn_index_norms")
+    // an analyzed index writes norms wherever it sits, and "norms" = "false" drops them
     assertEquals(true, normsBySuffix[""])
-    assertEquals(false, normsOf("s_host"))
-    assertEquals(false, normsOf("s_note"))
-    assertEquals(true, normsOf("t_note"))
+    assertEquals(true, normsOf(normsBySuffix, "s_host"))
+    assertEquals(true, normsOf(normsBySuffix, "s_note"))
+    assertEquals(false, normsOf(normsBySuffix, "t_note"))
     // a whole-column index on a VARIANT column has no suffix of its own, but every subcolumn copy
-    // inherits its properties: idx_vd drops norms by default, idx_vn keeps them because it asks to
-    assertEquals(false, normsOf("a_host"))
-    assertEquals(true, normsOf("b_host"))
+    // inherits its properties: idx_vd keeps norms, idx_vn drops them because it asks to
+    assertEquals(true, normsOf(normsBySuffix, "a_host"))
+    assertEquals(false, normsOf(normsBySuffix, "b_host"))
+
+    // the skip is a dynamic BE config: with it turned on, every index on a variant path leaves norms
+    // out, even one that asks for them, while an ordinary column index is untouched
+    setBeConfigTemporary([inverted_index_skip_norms_for_variant: true]) {
+        sql "DROP TABLE IF EXISTS test_variant_subcolumn_index_norms_config"
+        sql """
+            CREATE TABLE test_variant_subcolumn_index_norms_config (
+                id INT,
+                content TEXT,
+                v variant<
+                    's_*' : text,
+                    PROPERTIES("variant_max_subcolumns_count"="0")
+                >,
+                vf variant<
+                    'c_*' : text,
+                    PROPERTIES("variant_max_subcolumns_count"="0")
+                >,
+                INDEX idx_content (content) USING INVERTED PROPERTIES(
+                    "parser"="english",
+                    "support_phrase"="true"
+                ),
+                INDEX idx_v_s (v) USING INVERTED PROPERTIES(
+                    "parser"="english",
+                    "support_phrase"="true",
+                    "field_pattern"="s_*"
+                ),
+                INDEX idx_vf (vf) USING INVERTED PROPERTIES(
+                    "parser"="english",
+                    "support_phrase"="true",
+                    "norms"="true"
+                )
+            ) ENGINE=OLAP DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "disable_auto_compaction" = "true",
+                "inverted_index_storage_format" = "V2"
+            )
+        """
+        sql """ insert into test_variant_subcolumn_index_norms_config values
+                (1, 'alpha database server', parse_to_variant('{"s_host":"alpha database server"}'),
+                    parse_to_variant('{"c_host":"alpha database server"}')),
+                (2, 'beta server cluster', parse_to_variant('{"s_host":"beta server cluster"}'),
+                    parse_to_variant('{"c_host":"beta server cluster"}'))
+        """
+        sql " sync "
+
+        def configNorms = normsBySuffixOf("test_variant_subcolumn_index_norms_config")
+        assertEquals(false, normsOf(configNorms, "s_host"))
+        assertEquals(false, normsOf(configNorms, "c_host"))
+        assertEquals(true, configNorms[""])
+    }
 }

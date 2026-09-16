@@ -155,11 +155,9 @@ std::string get_parser_mode_string_from_properties(
 std::string get_parser_phrase_support_string_from_properties(
         const std::map<std::string, std::string>& properties);
 
-// Whether this index writes BM25 norms. Norms cost one byte per row of the segment, including rows
-// that have no value for the field, so callers pass a default of false for indexes on variant paths,
-// where one segment holds one index per path. "norms" = "true" / "false" overrides the default.
-bool get_index_norms_from_properties(const std::map<std::string, std::string>& properties,
-                                     bool default_value);
+// Whether this index writes BM25 norms, which it does unless "norms" = "false" says otherwise.
+// Norms cost one byte per row of the segment, including rows that have no value for the field.
+bool get_index_norms_from_properties(const std::map<std::string, std::string>& properties);
 
 CharFilterMap get_parser_char_filter_map_from_properties(
         const std::map<std::string, std::string>& properties);
