@@ -77,8 +77,7 @@ Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mapping
                                                row_binlog_schema.binlog_op_col_idx()};
     std::vector<bool> used_target_cids(row_binlog_schema.num_columns(), false);
     for (int32_t cid : special_cids) {
-        if (cid < 0 || std::cmp_greater_equal(cid, row_binlog_schema.num_columns()) ||
-            row_binlog_schema.column(cid).is_key() || used_target_cids[cid]) {
+        if (cid < 0 || row_binlog_schema.column(cid).is_key()) {
             return ResultError(
                     Status::InvalidArgument("Invalid row-binlog special column cid {}", cid));
         }
@@ -120,8 +119,7 @@ Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mapping
         std::optional<ColumnId> resolved_before_cid;
         if (before_cid >= 0) {
             const auto& before_column = row_binlog_schema.column(before_cid);
-            if (source_column.is_key() || !source_column.visible() || before_column.is_key() ||
-                used_target_cids[before_cid] ||
+            if (source_column.is_key() || before_column.is_key() || used_target_cids[before_cid] ||
                 !row_binlog_columns_have_compatible_shape(current_column, before_column, false)) {
                 return ResultError(Status::InvalidArgument(
                         "Invalid row-binlog before mapping ({}, {})", source_cid, before_cid));
@@ -195,7 +193,7 @@ Status setup_retriever_and_lookup(TransformExecContext& ctx, const SegmentWriteB
 // not const: reading BEFORE also loads the old delete signs it keeps.
 Status fill_before_columns(Block& out, const TabletSchema& binlog_schema,
                            PrimaryKeyModelRowRetriever* retriever,
-                           const std::vector<RowBinlogColumnCidMapping>& column_mappings,
+                           std::span<const RowBinlogColumnCidMapping> column_mappings,
                            size_t num_rows) {
     std::vector<uint32_t> source_cids;
     std::vector<uint32_t> before_cids;
@@ -340,11 +338,7 @@ Status emit_binlog_block(const BinlogDeriveContext& c, const Block* after_src,
                          const std::vector<int64_t>* plain_operators, Block* block) {
     Block out = c.binlog_schema->create_storage_block();
     // every index below is a cid, so the block has to carry every schema column
-    if (out.columns() != c.binlog_schema->num_columns()) {
-        return Status::InternalError<false>(
-                "binlog<row> block width {} does not match its schema's {} columns", out.columns(),
-                c.binlog_schema->num_columns());
-    }
+    DCHECK_EQ(out.columns(), c.binlog_schema->num_columns());
     for (const auto& mapping : c.column_mappings) {
         const uint32_t source_cid = mapping.source_cid;
         ColumnPtr after_column = after_src->get_by_position(source_cid).column;

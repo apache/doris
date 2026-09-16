@@ -597,9 +597,7 @@ Status TxnManager::publish_txn(
     // transaction schemas before changing visibility, including after committed-rowset recovery.
     if (tablet_txn_info->unique_key_merge_on_write &&
         tablet_txn_info->attach_row_binlog.rowset != nullptr) {
-        if (row_binlog_column_mappings == nullptr ||
-            !row_binlog_column_mappings->has_need_historical_value() ||
-            !row_binlog_column_mappings->IsInitialized()) {
+        if (row_binlog_column_mappings == nullptr) {
             return Status::InvalidArgument(
                     "Missing row-binlog publish mapping snapshot, tablet_id={}, txn_id={}",
                     tablet_id, transaction_id);
@@ -701,10 +699,10 @@ Status TxnManager::publish_txn(
     }
 
     /// Step 4: save meta
-    RowsetMetaPB visible_meta = rowset->rowset_meta()->get_rowset_pb();
     int64_t t5 = MonotonicMicros();
-    auto status = RowsetMetaManager::save(meta, tablet_uid, rowset->rowset_id(), visible_meta,
-                                          binlog_format, attach_row_binlog_rowset_meta);
+    auto status = RowsetMetaManager::save(meta, tablet_uid, rowset->rowset_id(),
+                                          rowset->rowset_meta()->get_rowset_pb(), binlog_format,
+                                          attach_row_binlog_rowset_meta);
     stats->save_meta_time_us += MonotonicMicros() - t5;
     if (!status.ok()) {
         status.append(fmt::format(", txn id: {}", transaction_id));
