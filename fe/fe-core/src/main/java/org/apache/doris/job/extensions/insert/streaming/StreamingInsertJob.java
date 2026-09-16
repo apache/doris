@@ -555,6 +555,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void updateJobStatus(JobStatus status) throws JobException {
         lock.writeLock().lock();
         try {
+            if (isFinalStatus() && !getJobStatus().equals(status)) {
+                throw new JobException("Can't update final job status " + getJobStatus() + " to " + status);
+            }
             super.updateJobStatus(status);
             if (JobStatus.PAUSED.equals(getJobStatus())) {
                 clearRunningStreamTask(status);
@@ -586,6 +589,37 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 return false;
             }
             updateJobStatus(newStatus);
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public boolean tryFinishJob() throws JobException {
+        lock.writeLock().lock();
+        try {
+            if (!isActive()) {
+                return false;
+            }
+            resetFailureInfo(null);
+            updateJobStatus(JobStatus.FINISHED);
+            logUpdateOperation();
+            return true;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    private boolean tryPauseJob(FailureReason reason) throws JobException {
+        lock.writeLock().lock();
+        try {
+            if (!isActive()
+                    || (getFailureReason() != null
+                    && InternalErrorCode.MANUAL_PAUSE_ERR.equals(getFailureReason().getCode()))) {
+                return false;
+            }
+            updateJobStatus(JobStatus.PAUSED);
+            setFailureReason(reason);
             return true;
         } finally {
             lock.writeLock().unlock();
@@ -766,17 +800,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             offsetProvider.fetchRemoteMeta(props);
         } catch (Exception ex) {
             log.warn("fetch remote meta failed, job id: {}", getJobId(), ex);
-            if (this.getFailureReason() == null
-                    || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
-                // When a job is manually paused, it does not need to be set again,
-                // otherwise, it may be woken up by auto resume.
-                // Pause before setting the reason: updateJobStatus's writeLock orders this after any
-                // task-success callback that clears failureReason, so a success can't wipe the reason.
-                this.updateJobStatus(JobStatus.PAUSED);
-                this.setFailureReason(
-                        new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                                "Failed to fetch meta, " + ex.getMessage()));
-
+            if (tryPauseJob(new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to fetch meta, " + ex.getMessage()))) {
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
                 }
@@ -814,24 +839,22 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
         } catch (Exception ex) {
             log.warn("advance splits failed, job id: {}", getJobId(), ex);
-            if (this.getFailureReason() == null
-                    || !InternalErrorCode.MANUAL_PAUSE_ERR.equals(this.getFailureReason().getCode())) {
-                this.setFailureReason(new FailureReason(
-                        InternalErrorCode.GET_REMOTE_DATA_ERROR,
-                        "Failed to advance splits, " + ex.getMessage()));
-                this.updateJobStatus(JobStatus.PAUSED);
-            }
+            tryPauseJob(new FailureReason(InternalErrorCode.GET_REMOTE_DATA_ERROR,
+                    "Failed to advance splits, " + ex.getMessage()));
         }
     }
 
     public boolean needScheduleTask() {
         readLock();
         try {
-            return (getJobStatus().equals(JobStatus.RUNNING)
-                    || getJobStatus().equals(JobStatus.PENDING));
+            return isActive();
         } finally {
             readUnlock();
         }
+    }
+
+    private boolean isActive() {
+        return JobStatus.PENDING.equals(getJobStatus()) || JobStatus.RUNNING.equals(getJobStatus());
     }
 
     public void clearRunningStreamTask(JobStatus newJobStatus) {
@@ -917,7 +940,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
 
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
-            if (offsetProvider.hasReachedEnd(task.getRunningOffset())) {
+            if (offsetProvider.hasReachedEnd()) {
                 // offset provider has reached a natural end, mark job as finished
                 log.info("Streaming insert job {} source data fully consumed, marking job as FINISHED", getJobId());
                 updateJobStatus(JobStatus.FINISHED);
@@ -972,6 +995,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setFileSize(attachment.getFileBytes());
         this.jobStatistic.setFilteredRows(attachment.getFilteredRows());
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+        this.offsetProviderPersist = offsetProvider.getPersistInfo();
 
         //update metric
         if (MetricRepo.isInit && !isReplay) {
@@ -1052,6 +1076,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getJobId());
             }
         }
+        if (replayJob.getOffsetProviderPersist() != null) {
+            setOffsetProviderPersist(replayJob.getOffsetProviderPersist());
+        }
         try {
             modifyPropertiesInternal(replayJob.getProperties());
             // When the pause state is restarted, it also needs to be updated
@@ -1061,9 +1088,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         } catch (Exception e) {
             // should not happen
             log.error("replay modify streaming insert job properties failed, job id: {}", getJobId(), e);
-        }
-        if (replayJob.getOffsetProviderPersist() != null) {
-            setOffsetProviderPersist(replayJob.getOffsetProviderPersist());
         }
         if (replayJob.getNonTxnJobStatistic() != null) {
             setNonTxnJobStatistic(replayJob.getNonTxnJobStatistic());

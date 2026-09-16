@@ -183,11 +183,6 @@ public interface SourceOffsetProvider {
         return false;
     }
 
-    /** Whether the successfully committed task reached the end of its source. */
-    default boolean hasReachedEnd(Offset taskOffset) {
-        return hasReachedEnd();
-    }
-
     /**
      * Advance one batch of split fetching, called by scheduler each tick during PENDING/RUNNING.
      * For providers without async splitting work (e.g. S3, Kafka), default is no-op.

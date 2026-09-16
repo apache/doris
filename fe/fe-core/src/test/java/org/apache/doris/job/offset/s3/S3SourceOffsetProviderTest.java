@@ -68,28 +68,28 @@ public class S3SourceOffsetProviderTest {
             Assertions.assertTrue(provider.hasMoreDataToConsume());
             S3Offset first = provider.getNextOffset(ONCE_PROPS, TVF_PROPS);
             Assertions.assertEquals("data/a.csv", first.getEndFile());
-            Assertions.assertFalse(provider.hasReachedEnd(first));
+            Assertions.assertFalse(first.isLastBatch());
             Assertions.assertEquals("data/a.csv", provider.getNextOffset(ONCE_PROPS, TVF_PROPS).getEndFile());
             provider.updateOffset(provider.deserializeOffset(first.toSerializedJson()));
             Assertions.assertTrue(provider.hasMoreDataToConsume());
             S3Offset second = provider.getNextOffset(ONCE_PROPS, TVF_PROPS);
             Assertions.assertEquals("data/b.csv", second.getEndFile());
-            Assertions.assertTrue(provider.hasReachedEnd(second));
+            Assertions.assertTrue(second.isLastBatch());
             Assertions.assertFalse(provider.hasReachedEnd());
             // A concurrent metadata probe cannot change this task's completion decision.
             provider.fetchRemoteMeta(TVF_PROPS);
-            Assertions.assertTrue(provider.hasReachedEnd(second));
+            Assertions.assertTrue(second.isLastBatch());
+            Assertions.assertFalse(provider.hasReachedEnd());
             Assertions.assertEquals("data/b.csv", provider.getNextOffset(ONCE_PROPS, TVF_PROPS).getEndFile());
-            Assertions.assertFalse(second.toSerializedJson().contains("lastBatch"));
             provider.updateOffset(provider.deserializeOffset(second.toSerializedJson()));
-            Assertions.assertFalse(provider.hasMoreDataToConsume());
-            provider.fetchRemoteMeta(TVF_PROPS);
             Assertions.assertTrue(provider.hasReachedEnd());
+            Assertions.assertFalse(provider.hasMoreDataToConsume());
 
             S3SourceOffsetProvider recovered = new S3SourceOffsetProvider(ONCE_PROPS);
             recovered.restoreFromPersistInfo(provider.getPersistInfo());
-            Assertions.assertFalse(recovered.hasReachedEnd());
+            Assertions.assertTrue(recovered.hasReachedEnd());
             Assertions.assertFalse(recovered.hasMoreDataToConsume());
+
             recovered.fetchRemoteMeta(TVF_PROPS);
             Assertions.assertTrue(recovered.hasReachedEnd());
 
@@ -98,8 +98,20 @@ public class S3SourceOffsetProviderTest {
             S3SourceOffsetProvider recoveredWithNewFile = new S3SourceOffsetProvider(ONCE_PROPS);
             recoveredWithNewFile.restoreFromPersistInfo(provider.getPersistInfo());
             recoveredWithNewFile.fetchRemoteMeta(TVF_PROPS);
-            Assertions.assertFalse(recoveredWithNewFile.hasReachedEnd());
-            Assertions.assertTrue(recoveredWithNewFile.hasMoreDataToConsume());
+            Assertions.assertTrue(recoveredWithNewFile.hasReachedEnd());
+            Assertions.assertFalse(recoveredWithNewFile.hasMoreDataToConsume());
+
+            S3SourceOffsetProvider legacyWithNewFile = new S3SourceOffsetProvider();
+            legacyWithNewFile.restoreFromPersistInfo("{\"endFile\":\"data/b.csv\"}");
+            legacyWithNewFile.fetchRemoteMeta(TVF_PROPS);
+            Assertions.assertFalse(legacyWithNewFile.hasReachedEnd());
+            Assertions.assertTrue(legacyWithNewFile.hasMoreDataToConsume());
+
+            S3SourceOffsetProvider lexical = new S3SourceOffsetProvider();
+            lexical.restoreFromPersistInfo(provider.getPersistInfo());
+            lexical.fetchRemoteMeta(TVF_PROPS);
+            Assertions.assertFalse(lexical.hasReachedEnd());
+            Assertions.assertTrue(lexical.hasMoreDataToConsume());
         }
     }
 
