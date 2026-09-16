@@ -63,14 +63,42 @@ under the License.
     </input>
     <executionControl>
         <runAlways>
-            <!-- Checkstyle is a quality gate that must always execute; never use a cached result. -->
             <executions>
+                <!-- Checkstyle is a quality gate that must always execute; never use a cached result. -->
                 <execution artifactId="maven-checkstyle-plugin">
                     <execIds>
                         <execId>validate</execId>
                     </execIds>
                 </execution>
+                <!-- The wipe of target/lib that be-java-extensions/pom.xml binds right before the
+                     copy-dependencies forced below. The two run as a pair or not at all: a copy
+                     without the wipe deploys the union of every dependency set the directory has
+                     ever held, which is the drift that wipe exists to prevent. -->
+                <execution artifactId="maven-clean-plugin">
+                    <execIds>
+                        <execId>wipe-plugin-lib</execId>
+                    </execIds>
+                </execution>
             </executions>
+            <goalsLists>
+                <!-- A cache hit restores a module's jar and nothing else: whatever a skipped mojo
+                     wrote elsewhere under target/ stays missing. Every BE Java plugin (and
+                     hadoop-deps) deploys as a thin jar plus the runtime closure copy-dependencies
+                     writes to target/lib, which build.sh copies verbatim, so a cache-restored
+                     plugin would ship with no dependencies at all and fail the closure rule of
+                     tools/be-java-plugins/check_plugin_layout.py. Harmless on a working copy, which
+                     still holds the target/lib of its last real build; fatal in CI, which wipes
+                     target/ before every build (git clean -fdx) while ~/.m2/build-cache survives -
+                     the first build on an agent seeds the cache and every later one deploys empty
+                     plugins. Forcing the goal only copies jars out of the local repository, far
+                     cheaper than keeping the closure (hundreds of jars per plugin) in the cache as
+                     attached outputs. -->
+                <goalsList artifactId="maven-dependency-plugin">
+                    <goals>
+                        <goal>copy-dependencies</goal>
+                    </goals>
+                </goalsList>
+            </goalsLists>
         </runAlways>
     </executionControl>
 </cache>

@@ -296,6 +296,14 @@ public class TrinoBootstrap {
                 systemSessionProperties, servicesProvider);
     }
 
+    /**
+     * Sends this JVM's JUL output to {@code log/trinoconnector%g.log}, 500 MB across 10 files.
+     *
+     * <p>This is the FE's copy of the trino connector and this file is still written. The BE side no
+     * longer has one - the plugin runtime routes every plugin's logging into {@code log/jni.log} - so
+     * "trinoconnector0.log is gone" is true of a BE and NOT of an FE. Worth stating because the two
+     * halves of the trino connector look alike and only one of them changed.
+     */
     private static void configureJulLogging() {
         try {
             System.setProperty("java.util.logging.SimpleFormatter.format",

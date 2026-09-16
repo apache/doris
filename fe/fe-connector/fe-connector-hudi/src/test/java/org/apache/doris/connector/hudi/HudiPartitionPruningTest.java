@@ -192,6 +192,43 @@ public class HudiPartitionPruningTest {
                 Arrays.asList("year=2024/month=01", "year=2024/month=02"), prunedPaths(result));
     }
 
+    /**
+     * A pinned read on a hive-sync table prunes the Hudi metadata listing, never HMS. HMS holds the
+     * partitions of NOW: a partition that held data at the pin and was dropped - and hive-unsynced - since
+     * is gone from it, so pruning {@code part = GONE} against HMS yields an empty list, which the scan
+     * reads as "zero paths" and the query silently comes back short. The metadata listing is the universe
+     * the unpruned pinned scan walks itself, so pruning it can only ever keep what that scan would read.
+     */
+    @Test
+    public void testPinnedHiveSyncReadPrunesTheMetadataListingNotHms() {
+        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+                new FakeHmsClient(Collections.singletonList("year=2024/month=01")),   // GONE already unsynced
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                new StubMetaClientExecutor(Arrays.asList("year=2024/month=01", "year=2023/month=12")));
+        HudiTableHandle pinned = partitionedHandle().toBuilder().queryInstant("20240101000000000").build();
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result =
+                metadata.applyFilter(null, pinned, new ConnectorFilterConstraint(eq("year", "2023")));
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.singletonList("year=2023/month=12"), prunedPaths(result),
+                "the partition dropped since the pin is still read: it came from the metadata listing");
+        Assertions.assertEquals("20240101000000000",
+                ((HudiTableHandle) result.get().getHandle()).getQueryInstant(), "the pin survives the pruning");
+    }
+
+    /** The shape the pinned case exists to prevent, shown on the latest read where it is the right answer. */
+    @Test
+    public void testLatestHiveSyncReadPrunesAgainstHmsAndMayPruneToNothing() {
+        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+                new FakeHmsClient(Collections.singletonList("year=2024/month=01")),
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                new StubMetaClientExecutor(Arrays.asList("year=2024/month=01", "year=2023/month=12")));
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result =
+                metadata.applyFilter(null, partitionedHandle(), new ConnectorFilterConstraint(eq("year", "2023")));
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(Collections.emptyList(), prunedPaths(result),
+                "at the latest instant HMS is the truth, and a dropped partition has no rows to read");
+    }
+
     @Test
     public void prunePartitionPathsMatchesPositionalLayout() {
         // Direct offline unit for the non-hive-sync prune helper: positional relative paths matched by the values

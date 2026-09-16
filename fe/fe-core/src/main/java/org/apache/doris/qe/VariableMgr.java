@@ -155,6 +155,8 @@ public class VariableMgr {
             "enable_phrase_query_sequential_opt",
             "enable_rust_lance_reader",
             "enable_paimon_cpp_reader",
+            "enable_nereids_trace",
+            "nereids_trace_event_mode",
             "shuffled_agg_node_ids",
             "plan_nereids_dump");
 
