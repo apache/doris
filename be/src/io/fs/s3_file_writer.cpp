@@ -100,7 +100,7 @@ S3FileWriter::~S3FileWriter() {
     s3_file_being_written << -1;
 }
 
-void S3FileWriter::_record_request(std::atomic<int64_t> RemoteWriteStats::* counter,
+void S3FileWriter::_record_request(std::atomic<int64_t> RemoteWriteStats::*counter,
                                    int64_t elapsed_ns, bool ok, int64_t uploaded_bytes) {
     if (_remote_write_stats == nullptr) {
         return;
@@ -225,7 +225,7 @@ Status S3FileWriter::close(bool non_block) {
             // the caller's thread, so that _close_impl() never blocks a NonBlockCloseThreadPool
             // thread. A refusal marks the writer failed; closing continues so that in-flight
             // uploads drain.
-            static_cast<void>(_pass_upload_gate(_pending_buf->get_size()));
+            static_cast<void>(_pass_upload_gate(_pending_buf->get_capacaticy()));
         }
     }
     if (non_block) {
@@ -387,12 +387,12 @@ Status S3FileWriter::_close_impl() {
     }
 
     if (_pending_buf != nullptr) { // there is remaining data in buffer need to be uploaded
-        size_t pending_bytes = _pending_buf->get_size();
+        const size_t pending_capacity = _pending_buf->get_capacaticy();
         auto st = _submit_upload_buffer(_pending_buf);
         _pending_buf = nullptr;
         if (!st.ok()) {
             // Never uploaded: the buffer passed the gate in close(), report it as done.
-            _notify_upload_done(pending_bytes);
+            _notify_upload_done(pending_capacity);
             _wait_until_finish("pending buffer submit failed");
             return st;
         }
@@ -442,14 +442,16 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
             // the pending_buf is handled here and submitted. it will be waited by _complete()
             if (_pending_buf->get_size() == buffer_size) {
                 // Flow control before any request is issued, so that a refused buffer leaves
-                // no dangling multipart upload behind.
-                RETURN_IF_ERROR(_pass_upload_gate(buffer_size));
+                // no dangling multipart upload behind. The gate is charged with the buffer's
+                // allocated capacity (a full buffer here), see FileWriterOptions.
+                const size_t buf_capacity = _pending_buf->get_capacaticy();
+                RETURN_IF_ERROR(_pass_upload_gate(buf_capacity));
                 // only create multiple upload request when the data size is
                 // larger or equal to s3_write_buffer_size than one memory buffer
                 if (_cur_part_num == 1) {
                     auto st = _create_multi_upload_request();
                     if (!st.ok()) {
-                        _notify_upload_done(buffer_size);
+                        _notify_upload_done(buf_capacity);
                         _fail_writer(st);
                         return st;
                     }
@@ -459,7 +461,7 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
                 _pending_buf = nullptr;
                 if (!st.ok()) {
                     // Never uploaded: report the buffer as done right away.
-                    _notify_upload_done(buffer_size);
+                    _notify_upload_done(buf_capacity);
                 }
                 RETURN_IF_ERROR(st);
             }
@@ -474,7 +476,8 @@ void S3FileWriter::_upload_one_part(int part_num, UploadFileBuffer& buf) {
                << " part=" << part_num;
     // The upload-done notification must precede every buf.set_status(): set_status signals the
     // countdown that close()/the destructor wait on, so `this` may be gone right after it.
-    const size_t buf_bytes = buf.get_size();
+    // It reports the capacity the gate was charged with, not the payload.
+    const size_t buf_bytes = buf.get_capacaticy();
     if (buf.is_cancelled()) {
         LOG_INFO("file {} skip part {} because previous failure {}",
                  _obj_storage_path_opts.path.native(), part_num, _st);
@@ -652,8 +655,9 @@ Status S3FileWriter::_set_upload_to_remote_less_than_buffer_size() {
 void S3FileWriter::_put_object(UploadFileBuffer& buf) {
     MonotonicStopWatch timer;
     timer.start();
-    // See _upload_one_part(): notify strictly before every buf.set_status().
-    const size_t buf_bytes = buf.get_size();
+    // See _upload_one_part(): notify strictly before every buf.set_status(), with the
+    // capacity the gate was charged with.
+    const size_t buf_bytes = buf.get_capacaticy();
 
     if (state() == State::CLOSED) {
         DCHECK(state() != State::CLOSED)
