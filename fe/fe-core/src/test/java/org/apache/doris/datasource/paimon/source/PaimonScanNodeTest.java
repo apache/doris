@@ -1745,6 +1745,43 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testRustReaderSelectionRequiresFileScannerV2() throws Exception {
+        // The V1 FileScanner explicitly rejects PAIMON_RUST, so a rust request may
+        // only be encoded when enable_file_scanner_v2 is on; with V2 disabled the
+        // split falls back to JNI so the selected scanner can consume it.
+        for (boolean scannerV2 : Arrays.asList(true, false)) {
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = scannerV2;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
+            Mockito.when(paimonTable.partitionKeys()).thenReturn(Collections.emptyList());
+            Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                    0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                    0, Collections.emptyList(), Collections.emptyList(),
+                    Collections.emptyMap(), null));
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+            Mockito.when(externalTable.getDbName()).thenReturn("db");
+            Mockito.when(externalTable.getName()).thenReturn("t");
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("rust_gate.parquet")));
+
+            Assert.assertEquals(scannerV2 ? TPaimonReaderType.PAIMON_RUST : TPaimonReaderType.PAIMON_JNI,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
     public void testGetFieldIndexMatchesMixedCaseColumns() {
         List<String> fieldNames = Arrays.asList("data", "mIxEd_COL", "PART");
 

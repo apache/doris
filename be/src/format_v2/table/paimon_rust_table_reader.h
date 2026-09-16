@@ -85,6 +85,8 @@ public:
     void TEST_set_partition_values(std::map<std::string, Field> values) {
         _partition_values = std::move(values);
     }
+    // The session timezone the reader materializes TIMESTAMP_LTZ with.
+    const cctz::time_zone& TEST_ctz() const { return _ctz; }
 #endif
 
 private:
