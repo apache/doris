@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.GeneratedColumnDesc;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -81,7 +82,7 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
             }
 
             List<String> createTableStmt = Lists.newArrayList();
-            Map<String, Map<String, String>> generatedColumnSessionVariables = new HashMap<>();
+            Map<String, GeneratedColumnDesc> generatedColumns = new HashMap<>();
             table.readLock();
             try {
                 if (table.isManagedTable()) {
@@ -101,8 +102,11 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
 
                 for (Column column : table.getBaseSchema()) {
                     if (column.isGeneratedColumn()) {
-                        generatedColumnSessionVariables.put(column.getName(),
+                        GeneratedColumnDesc desc = new GeneratedColumnDesc(
+                                column.getGeneratedColumnInfo().getExprSql());
+                        desc.setSessionVariables(
                                 Optional.ofNullable(column.getSessionVariables()).map(HashMap::new).orElse(null));
+                        generatedColumns.put(column.getName(), desc);
                     }
                 }
 
@@ -129,8 +133,9 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
                     createTableInfo.withTableNameAndIfNotExists(createTableLikeInfo.getTableName(),
                             createTableLikeInfo.isIfNotExists()));
                 for (ColumnDefinition column : createTableInfo.getColumnDefinitions()) {
+                    // The synthetic DDL contains AS (NULL); restore the source before any analysis.
                     column.getGeneratedColumnDesc().ifPresent(desc ->
-                            desc.setSessionVariables(generatedColumnSessionVariables.get(column.getName())));
+                            column.setGeneratedColumnDesc(generatedColumns.get(column.getName())));
                 }
                 createTableCommand.run(ctx, executor);
             } finally {

@@ -23,8 +23,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.GeneratedColumnDesc;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -83,6 +86,78 @@ public class CreateTableLikeTest extends TestWithFeService {
             }
         } finally {
             original.enableDecimal256 = originalDecimal256;
+        }
+    }
+
+    @Test
+    public void testGeneratedColumnLikeBackslashModes() throws Exception {
+        SessionVariable original = connectContext.getSessionVariable();
+        long originalSqlMode = original.getSqlMode();
+        try {
+            for (boolean noBackslashEscapes : new boolean[] {true, false}) {
+                String sourceName = "generated_backslash_src_" + noBackslashEscapes;
+                long sourceMode = noBackslashEscapes ? SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES : 0;
+                long callerMode = noBackslashEscapes ? 0 : SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES;
+                String expression = noBackslashEscapes ? "concat(a, 'C:\\')" : "concat(a, 'C:\\\\')";
+                original.setSqlMode(sourceMode);
+                createTable("CREATE TABLE test." + sourceName + " ("
+                        + "a VARCHAR(10), c VARCHAR(30) AS (" + expression + "), "
+                        + "d VARCHAR(40) AS (concat(c, 'x'))) "
+                        + "DISTRIBUTED BY HASH(a) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
+                Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+                Table source = db.getTableOrDdlException(sourceName);
+                String sourceDdl = getCreateTableStmt(source);
+                original.setSqlMode(callerMode);
+                String previousName = sourceName;
+                for (int copy = 0; copy < 2; copy++) {
+                    String targetName = sourceName + "_copy_" + copy;
+                    createTableLike("CREATE TABLE test." + targetName + " LIKE test." + previousName);
+                    Table target = db.getTableOrDdlException(targetName);
+                    for (String columnName : new String[] {"c", "d"}) {
+                        Column sourceColumn = source.getColumn(columnName);
+                        Column targetColumn = target.getColumn(columnName);
+                        Assertions.assertEquals(sourceColumn.getSessionVariables(), targetColumn.getSessionVariables());
+                        Assertions.assertEquals(sourceColumn.getGeneratedColumnInfo().getExprSql(),
+                                targetColumn.getGeneratedColumnInfo().getExprSql());
+                        Assertions.assertEquals(sourceColumn.getGeneratedColumnInfo().getExpr()
+                                        .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE),
+                                targetColumn.getGeneratedColumnInfo().getExpr()
+                                        .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
+                    }
+                    Assertions.assertSame(original, connectContext.getSessionVariable());
+                    Assertions.assertEquals(callerMode, original.getSqlMode());
+                    Assertions.assertEquals(sourceDdl, getCreateTableStmt(source));
+                    Assertions.assertEquals(sourceDdl.replace(sourceName, targetName), getCreateTableStmt(target));
+                    previousName = targetName;
+                }
+            }
+        } finally {
+            original.setSqlMode(originalSqlMode);
+        }
+    }
+
+    @Test
+    public void testDeferredGeneratedColumnRestoresSessionOnFailure() throws Exception {
+        SessionVariable original = connectContext.getSessionVariable();
+        long originalSqlMode = original.getSqlMode();
+        try {
+            original.setSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+            GeneratedColumnDesc desc = new GeneratedColumnDesc("missing_generated_function(a, 'C:\\')");
+            desc.setSessionVariables(original.getAffectQueryResultInPlanVariables());
+            original.setSqlMode(0);
+            String sql = "CREATE TABLE test.generated_deferred_failure (a VARCHAR(10), c VARCHAR(30) AS (NULL)) "
+                    + "DISTRIBUTED BY HASH(a) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")";
+            CreateTableCommand command = (CreateTableCommand) new NereidsParser().parseSingle(sql);
+            command.getCreateTableInfo().getColumnDefinitions().get(1).setGeneratedColumnDesc(desc);
+            Exception failure = Assertions.assertThrows(Exception.class,
+                    () -> command.run(connectContext, new StmtExecutor(connectContext, sql)));
+            Assertions.assertTrue(failure.getMessage().contains("missing_generated_function"));
+            Assertions.assertSame(original, connectContext.getSessionVariable());
+            Assertions.assertEquals(0, original.getSqlMode());
+            Assertions.assertNull(Env.getCurrentInternalCatalog().getDbOrDdlException("test")
+                    .getTableNullable("generated_deferred_failure"));
+        } finally {
+            original.setSqlMode(originalSqlMode);
         }
     }
 

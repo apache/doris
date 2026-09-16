@@ -4338,7 +4338,7 @@ public class Env {
             // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
             if (table.isManagedTable()) {
                 sb.append("  ").append(
-                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
+                        column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true, true));
             } else {
                 sb.append("  ").append(column.toSql());
             }

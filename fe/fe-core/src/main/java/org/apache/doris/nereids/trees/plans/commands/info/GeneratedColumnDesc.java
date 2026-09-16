@@ -46,6 +46,11 @@ public class GeneratedColumnDesc {
         this.type = GeneratedColumnType.STORED;
     }
 
+    /** Defer parsing a copied expression until the source column's session settings are active. */
+    public GeneratedColumnDesc(String exprSql) {
+        this(exprSql, null);
+    }
+
     public Expr getExpr() {
         return expr;
     }
@@ -56,7 +61,7 @@ public class GeneratedColumnDesc {
 
     public Expression getExpression() {
         // CREATE TABLE LIKE must also parse the expression under its original session settings.
-        return sessionVariables.isPresent() ? new NereidsParser().parseExpression(exprSql) : expression;
+        return expression == null ? new NereidsParser().parseExpression(exprSql) : expression;
     }
 
     public void setSessionVariables(Map<String, String> sessionVariables) {

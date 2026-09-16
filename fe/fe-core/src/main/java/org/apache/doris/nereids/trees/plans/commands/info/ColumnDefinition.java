@@ -773,6 +773,10 @@ public class ColumnDefinition {
         return generatedColumnDesc;
     }
 
+    public void setGeneratedColumnDesc(GeneratedColumnDesc generatedColumnDesc) {
+        this.generatedColumnDesc = Optional.of(generatedColumnDesc);
+    }
+
     public long getAutoIncInitValue() {
         return autoIncInitValue;
     }
