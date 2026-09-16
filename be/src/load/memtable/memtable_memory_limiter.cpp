@@ -282,9 +282,10 @@ int64_t MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
     }
 
     int64_t mem_flushed = 0;
+    int64_t mem_reclaimed = 0;
     int64_t num_flushed = 0;
 
-    while (mem_flushed < need_flush && !heap.empty()) {
+    while (mem_flushed + mem_reclaimed < need_flush && !heap.empty()) {
         auto [writer, sort_mem] = heap.top();
         heap.pop();
         auto w = writer.lock();
@@ -299,8 +300,9 @@ int64_t MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
         }
         Status st = w->flush_async();
         if (st.is<ErrorCode::CANCELLED>()) {
-            // No memory was flushed. The final writer owner handles cleanup;
-            // cancel_with_status() would wait for flush tasks under _lock.
+            // The active memtable was discarded, not flushed. Running flush
+            // tasks are still owned by the writer and must not be waited here.
+            mem_reclaimed += mem;
             continue;
         }
         if (!st.ok()) {
@@ -317,7 +319,13 @@ int64_t MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
         g_memtable_memory_limit_flush_size_bytes << mem;
     }
     LOG(INFO) << "flushed " << num_flushed << " out of " << _active_writers.size()
-              << " active writers, flushed size: " << PrettyPrinter::print_bytes(mem_flushed);
+              << " active writers, flushed size: " << PrettyPrinter::print_bytes(mem_flushed)
+              << ", reclaimed cancelled memtables: " << PrettyPrinter::print_bytes(mem_reclaimed);
+    if (mem_reclaimed > 0) {
+        // Recheck the hard limit before the caller waits, and wake other waiters
+        // if reclaiming cancelled memtables has relieved memory pressure.
+        _refresh_mem_tracker();
+    }
     return mem_flushed;
 }
 

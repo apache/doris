@@ -20,6 +20,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_flush_executor.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "storage/storage_engine.h"
@@ -183,7 +184,10 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     EXPECT_EQ(Status::OK(), res);
 }
 
-TEST_F(MemTableMemoryLimiterTest, PressureFlushSkipsRetainedCancelledWriter) {
+class CancelledMemTableMemoryLimiterTest : public MemTableMemoryLimiterTest,
+                                           public testing::WithParamInterface<bool> {};
+
+TEST_P(CancelledMemTableMemoryLimiterTest, ReclaimActiveMemoryWhileWriterIsRetained) {
     RuntimeProfile profile("CancelledMemTableWriter");
     TCreateTabletReq tablet_request;
     create_tablet_request(10001, 270068373, &tablet_request);
@@ -218,26 +222,55 @@ TEST_F(MemTableMemoryLimiterTest, PressureFlushSkipsRetainedCancelledWriter) {
     block.set_columns(std::move(columns));
     ASSERT_TRUE(delta_writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}}).ok());
     auto writer = delta_writer->_memtable_writer;
-    auto memtable = writer->_mem_table;
+    std::weak_ptr<MemTable> memtable = writer->_mem_table;
+    auto token = writer->_flush_token;
     auto active_memory = writer->active_memtable_mem_consumption();
     ASSERT_GT(active_memory, 0);
     auto segment_num = writer->_segment_num;
 
     // add_batch failures can publish a non-CANCELLED status to the shared load.
-    ASSERT_TRUE(cancel_status->update(Status::InternalError("load failed")));
+    const auto failure = Status::InternalError("load failed");
+    ASSERT_TRUE(cancel_status->update(failure));
     EXPECT_FALSE(writer->_is_cancelled);
-    auto st = delta_writer->flush_memtable_async();
-    EXPECT_TRUE(st.is<ErrorCode::CANCELLED>()) << st;
 
     auto* limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
     ASSERT_TRUE(limiter->init(100).ok());
-    // An unrelated load may invoke pressure flushing while this owner is retained.
-    // It must neither report this memory as flushed nor cancel/wait for the token.
-    EXPECT_EQ(limiter->_flush_active_memtables(active_memory), 0);
+    limiter->refresh_mem_tracker();
+    ASSERT_GT(limiter->mem_usage(), limiter->_load_hard_mem_limit);
+    if (GetParam()) {
+        // An unrelated load must leave the hard-limit wait after reclaiming the
+        // cancelled load's memory, without waiting for its retained writer.
+        // Bound retries so a regression fails instead of hanging the test.
+        int cancel_checks = 0;
+        limiter->handle_memtable_flush([&]() { return ++cancel_checks > 1; });
+        EXPECT_EQ(cancel_checks, 1);
+    } else {
+        // Discarded memory must not be reported as flushed memory.
+        EXPECT_EQ(limiter->_flush_active_memtables(active_memory), 0);
+    }
+    EXPECT_TRUE(memtable.expired());
+    EXPECT_EQ(writer->_mem_table, nullptr);
     EXPECT_FALSE(writer->_is_cancelled);
-    EXPECT_EQ(writer->_mem_table, memtable);
+    EXPECT_FALSE(token->_is_shutdown());
     EXPECT_EQ(writer->_segment_num, segment_num);
     EXPECT_TRUE(writer->_freezed_mem_tables.empty());
-    EXPECT_EQ(writer->active_memtable_mem_consumption(), active_memory);
+    EXPECT_EQ(writer->active_memtable_mem_consumption(), 0);
+    EXPECT_EQ(limiter->mem_usage(), 0);
+    EXPECT_TRUE(limiter->_active_writers.empty());
+
+    // An RPC may have passed DeltaWriter's cancellation check before reclamation.
+    // The memtable-level checks must reject it before dereferencing _mem_table.
+    EXPECT_EQ(writer->write(&block, TabletAddRowsPayload {.row_idxs = {0}}, nullptr), failure);
+    EXPECT_EQ(writer->close(), failure);
+    EXPECT_TRUE(writer->flush_async().is<ErrorCode::CANCELLED>());
+    EXPECT_EQ(writer->_segment_num, segment_num);
+    EXPECT_EQ(writer->_mem_table, nullptr);
+
+    // Reclaiming active memory must not suppress the final owner's token cleanup.
+    delta_writer.reset();
+    EXPECT_TRUE(writer->_is_cancelled);
+    EXPECT_TRUE(token->_is_shutdown());
 }
+
+INSTANTIATE_TEST_SUITE_P(PressureFlush, CancelledMemTableMemoryLimiterTest, testing::Bool());
 } // namespace doris
