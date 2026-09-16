@@ -728,7 +728,7 @@ Status VariantNestedSearchEvaluator::evaluate(
     VariantNestedDocMapperContext mapper_context;
     mapper_context.root_field = root_field;
     mapper_context.active_group_chain = group_chain;
-    mapper_context.variant_reader = variant_reader;
+    mapper_context.variant_reader = variant_reader.get();
     mapper_context.read_provider = read_provider.get();
     mapper_context.column_iter_opts = index_exec_ctx->column_iter_opts();
     resolver.set_leaf_query_mapper(
