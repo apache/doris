@@ -56,11 +56,20 @@ suite("test_variant_window_partition", "p0") {
         from test_variant_window_partition
     """
 
-    // rank() with a Variant partition key, which is also the shape CreatePartitionTopNFromWindow
-    // rewrites into a PartitionTopN operator.
+    // rank() with a Variant partition key.
     order_qt_partition_rank """
         select id, rank() over (partition by v['k'] order by id) as rk
         from test_variant_window_partition
+    """
+
+    // CreatePartitionTopNFromWindow matches logicalFilter(logicalWindow()), so a PartitionTopN
+    // operator only appears when a filter sits above the window. That operator organises the
+    // Variant partition key as a serialized hash key on BE, which the queries above never reach.
+    order_qt_partition_topn """
+        select id, rk from (
+            select id, rank() over (partition by v['k'] order by id) as rk
+            from test_variant_window_partition
+        ) t where rk <= 2
     """
 
     // A Variant partition key combined with a scalar one.

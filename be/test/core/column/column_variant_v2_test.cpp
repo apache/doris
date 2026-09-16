@@ -3437,9 +3437,12 @@ TEST(ColumnVariantV2Test, PermutationLimitSwitchesBetweenPartialAndFullSort) {
 
     HybridSorter sorter;
     IColumn::Permutation result;
-    // limit 1 of 16 rows keeps the partial_sort branch.
-    typed->get_permutation(false, 1, 0, sorter, result);
-    EXPECT_EQ(result[0], 15);
+    // limit 2 of 16 rows sits exactly on the threshold and still takes the partial_sort branch.
+    // Pin the whole prefix that branch must produce rather than only its first entry: the values 0
+    // and 1 live at rows 15 and 4. The two branches cannot be told apart through the public API, so
+    // this pins the contract both of them owe, not the branch itself.
+    typed->get_permutation(false, 2, 0, sorter, result);
+    EXPECT_EQ(std::vector(result.begin(), result.begin() + 2), (std::vector<size_t> {15, 4}));
 
     // limit 12 of 16 rows exceeds the threshold, so the whole permutation comes out ordered.
     typed->get_permutation(false, 12, 0, sorter, result);
