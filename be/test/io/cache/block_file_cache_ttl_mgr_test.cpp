@@ -369,16 +369,18 @@ TEST_F(BlockFileCacheTtlMgrTest, NonTtlTabletWithoutPriorTtlInfoSkipsBlockScan) 
     auto block = create_block(kTabletId, "non-ttl-tablet", 0, 1024, &hash);
     persist_block_meta(kTabletId, hash, block->range().left, block->range().size());
 
-    std::atomic<int64_t> block_scan_count {0};
+    // Held by value in the callback: the background threads outlive this stack frame, and
+    // neither the guard nor disable_processing() synchronizes with a callback in flight.
+    auto block_scan_count = std::make_shared<std::atomic<int64_t>>(0);
     auto* sync_point = SyncPoint::get_instance();
     sync_point->clear_all_call_backs();
     sync_point->clear_trace();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
             "BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id",
-            [&block_scan_count](std::vector<std::any>&& args) {
+            [block_scan_count](std::vector<std::any>&& args) {
                 if (doris::try_any_cast<int64_t>(args[0]) == kTabletId) {
-                    block_scan_count.fetch_add(1, std::memory_order_relaxed);
+                    block_scan_count->fetch_add(1, std::memory_order_relaxed);
                 }
             },
             &guard);
@@ -391,11 +393,13 @@ TEST_F(BlockFileCacheTtlMgrTest, NonTtlTabletWithoutPriorTtlInfoSkipsBlockScan) 
             [this]() { return fake_engine()->get_tablet_meta_call_count() >= 2; },
             std::chrono::seconds(5));
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    // Join the background threads before the callback and its captures go away.
+    _ttl_mgr.reset();
     sync_point->disable_processing();
     sync_point->clear_trace();
 
     EXPECT_TRUE(update_thread_observed);
-    EXPECT_EQ(0, block_scan_count.load(std::memory_order_relaxed));
+    EXPECT_EQ(0, block_scan_count->load(std::memory_order_relaxed));
     EXPECT_EQ(FileCacheType::NORMAL, block->cache_type());
 }
 
@@ -412,16 +416,18 @@ TEST_F(BlockFileCacheTtlMgrTest, PeriodicReconcileDemotesTtlBlockWithoutPriorTtl
                        FileCacheType::TTL, expiration_time);
     ASSERT_EQ(FileCacheType::TTL, block->cache_type());
 
-    std::atomic<int64_t> block_scan_count {0};
+    // Held by value in the callback: the background threads outlive this stack frame, and
+    // neither the guard nor disable_processing() synchronizes with a callback in flight.
+    auto block_scan_count = std::make_shared<std::atomic<int64_t>>(0);
     auto* sync_point = SyncPoint::get_instance();
     sync_point->clear_all_call_backs();
     sync_point->clear_trace();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
             "BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id",
-            [&block_scan_count](std::vector<std::any>&& args) {
+            [block_scan_count](std::vector<std::any>&& args) {
                 if (doris::try_any_cast<int64_t>(args[0]) == kTabletId) {
-                    block_scan_count.fetch_add(1, std::memory_order_relaxed);
+                    block_scan_count->fetch_add(1, std::memory_order_relaxed);
                 }
             },
             &guard);
@@ -433,11 +439,13 @@ TEST_F(BlockFileCacheTtlMgrTest, PeriodicReconcileDemotesTtlBlockWithoutPriorTtl
     bool demoted =
             wait_for_condition([&]() { return block->cache_type() == FileCacheType::NORMAL; },
                                std::chrono::seconds(5));
+    // Join the background threads before the callback and its captures go away.
+    _ttl_mgr.reset();
     sync_point->disable_processing();
     sync_point->clear_trace();
 
     EXPECT_TRUE(demoted);
-    EXPECT_GE(block_scan_count.load(std::memory_order_relaxed), 1);
+    EXPECT_GE(block_scan_count->load(std::memory_order_relaxed), 1);
 }
 
 TEST_F(BlockFileCacheTtlMgrTest, TabletTtlRemovedMovesBlocksBackToNormal) {
@@ -533,16 +541,26 @@ TEST_F(BlockFileCacheTtlMgrTest, RewritingTtlToAnotherValidValueDoesNotRescanBlo
     ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::TTL; },
                                    std::chrono::seconds(5)));
 
-    std::atomic<int64_t> block_scan_count {0};
+    // The promotion is recorded only after every block has been converted, so the manager has
+    // not necessarily finished with the tablet at the moment the type flips. Let a couple of
+    // rounds pass before counting, or the tail of the promotion is charged to the rewrites.
+    int64_t settled_after = fake_engine()->get_tablet_meta_call_count();
+    ASSERT_TRUE(wait_for_condition(
+            [&]() { return fake_engine()->get_tablet_meta_call_count() >= settled_after + 2; },
+            std::chrono::seconds(5)));
+
+    // Held by value in the callback: the background threads outlive this stack frame, and
+    // neither the guard nor disable_processing() synchronizes with a callback in flight.
+    auto block_scan_count = std::make_shared<std::atomic<int64_t>>(0);
     auto* sync_point = SyncPoint::get_instance();
     sync_point->clear_all_call_backs();
     sync_point->clear_trace();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
             "BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id",
-            [&block_scan_count](std::vector<std::any>&& args) {
+            [block_scan_count](std::vector<std::any>&& args) {
                 if (doris::try_any_cast<int64_t>(args[0]) == kTabletId) {
-                    block_scan_count.fetch_add(1, std::memory_order_relaxed);
+                    block_scan_count->fetch_add(1, std::memory_order_relaxed);
                 }
             },
             &guard);
@@ -558,10 +576,12 @@ TEST_F(BlockFileCacheTtlMgrTest, RewritingTtlToAnotherValidValueDoesNotRescanBlo
                 std::chrono::seconds(5)));
     }
 
+    // Join the background threads before the callback and its captures go away.
+    _ttl_mgr.reset();
     sync_point->disable_processing();
     sync_point->clear_trace();
 
-    EXPECT_EQ(0, block_scan_count.load(std::memory_order_relaxed));
+    EXPECT_EQ(0, block_scan_count->load(std::memory_order_relaxed));
     EXPECT_EQ(FileCacheType::TTL, block->cache_type());
 }
 
@@ -582,22 +602,25 @@ TEST_F(BlockFileCacheTtlMgrTest, TtlExtensionWinsOverConcurrentExpirationScan) {
 
     // Stall the demotion scan midway so the TTL can be extended underneath it, reproducing the
     // window where the expiration check acts on a view of the tablet that is already stale.
-    std::atomic<bool> demote_scan_entered {false};
-    std::atomic<bool> release_demote_scan {false};
+    // Held by value in the callback rather than captured by reference: the background threads
+    // outlive this stack frame, and neither the guard nor disable_processing() synchronizes
+    // with a callback already in flight. A callback that stalls makes that window wide.
+    auto demote_scan_entered = std::make_shared<std::atomic<bool>>(false);
+    auto release_demote_scan = std::make_shared<std::atomic<bool>>(false);
     auto* sync_point = SyncPoint::get_instance();
     sync_point->clear_all_call_backs();
     sync_point->clear_trace();
     SyncPoint::CallbackGuard guard;
     sync_point->set_call_back(
             "BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id",
-            [&](std::vector<std::any>&& args) {
+            [demote_scan_entered, release_demote_scan](std::vector<std::any>&& args) {
                 if (doris::try_any_cast<int64_t>(args[0]) != kTabletId) {
                     return;
                 }
-                if (demote_scan_entered.exchange(true, std::memory_order_acq_rel)) {
+                if (demote_scan_entered->exchange(true, std::memory_order_acq_rel)) {
                     return;
                 }
-                while (!release_demote_scan.load(std::memory_order_acquire)) {
+                while (!release_demote_scan->load(std::memory_order_acquire)) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 }
             },
@@ -608,17 +631,19 @@ TEST_F(BlockFileCacheTtlMgrTest, TtlExtensionWinsOverConcurrentExpirationScan) {
     tablet->set_ttl_seconds(1);
 
     bool scan_stalled = wait_for_condition(
-            [&]() { return demote_scan_entered.load(std::memory_order_acquire); },
+            [&]() { return demote_scan_entered->load(std::memory_order_acquire); },
             std::chrono::seconds(10));
 
     // Extend the TTL while the demotion is still in flight.
     tablet->set_creation_time(UnixSeconds());
     tablet->set_ttl_seconds(30758400);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    release_demote_scan.store(true, std::memory_order_release);
+    // Must come before the join below, or stop() waits on a thread parked in the callback.
+    release_demote_scan->store(true, std::memory_order_release);
 
     bool ends_as_ttl = wait_for_condition(
             [&]() { return block->cache_type() == FileCacheType::TTL; }, std::chrono::seconds(10));
+    _ttl_mgr.reset();
     sync_point->disable_processing();
     sync_point->clear_trace();
 
