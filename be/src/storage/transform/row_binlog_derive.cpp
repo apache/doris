@@ -38,7 +38,6 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/historical_row_retriever.h"
 #include "storage/tablet/tablet_schema.h"
-#include "storage/tablet_info.h"
 #include "storage/transform/transform_util.h"
 #include "util/time.h"
 
@@ -73,23 +72,6 @@ Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mapping
     if (!snapshot.has_need_historical_value() || !snapshot.IsInitialized()) {
         return ResultError(Status::InvalidArgument("Invalid row-binlog mapping snapshot"));
     }
-    std::vector<RowBinlogColumnUidMapping> mappings;
-    mappings.reserve(snapshot.entries_size());
-    for (const auto& entry : snapshot.entries()) {
-        mappings.push_back({
-                .source_uid = entry.source_column_unique_id(),
-                .current_uid = entry.current_column_unique_id(),
-                .before_uid = entry.has_before_column_unique_id()
-                                      ? std::optional(entry.before_column_unique_id())
-                                      : std::nullopt,
-        });
-    }
-    return resolve_row_binlog_column_mappings(source_schema, row_binlog_schema, mappings);
-}
-
-Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mappings(
-        const TabletSchema& source_schema, const TabletSchema& row_binlog_schema,
-        const std::vector<RowBinlogColumnUidMapping>& uid_mappings) {
     const std::array<int32_t, 3> special_cids {row_binlog_schema.binlog_tso_col_idx(),
                                                row_binlog_schema.binlog_lsn_col_idx(),
                                                row_binlog_schema.binlog_op_col_idx()};
@@ -105,19 +87,22 @@ Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mapping
 
     std::vector<bool> used_source_cids(source_schema.num_columns(), false);
     std::vector<RowBinlogColumnCidMapping> cid_mappings;
-    cid_mappings.reserve(uid_mappings.size());
-    for (const auto& uid_mapping : uid_mappings) {
-        const int32_t source_cid = source_schema.field_index(uid_mapping.source_uid);
-        const int32_t current_cid = row_binlog_schema.field_index(uid_mapping.current_uid);
-        const int32_t before_cid = uid_mapping.before_uid.has_value()
-                                           ? row_binlog_schema.field_index(*uid_mapping.before_uid)
-                                           : -1;
+    cid_mappings.reserve(snapshot.entries_size());
+    for (const auto& mapping : snapshot.entries()) {
+        const int32_t source_cid = source_schema.field_index(mapping.source_column_unique_id());
+        const int32_t current_cid =
+                row_binlog_schema.field_index(mapping.current_column_unique_id());
+        const int32_t before_cid =
+                mapping.has_before_column_unique_id()
+                        ? row_binlog_schema.field_index(mapping.before_column_unique_id())
+                        : -1;
         if (source_cid < 0 || current_cid < 0 ||
-            (uid_mapping.before_uid.has_value() && before_cid < 0)) {
+            (mapping.has_before_column_unique_id() && before_cid < 0)) {
             return ResultError(Status::InvalidArgument(
                     "Row-binlog mapping references a missing column uid ({}, {}, {})",
-                    uid_mapping.source_uid, uid_mapping.current_uid,
-                    uid_mapping.before_uid.value_or(-1)));
+                    mapping.source_column_unique_id(), mapping.current_column_unique_id(),
+                    mapping.has_before_column_unique_id() ? mapping.before_column_unique_id()
+                                                          : -1));
         }
 
         const auto& source_column = source_schema.column(source_cid);
@@ -369,11 +354,8 @@ Status emit_binlog_block(const BinlogDeriveContext& c, const Block* after_src,
         }
         out.replace_by_position(mapping.current_cid, std::move(after_column));
     }
-    if (std::ranges::any_of(c.column_mappings,
-                            [](const auto& mapping) { return mapping.before_cid.has_value(); })) {
-        RETURN_IF_ERROR(fill_before_columns(out, *c.binlog_schema, retriever, c.column_mappings,
-                                            c.num_rows));
-    }
+    RETURN_IF_ERROR(
+            fill_before_columns(out, *c.binlog_schema, retriever, c.column_mappings, c.num_rows));
     // An insert whose old row is a tombstone is an append, not an update. Run
     // this after the BEFORE read, which already loaded the old delete signs.
     if (retriever != nullptr) {

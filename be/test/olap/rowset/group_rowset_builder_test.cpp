@@ -262,18 +262,18 @@ static void recover_multiple_row_binlog_pairs(bool historical, bool key_only,
             row_binlog_index_id, row_binlog_schema_hash, &row_binlog_schema.columns);
     ASSERT_NE(schema_param, nullptr);
     auto* source_index = schema_param->indexes()[0];
-    source_index->row_binlog_need_historical_value = historical;
+    source_index->row_binlog_column_mappings.set_need_historical_value(historical);
     if (historical && !key_only) {
-        source_index->row_binlog_column_mappings[1].before_uid = 5;
+        source_index->row_binlog_column_mappings.mutable_entries(1)->set_before_column_unique_id(5);
     }
 
     std::vector<TRowBinlogWriteColumnMapping> entries;
-    for (const auto& mapping : source_index->row_binlog_column_mappings) {
+    for (const auto& mapping : source_index->row_binlog_column_mappings.entries()) {
         TRowBinlogWriteColumnMapping entry;
-        entry.__set_source_column_unique_id(mapping.source_uid);
-        entry.__set_current_column_unique_id(mapping.current_uid);
-        if (mapping.before_uid.has_value()) {
-            entry.__set_before_column_unique_id(*mapping.before_uid);
+        entry.__set_source_column_unique_id(mapping.source_column_unique_id());
+        entry.__set_current_column_unique_id(mapping.current_column_unique_id());
+        if (mapping.has_before_column_unique_id()) {
+            entry.__set_before_column_unique_id(mapping.before_column_unique_id());
         }
         entries.push_back(entry);
     }

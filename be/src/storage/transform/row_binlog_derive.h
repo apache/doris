@@ -23,14 +23,9 @@
 
 namespace doris {
 class PRowBinlogWriteColumnMappings;
-struct RowBinlogColumnUidMapping;
 struct RowsetWriterContext;
 
 namespace segment_v2 {
-
-Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mappings(
-        const TabletSchema& source_schema, const TabletSchema& row_binlog_schema,
-        const std::vector<RowBinlogColumnUidMapping>& uid_mappings);
 
 Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mappings(
         const TabletSchema& source_schema, const TabletSchema& row_binlog_schema,

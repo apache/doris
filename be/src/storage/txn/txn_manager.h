@@ -45,11 +45,11 @@
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
-#include "storage/tablet_info.h"
 #include "util/time.h"
 
 namespace doris {
 class OlapMeta;
+class PRowBinlogWriteColumnMappings;
 struct TabletPublishStatistics;
 struct PartialUpdateInfo;
 

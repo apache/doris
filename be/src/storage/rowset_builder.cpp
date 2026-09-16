@@ -594,14 +594,10 @@ Status GroupRowsetBuilder::init() {
         }
         DORIS_CHECK(source_index_schema != nullptr);
         DORIS_CHECK_EQ(source_index_schema->row_binlog_id, binlog_ctx.index_id);
-        cfg.need_historical_value = source_index_schema->row_binlog_need_historical_value;
-        auto mappings = segment_v2::resolve_row_binlog_column_mappings(
-                *data_ctx.tablet_schema, *binlog_ctx.tablet_schema,
-                source_index_schema->row_binlog_column_mappings);
-        if (!mappings.has_value()) {
-            return mappings.error();
-        }
-        cfg.column_mappings = std::move(*mappings);
+        const auto& mappings = source_index_schema->row_binlog_column_mappings;
+        cfg.need_historical_value = mappings.need_historical_value();
+        cfg.column_mappings = DORIS_TRY(segment_v2::resolve_row_binlog_column_mappings(
+                *data_ctx.tablet_schema, *binlog_ctx.tablet_schema, mappings));
     }
 
     _rowset_writer = std::move(group_writer);
