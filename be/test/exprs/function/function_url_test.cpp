@@ -127,6 +127,9 @@ TEST(FunctionUrlTEST, ParseUrlQueryKeyTest) {
             // The key is the first query parameter.
             {{STRING("http://h/p?k=1"), STRING("QUERY"), STRING("k")}, STRING("1")},
             {{STRING("  http://h/p?k=1  "), STRING("QUERY"), STRING("k")}, STRING("1")},
+            {{STRING("  http://h/p?sk=0&k=1"), STRING("QUERY"), STRING("k")}, STRING("1")},
+            {{STRING("  http://h/p?k&k=1"), STRING("QUERY"), STRING("k")}, STRING("1")},
+            {{STRING("  http://h/p?k=&k=1"), STRING("QUERY"), STRING("k")}, STRING("")},
             {{STRING("http://h/p?k=1"), STRING("HOST"), STRING("k")}, Null()},
     };
 
