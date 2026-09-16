@@ -2915,6 +2915,113 @@ public class PaimonScanNodeTest {
             Assert.assertEquals("mode " + mode + " on " + location, expected,
                     rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
         }
+    // --- filterVectorIndexOptions ---------------------------------------------------
+    //
+    // CoreOptions.primaryKeyVectorIndexOptions seeds its result with a copy of every
+    // table option, so what reaches TExternalSearchRequest.paimon_options is the whole table
+    // property bag unless it is filtered. These cover the three reasons it must be:
+    // a thrift-fatal null value, redundant table options paimon-rust already merges
+    // itself, and properties that should not travel to BE at all.
+
+    @Test
+    public void testFilterVectorIndexOptionsKeepsFieldAndAlgorithmScopedKeys() {
+        Map<String, String> options = new HashMap<>();
+        options.put("field.embedding.vector-dim", "2048");
+        options.put("ivf-flat.metric", "l2");
+        options.put("ivf-flat.nlist", "1024");
+        options.put("fields.embedding.some-field-option", "v");
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", "ivf-flat");
+
+        Assert.assertEquals("l2", filtered.get("ivf-flat.metric"));
+        Assert.assertEquals("1024", filtered.get("ivf-flat.nlist"));
+        Assert.assertEquals("v", filtered.get("fields.embedding.some-field-option"));
+        // "field." (singular) is a different namespace from the "fields." one the filter
+        // keeps, so the dimension is not forwarded -- paimon-rust reads it off the index.
+        Assert.assertFalse(filtered.containsKey("field.embedding.vector-dim"));
+        Assert.assertEquals(3, filtered.size());
+    }
+
+    @Test
+    public void testFilterVectorIndexOptionsDropsNullValues() {
+        // The actual production failure: these catalog audit properties carry a Java null,
+        // which HashMap accepts and thrift's writeString does not (NPE in the generated
+        // TPaimonVectorSearchOptions writer). They are also not algorithm- or field-scoped,
+        // so they would be dropped anyway -- asserted separately so a future widening of
+        // the prefix rule cannot silently reintroduce the crash.
+        Map<String, String> options = new HashMap<>();
+        options.put("owner", null);
+        options.put("createdBy", null);
+        options.put("updatedBy", null);
+        options.put("ivf-flat.metric", "l2");
+        options.put("ivf-flat.nprobe", null);
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", "ivf-flat");
+
+        Assert.assertFalse(filtered.containsValue(null));
+        Assert.assertFalse(filtered.containsKey("ivf-flat.nprobe"));
+        Assert.assertEquals(Collections.singletonMap("ivf-flat.metric", "l2"), filtered);
+    }
+
+    @Test
+    public void testFilterVectorIndexOptionsDropsUnrelatedTableProperties() {
+        Map<String, String> options = new HashMap<>();
+        options.put("path", "viewfs://cluster/db/tbl");
+        options.put("security.hadoop.username", "hudi");
+        options.put("bucket", "1");
+        options.put("primary-key", "id");
+        options.put("merge-engine", "partial-update");
+        options.put("ivf-flat.metric", "l2");
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", "ivf-flat");
+
+        Assert.assertEquals(Collections.singletonMap("ivf-flat.metric", "l2"), filtered);
+    }
+
+    @Test
+    public void testFilterVectorIndexOptionsDropsPkVectorDeclarations() {
+        // fields.<col>.pk-vector.* is FE's own index declaration, not a search parameter;
+        // primaryKeyVectorAlgorithmOptions excludes it from its collection too.
+        Map<String, String> options = new HashMap<>();
+        options.put("fields.embedding.pk-vector.index.type", "ivf-flat");
+        options.put("fields.embedding.pk-vector.distance.metric", "l2");
+        options.put("fields.embedding.pk-vector.index.options", "{\"nlist\":\"1024\"}");
+        options.put("fields.embedding.refine-factor", "2");
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", "ivf-flat");
+
+        Assert.assertEquals(Collections.singletonMap("fields.embedding.refine-factor", "2"), filtered);
+    }
+
+    @Test
+    public void testFilterVectorIndexOptionsWithNullAlgorithmKeepsFieldScopedOnly() {
+        // A null index type must not be turned into a "null." prefix; keep the
+        // field-scoped half rather than guessing.
+        Map<String, String> options = new HashMap<>();
+        options.put("fields.embedding.refine-factor", "2");
+        options.put("ivf-flat.metric", "l2");
+        options.put("owner", null);
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", null);
+
+        Assert.assertEquals(Collections.singletonMap("fields.embedding.refine-factor", "2"), filtered);
+    }
+
+    @Test
+    public void testFilterVectorIndexOptionsIsScopedToTheQueriedColumn() {
+        Map<String, String> options = new HashMap<>();
+        options.put("fields.embedding.refine-factor", "2");
+        options.put("fields.other_vec.refine-factor", "8");
+
+        Map<String, String> filtered = PaimonScanNode.filterVectorIndexOptions(
+                options, "embedding", "ivf-flat");
+
+        Assert.assertEquals(Collections.singletonMap("fields.embedding.refine-factor", "2"), filtered);
     }
 
     @Test

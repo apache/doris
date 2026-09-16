@@ -42,6 +42,10 @@ public class PaimonSplit extends FileSplit {
     private Optional<Long> optRowCount = Optional.empty();
     private Optional<Long> schemaId = Optional.empty();
     private Map<String, String> paimonPartitionValues = null;
+    // Serialized BucketVectorSearchSplit (magic "PKVSPLIT", version 1, big-endian) for a
+    // primary-key vector (ANN) search split. Non-null only in vector mode; BE routes to the
+    // paimon-rust vector-search read path when this payload is present.
+    private byte[] vectorPayloadBytes = null;
 
     /**
      * Constructor for Paimon splits.
@@ -135,6 +139,14 @@ public class PaimonSplit extends FileSplit {
 
     public Map<String, String> getPaimonPartitionValues() {
         return paimonPartitionValues;
+    }
+
+    public void setVectorPayloadBytes(byte[] vectorPayloadBytes) {
+        this.vectorPayloadBytes = vectorPayloadBytes;
+    }
+
+    public byte[] getVectorPayloadBytes() {
+        return vectorPayloadBytes;
     }
 
     public static class PaimonSplitCreator implements SplitCreator {

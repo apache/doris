@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.paimon.source;
 
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
@@ -55,12 +57,21 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExternalSearchQuery;
+import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TPaimonReaderType;
+import org.apache.doris.thrift.TPaimonVectorPayload;
+import org.apache.doris.thrift.TPaimonVectorPayloadType;
+import org.apache.doris.thrift.TPaimonVectorSearchOptions;
+import org.apache.doris.thrift.TSearchVector;
 import org.apache.doris.thrift.TTableFormatFileDesc;
+import org.apache.doris.thrift.TVectorElementType;
+import org.apache.doris.thrift.TVectorMetric;
+import org.apache.doris.thrift.TVectorSearchParams;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -72,7 +83,9 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.format.OrcOptions;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataOutputSerializer;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.partition.PartitionPredicate;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
@@ -81,6 +94,7 @@ import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.BucketVectorSearchSplit;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.InnerTableScan;
@@ -88,6 +102,8 @@ import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.table.source.VectorScan;
+import org.apache.paimon.table.source.VectorSearchSplit;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataType;
@@ -95,8 +111,11 @@ import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.MultisetType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.Pair;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -230,6 +249,17 @@ public class PaimonScanNode extends FileQueryScanNode {
     private Map<String, String> backendPaimonOptions = Collections.emptyMap();
     private Table processedTable;
 
+    // Primary-key vector (ANN) top-N info pushed down from Nereids. When set, the
+    // scan is planned as a vector search (index-only): splits are produced by
+    // Paimon's newBatchVectorSearchBuilder and BE returns __paimon_search_score_to_dis.
+    private float[] annSortQueryVector = null;
+    private String annSortColumnName = null;
+    private long annSortLimit = -1;
+    // The index's distance metric (TVectorMetric), validated against the distance
+    // function by the rewrite rule. BE requires it to convert the score column into
+    // the distance the function is defined to return.
+    private TVectorMetric annMetric = null;
+
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
     private final Map<Long, TableSchema> historyTableSchemas = new ConcurrentHashMap<>();
@@ -338,7 +368,36 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void convertPredicate() {
         PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
                 processedTable.rowType());
-        predicates = paimonPredicateConverter.convertToPaimonExpr(conjuncts);
+        predicates = paimonPredicateConverter.convertToPaimonExpr(getPaimonConvertibleConjuncts());
+    }
+
+    /**
+     * The conjuncts worth offering to Paimon, i.e. everything except comparisons on the
+     * reader-produced PK-vector distance column.
+     *
+     * <p>{@code __paimon_search_score_to_dis} is synthesized by the scan, not read from the
+     * table: the rewrite rule turns {@code dist_fn(vec, q) < x} into a comparison on this
+     * slot (PushDownVectorTopNIntoPaimonScan), so a filtered ANN query hands the converter a
+     * column that no Paimon {@code rowType} contains. The converter itself now returns null
+     * for unknown columns rather than indexing a field list with -1, so this filter is not
+     * what keeps the query alive -- it states the intent at the layer that knows about the
+     * synthetic column, mirroring the exclusion already made for the same column in
+     * {@code FileQueryScanNode.setColumnPositionMapping}. Dropping the conjunct only skips
+     * the push-down; Doris still evaluates it, so results are unaffected.
+     */
+    private List<Expr> getPaimonConvertibleConjuncts() {
+        List<Expr> convertible = new ArrayList<>(conjuncts.size());
+        for (Expr conjunct : conjuncts) {
+            List<SlotRef> slotRefs = new ArrayList<>();
+            conjunct.collect(SlotRef.class, slotRefs);
+            boolean referencesDistance = slotRefs.stream().anyMatch(
+                    slot -> PaimonVectorSearch.SEARCH_DISTANCE_COLUMN
+                            .equalsIgnoreCase(slot.getColumnName()));
+            if (!referencesDistance) {
+                convertible.add(conjunct);
+            }
+        }
+        return convertible;
     }
 
     @Override
@@ -377,6 +436,116 @@ public class PaimonScanNode extends FileQueryScanNode {
         String serializedPredicate = PaimonUtil.encodeObjectToString(predicates);
         params.setPaimonPredicate(serializedPredicate);
         setScanLevelPaimonOptions();
+        // Query-wide vector (ANN) params: set once, shared by every split.
+        if (isVectorSearch()) {
+            setExternalSearchRequest();
+        }
+    }
+
+    /**
+     * Build the provider-independent {@link TExternalSearchRequest} for this Paimon
+     * PK-vector (ANN) scan and attach it to the scan params (field 39).
+     *
+     * <p>Reuses the community {@code TExternalSearchRequest} / {@code TVectorSearchParams}
+     * thrift so Paimon and Lance share the same logical search request. Paimon-specific
+     * index tuning (refine_factor, ivf.nprobe, {@code <algo>.metric}, ...) travels in the
+     * Paimon-only {@link TPaimonVectorSearchOptions} (field 5 of the request); the physical
+     * per-split bucket payload stays in {@link TPaimonVectorPayload} on {@code TPaimonFileDesc}.
+     *
+     * <p>The query vector is encoded as a {@link TSearchVector} with {@code FLOAT32} element
+     * type (little-endian), matching paimon-rust's f32 index. The metric enum is passed
+     * straight through from {@code AnnTopNInfo} with no string conversion.
+     */
+    private void setExternalSearchRequest() {
+        // Encode the f32 query vector into a little-endian TSearchVector binary.
+        ByteBuffer buf = ByteBuffer.allocate(annSortQueryVector.length * Float.BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        for (float v : annSortQueryVector) {
+            buf.putFloat(v);
+        }
+        TSearchVector searchVec = new TSearchVector()
+                .setElementType(TVectorElementType.FLOAT32)
+                .setDimension(annSortQueryVector.length)
+                .setValues(buf.array());
+
+        TVectorSearchParams vectorParams = new TVectorSearchParams()
+                .setColumn(annSortColumnName)
+                .setQueryVector(searchVec)
+                .setTopK(annSortLimit)
+                // limit already folded with offset by the Nereids rule; BE only needs the
+                // retrieval count, the real offset is applied by the coordinator TopN.
+                .setOffset(0)
+                .setMetric(annMetric);
+
+        TExternalSearchRequest request = new TExternalSearchRequest()
+                .setSchemaVersion(1)
+                .setSearchQuery(TExternalSearchQuery.vector_search(vectorParams));
+
+        // Index/search options. These are query-level *overrides* only: paimon-rust
+        // already merges the table's own options underneath them, so anything sent
+        // here that merely repeats the table schema is redundant.
+        try {
+            CoreOptions coreOptions = CoreOptions.fromMap(source.getPaimonTable().options());
+            String vectorColumn = resolvePaimonFieldName(source.getPaimonTable(), annSortColumnName);
+            Options indexOptions = coreOptions.primaryKeyVectorIndexOptions(vectorColumn);
+            if (indexOptions != null) {
+                Map<String, String> filtered = filterVectorIndexOptions(indexOptions.toMap(),
+                        vectorColumn, coreOptions.primaryKeyVectorIndexType(vectorColumn));
+                request.setPaimonOptions(new TPaimonVectorSearchOptions().setOptions(filtered));
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to resolve PK-vector index options for column {}", annSortColumnName, e);
+        }
+        params.setExternalSearchRequest(request);
+    }
+
+    /**
+     * Keep only the keys that actually configure the vector search, dropping the rest of
+     * the table's options.
+     *
+     * <p>{@code CoreOptions.primaryKeyVectorIndexOptions} seeds its result with
+     * {@code new Options(toConfiguration().toMap())}, i.e. a copy of <em>every</em> table
+     * option, before layering the algorithm-specific ones on top. Forwarding that whole
+     * map is wrong in three ways:
+     *
+     * <ul>
+     *   <li>It crashes. Catalog audit properties such as {@code owner} / {@code createdBy}
+     *       / {@code updatedBy} can carry a Java null value, which a {@code HashMap} accepts
+     *       and thrift's {@code writeString} does not -- the query dies with an NPE inside
+     *       the vector search options' generated writer before this filter existed.</li>
+     *   <li>It is redundant. paimon-rust merges the table's own options underneath the
+     *       query options itself, so the table half of this map is re-sending what the
+     *       reader already has.</li>
+     *   <li>It over-shares. {@code path}, {@code security.hadoop.username} and any future
+     *       credential-ish property have no business travelling to BE on a search request.</li>
+     * </ul>
+     *
+     * <p>The retained prefixes mirror what paimon-rust consumes -- {@code ivf.nprobe}
+     * (vindex reader), the {@code lumina.} family (stripped by prefix), and
+     * {@code <algorithm>.metric} -- and match the collection rule in
+     * {@code CoreOptions.primaryKeyVectorAlgorithmOptions}: per-field options excluding the
+     * {@code pk-vector.} declarations, plus everything namespaced under the algorithm.
+     * A null algorithm keeps only the field-scoped half rather than guessing a prefix.
+     */
+    @VisibleForTesting
+    static Map<String, String> filterVectorIndexOptions(Map<String, String> options,
+            String vectorColumn, String algorithm) {
+        String fieldPrefix = "fields." + vectorColumn + ".";
+        String pkVectorPrefix = fieldPrefix + "pk-vector.";
+        String algorithmPrefix = algorithm == null ? null : algorithm + ".";
+        Map<String, String> filtered = new HashMap<>();
+        for (Map.Entry<String, String> entry : options.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || entry.getValue() == null) {
+                continue;
+            }
+            boolean fieldScoped = key.startsWith(fieldPrefix) && !key.startsWith(pkVectorPrefix);
+            boolean algorithmScoped = algorithmPrefix != null && key.startsWith(algorithmPrefix);
+            if (fieldScoped || algorithmScoped) {
+                filtered.put(key, entry.getValue());
+            }
+        }
+        return filtered;
     }
 
     private void setScanLevelPaimonOptions() {
@@ -1041,13 +1210,47 @@ public class PaimonScanNode extends FileQueryScanNode {
                 canUseRust = !backendPolicy.getBackends().isEmpty()
                         && backendPolicy.getBackends().stream().allMatch(Backend::isPaimonRustReaderSupported);
             }
-            if (canUseRust) {
+            // A primary-key vector (ANN) search split executes paimon-rust's eager Top-K
+            // vector path, not the batch reader: PaimonRustReaderCapabilities describes
+            // the batch reader only (single-file PK buckets, zero delete rows, nested
+            // schema-evolution whitelist), and a vector bucket legitimately spans
+            // multiple data files and applies deletion vectors inside the search itself,
+            // so the per-split capability whitelist must not judge it.
+            boolean vectorSearchSplit = paimonSplit.getVectorPayloadBytes() != null;
+            if (canUseRust && !vectorSearchSplit) {
                 if (rustReaderCapabilities == null) {
                     rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
                 }
                 canUseRust = rustReaderCapabilities.canRead((DataSplit) split);
             }
-            if (canUseRust) {
+            if (vectorSearchSplit) {
+                // Primary-key vector (ANN) search: the serialized bucket split rides in
+                // vector_payload and BE routes to the paimon-rust vector-search read
+                // path. The vector path is executed exclusively by the rust reader, so
+                // a payload with !canUseRust is a broken invariant (the rewrite rule
+                // gates on both switches): falling back to a plain scan would return an
+                // empty distance column while every other column holds rows, which is
+                // silent corruption surfacing as an unattributable size mismatch
+                // downstream. Fail loudly instead.
+                if (!canUseRust) {
+                    // RuntimeException because the setScanParams override chain cannot
+                    // declare a checked UserException; the existing native branch throws
+                    // RuntimeException for the same reason.
+                    throw new RuntimeException("Paimon PK-vector search split requires the"
+                            + " paimon-rust reader with enable_file_scanner_v2 enabled");
+                }
+                TPaimonVectorPayload vectorPayload = new TPaimonVectorPayload();
+                vectorPayload.setPayloadType(TPaimonVectorPayloadType.BUCKET_SPLIT_BYTES);
+                vectorPayload.setBytes(paimonSplit.getVectorPayloadBytes());
+                fileDesc.setVectorPayload(vectorPayload);
+                // The DataSplit is already inside vector_payload (BucketVectorSearchSplit
+                // embeds it) and the vector read path decodes only vector_payload, never
+                // paimon_split -- so emit an empty one instead of serializing the same
+                // split twice on the wire. It must still be set (isset) so BE keeps the
+                // native-paimon branch rather than rerouting to the orc/parquet reader.
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
+                fileDesc.setPaimonSplit("");
+            } else if (canUseRust) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
             } else {
@@ -1156,6 +1359,13 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
+        // Primary-key vector (ANN) search is planned entirely by Paimon's
+        // BatchVectorSearchBuilder: one BucketVectorSearchSplit per (partition,
+        // bucket), serialized and carried to BE, which runs the whole search
+        // (recall + refine + row lookup + DV) in a single paimon-rust call.
+        if (isVectorSearch()) {
+            return getVectorSearchSplits();
+        }
         boolean forceJniScanner = sessionVariable.isForceJniScanner();
         // Paimon system tables need Paimon-side semantics:
         // - binlog: pack/merge + array materialization
@@ -1411,6 +1621,87 @@ public class PaimonScanNode extends FileQueryScanNode {
             paimonScanParams = validateIncrementalReadParams(scanParams.getMapParams());
         }
         return paimonScanParams;
+    }
+
+    /**
+     * Plan a primary-key vector (ANN) search. Produces one Doris split per
+     * (partition, bucket) {@link BucketVectorSearchSplit}, serialized with the
+     * native "PKVSPLIT"/v1 protocol so paimon-rust on BE can decode it. Planning
+     * only needs the vector column and the partition-half of the predicate; the
+     * query vector and data (residual) predicates are handled by BE.
+     */
+    @VisibleForTesting
+    public List<Split> getVectorSearchSplits() throws UserException {
+        Table paimonTable = getProcessedTable();
+        // Only the partition-half of the predicate is pushed into Paimon planning.
+        // The data (residual) half is left for BE's vector-search filter, and passing
+        // it here would trip PrimaryKeyVectorScan's DV/merge-on-read pre-filter guard.
+        PartitionPredicate partitionPredicate = null;
+        if (predicates != null && !predicates.isEmpty()) {
+            Pair<Optional<PartitionPredicate>, List<Predicate>> partSplit =
+                    PartitionPredicate.splitPartitionPredicatesAndDataPredicates(
+                            predicates, paimonTable.rowType(), paimonTable.partitionKeys());
+            partitionPredicate = partSplit.getLeft().orElse(null);
+        }
+
+        // Resolve the actual Paimon field name (case-insensitive); the pushed-down
+        // column name comes from the Doris column, which may differ in case.
+        String vectorColumn = resolvePaimonFieldName(paimonTable, annSortColumnName);
+
+        VectorScan.Plan plan;
+        try {
+            plan = paimonTable.newBatchVectorSearchBuilder()
+                    .withVectorColumn(vectorColumn)
+                    .withPartitionFilter(partitionPredicate)
+                    .newVectorScan()
+                    .scan();
+        } catch (Exception e) {
+            throw new UserException("Paimon PK-vector search planning failed: " + e.getMessage(), e);
+        }
+
+        List<Split> splits = new ArrayList<>();
+        Set<BinaryRow> partitions = new HashSet<>();
+        for (VectorSearchSplit vectorSplit : plan.splits()) {
+            if (!(vectorSplit instanceof BucketVectorSearchSplit)) {
+                throw new UserException("Unexpected PK-vector split type: "
+                        + vectorSplit.getClass().getName());
+            }
+            BucketVectorSearchSplit bucketSplit = (BucketVectorSearchSplit) vectorSplit;
+            // Serialize with Paimon's own DataOutputSerializer: the bytes must be
+            // exactly BucketVectorSearchSplit.serialize's DataOutputView form
+            // (magic "PKVSPLIT", version 1, big-endian), which
+            // paimon_bucket_vector_search_split_deserialize on BE decodes. This
+            // repository's Paimon no longer ships a BucketVectorSearchSplitSerializer.
+            byte[] payloadBytes;
+            try {
+                DataOutputSerializer output = new DataOutputSerializer(256);
+                bucketSplit.serialize(output);
+                payloadBytes = output.getCopyOfBuffer();
+            } catch (IOException e) {
+                throw new UserException("Failed to serialize PK-vector split: " + e.getMessage(), e);
+            }
+            DataSplit dataSplit = bucketSplit.dataSplit();
+            PaimonSplit split = new PaimonSplit(dataSplit);
+            split.setVectorPayloadBytes(payloadBytes);
+            splits.add(split);
+            partitions.add(dataSplit.partition());
+            ++paimonSplitNum;
+        }
+
+        splits.forEach(s -> s.setTargetSplitSize(sessionVariable.getFileSplitSize() > 0
+                ? sessionVariable.getFileSplitSize() : sessionVariable.getMaxSplitSize()));
+        this.selectedPartitionNum = partitions.size();
+        return splits;
+    }
+
+    /** Resolve a Paimon row-type field name case-insensitively, else return the input. */
+    private static String resolvePaimonFieldName(Table paimonTable, String name) {
+        for (String field : paimonTable.rowType().getFieldNames()) {
+            if (field.equalsIgnoreCase(name)) {
+                return field;
+            }
+        }
+        return name;
     }
 
     @VisibleForTesting
@@ -1780,6 +2071,23 @@ public class PaimonScanNode extends FileQueryScanNode {
         sb.append(String.format("%spaimonNativeReadSplits=%d/%d\n",
                 prefix, rawFileSplitNum, (paimonSplitNum + rawFileSplitNum)));
 
+        if (annSortQueryVector != null) {
+            sb.append(prefix).append("annSortQueryVector=")
+                    .append(Arrays.toString(annSortQueryVector)).append("\n");
+        }
+        if (annSortColumnName != null) {
+            sb.append(prefix).append("annSortColumnName=").append(annSortColumnName).append("\n");
+        }
+        // Worth showing even though it is not a plan choice: it selects the score->distance
+        // transform the BE reader applies, so an ANN plan that looks right can still return
+        // wrong distances if this is not what was expected.
+        if (annMetric != null) {
+            sb.append(prefix).append("annMetric=").append(annMetric).append("\n");
+        }
+        if (annSortLimit != -1) {
+            sb.append(prefix).append("annSortLimit=").append(annSortLimit).append("\n");
+        }
+
         sb.append(prefix).append("predicatesFromPaimon:");
         if (predicates.isEmpty()) {
             sb.append(" NONE\n");
@@ -2051,5 +2359,47 @@ public class PaimonScanNode extends FileQueryScanNode {
             throw new UserException(e.getMessage(), e);
         }
         return finalTable;
+    }
+
+    public void setAnnSortQueryVector(float[] annSortQueryVector) {
+        this.annSortQueryVector = annSortQueryVector;
+    }
+
+    public void setAnnSortColumnName(String annSortColumnName) {
+        this.annSortColumnName = annSortColumnName;
+    }
+
+    public void setAnnSortLimit(long annSortLimit) {
+        this.annSortLimit = annSortLimit;
+    }
+
+    public void setAnnMetric(TVectorMetric annMetric) {
+        this.annMetric = annMetric;
+    }
+
+    /**
+     * Whether this scan is planned as a primary-key vector (ANN) search. Requires
+     * the query vector, indexed column and retrieval limit to all be present.
+     *
+     * <p>Deliberately does NOT also require the metric, and adding that check would
+     * make things worse rather than safer. This predicate is a control switch, not a
+     * query: it decides whether {@link #getSplits} plans bucket-vector splits and
+     * whether {@code external_search_request} is sent at all. But whether the scan carries
+     * a distance column was already decided earlier, by
+     * PushDownVectorTopNIntoPaimonScan, which replaced the distance expression with the
+     * {@code __paimon_search_score_to_dis} slot and put it in the scan output -- that is
+     * not undoable here. Returning false on a missing metric would therefore plan a
+     * plain scan whose projection excludes that column, leaving it empty while every other
+     * column holds num_rows: silent corruption surfacing downstream as an unattributable
+     * size mismatch.
+     *
+     * <p>The check is also unreachable: the only AnnTopNInfo construction site passes a
+     * {@code "l2"}/{@code "inner_product"} literal and bails out (no rewrite at all)
+     * when the index metric disagrees. And if it ever did leak through, BE already
+     * rejects an unset or unsupported metric with an explicit error -- a loud failure,
+     * which is strictly better than a silently degraded plan.
+     */
+    public boolean isVectorSearch() {
+        return annSortQueryVector != null && annSortColumnName != null && annSortLimit >= 0;
     }
 }

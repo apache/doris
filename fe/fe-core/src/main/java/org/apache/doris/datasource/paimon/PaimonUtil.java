@@ -80,6 +80,7 @@ import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VectorType;
 import org.apache.paimon.utils.DateTimeUtils;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.apache.paimon.utils.InternalRowPartitionComputer;
@@ -372,6 +373,27 @@ public class PaimonUtil {
                 Type innerType = paimonPrimitiveTypeToDorisType(arrayType.getElementType(), enableVarbinaryMapping,
                         enableTimestampTzMapping);
                 return org.apache.doris.catalog.ArrayType.create(innerType, true);
+            case VECTOR:
+                // Paimon's fixed-size dense vector (VECTOR<element, length>) maps to a plain
+                // ARRAY, same as case ARRAY above. That is what the rest of the stack already
+                // expects: l2_distance_approximate / inner_product_approximate are declared
+                // over ARRAY<FLOAT> (L2DistanceApproximate.SIGNATURES), so an UNSUPPORTED
+                // mapping (the old default-branch behavior) would make the column unusable:
+                // the distance functions never type-check and the ANN rewrite
+                // (PushDownVectorTopNIntoPaimonScan) is never even reached.
+                //
+                // ARRAY here is Doris's *logical* type; the readers below it do NOT all see a
+                // plain list, and each needed a VECTOR case of its own:
+                //   - paimon-rust emits Arrow FixedSizeList, not List -- handled in
+                //     DataTypeArraySerDe::read_column_from_arrow.
+                //   - the JNI scanner needs getVector, not getArray, because a vector's binary
+                //     layout differs from an array's -- handled in PaimonColumnValue.unpackArray.
+                // The declared length is dropped: Doris ARRAY has no fixed-size variant, and
+                // Paimon enforces the dimension on write.
+                VectorType vectorType = (VectorType) dataType;
+                Type vectorElementType = paimonPrimitiveTypeToDorisType(vectorType.getElementType(),
+                        enableVarbinaryMapping, enableTimestampTzMapping);
+                return org.apache.doris.catalog.ArrayType.create(vectorElementType, true);
             case MAP:
                 MapType mapType = (MapType) dataType;
                 return new org.apache.doris.catalog.MapType(
@@ -422,6 +444,17 @@ public class PaimonUtil {
             case ARRAY:
                 ArrayType arrayType = (ArrayType) dataType;
                 updatePaimonColumnUniqueId(columns.get(0), arrayType.getElementType());
+                break;
+            case VECTOR:
+                // Mapped to a Doris ARRAY (see paimonPrimitiveTypeToDorisType), so it has the
+                // same single child column and VectorType delegates collectFieldIds to its
+                // element exactly as ArrayType does. Falling through to default would leave
+                // that child's uniqueId at its default instead of the Paimon field id.
+                // Recursing is safe while VECTOR maps to ARRAY: children.get(0) above is
+                // unguarded, and the child exists only because Column.createChildrenColumn
+                // adds a COLUMN_ARRAY_CHILDREN child for any isArrayType().
+                VectorType vectorType = (VectorType) dataType;
+                updatePaimonColumnUniqueId(columns.get(0), vectorType.getElementType());
                 break;
             case MAP:
                 MapType mapType = (MapType) dataType;
@@ -495,11 +528,18 @@ public class PaimonUtil {
         }
         TNestedField nestedField = new TNestedField();
         switch (dataType.getTypeRoot()) {
+            case VECTOR:
             case ARRAY: {
+                // VECTOR shares this branch because paimonPrimitiveTypeToDorisType maps it to
+                // ARRAY. It must not fall through to the default below: that only sets the
+                // primitive type and leaves nestedField unset, which would hand BE a field
+                // declared TPrimitiveType.ARRAY with no item field describing the element.
                 TArrayField listField = new TArrayField();
-                org.apache.paimon.types.ArrayType paimonArrayType = (org.apache.paimon.types.ArrayType) dataType;
+                DataType paimonElementType = dataType.getTypeRoot() == DataTypeRoot.VECTOR
+                        ? ((VectorType) dataType).getElementType()
+                        : ((org.apache.paimon.types.ArrayType) dataType).getElementType();
                 TFieldPtr fieldPtr = new TFieldPtr();
-                fieldPtr.setFieldPtr(getSchemaInfo(paimonArrayType.getElementType(), enableVarbinaryMapping,
+                fieldPtr.setFieldPtr(getSchemaInfo(paimonElementType, enableVarbinaryMapping,
                         enableTimestampTzMapping));
                 listField.setItemField(fieldPtr);
                 nestedField.setArrayField(listField);

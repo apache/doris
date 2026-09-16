@@ -802,6 +802,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else if (table.getType() == TableIf.TableType.PAIMON_EXTERNAL_TABLE) {
             scanNode = new PaimonScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
+            // Translate primary-key vector (ANN) top-N info pushed down onto the scan.
+            fileScan.getAnnTopN().ifPresent(ann -> {
+                PaimonScanNode paimonScanNode = (PaimonScanNode) scanNode;
+                paimonScanNode.setAnnSortQueryVector(ann.getQueryVector());
+                paimonScanNode.setAnnSortColumnName(ann.getColumnName());
+                paimonScanNode.setAnnSortLimit(ann.getLimit());
+                paimonScanNode.setAnnMetric(ann.getMetric());
+            });
         } else if (table instanceof TrinoConnectorExternalTable) {
             scanNode = new TrinoConnectorScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
