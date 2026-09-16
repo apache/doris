@@ -55,11 +55,11 @@ final class PaimonSchemaPin {
         if (table instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
             capture(pair.wrapped(), schemaId, snapshotId, path, pin);
-            TableSchema fallback = pair.fallback().schemaManager().latest().orElseThrow(IllegalStateException::new);
+            TableSchema fallback = pair.other().schemaManager().latest().orElseThrow(IllegalStateException::new);
             String fallbackPath = path + "fallback.";
             long fallbackSnapshotId = -1L;
             if (snapshotId >= 0) {
-                SnapshotManager manager = pair.fallback().snapshotManager();
+                SnapshotManager manager = pair.other().snapshotManager();
                 long time = snapshot(pair.wrapped(), snapshotId).timeMillis();
                 Snapshot eligible = manager.earlierOrEqualTimeMills(time);
                 // Match the SDK's FIRST_SNAPSHOT_ID fallback once, while pinning, rather than
@@ -70,7 +70,7 @@ final class PaimonSchemaPin {
                     pin.put(PREFIX + fallbackPath + "snapshot-absent", "true");
                 }
             }
-            capture(pair.fallback(), fallback.id(), fallbackSnapshotId, fallbackPath, pin);
+            capture(pair.other(), fallback.id(), fallbackSnapshotId, fallbackPath, pin);
         } else if (table instanceof DelegatedFileStoreTable) {
             capture(((DelegatedFileStoreTable) table).wrapped(), schemaId, snapshotId, path, pin);
         } else if (table instanceof DataTable) {
@@ -99,7 +99,7 @@ final class PaimonSchemaPin {
         if (table instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
             validate(pair.wrapped(), pin, path);
-            validate(pair.fallback(), pin, path + "fallback.");
+            validate(pair.other(), pin, path + "fallback.");
         } else if (table instanceof DelegatedFileStoreTable) {
             validate(((DelegatedFileStoreTable) table).wrapped(), pin, path);
         } else if (table instanceof DataTable) {
@@ -158,7 +158,7 @@ final class PaimonSchemaPin {
     private static String shape(Table table) {
         if (table instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
-            return "fallback(" + shape(pair.wrapped()) + "," + shape(pair.fallback()) + ")";
+            return "fallback(" + shape(pair.wrapped()) + "," + shape(pair.other()) + ")";
         }
         if (table instanceof DelegatedFileStoreTable) {
             return shape(((DelegatedFileStoreTable) table).wrapped());

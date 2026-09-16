@@ -222,11 +222,11 @@ public final class PaimonScanParams {
                 Map<String, String> fallbackOptions = new HashMap<>(dynamicOptions);
                 // Keep branch policy, but never retranslate the main fence against a later fallback history.
                 fallbackOptions.remove(CoreOptions.BUCKET.key());
-                fallbackOptions.put(CoreOptions.BRANCH.key(), pair.fallback().coreOptions().branch());
+                fallbackOptions.put(CoreOptions.BRANCH.key(), pair.other().coreOptions().branch());
                 fallbackOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId);
                 return new FallbackReadFileStoreTable(
                         copyWithPinnedFallback(pair.wrapped(), dynamicOptions, coordinates, path),
-                        copyWithPinnedFallback(pair.fallback(), fallbackOptions, coordinates, fallbackPath));
+                        copyWithPinnedFallback(pair.other(), fallbackOptions, coordinates, fallbackPath), true);
             }
         }
         if (table instanceof DelegatedFileStoreTable && !(table instanceof FallbackReadFileStoreTable)) {
@@ -244,9 +244,9 @@ public final class PaimonScanParams {
             // coordinates, preserving compatibility without broadcasting the main schema ID.
             String fallbackPath = path + "fallback.";
             long fallbackId = PaimonSchemaPin.fallbackSchemaId(options, fallbackPath,
-                    () -> pair.fallback().schemaManager().latest().orElseThrow(IllegalStateException::new).id());
+                    () -> pair.other().schemaManager().latest().orElseThrow(IllegalStateException::new).id());
             return new FallbackReadFileStoreTable(restoreBoundSchema(pair.wrapped(), schemaId, options, path),
-                    restoreBoundSchema(pair.fallback(), fallbackId, options, fallbackPath));
+                    restoreBoundSchema(pair.other(), fallbackId, options, fallbackPath), true);
         }
         if (table instanceof DelegatedFileStoreTable) {
             FileStoreTable wrapped = ((DelegatedFileStoreTable) table).wrapped();
