@@ -371,6 +371,46 @@ public class SchemaChangeJobV2Test {
     }
 
     @Test
+    public void testCancelSchemaChangeWhileTableWaitingStable() throws Exception {
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        // add a schema change job
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(addColumnOp);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        schemaChangeHandler.process(alterOps, db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
+        Assertions.assertEquals(1, alterJobsV2.size());
+        SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
+        Assertions.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
+
+        // make the table unstable, so that the job stays in PENDING and the table
+        // state is switched to WAITING_STABLE
+        MaterializedIndex baseIndex = testPartition.getBaseIndex();
+        Replica replica = baseIndex.getTablets().get(0).getReplicas().get(0);
+        replica.setState(Replica.ReplicaState.DECOMMISSION);
+        schemaChangeHandler.runAfterCatalogReady();
+        Assertions.assertEquals(JobState.PENDING, schemaChangeJob.getJobState());
+        Assertions.assertEquals(OlapTableState.WAITING_STABLE, olapTable.getState());
+
+        // cancel the job, the table state must be reset to NORMAL
+        Assertions.assertTrue(schemaChangeJob.cancel("user cancelled"));
+        Assertions.assertEquals(JobState.CANCELLED, schemaChangeJob.getJobState());
+        Assertions.assertEquals(OlapTableState.NORMAL, olapTable.getState());
+    }
+
+    @Test
     public void testModifyDynamicPartitionNormal() throws UserException {
         if (fakeEnv != null) {
             fakeEnv.close();

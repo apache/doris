@@ -1104,7 +1104,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             try {
                 if (olapTable.getState() == olapTableState) {
                     return;
-                } else if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE) {
+                } else if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE
+                        || olapTable.getState() == OlapTableState.WAITING_STABLE) {
                     olapTable.setState(olapTableState);
                 }
             } finally {
