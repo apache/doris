@@ -29,9 +29,13 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -98,6 +102,13 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
             throw new AnalysisException("'db' is required for binlog<row>");
         }
         this.dbName = db;
+
+        ConnectContext ctx = ConnectContext.get();
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                dbName, tableName, PrivPredicate.SELECT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                    PrivPredicate.SELECT.getPrivs().toString(), tableName);
+        }
 
         this.partitionNamesInfo = parsePartitionNamesInfo(validParams.get(PARTITION));
         this.specifiedTabletIds = parseTabletIds(validParams.get(TABLET));
