@@ -5,3 +5,127 @@
 -- !scan --
 00112233-4455-6677-8899-aabbccddeeff	ffffffff-ffff-ffff-ffff-ffffffffffff
 
+-- !prepared_rows --
+00000000-0000-0000-0000-000000000000	101
+00000000-0000-0000-0000-000000000001	202
+00112233-4455-6677-8899-aabbccddeeff	303
+7fffffff-ffff-ffff-ffff-ffffffffffff	404
+80000000-0000-0000-0000-000000000000	505
+ffffffff-ffff-ffff-ffff-ffffffffffff	606
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000000	101
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000001	202
+
+-- !prepared_point --
+00112233-4455-6677-8899-aabbccddeeff	303
+
+-- !prepared_point --
+00112233-4455-6677-8899-aabbccddeeff	303
+
+-- !prepared_point --
+7fffffff-ffff-ffff-ffff-ffffffffffff	404
+
+-- !prepared_point --
+80000000-0000-0000-0000-000000000000	505
+
+-- !prepared_point --
+ffffffff-ffff-ffff-ffff-ffffffffffff	606
+
+-- !prepared_point --
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000001	202
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000000	101
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000000	101
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000001	202
+
+-- !prepared_point --
+00112233-4455-6677-8899-aabbccddeeff	303
+
+-- !prepared_point --
+00112233-4455-6677-8899-aabbccddeeff	303
+
+-- !prepared_point --
+7fffffff-ffff-ffff-ffff-ffffffffffff	404
+
+-- !prepared_point --
+80000000-0000-0000-0000-000000000000	505
+
+-- !prepared_point --
+ffffffff-ffff-ffff-ffff-ffffffffffff	606
+
+-- !prepared_point --
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000001	202
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000000	101
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000000	101
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000001	202
+
+-- !prepared_point --
+00112233-4455-6677-8899-aabbccddeeff	303
+
+-- !prepared_point --
+00112233-4455-6677-8899-aabbccddeeff	303
+
+-- !prepared_point --
+7fffffff-ffff-ffff-ffff-ffffffffffff	404
+
+-- !prepared_point --
+80000000-0000-0000-0000-000000000000	505
+
+-- !prepared_point --
+ffffffff-ffff-ffff-ffff-ffffffffffff	606
+
+-- !prepared_point --
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000001	202
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000000	101
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000000	101
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000001	202
+
+-- !prepared_point --
+00112233-4455-6677-8899-aabbccddeeff	303
+
+-- !prepared_point --
+00112233-4455-6677-8899-aabbccddeeff	303
+
+-- !prepared_point --
+7fffffff-ffff-ffff-ffff-ffffffffffff	404
+
+-- !prepared_point --
+80000000-0000-0000-0000-000000000000	505
+
+-- !prepared_point --
+ffffffff-ffff-ffff-ffff-ffffffffffff	606
+
+-- !prepared_point --
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000001	202
+
+-- !prepared_point --
+00000000-0000-0000-0000-000000000000	101
+
