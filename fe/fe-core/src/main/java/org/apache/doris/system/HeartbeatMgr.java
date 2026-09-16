@@ -29,6 +29,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
+import org.apache.doris.proto.Cloud.ClusterStatus;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeDiskInfo;
@@ -217,9 +218,13 @@ public class HeartbeatMgr extends MasterDaemon {
                     } else {
                         // invalid all connections cached in ClientPool
                         ClientPool.backendPool.clearPool(new TNetworkAddress(be.getHost(), be.getBePort()));
-                        if (!isReplay && System.currentTimeMillis() - be.getLastUpdateMs()
-                                >= Config.abort_txn_after_lost_heartbeat_time_second * 1000L
-                                && be.getLastUpdateMs() > 0) {
+                        long lostTimeMs = System.currentTimeMillis() - be.getLastUpdateMs();
+                        long timeoutMs = Config.abort_txn_after_lost_heartbeat_time_second * 1000L;
+                        boolean nonNormalCloudCluster = Config.isCloudMode()
+                                && !ClusterStatus.NORMAL.name().equals(be.getCloudClusterStatus());
+                        // Bound repeated MS scans for inactive clusters to [timeoutMs, 2 * timeoutMs).
+                        if (!isReplay && be.getLastUpdateMs() > 0 && lostTimeMs >= timeoutMs
+                                && (!nonNormalCloudCluster || lostTimeMs < 2 * timeoutMs)) {
                             submitAbortTxnTaskByExecutor(() -> Env.getCurrentGlobalTransactionMgr()
                                     .abortTxnWhenCoordinateBeDown(be.getId(), be.getHost(), 100), "down");
                         }
