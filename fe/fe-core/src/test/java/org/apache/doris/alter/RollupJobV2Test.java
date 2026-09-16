@@ -67,6 +67,8 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -145,7 +147,7 @@ public class RollupJobV2Test {
         Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         MaterializedViewHandler handler = masterEnv.getMaterializedViewHandler();
-        handler.process(Lists.newArrayList(op), db, table);
+        handler.process(Lists.newArrayList(clause), db, table);
         RollupJobV2 job = (RollupJobV2) handler.getAlterJobsV2().values().iterator().next();
         job.jobState = JobState.WAITING_TXN;
         job.watershedTxnId = txnId + 1;
@@ -154,17 +156,17 @@ public class RollupJobV2Test {
                 GlobalTransactionMgr.class, Mockito.CALLS_REAL_METHODS)) {
             mocked.when(() -> GlobalTransactionMgr.checkFailedTxns(Mockito.anyList())).thenAnswer(invocation -> {
                 List<TransactionState> failed = (List<TransactionState>) invocation.callRealMethod();
-                Assertions.assertEquals(List.of(txn), failed);
+                Assert.assertEquals(Lists.newArrayList(txn), failed);
                 txn.setTransactionStatus(TransactionStatus.COMMITTED);
                 return failed;
             });
             job.runWaitingTxnJob();
-            Assertions.assertEquals(JobState.WAITING_TXN, job.getJobState());
-            Assertions.assertEquals(TransactionStatus.COMMITTED, txn.getTransactionStatus());
+            Assert.assertEquals(JobState.WAITING_TXN, job.getJobState());
+            Assert.assertEquals(TransactionStatus.COMMITTED, txn.getTransactionStatus());
         }
-        Assertions.assertFalse(job.checkFailedPreviousLoadAndAbort());
+        Assert.assertFalse(job.checkFailedPreviousLoadAndAbort());
         txn.setTransactionStatus(TransactionStatus.VISIBLE);
-        Assertions.assertTrue(job.checkFailedPreviousLoadAndAbort());
+        Assert.assertTrue(job.checkFailedPreviousLoadAndAbort());
     }
 
     @Test
