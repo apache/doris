@@ -20,6 +20,7 @@ org.apache.doris.connector.spi.Connector#preCreateValidation(org.apache.doris.co
 org.apache.doris.connector.spi.Connector#schemaCacheTtlSecondOverride():java.util.OptionalLong
 org.apache.doris.connector.spi.Connector#testConnection(org.apache.doris.connector.spi.ConnectorSession):org.apache.doris.connector.spi.ConnectorTestResult
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_COLUMN_AUTO_ANALYZE
+org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_FIELD_ID_ACCESS_PATH
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_METADATA_PRELOAD
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_MVCC_SNAPSHOT
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_NESTED_COLUMN_PRUNE
@@ -30,6 +31,7 @@ org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_SCAN_PARAM_OPTI
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_SHOW_CREATE_DDL
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_SORT_ORDER
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_STORAGE_PREDICATE_PRUNING
+org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_TOPN_LAZY_MATERIALIZE
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_USER_SESSION
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_VIEW

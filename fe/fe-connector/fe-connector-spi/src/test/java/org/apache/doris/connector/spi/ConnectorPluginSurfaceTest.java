@@ -85,8 +85,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // OpenCSV scan properties require major 9: inlined keys cannot fail JVM linkage on an older FE.
-        Assertions.assertEquals("9.0", version.getProperty("api.version"));
+        // Major 10 adds the SUPPORTS_FIELD_ID_ACCESS_PATH and SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE
+        // capabilities: a plugin naming either constant cannot link against an older FE.
+        Assertions.assertEquals("10.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
