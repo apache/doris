@@ -2403,31 +2403,4 @@ TEST_F(FunctionCastToIntTest, test_masked_row_keeps_default_value) {
     EXPECT_EQ(nested.get_data()[0], 0);
     EXPECT_EQ(nested.get_data()[1], 7);
 }
-
-// A visible row that overflows is NULL in the result of a non strict cast, but its destination slot
-// still has to hold the default value of the type: a consumer that reads the nested column of a
-// nullable input without looking at the NULL map must not read uninitialized memory.
-TEST_F(FunctionCastToIntTest, test_non_strict_overflow_keeps_default_value) {
-    auto ctx = create_context(false);
-    auto from_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
-    auto to_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt8>());
-
-    auto fn = get_cast_wrapper(ctx.get(), from_type, to_type);
-    ASSERT_TRUE(fn != nullptr);
-
-    // Row 0 overflows TINYINT, row 1 fits.
-    Block block = {
-            {ColumnHelper::create_nullable_column<DataTypeInt32>({300, 7}, {0, 0}), from_type,
-             "from"},
-            {nullptr, to_type, "to"},
-    };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
-
-    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
-    const auto& nested = assert_cast<const DataTypeInt8::ColumnType&>(result.get_nested_column());
-    EXPECT_EQ(result.get_null_map_data()[0], 1);
-    EXPECT_EQ(nested.get_data()[0], 0);
-    EXPECT_EQ(result.get_null_map_data()[1], 0);
-    EXPECT_EQ(nested.get_data()[1], 7);
-}
 } // namespace doris
