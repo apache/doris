@@ -323,13 +323,15 @@ std::string endpoint_authority(const std::string& endpoint) {
     return authority;
 }
 
+#ifdef USE_AZURE
 // The endpoint handed to the SDK. Native endpoints were already normalized
 // while parsing the native protocol. Legacy SharedKey producers hand over an
 // endpoint literal that only ever received a default scheme, so keep that
 // contract here: no account-name inference, no DFS-to-Blob rewrite and no path
 // rewriting, which would silently redirect single-label proxy hosts or custom
 // reverse-proxy routes after an upgrade. Only the endpoint/container join
-// boundary is normalized.
+// boundary is normalized. Only _create_azure_client() consumes it, so keep it
+// under the same guard or a BUILD_AZURE=OFF build fails on -Wunused-function.
 std::string azure_transport_endpoint(std::string endpoint) {
     if (endpoint.find("://") == std::string::npos) {
         endpoint = "https://" + endpoint;
@@ -339,6 +341,7 @@ std::string azure_transport_endpoint(std::string endpoint) {
     }
     return endpoint;
 }
+#endif
 
 // Only established SharedKey wire producers use AWS fields for Azure. Once
 // translated here the native factory never inspects these fields again. The
