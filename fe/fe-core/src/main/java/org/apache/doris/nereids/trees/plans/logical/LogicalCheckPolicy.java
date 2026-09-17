@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -146,10 +147,11 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         if (!(logicalPlan instanceof CatalogRelation || logicalPlan instanceof LogicalView)) {
             return RelatedPolicy.NO_POLICY;
         }
+        TableIf table = getPolicyTable(logicalPlan);
         Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = cascadesContext.getStatementContext()
                 .getMvRefreshPredicates();
         if (mvRefreshPredicates.isPresent()) {
-            return findPolicyByMvRefresh(mvRefreshPredicates.get(), logicalPlan);
+            return findPolicyByMvRefresh(mvRefreshPredicates.get(), table);
         }
         ConnectContext connectContext = cascadesContext.getConnectContext();
         AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
@@ -158,8 +160,6 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             return RelatedPolicy.NO_POLICY;
         }
 
-        TableIf table = logicalPlan instanceof CatalogRelation ? ((CatalogRelation) logicalPlan).getTable()
-                : ((LogicalView<?>) logicalPlan).getView();
         DatabaseIf database = table.getDatabase();
         if (database == null) {
             return RelatedPolicy.NO_POLICY;
@@ -213,10 +213,19 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         );
     }
 
-    private RelatedPolicy findPolicyByMvRefresh(Map<TableIf, Set<Expression>> mvRefreshPredicates,
-            LogicalPlan logicalPlan) {
+    private static TableIf getPolicyTable(LogicalPlan logicalPlan) {
         TableIf table = logicalPlan instanceof CatalogRelation ? ((CatalogRelation) logicalPlan).getTable()
                 : ((LogicalView<?>) logicalPlan).getView();
+        // A wrapper changes how a scan reads data, not which table owns its authorization policy. Unwrap
+        // recursively so future wrappers and stacked wrappers keep using the original table identity.
+        while (table instanceof OlapTableWrapper) {
+            table = ((OlapTableWrapper) table).getOriginTable();
+        }
+        return table;
+    }
+
+    private RelatedPolicy findPolicyByMvRefresh(Map<TableIf, Set<Expression>> mvRefreshPredicates,
+            TableIf table) {
         if (mvRefreshPredicates.containsKey(table)) {
             return new RelatedPolicy(Optional.of(ExpressionUtils.or(mvRefreshPredicates.get(table))), Optional.empty());
         }
