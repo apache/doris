@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -1060,6 +1061,20 @@ public class TypeCoercionUtilsTest {
 
         NullSafeEqual nullSafeEquality = new NullSafeEqual(variant, anotherVariant);
         Assertions.assertSame(nullSafeEquality, TypeCoercionUtils.processComparisonPredicate(nullSafeEquality));
+
+        // A bare NULL takes the Variant type on either side; an ordering comparison stays rejected.
+        for (ComparisonPredicate bareNull : ImmutableList.of(
+                new EqualTo(variant, NullLiteral.INSTANCE), new EqualTo(NullLiteral.INSTANCE, variant),
+                new NullSafeEqual(variant, NullLiteral.INSTANCE),
+                new NullSafeEqual(NullLiteral.INSTANCE, variant))) {
+            Expression coerced = TypeCoercionUtils.processComparisonPredicate(bareNull);
+            Assertions.assertEquals(bareNull.getClass(), coerced.getClass());
+            Assertions.assertEquals(VariantType.INSTANCE, coerced.child(0).getDataType());
+            Assertions.assertEquals(VariantType.INSTANCE, coerced.child(1).getDataType());
+        }
+        Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processComparisonPredicate(
+                        new GreaterThan(variant, NullLiteral.INSTANCE)));
 
         AnalysisException mixedType = Assertions.assertThrows(AnalysisException.class,
                 () -> TypeCoercionUtils.processComparisonPredicate(new GreaterThan(variant, integer)));

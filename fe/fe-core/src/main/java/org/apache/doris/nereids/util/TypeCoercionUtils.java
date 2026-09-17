@@ -1454,6 +1454,14 @@ public class TypeCoercionUtils {
         if (leftIsVariant && rightIsVariant && comparisonPredicate instanceof EqualPredicate) {
             return comparisonPredicate;
         }
+        // A bare NULL has no type of its own, so it takes the Variant type of the other side and
+        // `v = NULL`, `v != NULL` and `v <=> NULL` become the Variant equality above.
+        if (comparisonPredicate instanceof EqualPredicate && leftIsVariant != rightIsVariant
+                && (leftIsVariant ? right : left).getDataType().isNullType()) {
+            DataType variantDataType = leftIsVariant ? left.getDataType() : right.getDataType();
+            return comparisonPredicate.withChildren(castIfNotSameType(left, variantDataType),
+                    castIfNotSameType(right, variantDataType));
+        }
         boolean isDirectVariantSubpathScalarComparison = leftIsVariant != rightIsVariant
                 && ((leftIsVariant && left instanceof ElementAt)
                         || (rightIsVariant && right instanceof ElementAt));

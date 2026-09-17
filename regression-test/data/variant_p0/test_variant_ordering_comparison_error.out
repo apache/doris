@@ -79,6 +79,28 @@
 10
 5
 
+-- !bare_null_equals --
+2	\N	\N	\N	\N
+5	\N	\N	\N	\N
+6	\N	\N	\N	\N
+
+-- !bare_null_safe_equals --
+5
+
+-- !bare_null_safe_equals_reversed --
+5
+
+-- !bare_null_safe_not_equals --
+1
+10
+2
+3
+4
+6
+7
+8
+9
+
 -- !explicit_cast_order --
 1
 2

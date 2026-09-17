@@ -80,6 +80,18 @@ suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
     sql "SET enable_force_spill = false"
     sql "SET enable_spill = false"
 
+    // A bare NULL takes the Variant type on either side. `=` and `!=` are NULL for every row;
+    // `<=>` matches the SQL NULL row only.
+    order_qt_bare_null_equals """SELECT id, v = NULL, NULL = v, v != NULL, NULL != v
+        FROM variant_ordering_peers WHERE id IN (2, 5, 6)"""
+    order_qt_bare_null_safe_equals "SELECT id FROM variant_ordering_peers WHERE v <=> NULL"
+    order_qt_bare_null_safe_equals_reversed "SELECT id FROM variant_ordering_peers WHERE NULL <=> v"
+    order_qt_bare_null_safe_not_equals "SELECT id FROM variant_ordering_peers WHERE NOT (v <=> NULL)"
+    test {
+        sql "SELECT id FROM variant_ordering_peers WHERE v > NULL"
+        exception "CAST to a concrete type first"
+    }
+
     test {
         sql "SELECT CAST('2' AS VARIANT) > CAST('1' AS VARIANT)"
         exception "CAST to a concrete type first"
