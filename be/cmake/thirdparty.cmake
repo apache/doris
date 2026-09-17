@@ -31,6 +31,7 @@ set_target_properties(doris_paimon_cpp PROPERTIES
     IMPORTED_LOCATION "${DORIS_PAIMON_LIBRARY}"
     INTERFACE_INCLUDE_DIRECTORIES "${DORIS_PAIMON_INCLUDE}")
 list(APPEND COMMON_THIRDPARTY doris_paimon_cpp)
+set(DORIS_PAIMON_RUNTIME_LIBRARIES "${DORIS_PAIMON_LIBRARY}")
 # Exec is an independently compiled static target, not a consumer of the final BE
 # executable's transitive include directories.
 include_directories(SYSTEM "${DORIS_PAIMON_INCLUDE}")
@@ -44,6 +45,7 @@ foreach(plugin paimon_parquet_file_format paimon_orc_file_format paimon_avro_fil
     set_target_properties(doris_${plugin} PROPERTIES
         IMPORTED_LOCATION "${DORIS_PAIMON_${plugin}}")
     list(APPEND DORIS_PAIMON_FORMAT_LIBRARIES doris_${plugin})
+    list(APPEND DORIS_PAIMON_RUNTIME_LIBRARIES "${DORIS_PAIMON_${plugin}}")
 endforeach()
 if(APPLE)
     foreach(plugin IN LISTS DORIS_PAIMON_FORMAT_LIBRARIES)
@@ -57,13 +59,32 @@ else()
         ${DORIS_PAIMON_FORMAT_LIBRARIES}
         "-Wl,--pop-state")
 endif()
-install(DIRECTORY "${DORIS_PAIMON_PREFIX}/lib/" DESTINATION "${OUTPUT_DIR}/lib"
-    FILES_MATCHING PATTERN "*.so*" PATTERN "*.dylib*")
-if(APPLE)
-    list(APPEND CMAKE_INSTALL_RPATH "@loader_path")
-else()
-    list(APPEND CMAKE_INSTALL_RPATH "$ORIGIN")
+
+# Unlike regular Doris third-party libraries, Paimon must remain a shared-library
+# boundary because it embeds its own patched Arrow. Keep the runtime closure isolated
+# from Doris' statically linked dependencies and make every consumer locate it without
+# relying on a process-wide library path.
+if(NOT APPLE)
+    find_file(DORIS_PAIMON_LIBSTDCXX NAMES libstdc++.so.6
+        PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+    find_file(DORIS_PAIMON_LIBGCC NAMES libgcc_s.so.1
+        PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+    list(APPEND DORIS_PAIMON_RUNTIME_LIBRARIES
+        "${DORIS_PAIMON_LIBSTDCXX}"
+        "${DORIS_PAIMON_LIBGCC}")
 endif()
+install(FILES ${DORIS_PAIMON_RUNTIME_LIBRARIES}
+    DESTINATION "${OUTPUT_DIR}/lib/paimon")
+
+if(MAKE_TEST)
+    set(DORIS_PAIMON_RUNTIME_RPATH "${DORIS_PAIMON_PREFIX}/lib")
+elseif(APPLE)
+    set(DORIS_PAIMON_RUNTIME_RPATH "@loader_path/paimon")
+else()
+    set(DORIS_PAIMON_RUNTIME_RPATH "\$ORIGIN/paimon")
+endif()
+target_link_options(doris_paimon_cpp INTERFACE
+    "LINKER:-rpath,${DORIS_PAIMON_RUNTIME_RPATH}")
 
 # define add_thirdparty function, append thirdparty libraries to COMMON_THIRDPARTY variable, and pass arg too add_library
 # if arg exist lib64, use lib64, else use lib

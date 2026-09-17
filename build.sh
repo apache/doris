@@ -1043,6 +1043,11 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/libz.so"* "${DORIS_OUTPUT}/be/lib/"
     fi
 
+    if [[ -d "${DORIS_HOME}/be/output/lib/paimon" ]]; then
+        rm -rf "${DORIS_OUTPUT}/be/lib/paimon"
+        cp -r -p "${DORIS_HOME}/be/output/lib/paimon" "${DORIS_OUTPUT}/be/lib/"
+    fi
+
     if [[ "${BUILD_BE_JAVA_EXTENSIONS_FALSE_IN_CONF}" -eq 1 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
         cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
