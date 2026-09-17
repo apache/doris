@@ -713,17 +713,43 @@ public class UnequalPredicateInferTest {
                 for (List<Expression> permutation : Collections2.permutations(predicates)) {
                     Set<Expression> inputs = new LinkedHashSet<>(permutation);
                     Set<? extends Expression> inferred = UnequalPredicateInfer.inferUnequalPredicates(inputs);
-                    for (int av = 0; av <= 3; av++) {
-                        for (int bv = 0; bv <= 3; bv++) {
-                            for (int rv = 0; rv <= 3; rv++) {
-                                Map<Expression, Integer> values = ImmutableMap.of(a, av, b, bv, rn, rv);
-                                boolean expected = inputs.stream().allMatch(p -> evaluateComparison(p, values));
-                                boolean actual = inferred.stream().allMatch(p -> evaluateComparison(p, values));
-                                Assertions.assertEquals(expected, actual,
-                                        () -> "inputs=" + inputs + ", inferred=" + inferred + ", values=" + values);
-                            }
-                        }
-                    }
+                    assertPredicateSemantics(inputs, inferred, a, b, rn);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testStrictReverseRelationWithEquality() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE, false, ImmutableList.of("t"));
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false, ImmutableList.of("t"));
+        for (List<String> qualifier : ImmutableList.of(ImmutableList.<String>of(),
+                ImmutableList.of("t"), ImmutableList.of("other"))) {
+            SlotReference c = new SlotReference("c", IntegerType.INSTANCE, false, qualifier);
+            List<Expression> predicates = ImmutableList.of(new EqualTo(a, c), new GreaterThan(c, a),
+                    new GreaterThanEqual(c, b), new GreaterThan(b, c), new EqualTo(b, c));
+            // Check the reported order first, then all permutations. Clearing a chosen equality must
+            // not discard a distinct reverse inequality needed to keep the contradiction.
+            Set<Expression> inputs = new LinkedHashSet<>(predicates);
+            assertPredicateSemantics(inputs, UnequalPredicateInfer.inferUnequalPredicates(inputs), a, b, c);
+            for (List<Expression> permutation : Collections2.permutations(predicates)) {
+                inputs = new LinkedHashSet<>(permutation);
+                assertPredicateSemantics(inputs, UnequalPredicateInfer.inferUnequalPredicates(inputs), a, b, c);
+                assertPredicateSemantics(inputs, UnequalPredicateInfer.inferAllPredicates(inputs), a, b, c);
+            }
+        }
+    }
+
+    private static void assertPredicateSemantics(Set<Expression> inputs, Set<? extends Expression> inferred,
+            SlotReference a, SlotReference b, SlotReference c) {
+        for (int av = 0; av <= 3; av++) {
+            for (int bv = 0; bv <= 3; bv++) {
+                for (int cv = 0; cv <= 3; cv++) {
+                    Map<Expression, Integer> values = ImmutableMap.of(a, av, b, bv, c, cv);
+                    boolean expected = inputs.stream().allMatch(p -> evaluateComparison(p, values));
+                    boolean actual = inferred.stream().allMatch(p -> evaluateComparison(p, values));
+                    Assertions.assertEquals(expected, actual,
+                            () -> "inputs=" + inputs + ", inferred=" + inferred + ", values=" + values);
                 }
             }
         }
