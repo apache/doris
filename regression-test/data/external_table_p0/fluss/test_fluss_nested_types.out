@@ -58,9 +58,6 @@ f_arr_row	array<struct<a:int,b:text>>	Yes	true	\N	NONE
 f_map_arr	map<text,array<int>>	Yes	true	\N	NONE
 f_map_row	map<text,struct<a:int,b:text>>	Yes	true	\N	NONE
 f_row_deep	struct<r_int:int,r_arr:array<int>,r_map:map<text,int>,r_row:struct<x:int,y:text>>	Yes	true	\N	NONE
-__bucket	int	Yes	true	\N	NONE
-__offset	bigint	Yes	true	\N	NONE
-__timestamp	datetime(3)	Yes	true	\N	NONE
 
 -- !lake_side --
 1	[[1, 2], [3]]	[{"a":1, "b":"x"}]	{"k1":[1, 2]}	{"k1":{"a":9, "b":"z"}}	{"r_int":1, "r_arr":[7, 8], "r_map":{"m":3}, "r_row":{"x":5, "y":"deep"}}

@@ -193,10 +193,15 @@ suite("test_fluss_read_modes", "p0,external") {
     assertEquals(columnsOf("lake_log"), columnsOf("lake_log\$log"),
             "the log half of a table does not describe as the table")
 
-    // The lake half does not: paimon holds three columns fluss adds on the way in, and
-    // that difference is what says `$log` was not implemented as "the lake table again".
-    assertEquals(columnsOf("lake_log").size() + 3, columnsOf("lake_log\$lake").size(),
-            "the lake half no longer carries the three fluss system columns")
+    // Since fluss 1.0.0 the lake half describes the same way too: the paimon table it
+    // tiers into carries no fluss system columns any more (paimon 2.0's `lakestream.enabled`
+    // option took the place of the __bucket / __offset / __timestamp columns earlier
+    // releases appended), and the paimon metadata columns are invisible and hidden by
+    // DESC. So a schema no longer tells the two halves apart; what does is what they
+    // return -- the two rows above against the four in the lake -- and the plan anchor
+    // below.
+    assertEquals(columnsOf("lake_log"), columnsOf("lake_log\$lake"),
+            "the lake half does not describe as the table")
     order_qt_desc_log_half """desc lake_log\$log"""
 
     // --- the plan anchor -----------------------------------------------------

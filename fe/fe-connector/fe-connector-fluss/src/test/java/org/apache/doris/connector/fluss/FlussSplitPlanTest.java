@@ -568,12 +568,13 @@ public class FlussSplitPlanTest {
     /**
      * The lake half is planned on the LAKE's own column handles. The sibling projects by its own handle
      * type and ignores anything else, so handing it fluss's handles would leave it reading every column —
-     * including the three system columns tiering appends — and no assertion about rows would notice.
+     * including the metadata columns the sibling declares on top of the table's own — and no assertion
+     * about rows would notice.
      */
     @Test
     public void theLakeHalfIsPlannedOnTheLakeTablesOwnColumnHandles() {
         registerLakeTable(1);
-        lakeTableColumns("id", "__bucket", "__offset", "__timestamp");
+        lakeTableColumns("id", "__paimon_file_path", "__paimon_row_index");
         lakeSnapshotAt(7L, offsets(0L));
         latestOffsets(null, 5L);
 
