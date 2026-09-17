@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -27,6 +28,12 @@ import org.apache.doris.mtmv.MTMVCacheManager.HotEntry;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class MTMVCacheHotProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -48,18 +55,24 @@ public class MTMVCacheHotProcNode implements ProcNodeInterface {
         if (manager == null) {
             return result;
         }
-        InternalCatalog catalog = Env.getCurrentEnv() == null ? null : Env.getCurrentInternalCatalog();
-        for (HotEntry entry : manager.hotEntries(Config.mtmv_cache_hot_show_num)) {
+        List<HotEntry> entries = manager.hotEntries(Config.mtmv_cache_hot_show_num);
+        if (entries.isEmpty()) {
+            return result;
+        }
+        Set<Long> wanted = new HashSet<>();
+        for (HotEntry e : entries) {
+            wanted.add(e.mtmvId);
+        }
+        Map<Long, Table> idToTable = resolveTables(wanted);
+        for (HotEntry entry : entries) {
             String dbName = UNKNOWN_DB;
             String mvName = DROPPED_MV;
-            if (catalog != null) {
-                Table table = catalog.getTableByTableId(entry.mtmvId);
-                if (table != null) {
-                    mvName = table.getName();
-                    String qualified = table.getQualifiedDbName();
-                    if (qualified != null && !qualified.isEmpty()) {
-                        dbName = qualified;
-                    }
+            Table table = idToTable.get(entry.mtmvId);
+            if (table != null) {
+                mvName = table.getName();
+                String qualified = table.getQualifiedDbName();
+                if (qualified != null && !qualified.isEmpty()) {
+                    dbName = qualified;
                 }
             }
             result.addRow(Lists.newArrayList(
@@ -70,5 +83,31 @@ public class MTMVCacheHotProcNode implements ProcNodeInterface {
                     String.valueOf(entry.idleMs)));
         }
         return result;
+    }
+
+    private static Map<Long, Table> resolveTables(Set<Long> ids) {
+        Map<Long, Table> out = new HashMap<>();
+        if (Env.getCurrentEnv() == null) {
+            return out;
+        }
+        InternalCatalog catalog = Env.getCurrentInternalCatalog();
+        if (catalog == null) {
+            return out;
+        }
+        for (Database db : catalog.getDbs()) {
+            for (Long id : ids) {
+                if (out.containsKey(id)) {
+                    continue;
+                }
+                Table t = db.getTableNullable(id);
+                if (t != null) {
+                    out.put(id, t);
+                }
+            }
+            if (out.size() == ids.size()) {
+                break;
+            }
+        }
+        return out;
     }
 }

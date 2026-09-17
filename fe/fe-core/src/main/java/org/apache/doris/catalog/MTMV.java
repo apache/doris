@@ -532,16 +532,17 @@ public class MTMV extends OlapTable {
         MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
 
         while (true) {
-            MTMVCache cached = manager.getIfPresent(this.id, guarded);
-            if (cached != null) {
-                return cached;
-            }
             long cacheGeneration;
+            MTMVCache cached;
             readMvLock();
             try {
+                cached = manager.getIfPresent(this.id, guarded);
                 cacheGeneration = rewriteCacheGeneration;
             } finally {
                 readMvUnlock();
+            }
+            if (cached != null) {
+                return cached;
             }
             MTMVCache generated = createRewriteCache(connectionContext, false, guarded);
             readMvLock();
