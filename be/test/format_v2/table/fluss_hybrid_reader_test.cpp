@@ -30,9 +30,21 @@
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_profile.h"
+#include "util/stopwatch.hpp"
 
 namespace doris::format::fluss {
 namespace {
+
+// The wrapper times its calls into the children with CLOCK_MONOTONIC, which macOS reports at
+// microsecond granularity: a stand-in that returns within a tick times as 0 there, and the
+// strictly-positive timer assertions below could not hold. Spin until that same clock has moved, so
+// every timed call is at least one tick long on any platform.
+void take_a_clock_tick() {
+    MonotonicStopWatch watch;
+    watch.start();
+    while (watch.elapsed_time() == 0) {
+    }
+}
 
 // Stands in for either child: it records what it was asked to prepare, which is all these tests
 // need - the children's own behaviour has its own tests.
@@ -44,6 +56,7 @@ public:
     }
 
     Status get_block(Block* block, bool* eos) override {
+        take_a_clock_tick();
         ++blocks_served;
         if (rows_per_block > 0) {
             auto column = ColumnInt32::create();
@@ -55,6 +68,7 @@ public:
     }
 
     Status close() override {
+        take_a_clock_tick();
         closed = true;
         return Status::OK();
     }
