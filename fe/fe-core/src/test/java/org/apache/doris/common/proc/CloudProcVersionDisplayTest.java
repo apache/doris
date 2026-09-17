@@ -46,10 +46,10 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -75,7 +75,7 @@ public class CloudProcVersionDisplayTest {
     private String originCloudUniqueId;
     private boolean originEnableQueryHitStats;
 
-    @Before
+    @BeforeEach
     public void setUp() throws AnalysisException {
         originDeployMode = Config.deploy_mode;
         originCloudUniqueId = Config.cloud_unique_id;
@@ -97,7 +97,7 @@ public class CloudProcVersionDisplayTest {
         mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnv != null) {
             mockedEnv.close();
@@ -113,10 +113,10 @@ public class CloudProcVersionDisplayTest {
 
         IndicesProcDir indicesProcDir = new IndicesProcDir(context.db, context.table, context.partition);
         ProcNodeInterface procNode = indicesProcDir.lookup(String.valueOf(INDEX_ID));
-        Assert.assertTrue(procNode instanceof TabletsProcDir);
+        Assertions.assertTrue(procNode instanceof TabletsProcDir);
 
         ProcResult result = procNode.fetchResult();
-        Assert.assertEquals(1, result.getRows().size());
+        Assertions.assertEquals(1, result.getRows().size());
         assertVersionColumns(result, PARTITION_VISIBLE_VERSION);
     }
 
@@ -131,19 +131,19 @@ public class CloudProcVersionDisplayTest {
 
         ReplicasProcNode procNode = new ReplicasProcNode(TABLET_ID, context.tablet.getReplicas());
         ProcResult result = procNode.fetchResult();
-        Assert.assertEquals(1, result.getRows().size());
+        Assertions.assertEquals(1, result.getRows().size());
         assertVersionColumns(result, PARTITION_VISIBLE_VERSION);
     }
 
     private void assertVersionColumns(ProcResult result, long expectedVersion) {
         int versionIndex = result.getColumnNames().indexOf("Version");
         int lastSuccessVersionIndex = result.getColumnNames().indexOf("LstSuccessVersion");
-        Assert.assertTrue(versionIndex >= 0);
-        Assert.assertTrue(lastSuccessVersionIndex >= 0);
+        Assertions.assertTrue(versionIndex >= 0);
+        Assertions.assertTrue(lastSuccessVersionIndex >= 0);
 
         String expected = String.valueOf(expectedVersion);
-        Assert.assertEquals(expected, result.getRows().get(0).get(versionIndex));
-        Assert.assertEquals(expected, result.getRows().get(0).get(lastSuccessVersionIndex));
+        Assertions.assertEquals(expected, result.getRows().get(0).get(versionIndex));
+        Assertions.assertEquals(expected, result.getRows().get(0).get(lastSuccessVersionIndex));
     }
 
     private ProcTestContext createProcTestContext() {

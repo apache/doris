@@ -39,7 +39,7 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
@@ -1009,7 +1009,7 @@ TEST_F(SegCompactionTest, CreateSegCompactionWriter) {
         auto rowset_writer = std::move(res).value();
         auto beta_rowset_writer = dynamic_cast<BetaRowsetWriter*>(rowset_writer.get());
         EXPECT_TRUE(beta_rowset_writer != nullptr);
-        std::unique_ptr<segment_v2::SegmentWriter> writer = nullptr;
+        std::unique_ptr<segment_v2::VerticalSegmentWriter> writer = nullptr;
         auto status = beta_rowset_writer->create_segment_writer_for_segcompaction(&writer, 0, 1);
         EXPECT_TRUE(beta_rowset_writer != nullptr);
         EXPECT_TRUE(status == Status::OK());

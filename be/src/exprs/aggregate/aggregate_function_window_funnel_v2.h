@@ -76,9 +76,11 @@ void merge_events_list(T& events_list, size_t prefix_size, bool prefix_sorted, b
 /// row has bit 7 = 0, and subsequent events from the same row have bit 7 = 1.
 /// The algorithm uses this to ensure each funnel step comes from a different row.
 ///
-/// This approach adds ZERO storage overhead — each event remains 9 bytes (UInt64 + UInt8).
+/// This approach adds ZERO storage overhead — each event remains 9 bytes (timestamp + UInt8).
 template <PrimitiveType T>
 struct WindowFunnelStateV2 {
+    using TimestampType = std::conditional_t<T == TYPE_TIMESTAMP_NS, Int64, UInt64>;
+
     /// (timestamp_int_val, 1-based event_index with continuation flag in bit 7)
     ///
     /// Bit layout of event_idx:
@@ -89,7 +91,7 @@ struct WindowFunnelStateV2 {
     /// Sorted by timestamp only (via operator<). stable_sort preserves insertion order
     /// for equal timestamps, so same-row events remain consecutive after sorting.
     struct TimestampEvent {
-        UInt64 timestamp;
+        TimestampType timestamp;
         UInt8 event_idx; // includes continuation flag in bit 7
 
         /// Sort by timestamp only. For same timestamp, stable_sort preserves insertion
@@ -129,6 +131,8 @@ struct WindowFunnelStateV2 {
     WindowFunnelStateV2(int arg_event_count) : event_count(arg_event_count) {}
 
     void reset() {
+        window = WINDOW_UNSET;
+        window_funnel_mode = WindowFunnelMode::INVALID;
         events_list.clear();
         sorted = true;
     }
@@ -180,27 +184,24 @@ struct WindowFunnelStateV2 {
         if (other.events_list.empty()) {
             return;
         }
-
         if (events_list.empty()) {
-            events_list = other.events_list;
-            sorted = other.sorted;
-        } else {
-            const auto prefix_size = events_list.size();
-            events_list.insert(std::end(events_list), std::begin(other.events_list),
-                               std::end(other.events_list));
-            // Both stable_sort and inplace_merge preserve relative order of equal elements.
-            // Since same-row events have the same timestamp (and thus compare equal in
-            // the primary sort key), they remain consecutive after merge — preserving
-            // the validity of continuation flags.
-            merge_events_list(events_list, prefix_size, sorted, other.sorted);
-            sorted = true;
+            *this = other;
+            return;
+        }
+        if (UNLIKELY(window != other.window || window_funnel_mode != other.window_funnel_mode)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "window_funnel aggregate states have incompatible window or mode");
         }
 
-        event_count = event_count > 0 ? event_count : other.event_count;
-        window = window != WINDOW_UNSET ? window : other.window;
-        window_funnel_mode = window_funnel_mode == WindowFunnelMode::INVALID
-                                     ? other.window_funnel_mode
-                                     : window_funnel_mode;
+        const auto prefix_size = events_list.size();
+        events_list.insert(std::end(events_list), std::begin(other.events_list),
+                           std::end(other.events_list));
+        // Both stable_sort and inplace_merge preserve relative order of equal elements.
+        // Since same-row events have the same timestamp (and thus compare equal in
+        // the primary sort key), they remain consecutive after merge — preserving
+        // the validity of continuation flags.
+        merge_events_list(events_list, prefix_size, sorted, other.sorted);
+        sorted = true;
     }
 
     void write(BufferWritable& out) const {
@@ -243,33 +244,46 @@ struct WindowFunnelStateV2 {
         }
     }
 
-    using DateValueType = DateV2Value<DateTimeV2ValueType>;
+    using DateValueType = std::conditional_t<T == TYPE_TIMESTAMP_NS, TimeStampNsValue,
+                                             DateV2Value<DateTimeV2ValueType>>;
 
-    /// Reconstruct DateV2Value from packed UInt64.
-    static DateValueType _ts_from_int(UInt64 packed) { return DateValueType(packed); }
+    static DateValueType _ts_from_int(TimestampType timestamp) { return DateValueType(timestamp); }
 
     /// Check if `current_ts` is within `window` seconds of `base_ts`.
-    /// Both are packed UInt64 from DateV2Value::to_date_int_val().
-    bool _within_window(UInt64 base_ts, UInt64 current_ts) const {
-        DateValueType end_ts = _ts_from_int(base_ts);
-        TimeInterval interval(SECOND, window, false);
-        end_ts.template date_add_interval<SECOND>(interval);
-        return current_ts <= end_ts.to_date_int_val();
+    bool _within_window(TimestampType base_ts, TimestampType current_ts) const {
+        if constexpr (T == TYPE_TIMESTAMP_NS) {
+            const auto elapsed_nanos =
+                    static_cast<__int128>(current_ts) - static_cast<__int128>(base_ts);
+            const auto window_nanos =
+                    static_cast<__int128>(window) * TimeStampNsValue::NANOS_PER_SECOND;
+            return elapsed_nanos <= window_nanos;
+        } else {
+            const auto base = _ts_from_int(base_ts);
+            const auto current = _ts_from_int(current_ts);
+            return static_cast<__int128>(current.datetime_diff_in_microseconds(base)) <=
+                   static_cast<__int128>(window) * 1000000;
+        }
     }
 
     /// Track (first_timestamp, last_timestamp, last_event_list_idx) for each event level.
-    /// Uses packed UInt64 values; 0 means unset for first_ts.
     /// last_list_idx tracks the position in events_list of the event that set this level,
     /// used to check continuation flag on subsequent events to detect same-row advancement.
     struct TimestampPair {
-        UInt64 first_ts = 0;
-        UInt64 last_ts = 0;
+        TimestampType first_ts = 0;
+        TimestampType last_ts = 0;
         size_t last_list_idx = 0;
-        bool has_value() const { return first_ts != 0; }
+        bool initialized = false;
+        bool has_value() const {
+            if constexpr (T == TYPE_TIMESTAMP_NS) {
+                return initialized;
+            }
+            return first_ts != 0;
+        }
         void reset() {
             first_ts = 0;
             last_ts = 0;
             last_list_idx = 0;
+            initialized = false;
         }
     };
 
@@ -316,13 +330,13 @@ private:
             int event_idx = get_event_idx(evt.event_idx) - 1;
 
             if (event_idx == 0) {
-                events_timestamp[0] = {evt.timestamp, evt.timestamp, i};
+                events_timestamp[0] = {evt.timestamp, evt.timestamp, i, true};
             } else if (events_timestamp[event_idx - 1].has_value() &&
                        !_is_same_row(events_timestamp[event_idx - 1].last_list_idx, i)) {
                 // Must be from a DIFFERENT row than the predecessor level
                 if (_within_window(events_timestamp[event_idx - 1].first_ts, evt.timestamp)) {
                     events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts,
-                                                   evt.timestamp, i};
+                                                   evt.timestamp, i, true};
                     if (event_idx + 1 == event_count) {
                         return event_count;
                     }
@@ -375,7 +389,7 @@ private:
             // Try building a chain from this event-0
             std::vector<TimestampPair> events_timestamp(event_count);
             events_timestamp[0] = {events_list[start].timestamp, events_list[start].timestamp,
-                                   start};
+                                   start, true};
             int curr_level = 0;
 
             for (size_t i = start + 1; i < list_size; ++i) {
@@ -394,7 +408,7 @@ private:
                     matched = matched && events_timestamp[event_idx - 1].last_ts < evt.timestamp;
                     if (matched) {
                         events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts,
-                                                       evt.timestamp, i};
+                                                       evt.timestamp, i, true};
                         curr_level = std::max(event_idx, curr_level);
                         if (event_idx + 1 == event_count) {
                             return event_count;
@@ -436,7 +450,7 @@ private:
             }
 
             // Build a chain from this event-0
-            UInt64 first_ts = events_list[start].timestamp;
+            TimestampType first_ts = events_list[start].timestamp;
             int curr_level = 0;
             size_t last_advance_idx = start;
 
@@ -518,7 +532,7 @@ private:
             // Only start from c1 events (condition 0 in 0-based)
             if (get_event_idx(events_list[start_i].event_idx) != 1) continue;
 
-            UInt64 chain_start_ts = events_list[start_i].timestamp;
+            TimestampType chain_start_ts = events_list[start_i].timestamp;
             int curr_level = 0;
 
             // c1 is always the last event of its row, so start_i+1 is

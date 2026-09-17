@@ -17,14 +17,14 @@
 
 package org.apache.doris.mysql.authenticate.ldap;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class LdapUserInfoTest {
 
     @Test
     public void testNonExistUserRoles() {
         LdapUserInfo u1 = new LdapUserInfo("u1");
-        Assert.assertFalse(u1.getRoles() == null);
+        Assertions.assertFalse(u1.getRoles() == null);
     }
 }

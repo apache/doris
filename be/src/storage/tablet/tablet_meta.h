@@ -280,6 +280,8 @@ public:
         return _tablet_role == TabletRolePB::TABLET_ROLE_ROW_BINLOG;
     }
     void set_tablet_role(TabletRolePB tablet_role) { _tablet_role = tablet_role; }
+    int64_t binlog_tablet_id() const { return _binlog_tablet_id; }
+    void set_binlog_tablet_id(int64_t binlog_tablet_id) { _binlog_tablet_id = binlog_tablet_id; }
 
     void set_compaction_policy(std::string compaction_policy) {
         _compaction_policy = compaction_policy;
@@ -332,6 +334,17 @@ public:
         std::lock_guard wlock(_meta_lock);
         _ttl_seconds = ttl_seconds;
     }
+
+    // Absolute timestamp (seconds since epoch) at which this tablet's data stops being kept
+    // in the file cache TTL queue, or 0 when the tablet has no TTL or the deadline has
+    // already passed. The deadline is anchored at the tablet creation time, so every tablet
+    // of a table shares one deadline regardless of when each rowset was written.
+    //
+    // This is the single definition of that deadline. The load, compaction, schema change,
+    // query and warm up paths all stamp the cache blocks they create with this value, and
+    // BlockFileCacheTtlMgr expires those blocks by the very same value, so a block's
+    // recorded expiration time always agrees with the sweep that acts on it.
+    int64_t file_cache_ttl_expiration_time() const;
 
     int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
 
@@ -395,6 +408,7 @@ private:
     // binlog config
     BinlogConfig _binlog_config {};
     TabletRolePB _tablet_role = TabletRolePB::TABLET_ROLE_DATA;
+    int64_t _binlog_tablet_id = 0;
 
     // meta for compaction
     std::string _compaction_policy;

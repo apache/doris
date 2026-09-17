@@ -23,12 +23,14 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
@@ -109,6 +111,9 @@ import java.util.Optional;
  * {@link RecordingPaimonCatalogOps} fake and a {@code null} real catalog — entirely offline.
  */
 public class PaimonScanPlanProviderTest {
+
+    private static final String PAIMON_FILE_PATH_COL = "__paimon_file_path";
+    private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
 
     private static RowType rowType(String... columnNames) {
         RowType.Builder builder = RowType.builder();
@@ -890,6 +895,98 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertEquals(Collections.singletonMap("scan.snapshot-id", "5"),
                 base.lastCopyOptions,
                 "the scan path must layer the handle's scanOptions via Table.copy(scanOptions)");
+    }
+
+    @Test
+    public void resolveScanTableKeepsCurrentSchemaForStatementSnapshot(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable firstGeneration = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder writeBuilder = firstGeneration.newBatchWriteBuilder();
+            try (BatchTableWrite write = writeBuilder.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            long dataSnapshotId = firstGeneration.latestSnapshot()
+                    .orElseThrow(AssertionError::new).id();
+            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                    .commitChanges(SchemaChange.addColumn("added", DataTypes.INT()));
+            FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(latestGeneration);
+            PaimonTableHandle pinned = (PaimonTableHandle) new PaimonConnectorMetadata(
+                    ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext())
+                    .applySnapshot(null, handle, ConnectorMvccSnapshot.builder()
+                            .snapshotId(dataSnapshotId)
+                            .build());
+
+            Table scanTable = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops).resolveScanTable(pinned);
+
+            Assertions.assertTrue(scanTable.rowType().getFieldNames().contains("added"),
+                    "pinning data visibility must not roll a normal query back to the snapshot's old schema");
+            Assertions.assertEquals(String.valueOf(dataSnapshotId),
+                    scanTable.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key()));
+        }
+    }
+
+    @Test
+    public void resolveScanTableKeepsCurrentSchemaForReaderOnlyOptions(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable firstGeneration = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder writeBuilder = firstGeneration.newBatchWriteBuilder();
+            try (BatchTableWrite write = writeBuilder.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            long dataSnapshotId = firstGeneration.latestSnapshot()
+                    .orElseThrow(AssertionError::new).id();
+            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                    .commitChanges(SchemaChange.addColumn("added", DataTypes.INT()));
+            FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
+
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(latestGeneration);
+            Map<String, String> scanOptions = PaimonScanParams.markAsOptions(
+                    PaimonScanParams.pinOptionsToSnapshot(
+                            Collections.singletonMap("scan.plan-sort-partition", "true"),
+                            dataSnapshotId));
+
+            Table scanTable = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingPaimonCatalogOps())
+                    .resolveScanTable(handle.withScanOptions(scanOptions));
+
+            Assertions.assertTrue(scanTable.rowType().getFieldNames().contains("added"),
+                    "reader-only OPTIONS must retain the current bound schema while pinning data visibility");
+            Assertions.assertEquals("true", scanTable.options().get("scan.plan-sort-partition"));
+        }
     }
 
     @Test
@@ -2449,6 +2546,17 @@ public class PaimonScanPlanProviderTest {
                 "a null session must default to false");
     }
 
+    @Test
+    public void fileMetadataColumnsRequireFileScannerV2() {
+        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(
+                sessionWithProps(Collections.singletonMap("enable_file_scanner_v2", "true"))));
+        Assertions.assertFalse(PaimonScanPlanProvider.isFileScannerV2Enabled(
+                sessionWithProps(Collections.singletonMap("enable_file_scanner_v2", "false"))));
+        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(
+                sessionWithProps(Collections.emptyMap())));
+        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(null));
+    }
+
     // ---------------------------------------------------------------------
     // FIX-REST-VENDED — per-table vended credentials overlaid as location.*
     // ---------------------------------------------------------------------
@@ -3053,6 +3161,39 @@ public class PaimonScanPlanProviderTest {
                 .getRootField().getFields().get(0).getFieldPtr().getId());
         Assertions.assertEquals("new_a", params.getHistorySchemaInfo().get(2)
                 .getRootField().getFields().get(0).getFieldPtr().getName());
+    }
+
+    @Test
+    public void metadataColumnsAreExcludedFromSchemaEvolutionAndFenceBackendVersion(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            FileStoreTable base = createSingleSchemaTable(catalog);
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = base;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = plainHandle();
+
+            List<ConnectorColumnHandle> metadataOnly = Collections.singletonList(
+                    new PaimonColumnHandle(PAIMON_FILE_PATH_COL, -1));
+            Map<String, String> metadataOnlyProps = provider.getScanNodeProperties(
+                    null, handle, metadataOnly, Optional.empty());
+            Assertions.assertEquals("Current Paimon metadata column semantics",
+                    metadataOnlyProps.get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+            Assertions.assertNotNull(metadataOnlyProps.get("paimon.schema_evolution"),
+                    "metadata-only scans must still carry a valid physical schema dictionary");
+
+            List<ConnectorColumnHandle> mixed = Arrays.asList(
+                    new PaimonColumnHandle("id", 0),
+                    new PaimonColumnHandle(PAIMON_ROW_POSITION_COL, -1));
+            Map<String, String> mixedProps = provider.getScanNodeProperties(
+                    null, handle, mixed, Optional.empty());
+            Assertions.assertEquals("Current Paimon metadata column semantics",
+                    mixedProps.get(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS));
+            Assertions.assertNotNull(mixedProps.get("paimon.schema_evolution"),
+                    "mixed scans must build the schema dictionary from physical columns only");
+        }
     }
 
     @Test

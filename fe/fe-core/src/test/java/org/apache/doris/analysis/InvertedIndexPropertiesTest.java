@@ -382,44 +382,8 @@ public class InvertedIndexPropertiesTest {
     }
 
     @Test
-    public void testCommonGramsAnalyzerAcceptsOnlyPhraseEnabledScalarSnii() throws Exception {
-        IndexPolicyMgr manager = commonGramsManager();
-
-        withIndexPolicyManager(manager, () -> Assertions.assertDoesNotThrow(
-                () -> InvertedIndexUtil.checkInvertedIndexParser("c", PrimitiveType.VARCHAR,
-                        new HashMap<>(Map.of("analyzer", "domain_analyzer",
-                                "support_phrase", "true")),
-                        TInvertedIndexFileStorageFormat.SNII)));
-    }
-
-    @Test
-    public void testCommonGramsAnalyzerRejectsV3ArrayVariantAndMissingPhrase() throws Exception {
-        IndexPolicyMgr manager = commonGramsManager();
-
-        withIndexPolicyManager(manager, () -> {
-            assertCommonGramsIndexError(manager, PrimitiveType.VARCHAR,
-                    Map.of("analyzer", "domain_analyzer", "support_phrase", "true"),
-                    TInvertedIndexFileStorageFormat.V3,
-                    "supported only by SNII inverted indexes");
-            assertCommonGramsIndexError(manager, PrimitiveType.ARRAY,
-                    Map.of("analyzer", "domain_analyzer", "support_phrase", "true"),
-                    TInvertedIndexFileStorageFormat.SNII,
-                    "does not support ARRAY columns");
-            assertCommonGramsIndexError(manager, PrimitiveType.VARIANT,
-                    Map.of("analyzer", "domain_analyzer", "support_phrase", "true"),
-                    TInvertedIndexFileStorageFormat.SNII,
-                    "supported only on scalar CHAR, VARCHAR, or STRING columns");
-            assertCommonGramsIndexError(manager, PrimitiveType.VARCHAR,
-                    Map.of("analyzer", "domain_analyzer"),
-                    TInvertedIndexFileStorageFormat.SNII,
-                    "requires support_phrase=true");
-        });
-    }
-
-    @Test
     public void testPlainCustomAnalyzerBehaviorRemainsUnchanged() throws Exception {
         IndexPolicyMgr manager = Mockito.mock(IndexPolicyMgr.class);
-        Mockito.when(manager.validateAnalyzerUsesCommonGrams("plain_analyzer")).thenReturn(false);
 
         withIndexPolicyManager(manager, () -> Assertions.assertDoesNotThrow(
                 () -> InvertedIndexUtil.checkInvertedIndexParser("c", PrimitiveType.VARIANT,
@@ -452,22 +416,6 @@ public class InvertedIndexPropertiesTest {
                 InvertedIndexProperties.buildAnalyzerSqlFragment("O'Reilly"));
     }
 
-    private static IndexPolicyMgr commonGramsManager() throws Exception {
-        IndexPolicyMgr manager = Mockito.mock(IndexPolicyMgr.class);
-        Mockito.when(manager.validateAnalyzerUsesCommonGrams("domain_analyzer")).thenReturn(true);
-        return manager;
-    }
-
-    private static void assertCommonGramsIndexError(IndexPolicyMgr manager,
-            PrimitiveType columnType, Map<String, String> properties,
-            TInvertedIndexFileStorageFormat storageFormat, String expectedMessage) {
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                () -> InvertedIndexUtil.checkInvertedIndexParser(
-                        "c", columnType, new HashMap<>(properties), storageFormat));
-        Assertions.assertTrue(exception.getMessage().contains(expectedMessage),
-                exception.getMessage());
-    }
-
     private static void withIndexPolicyManager(IndexPolicyMgr manager, Runnable action) {
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getIndexPolicyMgr()).thenReturn(manager);
@@ -475,6 +423,31 @@ public class InvertedIndexPropertiesTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             action.run();
         }
+    }
+
+    // --- norms ---
+
+    @Test
+    public void testNormsPropertyAccepted() throws AnalysisException {
+        for (String value : new String[] {"true", "false"}) {
+            Map<String, String> props = new HashMap<>();
+            props.put("parser", "english");
+            props.put("norms", value);
+            InvertedIndexUtil.checkInvertedIndexParser("col1", PrimitiveType.STRING, props,
+                    TInvertedIndexFileStorageFormat.V2);
+        }
+    }
+
+    @Test
+    public void testNormsPropertyRejectsOtherValues() {
+        Map<String, String> props = new HashMap<>();
+        props.put("parser", "english");
+        props.put("norms", "yes");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> InvertedIndexUtil.checkInvertedIndexParser("col1", PrimitiveType.STRING, props,
+                        TInvertedIndexFileStorageFormat.V2));
+        Assertions.assertTrue(exception.getMessage().contains("norms must be true or false"),
+                exception.getMessage());
     }
 
     // The SNII gate in checkInvertedIndexParser sees the parent VARIANT type on a whole-column

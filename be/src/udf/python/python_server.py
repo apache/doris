@@ -310,6 +310,16 @@ def convert_arrow_value_to_python(value, arrow_type):
     if value is None:
         return None
 
+    # Pandas reserves int64's minimum value for NaT, while Doris TIMESTAMP_NS uses the same
+    # bit pattern for its valid minimum value. Keep this one value as an Arrow scalar so a
+    # Python UDF can return it without changing it to NULL or losing nanosecond precision.
+    if (
+        pa.types.is_timestamp(arrow_type)
+        and arrow_type.unit == "ns"
+        and value is pd.NaT
+    ):
+        return pa.scalar(value.value, type=arrow_type)
+
     if pa.types.is_map(arrow_type):
         key_type = arrow_type.key_type
         item_type = arrow_type.item_type

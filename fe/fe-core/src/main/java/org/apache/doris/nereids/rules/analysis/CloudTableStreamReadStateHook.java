@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.CloudTableStreamReadStateHelper;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
@@ -38,7 +39,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Resolves one read snapshot for every Cloud Table Stream relation after statement analysis. */
+/**
+ * Resolves one read snapshot for every Cloud Table Stream relation after statement analysis.
+ *
+ * <p>Also serves as the public installation entry for statements that synthesize stream scans
+ * outside relation binding (for example refresh flows that rewrite base-table scans into stream
+ * scans after binding): call {@link #installReadStates(Plan)} once the final plan is ready.
+ */
 public class CloudTableStreamReadStateHook implements PlannerHook {
     public static final CloudTableStreamReadStateHook INSTANCE = new CloudTableStreamReadStateHook();
 
@@ -47,15 +54,26 @@ public class CloudTableStreamReadStateHook implements PlannerHook {
 
     @Override
     public void afterAnalyze(NereidsPlanner planner) {
-        resolve(planner.getCascadesContext().getRewritePlan());
+        installReadStates(planner.getCascadesContext().getRewritePlan());
     }
 
-    static void resolve(Plan plan) {
+    /**
+     * Installs one read snapshot for every Cloud Table Stream scan in the given plan.
+     *
+     * <p>Public so that statements generating stream scans outside relation binding can pin their
+     * read states before extraction. No-op when the plan has no stream scans or when every scan
+     * already carries installed states.
+     */
+    public static void installReadStates(Plan plan) {
+        if (Config.isNotCloudMode()) {
+            return;
+        }
         List<LogicalOlapTableStreamScan> scans = new ArrayList<>();
         plan.collectToList(LogicalOlapTableStreamScan.class::isInstance).forEach(node ->
                 scans.add((LogicalOlapTableStreamScan) node));
-        Preconditions.checkState(!scans.isEmpty(),
-                "Cloud Table Stream read-state hook requires at least one Stream scan");
+        if (scans.isEmpty()) {
+            return;
+        }
 
         boolean readStatesInstalled = scans.get(0).getTable().hasCloudReadStates();
         for (LogicalOlapTableStreamScan scan : scans) {

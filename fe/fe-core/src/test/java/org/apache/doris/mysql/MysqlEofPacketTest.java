@@ -19,16 +19,16 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.qe.QueryState;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 
 public class MysqlEofPacketTest {
     MysqlCapability capability;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         capability = new MysqlCapability(MysqlCapability.Flag.CLIENT_PROTOCOL_41.getFlagBit());
     }
@@ -43,14 +43,14 @@ public class MysqlEofPacketTest {
         ByteBuffer buffer = serializer.toByteBuffer();
 
         // assert indicator(int1): 0
-        Assert.assertEquals(0xfe, MysqlProto.readInt1(buffer));
+        Assertions.assertEquals(0xfe, MysqlProto.readInt1(buffer));
 
         // assert warnings(int2): 0
-        Assert.assertEquals(0x00, MysqlProto.readInt2(buffer));
+        Assertions.assertEquals(0x00, MysqlProto.readInt2(buffer));
 
         // assert status flags(int2): 0
-        Assert.assertEquals(0x00, MysqlProto.readInt2(buffer));
+        Assertions.assertEquals(0x00, MysqlProto.readInt2(buffer));
 
-        Assert.assertEquals(0, buffer.remaining());
+        Assertions.assertEquals(0, buffer.remaining());
     }
 }

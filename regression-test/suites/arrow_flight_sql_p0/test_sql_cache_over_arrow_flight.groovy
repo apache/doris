@@ -84,6 +84,19 @@ suite("test_sql_cache_over_arrow_flight") {
     withGlobalLock("cache_last_version_interval_second") {
         runOnMysql "ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '0')"
 
+        // The FE sql cache is a single Caffeine map shared by every session and bounded by
+        // Config.sql_cache_manage_num, which defaults to 100. Caffeine admits a newcomer through a
+        // window sized at 1% of that bound, so at the default a just cached statement is dropped
+        // again as soon as any other session caches anything -- and the whole p0 suite runs
+        // concurrently against this FE with enable_sql_cache on by default. The entries primed
+        // below would then be gone before the checks at the end of this suite, which is what made
+        // it flaky. Raise the bound while this suite runs, like the other sql cache suites do, and
+        // put it back afterwards so the rest of the run does not keep 10000 cached plans and their
+        // result rows alive in the FE heap.
+        def originalSqlCacheNum =
+                runOnMysql("ADMIN SHOW FRONTEND CONFIG LIKE 'sql_cache_manage_num'")[0][1].toString()
+        runOnMysql "ADMIN SET ALL FRONTENDS CONFIG ('sql_cache_manage_num' = '10000')"
+
         def dbName = context.dbName
         runOnMysql "USE `${dbName}`"
         runOnFlight "USE `${dbName}`"
@@ -164,5 +177,7 @@ suite("test_sql_cache_over_arrow_flight") {
         assertTrue(hasSqlCache(scalarSql))
         assertTrue(hasSqlCache(rawStateSql))
         assertTrue(hasSqlCache(convertedSql))
+
+        runOnMysql "ADMIN SET ALL FRONTENDS CONFIG ('sql_cache_manage_num' = '${originalSqlCacheNum}')"
     }
 }

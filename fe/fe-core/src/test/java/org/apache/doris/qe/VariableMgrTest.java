@@ -163,6 +163,26 @@ public class VariableMgrTest extends TestWithFeService {
     }
 
     @Test
+    public void testRemovedNereidsTraceVariablesRemainCompatible() throws Exception {
+        for (String name : new String[] {"enable_nereids_trace", "nereids_trace_event_mode"}) {
+            SessionVariable sessionVariable = new SessionVariable();
+            SetVar setVar = new SetVar(SetType.SESSION, name.toUpperCase(), new StringLiteral("ignored"));
+
+            Assertions.assertDoesNotThrow(() -> VariableMgr.setVar(sessionVariable, setVar));
+            Assertions.assertDoesNotThrow(() -> VariableMgr.setVarForNonMasterFE(sessionVariable, setVar));
+
+            VariableExpr variableExpr = new VariableExpr(name.toUpperCase());
+            VariableMgr.fillValue(sessionVariable, variableExpr);
+            Assertions.assertEquals(Type.VARCHAR, variableExpr.getType());
+            Assertions.assertEquals("", VariableMgr.getValue(sessionVariable, variableExpr));
+
+            Literal literal = VariableMgr.getLiteral(sessionVariable, name.toUpperCase(), SetType.SESSION);
+            Assertions.assertNotNull(literal);
+            Assertions.assertEquals("", literal.getStringValue());
+        }
+    }
+
+    @Test
     public void testCheckSqlConvertorFeatures() throws DdlException {
         // set wrong var
         SetVar setVar = new SetVar(SetType.SESSION, SessionVariable.ENABLE_SQL_CONVERTOR_FEATURES,

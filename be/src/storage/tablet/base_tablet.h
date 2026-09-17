@@ -78,6 +78,10 @@ public:
     KeysType keys_type() const { return _tablet_meta->tablet_schema()->keys_type(); }
     size_t num_key_columns() const { return _tablet_meta->tablet_schema()->num_key_columns(); }
     int64_t ttl_seconds() const { return _tablet_meta->ttl_seconds(); }
+    // See TabletMeta::file_cache_ttl_expiration_time().
+    int64_t file_cache_ttl_expiration_time() const {
+        return _tablet_meta->file_cache_ttl_expiration_time();
+    }
     // currently used by schema change, inverted index building, and cooldown
     std::timed_mutex& get_schema_change_lock() { return _schema_change_lock; }
     bool enable_unique_key_merge_on_write() const {
@@ -250,6 +254,12 @@ public:
                                                  const TabletSchema& tablet_schema, uint32_t segid,
                                                  const std::vector<uint32_t>& rowids,
                                                  const std::vector<uint32_t>& cids, Block& block);
+
+    static Status fetch_values_by_rowids(RowsetSharedPtr input_rowset,
+                                         const TabletSchema& tablet_schema, uint32_t segid,
+                                         const std::vector<uint32_t>& rowids,
+                                         const std::vector<uint32_t>& cids,
+                                         MutableColumns& dst_columns);
 
     static Status fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
                                         const std::vector<uint32_t>& rowids,

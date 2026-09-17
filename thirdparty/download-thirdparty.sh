@@ -397,17 +397,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
     echo "Finished patching ${GLOG_SOURCE}"
 fi
 
-# snappy patch to fix sign-compare warning
-if [[ " ${TP_ARCHIVES[*]} " =~ " SNAPPY " ]]; then
-    cd "${TP_SOURCE_DIR}/${SNAPPY_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/snappy-1.1.10-sign-compare.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-    echo "Finished patching ${SNAPPY_SOURCE}"
-fi
-
 # mysql patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
     cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
@@ -537,10 +526,10 @@ fi
 # patch libunwind so Doris can force GNU libunwind to use the BE PHDR cache
 # without changing ordinary dl_iterate_phdr callers.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUNWIND " ]]; then
-    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.6.2" ]]; then
+    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.8.3" ]]; then
         cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.6.2-doris-phdr-cache.patch"
+            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.8.3-doris-phdr-cache.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -763,16 +752,25 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
-# Apply Doris lance-c patches.
+# Apply Doris lance-c patches as one chain to the pinned release archive.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    if [[ "${LANCE_C_SOURCE}" == "lance-c-0.1.8" ]]; then
-        cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/lance-c-0.1.8-pr-69.patch"
-            touch "${PATCHED_MARK}"
-        fi
-        cd -
+    cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        # Apply the merged PRs first; the latest PR #73 and #79 both require Lance v11.
+        # This order keeps the upstream patches unchanged, including Cargo.lock.
+        for lance_patch in pr-74 pr-75-pr-78 pr-77 pr-73 pr-79 pr-80; do
+            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+                -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-${lance_patch}.patch"
+        done
+        touch "${PATCHED_MARK}"
     fi
+    # The base marker may already exist in cached sources; apply PR #83 independently.
+    if [[ ! -f "${PATCHED_MARK}_pr83" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-pr-83.patch"
+        touch "${PATCHED_MARK}_pr83"
+    fi
+    cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
 fi
 

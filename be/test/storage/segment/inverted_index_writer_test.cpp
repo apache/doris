@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
+#include "core/value/timestamp_ns_value.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/runtime_state.h"
@@ -44,8 +45,6 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/common_grams/common_grams_key_codec.h"
-#include "storage/index/inverted/common_grams/common_word_set.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -68,15 +67,6 @@ namespace doris::segment_v2 {
 // Define InvertedIndexDirectoryMap
 using InvertedIndexDirectoryMap =
         std::map<std::pair<int64_t, std::string>, std::shared_ptr<lucene::store::Directory>>;
-
-class CommonGramsBuildFlagRestorer {
-public:
-    CommonGramsBuildFlagRestorer() : _original(config::enable_common_grams_index_build) {}
-    ~CommonGramsBuildFlagRestorer() { config::enable_common_grams_index_build = _original; }
-
-private:
-    const bool _original;
-};
 
 class GappedTokenStream final : public lucene::analysis::TokenStream {
 public:
@@ -127,42 +117,6 @@ public:
 private:
     std::unique_ptr<GappedTokenStream> _reusable;
 };
-
-void install_common_grams_policy(IndexPolicyMgr* policy_mgr, int64_t policy_id,
-                                 std::string_view name, int64_t index_id, TabletIndex* index_meta) {
-    TIndexPolicy tokenizer;
-    tokenizer.id = policy_id;
-    tokenizer.name = fmt::format("{}_tokenizer", name);
-    tokenizer.type = TIndexPolicyType::TOKENIZER;
-    tokenizer.properties["type"] = "char_group";
-    tokenizer.properties["tokenize_on_chars"] = "[\\u0020]";
-    tokenizer.properties["max_token_length"] =
-            std::to_string(inverted_index::COMMON_GRAM_MAX_ENCODED_BYTES);
-
-    TIndexPolicy common_grams;
-    common_grams.id = policy_id + 1;
-    common_grams.name = fmt::format("{}_filter", name);
-    common_grams.type = TIndexPolicyType::TOKEN_FILTER;
-    common_grams.properties["type"] = "common_grams";
-    // Preparation authority: a CommonGrams policy is only prepared when FE
-
-    TIndexPolicy analyzer;
-    analyzer.id = policy_id + 2;
-    analyzer.name = fmt::format("{}_analyzer", name);
-    analyzer.type = TIndexPolicyType::ANALYZER;
-    analyzer.properties["tokenizer"] = tokenizer.name;
-    analyzer.properties["token_filter"] = "lowercase," + common_grams.name;
-    policy_mgr->apply_policy_changes({tokenizer, common_grams, analyzer}, {});
-
-    TabletIndexPB index_pb;
-    index_pb.set_index_type(IndexType::INVERTED);
-    index_pb.set_index_id(index_id);
-    index_pb.set_index_name(fmt::format("{}_index", name));
-    index_pb.add_col_unique_id(1);
-    index_pb.mutable_properties()->insert({"analyzer", analyzer.name});
-    index_pb.mutable_properties()->insert({"support_phrase", "true"});
-    index_meta->init_from_pb(index_pb);
-}
 
 class InvertedIndexWriterTest : public testing::Test {
     using ExpectedDocMap = std::map<std::string, std::vector<int>>;
@@ -260,8 +214,19 @@ public:
         _CLLDELETE(r);
     }
 
+    template <PrimitiveType primitive_type, typename StorageType>
+    Field create_bkd_query_field(StorageType value) {
+        if constexpr (primitive_type == TYPE_TIMESTAMP_NS) {
+            return Field::create_field<primitive_type>(TimeStampNsValue(value));
+        } else {
+            return Field::create_field<primitive_type>(value);
+        }
+    }
+
+    template <PrimitiveType primitive_type, typename StorageType>
     void check_bkd_index(std::string index_prefix, const TabletIndex* index_meta,
-                         const std::vector<int32_t>& values, const std::vector<int>& doc_ids) {
+                         const std::string& column_name, const std::vector<StorageType>& values,
+                         const std::vector<int>& doc_ids, StorageType range_value) {
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
@@ -285,8 +250,8 @@ public:
             context->stats = &stats;
             context->runtime_state = &runtime_state;
 
-            Field qp = Field::create_field<TYPE_INT>(values[i]);
-            auto status = bkd_reader->query(context, "c1", qp,
+            Field qp = create_bkd_query_field<primitive_type>(values[i]);
+            auto status = bkd_reader->query(context, column_name, qp,
                                             doris::segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
                                             bitmap);
             EXPECT_TRUE(status.ok()) << status;
@@ -307,45 +272,69 @@ public:
         // Test range queries
         // Test LESS_THAN query
         std::shared_ptr<roaring::Roaring> less_than_bitmap = std::make_shared<roaring::Roaring>();
-        int32_t test_value = 200;
         auto context = std::make_shared<segment_v2::IndexQueryContext>();
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        Field test_qp = Field::create_field<TYPE_INT>(test_value);
-        auto status = bkd_reader->query(context, "c1", test_qp,
+        Field test_qp = create_bkd_query_field<primitive_type>(range_value);
+        auto status = bkd_reader->query(context, column_name, test_qp,
                                         doris::segment_v2::InvertedIndexQueryType::LESS_THAN_QUERY,
                                         less_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify documents with values less than test_value are in the result
         for (size_t i = 0; i < values.size(); i++) {
-            if (values[i] < test_value) {
+            if (values[i] < range_value) {
                 EXPECT_TRUE(less_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should be less than " << test_value;
+                        << "Value " << values[i] << " should be less than " << range_value;
             } else {
                 EXPECT_FALSE(less_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should not be less than " << test_value;
+                        << "Value " << values[i] << " should not be less than " << range_value;
             }
         }
 
         // Test GREATER_THAN query
         std::shared_ptr<roaring::Roaring> greater_than_bitmap =
                 std::make_shared<roaring::Roaring>();
-        status = bkd_reader->query(context, "c1", test_qp,
+        status = bkd_reader->query(context, column_name, test_qp,
                                    doris::segment_v2::InvertedIndexQueryType::GREATER_THAN_QUERY,
                                    greater_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify documents with values greater than test_value are in the result
         for (size_t i = 0; i < values.size(); i++) {
-            if (values[i] > test_value) {
+            if (values[i] > range_value) {
                 EXPECT_TRUE(greater_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should be greater than " << test_value;
+                        << "Value " << values[i] << " should be greater than " << range_value;
             } else {
                 EXPECT_FALSE(greater_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should not be greater than " << test_value;
+                        << "Value " << values[i] << " should not be greater than " << range_value;
             }
+        }
+    }
+
+    void check_bkd_null_bitmap(const std::string& index_prefix, const TabletIndex* index_meta,
+                               const std::vector<int>& null_doc_ids) {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), index_prefix,
+                                                        InvertedIndexStorageFormatPB::V2);
+        ASSERT_TRUE(reader->init().ok());
+        auto bkd_reader = BkdIndexReader::create_shared(index_meta, reader);
+        ASSERT_NE(bkd_reader, nullptr);
+
+        auto context = std::make_shared<IndexQueryContext>();
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+        InvertedIndexQueryCacheHandle cache_handle;
+        ASSERT_TRUE(bkd_reader->read_null_bitmap(context, &cache_handle, nullptr).ok());
+
+        const auto null_bitmap = cache_handle.get_bitmap();
+        ASSERT_NE(null_bitmap, nullptr);
+        EXPECT_EQ(null_bitmap->cardinality(), null_doc_ids.size());
+        for (const auto doc_id : null_doc_ids) {
+            EXPECT_TRUE(null_bitmap->contains(doc_id))
+                    << "Document " << doc_id << " should be NULL";
         }
     }
 
@@ -512,7 +501,9 @@ public:
     }
 
     // Helper method to create an inverted index with tokenization enabled
-    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer) {
+    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer,
+                                const std::string& index_suffix = "",
+                                const std::map<std::string, std::string>& extra_properties = {}) {
         auto tablet_schema = create_schema();
 
         // Create index meta with tokenization setting
@@ -533,9 +524,15 @@ public:
             // This will make should_analyzer() return true
             (*properties)["parser"] = "standard";
         }
+        for (const auto& [key, value] : extra_properties) {
+            (*properties)[key] = value;
+        }
 
         TabletIndex idx_meta;
         idx_meta.init_from_pb(*index_meta_pb.get());
+        if (!index_suffix.empty()) {
+            idx_meta.set_escaped_escaped_index_suffix_path(index_suffix);
+        }
 
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -778,7 +775,7 @@ public:
         std::vector<int> doc_ids = {0, 1, 2, 3, 4};
 
         // Verify the BKD index using the appropriate method
-        check_bkd_index(index_path_prefix, &idx_meta, values, doc_ids);
+        check_bkd_index<TYPE_INT>(index_path_prefix, &idx_meta, "c1", values, doc_ids, 200);
     }
 
     void test_unicode_string_write(std::string_view rowset_id, int seg_id,
@@ -938,6 +935,54 @@ TEST_F(InvertedIndexWriterTest, NullsWrite) {
 // Test case for numeric values
 TEST_F(InvertedIndexWriterTest, NumericWrite) {
     test_numeric_write("test_rowset_3", 0);
+}
+
+TEST_F(InvertedIndexWriterTest, TimeStampNsWriteReadFilter) {
+    TabletColumn field;
+    field.set_name("dt");
+    field.set_unique_id(0);
+    field.set_type(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS);
+    field.set_is_nullable(true);
+
+    TabletIndexPB index_meta_pb;
+    index_meta_pb.set_index_type(IndexType::INVERTED);
+    index_meta_pb.set_index_id(1);
+    index_meta_pb.set_index_name("test_timestamp_ns");
+    index_meta_pb.add_col_unique_id(0);
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_meta_pb);
+
+    const std::string rowset_id = "test_timestamp_ns";
+    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, rowset_id, 0))};
+    const std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(io::global_local_filesystem()->create_file(index_path, &file_writer).ok());
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
+            io::global_local_filesystem(), index_path_prefix, rowset_id, 0,
+            InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    ASSERT_TRUE(
+            IndexColumnWriter::create(&field, &column_writer, index_file_writer.get(), &index_meta)
+                    .ok());
+    const std::vector<int64_t> values = {std::numeric_limits<int64_t>::min(), -1, 0, 1,
+                                         std::numeric_limits<int64_t>::max()};
+    ASSERT_TRUE(column_writer->add_nulls(2).ok());
+    ASSERT_TRUE(column_writer->add_values("dt", values.data(), 2).ok());
+    ASSERT_TRUE(column_writer->add_nulls(1).ok());
+    ASSERT_TRUE(column_writer->add_values("dt", values.data() + 2, 3).ok());
+    ASSERT_TRUE(column_writer->add_nulls(2).ok());
+    ASSERT_TRUE(column_writer->finish().ok());
+    ASSERT_TRUE(index_file_writer->begin_close().ok());
+    ASSERT_TRUE(index_file_writer->finish_close().ok());
+
+    const std::vector<int> doc_ids = {2, 3, 5, 6, 7};
+    const std::vector<int> null_doc_ids = {0, 1, 4, 8, 9};
+    check_bkd_index<TYPE_TIMESTAMP_NS>(index_path_prefix, &index_meta, "dt", values, doc_ids,
+                                       int64_t {0});
+    check_bkd_null_bitmap(index_path_prefix, &index_meta, null_doc_ids);
 }
 
 // Test case for Unicode string values with enable_correct_term_write=true
@@ -1722,271 +1767,6 @@ TEST_F(InvertedIndexWriterTest, SniiVarcharKeywordPreservesNulBytes) {
     EXPECT_TRUE(docids.empty());
 }
 
-TEST_F(InvertedIndexWriterTest, CommonGramsBuildSwitchAppliesOnlyToSnii) {
-    CommonGramsBuildFlagRestorer flag_restorer;
-    auto* exec_env = ExecEnv::GetInstance();
-    auto* previous_policy_mgr = exec_env->index_policy_mgr();
-    IndexPolicyMgr policy_mgr;
-    exec_env->_index_policy_mgr = &policy_mgr;
-    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
-
-    TabletIndex index_meta;
-    install_common_grams_policy(&policy_mgr, 920040, "common_grams_enabled_snapshot", 98,
-                                &index_meta);
-
-    const std::string v3_rowset_id = "v3_common_grams_enabled_snapshot";
-    const std::string v3_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-            local_segment_path(kTestDir, v3_rowset_id, 0))};
-    const std::string snii_rowset_id = "snii_common_grams_enabled_snapshot";
-    const std::string snii_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-            local_segment_path(kTestDir, snii_rowset_id, 0))};
-    io::FileWriterOptions opts;
-    auto fs = io::global_local_filesystem();
-    io::FileWriterPtr v3_compound_file;
-    ASSERT_TRUE(fs->create_file(InvertedIndexDescriptor::get_index_file_path_v2(v3_prefix),
-                                &v3_compound_file, &opts)
-                        .ok());
-    io::FileWriterPtr snii_compound_file;
-    ASSERT_TRUE(fs->create_file(InvertedIndexDescriptor::get_index_file_path_v2(snii_prefix),
-                                &snii_compound_file, &opts)
-                        .ok());
-    IndexFileWriter v3_file_writer(fs, v3_prefix, v3_rowset_id, 0, InvertedIndexStorageFormatPB::V3,
-                                   std::move(v3_compound_file));
-    IndexFileWriter snii_file_writer(fs, snii_prefix, snii_rowset_id, 0,
-                                     InvertedIndexStorageFormatPB::SNII,
-                                     std::move(snii_compound_file));
-
-    config::enable_common_grams_index_build = true;
-    InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR> v3_writer(
-            "1", &v3_file_writer, &index_meta, /*single_field=*/true);
-    SniiIndexColumnWriter snii_writer(&snii_file_writer, &index_meta,
-                                      FieldType::OLAP_FIELD_TYPE_VARCHAR);
-    config::enable_common_grams_index_build = false;
-
-    ASSERT_TRUE(v3_writer.init().ok());
-    ASSERT_TRUE(snii_writer.init().ok());
-    std::string marker_leading_value(inverted_index::COMMON_GRAM_MAX_ENCODED_BYTES, 'x');
-    marker_leading_value.front() = '\x1f';
-    const Slice marker_value(marker_leading_value);
-    const Slice phrase_value("man of the year");
-    ASSERT_TRUE(v3_writer.add_values("", &marker_value, 1).ok());
-    ASSERT_TRUE(v3_writer.add_values("", &phrase_value, 1).ok());
-    ASSERT_TRUE(v3_writer.finish().ok());
-    ASSERT_TRUE(v3_file_writer.begin_close().ok());
-    ASSERT_TRUE(v3_file_writer.finish_close().ok());
-
-    IndexFileReader v3_file_reader(fs, v3_prefix, InvertedIndexStorageFormatPB::V3);
-    ASSERT_TRUE(v3_file_reader.init().ok());
-    auto directory_result = v3_file_reader.open(&index_meta);
-    ASSERT_TRUE(directory_result.has_value()) << directory_result.error();
-    auto directory = std::move(directory_result.value());
-    EXPECT_FALSE(directory->fileExists("doris_common_grams.meta"));
-
-    const std::string encoded_gram = inverted_index::encode_common_gram("man", "of").value();
-    std::set<std::string> indexed_terms;
-    std::unique_ptr<lucene::index::IndexReader, void (*)(lucene::index::IndexReader*)> reader(
-            lucene::index::IndexReader::open(directory.get()), [](lucene::index::IndexReader* ptr) {
-                ptr->close();
-                _CLLDELETE(ptr);
-            });
-    std::unique_ptr<TermEnum, void (*)(TermEnum*)> terms(reader->terms(), [](TermEnum* ptr) {
-        ptr->close();
-        _CLLDELETE(ptr);
-    });
-    while (terms->next()) {
-        indexed_terms.emplace(lucene_wcstoutf8string(terms->term(false)->text(),
-                                                     terms->term(false)->textLength()));
-    }
-    EXPECT_TRUE(indexed_terms.contains(marker_leading_value));
-    EXPECT_TRUE(indexed_terms.contains("man"));
-    EXPECT_TRUE(indexed_terms.contains("of"));
-    EXPECT_TRUE(indexed_terms.contains("the"));
-    EXPECT_TRUE(indexed_terms.contains("year"));
-    EXPECT_FALSE(indexed_terms.contains(encoded_gram));
-
-    const Status snii_add_status = snii_writer.add_values("", &marker_value, 1);
-    EXPECT_EQ(snii_add_status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << snii_add_status;
-    EXPECT_NE(snii_add_status.to_string().find("enable_common_grams_index_build=false"),
-              std::string::npos);
-    EXPECT_EQ(snii_writer.finish().code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
-}
-
-TEST_F(InvertedIndexWriterTest, CommonGramsDisabledBuildSwitchSnapshotWritesPlainSnii) {
-    CommonGramsBuildFlagRestorer flag_restorer;
-    auto* exec_env = ExecEnv::GetInstance();
-    auto* previous_policy_mgr = exec_env->index_policy_mgr();
-    IndexPolicyMgr policy_mgr;
-    exec_env->_index_policy_mgr = &policy_mgr;
-    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
-
-    TabletIndex index_meta;
-    install_common_grams_policy(&policy_mgr, 920050, "common_grams_disabled_snapshot", 99,
-                                &index_meta);
-
-    const std::string rowset_id = "snii_common_grams_disabled_snapshot";
-    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-            local_segment_path(kTestDir, rowset_id, 0))};
-    io::FileWriterOptions opts;
-    auto fs = io::global_local_filesystem();
-    io::FileWriterPtr compound_file;
-    ASSERT_TRUE(fs->create_file(InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix),
-                                &compound_file, &opts)
-                        .ok());
-    IndexFileWriter file_writer(fs, index_path_prefix, rowset_id, 0,
-                                InvertedIndexStorageFormatPB::SNII, std::move(compound_file));
-
-    const auto stale_seed = inverted_index::make_common_grams_segment_metadata(
-            {.common_grams_dictionary_identity = "stale-dictionary",
-             .base_analyzer_fingerprint = "stale-base-analyzer",
-             .common_grams_fingerprint = "stale-common-grams"});
-
-    config::enable_common_grams_index_build = false;
-    SniiIndexColumnWriter writer(&file_writer, &index_meta, FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                 stale_seed);
-    config::enable_common_grams_index_build = true;
-
-    ASSERT_TRUE(writer.init().ok());
-    std::string marker_leading_value(inverted_index::COMMON_GRAM_MAX_ENCODED_BYTES, 'x');
-    marker_leading_value.front() = '\x1f';
-    const Slice marker_value(marker_leading_value);
-    const Slice phrase_value("man of");
-    ASSERT_TRUE(writer.add_values("", &marker_value, 1).ok());
-    ASSERT_TRUE(writer.add_values("", &phrase_value, 1).ok());
-    writer.set_analysis_for_test(inverted_index::InvertedIndexAnalyzer::create_reader({}),
-                                 std::make_shared<GappedTokenAnalyzer>());
-    const Slice gapped_value("ignored");
-    ASSERT_TRUE(writer.add_values("", &gapped_value, 1).ok());
-    ASSERT_TRUE(writer.finish().ok());
-    ASSERT_TRUE(file_writer.begin_close().ok());
-    ASSERT_TRUE(file_writer.finish_close().ok());
-
-    const std::string encoded_gram = inverted_index::encode_common_gram("man", "of").value();
-    IndexFileReader file_reader(fs, index_path_prefix, InvertedIndexStorageFormatPB::SNII);
-    ASSERT_TRUE(file_reader.init().ok());
-    auto logical_result = file_reader.open_snii_index(&index_meta);
-    ASSERT_TRUE(logical_result.has_value()) << logical_result.error();
-    auto logical = std::move(logical_result.value());
-    EXPECT_EQ(logical->common_grams_metadata(), nullptr);
-    EXPECT_EQ(logical->tier(), snii::format::tier_of(snii::format::IndexConfig::kDocsPositions));
-    std::vector<uint32_t> docids;
-    ASSERT_TRUE(snii::query::term_query(*logical, marker_leading_value, &docids).ok());
-    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
-    ASSERT_TRUE(snii::query::term_query(*logical, encoded_gram, &docids).ok());
-    EXPECT_TRUE(docids.empty());
-    ASSERT_TRUE(snii::query::term_query(*logical, "gapped", &docids).ok());
-    EXPECT_EQ(docids, (std::vector<uint32_t> {2}));
-}
-
-TEST_F(InvertedIndexWriterTest, CommonGramsSniiPersistsTypedTermsAndSemanticScoringInputs) {
-    auto* exec_env = ExecEnv::GetInstance();
-    auto* previous_policy_mgr = exec_env->index_policy_mgr();
-    IndexPolicyMgr policy_mgr;
-    exec_env->_index_policy_mgr = &policy_mgr;
-    DEFER(exec_env->_index_policy_mgr = previous_policy_mgr);
-
-    TIndexPolicy tokenizer;
-    tokenizer.id = 920030;
-    tokenizer.name = "snii_cg_writer_tokenizer";
-    tokenizer.type = TIndexPolicyType::TOKENIZER;
-    tokenizer.properties["type"] = "char_group";
-    tokenizer.properties["tokenize_on_chars"] = "[\\u0020]";
-    TIndexPolicy common_grams;
-    common_grams.id = 920031;
-    common_grams.name = "snii_cg_writer_filter";
-    common_grams.type = TIndexPolicyType::TOKEN_FILTER;
-    common_grams.properties["type"] = "common_grams";
-    TIndexPolicy analyzer;
-    analyzer.id = 920032;
-    analyzer.name = "snii_cg_writer_analyzer";
-    analyzer.type = TIndexPolicyType::ANALYZER;
-    analyzer.properties["tokenizer"] = tokenizer.name;
-    analyzer.properties["token_filter"] = "lowercase," + common_grams.name;
-    policy_mgr.apply_policy_changes({tokenizer, common_grams, analyzer}, {});
-
-    TabletIndexPB index_pb;
-    index_pb.set_index_type(IndexType::INVERTED);
-    index_pb.set_index_id(95);
-    index_pb.set_index_name("common_grams_snii_typed_writer");
-    index_pb.add_col_unique_id(1);
-    index_pb.mutable_properties()->insert({"analyzer", analyzer.name});
-    index_pb.mutable_properties()->insert({"support_phrase", "true"});
-    TabletIndex index_meta;
-    index_meta.init_from_pb(index_pb);
-
-    const std::string rowset_id = "snii_common_grams_typed_writer";
-    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-            local_segment_path(kTestDir, rowset_id, 0))};
-    const std::string index_path =
-            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-    io::FileWriterPtr compound_file;
-    io::FileWriterOptions opts;
-    auto fs = io::global_local_filesystem();
-    ASSERT_TRUE(fs->create_file(index_path, &compound_file, &opts).ok());
-    IndexFileWriter file_writer(fs, index_path_prefix, rowset_id, 0,
-                                InvertedIndexStorageFormatPB::SNII, std::move(compound_file));
-
-    SniiIndexColumnWriter writer(&file_writer, &index_meta, FieldType::OLAP_FIELD_TYPE_VARCHAR);
-    ASSERT_TRUE(writer.init().ok());
-    const std::string marker_plain = std::string(1, '\x1f') + "literal";
-    const std::string marker_phrase = marker_plain + " of";
-    const std::vector<Slice> values {Slice("man of the year"), Slice(marker_phrase)};
-    ASSERT_TRUE(writer.add_values("", values.data(), values.size()).ok());
-    ASSERT_TRUE(writer.add_nulls(1).ok());
-    ASSERT_TRUE(writer.finish().ok());
-    ASSERT_TRUE(file_writer.begin_close().ok());
-    ASSERT_TRUE(file_writer.finish_close().ok());
-
-    IndexFileReader file_reader(fs, index_path_prefix, InvertedIndexStorageFormatPB::SNII);
-    ASSERT_TRUE(file_reader.init().ok());
-    auto logical_result = file_reader.open_snii_index(&index_meta);
-    ASSERT_TRUE(logical_result.has_value()) << logical_result.error();
-    auto logical = std::move(logical_result.value());
-    ASSERT_NE(logical->common_grams_metadata(), nullptr);
-    EXPECT_EQ(logical->common_grams_metadata()->common_grams_dictionary_identity,
-              inverted_index::CommonWordSet::default_word_set()->identity());
-    EXPECT_EQ(logical->common_grams_metadata()->base_analyzer_fingerprint.size(), 64U);
-    EXPECT_EQ(logical->common_grams_metadata()->common_grams_fingerprint.size(), 64U);
-    EXPECT_EQ(logical->common_grams_metadata()->scoring_doc_count, 3);
-    EXPECT_EQ(logical->common_grams_metadata()->scoring_token_count, 6);
-
-    snii::stats::SniiStatsProvider stats;
-    ASSERT_TRUE(snii::stats::SniiStatsProvider::open(logical.get(), &stats).ok());
-    EXPECT_EQ(stats.doc_count(), 3);
-    EXPECT_EQ(stats.sum_total_term_freq(), 6);
-    uint8_t encoded_norm = 0;
-    ASSERT_TRUE(stats.encoded_norm(0, &encoded_norm).ok());
-    EXPECT_EQ(encoded_norm, snii::query::encode_norm(4));
-    ASSERT_TRUE(stats.encoded_norm(1, &encoded_norm).ok());
-    EXPECT_EQ(encoded_norm, snii::query::encode_norm(2));
-    ASSERT_TRUE(stats.encoded_norm(2, &encoded_norm).ok());
-    EXPECT_EQ(encoded_norm, snii::query::encode_norm(0));
-
-    const std::string expected_gram = inverted_index::encode_common_gram("man", "of").value();
-    const std::string expected_plain =
-            inverted_index::encode_plain_term(marker_plain,
-                                              inverted_index::PlainTermKeyVersion::kEscapedV1)
-                    .value();
-    const std::string expected_marker_gram =
-            inverted_index::encode_common_gram(marker_plain, "of").value();
-    const std::string unexpected_double_plain =
-            inverted_index::encode_plain_term(expected_plain,
-                                              inverted_index::PlainTermKeyVersion::kEscapedV1)
-                    .value();
-    const std::string unexpected_physical_gram =
-            inverted_index::encode_common_gram(expected_plain, "of").value();
-    std::vector<uint32_t> docids;
-    ASSERT_TRUE(snii::query::term_query(*logical, expected_gram, &docids).ok());
-    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
-    ASSERT_TRUE(snii::query::term_query(*logical, expected_plain, &docids).ok());
-    EXPECT_EQ(docids, (std::vector<uint32_t> {1}));
-    ASSERT_TRUE(snii::query::term_query(*logical, expected_marker_gram, &docids).ok());
-    EXPECT_EQ(docids, (std::vector<uint32_t> {1}));
-    ASSERT_TRUE(snii::query::term_query(*logical, unexpected_double_plain, &docids).ok());
-    EXPECT_TRUE(docids.empty());
-    ASSERT_TRUE(snii::query::term_query(*logical, unexpected_physical_gram, &docids).ok());
-    EXPECT_TRUE(docids.empty());
-}
-
 // Test case to verify .nrm file creation behavior with different tokenization settings
 // This test verifies the change in inverted_index_writer.cpp lines 165-171
 // where .nrm file is only created when field requires tokenization (_should_analyzer == true)
@@ -2051,6 +1831,100 @@ TEST_F(InvertedIndexWriterTest, NormsFileCreationWithTokenization) {
             << "Expected .nrm file to NOT exist when tokenization is disabled (parser=none) "
             << "because setOmitNorms(false) is not called. This validates the fix in "
             << "inverted_index_writer.cpp where .nrm file creation depends on _should_analyzer.";
+}
+
+// Norms take one byte per segment row for every indexed path, so an index on a variant path (a
+// field_pattern index, or the copy inherited by one extracted subcolumn, which carries the path as
+// its index suffix) writes none by default. The "norms" property overrides that per index.
+TEST_F(InvertedIndexWriterTest, NormsFollowIndexNormsProperty) {
+    auto make_index_meta = [](const std::string& index_suffix,
+                              const std::map<std::string, std::string>& extra_properties) {
+        TabletIndexPB index_meta_pb;
+        index_meta_pb.set_index_type(IndexType::INVERTED);
+        index_meta_pb.set_index_id(1);
+        index_meta_pb.set_index_name("test");
+        index_meta_pb.add_col_unique_id(1); // c2 column id
+        (*index_meta_pb.mutable_properties())["parser"] = "standard";
+        for (const auto& [key, value] : extra_properties) {
+            (*index_meta_pb.mutable_properties())[key] = value;
+        }
+        TabletIndex index_meta;
+        index_meta.init_from_pb(index_meta_pb);
+        if (!index_suffix.empty()) {
+            index_meta.set_escaped_escaped_index_suffix_path(index_suffix);
+        }
+        return index_meta;
+    };
+    auto path_prefix = [this](const std::string& rowset_id, int seg_id) {
+        return std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id))};
+    };
+
+    bool original_skip_norms_for_variant = config::inverted_index_skip_norms_for_variant;
+
+    // an analyzed index writes norms wherever it sits, and only "norms" = "false" drops them
+    config::inverted_index_skip_norms_for_variant = false;
+
+    create_tokenized_index("plain_column_default", 0, true, "");
+    TabletIndex plain_default = make_index_meta("", {});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("plain_column_default", 0), &plain_default))
+            << "an analyzed index must write .nrm by default";
+
+    create_tokenized_index("plain_column_norms_off", 1, true, "", {{"norms", "false"}});
+    TabletIndex plain_norms_off = make_index_meta("", {{"norms", "false"}});
+    EXPECT_FALSE(
+            check_norms_file_exists(path_prefix("plain_column_norms_off", 1), &plain_norms_off))
+            << "norms = false must drop .nrm for an ordinary column index";
+
+    create_tokenized_index("variant_subcolumn_default", 2, true, "v.s_host");
+    TabletIndex subcolumn_default = make_index_meta("v.s_host", {});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("variant_subcolumn_default", 2),
+                                        &subcolumn_default))
+            << "a variant subcolumn index must write .nrm by default too";
+
+    create_tokenized_index("variant_subcolumn_norms_off", 3, true, "v.s_host",
+                           {{"norms", "false"}});
+    TabletIndex subcolumn_norms_off = make_index_meta("v.s_host", {{"norms", "false"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_norms_off", 3),
+                                         &subcolumn_norms_off))
+            << "norms = false must drop .nrm for a variant subcolumn index";
+
+    create_tokenized_index("field_pattern_default", 4, true, "", {{"field_pattern", "s_*"}});
+    TabletIndex field_pattern_default = make_index_meta("", {{"field_pattern", "s_*"}});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("field_pattern_default", 4),
+                                        &field_pattern_default))
+            << "a field_pattern index must write .nrm by default too";
+
+    // the config drops norms for a variant path index whatever its property says, and leaves every
+    // other index alone
+    config::inverted_index_skip_norms_for_variant = true;
+
+    create_tokenized_index("variant_subcolumn_skipped", 5, true, "v.s_host");
+    TabletIndex subcolumn_skipped = make_index_meta("v.s_host", {});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_skipped", 5),
+                                         &subcolumn_skipped))
+            << "the config must drop .nrm for a variant subcolumn index";
+
+    create_tokenized_index("variant_subcolumn_norms_on_skipped", 6, true, "v.s_host",
+                           {{"norms", "true"}});
+    TabletIndex subcolumn_norms_on_skipped = make_index_meta("v.s_host", {{"norms", "true"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_norms_on_skipped", 6),
+                                         &subcolumn_norms_on_skipped))
+            << "the config must win over norms = true on a variant subcolumn index";
+
+    create_tokenized_index("field_pattern_skipped", 7, true, "", {{"field_pattern", "s_*"}});
+    TabletIndex field_pattern_skipped = make_index_meta("", {{"field_pattern", "s_*"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("field_pattern_skipped", 7),
+                                         &field_pattern_skipped))
+            << "the config must drop .nrm for a field_pattern index";
+
+    create_tokenized_index("plain_column_not_skipped", 8, true, "");
+    TabletIndex plain_not_skipped = make_index_meta("", {});
+    EXPECT_TRUE(
+            check_norms_file_exists(path_prefix("plain_column_not_skipped", 8), &plain_not_skipped))
+            << "the config must leave an ordinary column index alone";
+
+    config::inverted_index_skip_norms_for_variant = original_skip_norms_for_variant;
 }
 
 } // namespace doris::segment_v2

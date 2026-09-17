@@ -22,8 +22,8 @@ import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class ObjectInfoAdapterTest {
 
@@ -45,12 +45,12 @@ public class ObjectInfoAdapterTest {
         StorageAdapter adapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
         S3CompatibleFileSystemProperties s3 = (S3CompatibleFileSystemProperties) adapter.getSpiProperties();
 
-        Assert.assertEquals(StorageTypeId.S3, adapter.getType());
-        Assert.assertEquals("s3.us-west-2.amazonaws.com", s3.getEndpoint());
-        Assert.assertEquals("us-west-2", s3.getRegion());
-        Assert.assertEquals("snapshot-bucket", s3.getBucket());
-        Assert.assertEquals("arn:aws:iam::123456789012:role/snapshot-role", s3.getRoleArn());
-        Assert.assertEquals("snapshot-external-id", s3.getExternalId());
+        Assertions.assertEquals(StorageTypeId.S3, adapter.getType());
+        Assertions.assertEquals("s3.us-west-2.amazonaws.com", s3.getEndpoint());
+        Assertions.assertEquals("us-west-2", s3.getRegion());
+        Assertions.assertEquals("snapshot-bucket", s3.getBucket());
+        Assertions.assertEquals("arn:aws:iam::123456789012:role/snapshot-role", s3.getRoleArn());
+        Assertions.assertEquals("snapshot-external-id", s3.getExternalId());
     }
 
     @Test
@@ -75,12 +75,12 @@ public class ObjectInfoAdapterTest {
         StorageAdapter adapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
         S3CompatibleFileSystemProperties oss = (S3CompatibleFileSystemProperties) adapter.getSpiProperties();
 
-        Assert.assertEquals(StorageTypeId.OSS, adapter.getType());
-        Assert.assertEquals("doris-regression-hk", oss.getBucket());
-        Assert.assertEquals("oss-cn-hongkong-internal.aliyuncs.com", oss.getEndpoint());
-        Assert.assertEquals("cn-hongkong", oss.getRegion());
-        Assert.assertEquals("stage-ak", oss.getAccessKey());
-        Assert.assertEquals("stage-sk", oss.getSecretKey());
-        Assert.assertEquals("stage-token", oss.getSessionToken());
+        Assertions.assertEquals(StorageTypeId.OSS, adapter.getType());
+        Assertions.assertEquals("doris-regression-hk", oss.getBucket());
+        Assertions.assertEquals("oss-cn-hongkong-internal.aliyuncs.com", oss.getEndpoint());
+        Assertions.assertEquals("cn-hongkong", oss.getRegion());
+        Assertions.assertEquals("stage-ak", oss.getAccessKey());
+        Assertions.assertEquals("stage-sk", oss.getSecretKey());
+        Assertions.assertEquals("stage-token", oss.getSessionToken());
     }
 }

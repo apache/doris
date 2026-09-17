@@ -30,8 +30,8 @@ import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -80,7 +80,7 @@ public class LoadJobV2PersistTest {
             DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
             BrokerLoadJob job = createJob();
-            Assert.assertEquals(5, job.getLoadParallelism());
+            Assertions.assertEquals(5, job.getLoadParallelism());
             job.write(dos);
 
             dos.flush();
@@ -90,8 +90,8 @@ public class LoadJobV2PersistTest {
             DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
             BrokerLoadJob rJob = (BrokerLoadJob) BrokerLoadJob.read(dis);
-            Assert.assertEquals(5, rJob.getLoadParallelism());
-            Assert.assertEquals(EtlJobType.BROKER, rJob.getJobType());
+            Assertions.assertEquals(5, rJob.getLoadParallelism());
+            Assertions.assertEquals(EtlJobType.BROKER, rJob.getJobType());
 
             // 3. delete files
             dis.close();

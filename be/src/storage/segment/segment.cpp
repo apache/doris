@@ -143,8 +143,14 @@ Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
     return Status::OK();
 }
 
-// The statistics iterator answers pushed-down aggregates from the segment zone maps alone. An
-// invalid zone map has no min/max to answer with, so the caller has to read the data instead.
+// Whether to force MIN/MAX onto the zone map when its bound is not a value the data holds now: a
+// cut string bound, or one covering rows a delete predicate removed. Statistics collection sets it.
+// MIN/MAX is the only aggregate this can force, because it is the only one that reads the bounds.
+bool pushdown_zonemap_minmax_forced(const StorageReadOptions& read_options) {
+    return read_options.push_down_agg_type_opt == TPushAggOp::MINMAX &&
+           read_options.runtime_state->query_options().force_pushdown_zonemap_minmax;
+}
+
 Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& schema,
                                         const StorageReadOptions& read_options, bool* usable) {
     *usable = true;
@@ -169,7 +175,23 @@ Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& sche
         }
         ZoneMap zone_map;
         RETURN_IF_ERROR(reader->get_segment_zone_map(&zone_map));
+
+        // The zone map gave up its range, so it has no min/max left to answer with.
         if (zone_map.pass_all) {
+            *usable = false;
+            return Status::OK();
+        }
+
+        // Only a string bound is cut at MAX_ZONE_MAP_INDEX_SIZE, and a column of nothing but
+        // nulls stored no bound to look at.
+        if (!is_string_type(schema.column(ordinal)->type()) || !zone_map.has_not_null) {
+            continue;
+        }
+
+        // A cut bound is not a value the column holds: the min is a prefix of the smallest value
+        // and the max was raised past the largest one. Neither can answer MIN()/MAX().
+        if (zone_map.min_value.as_string_view().size() >= MAX_ZONE_MAP_INDEX_SIZE ||
+            zone_map.max_value.as_string_view().size() >= MAX_ZONE_MAP_INDEX_SIZE) {
             *usable = false;
             return Status::OK();
         }
@@ -379,7 +401,7 @@ Status Segment::_open(OlapReaderStatistics* stats, const io::IOContext* source_i
                                 config::max_segment_partial_column_cache_size) *
                        config::estimated_mem_per_column_reader;
 
-    // 1024 comes from SegmentWriterOptions
+    // 1024 comes from VerticalSegmentWriterOptions
     _meta_mem_usage += (_num_rows + 1023) / 1024 * (36 + 4);
     // 0.01 comes from PrimaryKeyIndexBuilder::init
     _meta_mem_usage += BloomFilter::optimal_bit_num(_num_rows, 0.01) / 8;
@@ -503,16 +525,17 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
         RETURN_IF_ERROR(load_index(read_options.stats, &read_options.io_ctx));
     }
 
+    // COUNT and MIX report the segment row count, which a delete predicate makes wrong whatever
+    // the zone map bounds hold, so they keep the guard below even when the switch is on.
+    const auto agg = read_options.push_down_agg_type_opt;
+    const bool forced = pushdown_zonemap_minmax_forced(read_options);
     bool use_statistics_iterator =
-            read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
-            read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
-            read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX;
-    // COUNT only fills defaults, every other pushed-down aggregate reads min/max out of the
-    // segment zone maps.
-    if (use_statistics_iterator && read_options.push_down_agg_type_opt != TPushAggOp::COUNT) {
-        bool usable = false;
-        RETURN_IF_ERROR(segment_zone_maps_can_answer_agg(this, *schema, read_options, &usable));
-        use_statistics_iterator = usable;
+            agg != TPushAggOp::NONE && agg != TPushAggOp::COUNT_ON_INDEX &&
+            (forced || read_options.delete_condition_predicates->num_of_column_predicate() == 0);
+    // COUNT only fills defaults, every other aggregate reads min/max out of the zone maps.
+    if (use_statistics_iterator && !forced && agg != TPushAggOp::COUNT) {
+        RETURN_IF_ERROR(segment_zone_maps_can_answer_agg(this, *schema, read_options,
+                                                         &use_statistics_iterator));
     }
     if (use_statistics_iterator) {
         iter->reset(new_vstatistics_iterator(this->shared_from_this(), *schema));
@@ -1281,11 +1304,10 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
     };
 
     const auto runtime_type = remove_nullable(slot->type());
-    const auto* variant_type = typeid_cast<const DataTypeVariant*>(runtime_type.get());
     const auto* variant_v2_type = typeid_cast<const DataTypeVariantV2*>(runtime_type.get());
 
     if (!slot->column_paths().empty()) {
-        DORIS_CHECK(variant_type != nullptr || variant_v2_type != nullptr);
+        DORIS_CHECK(variant_v2_type != nullptr);
         // here need create column readers to make sure column reader is created before seek_and_read_by_rowid
         // if segment cache miss, column reader will be created to make sure the variant column result not coredump
         RETURN_IF_ERROR(
@@ -1331,8 +1353,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         }
         TabletColumn column = schema.column(index);
         if (column.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
-            DORIS_CHECK(variant_type != nullptr || variant_v2_type != nullptr);
-            column.set_variant_is_v2(variant_v2_type != nullptr);
+            DORIS_CHECK(variant_v2_type != nullptr);
         }
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));

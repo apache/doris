@@ -21,7 +21,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.BasicAsyncCacheLoader;
+import org.apache.doris.statistics.cache.BasicAsyncCacheLoader;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;

@@ -18,6 +18,7 @@
 suite("test_map_lambda", "p0") {
     sql "set enable_nereids_planner = true"
     sql "set enable_fallback_to_original_planner = false"
+    sql "set enable_prune_nested_column = true"
     sql "drop table if exists test_map_lambda"
     sql """
         create table test_map_lambda (
@@ -26,7 +27,8 @@ suite("test_map_lambda", "p0") {
             mii map<int, int>,
             mss map<string, string>,
             mia map<int, array<int>>,
-            mim map<int, map<int, int>>
+            mim map<int, map<int, int>>,
+            mis map<int, struct<n:int, s:string>>
         )
         duplicate key(id)
         distributed by hash(id) buckets 1
@@ -38,13 +40,16 @@ suite("test_map_lambda", "p0") {
              map(1, 10, 2, 20),
              map('a', 'x', 'b', 'y'),
              map(1, [10], 2, [20, 21]),
-             map(1, map(2, 20), 3, map(4, 40))),
+             map(1, map(2, 20), 3, map(4, 40)),
+             map(1, named_struct('n', 10, 's', 'x'),
+                 2, cast(null as struct<n:int, s:string>))),
             (2, 0,
              cast(map() as map<int, int>),
              cast(map() as map<string, string>),
              cast(map() as map<int, array<int>>),
-             cast(map() as map<int, map<int, int>>)),
-            (3, 0, null, null, null, null)
+             cast(map() as map<int, map<int, int>>),
+             cast(map() as map<int, struct<n:int, s:string>>)),
+            (3, 0, null, null, null, null, null)
     """
 
     qt_map_apply """
@@ -169,6 +174,16 @@ suite("test_map_lambda", "p0") {
             select transform_values((k, v) -> array_pushback(v, k), mia) r
             from test_map_lambda where id = 1
         ) t
+    """
+    order_qt_transform_values_array_size """
+        select id, transform_values((k, v) -> size(v), mia)
+        from test_map_lambda
+        order by id
+    """
+    order_qt_transform_values_struct_is_null """
+        select id, transform_values((k, v) -> v is null, mis)
+        from test_map_lambda
+        order by id
     """
     qt_nested_array_lambda """
         select map_apply(

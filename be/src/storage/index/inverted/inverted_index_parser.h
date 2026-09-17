@@ -24,7 +24,6 @@
 #include <string_view>
 
 #include "storage/index/inverted/analyzer/analyzer_provider.h"
-#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "util/debug_points.h"
 
 namespace lucene {
@@ -34,6 +33,8 @@ class Analyzer;
 } // namespace lucene
 
 namespace doris {
+
+class TabletIndex;
 
 enum class InvertedIndexParserType {
     PARSER_UNKNOWN = 0,
@@ -90,6 +91,9 @@ const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY = "support_phrase";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES = "true";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO = "false";
 
+// Whether an analyzed index stores BM25 norms, which take one byte per row of the segment.
+const std::string INVERTED_INDEX_NORMS_KEY = "norms";
+
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT = "char_filter_replacement";
@@ -128,34 +132,12 @@ struct InvertedIndexAnalyzerCtx {
     CharFilterMap char_filter_map;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
     segment_v2::inverted_index::AnalyzerProviderPtr analyzer_provider;
-    std::optional<segment_v2::inverted_index::CommonGramsQueryIdentity> common_grams_identity;
 
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
-            segment_v2::inverted_index::AnalysisPurpose purpose) const {
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const {
         if (analyzer_provider != nullptr) {
-            return analyzer_provider->get_analyzer(purpose);
+            return analyzer_provider->get_analyzer();
         }
         return analyzer;
-    }
-
-    const segment_v2::inverted_index::CommonGramsQueryIdentity* get_common_grams_identity() const {
-        if (common_grams_identity.has_value()) {
-            return &*common_grams_identity;
-        }
-        return analyzer_provider == nullptr ? nullptr : analyzer_provider->common_grams_identity();
-    }
-
-    bool has_complete_common_grams_identity() const {
-        const auto* identity = get_common_grams_identity();
-        return identity != nullptr && !identity->common_grams_dictionary_identity.empty() &&
-               !identity->base_analyzer_fingerprint.empty() &&
-               !identity->common_grams_fingerprint.empty();
-    }
-
-    // Raw-query cache and single-flight keys intentionally exclude analyzer output. A tokenizing
-    // provider therefore needs a complete immutable identity before those results may be shared.
-    bool can_share_raw_query_semantics() const {
-        return !requires_analysis() || has_complete_common_grams_identity();
     }
 
     // This controls analyzer execution, not the number of emitted terms.
@@ -174,6 +156,13 @@ std::string get_parser_mode_string_from_properties(
         const std::map<std::string, std::string>& properties);
 std::string get_parser_phrase_support_string_from_properties(
         const std::map<std::string, std::string>& properties);
+
+// Whether an analyzed index writes BM25 norms: the one policy shared by every index storage format
+// and by index compaction. Norms cost one byte per row of the segment, including rows that have no
+// value for the field. An index writes them unless its "norms" property is "false", or unless it
+// is on a variant path while inverted_index_skip_norms_for_variant is on, which wins over the
+// property.
+bool should_write_index_norms(const TabletIndex& index_meta);
 
 CharFilterMap get_parser_char_filter_map_from_properties(
         const std::map<std::string, std::string>& properties);

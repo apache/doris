@@ -81,6 +81,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWind
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -108,6 +109,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalBaseExternalTableSink;
@@ -289,11 +291,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     public PlanFragment translatePlan(PhysicalPlan physicalPlan) {
         PlanFragment rootFragment = physicalPlan.accept(this, context);
-        if (CollectionUtils.isEmpty(rootFragment.getOutputExprs())) {
-            List<Expr> outputExprs = Lists.newArrayList();
-            physicalPlan.getOutput().stream().map(Slot::getExprId)
-                    .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-            rootFragment.setOutputExprs(outputExprs);
+        boolean canTranslateRootOutput = physicalPlan.getOutput().stream()
+                .allMatch(slot -> context.findSlotRef(slot.getExprId()) != null);
+        // Prefer the final physical output slots when they are fully bound.
+        // If they are not bound, preserve the explicit root fragment output exprs installed by
+        // child translation, e.g. for defer materialize topn followed by a projection.
+        if (canTranslateRootOutput || CollectionUtils.isEmpty(rootFragment.getOutputExprs())) {
+            rootFragment.setOutputExprs(translateOutputExprs(physicalPlan.getOutput()));
         }
         Collections.reverse(context.getPlanFragments());
         if (context.getSessionVariable() != null && context.getSessionVariable().forbidUnknownColStats) {
@@ -384,6 +388,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // its source partition is targetDataPartition. and outputPartition is UNPARTITIONED now, will be set when
         // visit its SinkNode
         PlanFragment downstreamFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, targetDataPartition);
+        downstreamFragment.setOutputExprs(translateOutputExprs(distribute.getOutput()));
         if (targetDistribution instanceof DistributionSpecGather
                 || targetDistribution instanceof DistributionSpecStorageGather) {
             // gather to one instance
@@ -776,9 +781,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 fileSink.getProperties()
         );
 
-        List<Expr> outputExprs = Lists.newArrayList();
-        fileSink.getOutput().stream().map(Slot::getExprId)
-                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+        List<Expr> outputExprs = translateOutputExprs(fileSink.getOutput());
         sinkFragment.setOutputExprs(outputExprs);
 
         // generate colLabels
@@ -1447,9 +1450,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode planNode = inputFragment.getPlanRoot();
         // the three nodes don't support conjuncts, need create a SelectNode to filter data
         if (planNode instanceof ExchangeNode || planNode instanceof SortNode || planNode instanceof UnionNode) {
-            SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), planNode);
-            selectNode.setNereidsId(filter.getId());
-            context.getNereidsIdToPlanNodeIdMap().put(filter.getId(), selectNode.getId());
+            SelectNode selectNode = createSelectNode(filter, planNode, context);
             addConjunctsToPlanNode(filter, selectNode, context);
             addPlanRoot(inputFragment, selectNode, filter);
         } else {
@@ -1460,12 +1461,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         || CollectionUtils.isNotEmpty(planNode.getProjectList())
                         // already have limit on this node, filter need execute after limit, so need a new node
                         || planNode.hasLimit()) {
-                    planNode = new SelectNode(context.nextPlanNodeId(), planNode);
-                    planNode.setNereidsId(filter.getId());
+                    planNode = createSelectNode(filter, planNode, context);
                     // NOTE: can't collect planNode.getId() on filter's child, such as scan node
                     // since if the filter is embedded into scan, the id mapping relation is not correct
                     // i.e, the physical filter's nereids's id will be mapped to final plan's scan node
-                    context.getNereidsIdToPlanNodeIdMap().put(filter.getId(), planNode.getId());
                     addPlanRoot(inputFragment, planNode, filter);
                 }
                 addConjunctsToPlanNode(filter, planNode, context);
@@ -1477,6 +1476,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             inputFragment.getPlanRoot().setCardinalityAfterFilter((long) filter.getStats().getRowCount());
         }
         return inputFragment;
+    }
+
+    private SelectNode createSelectNode(AbstractPhysicalPlan physicalPlan, PlanNode child,
+            PlanTranslatorContext context) {
+        SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), child);
+        selectNode.setNereidsId(physicalPlan.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(physicalPlan.getId(), selectNode.getId());
+        selectNode.setDistributeExprLists(getDistributeExpr(physicalPlan));
+        selectNode.setChildrenDistributeExprLists(getDistributeExprs(physicalPlan.child(0)));
+        return selectNode;
     }
 
     @Override
@@ -2112,9 +2121,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanNode inputPlanNode = inputFragment.getPlanRoot();
         // this means already have project on this node, filter need execute after project, so need a new node
         if (CollectionUtils.isNotEmpty(inputPlanNode.getProjectList())) {
-            SelectNode selectNode = new SelectNode(context.nextPlanNodeId(), inputPlanNode);
-            selectNode.setNereidsId(project.getId());
-            context.getNereidsIdToPlanNodeIdMap().put(project.getId(), selectNode.getId());
+            SelectNode selectNode = createSelectNode(project, inputPlanNode, context);
             addPlanRoot(inputFragment, selectNode, project);
             inputPlanNode = selectNode;
         }
@@ -2272,8 +2279,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalRecursiveUnion(PhysicalRecursiveUnion<? extends Plan, ? extends Plan> recursiveCte,
             PlanTranslatorContext context) {
         List<PlanFragment> childrenFragments = new ArrayList<>();
-        for (Plan plan : recursiveCte.children()) {
-            childrenFragments.add(plan.accept(this, context));
+        // Like a join or a set operation, a recursive union consumes its children's fragments
+        // without an exchange boundary, so bucketed fusion must not delete the exchange that
+        // keeps an olap scan in a fragment of its own.
+        context.enterFragmentMergeChild();
+        try {
+            for (Plan plan : recursiveCte.children()) {
+                childrenFragments.add(plan.accept(this, context));
+            }
+        } finally {
+            context.exitFragmentMergeChild();
         }
         List<List<Expr>> distributeExprLists = getDistributeExprs(recursiveCte.children().toArray(new Plan[0]));
         TupleDescriptor setTuple = generateTupleDesc(recursiveCte.getOutput(), null, context);
@@ -2648,7 +2663,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // cube and rollup already convert to grouping sets in LogicalPlanBuilder.withAggregate()
         GroupingInfo groupingInfo = new GroupingInfo(outputTuple, preRepeatExprs);
 
-        List<Set<Integer>> repeatSlotIdList = repeat.computeRepeatSlotIdList(getSlotIds(outputTuple), outputSlots);
+        List<Integer> slotIdList = getSlotIds(outputTuple);
+        List<Set<Integer>> repeatSlotIdList = repeat.computeRepeatSlotIdList(slotIdList, outputSlots);
         Set<Integer> allSlotId = repeatSlotIdList.stream()
                 .flatMap(Set::stream)
                 .collect(ImmutableSet.toImmutableSet());
@@ -3640,6 +3656,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (Expression e : groupByExpressions) {
             if (e instanceof SlotReference && outputExpressions.stream().anyMatch(o -> o.anyMatch(e::equals))) {
                 groupSlots.add((SlotReference) e);
+            } else if (!(e instanceof SlotReference)) {
+                SlotReference outputAliasSlot = outputExpressions.stream()
+                        .filter(Alias.class::isInstance)
+                        .map(Alias.class::cast)
+                        .filter(outputAlias -> outputAlias.child().equals(e))
+                        .map(Alias::toSlot)
+                        .map(SlotReference.class::cast)
+                        .findFirst()
+                        .orElse(null);
+                if (outputAliasSlot != null) {
+                    groupSlots.add(outputAliasSlot);
+                    continue;
+                }
+                groupSlots.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), ImmutableList.of()));
             } else {
                 groupSlots.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), ImmutableList.of()));
             }
@@ -3836,6 +3866,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return true;
+    }
+
+    private List<Expr> translateOutputExprs(List<? extends Slot> outputSlots) {
+        List<Expr> outputExprs = Lists.newArrayListWithCapacity(outputSlots.size());
+        for (Slot slot : outputSlots) {
+            SlotRef slotRef = context.findSlotRef(slot.getExprId());
+            Preconditions.checkNotNull(slotRef,
+                    "missing SlotRef for ExprId %s (%s) during output expr translation",
+                    slot.getExprId(), slot);
+            outputExprs.add(slotRef);
+        }
+        return outputExprs;
     }
 
     private boolean isComplexDataType(DataType dataType) {

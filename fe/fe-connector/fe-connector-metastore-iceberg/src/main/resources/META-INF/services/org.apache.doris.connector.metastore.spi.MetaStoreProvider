@@ -18,5 +18,6 @@ org.apache.doris.connector.metastore.iceberg.hms.IcebergHmsMetaStoreProvider
 org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProvider
 org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProvider
 org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStoreProvider
+org.apache.doris.connector.metastore.iceberg.dlf.IcebergDlfMetaStoreProvider
 org.apache.doris.connector.metastore.iceberg.noop.IcebergHadoopMetaStoreProvider
 org.apache.doris.connector.metastore.iceberg.noop.IcebergS3TablesMetaStoreProvider

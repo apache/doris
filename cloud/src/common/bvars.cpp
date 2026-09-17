@@ -121,6 +121,7 @@ bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_ms_resource(
         "ms", "rate_limit_trigger_ms_resource");
 bvar::Adder<int64_t> g_bvar_ms_rate_limit_trigger_test_injection(
         "ms", "rate_limit_trigger_test_injection");
+bvar::Adder<int64_t> g_bvar_ms_repair_tablet_index("ms", "repair_tablet_index");
 bvar::Status<int64_t> g_bvar_ms_cpu_usage_percent("ms_process_cpu_usage_percent", -1);
 bvar::Status<int64_t> g_bvar_ms_memory_usage_percent("ms_process_memory_usage_percent", -1);
 bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;

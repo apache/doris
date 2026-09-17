@@ -35,8 +35,8 @@ import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
@@ -70,10 +70,10 @@ public class ExternalFileTableValuedFunctionTest {
                 tvf, Arrays.asList(structNode, intNode), 0);
 
         StructField field = ((StructType) parsed.key()).getFields().get(0);
-        Assert.assertEquals("casesensitive", field.getName());
-        Assert.assertEquals("CaseSensitive", field.getOriginalName());
-        Assert.assertEquals("mixed-case child", field.getComment());
-        Assert.assertTrue(field.getContainsNull());
+        Assertions.assertEquals("casesensitive", field.getName());
+        Assertions.assertEquals("CaseSensitive", field.getOriginalName());
+        Assertions.assertEquals("mixed-case child", field.getComment());
+        Assertions.assertTrue(field.getContainsNull());
     }
 
     @Test
@@ -87,8 +87,8 @@ public class ExternalFileTableValuedFunctionTest {
 
         Map<String, String> storageProperties = tvf.parseCommonProperties(properties);
 
-        Assert.assertEquals("+08:00", tvf.getHiveParquetTimeZone());
-        Assert.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE));
+        Assertions.assertEquals("+08:00", tvf.getHiveParquetTimeZone());
+        Assertions.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE));
     }
 
     @Test
@@ -99,10 +99,10 @@ public class ExternalFileTableValuedFunctionTest {
         properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
         properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "CST");
 
-        AnalysisException exception = Assert.assertThrows(
+        AnalysisException exception = Assertions.assertThrows(
                 AnalysisException.class, () -> tvf.parseCommonProperties(properties));
 
-        Assert.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
+        Assertions.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
     }
 
     @Test
@@ -115,10 +115,10 @@ public class ExternalFileTableValuedFunctionTest {
         List<Column> csvSchema = Lists.newArrayList();
         try {
             FileFormatUtils.parseCsvSchema(csvSchema, properties.get(FileFormatConstants.PROP_CSV_SCHEMA));
-            Assert.fail();
+            Assertions.fail();
         } catch (AnalysisException e) {
             e.printStackTrace();
-            Assert.assertTrue(e.getMessage().contains("unsupported column type: bool"));
+            Assertions.assertTrue(e.getMessage().contains("unsupported column type: bool"));
         }
 
         csvSchema.clear();
@@ -127,65 +127,65 @@ public class ExternalFileTableValuedFunctionTest {
                         + "k8:string;k9:date;k10:datetime;k11:decimal(10, 2);k12:decimal( 38,10); k13:datetime(5)");
         try {
             FileFormatUtils.parseCsvSchema(csvSchema, properties.get(FileFormatConstants.PROP_CSV_SCHEMA));
-            Assert.assertEquals(13, csvSchema.size());
+            Assertions.assertEquals(13, csvSchema.size());
             Column decimalCol = csvSchema.get(10);
-            Assert.assertEquals(10, decimalCol.getPrecision());
-            Assert.assertEquals(2, decimalCol.getScale());
+            Assertions.assertEquals(10, decimalCol.getPrecision());
+            Assertions.assertEquals(2, decimalCol.getScale());
             decimalCol = csvSchema.get(11);
-            Assert.assertEquals(38, decimalCol.getPrecision());
-            Assert.assertEquals(10, decimalCol.getScale());
+            Assertions.assertEquals(38, decimalCol.getPrecision());
+            Assertions.assertEquals(10, decimalCol.getScale());
             Column datetimeCol = csvSchema.get(12);
-            Assert.assertEquals(5, datetimeCol.getScale());
+            Assertions.assertEquals(5, datetimeCol.getScale());
 
             for (int i = 0; i < csvSchema.size(); i++) {
                 Column col = csvSchema.get(i);
                 switch (col.getName()) {
                     case "k1":
-                        Assert.assertEquals(PrimitiveType.INT, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.INT, col.getType().getPrimitiveType());
                         break;
                     case "k2":
-                        Assert.assertEquals(PrimitiveType.BIGINT, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.BIGINT, col.getType().getPrimitiveType());
                         break;
                     case "k3":
-                        Assert.assertEquals(PrimitiveType.FLOAT, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.FLOAT, col.getType().getPrimitiveType());
                         break;
                     case "k4":
-                        Assert.assertEquals(PrimitiveType.DOUBLE, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DOUBLE, col.getType().getPrimitiveType());
                         break;
                     case "k5":
-                        Assert.assertEquals(PrimitiveType.SMALLINT, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.SMALLINT, col.getType().getPrimitiveType());
                         break;
                     case "k6":
-                        Assert.assertEquals(PrimitiveType.TINYINT, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.TINYINT, col.getType().getPrimitiveType());
                         break;
                     case "k7":
-                        Assert.assertEquals(PrimitiveType.BOOLEAN, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.BOOLEAN, col.getType().getPrimitiveType());
                         break;
                     case "k8":
-                        Assert.assertEquals(PrimitiveType.STRING, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.STRING, col.getType().getPrimitiveType());
                         break;
                     case "k9":
-                        Assert.assertEquals(PrimitiveType.DATEV2, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DATEV2, col.getType().getPrimitiveType());
                         break;
                     case "k10":
-                        Assert.assertEquals(PrimitiveType.DATETIMEV2, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DATETIMEV2, col.getType().getPrimitiveType());
                         break;
                     case "k11":
-                        Assert.assertEquals(PrimitiveType.DECIMAL64, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DECIMAL64, col.getType().getPrimitiveType());
                         break;
                     case "k12":
-                        Assert.assertEquals(PrimitiveType.DECIMAL128, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DECIMAL128, col.getType().getPrimitiveType());
                         break;
                     case "k13":
-                        Assert.assertEquals(PrimitiveType.DATETIMEV2, col.getType().getPrimitiveType());
+                        Assertions.assertEquals(PrimitiveType.DATETIMEV2, col.getType().getPrimitiveType());
                         break;
                     default:
-                        Assert.fail("unknown column name: " + col.getName());
+                        Assertions.fail("unknown column name: " + col.getName());
                 }
             }
         } catch (AnalysisException e) {
             e.printStackTrace();
-            Assert.fail();
+            Assertions.fail();
         }
     }
 }

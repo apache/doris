@@ -209,6 +209,9 @@ DECLARE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second);
 DECLARE_mInt64(peer_candidate_cleanup_interval_s);
 DECLARE_mInt64(peer_candidate_expiry_s);
 DECLARE_mInt32(peer_rpc_failure_eviction_threshold);
+// Address-level circuit breaker shared by peer reads across tablets.
+DECLARE_mInt32(cache_peer_read_failure_threshold);
+DECLARE_mInt32(cache_peer_read_circuit_open_seconds);
 DECLARE_mInt32(peer_all_miss_cooldown_threshold);
 DECLARE_mInt64(peer_all_miss_cooldown_duration_s);
 

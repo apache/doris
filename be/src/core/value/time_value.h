@@ -154,7 +154,8 @@ public:
     static bool valid(double time) { return time <= MAX_TIME && time >= -MAX_TIME; }
 
     static bool to_format_string_conservative(const char* format, size_t len, char* to,
-                                              size_t max_valid_length, TimeType time) {
+                                              size_t max_valid_length, TimeType time,
+                                              int nanosecond = -1) {
         // If time is negative, we here only add a '-' to the begining of res
         // This behavior is consistent with MySQL
         if (time < 0) {
@@ -165,7 +166,8 @@ public:
 
         return DatetimeValueUtil::to_format_string_without_check<true>(
                 format, len, to, max_valid_length, 0, 0, 0, TimeValue::hour(time),
-                TimeValue::minute(time), TimeValue::second(time), TimeValue::microsecond(time));
+                TimeValue::minute(time), TimeValue::second(time), TimeValue::microsecond(time),
+                nanosecond);
     }
 };
 } // namespace doris

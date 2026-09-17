@@ -23,8 +23,8 @@ import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.util.StreamingJobUtils;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -113,7 +113,7 @@ public class DataSourceConfigValidatorTest {
     private static void assertReject(Map<String, String> input) {
         try {
             DataSourceConfigValidator.validateSource(input, DataSourceType.MYSQL.name());
-            Assert.fail("expected IllegalArgumentException for input: " + input);
+            Assertions.fail("expected IllegalArgumentException for input: " + input);
         } catch (IllegalArgumentException ignored) {
             // expected
         }
@@ -140,15 +140,15 @@ public class DataSourceConfigValidatorTest {
     @Test
     public void testDefaultSlotNameFormat() {
         String slotName = DataSourceConfigKeys.defaultSlotName("12345");
-        Assert.assertEquals("doris_cdc_12345", slotName);
-        Assert.assertTrue(slotName.length() <= PG_MAX_IDENTIFIER_LENGTH);
+        Assertions.assertEquals("doris_cdc_12345", slotName);
+        Assertions.assertTrue(slotName.length() <= PG_MAX_IDENTIFIER_LENGTH);
     }
 
     @Test
     public void testDefaultPublicationNameFormat() {
         String pubName = DataSourceConfigKeys.defaultPublicationName("12345");
-        Assert.assertEquals("doris_pub_12345", pubName);
-        Assert.assertTrue(pubName.length() <= PG_MAX_IDENTIFIER_LENGTH);
+        Assertions.assertEquals("doris_pub_12345", pubName);
+        Assertions.assertTrue(pubName.length() <= PG_MAX_IDENTIFIER_LENGTH);
     }
 
     @Test
@@ -156,10 +156,8 @@ public class DataSourceConfigValidatorTest {
         String maxJobId = String.valueOf(Long.MAX_VALUE);
         String slotName = DataSourceConfigKeys.defaultSlotName(maxJobId);
         String pubName = DataSourceConfigKeys.defaultPublicationName(maxJobId);
-        Assert.assertTrue("Slot name should not exceed PG limit, actual: " + slotName.length(),
-                slotName.length() <= PG_MAX_IDENTIFIER_LENGTH);
-        Assert.assertTrue("Publication name should not exceed PG limit, actual: " + pubName.length(),
-                pubName.length() <= PG_MAX_IDENTIFIER_LENGTH);
+        Assertions.assertTrue(slotName.length() <= PG_MAX_IDENTIFIER_LENGTH, "Slot name should not exceed PG limit, actual: " + slotName.length());
+        Assertions.assertTrue(pubName.length() <= PG_MAX_IDENTIFIER_LENGTH, "Publication name should not exceed PG limit, actual: " + pubName.length());
     }
 
     @Test
@@ -181,7 +179,7 @@ public class DataSourceConfigValidatorTest {
             props.put(DataSourceConfigKeys.SLOT_NAME, invalid);
             try {
                 DataSourceConfigValidator.validateSource(props, DataSourceType.POSTGRES.name());
-                Assert.fail("Expected IllegalArgumentException for slot_name='" + invalid + "'");
+                Assertions.fail("Expected IllegalArgumentException for slot_name='" + invalid + "'");
             } catch (IllegalArgumentException expected) {
                 // ok
             }
@@ -197,7 +195,7 @@ public class DataSourceConfigValidatorTest {
             props.put(DataSourceConfigKeys.PUBLICATION_NAME, invalid);
             try {
                 DataSourceConfigValidator.validateSource(props, DataSourceType.POSTGRES.name());
-                Assert.fail("Expected IllegalArgumentException for publication_name='" + invalid + "'");
+                Assertions.fail("Expected IllegalArgumentException for publication_name='" + invalid + "'");
             } catch (IllegalArgumentException expected) {
                 // ok
             }
@@ -215,7 +213,7 @@ public class DataSourceConfigValidatorTest {
         props.put(DataSourceConfigKeys.SLOT_NAME, sb.toString());
         try {
             DataSourceConfigValidator.validateSource(props, DataSourceType.POSTGRES.name());
-            Assert.fail("Expected IllegalArgumentException for slot_name exceeding "
+            Assertions.fail("Expected IllegalArgumentException for slot_name exceeding "
                     + PG_MAX_IDENTIFIER_LENGTH + " chars");
         } catch (IllegalArgumentException expected) {
             // ok
@@ -326,11 +324,9 @@ public class DataSourceConfigValidatorTest {
             try {
                 DataSourceConfigValidator.validateSource(
                         serverIdInput(invalid), DataSourceType.MYSQL.name());
-                Assert.fail("Expected IllegalArgumentException for server_id='" + invalid + "'");
+                Assertions.fail("Expected IllegalArgumentException for server_id='" + invalid + "'");
             } catch (IllegalArgumentException expected) {
-                Assert.assertTrue(
-                        "Error message should reference server_id, got: " + expected.getMessage(),
-                        expected.getMessage().contains("server_id"));
+                Assertions.assertTrue(expected.getMessage().contains("server_id"), "Error message should reference server_id, got: " + expected.getMessage());
             }
         }
     }
@@ -339,9 +335,9 @@ public class DataSourceConfigValidatorTest {
     public void testServerIdRejectsZero() {
         try {
             DataSourceConfigValidator.validateSource(serverIdInput("0"), DataSourceType.MYSQL.name());
-            Assert.fail("Expected IllegalArgumentException for server_id='0'");
+            Assertions.fail("Expected IllegalArgumentException for server_id='0'");
         } catch (IllegalArgumentException expected) {
-            Assert.assertTrue(expected.getMessage().contains("server_id"));
+            Assertions.assertTrue(expected.getMessage().contains("server_id"));
         }
     }
 
@@ -350,9 +346,9 @@ public class DataSourceConfigValidatorTest {
         try {
             DataSourceConfigValidator.validateSource(
                     serverIdInput("5408-5400"), DataSourceType.MYSQL.name());
-            Assert.fail("Expected IllegalArgumentException for server_id='5408-5400'");
+            Assertions.fail("Expected IllegalArgumentException for server_id='5408-5400'");
         } catch (IllegalArgumentException expected) {
-            Assert.assertTrue(expected.getMessage().contains("server_id"));
+            Assertions.assertTrue(expected.getMessage().contains("server_id"));
         }
     }
 
@@ -360,9 +356,9 @@ public class DataSourceConfigValidatorTest {
     public void testServerIdRejectsNegative() {
         try {
             DataSourceConfigValidator.validateSource(serverIdInput("-5"), DataSourceType.MYSQL.name());
-            Assert.fail("Expected IllegalArgumentException for server_id='-5'");
+            Assertions.fail("Expected IllegalArgumentException for server_id='-5'");
         } catch (IllegalArgumentException expected) {
-            Assert.assertTrue(expected.getMessage().contains("server_id"));
+            Assertions.assertTrue(expected.getMessage().contains("server_id"));
         }
     }
 
@@ -373,13 +369,11 @@ public class DataSourceConfigValidatorTest {
         props.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "8");
         try {
             DataSourceConfigValidator.validateSource(props, DataSourceType.MYSQL.name());
-            Assert.fail("Expected IllegalArgumentException for range size 3 < parallelism 8");
+            Assertions.fail("Expected IllegalArgumentException for range size 3 < parallelism 8");
         } catch (IllegalArgumentException expected) {
             String msg = expected.getMessage();
-            Assert.assertTrue("Message should reference snapshot_parallelism: " + msg,
-                    msg.contains("snapshot_parallelism"));
-            Assert.assertTrue("Message should reference server_id: " + msg,
-                    msg.contains("server_id"));
+            Assertions.assertTrue(msg.contains("snapshot_parallelism"), "Message should reference snapshot_parallelism: " + msg);
+            Assertions.assertTrue(msg.contains("server_id"), "Message should reference server_id: " + msg);
         }
     }
 
@@ -428,11 +422,11 @@ public class DataSourceConfigValidatorTest {
         Map<String, String> props = new HashMap<>();
         props.put(DataSourceConfigKeys.JDBC_URL, "jdbc:oceanbase://localhost:2883/test_db");
 
-        IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> DataSourceConfigValidator.validateSource(
                         props, DataSourceType.OCEANBASE.name()));
 
-        Assert.assertTrue(exception.getMessage().contains("jdbc:mysql://"));
+        Assertions.assertTrue(exception.getMessage().contains("jdbc:mysql://"));
     }
 
     @Test
@@ -444,11 +438,11 @@ public class DataSourceConfigValidatorTest {
             Map<String, String> props = new HashMap<>();
             props.put(key, "value");
 
-            IllegalArgumentException exception = Assert.assertThrows(
+            IllegalArgumentException exception = Assertions.assertThrows(
                     IllegalArgumentException.class,
                     () -> DataSourceConfigValidator.validateSource(
                             props, DataSourceType.OCEANBASE.name()));
-            Assert.assertTrue(exception.getMessage().contains(key));
+            Assertions.assertTrue(exception.getMessage().contains(key));
         }
     }
 
@@ -457,18 +451,18 @@ public class DataSourceConfigValidatorTest {
         Map<String, String> props = new HashMap<>();
         props.put(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "false");
 
-        IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> DataSourceConfigValidator.validateSource(
                         props, DataSourceType.OCEANBASE.name()));
 
-        Assert.assertTrue(exception.getMessage().contains(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED));
+        Assertions.assertTrue(exception.getMessage().contains(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED));
     }
 
     @Test
     public void testOceanBaseSupportsEarliestOffset() {
-        Assert.assertTrue(DataSourceConfigValidator.isValidOffset(
+        Assertions.assertTrue(DataSourceConfigValidator.isValidOffset(
                 DataSourceConfigKeys.OFFSET_EARLIEST, DataSourceType.OCEANBASE.name()));
-        Assert.assertFalse(DataSourceConfigValidator.isValidOffset(
+        Assertions.assertFalse(DataSourceConfigValidator.isValidOffset(
                 DataSourceConfigKeys.OFFSET_EARLIEST, DataSourceType.POSTGRES.name()));
     }
 
@@ -505,10 +499,10 @@ public class DataSourceConfigValidatorTest {
                             Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
                     .thenReturn(jdbcClient);
 
-            JobException exception = Assert.assertThrows(JobException.class,
+            JobException exception = Assertions.assertThrows(JobException.class,
                     () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
                             DataSourceType.OCEANBASE, new HashMap<>()));
-            Assert.assertTrue(exception.getMessage().contains("Oracle compatibility mode"));
+            Assertions.assertTrue(exception.getMessage().contains("Oracle compatibility mode"));
         }
 
         Mockito.verify(jdbcClient).closeClient();
@@ -523,10 +517,10 @@ public class DataSourceConfigValidatorTest {
                             Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
                     .thenReturn(jdbcClient);
 
-            JobException exception = Assert.assertThrows(JobException.class,
+            JobException exception = Assertions.assertThrows(JobException.class,
                     () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
                             DataSourceType.OCEANBASE, new HashMap<>()));
-            Assert.assertTrue(exception.getMessage().contains("UNKNOWN"));
+            Assertions.assertTrue(exception.getMessage().contains("UNKNOWN"));
         }
 
         Mockito.verify(jdbcClient).closeClient();
@@ -541,10 +535,10 @@ public class DataSourceConfigValidatorTest {
                             Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
                     .thenReturn(jdbcClient);
 
-            JobException exception = Assert.assertThrows(JobException.class,
+            JobException exception = Assertions.assertThrows(JobException.class,
                     () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
                             DataSourceType.OCEANBASE, new HashMap<>()));
-            Assert.assertTrue(exception.getMessage().contains("Failed to determine"));
+            Assertions.assertTrue(exception.getMessage().contains("Failed to determine"));
         }
 
         Mockito.verify(jdbcClient).closeClient();
@@ -562,11 +556,11 @@ public class DataSourceConfigValidatorTest {
                             Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
                     .thenReturn(jdbcClient);
 
-            JobException exception = Assert.assertThrows(JobException.class,
+            JobException exception = Assertions.assertThrows(JobException.class,
                     () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
                             DataSourceType.OCEANBASE, new HashMap<>()));
-            Assert.assertTrue(exception.getMessage().contains("query failed"));
-            Assert.assertNotNull(exception.getCause());
+            Assertions.assertTrue(exception.getMessage().contains("query failed"));
+            Assertions.assertNotNull(exception.getCause());
         }
 
         Mockito.verify(jdbcClient).closeClient();

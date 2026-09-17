@@ -114,10 +114,6 @@ CONF_mInt32(instance_recycler_worker_pool_size, "32");
 // Max number of delete tasks per batch when recycling objects.
 // Each task deletes up to 1000 files. Controls memory usage during large-scale deletion.
 CONF_Int32(recycler_max_tasks_per_batch, "1000");
-// Max expired recycle_rowset entries to process for one tablet in one recycle_rowsets scan.
-// Remaining entries are left for later scans so deletion can spread across tablet prefixes.
-CONF_mInt32(recycle_rowsets_per_tablet_batch_size, "1000");
-CONF_mInt32(recycle_rowsets_delete_batch_size, "300000");
 // The worker pool size for http api `statistics_recycle` worker pool
 CONF_mInt32(instance_recycler_statistics_recycle_worker_pool_size, "5");
 CONF_Bool(enable_checker, "false");
@@ -352,6 +348,10 @@ CONF_Bool(delete_bitmap_enable_retry_txn_conflict, "true");
 // reserve 1MB of buffer, so setting the default value to 7MB is
 // more reasonable.
 CONF_mInt64(max_txn_commit_byte, "7340032");
+
+// true: scan txn_running_key entries and fetch transaction info via the corresponding txn_info_key.
+// false: scan txn_info_key entries directly; these usually far outnumber txn_running_key entries.
+CONF_mBool(enable_get_prepare_txn_by_coordinator_by_running_key, "true");
 
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");

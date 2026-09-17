@@ -633,6 +633,29 @@ suite("parse_sql_from_sql_cache") {
                         def result1 = sql "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
                         assertTrue(result1.size() == 1 && result1[0][0].toString().toInteger() == 10)
 
+                        def functionVariableSql = "select abs(@custom_variable_in_function) " +
+                                "from test_use_plan_cache17 where id = 1 and value = 1"
+                        sql "set @custom_variable_in_function=-10"
+                        assertNoCache functionVariableSql
+                        def functionResult = sql functionVariableSql
+                        assertTrue(functionResult.size() == 1
+                                && functionResult[0][0].toString().toInteger() == 10)
+                        assertHasCache functionVariableSql
+
+                        sql "set @custom_variable_in_function=-20"
+                        assertNoCache functionVariableSql
+                        functionResult = sql functionVariableSql
+                        assertTrue(functionResult.size() == 1
+                                && functionResult[0][0].toString().toInteger() == 20)
+                        assertHasCache functionVariableSql
+
+                        // switch back to the original value and reuse its value-aware cache
+                        sql "set @custom_variable_in_function=-10"
+                        assertHasCache functionVariableSql
+                        functionResult = sql functionVariableSql
+                        assertTrue(functionResult.size() == 1
+                                && functionResult[0][0].toString().toInteger() == 10)
+
                         sql "set @custom_variable2=1"
                         assertNoCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
                         def res = sql "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"

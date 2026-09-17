@@ -23,8 +23,8 @@ import org.apache.doris.persist.DictionaryIncreaseVersionInfo;
 import org.apache.doris.persist.DropDictionaryPersistInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 /**
  * Tests for dictionary version journal replay robustness.
@@ -72,7 +72,7 @@ public class DictionaryManagerTest {
 
         // journal order CREATE -> INC -> DROP -> DEC, DEC must be a no-op, not an exception
         manager.replayDecreaseVersion(new DictionaryDecreaseVersionInfo(dict));
-        Assert.assertNull(manager.getDictionary(1001));
+        Assertions.assertNull(manager.getDictionary(1001));
     }
 
     @Test
@@ -86,8 +86,8 @@ public class DictionaryManagerTest {
 
         // DEC of the dropped dictionary must not affect the recreated same-name dictionary
         manager.replayDecreaseVersion(new DictionaryDecreaseVersionInfo(oldDict));
-        Assert.assertEquals(1, newDict.getVersion());
-        Assert.assertEquals(1, manager.getDictionary(1002).getVersion());
+        Assertions.assertEquals(1, newDict.getVersion());
+        Assertions.assertEquals(1, manager.getDictionary(1002).getVersion());
     }
 
     @Test
@@ -97,7 +97,7 @@ public class DictionaryManagerTest {
         manager.replayCreateDictionary(new CreateDictionaryPersistInfo(dict));
 
         manager.replayDecreaseVersion(new DictionaryDecreaseVersionInfo(dict));
-        Assert.assertEquals(1, manager.getDictionary(1001).getVersion());
+        Assertions.assertEquals(1, manager.getDictionary(1001).getVersion());
     }
 
     @Test
@@ -107,6 +107,6 @@ public class DictionaryManagerTest {
         manager.replayCreateDictionary(new CreateDictionaryPersistInfo(dict));
 
         manager.replayIncreaseVersion(new DictionaryIncreaseVersionInfo(dict));
-        Assert.assertEquals(2, manager.getDictionary(1001).getVersion());
+        Assertions.assertEquals(2, manager.getDictionary(1001).getVersion());
     }
 }

@@ -32,8 +32,8 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TPushAggOp;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
@@ -65,7 +65,7 @@ public class TVFScanNodeTest {
         countColumnNode.setPushDownCountSlotIds(Collections.singletonList(new SlotId(7)));
 
         List<Split> countColumnSplits = countColumnNode.getSplits(1);
-        Assert.assertEquals(8, countColumnSplits.size());
+        Assertions.assertEquals(8, countColumnSplits.size());
 
         TVFScanNode countStarNode = new TVFScanNode(
                 new PlanNodeId(1), desc, false, sv, ScanContext.EMPTY);
@@ -74,7 +74,7 @@ public class TVFScanNodeTest {
         countStarNode.setPushDownCountSlotIds(Collections.emptyList());
 
         List<Split> countStarSplits = countStarNode.getSplits(1);
-        Assert.assertEquals(2, countStarSplits.size());
+        Assertions.assertEquals(2, countStarSplits.size());
     }
 
     @Test
@@ -95,7 +95,7 @@ public class TVFScanNodeTest {
         Method method = TVFScanNode.class.getDeclaredMethod("determineTargetFileSplitSize", List.class);
         method.setAccessible(true);
         long target = (long) method.invoke(node, statuses);
-        Assert.assertEquals(100 * MB, target);
+        Assertions.assertEquals(100 * MB, target);
     }
 
     private static TBrokerFileStatus splittableFile(String path, long size) {

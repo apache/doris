@@ -47,10 +47,10 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -124,7 +124,7 @@ public class RestoreJobTest {
     @SuppressWarnings("rawtypes")
     private MockedConstruction<MarkedCountDownLatch> mockedMarkedCountDownLatch;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         db = CatalogMocker.mockDb();
         backupHandler = new MockBackupHandler(env);
@@ -219,7 +219,7 @@ public class RestoreJobTest {
         backupMeta = new BackupMeta(tbls, resources);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
@@ -265,10 +265,10 @@ public class RestoreJobTest {
 
         RestoreJob job2 = RestoreJob.read(in);
 
-        Assert.assertEquals(job.getJobId(), job2.getJobId());
-        Assert.assertEquals(job.getDbId(), job2.getDbId());
-        Assert.assertEquals(job.getCreateTime(), job2.getCreateTime());
-        Assert.assertEquals(job.getType(), job2.getType());
+        Assertions.assertEquals(job.getJobId(), job2.getJobId());
+        Assertions.assertEquals(job.getDbId(), job2.getDbId());
+        Assertions.assertEquals(job.getCreateTime(), job2.getCreateTime());
+        Assertions.assertEquals(job.getType(), job2.getType());
 
         // 3. delete files
         in.close();
@@ -295,7 +295,7 @@ public class RestoreJobTest {
         job.resetPartitionForRestore(localTbl, remoteTbl, partName, alloc);
 
         Partition localPart = remoteTbl.getPartition(partName);
-        Assert.assertEquals(localPart.getVisibleVersion(), visibleVersion);
-        Assert.assertEquals(localPart.getNextVersion(), visibleVersion + 1);
+        Assertions.assertEquals(localPart.getVisibleVersion(), visibleVersion);
+        Assertions.assertEquals(localPart.getNextVersion(), visibleVersion + 1);
     }
 }

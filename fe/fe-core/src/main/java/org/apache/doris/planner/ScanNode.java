@@ -134,6 +134,17 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return desc;
     }
 
+    /**
+     * Whether this scan hands out its splits lazily through a batch {@link SplitSource} that the
+     * BE fetches from the FE while it is scanning (external-table batch mode, see
+     * {@link SplitGenerator#isBatchMode()}). Such a scan needs its coordinator alive until the BE
+     * has finished scanning, even after the FE is done dispatching the query: closing the
+     * coordinator releases the split source ({@link #stop()}) and the BE's next split fetch fails.
+     */
+    public boolean hasBatchSplitSource() {
+        return splitAssignment != null;
+    }
+
     protected abstract void createScanRangeLocations() throws UserException;
 
     /**

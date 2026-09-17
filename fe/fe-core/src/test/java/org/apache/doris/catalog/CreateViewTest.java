@@ -27,7 +27,9 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 public class CreateViewTest extends TestWithFeService {
 
@@ -126,6 +128,25 @@ public class CreateViewTest extends TestWithFeService {
     }
 
     @Test
+    public void testViewCommentDdlRoundTrip() throws Exception {
+        createView("create view test.view_comment_round_trip comment \"O'Reilly\" as select 1 as c");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View originalView = (View) db.getTableOrDdlException("view_comment_round_trip");
+        List<String> createViewStmts = new ArrayList<>();
+        Env.getDdlStmt(originalView, createViewStmts, null, null, false, true, -1L);
+
+        String exportedDdl = createViewStmts.get(0);
+        Assertions.assertTrue(exportedDdl.contains(" COMMENT \"O'Reilly\""));
+        String copiedDdl = exportedDdl.replace("CREATE VIEW `view_comment_round_trip`",
+                "CREATE VIEW test.`view_comment_round_trip_copy`");
+        createView(copiedDdl);
+
+        View copiedView = (View) db.getTableOrDdlException("view_comment_round_trip_copy");
+        Assertions.assertEquals(originalView.getComment(), copiedView.getComment());
+    }
+
+    @Test
     public void testNestedViews() throws Exception {
         ExceptionChecker.expectThrowsNoException(
                 () -> createView("create view test.nv1 as select * from test.tbl1;"));
@@ -185,6 +206,32 @@ public class CreateViewTest extends TestWithFeService {
 
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN select * from test.alias_star_agg_view");
         Assertions.assertFalse(explainString.contains("Unknown column"));
+    }
+
+    @Test
+    public void testCreateViewWithoutDefinedColumnsDoesNotInjectAliases() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.no_alias_view as select k1, k2 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("no_alias_view");
+        Assertions.assertEquals(
+                "select `internal`.`test`.`tbl1`.`k1`, `internal`.`test`.`tbl1`.`k2` "
+                        + "from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
+    }
+
+    @Test
+    public void testCreateViewWithDefinedColumnsRewritesAliases() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.with_alias_view(c1, c2) as select k1, k2 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("with_alias_view");
+        Assertions.assertEquals(
+                "select `internal`.`test`.`tbl1`.`k1` AS `c1`, `internal`.`test`.`tbl1`.`k2` AS `c2` "
+                        + "from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
     }
 
     @Test

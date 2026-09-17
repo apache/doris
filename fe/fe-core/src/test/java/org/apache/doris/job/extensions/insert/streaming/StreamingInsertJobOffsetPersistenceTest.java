@@ -31,8 +31,8 @@ import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -50,8 +50,8 @@ public class StreamingInsertJobOffsetPersistenceTest {
 
         job.commitOffset(snapshotRequest(1001L, "source_table:0", null));
 
-        Assert.assertEquals(1, job.journalCount);
-        Assert.assertNotNull(job.getOffsetProviderPersist());
+        Assertions.assertEquals(1, job.journalCount);
+        Assertions.assertNotNull(job.getOffsetProviderPersist());
     }
 
     @Test
@@ -64,8 +64,8 @@ public class StreamingInsertJobOffsetPersistenceTest {
         provider.getRemainingSplits().add(snapshotSplit("source_table:1"));
         job.commitOffset(snapshotRequest(1003L, "source_table:1", null));
 
-        Assert.assertEquals(1, job.journalCount);
-        Assert.assertNotNull(job.getOffsetProviderPersist());
+        Assertions.assertEquals(1, job.journalCount);
+        Assertions.assertNotNull(job.getOffsetProviderPersist());
     }
 
     @Test
@@ -76,8 +76,8 @@ public class StreamingInsertJobOffsetPersistenceTest {
         job.commitOffset(binlogRequest(1002L, "100"));
         job.commitOffset(binlogRequest(1002L, "200"));
 
-        Assert.assertEquals(2, job.journalCount);
-        Assert.assertNotNull(job.getOffsetProviderPersist());
+        Assertions.assertEquals(2, job.journalCount);
+        Assertions.assertNotNull(job.getOffsetProviderPersist());
     }
 
     @Test
@@ -86,14 +86,14 @@ public class StreamingInsertJobOffsetPersistenceTest {
         provider.getRemainingSplits().add(snapshotSplit("source_table:0"));
         TestStreamingInsertJob job = newJob(provider, 1008L);
         job.commitOffset(snapshotRequest(1008L, "source_table:0", null));
-        Assert.assertEquals(1, job.journalCount);
+        Assertions.assertEquals(1, job.journalCount);
 
         job.commitOffset(binlogRequest(1008L, "200"));
 
-        Assert.assertEquals(2, job.journalCount);
-        Assert.assertFalse(job.getOffsetProviderPersist().contains("source_table:0"));
-        Assert.assertTrue(provider.getFinishedSplits().isEmpty());
-        Assert.assertTrue(provider.getChunkHighWatermarkMap().isEmpty());
+        Assertions.assertEquals(2, job.journalCount);
+        Assertions.assertFalse(job.getOffsetProviderPersist().contains("source_table:0"));
+        Assertions.assertTrue(provider.getFinishedSplits().isEmpty());
+        Assertions.assertTrue(provider.getChunkHighWatermarkMap().isEmpty());
     }
 
     @Test
@@ -106,14 +106,14 @@ public class StreamingInsertJobOffsetPersistenceTest {
             TestStreamingInsertJob job = newJob(provider, 1011L);
 
             job.commitOffset(snapshotRequest(1011L, "source_table:0", null));
-            Assert.assertEquals(1, job.journalCount);
+            Assertions.assertEquals(1, job.journalCount);
             Deencapsulation.setField(job, "lastOffsetPersistTimeMs",
                     System.currentTimeMillis() - 300_000L);
             provider.getRemainingSplits().add(snapshotSplit("source_table:1"));
             job.commitOffset(snapshotRequest(1011L, "source_table:1", null));
 
-            Assert.assertEquals(2, job.journalCount);
-            Assert.assertTrue((long) Deencapsulation.getField(job, "lastOffsetPersistTimeMs") > 0L);
+            Assertions.assertEquals(2, job.journalCount);
+            Assertions.assertTrue((long) Deencapsulation.getField(job, "lastOffsetPersistTimeMs") > 0L);
         } finally {
             Config.streaming_job_snapshot_offset_persist_interval_sec = oldInterval;
         }
@@ -130,9 +130,9 @@ public class StreamingInsertJobOffsetPersistenceTest {
         properties.put(StreamingJobProperties.OFFSET_PROPERTY, "{\"lsn\":\"300\"}");
         Deencapsulation.invoke(job, "modifyPropertiesInternal", properties);
 
-        Assert.assertTrue(job.getOffsetProviderPersist().contains("300"));
-        Assert.assertTrue(provider.getFinishedSplits().isEmpty());
-        Assert.assertTrue(provider.getChunkHighWatermarkMap().isEmpty());
+        Assertions.assertTrue(job.getOffsetProviderPersist().contains("300"));
+        Assertions.assertTrue(provider.getFinishedSplits().isEmpty());
+        Assertions.assertTrue(provider.getChunkHighWatermarkMap().isEmpty());
     }
 
     @Test
@@ -156,9 +156,9 @@ public class StreamingInsertJobOffsetPersistenceTest {
             long beforeFinish = System.currentTimeMillis();
             job.onStreamTaskSuccess(task);
 
-            Assert.assertEquals(JobStatus.FINISHED, job.getJobStatus());
-            Assert.assertTrue(job.getFinishTimeMs() >= beforeFinish);
-            Assert.assertEquals(1, job.journalCount);
+            Assertions.assertEquals(JobStatus.FINISHED, job.getJobStatus());
+            Assertions.assertTrue(job.getFinishTimeMs() >= beforeFinish);
+            Assertions.assertEquals(1, job.journalCount);
             Mockito.verify(callbackFactory).removeCallback(9001L);
         }
     }
@@ -178,8 +178,8 @@ public class StreamingInsertJobOffsetPersistenceTest {
 
             job.replayOnUpdated(replayJob);
 
-            Assert.assertEquals(JobStatus.FINISHED, job.getJobStatus());
-            Assert.assertEquals(1234L, job.getFinishTimeMs());
+            Assertions.assertEquals(JobStatus.FINISHED, job.getJobStatus());
+            Assertions.assertEquals(1234L, job.getFinishTimeMs());
             Mockito.verify(callbackFactory).removeCallback(9001L);
         }
     }
@@ -192,7 +192,7 @@ public class StreamingInsertJobOffsetPersistenceTest {
 
         job.replayOnUpdated(replayJob);
 
-        Assert.assertEquals(1234L, job.getStartTimeMs());
+        Assertions.assertEquals(1234L, job.getStartTimeMs());
     }
 
     private static TestStreamingInsertJob newJob(JdbcSourceOffsetProvider provider, long taskId) {

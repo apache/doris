@@ -313,6 +313,10 @@ struct TFileAttributes {
     // org.openx.data.jsonserde.JsonSerDe
     13: optional bool openx_json_ignore_malformed = false;
 
+    // Hive OpenCSVSerde has different field states and physical record boundaries from load CSV.
+    // Requires BE execution version >= 15 and excludes smooth-upgrade source backends.
+    14: optional bool hive_open_csv = false;
+
     // for cloud copy into
     1001: optional bool ignore_csv_redundant_col;
 }
@@ -333,6 +337,7 @@ struct TIcebergDeleteFileDesc {
     9: optional string original_path;
     // Referenced data file path. Required to materialize rows from deletion vectors.
     10: optional string referenced_data_file_path;
+    11: optional i64 file_size;
 }
 
 struct TIcebergFileDesc {
@@ -390,6 +395,9 @@ struct TPaimonFileDesc {
     16: optional i64 schema_id; // for schema change.
     // Reader implementation for logical paimon split. Native file split uses range format type.
     17: optional TPaimonReaderType reader_type;
+    // Original Paimon RawFile.path() before Doris storage path normalization. Native readers use this
+    // to materialize the public file-location metadata column.
+    18: optional string original_file_path;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -593,6 +601,9 @@ struct TFileScanRangeParams {
     // values unchanged. When present, only INT96 TIMESTAMP values are converted with this zone.
     36: optional string hive_parquet_time_zone
     37: optional TLanceScanParams lance_scan_params
+    // Non-regular columns in the pinned full schema, including columns pruned from phase one.
+    // When present, omitted names are REGULAR. Used to rebuild row-id fetch projections.
+    38: optional map<string, TColumnCategory> column_name_to_category
 }
 
 struct TFileRangeDesc {

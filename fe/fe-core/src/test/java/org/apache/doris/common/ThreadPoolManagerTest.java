@@ -17,8 +17,8 @@
 
 package org.apache.doris.common;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.ThreadPoolExecutor;
 
@@ -33,9 +33,9 @@ public class ThreadPoolManagerTest {
         ThreadPoolManager.registerThreadPoolMetric("test_cache_pool", testCachedPool);
         ThreadPoolManager.registerThreadPoolMetric("test_fixed_thread_pool", testFixedThreaddPool);
 
-        Assert.assertEquals(ThreadPoolManager.LogDiscardPolicy.class,
+        Assertions.assertEquals(ThreadPoolManager.LogDiscardPolicy.class,
                 testCachedPool.getRejectedExecutionHandler().getClass());
-        Assert.assertEquals(ThreadPoolManager.BlockedPolicy.class,
+        Assertions.assertEquals(ThreadPoolManager.BlockedPolicy.class,
                 testFixedThreaddPool.getRejectedExecutionHandler().getClass());
 
         Runnable task = () -> {
@@ -49,32 +49,32 @@ public class ThreadPoolManagerTest {
             testCachedPool.submit(task);
         }
 
-        Assert.assertEquals(2, testCachedPool.getPoolSize());
-        Assert.assertEquals(2, testCachedPool.getActiveCount());
-        Assert.assertEquals(0, testCachedPool.getQueue().size());
-        Assert.assertEquals(0, testCachedPool.getCompletedTaskCount());
+        Assertions.assertEquals(2, testCachedPool.getPoolSize());
+        Assertions.assertEquals(2, testCachedPool.getActiveCount());
+        Assertions.assertEquals(0, testCachedPool.getQueue().size());
+        Assertions.assertEquals(0, testCachedPool.getCompletedTaskCount());
 
         Thread.sleep(700);
 
-        Assert.assertEquals(2, testCachedPool.getPoolSize());
-        Assert.assertEquals(0, testCachedPool.getActiveCount());
-        Assert.assertEquals(0, testCachedPool.getQueue().size());
-        Assert.assertEquals(2, testCachedPool.getCompletedTaskCount());
+        Assertions.assertEquals(2, testCachedPool.getPoolSize());
+        Assertions.assertEquals(0, testCachedPool.getActiveCount());
+        Assertions.assertEquals(0, testCachedPool.getQueue().size());
+        Assertions.assertEquals(2, testCachedPool.getCompletedTaskCount());
 
         for (int i = 0; i < 4; i++) {
             testFixedThreaddPool.submit(task);
         }
 
-        Assert.assertTrue(testFixedThreaddPool.getActiveCount() <= 2);
-        Assert.assertTrue(testFixedThreaddPool.getQueue().size() > 0);
-        Assert.assertEquals(2, testFixedThreaddPool.getPoolSize());
-        Assert.assertEquals(0, testFixedThreaddPool.getCompletedTaskCount());
+        Assertions.assertTrue(testFixedThreaddPool.getActiveCount() <= 2);
+        Assertions.assertTrue(testFixedThreaddPool.getQueue().size() > 0);
+        Assertions.assertEquals(2, testFixedThreaddPool.getPoolSize());
+        Assertions.assertEquals(0, testFixedThreaddPool.getCompletedTaskCount());
 
         Thread.sleep(2000);
 
-        Assert.assertEquals(2, testFixedThreaddPool.getPoolSize());
-        Assert.assertEquals(0, testFixedThreaddPool.getActiveCount());
-        Assert.assertEquals(0, testFixedThreaddPool.getQueue().size());
-        Assert.assertEquals(4, testFixedThreaddPool.getCompletedTaskCount());
+        Assertions.assertEquals(2, testFixedThreaddPool.getPoolSize());
+        Assertions.assertEquals(0, testFixedThreaddPool.getActiveCount());
+        Assertions.assertEquals(0, testFixedThreaddPool.getQueue().size());
+        Assertions.assertEquals(4, testFixedThreaddPool.getCompletedTaskCount());
     }
 }
