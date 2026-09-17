@@ -33,6 +33,7 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/equality_delete_predicate.h"
 #include "format_v2/jni/fluss_jni_reader.h"
+#include "format_v2/table/fluss_range_type.h"
 #include "format_v2/table/paimon_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/file_scan_profile.h"
@@ -46,16 +47,13 @@ namespace {
 constexpr const char* PROP_PK_NAMES = "fluss.union.pk_names";
 constexpr const char* PROP_MAX_TAIL_ROWS = "fluss.union.max_tail_rows";
 
-// The per-range payload of a wrapped lake split: a plain one carries only its kind, a suppressed
-// one also names the log tail that supersedes part of it.
-constexpr const char* PROP_RANGE_TYPE = "fluss.range_type";
+// The per-range payload of a wrapped lake split: its kind (PROP_RANGE_TYPE, one of the two lake
+// kinds in fluss_range_type.h) and, for a suppressed one, the log tail that supersedes part of it.
 constexpr const char* PROP_TAIL = "fluss.union.tail";
-constexpr const char* RANGE_TYPE_LAKE = "LAKE";
-constexpr const char* RANGE_TYPE_LAKE_SUPPRESS = "LAKE_SUPPRESS";
 
-// The range this reader synthesizes to read the tail. A plain bounded log read, which is what the
-// suppression set is: every key the tail touched, whatever it ended up saying about it.
-constexpr const char* RANGE_TYPE_LOG = "LOG";
+// The range this reader synthesizes to read the tail: a plain bounded log read (RANGE_TYPE_LOG),
+// which is what the suppression set is -- every key the tail touched, whatever it ended up saying
+// about it.
 constexpr const char* PROP_PARTITION_ID = "fluss.partition_id";
 constexpr const char* PROP_BUCKET_ID = "fluss.bucket_id";
 constexpr const char* PROP_LOG_START_OFFSET = "fluss.log_start_offset";
@@ -74,12 +72,6 @@ std::vector<std::string_view> split_on(std::string_view value, char separator) {
         }
         parts.push_back(value.substr(start, end - start));
         start = end + 1;
-    }
-}
-
-void update_counter(RuntimeProfile::Counter* counter, int64_t value) {
-    if (counter != nullptr) {
-        COUNTER_UPDATE(counter, value);
     }
 }
 

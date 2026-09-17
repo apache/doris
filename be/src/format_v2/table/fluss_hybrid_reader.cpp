@@ -24,21 +24,12 @@
 #include "exprs/vexpr_context.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/fluss_jni_reader.h"
+#include "format_v2/table/fluss_range_type.h"
 #include "format_v2/table/fluss_union_lake_reader.h"
 #include "runtime/file_scan_profile.h"
 
 namespace doris::format::fluss {
 namespace {
-
-// The per-range dispatch key and its values, exactly as FE writes them. LOG, PK_FULL and PK_TAIL
-// are ranges of fluss's own log; LAKE and LAKE_SUPPRESS are the sibling's lake splits, the latter
-// with a log tail bound to it.
-constexpr const char* PROP_RANGE_TYPE = "fluss.range_type";
-constexpr const char* RANGE_TYPE_LOG = "LOG";
-constexpr const char* RANGE_TYPE_PK_FULL = "PK_FULL";
-constexpr const char* RANGE_TYPE_PK_TAIL = "PK_TAIL";
-constexpr const char* RANGE_TYPE_LAKE = "LAKE";
-constexpr const char* RANGE_TYPE_LAKE_SUPPRESS = "LAKE_SUPPRESS";
 
 // This reader's own profile lines, all under the shared TableReader layer. A side's timer is the
 // display parent of everything belonging to that side, so a profile reader sees which half of the
@@ -54,12 +45,6 @@ constexpr const char* METRIC_STEM_PK_FULL = "FlussPkFullRange";
 constexpr const char* METRIC_STEM_PK_TAIL = "FlussPkTailRange";
 constexpr const char* METRIC_STEM_LAKE = "FlussLakeRange";
 constexpr const char* METRIC_STEM_LAKE_SUPPRESS = "FlussLakeSuppressRange";
-
-void update_counter(RuntimeProfile::Counter* counter, int64_t value) {
-    if (counter != nullptr) {
-        COUNTER_UPDATE(counter, value);
-    }
-}
 
 const std::string* range_type_of(const TFileRangeDesc& range) {
     if (!range.__isset.table_format_params || !range.table_format_params.__isset.fluss_params) {
