@@ -102,7 +102,7 @@ public class StateCombinator extends ScalarFunction
 
     @Override
     public StateCombinator withChildren(List<Expression> children) {
-        return new StateCombinator(getFunctionParams(children), nested);
+        return new StateCombinator(getFunctionParams(children), nested.withChildren(children));
     }
 
     @Override
@@ -119,7 +119,19 @@ public class StateCombinator extends ScalarFunction
 
     @Override
     public DataType getDataType() {
-        return returnType;
+        // Input nullability is part of the serialized state layout. Keep the analyzed
+        // signature when rewrites replace nullable expressions with non-null literals.
+        return getSignature().returnType;
+    }
+
+    @Override
+    protected boolean extraEquals(Expression that) {
+        return super.extraEquals(that) && getDataType().equals(that.getDataType());
+    }
+
+    @Override
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), getDataType());
     }
 
     @Override

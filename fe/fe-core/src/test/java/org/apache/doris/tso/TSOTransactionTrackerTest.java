@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -88,6 +89,20 @@ public class TSOTransactionTrackerTest {
         } finally {
             lock.unlock();
         }
+    }
+
+    private Future<TSOTransactionTracker.WaitResult> awaitAsync(long dbId, long tableId, long endTso,
+            long timeoutMs, CountDownLatch started) {
+        return executor.submit(() -> {
+            lock.lock();
+            try {
+                started.countDown();
+                return tracker.awaitTransactions(Map.of(dbId, List.of(tableId)), endTso,
+                        TimeUnit.MILLISECONDS.toNanos(timeoutMs));
+            } finally {
+                lock.unlock();
+            }
+        });
     }
 
     @Test
@@ -154,7 +169,7 @@ public class TSOTransactionTrackerTest {
     }
 
     @Test
-    public void testRepeatedRegistrationRetainsEarliestTso() {
+    public void testRepeatedRegistrationRetainsEarliestTso() throws Exception {
         register(1, 10, 100, 1000);
         register(1, 10, 120, 2000);
 
@@ -162,9 +177,93 @@ public class TSOTransactionTrackerTest {
         Assertions.assertEquals(100, tracker.getOldestPendingTso());
         Assertions.assertEquals(10, tracker.getOldestPendingTxnId());
         Assertions.assertTrue(tracker.getOldestPendingAgeMs() >= 0);
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, await(1, 2000, 100, 0));
         tracker.abandonCommitTso(1, 10, 120);
         Assertions.assertEquals(1, tracker.getPendingCount());
         tracker.markTxnFinished(1, 10);
         Assertions.assertEquals(0, tracker.getPendingCount());
+    }
+
+    @Test
+    public void testFencedReplacementWakesOldAttemptWaiterAndMergesTables() throws Exception {
+        register(1, 10, 100, 1000);
+        CountDownLatch started = new CountDownLatch(1);
+        Future<TSOTransactionTracker.WaitResult> waiting = awaitAsync(1, 1000, 110, 5000, started);
+        Assertions.assertTrue(started.await(5, TimeUnit.SECONDS));
+
+        lock.lock();
+        try {
+            tracker.replaceFenced(Pair.of(1L, 10L), 100, 110, 120,
+                    System.nanoTime(), Collections.singleton(2000L));
+        } finally {
+            lock.unlock();
+        }
+
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, waiting.get(5, TimeUnit.SECONDS));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, await(1, 1000, 120, 0));
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.TIMED_OUT, await(1, 2000, 120, 0));
+        Assertions.assertEquals(120, tracker.getOldestPendingTso());
+    }
+
+    @Test
+    public void testAbandonWakesWaiterOnlyForMatchingAttempt() throws Exception {
+        register(1, 10, 100, 1000);
+        CountDownLatch started = new CountDownLatch(1);
+        Future<TSOTransactionTracker.WaitResult> waiting = awaitAsync(1, 1000, 100, 5000, started);
+        Assertions.assertTrue(started.await(5, TimeUnit.SECONDS));
+
+        tracker.abandonCommitTso(1, 10, 99);
+        Assertions.assertEquals(1, tracker.getPendingCount());
+        tracker.abandonCommitTso(1, 10, 100);
+
+        Assertions.assertEquals(TSOTransactionTracker.WaitResult.FINISHED, waiting.get(5, TimeUnit.SECONDS));
+        Assertions.assertEquals(0, tracker.getPendingCount());
+        Assertions.assertEquals(0, tracker.getOldestPendingTso());
+        Assertions.assertEquals(0, tracker.getOldestPendingTxnId());
+        Assertions.assertEquals(0, tracker.getOldestPendingAgeMs());
+    }
+
+    @Test
+    public void testFencedReplacementWithoutExistingRegistration() {
+        lock.lock();
+        try {
+            tracker.replaceFenced(Pair.of(1L, 10L), 100, 110, 120,
+                    System.nanoTime(), Set.of(1000L));
+        } finally {
+            lock.unlock();
+        }
+
+        Assertions.assertEquals(1, tracker.getPendingCount());
+        Assertions.assertEquals(120, tracker.getOldestPendingTso());
+        Assertions.assertEquals(10, tracker.getOldestPendingTxnId());
+        Assertions.assertEquals(119, candidate(150, 90));
+        Assertions.assertEquals(150, candidate(100, 150));
+    }
+
+    @Test
+    public void testRegistrationPreconditions() {
+        Assertions.assertThrows(IllegalStateException.class, tracker::reset);
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> tracker.register(Pair.of(1L, 10L), 100, System.nanoTime(), Set.of(1000L)));
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> tracker.replaceFenced(Pair.of(1L, 10L), 100, 110, 120,
+                        System.nanoTime(), Set.of(1000L)));
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> tracker.awaitTransactions(Map.of(1L, List.of(1000L)), 100, 0));
+        Assertions.assertThrows(IllegalStateException.class, () -> tracker.candidateCommittedTso(100, 90));
+
+        lock.lock();
+        try {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> tracker.register(Pair.of(1L, 10L), 100, System.nanoTime(), Collections.emptySet()));
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> tracker.replaceFenced(Pair.of(1L, 10L), 111, 110, 120,
+                            System.nanoTime(), Set.of(1000L)));
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> tracker.replaceFenced(Pair.of(1L, 10L), 100, 110, 110,
+                            System.nanoTime(), Set.of(1000L)));
+        } finally {
+            lock.unlock();
+        }
     }
 }

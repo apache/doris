@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -706,6 +707,29 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
             Assertions.assertFalse(wrapper.getPartitionIds().isEmpty());
             for (Long partitionId : wrapper.getPartitionIds()) {
                 Assertions.assertEquals(Pair.of(exclusiveBound, null), wrapper.getPartitionOffset(partitionId));
+            }
+        }
+    }
+
+    @Test
+    public void testMowTimeTravelBranchProjectionPreservesQualifier() {
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select * from test_stream.tbl_stream_base for version as of 1001")
+                .getCascadesContext().getRewritePlan();
+        Set<LogicalUnion> unions = plan.collect(node -> node instanceof LogicalUnion);
+        Assertions.assertEquals(1, unions.size());
+
+        List<String> expectedQualifier = java.util.Arrays.asList(
+                "internal", "test_stream", "tbl_stream_base");
+        LogicalUnion union = unions.iterator().next();
+        Assertions.assertEquals(2, union.children().size());
+        for (Plan branch : union.children()) {
+            Assertions.assertInstanceOf(LogicalProject.class, branch);
+            LogicalProject<?> projection = (LogicalProject<?>) branch;
+            Assertions.assertFalse(projection.getProjects().isEmpty());
+            for (NamedExpression output : projection.getProjects()) {
+                Assertions.assertEquals(expectedQualifier, output.getQualifier(),
+                        "MOW time-travel branch aliases must keep the scan qualifier");
             }
         }
     }
