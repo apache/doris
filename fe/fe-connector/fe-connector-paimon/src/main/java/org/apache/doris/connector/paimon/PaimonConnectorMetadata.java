@@ -1595,13 +1595,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Returns the base-table row count = sum of planned-split row counts (legacy
-     * {@code PaimonExternalTable.fetchRowCount}: {@code rowCount > 0 ? rowCount : UNKNOWN}). Shared
-     * by normal AND system paimon tables: fe-core {@code PluginDrivenSysExternalTable} inherits
-     * {@code PluginDrivenExternalTable.fetchRowCount}, and {@link #resolveTable} is sys-aware, so a
-     * sys handle plans its OWN synthetic table's splits (closes Finding 5.1 with one override).
+     * Returns the base-table optimizer estimate from snapshot metadata without planning splits.
+     * System tables and scan modes without a whole-snapshot estimate report UNKNOWN.
      * Returns {@code Optional.empty()} (→ fe-core -1 / UNKNOWN) when the count is 0 (legacy parity)
-     * or planning fails (best-effort, like the other connector read paths — stats run in background
+     * or metadata loading fails (best-effort, like the other connector read paths — stats run in background
      * analysis / SHOW and must not surface a transient remote error as a query-killing exception).
      * {@code dataSize} is left UNKNOWN (-1): legacy computed no base-table dataSize here.
      */
@@ -1628,8 +1625,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     /**
      * Row count AS OF the pinned snapshot, for a time-travel read. Applies the snapshot to the handle (the
      * SAME {@link #applySnapshot} the scan path uses) and copies its scan options onto the resolved table,
-     * so the summed split row counts reflect the pinned snapshot / branch / tag &mdash; matching the rows
-     * the scan reads instead of the latest count. Any failure degrades to empty, and the caller then falls
+     * so the estimate reflects the pinned snapshot / branch / tag instead of the latest count.
+     * Any failure degrades to empty, and the caller then falls
      * back to the latest cached estimate (estimate-only, never a correctness concern).
      */
     @Override

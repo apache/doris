@@ -27,9 +27,10 @@ import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
-import org.apache.paimon.table.source.Split;
+import org.apache.paimon.table.source.snapshot.TimeTravelUtil;
 import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.DataField;
 
@@ -164,12 +165,9 @@ public interface PaimonCatalogOps {
     boolean branchExists(Table table, String branchName);
 
     /**
-     * Returns the total row count of {@code table} = sum of {@code split.rowCount()} over
-     * {@code table.newReadBuilder().newScan().plan().splits()} (legacy
-     * {@code PaimonExternalTable.fetchRowCount} / {@code PaimonSysExternalTable.fetchRowCount}).
-     * Returns a plain {@code long} (never a paimon {@code Split} list) so the metadata layer's
-     * &gt;0-else-UNKNOWN logic is unit-testable offline with {@code RecordingPaimonCatalogOps}
-     * ({@code FakePaimonTable.newReadBuilder()} throws).
+     * Returns an optimizer estimate from the selected snapshot's unmerged record count, or -1
+     * when snapshot metadata cannot describe the relation. Never plans splits to obtain statistics.
+     * Like the former sum of split row counts, this is not an exact count for primary-key tables.
      */
     long rowCount(Table table);
 
@@ -422,13 +420,30 @@ public interface PaimonCatalogOps {
 
         @Override
         public long rowCount(Table table) {
-            // Legacy PaimonExternalTable.fetchRowCount / PaimonSysExternalTable.fetchRowCount: sum
-            // the planned-split record counts.
-            long rowCount = 0;
-            for (Split split : table.newReadBuilder().newScan().plan().splits()) {
-                rowCount += split.rowCount();
+            // System/format tables have no data snapshot count. A fallback pair combines two
+            // branches, so its main snapshot alone cannot estimate the relation either.
+            if (!(table instanceof FileStoreTable)
+                    || PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) table)
+                            instanceof FallbackReadFileStoreTable) {
+                return -1;
             }
-            return rowCount;
+            FileStoreTable fileStoreTable = (FileStoreTable) table;
+            switch (fileStoreTable.coreOptions().startupMode()) {
+                case LATEST:
+                case LATEST_FULL:
+                case FROM_TIMESTAMP:
+                case FROM_SNAPSHOT:
+                case FROM_SNAPSHOT_FULL:
+                    break;
+                default:
+                    // Incremental/file-creation-time scans and unresolved compacted-full scans
+                    // do not read the full snapshot selected by TimeTravelUtil.
+                    return -1;
+            }
+            Snapshot snapshot = TimeTravelUtil.tryTravelOrLatest(fileStoreTable);
+            // Old snapshot versions can omit totalRecordCount; an empty table has no snapshot.
+            return snapshot == null || snapshot.totalRecordCount() == null
+                    ? -1 : snapshot.totalRecordCount();
         }
 
         @Override
