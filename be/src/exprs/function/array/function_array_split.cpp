@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <memory>
 #include <utility>
+#include <variant>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -36,6 +37,8 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/types.h"
+#include "exec/common/template_helpers.hpp"
+#include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
@@ -54,31 +57,51 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
+    bool use_default_implementation_for_nulls() const override { return false; }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeArray>(make_nullable(arguments[0]));
+        auto result_type =
+                std::make_shared<DataTypeArray>(make_nullable(remove_nullable(arguments[0])));
+        return have_nullable(arguments) ? make_nullable(result_type) : result_type;
     };
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        // <Nullable>(Array(<Nullable>(Int)))
+        ColumnUInt8::MutablePtr result_null_map;
+        ColumnUInt8::Container* result_null_map_data = nullptr;
+        if (block.get_by_position(result).type->is_nullable()) {
+            result_null_map = ColumnUInt8::create(input_rows_count, 0);
+            result_null_map_data = &result_null_map->get_data();
+        }
         auto src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto spliter_column =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(src_column.get())) {
+            VectorizedUtils::update_null_map(*result_null_map_data, nullable->get_null_map_data());
+            src_column = nullable->get_nested_column_ptr();
+        }
+
+        const auto& [unpacked_splitter_column, splitter_is_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        const IColumn* splitter_column = unpacked_splitter_column.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(splitter_column)) {
+            VectorizedUtils::update_null_map(*result_null_map_data, nullable->get_null_map_data(),
+                                             splitter_is_const);
+            splitter_column = &nullable->get_nested_column();
+        }
 
         // only change its split(i.e. offsets)
         const auto& src_data = assert_cast<const ColumnArray&>(*src_column).get_data_ptr();
         const auto& src_offsets = assert_cast<const ColumnArray&>(*src_column).get_offsets();
 
-        auto split_col = assert_cast<const ColumnArray*>(spliter_column.get())->get_data_ptr();
-        const auto& split_offsets = assert_cast<const ColumnArray&>(*spliter_column)
+        auto split_col = assert_cast<const ColumnArray*>(splitter_column)->get_data_ptr();
+        const auto& split_offsets = assert_cast<const ColumnArray&>(*splitter_column)
                                             .get_offsets(); // for check uneven array
 
-        const NullMap* null_map = nullptr;
+        const NullMap* split_element_null_map = nullptr;
         if (const auto* nullable_split_col =
                     check_and_get_column<ColumnNullable>(split_col.get())) {
             if (split_col->has_null()) {
-                null_map = &nullable_split_col->get_null_map_data();
+                split_element_null_map = &nullable_split_col->get_null_map_data();
             }
             split_col = nullable_split_col->get_nested_column_ptr();
         }
@@ -92,57 +115,79 @@ public:
         offsets_inner.reserve(src_offsets.size()); // assume the actual size to be equal or larger
         offsets_outer.reserve(src_offsets.size());
 
-        if (null_map != nullptr) {
-            RETURN_IF_ERROR(do_loop<true>(src_offsets, split_offsets, cut, null_map, offsets_inner,
-                                          offsets_outer));
-        } else {
-            RETURN_IF_ERROR(do_loop<false>(src_offsets, split_offsets, cut, null_map, offsets_inner,
-                                           offsets_outer));
-        }
+        RETURN_IF_ERROR(std::visit(
+                [&](auto consider_element_null, auto consider_outer_null) {
+                    return do_loop<consider_element_null, consider_outer_null>(
+                            src_offsets, split_offsets, cut, split_element_null_map,
+                            result_null_map_data, splitter_is_const, offsets_inner, offsets_outer);
+                },
+                make_bool_variant(split_element_null_map != nullptr),
+                make_bool_variant(result_null_map_data != nullptr)));
 
         auto inner_result = ColumnArray::create(src_data, std::move(col_offsets_inner));
-        auto outer_result = ColumnArray::create(
+        ColumnPtr result_column = ColumnArray::create(
                 ColumnNullable::create(std::move(inner_result),
                                        ColumnUInt8::create(inner_result->size(), 0)),
                 std::move(col_offsets_outer));
-        block.replace_by_position(result, std::move(outer_result));
+        if (block.get_by_position(result).type->is_nullable()) {
+            result_column =
+                    ColumnNullable::create(std::move(result_column), std::move(result_null_map));
+        }
+        block.replace_by_position(result, std::move(result_column));
         return Status::OK();
     }
 
-    template <bool CONSIDER_NULL>
+    template <bool CONSIDER_ELEMENT_NULL, bool CONSIDER_OUTER_NULL>
     static Status do_loop(const IColumn::Offsets64& src_offsets,
                           const IColumn::Offsets64& split_offsets, const IColumn::Filter& cut,
-                          const NullMap* null_map, PaddedPODArray<IColumn::Offset64>& offsets_inner,
+                          const NullMap* split_element_null_map, const NullMap* result_null_map,
+                          bool splitter_is_const, PaddedPODArray<IColumn::Offset64>& offsets_inner,
                           PaddedPODArray<IColumn::Offset64>& offsets_outer) {
-        size_t pos = 0;
+        size_t src_begin = 0;
         for (auto i = 0; i < src_offsets.size(); i++) { // per cells
-            auto in_offset = src_offsets[i];
-            auto sp_offset = split_offsets[i];
-            if (in_offset != sp_offset) [[unlikely]] {
+            const size_t src_end = src_offsets[i];
+            const size_t splitter_row = index_check_const(i, splitter_is_const);
+            const size_t split_begin = split_offsets[splitter_row - 1];
+            const size_t split_end = split_offsets[splitter_row];
+
+            if constexpr (CONSIDER_OUTER_NULL) {
+                if ((*result_null_map)[i]) {
+                    // Preserve the hidden source payload as one segment so later rows remain aligned.
+                    if (src_begin < src_end) {
+                        offsets_inner.push_back(src_end);
+                    }
+                    offsets_outer.push_back(offsets_inner.size());
+                    src_begin = src_end;
+                    continue;
+                }
+            }
+
+            if (src_end - src_begin != split_end - split_begin) [[unlikely]] {
                 return Status::InvalidArgument("function {} has uneven arguments on row {}", name,
                                                i);
             }
 
             // [1,2,3,4,5]
-            if (pos < in_offset) { // values in a cell
-                pos += !reverse;
-                for (; pos < in_offset - reverse; ++pos) {
-                    if constexpr (CONSIDER_NULL) {
-                        if (cut[pos] && !(*null_map)[pos]) {
-                            offsets_inner.push_back(pos + reverse); // cut a array [1,2,3]
+            if (src_begin < src_end) { // values in a cell
+                size_t src_pos = src_begin + !reverse;
+                size_t split_pos = split_begin + !reverse;
+                for (; src_pos < src_end - reverse; ++src_pos, ++split_pos) {
+                    if constexpr (CONSIDER_ELEMENT_NULL) {
+                        if (cut[split_pos] && !(*split_element_null_map)[split_pos]) {
+                            offsets_inner.push_back(src_pos + reverse); // cut a array [1,2,3]
                         }
                     } else {
-                        if (cut[pos]) {
-                            offsets_inner.push_back(pos + reverse); // cut a array [1,2,3]
+                        if (cut[split_pos]) {
+                            offsets_inner.push_back(src_pos + reverse); // cut a array [1,2,3]
                         }
                     }
                 }
-                pos += reverse;
                 // put the tail offset, always last.
-                offsets_inner.push_back(pos); // put [4,5]
+                offsets_inner.push_back(src_end); // put [4,5]
             }
 
             offsets_outer.push_back(offsets_inner.size());
+            src_begin = src_end;
         }
         return Status::OK();
     }

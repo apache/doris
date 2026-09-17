@@ -584,10 +584,10 @@ static ColumnPtr make_int_array_column(const std::vector<std::vector<int32_t>>& 
 }
 
 static ColumnPtr make_nullable_int_array_column(const std::vector<std::vector<int32_t>>& rows,
-                                                const std::vector<uint8_t>& outer_null_map) {
+                                                const std::vector<uint8_t>& array_null_map) {
     auto array_column = IColumn::mutate(make_int_array_column(rows));
     auto null_map = ColumnUInt8::create();
-    for (uint8_t is_null : outer_null_map) {
+    for (uint8_t is_null : array_null_map) {
         null_map->insert_value(is_null);
     }
     return ColumnNullable::create(std::move(array_column), std::move(null_map));
@@ -1088,7 +1088,7 @@ TEST(ArrayMapFunctionTest, HiddenPayloadAfterValidRowUsesOwnOffsetsAcrossBatches
     EXPECT_EQ(values.get_element(6), 77);
 }
 
-TEST(ArrayMapFunctionTest, NonNullLengthMismatchStillReturnsErrorWithOuterNull) {
+TEST(ArrayMapFunctionTest, NonNullLengthMismatchStillReturnsErrorWithNullArrayRow) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto array_int_type = std::make_shared<DataTypeArray>(int_type);
     auto nullable_array_int_type = std::make_shared<DataTypeNullable>(array_int_type);
