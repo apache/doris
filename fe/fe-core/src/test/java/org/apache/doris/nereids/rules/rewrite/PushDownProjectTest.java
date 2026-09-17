@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -239,5 +240,50 @@ public class PushDownProjectTest implements MemoPatternMatchSupported {
                                     && rewrittenPredicate.anyMatch(SlotReference.class::isInstance)
                                     && !rewrittenPredicate.anyMatch(PreferPushDownProject.class::isInstance);
                         }));
+    }
+
+    @Test
+    public void shouldNotPushNonNullPropagatingExpressionIntoNullExtendedSide() {
+        LogicalPlan rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
+                ImmutableList.of(""));
+        LogicalPlan rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score,
+                ImmutableList.of(""));
+        // nvl(NULL, 1) is 1, so the MATCH is not NULL for rows that the left join NULL-extends.
+        Expression nonNullPropagating = new MatchAny(
+                new Nvl(rScore.getOutput().get(2), Literal.of(1)), Literal.of("abc"));
+        Expression leftSidePredicate = new GreaterThan(rStudent.getOutput().get(0), Literal.of(60));
+
+        LogicalPlan plan = new LogicalPlanBuilder(rStudent)
+                .joinEmptyOn(rScore, JoinType.LEFT_OUTER_JOIN)
+                .filter(new Or(nonNullPropagating, leftSidePredicate))
+                .build();
+
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(new PushDownProject())
+                .matchesFromRoot(logicalFilter(logicalJoin(logicalOlapScan(), logicalOlapScan()))
+                        .when(filter -> filter.getConjuncts().iterator().next()
+                                .anyMatch(PreferPushDownProject.class::isInstance)));
+    }
+
+    @Test
+    public void shouldPushNullPropagatingExpressionIntoNullExtendedSide() {
+        LogicalPlan rStudent = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.student,
+                ImmutableList.of(""));
+        LogicalPlan rScore = new LogicalOlapScan(PlanConstructor.getNextRelationId(), PlanConstructor.score,
+                ImmutableList.of(""));
+        Expression nullPropagating = new MatchAny(
+                new Add(rScore.getOutput().get(2), Literal.of(1)), Literal.of("abc"));
+        Expression leftSidePredicate = new GreaterThan(rStudent.getOutput().get(0), Literal.of(60));
+
+        LogicalPlan plan = new LogicalPlanBuilder(rStudent)
+                .joinEmptyOn(rScore, JoinType.LEFT_OUTER_JOIN)
+                .filter(new Or(nullPropagating, leftSidePredicate))
+                .build();
+
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(new PushDownProject())
+                .matchesFromRoot(logicalFilter(logicalJoin(logicalOlapScan(), logicalProject(logicalOlapScan())))
+                        .when(filter -> !filter.getConjuncts().iterator().next()
+                                .anyMatch(PreferPushDownProject.class::isInstance)));
     }
 }
