@@ -81,13 +81,22 @@ final class IcebergRestFileIOClient implements RESTClient {
     @Override
     public <T extends RESTResponse> T get(String path, Map<String, String> queryParams,
             Class<T> responseType, Map<String, String> headers, Consumer<ErrorResponse> errorHandler,
+            Consumer<Map<String, String>> responseHeaders) {
+        // Iceberg 1.11 loads tables through this overload to retain ETags for conditional requests.
+        return adaptGetResponse(delegate.get(path, queryParams, responseType, headers, errorHandler, responseHeaders),
+                responseType);
+    }
+
+    @Override
+    public <T extends RESTResponse> T get(String path, Map<String, String> queryParams,
+            Class<T> responseType, Map<String, String> headers, Consumer<ErrorResponse> errorHandler,
             ParserContext parserContext) {
         return adaptGetResponse(delegate.get(path, queryParams, responseType, headers, errorHandler, parserContext),
                 responseType);
     }
 
     private <T extends RESTResponse> T adaptGetResponse(T response, Class<T> responseType) {
-        // HTTPClient returns null for HTTP 204 or requests with no response type. There is no payload to adapt.
+        // HTTPClient returns null for HTTP 204/304 or requests with no response type. There is no payload to adapt.
         if (response == null) {
             return null;
         }
