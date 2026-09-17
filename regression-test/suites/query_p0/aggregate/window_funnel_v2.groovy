@@ -899,4 +899,39 @@ suite("window_funnel_v2") {
         SELECT window_funnel(864000, 'fixed', ts, val>8, val<8, val>15) FROM windowfunnel_v2_fixed_edge;
     """
     sql """ DROP TABLE IF EXISTS windowfunnel_v2_fixed_edge """
+
+    // Test INCREASE mode: a later event of an intermediate level must not overwrite the state
+    // that is still able to extend the chain.
+    // A@0 -> B@1 -> C@2 is valid, the second B@2 must not hide B@1 from C@2.
+    sql """ DROP TABLE IF EXISTS windowfunnel_v2_increase_overwrite """
+    sql """
+        CREATE TABLE windowfunnel_v2_increase_overwrite (
+            ts datetimev2(6) NULL,
+            e varchar(10) NULL
+        )
+        DUPLICATE KEY(ts) DISTRIBUTED BY HASH(ts) BUCKETS 3
+        PROPERTIES ("replication_num" = "1");
+    """
+    sql """
+        INSERT INTO windowfunnel_v2_increase_overwrite VALUES
+            ('2022-03-12 10:00:00', 'A'), ('2022-03-12 10:00:01', 'B'),
+            ('2022-03-12 10:00:02', 'B'), ('2022-03-12 10:00:02', 'C');
+    """
+    // increase mode: only c2@1 can be extended by c3@2, so the level is 3.
+    order_qt_v2_increase_extendable_level """
+        SELECT window_funnel(10, 'increase', ts, e = 'A', e = 'B', e = 'C') AS level
+        FROM windowfunnel_v2_increase_overwrite;
+    """
+    // default mode is not affected: each condition has a matching event after the previous one.
+    order_qt_v2_increase_extendable_level_default """
+        SELECT window_funnel(10, 'default', ts, e = 'A', e = 'B', e = 'C') AS level
+        FROM windowfunnel_v2_increase_overwrite;
+    """
+    // deduplication mode also reaches 3: the repeated 'B' row is not inside the gap that is
+    // checked when the chain advances, so the chain A@0 -> B@1 -> C@2 stays valid.
+    order_qt_v2_increase_extendable_level_dedup """
+        SELECT window_funnel(10, 'deduplication', ts, e = 'A', e = 'B', e = 'C') AS level
+        FROM windowfunnel_v2_increase_overwrite;
+    """
+    sql """ DROP TABLE IF EXISTS windowfunnel_v2_increase_overwrite """
 }
