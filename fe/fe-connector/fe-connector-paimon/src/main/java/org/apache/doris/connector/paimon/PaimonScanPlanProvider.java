@@ -114,6 +114,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -343,10 +344,46 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     Table resolveScanTable(PaimonTableHandle paimonHandle) {
         Table table = resolveTable(paimonHandle);
-        Map<String, String> scanOptions = paimonHandle.getScanOptions();
+        return withBoundSchemaAuthentication(paimonHandle, () -> applyScanOptions(paimonHandle, table));
+    }
+
+    private <T> T withBoundSchemaAuthentication(PaimonTableHandle handle, Supplier<T> action) {
+        if (context == null || !PaimonScanParams.preservesBoundSchema(handle.getScanOptions())) {
+            return action.get();
+        }
+        // Restoring a bound schema can read FileIO after table resolution has left the authenticated scope.
+        try {
+            return context.executeAuthenticated(action::get);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to restore Paimon statement schema", e);
+        }
+    }
+
+    private Map<String, String> effectiveScanOptions(PaimonTableHandle handle) {
+        Map<String, String> options = handle.getScanOptions();
+        if (PaimonScanParams.preservesBoundSchema(options)) {
+            // Replayed catalogs already ignored legacy options during binding; scans must use the same policy.
+            return PaimonScanParams.withCatalogOptions(options,
+                    PaimonTableOptions.extractCompatible(catalogProps.getRaw()));
+        }
+        return options;
+    }
+
+    private Table applyScanOptions(PaimonTableHandle paimonHandle, Table table) {
+        Map<String, String> scanOptions = effectiveScanOptions(paimonHandle);
         Table finalTable = table;
-        if (scanOptions != null && !scanOptions.isEmpty()) {
-            if (PaimonScanParams.isOptionsPin(scanOptions)) {
+        if (scanOptions != null && !scanOptions.isEmpty()
+                && !(paimonHandle.isSystemTable() && PaimonScanParams.preservesBoundSchema(scanOptions))) {
+            // Statement-fenced system wrappers are rebuilt below from their schema-bound source.
+            if (table instanceof FileStoreTable
+                    && PaimonScanParams.preservesBoundSchema(scanOptions)) {
+                // A statement fence owns data visibility, not schema time travel. Reusing Table.copy
+                // here would roll schema-only ALTERs back to the data snapshot's older schema.
+                finalTable = PaimonScanParams.applyOptionsWithoutTimeTravel(
+                        (FileStoreTable) table, scanOptions);
+            } else if (PaimonScanParams.isOptionsPin(scanOptions)) {
                 // An @options pin owns the whole scan-startup state: applyOptions strips the internal
                 // markers and nulls out the absent members of paimon's inherited read-state family, so a
                 // scan.mode / tag persisted on the base table cannot leak into this relation's read.
@@ -1061,8 +1098,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 source = paimonHandle.getSysBaseTable();
             }
             Table effectiveSource = source == null ? null
-                    : PaimonReaderOptions.runtimeSafeSystemSource(
-                            source, paimonHandle.getScanOptions());
+                    : prepareSystemSource(paimonHandle, source);
             if (effectiveSource instanceof FileStoreTable) {
                 // A system wrapper can hide its physical option map. Ship the exact catalog-less
                 // source so a smaller BE can cap it and rebuild without reopening catalog state.
@@ -1158,11 +1194,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             if (source != null) {
                 // System wrappers hide their manifest planner, so send its FE-safe value out of
                 // band; a smaller BE can lower the same hidden planner after deserialization.
-                planningTable = PaimonReaderOptions.runtimeSafeSystemSource(
-                        source, handle.getScanOptions());
+                planningTable = prepareSystemSource(handle, source);
             }
         }
         return PaimonReaderOptions.backendManifestParallelismCap(planningTable);
+    }
+
+    private Table prepareSystemSource(PaimonTableHandle handle, Table source) {
+        // These later property transformations can reopen schema files on the retained source,
+        // after tableForBackend has already left its authentication and plugin classloader scope.
+        return withBoundSchemaAuthentication(handle,
+                () -> PaimonReaderOptions.runtimeSafeSystemSource(source, effectiveScanOptions(handle)));
     }
 
     /**
@@ -1195,6 +1237,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     // Package-private for direct unit testing (PaimonBackendBoundTableTest).
     Table tableForBackend(PaimonTableHandle handle, Table scanTable) {
+        return withBoundSchemaAuthentication(handle, () -> buildBackendTable(handle, scanTable));
+    }
+
+    private Table buildBackendTable(PaimonTableHandle handle, Table scanTable) {
         if (scanTable instanceof FileStoreTable) {
             // resolveScanTable's copy(...) merged the relation's dynamic options into the schema,
             // and the rebuild below goes through that schema, so this branch needs no re-application.
@@ -1218,12 +1264,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (resolvesOnBackend) {
             preparedDataTable = pinCatalogSnapshot(preparedDataTable, dataTable);
         }
-        Map<String, String> scanOptions = handle.getScanOptions();
+        Map<String, String> scanOptions = effectiveScanOptions(handle);
         boolean optionsAppliedToSource = PaimonScanParams.isOptionsPin(scanOptions);
         if (optionsAppliedToSource) {
             // Fallback snapshot translation consults each branch catalog, so options must be
             // resolved while both loaders are still present and only then made BE-safe.
-            preparedDataTable = (FileStoreTable) PaimonScanParams.applyOptions(
+            // Rebuild the backend wrapper with the same schema provenance used during binding and planning.
+            preparedDataTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeSystemSource(
                     preparedDataTable, scanOptions);
         }
         FileStoreTable baseForBackend = dropCatalogLoader(preparedDataTable);
@@ -1411,9 +1458,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private static FileStoreTable rebuildWithoutCatalogLoader(FileStoreTable branch) {
+        // The factory evaluates scan.snapshot-id and can rewind a schema-only ALTER. Restore
+        // the already-bound schema after removing the loader so JNI reads the planned field ids.
         return FileStoreTableFactory.createWithoutFallbackBranch(
                 branch.fileIO(), branch.location(), branch.schema(), new Options(),
-                CatalogEnvironment.empty());
+                CatalogEnvironment.empty()).copy(branch.schema());
     }
 
     /**
@@ -1440,14 +1489,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         if (table instanceof ReadOptimizedTable) {
             FileStoreTable pinnedSource = handle.getSysBaseTable();
-            if (pinnedSource != null) {
-                // $ro reads the field ids of its embedded source; a catalog reload here can observe
-                // schema generation B while the wrapper still plans generation A's files. Relation scan
-                // options must also select this source, or historical splits get the latest dictionary.
-                return reapplyScanParams(
-                        pinnedSource, pinnedSource, false, handle.getScanOptions());
-            }
-            return reloadBaseTable(handle);
+            // A reloaded source still needs the bound schema and data selector; otherwise the
+            // native dictionary can disagree with the wrapper after either cache or handle reload.
+            return withBoundSchemaAuthentication(handle, () -> PaimonReaderOptions.runtimeSafeSystemSource(
+                    pinnedSource == null ? reloadBaseTable(handle) : pinnedSource, effectiveScanOptions(handle)));
         }
         return null;
     }

@@ -85,12 +85,16 @@ public:
         return 0;
     }
 
+    bool is_v4() const { return std::holds_alternative<IPv4AddrType>(_addr); }
+
     const UInt8* as_v6() const {
         if (const auto* val = std::get_if<IPv6AddrType>(&_addr)) {
             return val->data();
         }
         return nullptr;
     }
+
+    bool is_v6() const { return std::holds_alternative<IPv6AddrType>(_addr); }
 
 private:
     using IPv4AddrType = UInt32;
@@ -175,7 +179,7 @@ inline IPAddressCIDR parse_ip_with_cidr(std::string_view cidr_str) {
 
     const auto* prefix_str_end = prefix_str.data() + prefix_str.size();
     auto [parse_end, parse_error] = std::from_chars(prefix_str.data(), prefix_str_end, prefix);
-    uint8_t max_prefix = (addr.as_v6() ? IPV6_BINARY_LENGTH : IPV4_BINARY_LENGTH) * 8;
+    uint8_t max_prefix = (addr.is_v6() ? IPV6_BINARY_LENGTH : IPV4_BINARY_LENGTH) * 8;
 
     if (parse_error != std::errc() || parse_end != prefix_str_end || prefix > max_prefix) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "The CIDR has a malformed prefix bits: {}",
