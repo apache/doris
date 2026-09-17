@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.alter;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -426,6 +427,18 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
     }
 
+    @Override
+    public void updatePartitionProperties(Database db, String tableName, String partitionName,
+            long storagePolicyId, int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
+            Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad,
+            int disableAutoCompaction, int verticalCompactionNumColumnsPerGroup) throws UserException {
+        Preconditions.checkNotNull(binlogConfig);
+        UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        param.binlogConfig = binlogConfig;
+        param.type = UpdatePartitionMetaParam.TabletMetaType.BINLOG_CONFIG;
+        updateCloudPartitionMeta(db, tableName, partitionName, param);
+    }
+
     private static class UpdatePartitionMetaParam {
         public enum TabletMetaType {
             INMEMORY,
@@ -443,6 +456,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             DISABLE_AUTO_COMPACTION,
             ENABLE_MOW_LIGHT_DELETE,
             VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP,
+            BINLOG_CONFIG,
         }
 
         TabletMetaType type;
@@ -461,6 +475,7 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         boolean disableAutoCompaction = false;
         boolean enableMowLightDelete = false;
         int verticalCompactionNumColumnsPerGroup = 5;
+        BinlogConfig binlogConfig;
     }
 
     public void updateCloudPartitionMeta(Database db,
@@ -549,6 +564,9 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                     case VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP:
                         infoBuilder.setVerticalCompactionNumColumnsPerGroup(
                                 param.verticalCompactionNumColumnsPerGroup);
+                        break;
+                    case BINLOG_CONFIG:
+                        infoBuilder.setBinlogConfig(param.binlogConfig.toProtobuf());
                         break;
                     default:
                         throw new UserException("Unknown TabletMetaType");

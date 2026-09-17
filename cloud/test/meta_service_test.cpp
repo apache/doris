@@ -5122,6 +5122,40 @@ TEST(MetaServiceTest, UpdateTablet) {
         ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
     }
     get_and_check_tablet_meta(tablet_id1, 300, true, true);
+    {
+        brpc::Controller cntl;
+        UpdateTabletRequest req;
+        UpdateTabletResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        TabletMetaInfoPB* tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id1);
+        auto* binlog_config = tablet_meta_info->mutable_binlog_config();
+        binlog_config->set_enable(true);
+        binlog_config->set_ttl_seconds(3600);
+        binlog_config->set_max_bytes(4096);
+        binlog_config->set_max_history_nums(7);
+        binlog_config->set_binlog_format(BinlogFormatPB::ROW);
+        binlog_config->set_need_historical_value(true);
+        meta_service->update_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    }
+    {
+        brpc::Controller cntl;
+        GetTabletRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_tablet_id(tablet_id1);
+        GetTabletResponse resp;
+        meta_service->get_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(resp.tablet_meta().has_binlog_config());
+        const auto& binlog_config = resp.tablet_meta().binlog_config();
+        EXPECT_TRUE(binlog_config.enable());
+        EXPECT_EQ(binlog_config.ttl_seconds(), 3600);
+        EXPECT_EQ(binlog_config.max_bytes(), 4096);
+        EXPECT_EQ(binlog_config.max_history_nums(), 7);
+        EXPECT_EQ(binlog_config.binlog_format(), BinlogFormatPB::ROW);
+        EXPECT_TRUE(binlog_config.need_historical_value());
+    }
 }
 
 TEST(MetaServiceTest, GetTabletStatsTest) {
