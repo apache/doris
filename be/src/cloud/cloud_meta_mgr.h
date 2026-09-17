@@ -149,8 +149,8 @@ public:
      * are bounded (2 attempts): the caller re-reports periodically, and the final report on the
      * shutdown path must not stall the exit.
      */
-    Status report_spill_stats(int64_t backend_id, int64_t boot_id, int64_t remote_write_bytes,
-                              int64_t remote_put_requests);
+    /// Report the spill data this BE currently holds in object storage (SHOW DATA).
+    Status report_spill_stats(int64_t backend_id, int64_t boot_id, int64_t remote_spill_bytes);
 
     Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res);
 
