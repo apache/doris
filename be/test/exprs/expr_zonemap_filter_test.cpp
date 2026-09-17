@@ -2153,6 +2153,28 @@ TEST(ExprZonemapFilterTest, SlotSlotWidensOnlyTheZonemapGateNotDictionaryOrBloom
     EXPECT_FALSE(not_equals.can_evaluate_zonemap_filter({left, make_slot(1, bigint)}));
 }
 
+TEST(ExprZonemapFilterTest, SlotSlotRejectsStringPairs) {
+    // A string zone-map max is truncated and bumped by one on its last byte, which wraps on 0xff,
+    // so it is not a reliable upper bound for a two-sided slot-vs-slot proof. String pairs must be
+    // left unpruned even though the two types are "compatible". The slot-vs-literal path is
+    // unaffected and keeps working (a literal is checked against a single bound).
+    auto string_type = std::make_shared<DataTypeString>();
+    FunctionComparison<GreaterOp, NameGreater> greater;
+
+    EXPECT_FALSE(greater.can_evaluate_zonemap_filter(
+            {make_slot(0, string_type), make_slot(1, string_type)}));
+
+    auto nullable_string = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    EXPECT_FALSE(greater.can_evaluate_zonemap_filter(
+            {make_slot(0, string_type), make_slot(1, nullable_string)}));
+
+    // A non-string pair is still accepted, and the string slot-vs-literal path still is too.
+    auto type = int_type();
+    EXPECT_TRUE(greater.can_evaluate_zonemap_filter({make_slot(0, type), make_slot(1, type)}));
+    EXPECT_TRUE(greater.can_evaluate_zonemap_filter(
+            {make_slot(0, string_type), make_string_literal("z")}));
+}
+
 TEST(ExprZonemapFilterTest, SlotSlotBailsOutWhenAFloatingNanCountIsUnknown) {
     // Parquet bounds omit NaN without reporting how many were skipped, so a zone map that looks like
     // a single point may still hide one. That would flip the NE rule from false to true, so the

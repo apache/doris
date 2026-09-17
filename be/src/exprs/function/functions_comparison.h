@@ -447,6 +447,17 @@ inline bool can_evaluate_slot_slot(const VExprSPtrs& arguments) {
     }
     DORIS_CHECK(slot_slot->left_type != nullptr);
     DORIS_CHECK(slot_slot->right_type != nullptr);
+    // A string/char/varchar zone-map max is truncated to MAX_ZONE_MAP_INDEX_SIZE and then bumped by
+    // one on its last byte (modify_index_before_flush), which wraps when that byte is 0xff; a STRING
+    // can hold 0xff via unhex, and truncation leaves no provenance to detect. The truncated max is
+    // then no longer a reliable upper bound, which a two-sided slot-vs-slot proof relies on. Reject
+    // string pairs here; column-vs-column string comparison is narrow enough to leave unpruned. The
+    // slot-vs-literal path is unaffected: the literal is compared against a single bound, not paired
+    // with another truncated bound.
+    if (is_string_type(remove_nullable(slot_slot->left_type)->get_primitive_type()) ||
+        is_string_type(remove_nullable(slot_slot->right_type)->get_primitive_type())) {
+        return false;
+    }
     // The two zone maps' Fields are compared directly and Field comparison throws on mismatched
     // non-string types, so reject incompatible column pairs here. A pair differing only by width or
     // decimal scale never reaches this point anyway, because the optimizer inserts a cast and a
