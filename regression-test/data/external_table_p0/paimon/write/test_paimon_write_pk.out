@@ -43,7 +43,7 @@ beta	2	中文_payload
 emoji_😀	3	emoji_payload
 
 -- !pk_writer_scaling_plan --
-PhysicalPaimonTableSink
+PhysicalConnectorTableSink
 --PhysicalDistribute[DistributionSpecPaimonTableSinkHashPartitioned]
 ----PhysicalProject
 ------PhysicalTVFRelation
