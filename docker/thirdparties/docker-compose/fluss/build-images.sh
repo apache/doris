@@ -19,13 +19,16 @@
 ################################################################
 # Builds the two images the fluss regression stack runs on.
 #
-# Fluss 1.0 is not released, so neither image can be pulled. Both are built
-# from the artifacts the fluss project deploys to the apache maven snapshots
-# repository, at the timestamped snapshot fluss.env.tpl pins: the server image
-# from the fluss-dist tarball, the flink image from the flink connector, the
-# lake tiering job and fluss-lake-paimon, plus paimon and hadoop from maven
-# central. Nothing here needs a fluss source checkout. Once fluss 1.0 ships,
-# this script is replaced by pulling the official images.
+# Fluss 1.0.0 is a release candidate: its artifacts are staged on
+# repository.apache.org for the release vote rather than published to maven
+# central, and no official image exists for it yet, so neither image can be
+# pulled. Both are built from the staged artifacts, at the version
+# fluss.env.tpl pins: the server image from the fluss-dist tarball, the flink
+# image from the flink connector, the lake tiering job and fluss-lake-paimon,
+# plus paimon and hadoop from maven central. Nothing here needs a fluss source
+# checkout. Once 1.0.0 is released the fluss artifacts come from central
+# instead (FLUSS_MAVEN_REPO_URL in fluss.env.tpl says where they come from),
+# and the official apache/fluss image can replace the local server build.
 #
 # Optional:
 #   FLINK_BASE_IMAGE   base Flink image (default flink:1.20.3-scala_2.12-java17,
@@ -44,10 +47,10 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-# The snapshot version, the image tags and the paimon/hadoop versions live in
-# fluss.env.tpl so the compose file and this script cannot drift apart. The
-# template's other entries reference variables that are empty here; only those
-# literals are read.
+# The fluss version and repository, the image tags and the paimon/hadoop
+# versions live in fluss.env.tpl so the compose file and this script cannot
+# drift apart. The template's other entries reference variables that are empty
+# here; only those literals are read.
 # shellcheck source=/dev/null
 . "${SCRIPT_DIR}/fluss.env.tpl"
 
@@ -57,6 +60,12 @@ MAVEN_REPO="${MAVEN_REPO:-${HOME}/.m2/repository}"
 FLUSS_ARTIFACT_CACHE="${FLUSS_ARTIFACT_CACHE:-${SCRIPT_DIR}/cache}"
 MAVEN_CENTRAL_URL="https://repo1.maven.org/maven2"
 MAVEN_SNAPSHOTS_URL="https://repository.apache.org/content/repositories/snapshots"
+# Where org/apache/fluss releases are served from: the staging repository the
+# template names while 1.0.0 is a release candidate, central once the line is
+# gone from the template because the release reached it. A trailing slash is
+# dropped so that the URLs built below never carry a double one.
+FLUSS_MAVEN_REPO_URL="${FLUSS_MAVEN_REPO_URL:-${MAVEN_CENTRAL_URL}}"
+FLUSS_MAVEN_REPO_URL="${FLUSS_MAVEN_REPO_URL%/}"
 # Both fluss and paimon name their Flink artifacts after the Flink minor version,
 # so deriving it from the fluss artifact keeps the paimon jar in step with the base
 # image whenever the artifact is overridden.
@@ -77,14 +86,22 @@ sha1_of() {
 # the version belongs to, checked against the .sha1 the repository publishes so
 # that a truncated download cannot poison the cache.
 #
+# A release version is served under its own directory (1.0.0/): from central,
+# except that org/apache/fluss releases come from FLUSS_MAVEN_REPO_URL -- the
+# staging repository while 1.0.0 is a release candidate, central afterwards.
 # A timestamped snapshot version (1.0-20260901.094454-3) is stored and served
 # under its base version's directory (1.0-SNAPSHOT/) -- in the snapshots
 # repository and in the local repository alike -- so the directory is derived
-# from the version. Anything else is a release, found in central under its own.
+# from the version, and it comes from the apache snapshots repository whatever
+# the group, so that moving fluss back to a snapshot is an edit of
+# fluss.env.tpl alone.
 resolve_maven_artifact() {
     local group_path="$1" artifact="$2" version="$3" extension="$4" dest_dir="$5"
     local file="${artifact}-${version}.${extension}"
     local dir_version="${version}" repo="${MAVEN_CENTRAL_URL}"
+    if [[ "${group_path}" == "org/apache/fluss" ]]; then
+        repo="${FLUSS_MAVEN_REPO_URL}"
+    fi
     if [[ "${version}" =~ ^(.+)-[0-9]{8}\.[0-9]{6}-[0-9]+$ ]]; then
         dir_version="${BASH_REMATCH[1]}-SNAPSHOT"
         repo="${MAVEN_SNAPSHOTS_URL}"
@@ -174,15 +191,15 @@ BUILD_CONTEXT="$(mktemp -d)"
 trap 'rm -rf "${BUILD_CONTEXT}"' EXIT
 
 if ((BUILD_SERVER == 1)); then
-    echo "Building ${FLUSS_SERVER_IMAGE} from fluss-dist ${FLUSS_SNAPSHOT_VERSION}"
+    echo "Building ${FLUSS_SERVER_IMAGE} from fluss-dist ${FLUSS_VERSION}"
     mkdir -p "${BUILD_CONTEXT}/server/build-target"
     # The distribution tarball unpacks to a single fluss-<base version>/
     # directory, which the Dockerfile expects as build-target/.
     resolve_maven_artifact "org/apache/fluss" "fluss-dist" \
-        "${FLUSS_SNAPSHOT_VERSION}" "tgz" "${BUILD_CONTEXT}"
-    tar -xzf "${BUILD_CONTEXT}/fluss-dist-${FLUSS_SNAPSHOT_VERSION}.tgz" \
+        "${FLUSS_VERSION}" "tgz" "${BUILD_CONTEXT}"
+    tar -xzf "${BUILD_CONTEXT}/fluss-dist-${FLUSS_VERSION}.tgz" \
         -C "${BUILD_CONTEXT}/server/build-target" --strip-components=1
-    rm -f "${BUILD_CONTEXT}/fluss-dist-${FLUSS_SNAPSHOT_VERSION}.tgz"
+    rm -f "${BUILD_CONTEXT}/fluss-dist-${FLUSS_VERSION}.tgz"
     # The S3 FileIO the coordinator needs to open the warehouse. fluss-dist's
     # plugins/paimon already carries fluss-lake-paimon, paimon-bundle and a
     # shaded hadoop, but paimon keeps each filesystem implementation in a jar of
@@ -202,7 +219,7 @@ fi
 echo "Building ${FLUSS_FLINK_IMAGE} from ${FLINK_BASE_IMAGE}"
 mkdir -p "${BUILD_CONTEXT}/flink/lib" "${BUILD_CONTEXT}/flink/opt"
 resolve_maven_artifact "org/apache/fluss" "${FLUSS_FLINK_CONNECTOR_ARTIFACT}" \
-    "${FLUSS_SNAPSHOT_VERSION}" "jar" "${BUILD_CONTEXT}/flink/lib"
+    "${FLUSS_VERSION}" "jar" "${BUILD_CONTEXT}/flink/lib"
 # Paimon runtime for the tiering job. fluss-lake-paimon is only the fluss->paimon
 # writer: it carries no paimon of its own, so paimon-flink (which bundles paimon
 # core) has to sit next to it, and paimon in turn builds every CatalogContext
@@ -211,7 +228,7 @@ resolve_maven_artifact "org/apache/fluss" "${FLUSS_FLINK_CONNECTOR_ARTIFACT}" \
 # paimon-s3 is what reaches the warehouse, both for the tiering job and for the
 # row counts init waits on.
 resolve_maven_artifact "org/apache/fluss" "fluss-lake-paimon" \
-    "${FLUSS_SNAPSHOT_VERSION}" "jar" "${BUILD_CONTEXT}/flink/lib"
+    "${FLUSS_VERSION}" "jar" "${BUILD_CONTEXT}/flink/lib"
 resolve_maven_artifact "org/apache/paimon" "paimon-flink-${FLINK_MINOR_VERSION}" \
     "${FLUSS_PAIMON_VERSION}" "jar" "${BUILD_CONTEXT}/flink/lib"
 resolve_maven_artifact "org/apache/paimon" "paimon-s3" \
@@ -221,7 +238,7 @@ resolve_maven_artifact "io/trino/hadoop" "hadoop-apache" \
 # The lake half of the environment: the tiering job that moves fluss data into
 # paimon. Submitted with `flink run`, so it goes to opt/, not lib/.
 resolve_maven_artifact "org/apache/fluss" "fluss-flink-tiering" \
-    "${FLUSS_SNAPSHOT_VERSION}" "jar" "${BUILD_CONTEXT}/flink/opt"
+    "${FLUSS_VERSION}" "jar" "${BUILD_CONTEXT}/flink/opt"
 cp "${SCRIPT_DIR}/flink/Dockerfile" "${BUILD_CONTEXT}/flink/Dockerfile"
 docker_cli build --build-arg "FLINK_BASE_IMAGE=${FLINK_BASE_IMAGE}" \
     -t "${FLUSS_FLINK_IMAGE}" "${BUILD_CONTEXT}/flink"

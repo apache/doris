@@ -17,9 +17,10 @@
 
 # Flink image used to prepare the fluss regression data: stock Flink plus the
 # fluss connector, the paimon runtime and the lake tiering job. build-images.sh
-# assembles both directories from maven repositories: the fluss jars from the
-# apache snapshots repository (fluss 1.0 is not released yet), paimon and hadoop
-# from central. The default base is the Flink the pinned connector is built
+# assembles both directories from maven repositories: the fluss jars from
+# FLUSS_MAVEN_REPO_URL in fluss.env.tpl (the staging repository of the 1.0.0
+# release candidate until the release reaches central), paimon and hadoop from
+# central. The default base is the Flink the pinned connector is built
 # against; build-images.sh passes FLINK_BASE_IMAGE explicitly anyway.
 ARG FLINK_BASE_IMAGE=flink:1.20.3-scala_2.12-java17
 FROM ${FLINK_BASE_IMAGE}
