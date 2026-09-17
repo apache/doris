@@ -144,6 +144,80 @@ TEST(FunctionLikeTest, like) {
             func_name, const_pattern_input_types, data_set));
 }
 
+TEST(FunctionLikeTest, like_matches_whole_value) {
+    std::string func_name = "like";
+
+    DataSet data_set = {
+            // A trailing newline belongs to the value, so a pattern that is anchored at the
+            // tail must not match across it.
+            {{std::string("acb"), std::string("a_b")}, uint8_t(1)},
+            {{std::string("acb\n"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("acb\r\n"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("acb\n\n"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("acbx"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("\nacb"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("abc"), std::string("a%c")}, uint8_t(1)},
+            {{std::string("abc\n"), std::string("a%c")}, uint8_t(0)},
+            {{std::string("abc\n"), std::string("%b%c")}, uint8_t(0)},
+            // The newline is an ordinary character for '_' and '%'.
+            {{std::string("a\nb"), std::string("a_b")}, uint8_t(1)},
+            {{std::string("a\nb"), std::string("a%b")}, uint8_t(1)},
+            {{std::string("acb\n"), std::string("a_b_")}, uint8_t(1)},
+            {{std::string("acb\n"), std::string("a_b%")}, uint8_t(1)},
+            {{std::string("abc\n"), std::string("a_c%")}, uint8_t(1)},
+            // '_' stands for one character, not for one byte.
+            {{std::string("a中b"), std::string("a_b")}, uint8_t(1)},
+            {{std::string("a中b\n"), std::string("a_b")}, uint8_t(0)},
+            // An empty pattern only matches an empty value.
+            {{std::string(""), std::string("")}, uint8_t(1)},
+            {{std::string("\n"), std::string("")}, uint8_t(0)},
+            // The shortcut paths and the regex path must agree on the same value.
+            {{std::string("acb\n"), std::string("acb")}, uint8_t(0)},
+            {{std::string("abc\n"), std::string("%c")}, uint8_t(0)},
+            {{std::string("abc\n"), std::string("a%")}, uint8_t(1)},
+
+            // A literal '*' at the tail of the pattern is not the '.*' expanded from a
+            // trailing '%', so the pattern stays anchored.
+            {{std::string("ab*"), std::string("a_*")}, uint8_t(1)},
+            {{std::string("ab*xyz"), std::string("a_*")}, uint8_t(0)},
+            {{std::string("ab*\n"), std::string("a_*")}, uint8_t(0)},
+            {{std::string("ab%"), std::string("a_\\%")}, uint8_t(1)},
+            {{std::string("ab%xyz"), std::string("a_\\%")}, uint8_t(0)},
+    };
+
+    InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                              PrimitiveType::TYPE_VARCHAR};
+    check_function_all_arg_comb<DataTypeUInt8, true>(func_name, const_pattern_input_types,
+                                                     data_set);
+}
+
+TEST(FunctionLikeTest, convert_like_pattern_shapes) {
+    auto convert = [](const std::string& pattern) {
+        std::string re_pattern;
+        FunctionLike::convert_like_pattern(nullptr, pattern, &re_pattern);
+        return re_pattern;
+    };
+
+    // The tail anchor is `\z`, never `$`: Hyperscan reads `$` the PCRE way and would also
+    // match right before a newline that ends the value.
+    EXPECT_EQ(convert(""), "^\\z");
+    EXPECT_EQ(convert("a_b"), "^a.b\\z");
+    EXPECT_EQ(convert("%c%b"), ".*c.*b\\z");
+
+    // A trailing `%` is the only shape left open at the tail, and it needs no `.*` either.
+    EXPECT_EQ(convert("abc%"), "^abc");
+    EXPECT_EQ(convert("a_b%%"), "^a.b.*");
+    EXPECT_EQ(convert("%"), "");
+
+    // An escaped literal `*` ends the produced regex with '*' without being a wildcard, and an
+    // escaped `%` is a literal: both stay anchored.
+    EXPECT_EQ(convert("a_*"), "^a.\\*\\z");
+    EXPECT_EQ(convert("a_\\%"), "^a.%\\z");
+
+    // A backslash that does not open a LIKE escape is a literal backslash.
+    EXPECT_EQ(convert("a_\\"), "^a.\\\\\\z");
+}
+
 TEST(FunctionLikeTest, regexp) {
     std::string func_name = "regexp";
 

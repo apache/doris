@@ -781,7 +781,8 @@ void FunctionLike::convert_like_pattern(const LikeSearchState* state, const std:
     re_pattern->clear();
 
     if (pattern.empty()) {
-        re_pattern->append("^$");
+        // `\z` is the end of the value in both Hyperscan and RE2
+        re_pattern->append("^\\z");
         return;
     }
 
@@ -809,6 +810,10 @@ void FunctionLike::convert_like_pattern(const LikeSearchState* state, const std:
         }
 
         if (c == '%') {
+            if (i + 1 == pattern.size()) {
+                // a trailing `%` matches anything, and so does appending nothing
+                return;
+            }
             re_pattern->append(".*");
         } else if (c == '_') {
             re_pattern->append(".");
@@ -823,10 +828,8 @@ void FunctionLike::convert_like_pattern(const LikeSearchState* state, const std:
         }
     }
 
-    // add $ to pattern tail to match line tail
-    if (!pattern.empty() && re_pattern->back() != '*') {
-        re_pattern->append("$");
-    }
+    // `\z` is the end of the value in both Hyperscan and RE2
+    re_pattern->append("\\z");
 }
 
 void FunctionLike::remove_escape_character(std::string* search_string) {
