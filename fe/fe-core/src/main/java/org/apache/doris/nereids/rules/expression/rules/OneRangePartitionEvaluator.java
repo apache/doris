@@ -406,6 +406,19 @@ public class OneRangePartitionEvaluator<K>
         return result;
     }
 
+    /**
+     * Evaluate a conjunction and refine the independent column ranges with the tuple boundary.
+     *
+     * <p>The normal child evaluation first intersects the ranges contributed by every conjunct.
+     * A composite RANGE partition needs one additional pass: a suffix column is constrained by a
+     * lower or upper endpoint only while every preceding coordinate is still equal to that endpoint.
+     * Applying this pass after merging the children also recovers prefix coordinates whose equality
+     * expression was folded to a literal and therefore disappeared from the child range map.
+     *
+     * @param and conjunction being evaluated
+     * @param context replacement values and projected ranges for the current expanded partition input
+     * @return the folded conjunction together with its lexicographically refined column ranges
+     */
     @Override
     public EvaluateRangeResult visitAnd(And and, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(and, context);
@@ -525,6 +538,28 @@ public class OneRangePartitionEvaluator<K>
         }
     }
 
+    /**
+     * Refine the first unresolved suffix column against one lexicographic partition endpoint.
+     *
+     * <p>Partition slot types have the shape {@code CONST*, RANGE, OTHER*}. The scan proceeds from
+     * left to right and keeps an endpoint active only while the observed singleton values equal its
+     * prefix. For the first unresolved {@code OTHER} coordinate, the active lower endpoint contributes
+     * {@code >= bound}; an active upper endpoint contributes {@code <= bound}, except that the final
+     * partition column uses {@code < bound} because RANGE partitions are upper-exclusive. The method
+     * returns immediately after that coordinate because once it may differ from the endpoint, later
+     * coordinates are lexicographically unconstrained.
+     *
+     * <p>Constant folding can remove a slot from {@code context.columnRanges}. In that case the method
+     * reads the projected partition range from {@code defaultColumnRanges} so the omitted coordinate
+     * can still participate in prefix comparison.
+     *
+     * @param context result of merging all conjunct ranges
+     * @param partitionBound lower or upper endpoint of the composite partition
+     * @param isLowerBound whether {@code partitionBound} is the inclusive lower endpoint
+     * @param defaultColumnRanges projected ranges for the current expanded partition input
+     * @return {@code context} refined at the first decisive suffix coordinate, or an equivalent
+     *         false result if the refined range is empty
+     */
     private EvaluateRangeResult determinateRangeOfOtherType(
             EvaluateRangeResult context, List<Literal> partitionBound, boolean isLowerBound,
             Map<Expression, ColumnRange> defaultColumnRanges) {
@@ -732,6 +767,22 @@ public class OneRangePartitionEvaluator<K>
         return ImmutableList.of(slotToInputs);
     }
 
+    /**
+     * Build evaluator inputs for every expanded representation of this composite RANGE partition.
+     *
+     * <p>Range expansion replaces enumerable coordinates with literals and leaves unexpanded
+     * coordinates as slots. Separate lower- and upper-bound states track whether the literal prefix
+     * of each generated input still equals the corresponding endpoint. Only the first unresolved
+     * coordinate while a state is active receives that endpoint's constraint; after it can diverge,
+     * all suffix coordinates remain unbounded. This preserves tuple ordering instead of incorrectly
+     * treating each partition column as an independent interval.
+     *
+     * <p>The returned {@link PartitionSlotInput}s all contain the complete projected range map for
+     * their generated input. Expression evaluation can therefore recover ranges for slots that were
+     * replaced by literals and removed by constant folding.
+     *
+     * @return one slot-to-input map for each Cartesian-product row produced by range expansion
+     */
     private List<Map<Slot, PartitionSlotInput>> commonComputeOnePartitionInputs() {
         List<Map<Slot, PartitionSlotInput>> onePartitionInputs = Lists.newArrayListWithCapacity(inputs.size());
         for (List<Expression> input : inputs) {
@@ -778,34 +829,83 @@ public class OneRangePartitionEvaluator<K>
         return onePartitionInputs;
     }
 
+    /** Describes whether the coordinates already consumed are still equal to an endpoint prefix. */
     private enum BoundPrefixState {
+        /** No consumed coordinate differs from the tracked lower or upper endpoint. */
         EQUAL_PREFIX,
+
+        /** An earlier coordinate can differ, so this endpoint cannot constrain any later coordinate. */
         DIVERGED
     }
 
-    /** Tracks whether a tuple prefix is still equal to one lexicographic partition bound. */
+    /**
+     * Tracks one lower or upper endpoint while projected ranges are built or refined.
+     *
+     * <p>Lexicographic comparison makes an endpoint relevant only as long as all preceding
+     * coordinates equal its prefix. For example, with lower endpoint {@code (1, 10, 100)}, an input
+     * whose first coordinate is {@code 1} must constrain the first unresolved coordinate to
+     * {@code >= 10}. If the first coordinate is {@code 2}, the lower endpoint is already satisfied
+     * and neither the second nor third coordinate receives a lower constraint.
+     *
+     * <p>The state is monotonic: it starts at {@link BoundPrefixState#EQUAL_PREFIX} and can transition
+     * to {@link BoundPrefixState#DIVERGED} only once.
+     */
     private static class LexicographicBoundState {
         private final List<Literal> bound;
         private final boolean lowerBound;
         private final int columnCount;
         private BoundPrefixState prefixState = BoundPrefixState.EQUAL_PREFIX;
 
+        /**
+         * Create state for one endpoint of a composite partition.
+         *
+         * @param bound endpoint values in partition-column order
+         * @param lowerBound true for the inclusive lower endpoint, false for the exclusive upper endpoint
+         * @param columnCount total number of partition columns, used to identify the final coordinate
+         */
         private LexicographicBoundState(List<Literal> bound, boolean lowerBound, int columnCount) {
             this.bound = bound;
             this.lowerBound = lowerBound;
             this.columnCount = columnCount;
         }
 
+        /**
+         * Return whether every coordinate observed so far is equal to this endpoint's prefix.
+         *
+         * @return true while this endpoint may still constrain the next unresolved coordinate
+         */
         private boolean hasEqualPrefix() {
             return prefixState == BoundPrefixState.EQUAL_PREFIX;
         }
 
+        /**
+         * Consume a literal coordinate and deactivate this endpoint if the literal differs from it.
+         *
+         * <p>Once a coordinate differs, later values cannot make the tuple equal to the endpoint
+         * again, so an already-diverged state is intentionally left unchanged.
+         *
+         * @param literal literal selected for the current partition coordinate
+         * @param index zero-based partition-column index of {@code literal}
+         */
         private void observeLiteral(Expression literal, int index) {
             if (hasEqualPrefix() && !literal.equals(bound.get(index))) {
                 diverge();
             }
         }
 
+        /**
+         * Intersect an unresolved coordinate with this endpoint when its prefix is still equal.
+         *
+         * <p>The lower endpoint is inclusive on every coordinate. The upper endpoint is inclusive on
+         * non-terminal coordinates because equality there leaves later coordinates to decide tuple
+         * membership; only the final coordinate is exclusive. Consuming an unresolved coordinate
+         * always deactivates the endpoint so no suffix coordinate is independently constrained.
+         *
+         * @param origin range already inferred for the unresolved coordinate
+         * @param index zero-based partition-column index of that coordinate
+         * @return {@code origin} intersected with the active endpoint, or unchanged if an earlier
+         *         coordinate has already diverged
+         */
         private ColumnRange constrainFirstUnresolvedColumn(ColumnRange origin, int index) {
             if (!hasEqualPrefix()) {
                 return origin;
@@ -823,6 +923,7 @@ public class OneRangePartitionEvaluator<K>
             return origin.intersect(boundaryRange);
         }
 
+        /** Mark this endpoint as satisfied or violated by an earlier decisive coordinate. */
         private void diverge() {
             prefixState = BoundPrefixState.DIVERGED;
         }

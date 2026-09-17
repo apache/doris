@@ -351,6 +351,13 @@ public class PartitionPrunerTest extends TestWithFeService {
         Assertions.assertTrue(result.hasPartitionPredicate);
     }
 
+    /**
+     * Verify lower/upper boundary transitions for a three-column partition in both evaluator paths.
+     *
+     * <p>The low threshold leaves the RANGE coordinate unexpanded, while the high threshold expands
+     * it into literals. The witness tuples cover divergence in a suffix coordinate, an exactly equal
+     * lower endpoint, and tuples at or beyond the exclusive upper endpoint.
+     */
     @Test
     public void testThreeColumnLexicographicRangeBoundaries()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
@@ -374,6 +381,13 @@ public class PartitionPrunerTest extends TestWithFeService {
         }
     }
 
+    /**
+     * Verify that only the first unresolved coordinate receives a lexicographic endpoint constraint.
+     *
+     * <p>Four columns exercise divergence at the first, middle, and final coordinates. Extreme suffix
+     * values demonstrate that once an earlier coordinate differs, later columns are intentionally
+     * unbounded; exact-prefix cases verify inclusive lower and exclusive upper semantics at the end.
+     */
     @Test
     public void testFourColumnLexicographicRangeBoundaries()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
@@ -404,6 +418,15 @@ public class PartitionPrunerTest extends TestWithFeService {
         }
     }
 
+    /**
+     * Evaluate an equality predicate for one tuple and assert whether the partition is pruned.
+     *
+     * @param partitionItem composite RANGE partition under test
+     * @param slots partition slots in tuple order
+     * @param expandThreshold threshold selecting expanded or unexpanded evaluator inputs
+     * @param expectedPruned expected result from {@code PartitionPruner.canBePrunedOut}
+     * @param values tuple values used to build one equality per partition slot
+     */
     private void assertRangeTuplePruned(RangePartitionItem partitionItem, List<Slot> slots,
             int expandThreshold, boolean expectedPruned, int... values)
             throws InvocationTargetException, IllegalAccessException {
@@ -420,6 +443,15 @@ public class PartitionPrunerTest extends TestWithFeService {
                 "tuple=" + Arrays.toString(values) + ", expandThreshold=" + expandThreshold);
     }
 
+    /**
+     * Construct a closed-open composite RANGE partition from integer tuple endpoints.
+     *
+     * @param columns partition columns in key order
+     * @param lowerValues inclusive lower endpoint values
+     * @param upperValues exclusive upper endpoint values
+     * @return partition item representing {@code [lowerValues, upperValues)}
+     * @throws AnalysisException if an endpoint cannot be converted to a typed partition key
+     */
     private RangePartitionItem createRangePartitionItem(
             List<Column> columns, int[] lowerValues, int[] upperValues) throws AnalysisException {
         ImmutableList.Builder<PartitionValue> lower = ImmutableList.builderWithExpectedSize(lowerValues.length);

@@ -39,6 +39,8 @@ suite("test_lexicographic_range_partition") {
             (1, 10, 100, 4)
     """
 
+    // Verify the optimizer retains the only partition before checking the query result. A wrong
+    // empty result alone is ambiguous here because it could also come from execution or test data.
     def assertTargetPartition = { String query ->
         explain {
             sql query
