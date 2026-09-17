@@ -446,9 +446,9 @@ static std::string debug_info(const Request& req) {
     } else if constexpr (is_any_v<Request, UpdatePackedFileInfoRequest>) {
         return fmt::format(" packed_file_path={}", req.packed_file_path());
     } else if constexpr (is_any_v<Request, ReportSpillStatsRequest>) {
-        return fmt::format(" backend_id={} boot_id={} remote_write_bytes={}",
+        return fmt::format(" backend_id={} boot_id={} remote_spill_bytes={}",
                            req.stats().backend_id(), req.stats().boot_id(),
-                           req.stats().remote_write_bytes());
+                           req.stats().remote_spill_bytes());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -1902,7 +1902,7 @@ Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_complet
 }
 
 Status CloudMetaMgr::report_spill_stats(int64_t backend_id, int64_t boot_id,
-                                        int64_t remote_write_bytes, int64_t remote_put_requests) {
+                                        int64_t remote_spill_bytes) {
     ReportSpillStatsRequest req;
     ReportSpillStatsResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -1910,8 +1910,7 @@ Status CloudMetaMgr::report_spill_stats(int64_t backend_id, int64_t boot_id,
     stats->set_cloud_unique_id(config::cloud_unique_id);
     stats->set_backend_id(backend_id);
     stats->set_boot_id(boot_id);
-    stats->set_remote_write_bytes(remote_write_bytes);
-    stats->set_remote_put_requests(remote_put_requests);
+    stats->set_remote_spill_bytes(remote_spill_bytes);
     return retry_rpc(MetaServiceRPC::REPORT_SPILL_STATS, req, &resp,
                      &MetaService_Stub::report_spill_stats,
                      {

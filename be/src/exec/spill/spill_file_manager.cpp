@@ -193,8 +193,6 @@ void SpillFileManager::_init_metrics() {
 }
 
 void SpillFileManager::update_spill_remote_write(int64_t bytes, int64_t put_requests) {
-    _remote_write_bytes_since_boot.fetch_add(bytes, std::memory_order_relaxed);
-    _remote_put_requests_since_boot.fetch_add(put_requests, std::memory_order_relaxed);
     g_spill_remote_write_bytes << bytes;
     g_spill_remote_put_requests << put_requests;
     if (_spill_remote_write_bytes_counter != nullptr) {
@@ -522,21 +520,23 @@ void SpillFileManager::_report_remote_spill_stats(RemoteSpillDataDir* store, boo
     if (!store->ready() || !config::is_cloud_mode()) {
         return;
     }
-    int64_t write_bytes = remote_write_bytes_since_boot();
-    int64_t put_requests = remote_put_requests_since_boot();
-    if (write_bytes == _reported_remote_write_bytes &&
-        put_requests == _reported_remote_put_requests) {
+    // The spill data this process holds in object storage right now (bytes reserved for parts
+    // being uploaded included). An unchanged value is re-sent about once an hour so that
+    // meta-service can tell a live BE with stable spill from one that is gone: a record that is
+    // not refreshed within spill_objects_expire_time_second (> 1 day) no longer counts.
+    int64_t spill_bytes = store->get_spill_data_bytes();
+    bool heartbeat_due = ++_remote_report_checks % 60 == 0;
+    if (spill_bytes == _reported_remote_spill_bytes && !heartbeat_due) {
         return;
     }
     auto st = ExecEnv::GetInstance()->storage_engine().to_cloud().meta_mgr().report_spill_stats(
-            store->backend_id(), store->boot_id(), write_bytes, put_requests);
+            store->backend_id(), store->boot_id(), spill_bytes);
     if (!st.ok()) {
         LOG_EVERY_T(WARNING, 60) << "failed to report spill stats to meta-service"
                                  << (final_report ? "" : ", will retry") << ": " << st;
         return;
     }
-    _reported_remote_write_bytes = write_bytes;
-    _reported_remote_put_requests = put_requests;
+    _reported_remote_spill_bytes = spill_bytes;
 }
 
 Status SpillFileManager::_remote_startup_cleanup(RemoteSpillDataDir* store, bool* done) {

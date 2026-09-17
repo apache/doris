@@ -4712,7 +4712,7 @@ TEST(RecyclerTest, recycle_deleted_instance) {
         SpillStatsPB spill_stats;
         spill_stats.set_backend_id(1);
         spill_stats.set_boot_id(1);
-        spill_stats.set_remote_write_bytes(100);
+        spill_stats.set_remote_spill_bytes(100);
         txn->put(stats_spill_key({instance_id, 1}), spill_stats.SerializeAsString());
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }

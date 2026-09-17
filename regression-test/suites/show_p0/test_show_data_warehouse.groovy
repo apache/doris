@@ -137,11 +137,11 @@ suite("test_show_data_warehouse") {
         result = sql """show data properties("entire_warehouse"="true")"""
         assertTrue(result.size() > 0)
         for (row : result) {
-            // |DBName|DataSize|RecycleSize|BinlogSize|RemoteSpillWriteSize|
+            // |DBName|DataSize|RecycleSize|BinlogSize|RemoteSpillSize|
             assertEquals(5, row.size())
             if (row[0].toString().equalsIgnoreCase("total")) {
                 assertTrue(row[2].toInteger() > 0)
-                // cumulative bytes uploaded by remote spill; 0 unless spill_storage_type=s3
+                // spill bytes currently held in object storage; 0 unless spill_storage_type=s3
                 assertTrue(row[4].toLong() >= 0)
             } else {
                 assertEquals("0", row[4].toString())

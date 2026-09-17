@@ -91,16 +91,16 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("BinlogSize", ScalarType.createVarchar(30)))
                     .build();
 
-    // RemoteSpillWriteSize: bytes that query spill uploaded to object storage since the instance
-    // was created (cloud mode, spill_storage_type=s3). Spill is not attributable to a database,
-    // so the value is reported on the total row only.
+    // RemoteSpillSize: bytes of query spill currently held in object storage (cloud mode,
+    // spill_storage_type=s3), as last reported by the BEs. Spill is not attributable to a
+    // database, so the value is reported on the total row only.
     private static final ShowResultSetMetaData SHOW_WAREHOUSE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("DBName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("DataSize", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RecycleSize", ScalarType.createVarchar(20)))
                     .addColumn(new Column("BinlogSize", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("RemoteSpillWriteSize", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("RemoteSpillSize", ScalarType.createVarchar(20)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
@@ -594,11 +594,11 @@ public class ShowDataCommand extends ShowCommand {
     }
 
     /**
-     * Bytes uploaded to object storage by query spill, summed over every BE process of the
-     * instance, as recorded by meta-service. This is a billing input, so a failure to fetch it is
+     * Bytes of query spill currently held in object storage, summed over the BEs of the instance
+     * as last reported to meta-service. This is a billing input, so a failure to fetch it is
      * reported instead of being shown as zero.
      */
-    private long getRemoteSpillWriteSize() throws AnalysisException {
+    private long getRemoteSpillSize() throws AnalysisException {
         if (!Config.isCloudMode()) {
             return 0L;
         }
@@ -610,13 +610,13 @@ public class ShowDataCommand extends ShowCommand {
                 throw new AnalysisException("failed to get spill stats from meta service: "
                         + response.getStatus().getMsg());
             }
-            return response.getTotalRemoteWriteBytes();
+            return response.getTotalRemoteSpillBytes();
         } catch (RpcException e) {
             throw new AnalysisException("failed to get spill stats from meta service: " + e.getMessage(), e);
         }
     }
 
-    // |DBName|DataSize|RecycleSize|BinlogSize|RemoteSpillWriteSize|
+    // |DBName|DataSize|RecycleSize|BinlogSize|RemoteSpillSize|
     private boolean getDbStatsByProperties() throws AnalysisException {
         if (properties == null) {
             return false;
@@ -688,9 +688,9 @@ public class ShowDataCommand extends ShowCommand {
                     totalRecycleSize += recycleSize;
                 }
             }
-            long remoteSpillWriteSize = getRemoteSpillWriteSize();
+            long remoteSpillSize = getRemoteSpillSize();
             List<String> result = Arrays.asList("total", String.valueOf(total), String.valueOf(totalRecycleSize),
-                    String.valueOf(totalBinlogSize), String.valueOf(remoteSpillWriteSize));
+                    String.valueOf(totalBinlogSize), String.valueOf(remoteSpillSize));
             totalRows.add(result);
             return true;
         }
