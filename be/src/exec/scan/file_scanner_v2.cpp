@@ -145,8 +145,7 @@ bool is_supported_paimon_jni_payload(const TFileRangeDesc& range) {
     }
     const auto& params = range.table_format_params.paimon_params;
     if (params.__isset.reader_type) {
-        return params.reader_type == TPaimonReaderType::PAIMON_JNI &&
-               params.__isset.paimon_split;
+        return params.reader_type == TPaimonReaderType::PAIMON_JNI && params.__isset.paimon_split;
     }
     if (params.__isset.paimon_split) {
         // Before reader_type was added, an encoded split unambiguously selected the Java
