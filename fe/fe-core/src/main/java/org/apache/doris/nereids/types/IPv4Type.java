@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 /**
@@ -30,6 +31,12 @@ public class IPv4Type extends PrimitiveType {
     public static final int WIDTH = 4;
 
     private IPv4Type() {
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        // BE maps all 32 IPv4 bits into IPv6 and prints a canonical address for string casts.
+        return target instanceof IPv4Type || target instanceof IPv6Type || target instanceof CharacterType;
     }
 
     @Override

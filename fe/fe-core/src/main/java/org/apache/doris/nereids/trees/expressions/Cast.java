@@ -139,10 +139,14 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                 && targetType instanceof TimeStampNsType) {
             // Temporal inputs can fail because TIMESTAMP_NS has a narrower signed epoch-nanos range.
             return true;
-        } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type()
-                || childDataType.isTimeStampTzType())
-                && (targetType.isDateTimeType() || targetType.isDateTimeV2Type())) {
-            // datetime to datetime is always nullable
+        } else if (childDataType.isDateTimeV2Type() && targetType.isDateTimeV2Type()) {
+            // BE's generic datelike cast creates a nullable result for DATETIMEV2 scale changes:
+            // reducing scale can overflow while rounding at the maximum datetime boundary.
+            // Exact-type casts have already returned above.
+            return true;
+        } else if (childDataType.isTimeStampTzType() && targetType.isDateTimeV2Type()) {
+            // The BE TIMESTAMPTZ -> DATETIMEV2 kernel can fail while converting the instant in the
+            // session time zone, and its non-strict implementation returns a nullable column.
             return true;
         } else if ((childDataType.isDateTimeV2Type() || childDataType.isTimeStampNsType())
                 && targetType.isTimeStampTzType()) {
@@ -170,7 +174,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                 return childDataType.isSmallIntType() && targetType.isTinyIntType();
             } else if (targetType.isDecimalLikeType()) {
                 // Integral to decimal
-                int range = targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getRange()
+                int range = targetType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_RANGE
                         : ((DecimalV3Type) targetType).getRange();
                 if (childDataType.isTinyIntType() && range < TinyIntType.RANGE) {
                     return true;
@@ -196,7 +200,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             if (targetType.isIntegralType()) {
                 int range = 0;
                 if (childDataType.isDecimalV2Type()) {
-                    range = ((DecimalV2Type) childDataType).getRange();
+                    range = DecimalV2Type.EXECUTION_RANGE;
                 } else {
                     range = ((DecimalV3Type) childDataType).getRange();
                 }
@@ -215,9 +219,9 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                 return targetType.isBigIntType() && range >= BigIntType.RANGE;
             } else if (targetType.isDecimalLikeType()) {
                 // Decimal to decimal
-                int targetRange = targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getRange()
+                int targetRange = targetType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_RANGE
                         : ((DecimalV3Type) targetType).getRange();
-                int sourceRange = childDataType.isDecimalV2Type() ? ((DecimalV2Type) childDataType).getRange()
+                int sourceRange = childDataType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_RANGE
                         : ((DecimalV3Type) childDataType).getRange();
                 if (sourceRange > targetRange) {
                     return true;
@@ -228,9 +232,9 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                 // When source range == target range, if source precision is larger than target precision,
                 // it is possible to be null when fraction part overflow.
                 // e.g. decimal(3, 2) to decimal(2, 1), 9.99 to decimal(2, 1) overflow, result is null.
-                int targetPrecision = targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getPrecision()
+                int targetPrecision = targetType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_PRECISION
                         : ((DecimalV3Type) targetType).getPrecision();
-                int sourcePrecision = childDataType.isDecimalV2Type() ? ((DecimalV2Type) childDataType).getPrecision()
+                int sourcePrecision = childDataType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_PRECISION
                         : ((DecimalV3Type) childDataType).getPrecision();
                 return sourcePrecision > targetPrecision;
             } else if (targetType.isTimeType() || targetType.isDateLikeType()) {
@@ -239,7 +243,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             }
         } else if (childDataType.isBooleanType() && targetType.isDecimalLikeType()) {
             // Boolean to decimal
-            return (targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getRange()
+            return (targetType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_RANGE
                     : ((DecimalV3Type) targetType).getRange()) < 1;
         } else if (childDataType.isJsonType() && !targetType.isJsonType()) {
             // Json to other type is always nullable
