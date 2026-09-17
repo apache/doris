@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
+import org.apache.doris.common.DdlException;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -39,8 +40,6 @@ import java.util.stream.Collectors;
  */
 public class MTMVCacheManager {
 
-    // Guards updateConfig() against concurrent put/invalidate so mutations issued during
-    // a swap are not lost in the retired instance and cannot resurrect an invalidated entry.
     private final Object swapLock = new Object();
     private volatile Cache<Key, MTMVCache> caches;
 
@@ -125,14 +124,26 @@ public class MTMVCacheManager {
     }
 
     private static Cache<Key, MTMVCache> build(int maxSize, long expireAfterAccessSeconds) {
-        Caffeine<Object, Object> builder = Caffeine.newBuilder().softValues().recordStats();
-        if (maxSize > 0) {
-            builder.maximumSize(maxSize);
-        }
+        Caffeine<Object, Object> builder = Caffeine.newBuilder().softValues().recordStats()
+                .maximumSize(Math.max(maxSize, 0));
         if (expireAfterAccessSeconds > 0) {
             builder.expireAfterAccess(Duration.ofSeconds(expireAfterAccessSeconds));
         }
         return builder.build();
+    }
+
+    /** Reject negative maximums so the cache can never lose its entry bound. */
+    @VisibleForTesting
+    static void checkMaxSize(String confVal) throws DdlException {
+        int value;
+        try {
+            value = Integer.parseInt(confVal.trim());
+        } catch (NumberFormatException e) {
+            throw new DdlException("mtmv_cache_manage_num requires an integer, but got: " + confVal);
+        }
+        if (value < 0) {
+            throw new DdlException("mtmv_cache_manage_num must not be negative, 0 disables the cache");
+        }
     }
 
     // NOTE: referenced by Config.mtmv_cache_manage_num.callbackClassString and
@@ -140,6 +151,9 @@ public class MTMVCacheManager {
     public static class UpdateConfig extends DefaultConfHandler {
         @Override
         public void handle(Field field, String confVal) throws Exception {
+            if ("mtmv_cache_manage_num".equals(field.getName())) {
+                checkMaxSize(confVal);
+            }
             super.handle(field, confVal);
             MTMVCacheManager.reloadConfig();
         }
