@@ -1985,7 +1985,7 @@ public class FlussSplitPlanTest {
         List<PartitionInfo> partitions = new ArrayList<>();
         for (int i = 0; i < partitionValues.length; i++) {
             partitions.add(new PartitionInfo(100L + i,
-                    ResolvedPartitionSpec.fromPartitionValue("dt", partitionValues[i]), null));
+                    ResolvedPartitionSpec.fromPartitionValue("dt", partitionValues[i]), null, buckets));
         }
         adminOps.partitionsByTable.put(LOG_TABLE, partitions);
     }
@@ -2040,7 +2040,7 @@ public class FlussSplitPlanTest {
         List<PartitionInfo> partitions = new ArrayList<>();
         for (int i = 0; i < partitionValues.length; i++) {
             partitions.add(new PartitionInfo(100L + i,
-                    ResolvedPartitionSpec.fromPartitionValue("dt", partitionValues[i]), null));
+                    ResolvedPartitionSpec.fromPartitionValue("dt", partitionValues[i]), null, buckets));
         }
         adminOps.partitionsByTable.put(PK_TABLE, partitions);
     }
@@ -2233,7 +2233,7 @@ public class FlussSplitPlanTest {
         List<PartitionInfo> partitions = new ArrayList<>();
         for (int i = 0; i < partitionValues.length; i++) {
             partitions.add(new PartitionInfo(100L + i,
-                    ResolvedPartitionSpec.fromPartitionValue("dt", partitionValues[i]), null));
+                    ResolvedPartitionSpec.fromPartitionValue("dt", partitionValues[i]), null, buckets));
         }
         adminOps.partitionsByTable.put(PK_TABLE, partitions);
         siblingExpected = true;
@@ -2302,7 +2302,7 @@ public class FlussSplitPlanTest {
         List<PartitionInfo> partitions = new ArrayList<>();
         for (int i = 0; i < partitionValues.length; i++) {
             partitions.add(new PartitionInfo(100L + i,
-                    ResolvedPartitionSpec.fromPartitionValue("dt", partitionValues[i]), null));
+                    ResolvedPartitionSpec.fromPartitionValue("dt", partitionValues[i]), null, buckets));
         }
         adminOps.partitionsByTable.put(LOG_TABLE, partitions);
         siblingExpected = true;
