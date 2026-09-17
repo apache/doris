@@ -502,22 +502,12 @@ std::optional<DateV2Value<DateTimeV2ValueType>> datetime_v2_from_orc_millis(
     }
     const auto extra_nanos = std::max<int32_t>(nanos_tail, 0);
     constexpr int64_t NANOS_PER_MICROSECOND = 1000;
-    constexpr int64_t MICROS_PER_SECOND = 1000000;
     // Stripe statistics split the timestamp into milliseconds and the remaining nanoseconds. Use
-    // the same half-up rule as row decoding so zone-map pruning observes identical values.
-    const auto rounded_extra_microseconds =
-            (extra_nanos + NANOS_PER_MICROSECOND / 2) / NANOS_PER_MICROSECOND;
-    const auto microseconds_with_carry = millis_remainder * 1000 + rounded_extra_microseconds;
-    // Calendar bounds depend on the target timezone, so only reject arithmetic overflow here and
-    // let the converted value below decide whether the statistic is representable by Doris.
-    int64_t rounded_seconds;
-    if (__builtin_add_overflow(seconds, microseconds_with_carry / MICROS_PER_SECOND,
-                               &rounded_seconds)) {
-        return std::nullopt;
-    }
-    const auto microseconds = cast_set<uint64_t>(microseconds_with_carry % MICROS_PER_SECOND);
+    // the same truncation as row decoding so zone-map pruning observes identical values.
+    const auto microseconds =
+            cast_set<uint64_t>(millis_remainder * 1000 + extra_nanos / NANOS_PER_MICROSECOND);
     DateV2Value<DateTimeV2ValueType> value;
-    value.from_unixtime(rounded_seconds, timezone);
+    value.from_unixtime(seconds, timezone);
     value.set_microsecond(microseconds);
     if (!value.is_valid_date()) {
         return std::nullopt;

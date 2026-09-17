@@ -1248,17 +1248,17 @@ OrcSargNode make_and_node(std::vector<OrcSargNode> children) {
     return shift_timestamp_literal(literal, NANOS_PER_MILLISECOND - remainder);
 }
 
-std::pair<::orc::Literal, ::orc::Literal> timestamp_rounding_bounds(const ::orc::Literal& literal) {
-    constexpr int32_t HALF_MICROSECOND_NANOS = 500;
-    // All raw ORC values in [lower, upper) round half-up to this Doris microsecond. Round these
+std::pair<::orc::Literal, ::orc::Literal> timestamp_truncation_bounds(
+        const ::orc::Literal& literal) {
+    constexpr int32_t NANOS_PER_MICROSECOND = 1000;
+    // All raw ORC values in [lower, upper) truncate to this Doris microsecond. Expand these
     // boundaries toward the side that enlarges the SARG match set because ORC statistics retain
     // only millisecond precision.
-    return {shift_timestamp_literal(literal, -HALF_MICROSECOND_NANOS),
-            shift_timestamp_literal(literal, HALF_MICROSECOND_NANOS)};
+    return {literal, shift_timestamp_literal(literal, NANOS_PER_MICROSECOND)};
 }
 
 OrcSargNode make_timestamp_equals_node(const OrcSargColumn& column, const ::orc::Literal& literal) {
-    const auto [lower_bound, upper_bound] = timestamp_rounding_bounds(literal);
+    const auto [lower_bound, upper_bound] = timestamp_truncation_bounds(literal);
     std::vector<OrcSargNode> children;
     children.push_back(make_not_node(make_literal_node(
             OrcSargNodeKind::LESS_THAN, column, floor_timestamp_literal_to_millis(lower_bound))));
@@ -1268,7 +1268,7 @@ OrcSargNode make_timestamp_equals_node(const OrcSargColumn& column, const ::orc:
 }
 
 std::optional<OrcSargNode> make_timestamp_comparison_node(const OrcSargComparison& comparison) {
-    const auto [lower_bound, upper_bound] = timestamp_rounding_bounds(comparison.literal);
+    const auto [lower_bound, upper_bound] = timestamp_truncation_bounds(comparison.literal);
     switch (comparison.normalized_op) {
     case TExprOpcode::GE:
         return make_not_node(make_literal_node(OrcSargNodeKind::LESS_THAN, comparison.column,
@@ -1310,9 +1310,9 @@ OrcSargNode make_timestamp_in_node(const OrcSargColumn& column,
         }
     }
     const auto lower_bound =
-            floor_timestamp_literal_to_millis(timestamp_rounding_bounds(min_literal).first);
+            floor_timestamp_literal_to_millis(timestamp_truncation_bounds(min_literal).first);
     const auto upper_bound =
-            ceil_timestamp_literal_to_millis(timestamp_rounding_bounds(max_literal).second);
+            ceil_timestamp_literal_to_millis(timestamp_truncation_bounds(max_literal).second);
     std::vector<OrcSargNode> children;
     children.push_back(
             make_not_node(make_literal_node(OrcSargNodeKind::LESS_THAN, column, lower_bound)));
