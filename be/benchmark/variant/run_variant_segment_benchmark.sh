@@ -62,6 +62,7 @@ mkdir -p "${result_dir}"
     git -C "${repo_root}" status --short --branch
     echo "benchmark_binary=${benchmark_binary}"
     sha256sum "${benchmark_binary}"
+    echo "benchmark_binary_verified_against_source=no (this hash only identifies the binary; it is not independently checked against git_head/source.diff/thirdparty fingerprints below -- retain this exact binary alongside this environment.txt for a trustworthy comparison)"
     echo "JAVA_HOME=${JAVA_HOME}"
     echo "runtime_LD_LIBRARY_PATH=${runtime_library_path}"
     LD_LIBRARY_PATH="${runtime_library_path}" ldd "${benchmark_binary}"
@@ -74,9 +75,21 @@ mkdir -p "${result_dir}"
         echo "$(basename "${fingerprint}")=$(< "${fingerprint}")"
     done < <(find "${thirdparty_installed_path}" -maxdepth 1 -type f \
         -name '*-build-fingerprint.txt' | sort)
-    if [[ -f "${repo_root}/be/build_RELEASE/CMakeCache.txt" ]]; then
-        sha256sum "${repo_root}/be/build_RELEASE/CMakeCache.txt"
-        grep -n '^CMAKE_BUILD_TYPE:' "${repo_root}/be/build_RELEASE/CMakeCache.txt"
+    # ./build.sh --benchmark without an explicit BUILD_TYPE can name the build directory either
+    # build_RELEASE (BUILD_TYPE=RELEASE, as this script's own instructions set) or build_Release
+    # (build.sh's internal default casing); probe both so the documented bare invocation is still
+    # covered.
+    cmake_cache_found=0
+    for cmake_build_dir in "${repo_root}/be/build_RELEASE" "${repo_root}/be/build_Release"; do
+        if [[ -f "${cmake_build_dir}/CMakeCache.txt" ]]; then
+            sha256sum "${cmake_build_dir}/CMakeCache.txt"
+            grep -n '^CMAKE_BUILD_TYPE:' "${cmake_build_dir}/CMakeCache.txt"
+            cmake_cache_found=1
+            break
+        fi
+    done
+    if [[ "${cmake_cache_found}" -eq 0 ]]; then
+        echo "cmake_cache=not found under be/build_RELEASE or be/build_Release"
     fi
     echo "benchmark_root=${benchmark_root}"
     df -h "${benchmark_root}"

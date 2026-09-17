@@ -17,7 +17,10 @@ DORIS_BENCHMARK_CPU=16 bash be/benchmark/variant/run_variant_segment_benchmark.s
   tooling, unrelated to this code)
 - Build: `RELEASE`, `./build.sh --be --benchmark`
 - Host: shared 192-thread build machine, 2x Intel(R) Xeon(R) Platinum 8457C (48 cores/socket, 2
-  threads/core), pinned to one logical CPU (`DORIS_BENCHMARK_CPU=16`)
+  threads/core), pinned to **one** logical CPU (`DORIS_BENCHMARK_CPU=16` → `taskset -c 16`). All
+  `Writers8` threads inherit that single-CPU mask, so they interleave rather than run
+  simultaneously; this run cannot demonstrate cross-core contention (see the note under
+  `BM_VariantSparseImport` results below)
 - Rows: default (1,000,000)
 - Each round runs all 35 `BM_VariantCumulativeCompaction` cases (7 scenarios x 5 samples) and all
   20 `BM_VariantSparseImport` cases (4 scenarios x 5 samples) — 55 cases/round, 165 total, 0
@@ -65,9 +68,15 @@ the comparison matters (e.g. deciding whether a change is a regression).
 | MixedTypes/Writers8 | 15.543 | 24.367 | 13.791 | 15.543 | 14.378 |
 | NoArrays/Writers8 | 10.810 | 13.407 | 10.617 | 10.816 | 10.671 |
 
-`MixedTypes/Writers8` costing more than `MixedTypes/Writers1`, and both `NoArrays` variants sitting
-below their `MixedTypes` counterparts, is consistent with this PR's own description of the
-Writers8/array-inference contention this benchmark is meant to expose.
+`MixedTypes/Writers8` costing more than `MixedTypes/Writers1` per-writer CPU time, and both
+`NoArrays` variants sitting below their `MixedTypes` counterparts, is a valid same-scenario
+comparison: `cpu_s_per_1m_rows` sums each writer's own thread-CPU time regardless of how they were
+scheduled, so it stands on its own. **This run cannot, however, be used as evidence of cross-core
+contention.** This run pinned all 8 `Writers8` threads to a single logical CPU (`taskset -c 16`),
+so they were interleaved, never running simultaneously — the kind of shared-reference/cache-line
+contention this benchmark is meant to expose only shows up across distinct cores. Attributing the
+Writers1-vs-Writers8 gap to that contention would require rerunning with the threads bound to at
+least 8 distinct physical CPUs (and recording the topology), which this baseline does not do.
 
 ## Caveats
 

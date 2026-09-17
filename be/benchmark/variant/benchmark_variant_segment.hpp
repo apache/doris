@@ -60,6 +60,7 @@
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/data_dir.h"
 #include "storage/index/index_writer.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
@@ -70,6 +71,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
 #include "storage/segment/segment_loader.h"
+#include "storage/segment/segment.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
@@ -466,6 +468,15 @@ public:
         if (_total_rows % COMPACTION_INPUT_ROWSETS != 0) {
             return Status::InvalidArgument("Variant compaction rows {} must be divisible by {}",
                                            _total_rows, COMPACTION_INPUT_ROWSETS);
+        }
+        if (_rows_per_rowset < CANDIDATE_PATHS) {
+            // Each row's cold-path window must cycle through every one of the CANDIDATE_PATHS
+            // candidates at least once per rowset for validate_layout()'s fixed-path oracle to
+            // hold; CANDIDATE_PATHS rows per rowset is a safe (not tight) sufficient bound.
+            return Status::InvalidArgument(
+                    "Variant compaction rows {} yield {} rows per rowset, below the {} needed "
+                    "to exercise every candidate path",
+                    _total_rows, _rows_per_rowset, CANDIDATE_PATHS);
         }
 
         ensure_variant_compaction_runtime();
@@ -1009,6 +1020,81 @@ void append_sparse_import_value(uint32_t key, bool arrays, Random* rng, std::str
     }
 }
 
+// A generic counterpart to update_flat_object_checksum() for sparse import's heterogeneous
+// values (strings, doubles, booleans, arrays, and small objects, not just unsigned integers).
+// Object members are sorted by key so member order does not affect the checksum; array order is
+// kept as-is because it is semantically meaningful.
+Status update_sparse_import_value_checksum(uint64_t* checksum, const rapidjson::Value& value) {
+    switch (value.GetType()) {
+    case rapidjson::kNullType:
+        *checksum = update_checksum(*checksum, "null");
+        return Status::OK();
+    case rapidjson::kFalseType:
+        *checksum = update_checksum(*checksum, "false");
+        return Status::OK();
+    case rapidjson::kTrueType:
+        *checksum = update_checksum(*checksum, "true");
+        return Status::OK();
+    case rapidjson::kStringType:
+        *checksum = update_checksum(
+                *checksum, std::string_view(value.GetString(), value.GetStringLength()));
+        return Status::OK();
+    case rapidjson::kNumberType:
+        // parse_to_variant infers a whole-numbered double (for example the generator's
+        // "203932.0000") as an integer subcolumn, so "203932" comes back on read with no
+        // fractional part -- confirmed by comparing this benchmark's own generated input against
+        // its round-tripped read-back. Formatting every number through the same fixed-point
+        // representation, regardless of its rapidjson subtype, canonicalizes both sides on value
+        // rather than on that (expected) int/double storage choice, while still failing the
+        // checksum if a value actually changes. All of this benchmark's numbers stay well inside
+        // the 53-bit exact integer range of a double, so GetDouble() loses no precision here.
+        *checksum = update_checksum(*checksum, fmt::format("{:.4f}", value.GetDouble()));
+        return Status::OK();
+    case rapidjson::kArrayType: {
+        *checksum = update_checksum(*checksum, "[");
+        for (const auto& element : value.GetArray()) {
+            RETURN_IF_ERROR(update_sparse_import_value_checksum(checksum, element));
+        }
+        *checksum = update_checksum(*checksum, "]");
+        return Status::OK();
+    }
+    case rapidjson::kObjectType: {
+        std::vector<std::pair<std::string_view, const rapidjson::Value*>> members;
+        members.reserve(value.MemberCount());
+        for (const auto& member : value.GetObject()) {
+            if (!member.name.IsString()) {
+                return Status::InternalError("Sparse import golden requires string object keys");
+            }
+            members.emplace_back(
+                    std::string_view(member.name.GetString(), member.name.GetStringLength()),
+                    &member.value);
+        }
+        std::sort(members.begin(), members.end(),
+                  [](const auto& a, const auto& b) { return a.first < b.first; });
+        *checksum = update_checksum(*checksum, "{");
+        for (const auto& [key, member_value] : members) {
+            *checksum = update_checksum(*checksum, key);
+            RETURN_IF_ERROR(update_sparse_import_value_checksum(checksum, *member_value));
+        }
+        *checksum = update_checksum(*checksum, "}");
+        return Status::OK();
+    }
+    default:
+        return Status::InternalError("Sparse import golden hit an unsupported JSON value type");
+    }
+}
+
+Status update_sparse_import_checksum(uint64_t* checksum, std::string_view json) {
+    DORIS_CHECK(checksum != nullptr);
+    rapidjson::Document document;
+    document.Parse(json.data(), json.size());
+    if (document.HasParseError() || !document.IsObject()) {
+        return Status::InternalError("Invalid sparse-import JSON at offset {}",
+                                     document.GetErrorOffset());
+    }
+    return update_sparse_import_value_checksum(checksum, document);
+}
+
 std::string make_sparse_import_json(bool arrays, Random* rng) {
     std::array<uint32_t, SPARSE_IMPORT_MAX_KEYS> keys {};
     const uint32_t count = sparse_import_key_count(rng);
@@ -1063,7 +1149,7 @@ TabletSchemaSPtr make_sparse_import_schema() {
 }
 
 Status make_sparse_import_block(bool arrays, uint32_t first_row, uint32_t rows, Random* rng,
-                                Block* block, uint64_t* json_bytes) {
+                                Block* block, uint64_t* json_bytes, uint64_t* expected_checksum) {
     auto keys = ColumnInt64::create();
     auto raw_json = ColumnString::create();
     keys->reserve(rows);
@@ -1073,6 +1159,7 @@ Status make_sparse_import_block(bool arrays, uint32_t first_row, uint32_t rows, 
         keys->insert_value(first_row + local);
         raw_json->insert_data(json.data(), json.size());
         *json_bytes += json.size();
+        RETURN_IF_ERROR(update_sparse_import_checksum(expected_checksum, json));
     }
 
     ColumnPtr values;
@@ -1102,7 +1189,8 @@ Status timed_sparse_import_call(SparseImportResult* result, uint64_t* phase_ns, 
 using SparseImportSegments = std::vector<std::vector<Block>>;
 
 Status make_sparse_import_input(bool arrays, uint32_t writer, uint32_t rows,
-                                SparseImportSegments* segments, uint64_t* json_bytes) {
+                                SparseImportSegments* segments, uint64_t* json_bytes,
+                                uint64_t* expected_checksum) {
     Random rng(SPARSE_IMPORT_SEED + writer);
     for (uint32_t segment_begin = 0; segment_begin < rows;
          segment_begin += SPARSE_IMPORT_ROWS_PER_SEGMENT) {
@@ -1112,7 +1200,8 @@ Status make_sparse_import_input(bool arrays, uint32_t writer, uint32_t rows,
             Block block;
             RETURN_IF_ERROR(make_sparse_import_block(arrays, segment_begin + offset,
                                                      std::min(BATCH_ROWS, segment_rows - offset),
-                                                     &rng, &block, json_bytes));
+                                                     &rng, &block, json_bytes,
+                                                     expected_checksum));
             batches.push_back(std::move(block));
         }
     }
@@ -1168,9 +1257,64 @@ Status write_sparse_import_segments(const TabletSchemaSPtr& schema, const std::s
     return Status::OK();
 }
 
+// Reopens every segment written for this scenario and checks that the persisted Variant route
+// reproduces the generated input: a value/type checksum (order-independent on object members,
+// order-sensitive on arrays) built while generating the untimed input, and the total row count.
+// This runs outside the timed region, after every writer has joined.
+Status validate_sparse_import_output(const TabletSchemaSPtr& schema, const std::string& directory,
+                                     const std::vector<uint32_t>& writer_segment_counts,
+                                     uint64_t expected_checksum, uint32_t total_rows) {
+    auto read_schema = std::make_shared<ReadSchema>(schema->columns());
+    OlapReaderStatistics stats;
+    uint64_t actual_checksum = FNV_OFFSET;
+    uint32_t actual_rows = 0;
+    for (uint32_t writer = 0; writer < writer_segment_counts.size(); ++writer) {
+        for (uint32_t segment_index = 0; segment_index < writer_segment_counts[writer];
+             ++segment_index) {
+            const auto segment_id = static_cast<uint32_t>(writer * 10'000 + segment_index);
+            const std::string path = directory + "/" + std::to_string(segment_id) + ".dat";
+            io::FileReaderOptions reader_options;
+            segment_v2::SegmentSharedPtr segment;
+            RETURN_IF_ERROR(segment_v2::Segment::open(io::global_local_filesystem(), path,
+                                                      /*tablet_id=*/1, segment_id, RowsetId(),
+                                                      schema, reader_options, &segment, {},
+                                                      &stats));
+            StorageReadOptions options;
+            options.stats = &stats;
+            options.tablet_schema = schema;
+            std::unique_ptr<RowwiseIterator> iterator;
+            RETURN_IF_ERROR(segment->new_iterator(read_schema, options, &iterator));
+            RETURN_IF_ERROR(iterator->init(options));
+            while (true) {
+                Block block = read_schema->create_read_block();
+                Status status = iterator->next_batch(&block);
+                if (status.is<ErrorCode::END_OF_FILE>()) {
+                    break;
+                }
+                RETURN_IF_ERROR(status);
+                const auto& value = block.get_by_position(1);
+                for (size_t row = 0; row < block.rows(); ++row) {
+                    RETURN_IF_ERROR(update_sparse_import_checksum(
+                            &actual_checksum, value.type->to_string(*value.column, row)));
+                }
+                actual_rows += static_cast<uint32_t>(block.rows());
+            }
+        }
+    }
+    if (actual_rows != total_rows || actual_checksum != expected_checksum) {
+        return Status::InternalError(
+                "Sparse import oracle mismatch: rows={}/{}, checksum={}/{}", actual_rows,
+                total_rows, actual_checksum, expected_checksum);
+    }
+    return Status::OK();
+}
+
 // Input generation and parsing are untimed. The writers then run concurrently, as memtable flushes
 // of several tablets do, so process-wide shared state (for example reference counts of static data
-// types) is contended the way it is during a real import.
+// types) is contended the way it is during a real import. `real_time`/`concurrent_wall_ns_per_row`
+// cover this whole concurrent phase end-to-end (thread spawn, writer work, join), not only
+// VerticalSegmentWriter init/append/finalize; use `cpu_s_per_1m_rows` and the `*_ns_per_row`
+// counters, which are scoped to those phases individually, for phase-level comparison.
 Status run_sparse_import(const SparseImportScenario& scenario, uint32_t total_rows,
                          SparseImportResult* result, uint64_t* concurrent_wall_ns) {
     DORIS_CHECK(result != nullptr);
@@ -1188,17 +1332,29 @@ Status run_sparse_import(const SparseImportScenario& scenario, uint32_t total_ro
 
     const TabletSchemaSPtr schema = make_sparse_import_schema();
     std::vector<SparseImportSegments> inputs(scenario.writers);
+    uint64_t expected_checksum = FNV_OFFSET;
     for (uint32_t writer = 0; writer < scenario.writers; ++writer) {
         const uint32_t rows = total_rows / scenario.writers +
                               (writer + 1 == scenario.writers ? total_rows % scenario.writers : 0);
         RETURN_IF_ERROR(make_sparse_import_input(scenario.arrays, writer, rows, &inputs[writer],
-                                                 &result->input_json_bytes));
+                                                 &result->input_json_bytes,
+                                                 &expected_checksum));
     }
 
     std::vector<SparseImportResult> writer_results(scenario.writers);
     std::vector<Status> statuses(scenario.writers);
     std::vector<std::thread> threads;
     threads.reserve(scenario.writers);
+    // Guarantees every constructed thread is joined even if a later std::thread construction
+    // throws (e.g. under a thread/resource limit): the explicit join loop below makes this a
+    // no-op on the success path, since a joined thread is no longer joinable().
+    Defer join_threads {[&]() {
+        for (std::thread& thread : threads) {
+            if (thread.joinable()) {
+                thread.join();
+            }
+        }
+    }};
     MonotonicStopWatch wall;
     wall.start();
     for (uint32_t writer = 0; writer < scenario.writers; ++writer) {
@@ -1209,6 +1365,12 @@ Status run_sparse_import(const SparseImportScenario& scenario, uint32_t total_ro
                         schema, directory, writer, inputs[writer], &writer_results[writer]);
             } catch (const Exception& exception) {
                 statuses[writer] = exception.to_status();
+            } catch (const std::exception& exception) {
+                statuses[writer] = Status::InternalError("Sparse import writer {} threw: {}",
+                                                         writer, exception.what());
+            } catch (...) {
+                statuses[writer] = Status::InternalError(
+                        "Sparse import writer {} threw an unknown exception", writer);
             }
         });
     }
@@ -1217,6 +1379,7 @@ Status run_sparse_import(const SparseImportScenario& scenario, uint32_t total_ro
     }
     *concurrent_wall_ns = wall.elapsed_time();
 
+    std::vector<uint32_t> writer_segment_counts(scenario.writers);
     for (uint32_t writer = 0; writer < scenario.writers; ++writer) {
         RETURN_IF_ERROR(statuses[writer]);
         const SparseImportResult& part = writer_results[writer];
@@ -1226,8 +1389,10 @@ Status run_sparse_import(const SparseImportScenario& scenario, uint32_t total_ro
         result->finalize_ns += part.finalize_ns;
         result->cpu_ns += part.cpu_ns;
         result->segments += part.segments;
+        writer_segment_counts[writer] = static_cast<uint32_t>(inputs[writer].size());
     }
-    return Status::OK();
+    return validate_sparse_import_output(schema, directory, writer_segment_counts,
+                                         expected_checksum, total_rows);
 }
 
 void BM_VariantSparseImport(benchmark::State& state, SparseImportScenario scenario) {
