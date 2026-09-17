@@ -22,11 +22,8 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.metrics.EventChannel;
-import org.apache.doris.nereids.metrics.EventProducer;
-import org.apache.doris.nereids.metrics.consumer.LogConsumer;
-import org.apache.doris.nereids.metrics.event.GroupMergeEvent;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequestPropertyDeriver;
@@ -73,11 +70,8 @@ import javax.annotation.Nullable;
  */
 public class Memo {
     public static final Logger LOG = LogManager.getLogger(Memo.class);
-    // generate group id in memo is better for test, since we can reproduce exactly same Memo.
-    private static final EventProducer GROUP_MERGE_TRACER = new EventProducer(GroupMergeEvent.class,
-            EventChannel.getDefaultChannel().addConsumers(new LogConsumer(GroupMergeEvent.class, EventChannel.LOG)));
-    private static long stateId = 0;
     private final ConnectContext connectContext;
+    private final CostWeight costWeight;
     // The key is the query tableId, the value is the refresh version when last refresh, this is needed
     // because struct info refresh base on target tableId.
     private final Map<Integer, AtomicInteger> refreshVersion = new HashMap<>();
@@ -95,15 +89,18 @@ public class Memo {
     public Memo() {
         this.root = null;
         this.connectContext = null;
+        this.costWeight = null;
     }
 
     public Memo(ConnectContext connectContext, Plan plan) {
-        this.root = init(plan);
-        this.connectContext = connectContext;
+        this(connectContext, plan,
+                connectContext == null ? null : connectContext.getStatementContext().getCostWeight());
     }
 
-    public static long getStateId() {
-        return stateId;
+    public Memo(ConnectContext connectContext, Plan plan, CostWeight costWeight) {
+        this.root = init(plan);
+        this.connectContext = connectContext;
+        this.costWeight = costWeight;
     }
 
     public Group getRoot() {
@@ -262,23 +259,17 @@ public class Memo {
      * Add plan to Memo.
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite, HashMap<Long, Group> planTable) {
-        CopyInResult result;
         if (rewrite) {
-            result = doRewrite(plan, target);
-        } else {
-            result = doCopyIn(plan, target, planTable, false);
+            return doRewrite(plan, target);
         }
-        maybeAddStateId(result);
-        return result;
+        return doCopyIn(plan, target, planTable, false);
     }
 
     /**
      * Add plan to Memo for dphyper.
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, HashMap<Long, Group> planTable) {
-        CopyInResult result = doCopyIn(plan, target, planTable, true);
-        maybeAddStateId(result);
-        return result;
+        return doCopyIn(plan, target, planTable, true);
     }
 
     /**
@@ -310,21 +301,10 @@ public class Memo {
      *                       is the corresponding group expression of the plan
      */
     public CopyInResult copyIn(Plan plan, @Nullable Group target, boolean rewrite, boolean isInDpHyper) {
-        CopyInResult result;
         if (rewrite) {
-            result = doRewrite(plan, target);
-        } else {
-            result = doCopyIn(plan, target, null, isInDpHyper);
+            return doRewrite(plan, target);
         }
-        maybeAddStateId(result);
-        return result;
-    }
-
-    private void maybeAddStateId(CopyInResult result) {
-        if (connectContext != null && connectContext.getSessionVariable().isEnableNereidsTrace()
-                && result.generateNewExpression) {
-            stateId++;
-        }
+        return doCopyIn(plan, target, null, isInDpHyper);
     }
 
     public List<Plan> copyOutAll() {
@@ -700,8 +680,6 @@ public class Memo {
             }
             needReplaceChild.add(srcParent);
         }
-        GROUP_MERGE_TRACER.log(GroupMergeEvent.of(source, destination, needReplaceChild));
-
         for (GroupExpression reinsertGroupExpr : needReplaceChild) {
             // After change GroupExpression children, hashcode will change, so need to reinsert into map.
             groupExpressions.remove(reinsertGroupExpr);
@@ -1035,15 +1013,12 @@ public class Memo {
 
             List<Pair<Long, List<Integer>>> childrenId = new ArrayList<>();
             permute(children, 0, childrenId, new ArrayList<>());
-            Cost cost = CostCalculator.calculateCost(connectContext, groupExpression, inputProperties);
+            Cost cost = CostCalculator.calculateCost(
+                    connectContext, groupExpression, inputProperties, costWeight);
             for (Pair<Long, List<Integer>> c : childrenId) {
                 Cost totalCost = cost;
                 for (int i = 0; i < children.size(); i++) {
-                    totalCost = CostCalculator.addChildCost(connectContext,
-                            groupExpression.getPlan(),
-                            totalCost,
-                            children.get(i).get(c.second.get(i)).second,
-                            i);
+                    totalCost = totalCost.add(children.get(i).get(c.second.get(i)).second, costWeight);
                 }
                 if (res.isEmpty()) {
                     Preconditions.checkArgument(

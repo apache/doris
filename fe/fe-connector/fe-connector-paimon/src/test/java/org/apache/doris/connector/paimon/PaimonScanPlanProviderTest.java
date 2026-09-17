@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -894,6 +895,98 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertEquals(Collections.singletonMap("scan.snapshot-id", "5"),
                 base.lastCopyOptions,
                 "the scan path must layer the handle's scanOptions via Table.copy(scanOptions)");
+    }
+
+    @Test
+    public void resolveScanTableKeepsCurrentSchemaForStatementSnapshot(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable firstGeneration = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder writeBuilder = firstGeneration.newBatchWriteBuilder();
+            try (BatchTableWrite write = writeBuilder.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            long dataSnapshotId = firstGeneration.latestSnapshot()
+                    .orElseThrow(AssertionError::new).id();
+            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                    .commitChanges(SchemaChange.addColumn("added", DataTypes.INT()));
+            FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(latestGeneration);
+            PaimonTableHandle pinned = (PaimonTableHandle) new PaimonConnectorMetadata(
+                    ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext())
+                    .applySnapshot(null, handle, ConnectorMvccSnapshot.builder()
+                            .snapshotId(dataSnapshotId)
+                            .build());
+
+            Table scanTable = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops).resolveScanTable(pinned);
+
+            Assertions.assertTrue(scanTable.rowType().getFieldNames().contains("added"),
+                    "pinning data visibility must not roll a normal query back to the snapshot's old schema");
+            Assertions.assertEquals(String.valueOf(dataSnapshotId),
+                    scanTable.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key()));
+        }
+    }
+
+    @Test
+    public void resolveScanTableKeepsCurrentSchemaForReaderOnlyOptions(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable firstGeneration = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder writeBuilder = firstGeneration.newBatchWriteBuilder();
+            try (BatchTableWrite write = writeBuilder.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            long dataSnapshotId = firstGeneration.latestSnapshot()
+                    .orElseThrow(AssertionError::new).id();
+            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                    .commitChanges(SchemaChange.addColumn("added", DataTypes.INT()));
+            FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
+
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            handle.setPaimonTable(latestGeneration);
+            Map<String, String> scanOptions = PaimonScanParams.markAsOptions(
+                    PaimonScanParams.pinOptionsToSnapshot(
+                            Collections.singletonMap("scan.plan-sort-partition", "true"),
+                            dataSnapshotId));
+
+            Table scanTable = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingPaimonCatalogOps())
+                    .resolveScanTable(handle.withScanOptions(scanOptions));
+
+            Assertions.assertTrue(scanTable.rowType().getFieldNames().contains("added"),
+                    "reader-only OPTIONS must retain the current bound schema while pinning data visibility");
+            Assertions.assertEquals("true", scanTable.options().get("scan.plan-sort-partition"));
+        }
     }
 
     @Test

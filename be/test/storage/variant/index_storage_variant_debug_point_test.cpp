@@ -147,11 +147,8 @@ protected:
         EXPECT_TRUE(probe.has_value()) << probe.error();
         if (probe.has_value()) {
             EXPECT_EQ(probe->contains_relative_path(std::string(kArrayPath)), !array_is_null);
-            if (array_is_null) {
-                EXPECT_EQ(probe->index_files.existing_files, 0);
-            } else {
-                expect_index_files(probe.value(), true);
-            }
+            // The schema owns the index, so a null array still leaves an index file.
+            expect_index_files(probe.value(), true);
         }
         return rowset.value();
     }

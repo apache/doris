@@ -579,6 +579,74 @@ public:
             }
         }
     }
+
+    // A STRING / VARCHAR value may hold '\0' in the middle, and the zone map
+    // bound has to keep those bytes. A bound cut at the '\0' is smaller than the data it
+    // stands for, so a pushed-down comparison prunes pages that do hold matching rows.
+    // CHAR is the exception: it is zero-padded to the schema length on write and the page
+    // read path cuts every CHAR value at its first '\0', so its bound is cut here too.
+    template <PrimitiveType PType>
+    void test_embedded_nul_bound(const std::string& testname, bool bound_is_cut) {
+        // 'a' '\0' 'b' -- a value whose middle byte is '\0'.
+        const std::string value("a\0b", 3);
+        const std::string cut_value("a");
+
+        TabletColumnPtr tab_col;
+        int32_t length = -1;
+        if constexpr (PType == TYPE_CHAR) {
+            length = 3;
+            tab_col = create_char_key(0, false, length);
+        } else if constexpr (PType == TYPE_VARCHAR) {
+            tab_col = create_varchar_key(0, false);
+        } else {
+            tab_col = create_string_key(0, false);
+        }
+        auto data_type = DataTypeFactory::instance().create_data_type(PType, false, 0, 0, length);
+
+        std::unique_ptr<ZoneMapIndexWriter> writer;
+        ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, tab_col.get(), writer).ok());
+        Slice slices[] = {Slice(value), Slice(value)};
+        writer->add_values(slices, 2);
+        ASSERT_TRUE(writer->flush().ok());
+
+        const std::string file_path = kTestDir + "/" + testname;
+        io::FileWriterPtr file_writer;
+        ASSERT_TRUE(_fs->create_file(file_path, &file_writer).ok());
+        ColumnIndexMetaPB index_meta;
+        ASSERT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
+        ASSERT_TRUE(file_writer->close().ok());
+
+        // The bytes on disk always carry the '\0'; only the parse back can lose it.
+        const auto& seg_zm_pb = index_meta.zone_map_index().segment_zone_map();
+        EXPECT_EQ(seg_zm_pb.min(), value);
+        EXPECT_EQ(seg_zm_pb.max(), value);
+
+        ZoneMap zone_map;
+        ASSERT_TRUE(ZoneMap::from_proto(seg_zm_pb, data_type, zone_map).ok());
+        ASSERT_FALSE(zone_map.pass_all);
+        const std::string& expected = bound_is_cut ? cut_value : value;
+        EXPECT_EQ(zone_map.min_value.template get<PType>(), expected);
+        EXPECT_EQ(zone_map.max_value.template get<PType>(), expected);
+
+        if (bound_is_cut) {
+            return;
+        }
+
+        // The page holds only 'a\0b', so every predicate below has to keep the page.
+        const auto a = Field::create_field<PType>(cut_value);
+        ComparisonPredicateBase<PType, PredicateType::GT> gt(0, "", a);
+        EXPECT_TRUE(gt.evaluate_and(zone_map));
+        ComparisonPredicateBase<PType, PredicateType::NE> ne(0, "", a);
+        EXPECT_TRUE(ne.evaluate_and(zone_map));
+        ComparisonPredicateBase<PType, PredicateType::EQ> eq(0, "",
+                                                             Field::create_field<PType>(value));
+        EXPECT_TRUE(eq.evaluate_and(zone_map));
+
+        // ... and 'a\0b' <= 'a' matches nothing, so this one may drop it.
+        ComparisonPredicateBase<PType, PredicateType::LE> le(0, "", a);
+        EXPECT_FALSE(le.evaluate_and(zone_map));
+    }
+
     io::FileSystemSPtr _fs;
 };
 
@@ -946,6 +1014,74 @@ TEST_F(ColumnZoneMapTest, DoubleFiniteExtremesRoundTrip) {
     EXPECT_EQ(pzm.max_value.get<TYPE_DOUBLE>(), std::numeric_limits<double>::max());
 }
 
+TEST_F(ColumnZoneMapTest, LegacyFloatZoneMapWithoutHasNanDegradesToPassAll) {
+    // A float or double zone map written before has_nan existed says nothing about NaN, and its
+    // bounds were produced by a comparison that never picks a NaN. Since Doris sorts NaN above
+    // every other value, trusting such bounds drops NaN rows from `>` and `>=`.
+    auto legacy_pb = [](double min_value, double max_value) {
+        ZoneMapPB pb;
+        pb.set_min(std::to_string(min_value));
+        pb.set_max(std::to_string(max_value));
+        pb.set_has_null(false);
+        pb.set_has_not_null(true);
+        pb.set_pass_all(false);
+        // Deliberately no set_has_nan / set_has_positive_inf / set_has_negative_inf.
+        return pb;
+    };
+
+    for (const auto primitive_type : {TYPE_FLOAT, TYPE_DOUBLE}) {
+        for (bool nullable : {false, true}) {
+            auto data_type = DataTypeFactory::instance().create_data_type(primitive_type, nullable);
+            ZoneMap zm;
+            ASSERT_TRUE(ZoneMap::from_proto(legacy_pb(1.0, 2.0), data_type, zm).ok());
+            EXPECT_TRUE(zm.pass_all) << "type=" << primitive_type << ", nullable=" << nullable;
+            // The null flags survive, and so does the pruning that reads only them:
+            // eval_null_zonemap never consults pass_all. The ColumnPredicate path in
+            // ColumnReader::_get_filtered_pages does return early on pass_all, so it loses its
+            // IS NULL pruning for this zone map.
+            EXPECT_TRUE(zm.has_not_null);
+            EXPECT_FALSE(zm.has_null);
+
+            // The same bounds from a writer that does report the flag stay usable.
+            auto pb = legacy_pb(1.0, 2.0);
+            pb.set_has_nan(false);
+            ZoneMap current;
+            ASSERT_TRUE(ZoneMap::from_proto(pb, data_type, current).ok());
+            EXPECT_FALSE(current.pass_all)
+                    << "type=" << primitive_type << ", nullable=" << nullable;
+            if (primitive_type == TYPE_DOUBLE) {
+                EXPECT_EQ(1.0, current.min_value.get<TYPE_DOUBLE>());
+                EXPECT_EQ(2.0, current.max_value.get<TYPE_DOUBLE>());
+            } else {
+                EXPECT_EQ(1.0F, current.min_value.get<TYPE_FLOAT>());
+                EXPECT_EQ(2.0F, current.max_value.get<TYPE_FLOAT>());
+            }
+
+            // A legacy zone with no non-null value never received one, so no NaN can hide in it.
+            // The bound text is irrelevant here: from_proto only parses it when has_not_null.
+            auto all_null = legacy_pb(1.0, 2.0);
+            all_null.set_has_null(true);
+            all_null.set_has_not_null(false);
+            ZoneMap all_null_zm;
+            ASSERT_TRUE(ZoneMap::from_proto(all_null, data_type, all_null_zm).ok());
+            EXPECT_FALSE(all_null_zm.pass_all)
+                    << "type=" << primitive_type << ", nullable=" << nullable;
+        }
+    }
+
+    // Non-floating columns never carried the flag and are unaffected.
+    auto int_type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    ZoneMapPB int_pb;
+    int_pb.set_min("1");
+    int_pb.set_max("9");
+    int_pb.set_has_null(false);
+    int_pb.set_has_not_null(true);
+    int_pb.set_pass_all(false);
+    ZoneMap int_zm;
+    ASSERT_TRUE(ZoneMap::from_proto(int_pb, int_type, int_zm).ok());
+    EXPECT_FALSE(int_zm.pass_all);
+}
+
 TEST_F(ColumnZoneMapTest, LegacyUnparsableDoubleBoundDegradesToPassAll) {
     auto make_zone_map = [](const std::string& min, const std::string& max) {
         ZoneMapPB pb;
@@ -954,6 +1090,9 @@ TEST_F(ColumnZoneMapTest, LegacyUnparsableDoubleBoundDegradesToPassAll) {
         pb.set_has_null(false);
         pb.set_has_not_null(true);
         pb.set_pass_all(false);
+        // The current writer always reports this flag; leaving it out would mark the zone map as
+        // pre-NaN-tracking legacy metadata, which is a different test.
+        pb.set_has_nan(false);
         return pb;
     };
     // 16g renderings of ±DBL_MAX, both of which read back as ∓inf.
@@ -1094,10 +1233,15 @@ TEST_F(ColumnZoneMapTest, ReversedBoundsDegradeToPassAll) {
         pb.set_has_null(false);
         pb.set_has_not_null(true);
         pb.set_pass_all(false);
+        // The current writer always reports this flag; leaving it out would mark the zone map as
+        // pre-NaN-tracking legacy metadata, which is a different test.
+        pb.set_has_nan(false);
         return pb;
     };
-    // What a page of only NaN leaves behind before 4.0: bounds that never moved off the values
-    // the writer starts from, and that round-trip exactly, so only the reversal gives them away.
+    // add_values() starts each call from numeric_limits::max() and ::lowest(), and a page whose
+    // only non-null values are NaN or infinity leaves them there, so the stored pair comes back
+    // reversed. These strings round-trip exactly, and the reversal is the first signal either way:
+    // is_reversed runs before the flag overrides.
     const std::string double_lowest = "-1.7976931348623157e+308";
     const std::string double_highest = "1.7976931348623157e+308";
     const std::string float_lowest = "-3.4028235e+38";
@@ -1531,6 +1675,17 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterMaxLenStringPage_NoSegmentMaxDoubleInc
                "_page_zone_map.max_value into _segment_zone_map.max_value, "
                "causing finish() to increment the last byte a second time.";
     EXPECT_EQ(static_cast<unsigned char>(seg_zm.max().back()), static_cast<unsigned char>('y'));
+}
+
+// Regression test: a comparison predicate on a STRING / VARCHAR column
+// whose values hold an embedded '\0' silently lost or gained rows, because the zone map
+// bound was parsed back with C string semantics and stopped at that '\0'.
+TEST_F(ColumnZoneMapTest, EmbeddedNulKeepsStringBound) {
+    test_embedded_nul_bound<TYPE_STRING>("embedded_nul_string", /*bound_is_cut=*/false);
+    test_embedded_nul_bound<TYPE_VARCHAR>("embedded_nul_varchar", /*bound_is_cut=*/false);
+    // CHAR pads with '\0' on write and cuts at the first '\0' on read, so its bound is
+    // cut the same way and stays comparable with the rows the page returns.
+    test_embedded_nul_bound<TYPE_CHAR>("embedded_nul_char", /*bound_is_cut=*/true);
 }
 
 } // namespace segment_v2

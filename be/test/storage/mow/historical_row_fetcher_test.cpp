@@ -23,6 +23,7 @@
 #include <memory>
 #include <vector>
 
+#include "cpp/sync_point.h"
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/partial_update_info.h"
 
@@ -78,6 +79,143 @@ TEST_F(HistoricalRowFetcherTest, ReadColumnsReturnsThePlannedRows) {
     ASSERT_EQ(read_index.size(), 2);
     EXPECT_EQ(read_int(old_values, 0, read_index[0]), 33); // dst 0 <- row 2
     EXPECT_EQ(read_int(old_values, 0, read_index[1]), 11); // dst 1 <- row 0
+}
+
+// A full row-store schema can still read a narrow projection directly from physical columns.
+// Both sources must preserve planned row order and delete-sign semantics.
+TEST_F(HistoricalRowFetcherTest, FixedPlanColumnStoreReadMatchesRowStore) {
+    auto schema = create_row_store_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 5002, 2, {{1, 11, 0, 0}, {2, 22, 0, 1}}, &tablet);
+    std::map<RowsetId, RowsetSharedPtr> rowsets {{rowset->rowset_id(), rowset}};
+
+    FixedReadPlan read_plan;
+    read_plan.prepare_to_read(RowLocation {rowset->rowset_id(), 0, 1}, /*dst_pos=*/0);
+    read_plan.prepare_to_read(RowLocation {rowset->rowset_id(), 0, 0}, /*dst_pos=*/1);
+
+    const std::vector<uint32_t> cids {0, 1};
+    auto column_store_block = schema->create_storage_block(cids);
+    auto row_store_block = schema->create_storage_block(cids);
+    std::map<uint32_t, uint32_t> column_store_read_index;
+    std::map<uint32_t, uint32_t> row_store_read_index;
+
+    ASSERT_TRUE(read_plan
+                        .read_columns_by_plan(*schema, cids, rowsets, column_store_block,
+                                              &column_store_read_index,
+                                              FixedReadPlan::ReadStrategy::COLUMN_STORE,
+                                              /*force_read_old_delete_signs=*/true)
+                        .ok());
+    ASSERT_TRUE(read_plan
+                        .read_columns_by_plan(*schema, cids, rowsets, row_store_block,
+                                              &row_store_read_index,
+                                              FixedReadPlan::ReadStrategy::PREFER_ROW_STORE,
+                                              /*force_read_old_delete_signs=*/true)
+                        .ok());
+
+    EXPECT_EQ(column_store_read_index, row_store_read_index);
+    EXPECT_EQ(column_store_block.dump_data(), row_store_block.dump_data());
+    ASSERT_EQ(column_store_block.rows(), 2);
+    EXPECT_EQ(read_int(column_store_block, 0, 0), 2);
+    EXPECT_EQ(read_int(column_store_block, 0, 1), 1);
+    EXPECT_EQ(read_int(column_store_block, 1, 0), 22);
+    EXPECT_EQ(read_int(column_store_block, 1, 1), 11);
+    EXPECT_EQ(read_tinyint(column_store_block, 2, 0), 1);
+    EXPECT_EQ(read_tinyint(column_store_block, 2, 1), 0);
+}
+
+// The production publish-conflict rebuild must read the current rowset's update projection from
+// physical columns, while the historical missing projection still uses the row store. The batch
+// physical read must load/locate each planned segment once, not once per update column.
+TEST_F(HistoricalRowFetcherTest, PublishConflictUsesBatchedColumnStoreForCurrentProjection) {
+    auto schema = create_row_store_schema(/*has_seq=*/true);
+    TabletSharedPtr tablet;
+    auto current_rowset = write_rowset(schema, 5003, 3, {{1, 101, 5, 0}}, &tablet);
+    auto historical_rowset = write_rowset(schema, 5004, 2, {{1, 11, 3, 0}}, &tablet);
+
+    auto partial_update_info = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(partial_update_info
+                        ->init(kTabletId, /*txn_id=*/1, *schema,
+                               UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                               PartialUpdateNewRowPolicyPB::APPEND, {"k", "v"},
+                               /*is_strict_mode=*/false, /*timestamp_ms=*/0,
+                               /*nano_seconds=*/0, "UTC", "")
+                        .ok());
+
+    FixedReadPlan read_plan_update;
+    read_plan_update.prepare_to_read(
+            RowLocation {current_rowset->rowset_id(), /*segment_id=*/0, /*row_id=*/0},
+            /*dst_pos=*/0);
+    FixedReadPlan read_plan_historical;
+    read_plan_historical.prepare_to_read(
+            RowLocation {historical_rowset->rowset_id(), /*segment_id=*/0, /*row_id=*/0},
+            /*dst_pos=*/0);
+    std::map<RowsetId, RowsetSharedPtr> rowsets {
+            {current_rowset->rowset_id(), current_rowset},
+            {historical_rowset->rowset_id(), historical_rowset}};
+
+    int current_segment_loads = 0;
+    int historical_segment_loads = 0;
+    int current_batch_reads = 0;
+    int current_row_store_reads = 0;
+    int historical_row_store_reads = 0;
+    size_t current_batch_column_count = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard load_segment_guard;
+    SyncPoint::CallbackGuard batch_read_guard;
+    SyncPoint::CallbackGuard row_store_read_guard;
+    sync_point->set_call_back(
+            "BaseTablet::_load_segment",
+            [&](auto&& args) {
+                auto* rowset = try_any_cast<BetaRowset*>(args[0]);
+                if (rowset->rowset_id() == current_rowset->rowset_id()) {
+                    ++current_segment_loads;
+                } else if (rowset->rowset_id() == historical_rowset->rowset_id()) {
+                    ++historical_segment_loads;
+                }
+            },
+            &load_segment_guard);
+    sync_point->set_call_back(
+            "BaseTablet::fetch_values_by_rowids",
+            [&](auto&& args) {
+                auto* rowset = try_any_cast<BetaRowset*>(args[0]);
+                if (rowset->rowset_id() == current_rowset->rowset_id()) {
+                    ++current_batch_reads;
+                    current_batch_column_count =
+                            try_any_cast<const std::vector<uint32_t>*>(args[1])->size();
+                }
+            },
+            &batch_read_guard);
+    sync_point->set_call_back(
+            "BaseTablet::fetch_value_through_row_column",
+            [&](auto&& args) {
+                auto* rowset = try_any_cast<BetaRowset*>(args[0]);
+                if (rowset->rowset_id() == current_rowset->rowset_id()) {
+                    ++current_row_store_reads;
+                } else if (rowset->rowset_id() == historical_rowset->rowset_id()) {
+                    ++historical_row_store_reads;
+                }
+            },
+            &row_store_read_guard);
+    sync_point->enable_processing();
+
+    auto output_block = schema->create_storage_block();
+    auto st = BaseTablet::generate_new_block_for_partial_update(
+            schema, partial_update_info.get(), read_plan_historical, read_plan_update, rowsets,
+            &output_block);
+    sync_point->disable_processing();
+
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(output_block.rows(), 1);
+    EXPECT_EQ(read_int(output_block, 0, 0), 1);
+    EXPECT_EQ(read_int(output_block, 1, 0), 101);
+    EXPECT_EQ(read_int(output_block, 2, 0), 3);
+    EXPECT_EQ(read_tinyint(output_block, 3, 0), 0);
+    EXPECT_EQ(current_batch_reads, 1);
+    EXPECT_EQ(current_batch_column_count, 2);
+    EXPECT_EQ(current_row_store_reads, 0);
+    EXPECT_EQ(historical_row_store_reads, 1);
+    EXPECT_EQ(current_segment_loads, 1);
+    EXPECT_EQ(historical_segment_loads, 1);
 }
 
 // The fixed partial update fill: rows flagged for a historical read take the old value, rows
