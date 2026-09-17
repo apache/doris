@@ -129,6 +129,10 @@ public:
         local_state._exchanger->set_low_memory_mode();
     }
 
+#ifdef BE_TEST
+    PartitionerBase* partitioner_for_test() const { return _partitioner.get(); }
+#endif
+
 private:
     friend class LocalExchangeSinkLocalState;
     friend class ShuffleExchanger;

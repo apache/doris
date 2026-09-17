@@ -36,8 +36,8 @@ suite("test_distribution_hash_type_identity") {
 
     // SHOW CREATE TABLE round-trip: the property must be echoed back so the table can be rebuilt.
     def createStmt = sql "SHOW CREATE TABLE test_dist_hash_identity"
-    assertTrue(createStmt[0][1].toString().toLowerCase().contains("distribution_hash_type"))
-    assertTrue(createStmt[0][1].toString().toLowerCase().contains("identity"))
+    assertTrue(createStmt[0][1].toString().toLowerCase()
+            .contains("\"distribution_hash_type\" = \"identity\""))
 
     // default (property absent) is crc32: SHOW CREATE must NOT emit the property.
     sql "DROP TABLE IF EXISTS test_dist_hash_default"
@@ -368,6 +368,16 @@ suite("test_distribution_hash_type_identity") {
     qt_identity_added_partition "SELECT id FROM test_dist_hash_identity_part WHERE dt = 15 AND id = 513"
     qt_identity_partition_count "SELECT COUNT(*) FROM test_dist_hash_identity_part"
 
+    // Legacy planner must pass the table hash type to HashDistributionPruner as well.
+    sql "set enable_nereids_planner=false"
+    sql "set enable_fallback_to_original_planner=false"
+    qt_legacy_identity_integer "SELECT id FROM test_dist_hash_identity WHERE id = 1"
+    qt_legacy_identity_string "SELECT name, v FROM test_dist_hash_string WHERE name = 'beta'"
+    qt_legacy_identity_multi """
+        SELECT id, name, v FROM test_dist_hash_multi_col WHERE id = -1 AND name = 'A'
+    """
+    sql "set enable_nereids_planner=true"
+
     // ---------------------------------------------------------------------
     // 7. colocate join: two identity tables in the same colocate group join with no reshuffle.
     //    Both sides keep their storage layout (same identity hash + same bucket count), so the
@@ -406,13 +416,30 @@ suite("test_distribution_hash_type_identity") {
     // Force both storage layouts through ordinary execution shuffle. Their source-table hash
     // labels must be normalized because HASH_PARTITIONED uses the execution hash algorithm.
     sql "set enable_bucket_shuffle_join = false"
+    sql "set parallel_pipeline_task_num = 4"
     explain {
         sql("""SELECT a.id FROM test_dist_hash_colo_id1 a
-                 JOIN test_dist_hash_join_crc32 b ON a.id = b.id""")
+                 JOIN [shuffle] test_dist_hash_join_crc32 b ON a.id = b.id""")
         contains "HAS_COLO_PLAN_NODE: false"
+        contains "INNER JOIN(PARTITIONED)"
     }
     order_qt_mixed_hash_join """SELECT a.id FROM test_dist_hash_colo_id1 a
-                                    JOIN test_dist_hash_join_crc32 b ON a.id = b.id"""
+                                    JOIN [shuffle] test_dist_hash_join_crc32 b ON a.id = b.id"""
+    // Thousands of distinct keys feed all ordinary shuffle destinations, not just channel zero.
+    sql "INSERT INTO test_dist_hash_colo_id1 SELECT number + 2048 FROM numbers('number'='4096')"
+    sql "INSERT INTO test_dist_hash_join_crc32 SELECT number + 2048 FROM numbers('number'='4096')"
+    def mixedHashMultiInstanceSql = """
+        SELECT a.id % 17 AS g, count(*), sum(a.id)
+        FROM test_dist_hash_colo_id1 a
+        JOIN [shuffle] test_dist_hash_join_crc32 b ON a.id = b.id
+        GROUP BY g
+    """
+    explain {
+        sql(mixedHashMultiInstanceSql)
+        contains "INNER JOIN(PARTITIONED)"
+        contains "HAS_COLO_PLAN_NODE: false"
+    }
+    order_qt_mixed_hash_partitioned_multi_instance "${mixedHashMultiInstanceSql}"
     sql "set enable_bucket_shuffle_join = true"
 
     // ---------------------------------------------------------------------
@@ -421,6 +448,8 @@ suite("test_distribution_hash_type_identity") {
     //    side to that layout. The reshuffle must use the identity hash on BE (not crc32),
     //    otherwise rows land on the wrong channel and the join result is wrong.
     // ---------------------------------------------------------------------
+    // Force multiple local destinations so CRC32 and IDENTITY cannot both degenerate to channel 0.
+    sql "set parallel_pipeline_task_num = 4"
     sql "set enable_nereids_planner=true"
     sql "set enable_bucket_shuffle_join = true"
     // Keep bucket shuffle deterministic across clusters: a positive downgrade ratio may replace it
@@ -561,23 +590,81 @@ suite("test_distribution_hash_type_identity") {
                                                       JOIN [shuffle] test_dist_hash_nullable_right r
                                                       ON l.name <=> r.name"""
 
-    // A set operation that preserves an identity storage layout must expose IDENTITY to its parent.
-    def setOperationJoinSql = """
-        SELECT u.id, u.name, u.v, r.w
-        FROM (
-            SELECT id, name, v FROM test_dist_hash_multi_col WHERE id <= 1
-            UNION ALL
-            SELECT id, name, v FROM test_dist_hash_multi_col WHERE id = 2
-        ) u
-        JOIN [shuffle] test_dist_hash_bs_multi_right r
-          ON u.id = r.id AND u.name = r.name
-    """
-    explain {
-        sql(setOperationJoinSql)
-        contains "INNER JOIN(BUCKET_SHUFFLE)"
-    }
-    order_qt_identity_set_operation_join "${setOperationJoinSql}"
+    // Set bucket shuffle requires BOTH FE local shuffle and Nereids distribute planning.
+    // The window is a hash consumer of the set output; asserting only a parent join's
+    // BUCKET_SHUFFLE would also pass if the whole set were re-bucketed after execution shuffle.
+    sql "set enable_local_shuffle_planner = true"
+    sql "set enable_nereids_distribute_planner = true"
+    sql "set enable_local_shuffle = true"
+    // Otherwise INTERSECT puts its smaller input first, hiding the left-basic arm.
+    sql "set disable_nereids_rules = 'REORDER_INTERSECT'"
+    // Keep every key reaching the exchanges; runtime-filter pruning is not the path under test.
+    sql "set runtime_filter_mode = 'OFF'"
+    sql "DROP TABLE IF EXISTS test_dist_hash_set_identity"
+    sql "DROP TABLE IF EXISTS test_dist_hash_set_other_identity"
+    sql "DROP TABLE IF EXISTS test_dist_hash_set_crc"
+    sql """CREATE TABLE test_dist_hash_set_identity(id BIGINT NOT NULL)
+        DISTRIBUTED BY HASH(id) BUCKETS 8
+        PROPERTIES('replication_num'='1', 'distribution_hash_type'='identity')"""
+    sql """CREATE TABLE test_dist_hash_set_other_identity(id BIGINT NOT NULL)
+        DISTRIBUTED BY HASH(id) BUCKETS 5
+        PROPERTIES('replication_num'='1', 'distribution_hash_type'='identity')"""
+    sql """CREATE TABLE test_dist_hash_set_crc(id BIGINT NOT NULL)
+        DISTRIBUTED BY HASH(id) BUCKETS 7 PROPERTIES('replication_num'='1')"""
+    sql """INSERT INTO test_dist_hash_set_identity VALUES
+        (-8), (-1), (0), (1), (2), (7), (8), (513), (1024), (4294967297)"""
+    sql """INSERT INTO test_dist_hash_set_other_identity VALUES
+        (-1), (1), (1), (7), (9), (513), (1024), (8589934593)"""
+    sql """INSERT INTO test_dist_hash_set_crc SELECT * FROM test_dist_hash_set_other_identity"""
 
+    // Inject stats only to select the intended basic child, as in bucket_shuffle_set_operation.
+    // Check left and right basics, and both directions of mixed-hash target selection.
+    ["identity_left", "identity_right", "mixed_identity_target", "mixed_crc_target"].each { variant ->
+        def left = variant == "identity_right" ? "test_dist_hash_set_other_identity"
+                : "test_dist_hash_set_identity"
+        def right = variant == "identity_left" ? "test_dist_hash_set_other_identity"
+                : variant == "identity_right" ? "test_dist_hash_set_identity" : "test_dist_hash_set_crc"
+        def basic = variant == "mixed_crc_target" ? right : "test_dist_hash_set_identity"
+        [left, right].each { table ->
+            def rows = table == basic ? 10000 : 100
+            // Also keep the estimated NDV large: otherwise pre-deduplication of INTERSECT /
+            // EXCEPT can shrink the intended basic below its sibling and reverse the target.
+            sql """ALTER TABLE ${table} MODIFY COLUMN id SET STATS
+                ('row_count'='${rows}', 'ndv'='${rows}', 'min_value'='-8', 'max_value'='8589934593')"""
+        }
+        ["union": "UNION ALL", "intersect": "INTERSECT", "except": "EXCEPT"].each { kind, op ->
+            def query = """SELECT id, row_number() OVER (PARTITION BY id ORDER BY id) rn
+                FROM (SELECT id FROM ${left} ${op} SELECT id FROM ${right}) u"""
+            // Golden subtree shows the set operator itself is bucketShuffle, its basic scan
+            // stays direct and its other child is PhysicalDistribute. Exact hash properties
+            // and remote/local thrift fields are checked by IdentitySetOperationTest in FE UT.
+            explain {
+                sql "shape plan " + query
+                check { String plan ->
+                    def setNode = "Physical${kind.capitalize()}[bucketShuffle]"
+                    assertTrue(plan.contains(setNode))
+                    def lines = plan.readLines()
+                    def depth = { String line -> (line =~ /^-*/)[0].length() }
+                    def parentOf = { int index ->
+                        lines.take(index).reverse().find { depth(it) < depth(lines[index]) } ?: ""
+                    }
+                    int basicScan = lines.findIndexOf { it.contains("PhysicalOlapScan[${basic}]") }
+                    assertTrue(basicScan >= 0)
+                    assertTrue(parentOf(basicScan).contains(setNode),
+                            "${basic} must stay the direct storage basic, not the exchanged side")
+                    int exchange = lines.findIndexOf { it.contains("PhysicalDistribute[DistributionSpecHash]") }
+                    assertTrue(exchange >= 0)
+                    assertTrue(parentOf(exchange).contains(setNode),
+                            "the set child, not the whole set output, must be bucket-shuffled")
+                }
+            }
+            quickTest("set_${variant}_${kind}_shape", "explain shape plan " + query)
+            quickTest("set_${variant}_${kind}_result", query, true)
+        }
+    }
+
+    sql "set disable_nereids_rules = ''"
+    sql "set runtime_filter_mode = 'GLOBAL'"
 
     // ---------------------------------------------------------------------
     // 9. Nested-loop join preserves the probe-side IDENTITY bucket layout.

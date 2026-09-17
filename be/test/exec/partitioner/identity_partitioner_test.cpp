@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <boost/multiprecision/cpp_int.hpp>
 #include <limits>
 #include <memory>
 #include <vector>
@@ -187,45 +188,112 @@ TEST_F(IdentityPartitionerTest, Crc32DiffersFromIdentity) {
     EXPECT_TRUE(differs);
 }
 
-TEST(IdentityHashTest, FixedWidthAndLegacyTypes) {
-    constexpr uint32_t n = 257;
-    auto hash_bytes = [](const void* value, size_t size, uint32_t seed = 0) {
-        const auto* bytes = reinterpret_cast<const uint8_t*>(value);
-        uint64_t remainder = seed;
-        for (size_t i = size; i > 0; --i) {
-            remainder = (remainder * 256 + bytes[i - 1]) % n;
+namespace {
+
+// Like the FE pruning tests' BigInteger oracle, construct the entire unsigned value before
+// taking the modulus. This deliberately does not reproduce RawValue's chunked modular loop.
+boost::multiprecision::cpp_int append_bytes(boost::multiprecision::cpp_int prefix,
+                                            const void* value, size_t size) {
+    const auto* bytes = static_cast<const uint8_t*>(value);
+    boost::multiprecision::cpp_int suffix = 0;
+    for (size_t i = 0; i < size; ++i) {
+        suffix += boost::multiprecision::cpp_int(bytes[i]) << (8 * i);
+    }
+    return (prefix << (8 * size)) + suffix;
+}
+
+uint32_t bucket(const boost::multiprecision::cpp_int& value, uint32_t modulus) {
+    return (value % modulus).convert_to<uint32_t>();
+}
+
+} // namespace
+
+TEST(IdentityHashTest, FixedWidthHighBytes) {
+    const std::vector<std::pair<PrimitiveType, size_t>> types = {
+            {TYPE_BOOLEAN, 1},      {TYPE_TINYINT, 1},      {TYPE_SMALLINT, 2},
+            {TYPE_INT, 4},          {TYPE_FLOAT, 4},        {TYPE_DATEV2, 4},
+            {TYPE_DECIMAL32, 4},    {TYPE_IPV4, 4},         {TYPE_BIGINT, 8},
+            {TYPE_DOUBLE, 8},       {TYPE_TIMEV2, 8},       {TYPE_DATETIMEV2, 8},
+            {TYPE_TIMESTAMP_NS, 8}, {TYPE_TIMESTAMPTZ, 8},  {TYPE_DECIMAL64, 8},
+            {TYPE_LARGEINT, 16},    {TYPE_DECIMAL128I, 16}, {TYPE_IPV6, 16},
+            {TYPE_DECIMAL256, 32}};
+    for (auto [type, width] : types) {
+        for (bool negative : {false, true}) {
+            std::array<uint8_t, 32> bytes {};
+            // Nonzero on both sides of every 4/8/16-byte boundary, including the high byte.
+            for (size_t i = 0; i < width; ++i) {
+                bytes[i] = static_cast<uint8_t>(17 + 7 * i);
+            }
+            bytes[width - 1] = negative ? 0xe3 : 0x63;
+            for (uint32_t seed : {0u, 37u, 0xfedcba98u}) {
+                auto expected = append_bytes(seed, bytes.data(), width);
+                for (uint32_t modulus : {251u, 1009u, 1024u}) {
+                    SCOPED_TRACE(::testing::Message()
+                                 << "type=" << type << " width=" << width << " negative="
+                                 << negative << " seed=" << seed << " modulus=" << modulus);
+                    EXPECT_EQ(bucket(expected, modulus),
+                              RawValue::identity_hash(bytes.data(), bytes.size(), type, seed,
+                                                      modulus));
+                }
+                // A power-of-two modulus alone cannot expose loss of high bytes. Ensure these
+                // vectors distinguish the common 2/4/8/16-byte truncations with an odd modulus.
+                for (size_t truncated : {2u, 4u, 8u, 16u}) {
+                    if (truncated < width) {
+                        auto wrong = append_bytes(seed, bytes.data(), truncated);
+                        EXPECT_TRUE(bucket(expected, 251) != bucket(wrong, 251) ||
+                                    bucket(expected, 1009) != bucket(wrong, 1009));
+                    }
+                }
+            }
         }
-        return static_cast<uint32_t>(remainder);
-    };
+    }
+}
 
-    std::array<uint8_t, 32> bytes {};
-    bytes[0] = 0x34;
-    bytes[1] = 0x12;
-    EXPECT_EQ(hash_bytes(bytes.data(), 2),
-              RawValue::identity_hash(bytes.data(), 2, TYPE_VARCHAR, 0, n));
-    EXPECT_EQ(hash_bytes(bytes.data(), 1),
-              RawValue::identity_hash(bytes.data(), bytes.size(), TYPE_BOOLEAN, 0, n));
-    EXPECT_EQ(hash_bytes(bytes.data(), 2),
-              RawValue::identity_hash(bytes.data(), bytes.size(), TYPE_SMALLINT, 0, n));
-    EXPECT_EQ(hash_bytes(bytes.data(), 8),
-              RawValue::identity_hash(bytes.data(), bytes.size(), TYPE_BIGINT, 0, n));
-    EXPECT_EQ(hash_bytes(bytes.data(), 16),
-              RawValue::identity_hash(bytes.data(), bytes.size(), TYPE_LARGEINT, 0, n));
-    EXPECT_EQ(hash_bytes(bytes.data(), bytes.size()),
-              RawValue::identity_hash(bytes.data(), bytes.size(), TYPE_DECIMAL256, 0, n));
+TEST(IdentityHashTest, WideColumnsWithNullTail) {
+    std::array<uint8_t, 32> wide {};
+    for (size_t i = 0; i < wide.size(); ++i) {
+        wide[i] = static_cast<uint8_t>(0xf1 - 3 * i);
+    }
+    const int64_t second = -0x123456789abcdefLL;
+    const uint32_t null_bytes = 0;
+    const std::string tail = "identity";
+    for (uint32_t seed : {37u, 0xfedcba98u}) {
+        auto expected = append_bytes(seed, wide.data(), wide.size());
+        expected = append_bytes(expected, &second, sizeof(second));
+        expected = append_bytes(expected, &null_bytes, sizeof(null_bytes));
+        for (uint32_t modulus : {251u, 1009u, 1024u}) {
+            uint32_t hash = RawValue::identity_hash(wide.data(), wide.size(), TYPE_DECIMAL256, seed,
+                                                    modulus);
+            hash = RawValue::identity_hash(&second, sizeof(second), TYPE_BIGINT, hash, modulus);
+            hash = RawValue::identity_hash(nullptr, 0, TYPE_LARGEINT, hash, modulus);
+            EXPECT_EQ(bucket(expected, modulus), hash);
+            EXPECT_EQ(
+                    bucket(append_bytes(expected, tail.data(), tail.size()), modulus),
+                    RawValue::identity_hash(tail.data(), tail.size(), TYPE_STRING, hash, modulus));
+        }
+    }
+}
 
+TEST(IdentityHashTest, LegacyTypes) {
     auto date = VecDateTimeValue::create_from_olap_date(20260102);
     char date_buffer[64];
     const int date_length = date.to_buffer(date_buffer);
-    EXPECT_EQ(hash_bytes(date_buffer, date_length),
-              RawValue::identity_hash(&date, sizeof(date), TYPE_DATE, 0, n));
-
-    const DecimalV2Value decimal(123, 456000000);
-    const int32_t fraction = decimal.frac_value();
-    const int64_t integer = decimal.int_value();
-    const uint32_t fraction_hash = hash_bytes(&fraction, sizeof(fraction));
-    EXPECT_EQ(hash_bytes(&integer, sizeof(integer), fraction_hash),
-              RawValue::identity_hash(&decimal, sizeof(decimal), TYPE_DECIMALV2, 0, n));
+    for (uint32_t seed : {0u, 37u, 0xfedcba98u}) {
+        for (uint32_t modulus : {251u, 1009u, 1024u}) {
+            EXPECT_EQ(bucket(append_bytes(seed, date_buffer, date_length), modulus),
+                      RawValue::identity_hash(&date, sizeof(date), TYPE_DATE, seed, modulus));
+            for (int64_t signed_integer : {123456789012LL, -123456789012LL}) {
+                const DecimalV2Value decimal(signed_integer, 456000000);
+                const int32_t fraction = decimal.frac_value();
+                const int64_t integer = decimal.int_value();
+                auto expected = append_bytes(seed, &fraction, sizeof(fraction));
+                expected = append_bytes(expected, &integer, sizeof(integer));
+                EXPECT_EQ(bucket(expected, modulus),
+                          RawValue::identity_hash(&decimal, sizeof(decimal), TYPE_DECIMALV2, seed,
+                                                  modulus));
+            }
+        }
+    }
 }
 
 TEST(IdentityHashTest, TimestampNsCanonicalBytes) {

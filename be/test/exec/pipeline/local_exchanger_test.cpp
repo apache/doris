@@ -82,6 +82,10 @@ TEST_F(LocalExchangerTest, BucketShufflePartitionerHashType) {
     EXPECT_TRUE(crc32_op.init(_runtime_state.get(), TLocalPartitionType::BUCKET_HASH_SHUFFLE, 1,
                               bucket_seq_to_instance_idx)
                         .ok());
+    EXPECT_NE(
+            dynamic_cast<Crc32HashPartitioner<ShuffleChannelIds>*>(crc32_op.partitioner_for_test()),
+            nullptr);
+    EXPECT_EQ(dynamic_cast<IdentityHashPartitioner*>(crc32_op.partitioner_for_test()), nullptr);
 
     LocalExchangeSinkOperatorX identity_op(1, 0, 1, exprs, bucket_seq_to_instance_idx,
                                            TDistributionHashType::IDENTITY);
@@ -89,6 +93,7 @@ TEST_F(LocalExchangerTest, BucketShufflePartitionerHashType) {
                         .init(_runtime_state.get(), TLocalPartitionType::BUCKET_HASH_SHUFFLE, 1,
                               bucket_seq_to_instance_idx)
                         .ok());
+    EXPECT_NE(dynamic_cast<IdentityHashPartitioner*>(identity_op.partitioner_for_test()), nullptr);
 
     LocalExchangeSinkOperatorX invalid_op(
             2, 0, 1, exprs, bucket_seq_to_instance_idx,
