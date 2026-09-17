@@ -1091,7 +1091,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    public NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException {
+    public NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo(long txnId) throws UserException {
         Expression deleteCondition = getDeleteCondition() != null
                 ? NereidsLoadUtils.parseExpressionSeq(
                         getDeleteCondition().accept(ExprToSqlVisitor.INSTANCE,
@@ -1117,7 +1117,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 importColumnDescs.descs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
             }
         }
-        return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS,
+        return new NereidsRoutineLoadTaskInfo(txnId, execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS,
                 partitionNamesInfo, mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs,
                 precedingFilter, whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism,
                 loadToSingleTablet, uniqueKeyUpdateMode, partialUpdateNewKeyPolicy, memtableOnSinkNode);

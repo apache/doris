@@ -29,6 +29,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet_info.h"
+#include "storage/transform/row_binlog_derive.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -152,6 +153,23 @@ Status CloudGroupRowsetBuilder::init() {
         cfg.source.is_transient_rowset_writer = data_ctx.is_transient_rowset_writer;
         cfg.source.source_write_type = data_ctx.write_type;
         cfg.source.base_tablet = _data_builder->tablet_sptr();
+
+        const OlapTableIndexSchema* source_index_schema = nullptr;
+        for (const auto* index_schema : _req.table_schema_param->indexes()) {
+            if (index_schema->index_id == data_ctx.index_id) {
+                source_index_schema = index_schema;
+                break;
+            }
+        }
+        DORIS_CHECK(source_index_schema != nullptr);
+        DORIS_CHECK_EQ(source_index_schema->row_binlog_id, binlog_ctx.index_id);
+        const auto& mappings = source_index_schema->row_binlog_column_mappings;
+        cfg.need_historical_value = mappings.need_historical_value();
+        cfg.column_mappings = DORIS_TRY(binlog::resolve_row_binlog_column_mappings(
+                *data_ctx.tablet_schema, *binlog_ctx.tablet_schema, mappings));
+
+        _attach_row_binlog.column_mapping_snapshot =
+                std::make_shared<PRowBinlogWriteColumnMappings>(mappings);
     }
 
     _rowset_writer = std::move(group_writer);
@@ -184,6 +202,7 @@ Status CloudGroupRowsetBuilder::commit_rowset(const std::string& job_id, int64_t
 
 Status CloudGroupRowsetBuilder::set_txn_related_info() {
     RowBinlogTxnInfo attach_row_binlog;
+    attach_row_binlog.column_mapping_snapshot = _attach_row_binlog.column_mapping_snapshot;
     attach_row_binlog.rowset = _row_binlog_builder->rowset();
     attach_row_binlog.tablet = _row_binlog_builder->tablet_sptr();
     if (_data_builder->tablet()->enable_unique_key_merge_on_write()) {

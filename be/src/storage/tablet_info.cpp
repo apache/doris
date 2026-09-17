@@ -75,6 +75,7 @@ void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_schema_hash(schema_hash);
     if (row_binlog_id > 0) {
         pindex->set_row_binlog_id(row_binlog_id);
+        *pindex->mutable_row_binlog_column_mappings() = row_binlog_column_mappings;
     }
     for (auto* slot : slots) {
         pindex->add_columns(slot->col_name());
@@ -197,6 +198,19 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
         index->schema_hash = p_index.schema_hash();
         if (p_index.has_row_binlog_id()) {
             index->row_binlog_id = p_index.row_binlog_id();
+        }
+        if (index->row_binlog_id > 0 && !p_index.has_row_binlog_column_mappings()) {
+            return Status::InvalidArgument(
+                    "Row-binlog column mappings are required for source index {}", index->index_id);
+        }
+        if (index->row_binlog_id > 0 &&
+            !p_index.row_binlog_column_mappings().has_need_historical_value()) {
+            return Status::InvalidArgument(
+                    "Row-binlog historical-value flag is required for source index {}",
+                    index->index_id);
+        }
+        if (p_index.has_row_binlog_column_mappings()) {
+            index->row_binlog_column_mappings = p_index.row_binlog_column_mappings();
         }
         for (const auto& pcolumn_desc : p_index.columns_desc()) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||
@@ -358,6 +372,29 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
         index->schema_hash = t_index.schema_hash;
         if (t_index.__isset.row_binlog_id) {
             index->row_binlog_id = t_index.row_binlog_id;
+        }
+        if (index->row_binlog_id > 0 && !t_index.__isset.row_binlog_column_mappings) {
+            return Status::InvalidArgument(
+                    "Row-binlog column mappings are required for source index {}", index->index_id);
+        }
+        if (index->row_binlog_id > 0 && !t_index.__isset.row_binlog_need_historical_value) {
+            return Status::InvalidArgument(
+                    "Row-binlog historical-value flag is required for source index {}",
+                    index->index_id);
+        }
+        if (t_index.__isset.row_binlog_need_historical_value) {
+            index->row_binlog_column_mappings.set_need_historical_value(
+                    t_index.row_binlog_need_historical_value);
+        }
+        if (t_index.__isset.row_binlog_column_mappings) {
+            for (const auto& tmapping : t_index.row_binlog_column_mappings) {
+                auto* mapping = index->row_binlog_column_mappings.add_entries();
+                mapping->set_source_column_unique_id(tmapping.source_column_unique_id);
+                mapping->set_current_column_unique_id(tmapping.current_column_unique_id);
+                if (tmapping.__isset.before_column_unique_id) {
+                    mapping->set_before_column_unique_id(tmapping.before_column_unique_id);
+                }
+            }
         }
         for (const auto& tcolumn_desc : t_index.columns_desc) {
             if (_unique_key_update_mode != UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS ||

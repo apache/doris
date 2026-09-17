@@ -52,6 +52,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_meta_manager.h"
 #include "storage/task/engine_publish_version_task.h"
+#include "storage/transform/row_binlog_derive.h"
 #include "util/debug_points.h"
 #include "util/time.h"
 
@@ -241,14 +242,14 @@ Status TxnManager::commit_txn(TPartitionId partition_id, const Tablet& tablet,
                       std::move(guard), is_recovery, partial_update_info, attach_row_binlog);
 }
 
-Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                               TTransactionId transaction_id, const Version& version,
-                               TabletPublishStatistics* stats,
-                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                               const int64_t commit_tso) {
+Status TxnManager::publish_txn(
+        TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id,
+        const Version& version, TabletPublishStatistics* stats,
+        std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info, const int64_t commit_tso,
+        std::shared_ptr<const PRowBinlogWriteColumnMappings> row_binlog_column_mappings) {
     return publish_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
                        tablet->tablet_id(), tablet->tablet_uid(), version, stats,
-                       extend_tablet_txn_info, commit_tso);
+                       extend_tablet_txn_info, commit_tso, std::move(row_binlog_column_mappings));
 }
 
 void TxnManager::abort_txn(TPartitionId partition_id, TTransactionId transaction_id,
@@ -532,12 +533,12 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
 }
 
 // remove a txn from txn manager
-Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
-                               TTransactionId transaction_id, TTabletId tablet_id,
-                               TabletUid tablet_uid, const Version& version,
-                               TabletPublishStatistics* stats,
-                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
-                               const int64_t commit_tso) {
+Status TxnManager::publish_txn(
+        OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
+        TTabletId tablet_id, TabletUid tablet_uid, const Version& version,
+        TabletPublishStatistics* stats, std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
+        const int64_t commit_tso,
+        std::shared_ptr<const PRowBinlogWriteColumnMappings> row_binlog_column_mappings) {
     auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::OK();
@@ -591,6 +592,25 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
             std::this_thread::sleep_for(std::chrono::milliseconds(wait));
         }
     });
+
+    // Publish owns both tablets' rowset-update locks. Validate the FE snapshot against the
+    // transaction schemas before changing visibility, including after committed-rowset recovery.
+    if (tablet_txn_info->unique_key_merge_on_write &&
+        tablet_txn_info->attach_row_binlog.rowset != nullptr) {
+        if (row_binlog_column_mappings == nullptr) {
+            return Status::InvalidArgument(
+                    "Missing row-binlog publish mapping snapshot, tablet_id={}, txn_id={}",
+                    tablet_id, transaction_id);
+        }
+        auto& binlog_info = tablet_txn_info->attach_row_binlog;
+        auto resolved = binlog::resolve_row_binlog_column_mappings(
+                *rowset->tablet_schema(), *binlog_info.rowset->tablet_schema(),
+                *row_binlog_column_mappings);
+        if (!resolved.has_value()) {
+            return resolved.error();
+        }
+        binlog_info.column_mapping_snapshot = std::move(row_binlog_column_mappings);
+    }
 
     /// Step 2: make rowset visible
     // save meta need access disk, it maybe very slow, so that it is not in global txn lock

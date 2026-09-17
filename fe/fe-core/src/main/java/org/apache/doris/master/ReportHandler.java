@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletInvertedIndex.RepublishVersionInfo;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
@@ -80,7 +81,6 @@ import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TIndexPolicy;
 import org.apache.doris.thrift.TMasterResult;
-import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TReportRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -605,8 +605,8 @@ public class ReportHandler extends Daemon {
         // partition id -> visible version
         Map<Long, Long> partitionVersionSyncMap = Maps.newConcurrentMap();
 
-        // dbid -> txn id -> [partition info]
-        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
+        // db id -> actual transaction id -> partition versions and mapping snapshot
+        Map<Long, Map<Long, RepublishVersionInfo>> transactionsToPublish = Maps.newHashMap();
         SetMultimap<Long, Long> transactionsToClear = LinkedHashMultimap.create();
 
         // db id -> tablet id
@@ -1310,14 +1310,16 @@ public class ReportHandler extends Daemon {
     }
 
     private static void handleRepublishVersionInfo(
-            Map<Long, SetMultimap<Long, TPartitionVersionInfo>> transactionsToPublish, long backendId) {
+            Map<Long, Map<Long, RepublishVersionInfo>> transactionsToPublish, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         long createPublishVersionTaskTime = System.currentTimeMillis();
         for (Long dbId : transactionsToPublish.keySet()) {
-            SetMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(dbId);
-            for (long txnId : map.keySet()) {
+            for (Map.Entry<Long, RepublishVersionInfo> entry : transactionsToPublish.get(dbId).entrySet()) {
+                long txnId = entry.getKey();
+                RepublishVersionInfo info = entry.getValue();
                 PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId,
-                        Lists.newArrayList(map.get(txnId)), createPublishVersionTaskTime);
+                        Lists.newArrayList(info.partitionVersionInfos), createPublishVersionTaskTime);
+                task.setRowBinlogColumnMappings(info.rowBinlogColumnMappings);
                 batchTask.addTask(task);
                 // add to AgentTaskQueue for handling finish report.
                 AgentTaskQueue.addTask(task);

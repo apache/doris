@@ -337,9 +337,9 @@ private:
 };
 
 // Read schema mirroring the merged binlog block layout above.
-ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
-                                        "key", "val", binlog::build_before_column_name("val"),
-                                        BINLOG_TSO_COL, BINLOG_LSN_COL, BINLOG_OP_COL}) {
+ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names,
+                                ReadSchema::RowBinlogValueColumnPairs value_pairs,
+                                int32_t tso_ordinal, int32_t lsn_ordinal, int32_t op_ordinal) {
     std::vector<TabletColumnPtr> cols;
     auto add_bigint = [&](const std::string& name) {
         auto col = std::make_shared<TabletColumn>();
@@ -350,7 +350,12 @@ ReadSchemaSPtr make_read_schema(const std::vector<std::string>& names = {
     for (const auto& name : names) {
         add_bigint(name);
     }
-    return std::make_shared<ReadSchema>(std::move(cols));
+    auto read_schema = std::make_shared<ReadSchema>(std::move(cols));
+    DORIS_CHECK(read_schema
+                        ->init_row_binlog_column_mappings(std::move(value_pairs), tso_ordinal,
+                                                          lsn_ordinal, op_ordinal)
+                        .ok());
+    return read_schema;
 }
 
 // Wire a BlockReader as if init() had already completed for a row-binlog change
@@ -360,8 +365,8 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
     config::enable_adaptive_batch_size = false;
     reader._reader_context.batch_size = batch_size;
 
-    // The physical tablet schema supplies stable unique ids for AFTER/BEFORE pairing. The fake
-    // source block supplies the materialized types used by this read schema.
+    // The fake fixture layout is [key][current values][before values][TSO][LSN][OP]. Supply its
+    // relationships explicitly, as OlapScanner does before constructing BlockReader.
     reader._tablet_schema = std::move(schema);
     ASSERT_EQ(reader._tablet_schema->num_columns(), source->columns());
     std::vector<DataTypePtr> read_types;
@@ -371,7 +376,16 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
     }
     auto read_schema =
             std::make_shared<ReadSchema>(reader._tablet_schema->columns(), std::move(read_types));
-    read_schema->init_row_binlog_column_mappings(*reader._tablet_schema);
+    const ColumnId value_count = cast_set<ColumnId>((source->columns() - 4) / 2);
+    ReadSchema::RowBinlogValueColumnPairs value_pairs;
+    for (ColumnId i = 0; i < value_count; ++i) {
+        value_pairs.emplace_back(1 + i, 1 + value_count + i);
+    }
+    DORIS_CHECK(read_schema
+                        ->init_row_binlog_column_mappings(std::move(value_pairs),
+                                                          1 + 2 * value_count, 2 + 2 * value_count,
+                                                          3 + 2 * value_count)
+                        .ok());
     reader._read_schema = std::move(read_schema);
 
     reader._next_row.block = source;
@@ -453,14 +467,16 @@ protected:
 };
 
 TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaWithoutBeforeUsesCurrentColumn) {
-    auto read_schema = make_read_schema({"key", "val", BINLOG_TSO_COL, BINLOG_OP_COL});
+    auto read_schema =
+            make_read_schema({"key", "val", BINLOG_TSO_COL, BINLOG_OP_COL}, {}, 2, -1, 3);
 
     EXPECT_EQ(VAL_IDX, read_schema->before_column_ordinal(VAL_IDX));
 }
 
 TEST_F(BlockReaderChangeNextBlockTest, BinlogSchemaDoesNotRequireLsn) {
     auto read_schema = make_read_schema(
-            {"key", "val", binlog::build_before_column_name("val"), BINLOG_TSO_COL, BINLOG_OP_COL});
+            {"key", "val", binlog::build_before_column_name("val"), BINLOG_TSO_COL, BINLOG_OP_COL},
+            {{1, 2}}, 3, -1, 4);
 
     EXPECT_EQ(-1, read_schema->lsn_ordinal());
     EXPECT_EQ(2, read_schema->before_column_ordinal(VAL_IDX));
