@@ -27,6 +27,7 @@ import org.apache.paimon.partition.Partition;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
@@ -54,8 +55,8 @@ import java.util.OptionalLong;
  * recording fake (no Mockito) — mirroring the maxcompute connector's
  * {@link org.apache.doris.connector.maxcompute.McStructureHelper McStructureHelper} pattern.
  *
- * <p>The read methods landed in B0. B3 added the four DDL methods
- * ({@link #createDatabase}, {@link #dropDatabase}, {@link #createTable}, {@link #dropTable}),
+ * <p>The read methods landed in B0. The DDL seam covers database/table lifecycle plus
+ * {@link #alterTable},
  * whose signatures (and checked exceptions) mirror the real Paimon {@code Catalog} exactly.
  * Existence is probed via the existing {@link #getTable} / {@link #getDatabase} read methods
  * (plus the caught not-exist exceptions); the seam intentionally has no separate probe methods.
@@ -83,6 +84,10 @@ public interface PaimonCatalogOps {
 
     void dropTable(Identifier identifier, boolean ignoreIfNotExists)
             throws Catalog.TableNotExistException;
+
+    void alterTable(Identifier identifier, List<SchemaChange> changes)
+            throws Catalog.TableNotExistException, Catalog.ColumnAlreadyExistException,
+            Catalog.ColumnNotExistException;
 
     // ---- E5: MVCC snapshot lookups (T20) ----
     // These return plain {@code long}s (not paimon {@code Snapshot} objects) so the metadata
@@ -350,6 +355,13 @@ public interface PaimonCatalogOps {
         public void dropTable(Identifier identifier, boolean ignoreIfNotExists)
                 throws Catalog.TableNotExistException {
             catalog.dropTable(identifier, ignoreIfNotExists);
+        }
+
+        @Override
+        public void alterTable(Identifier identifier, List<SchemaChange> changes)
+                throws Catalog.TableNotExistException, Catalog.ColumnAlreadyExistException,
+                Catalog.ColumnNotExistException {
+            catalog.alterTable(identifier, changes, false);
         }
 
         @Override

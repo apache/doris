@@ -22,6 +22,7 @@ import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.table.Table;
 
 import java.util.ArrayList;
@@ -80,6 +81,8 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
     String lastDroppedDb;
     boolean lastDropCascade;
     boolean lastDropDbIgnoreIfNotExists;
+    Identifier lastAlteredTableId;
+    List<SchemaChange> lastSchemaChanges;
 
     // ---- B3 DDL throw flags (mirror the read-path throwDatabaseNotExist/throwTableNotExist) ----
     boolean throwTableAlreadyExist;
@@ -238,6 +241,13 @@ final class RecordingPaimonCatalogOps implements PaimonCatalogOps {
         if (throwTableNotExistOnDrop || throwTableNotExist) {
             throw new Catalog.TableNotExistException(identifier);
         }
+    }
+
+    @Override
+    public void alterTable(Identifier identifier, List<SchemaChange> changes) {
+        log.add("alterTable:" + identifier.getFullName());
+        lastAlteredTableId = identifier;
+        lastSchemaChanges = changes;
     }
 
     @Override
