@@ -148,6 +148,21 @@ class EqualSetTest extends TestWithFeService {
                 0, 1, false);
     }
 
+    @Test
+    void testConstantOnlyUnionKeepsComparableSubsetOfMixedNullBucket() {
+        String incompatibleNullFirst = "select cast(null as array<int>), cast(null as int), "
+                + "cast(null as bigint) union all select cast(null as array<int>), "
+                + "cast(1 as int), cast(1 as bigint)";
+        assertUnionEqualPair(incompatibleNullFirst, 1, 2, true);
+        assertUnionEqualPair(incompatibleNullFirst, 0, 1, false);
+
+        String compatibleValuesFirst = "select cast(null as array<int>), cast(1 as int), "
+                + "cast(1 as bigint) union all select cast(null as array<int>), "
+                + "cast(null as int), cast(null as bigint)";
+        assertUnionEqualPair(compatibleValuesFirst, 1, 2, true);
+        assertUnionEqualPair(compatibleValuesFirst, 0, 1, false);
+    }
+
     private void assertUnionEqualPair(String sql, int leftIndex, int rightIndex, boolean expected) {
         assertUnionEqualPair(sql, analyzeLogicalUnion(sql), leftIndex, rightIndex, expected);
     }

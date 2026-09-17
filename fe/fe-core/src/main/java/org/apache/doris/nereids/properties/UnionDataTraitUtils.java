@@ -179,11 +179,12 @@ public final class UnionDataTraitUtils {
      * Refines candidate output equality groups using one constant row.
      *
      * <p>Each expression is first folded to a literal when possible. Candidate ordinals are bucketed by
-     * a normalized {@link ConstantValueKey} to avoid comparing values that clearly differ. Every
-     * multi-ordinal bucket is then verified with null-safe equality against its first ordinal. All
-     * typed NULL literals use one shared key, so two NULL expressions can reach that final proof.
-     * An ordinal whose expression cannot be folded, cannot be normalized, or cannot be proven
-     * null-safe equal is omitted from the returned groups.
+     * a normalized {@link ConstantValueKey} to avoid comparing values that clearly differ. Every pair
+     * in a multi-ordinal bucket is then checked independently, and proven pairs are merged into
+     * equality components. All typed NULL literals use one shared key, so compatible NULL expressions
+     * can reach that final proof without an incompatible pair discarding the entire bucket. An ordinal
+     * whose expression cannot be folded, cannot be normalized, or cannot be connected to another
+     * ordinal by a proven null-safe equality is omitted from the returned groups.
      *
      * @param equalGroups candidate output-ordinal groups proven equal by inputs processed so far
      * @param row constant expressions in union output-ordinal order
@@ -211,20 +212,74 @@ public final class UnionDataTraitUtils {
                 if (sameValueOrdinals.size() <= 1) {
                     continue;
                 }
-                int first = sameValueOrdinals.get(0);
-                boolean allProvenEqual = true;
-                for (int i = 1; i < sameValueOrdinals.size(); i++) {
-                    if (!isNullSafeEqualInConstantRow(row, first, sameValueOrdinals.get(i), context)) {
-                        allProvenEqual = false;
-                        break;
-                    }
-                }
-                if (allProvenEqual) {
-                    refinedGroups.add(sameValueOrdinals);
-                }
+                refinedGroups.addAll(splitByProvenEquality(sameValueOrdinals, row, context));
             }
         }
         return refinedGroups;
+    }
+
+    /**
+     * Splits one normalized-value bucket into independently proven equality components.
+     *
+     * <p>Each bucket position starts in its own disjoint-set component. This method evaluates every
+     * unordered pair of output ordinals and merges their components only when null-safe comparison
+     * folds to {@code TRUE}. Evaluating all pairs makes the result independent of ordinal order and
+     * preserves a compatible subgroup even when another member, such as an ARRAY-typed NULL, cannot
+     * be coerced with it. Connected pairs may share a component because proven value equality is
+     * transitive; singleton components are omitted because they publish no output equality.
+     *
+     * @param sameValueOrdinals output ordinals that share one normalized constant-value key
+     * @param row constant expressions in union output-ordinal order
+     * @param context optional rewrite context used for coercion and constant evaluation
+     * @return non-singleton ordinal components connected by proven null-safe equality pairs
+     */
+    private static List<List<Integer>> splitByProvenEquality(List<Integer> sameValueOrdinals,
+            List<NamedExpression> row, Optional<ExpressionRewriteContext> context) {
+        int[] parents = new int[sameValueOrdinals.size()];
+        for (int i = 0; i < parents.length; i++) {
+            parents[i] = i;
+        }
+
+        for (int left = 0; left < sameValueOrdinals.size(); left++) {
+            for (int right = left + 1; right < sameValueOrdinals.size(); right++) {
+                if (isNullSafeEqualInConstantRow(
+                        row, sameValueOrdinals.get(left), sameValueOrdinals.get(right), context)) {
+                    int leftRoot = findRoot(parents, left);
+                    int rightRoot = findRoot(parents, right);
+                    if (leftRoot != rightRoot) {
+                        parents[rightRoot] = leftRoot;
+                    }
+                }
+            }
+        }
+
+        Map<Integer, List<Integer>> ordinalsByRoot = new LinkedHashMap<>();
+        for (int i = 0; i < sameValueOrdinals.size(); i++) {
+            int root = findRoot(parents, i);
+            ordinalsByRoot.computeIfAbsent(root, ignored -> new ArrayList<>())
+                    .add(sameValueOrdinals.get(i));
+        }
+        return onlyNonTrivialGroups(ordinalsByRoot.values());
+    }
+
+    /**
+     * Finds the canonical root of one disjoint-set entry and compresses its parent path.
+     *
+     * @param parents disjoint-set parent array indexed by positions in a normalized-value bucket
+     * @param index bucket position whose component root is requested
+     * @return root position that identifies the equality component containing {@code index}
+     */
+    private static int findRoot(int[] parents, int index) {
+        int root = index;
+        while (parents[root] != root) {
+            root = parents[root];
+        }
+        while (parents[index] != index) {
+            int parent = parents[index];
+            parents[index] = root;
+            index = parent;
+        }
+        return root;
     }
 
     /**

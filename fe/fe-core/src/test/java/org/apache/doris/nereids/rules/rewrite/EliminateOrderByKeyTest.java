@@ -227,6 +227,29 @@ public class EliminateOrderByKeyTest extends TestWithFeService implements MemoPa
     }
 
     @Test
+    void testWindowUnionMixedNullTypesIndependentOfArmOrder() {
+        PlanChecker.from(connectContext)
+                .analyze("select a, rank() over(order by b, c) from ("
+                        + "select cast(null as array<int>) a, cast(null as int) b, cast(null as bigint) c "
+                        + "union all select cast(null as array<int>), cast(1 as int), cast(1 as bigint)) t")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalWindow()
+                        .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
+                                .getOrderKeys().size() == 1));
+
+        PlanChecker.from(connectContext)
+                .analyze("select a, rank() over(order by b, c) from ("
+                        + "select cast(null as array<int>) a, cast(1 as int) b, cast(1 as bigint) c "
+                        + "union all select cast(null as array<int>), cast(null as int), cast(null as bigint)) t")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalWindow()
+                        .when(window -> ((WindowExpression) window.getWindowExpressions().get(0).child(0))
+                                .getOrderKeys().size() == 1));
+    }
+
+    @Test
     void testWindowPartitionKey() {
         // an order key that repeats the window's own partition key is constant within each partition,
         // so it is redundant and should be pruned, leaving only the remaining order key(s).
