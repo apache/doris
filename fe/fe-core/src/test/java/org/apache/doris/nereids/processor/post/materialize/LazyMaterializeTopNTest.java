@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.processor.post.materialize;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.qe.SimpleScheduler;
+import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -30,6 +33,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -50,5 +55,99 @@ public class LazyMaterializeTopNTest {
                 materializeMap, ImmutableSet.of(), ImmutableSet.of(baseSlot));
 
         Assertions.assertEquals(ImmutableList.of(aliasSlot), requiredOutputSlots);
+    }
+
+    private static Backend newBackend(long id, String host) {
+        Backend backend = new Backend(id, host, 9050);
+        backend.setAlive(true);
+        backend.setBrpcPort(8060);
+        return backend;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void blackenBackend(long backendId) throws Exception {
+        Field field = SimpleScheduler.class.getDeclaredField("blacklistBackends");
+        field.setAccessible(true);
+        Map<Long, SimpleScheduler.BlackListInfo> blacklist =
+                (Map<Long, SimpleScheduler.BlackListInfo>) field.get(null);
+        SimpleScheduler.BlackListInfo info = new SimpleScheduler.BlackListInfo();
+        blacklist.put(backendId, info);
+        for (int i = 0; i < Config.do_add_backend_black_list_threshold_count; i++) {
+            info.tryAddBlackList("LazyMaterializeTopNTest");
+        }
+        Assertions.assertTrue(info.isBlacked());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void removeFromBlacklist(long backendId) throws Exception {
+        Field field = SimpleScheduler.class.getDeclaredField("blacklistBackends");
+        field.setAccessible(true);
+        Map<Long, SimpleScheduler.BlackListInfo> blacklist =
+                (Map<Long, SimpleScheduler.BlackListInfo>) field.get(null);
+        blacklist.remove(backendId);
+    }
+
+    // A dead local backend enters the process-global SimpleScheduler blacklist keyed by the
+    // numeric backend id. An independently numbered remote backend sharing the same id must
+    // still enter the address book, otherwise rows owned by it fail the phase-2 fetch with
+    // "failed to find rpc_struct".
+    @Test
+    void testLocalBlacklistDoesNotEvictRemoteBackendWithSameId() throws Exception {
+        Backend localBlacklisted = newBackend(100, "192.168.0.100");
+        Backend localHealthy = newBackend(200, "192.168.0.200");
+        Backend remoteHealthy = newBackend(100, "10.0.0.100");
+        blackenBackend(100);
+        try {
+            List<Backend> fetchBackends = LazyMaterializeTopN.buildFetchBackends(
+                    Arrays.asList(localBlacklisted, localHealthy), Arrays.asList(remoteHealthy));
+
+            List<String> hosts = fetchBackends.stream().map(Backend::getHost).toList();
+            Assertions.assertEquals(2, fetchBackends.size());
+            // Local blacklisted backend 100 is filtered out by the policy.
+            Assertions.assertFalse(hosts.contains("192.168.0.100"));
+            // Local healthy backend is kept.
+            Assertions.assertTrue(hosts.contains("192.168.0.200"));
+            // Remote backend 100 survives the local blacklist and is the only id=100 entry.
+            Assertions.assertTrue(hosts.contains("10.0.0.100"));
+            Assertions.assertEquals(1, fetchBackends.stream()
+                    .filter(backend -> backend.getId() == 100).count());
+        } finally {
+            removeFromBlacklist(100);
+        }
+    }
+
+    @Test
+    void testDeadRemoteBackendIsSkipped() {
+        Backend localHealthy = newBackend(200, "192.168.0.200");
+        Backend remoteDead = newBackend(100, "10.0.0.100");
+        remoteDead.setAlive(false);
+        Backend remoteHealthy = newBackend(300, "10.0.0.300");
+
+        List<Backend> fetchBackends = LazyMaterializeTopN.buildFetchBackends(
+                Arrays.asList(localHealthy), Arrays.asList(remoteDead, remoteHealthy));
+
+        List<String> hosts = fetchBackends.stream().map(Backend::getHost).toList();
+        Assertions.assertEquals(2, fetchBackends.size());
+        Assertions.assertFalse(hosts.contains("10.0.0.100"));
+        Assertions.assertTrue(hosts.contains("10.0.0.300"));
+        Assertions.assertTrue(hosts.contains("192.168.0.200"));
+    }
+
+    // Backend ids of two clusters are independently allocated. On any collision the second
+    // phase fetch would silently route rows to a wrong backend, so buildFetchBackends must
+    // reject (return null) and the caller skips the lazy materialization rewrite.
+    @Test
+    void testBackendIdCollisionIsRejected() {
+        // local vs remote collision
+        Backend localHealthy = newBackend(100, "192.168.0.100");
+        Backend remoteHealthy = newBackend(100, "10.0.0.100");
+        Assertions.assertNull(LazyMaterializeTopN.buildFetchBackends(
+                Arrays.asList(localHealthy), Arrays.asList(remoteHealthy)));
+
+        // remote vs remote collision (two remote catalogs)
+        Backend remoteA = newBackend(300, "10.0.0.300");
+        Backend remoteB = newBackend(300, "10.1.0.300");
+        Assertions.assertNull(LazyMaterializeTopN.buildFetchBackends(
+                Arrays.asList(), Arrays.asList(remoteA, remoteB)));
     }
 }

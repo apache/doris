@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.doris;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.connector.cache.CacheSpec;
@@ -25,9 +26,11 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.datasource.property.constants.RemoteDorisProperties;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -173,6 +176,17 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
     public boolean useArrowFlight() {
         return Boolean.parseBoolean(catalogProperty.getOrDefault(RemoteDorisProperties.USE_ARROW_FLIGHT,
                 "true"));
+    }
+
+    /**
+     * Returns all backends of the remote cluster behind this catalog, served from the
+     * backend metadata cache (see DorisExternalMetaCache). On a Backend.fromThrift object
+     * only the alive flag is carried; availability filtering is up to the caller.
+     */
+    public ImmutableMap<Long, Backend> getAllBackends() {
+        return Env.getCurrentEnv().getExtMetaCacheMgr()
+                .doris(getId())
+                .getBackends(getId());
     }
 
     @Override

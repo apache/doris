@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.model.Statistics;
+import org.apache.doris.system.Backend;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.ImmutableList;
@@ -104,6 +105,13 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
     private final List<Relation> relations;
 
     /**
+     * The phase-2 fetch address book, computed once by LazyMaterializeTopN (local policy
+     * filtered backends plus remote doris catalog backends, id collision checked there)
+     * and carried to the translator, so the guard and the address book never drift apart.
+     */
+    private final List<Backend> fetchBackends;
+
+    /**
      * constructor
      */
     public PhysicalLazyMaterialize(CHILD_TYPE child,
@@ -126,8 +134,24 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
             BiMap<Relation, SlotReference> relationToRowId,
             Map<Slot, MaterializeSource> materializeMap,
             PhysicalProperties physicalProperties, Statistics statistics) {
+        this(child, materializeInput, materializedSlots, relationToLazySlotMap, relationToRowId,
+                materializeMap, ImmutableList.of(), physicalProperties, statistics);
+    }
+
+    /**
+     * constructor
+     */
+    public PhysicalLazyMaterialize(CHILD_TYPE child,
+            List<Slot> materializeInput,
+            List<Slot> materializedSlots,
+            Map<Relation, List<Slot>> relationToLazySlotMap,
+            BiMap<Relation, SlotReference> relationToRowId,
+            Map<Slot, MaterializeSource> materializeMap,
+            List<Backend> fetchBackends,
+            PhysicalProperties physicalProperties, Statistics statistics) {
         super(PlanType.PHYSICAL_MATERIALIZE, Optional.empty(),
                 null, physicalProperties, statistics, child);
+        this.fetchBackends = fetchBackends;
         this.materializeInput = materializeInput;
         this.relationToLazySlotMap = relationToLazySlotMap;
         this.relationToRowId = relationToRowId;
@@ -286,6 +310,10 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
 
     public List<Relation> getRelations() {
         return relations;
+    }
+
+    public List<Backend> getFetchBackends() {
+        return fetchBackends;
     }
 
     public List<List<Column>> getLazyColumns() {
