@@ -4588,10 +4588,15 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             std::unique_ptr<RangeGetIterator> it;
             int64_t last_ver = -1;
             int64_t last_seg_id = -1;
-            std::string last_delete_bitmap_first_blob_key;
+            std::string bitmap_start_key = start_key;
+            int bitmap_response_size = response->rowset_ids_size();
+            int64_t bitmap_num_before = delete_bitmap_num;
+            int64_t bitmap_bytes_before = delete_bitmap_byte;
             uint16_t next_blob_sequence = 0;
+            size_t first_blob_size = 0;
             bool skip_last_delete_bitmap = false;
             int64_t round = 0;
+            int64_t retry = 0;
             while (it == nullptr /* may be not init */ || it->more()) {
                 if (test) {
                     LOG(INFO) << "test";
@@ -4600,8 +4605,21 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                     err = txn->get(start_key, end_key, &it);
                 }
                 TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_err", &round, &err);
-                int64_t retry = 0;
-                while (err == TxnErrorCode::TXN_TOO_OLD && retry < 3) {
+                if (err == TxnErrorCode::TXN_TOO_OLD && retry < 3) {
+                    // Only earlier bitmaps are known to be complete. Never carry the page-tail
+                    // bitmap across snapshots: aggregation can replace it under the same key.
+                    while (response->rowset_ids_size() > bitmap_response_size) {
+                        response->mutable_rowset_ids()->RemoveLast();
+                        response->mutable_segment_ids()->RemoveLast();
+                        response->mutable_versions()->RemoveLast();
+                        response->mutable_segment_delete_bitmaps()->RemoveLast();
+                    }
+                    delete_bitmap_num = bitmap_num_before;
+                    delete_bitmap_byte = bitmap_bytes_before;
+                    start_key = bitmap_start_key;
+                    it.reset();
+                    last_ver = -1;
+                    last_seg_id = -1;
                     stats.get_bytes += txn->get_bytes();
                     stats.get_counter += txn->num_get_keys();
                     txn = nullptr;
@@ -4612,41 +4630,14 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                         msg = ss.str();
                         return;
                     }
-                    if (!skip_last_delete_bitmap && !last_delete_bitmap_first_blob_key.empty()) {
-                        std::string first_blob_value;
-                        err = txn->get(last_delete_bitmap_first_blob_key, &first_blob_value);
-                        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                            delete_bitmap_byte -=
-                                    response->segment_delete_bitmaps(
-                                                    response->segment_delete_bitmaps_size() - 1)
-                                            .size();
-                            delete_bitmap_num--;
-                            response->mutable_rowset_ids()->RemoveLast();
-                            response->mutable_segment_ids()->RemoveLast();
-                            response->mutable_versions()->RemoveLast();
-                            response->mutable_segment_delete_bitmaps()->RemoveLast();
-                            skip_last_delete_bitmap = true;
-                            LOG(WARNING)
-                                    << "skip incomplete delete bitmap whose first blob key "
-                                       "disappeared after transaction retry"
-                                    << ", tablet_id=" << tablet_id
-                                    << ", rowset_id=" << rowset_ids[i] << ", version=" << last_ver
-                                    << ", segment_id=" << last_seg_id;
-                        } else if (err != TxnErrorCode::TXN_OK) {
-                            retry++;
-                            continue;
-                        }
-                    }
-                    if (test) {
-                        err = txn->get(start_key, end_key, &it, false, 2);
-                    } else {
-                        err = txn->get(start_key, end_key, &it);
-                    }
                     retry++;
                     LOG(INFO) << "retry get delete bitmap, tablet=" << tablet_id
+                              << ", rowset=" << rowset_ids[i]
+                              << ", bitmap_start_key=" << hex(bitmap_start_key)
                               << ", retry=" << retry << ", internal round=" << round
                               << ", delete_bitmap_num=" << delete_bitmap_num
                               << ", delete_bitmap_byte=" << delete_bitmap_byte;
+                    continue;
                 }
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::READ>(err);
@@ -4679,6 +4670,18 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                     // FIXME: Don't expose the implementation details of splitting large value.
                     // merge splitted large values (>90*1000)
                     if (ver != last_ver || seg_id != last_seg_id) {
+                        auto key = meta_delete_bitmap_key(
+                                {instance_id, tablet_id, rowset_ids[i], ver, seg_id});
+                        // A successful page is not progress if a retry will reread the same
+                        // bitmap. Reset the budget only when its logical start moves forward.
+                        if (key != bitmap_start_key) {
+                            DCHECK(key > bitmap_start_key);
+                            retry = 0;
+                            bitmap_start_key = std::move(key);
+                        }
+                        bitmap_response_size = response->rowset_ids_size();
+                        bitmap_num_before = delete_bitmap_num;
+                        bitmap_bytes_before = delete_bitmap_byte;
                         auto sequence =
                                 out.size() == 8
                                         ? static_cast<uint16_t>(
@@ -4686,7 +4689,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                                         : uint16_t {0};
                         last_ver = ver;
                         last_seg_id = seg_id;
-                        last_delete_bitmap_first_blob_key.clear();
+                        first_blob_size = v.size();
                         next_blob_sequence = static_cast<uint16_t>(sequence + 1);
                         // Key-based pre-rowset cleanup may leave an obsolete tail if its size estimate is
                         // too small. The bitmap is already aggregated, so the tail can be skipped and will
@@ -4700,9 +4703,6 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                                     << ", rowset_id=" << rowset_ids[i] << ", version=" << ver
                                     << ", segment_id=" << seg_id << ", first_sequence=" << sequence;
                             continue;
-                        }
-                        if (out.size() == 8) {
-                            last_delete_bitmap_first_blob_key.assign(k.data(), k.size());
                         }
                         response->add_rowset_ids(rowset_ids[i]);
                         response->add_segment_ids(seg_id);
@@ -4740,6 +4740,18 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                         }
                         delete_bitmap_byte += v.length();
                         response->mutable_segment_delete_bitmaps()->rbegin()->append(v);
+                    }
+                    // blob_put uses equal-sized chunks except for the last, with a minimum
+                    // split size. A legacy value or a short chunk is therefore complete.
+                    if (out.size() == 7 || v.size() < MIN_BLOB_SPLIT_SIZE ||
+                        v.size() < first_blob_size) {
+                        // Skip this entire logical bitmap on retry, including any new fragments
+                        // written by a concurrent replacement after this snapshot.
+                        encode_int64(INT64_MAX, &bitmap_start_key);
+                        bitmap_response_size = response->rowset_ids_size();
+                        bitmap_num_before = delete_bitmap_num;
+                        bitmap_bytes_before = delete_bitmap_byte;
+                        retry = 0;
                     }
                 }
                 check_delete_bitmap_bytes_exceed_limit();
