@@ -944,7 +944,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         MetaServiceCode code = commitTxnResponse.getStatus().getCode();
         if (commitTxnRequest.hasCommitTso()) {
             if (code == MetaServiceCode.KV_TXN_MAYBE_COMMITTED) {
-                Env.getCurrentEnv().getTSOService().fenceAndAbandonCommitTso(
+                Env.getCurrentEnv().getTSOService().abandonCommitTso(
                         commitTxnRequest.getDbId(), transactionId, commitTxnRequest.getCommitTso());
             } else if (code == MetaServiceCode.OK || code == MetaServiceCode.TXN_ALREADY_VISIBLE
                     || code == MetaServiceCode.TXN_ALREADY_ABORTED) {

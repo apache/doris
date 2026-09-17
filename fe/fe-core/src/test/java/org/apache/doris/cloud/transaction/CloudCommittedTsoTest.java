@@ -93,7 +93,7 @@ public class CloudCommittedTsoTest {
     }
 
     @Test
-    public void testUncertainCommitResultsAreFencedBeforeRelease() throws Exception {
+    public void testRpcFailureIsFencedButMaybeCommittedIsReleased() throws Exception {
         Env env = Mockito.mock(Env.class);
         TSOService tsoService = Mockito.mock(TSOService.class);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
@@ -117,6 +117,9 @@ public class CloudCommittedTsoTest {
                     () -> commit.invoke(new CloudGlobalTransactionMgr(),
                             Cloud.CommitTxnRequest.newBuilder().setDbId(1).setTxnId(10),
                             Collections.emptyList(), 10L, false, Collections.emptyList(), Collections.emptyList()));
+            Mockito.verify(tsoService).fenceAndAbandonCommitTso(1, 10, 500);
+            Mockito.clearInvocations(tsoService);
+
             Mockito.doReturn(CommitTxnResponse.newBuilder()
                     .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
                             .setCode(MetaServiceCode.KV_TXN_MAYBE_COMMITTED))
@@ -125,9 +128,9 @@ public class CloudCommittedTsoTest {
                     () -> commit.invoke(new CloudGlobalTransactionMgr(),
                             Cloud.CommitTxnRequest.newBuilder().setDbId(1).setTxnId(10),
                             Collections.emptyList(), 10L, false, Collections.emptyList(), Collections.emptyList()));
-            Mockito.verify(tsoService, Mockito.times(2)).fenceAndAbandonCommitTso(1, 10, 500);
-            Mockito.verify(tsoService, Mockito.never()).abandonCommitTso(Mockito.anyLong(), Mockito.anyLong(),
-                    Mockito.anyLong());
+            Mockito.verify(tsoService).abandonCommitTso(1, 10, 500);
+            Mockito.verify(tsoService, Mockito.never()).fenceAndAbandonCommitTso(
+                    Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong());
         }
     }
 
