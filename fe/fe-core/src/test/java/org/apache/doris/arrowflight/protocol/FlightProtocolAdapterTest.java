@@ -65,8 +65,9 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * An Arrow Flight SQL session is a ConnectContext bound to a FlightProtocolAdapter. The adapter
- * owns what only that protocol has (result cache, endpoints, deferred executors, the pool the
- * session is registered in) and serializes the session's commands, which gRPC does not do.
+ * owns what only that protocol has (result cache, endpoints, deferred executors) and serializes
+ * the session's commands, which gRPC does not do; the session is registered in the one connection
+ * pool every protocol shares, which asks the adapter to release those on teardown.
  */
 public class FlightProtocolAdapterTest {
     private boolean savedRunningUnitTest;
@@ -172,14 +173,20 @@ public class FlightProtocolAdapterTest {
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
         ctx.addFlightSqlDeferredExecutor(deferred);
+        // A result the client never pulled: off-heap Arrow buffers the channel holds.
+        adapter.getChannel().addOKResult("query-1", "SELECT 1");
+        Assertions.assertEquals(1, adapter.getChannel().resultNum());
+        Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
 
         ctx.releaseProtocolSession();
 
-        Mockito.verify(deferred).finalizeArrowFlightQuery();
+        // The channel's results are released with their buffers, and the deferred query finalized.
+        Assertions.assertEquals(0, adapter.getChannel().resultNum());
+        Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
         Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
-        // Idempotent: the second release finds nothing to do and throws nothing.
+        // Idempotent: the second release finds nothing to do, throws nothing, and finalizes nothing twice.
         Assertions.assertDoesNotThrow(ctx::releaseProtocolSession);
-        Assertions.assertNotNull(adapter.getChannel());
+        Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
     }
 
     @Test

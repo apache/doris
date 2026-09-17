@@ -85,6 +85,9 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
         if (res >= 0) {
             String errMsg = pool.limitReachedMessage(connectContext, res);
             connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, errMsg);
+            // The refused session never entered the pool, so nothing else releases what its
+            // adapter allocated (the channel's allocator).
+            connectContext.releaseProtocolSession();
             flightTokenManager.invalidateToken(peerIdentity);
             LOG.warn("refuse arrow flight sql session, bearer token id: {}, user: {}: {}",
                     TokenMasker.tokenId(peerIdentity), connectContext.getQualifiedUser(), errMsg);

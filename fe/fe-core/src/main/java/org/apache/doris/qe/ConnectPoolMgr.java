@@ -46,8 +46,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * by their peer identity, the bearer token, since that is how Flight requests name their session.
  *
  * <p>{@link #unregisterConnection} is where every teardown path of a connection meets - a MySQL
- * channel closing, a Flight bearer token expiring or being evicted, CloseSession, KILL, the
- * timeout checker - so it is where the protocol releases what it still holds for the session.
+ * channel closing, a Flight bearer token expiring or being evicted, CloseSession, a KILL CONNECTION
+ * from another connection, the timeout checker past wait_timeout - so it is where the protocol
+ * releases what it still holds for the session.
  */
 public class ConnectPoolMgr {
     private static final Logger LOG = LogManager.getLogger(ConnectPoolMgr.class);
@@ -144,7 +145,8 @@ public class ConnectPoolMgr {
         String message = String.format("Reach limit of connections. Total: %d, User: %d, Current: %d",
                 maxConnections, userLimit, current);
         if (isFlight(ctx) && flightMaxConnections < maxConnections) {
-            message += String.format(", Arrow Flight SQL: %d", flightMaxConnections);
+            message += String.format(", Arrow Flight SQL: %d (current: %d)", flightMaxConnections,
+                    numberFlightConnection.get());
         }
         return message;
     }
@@ -165,7 +167,9 @@ public class ConnectPoolMgr {
                 traceId2QueryId.remove(ctx.traceId());
             }
             if (isFlight(ctx)) {
-                peerIdentity2ConnectionId.remove(ctx.getPeerIdentity());
+                // Only this connection's own entry: a second session created under the same token by
+                // a concurrent first request must not lose its index to the first one's teardown.
+                peerIdentity2ConnectionId.remove(ctx.getPeerIdentity(), ctx.getConnectionId());
                 numberFlightConnection.decrementAndGet();
             }
             numberConnection.decrementAndGet();
