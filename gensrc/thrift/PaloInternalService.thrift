@@ -519,6 +519,12 @@ struct TQueryOptions {
   1002: optional bool enable_file_scanner_v2 = false
   1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
   1004: optional i64 file_cache_query_limit_bytes = -1
+  // Whether to force a pushed-down MIN/MAX onto the zone map even when its bound is not a value
+  // the data holds right now: a string bound cut at 512 bytes is a prefix, and any bound still
+  // covers rows a delete predicate removed. Statistics collection sets it; every other query
+  // reads the data instead.
+  // Defaults to false because an old FE never sends this field, and BE checked both cases before.
+  1006: optional bool force_pushdown_zonemap_minmax = false
 }
 
 

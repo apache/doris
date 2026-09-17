@@ -738,15 +738,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             if (column.isAggregated()) {
                 return canNotPush;
             }
-            // The zone map max length of CharFamily is 512, do not
-            // over the length: https://github.com/apache/doris/pull/6293
             if (mergeOp == PushDownAggOp.MIN_MAX || mergeOp == PushDownAggOp.MIX) {
                 PrimitiveType colType = column.getType().getPrimitiveType();
-                if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
-                         || (colType == PrimitiveType.STRING && !enablePushDownStringMinMax())) {
-                    return canNotPush;
-                }
-                if (colType.isCharFamily() && column.getType().getLength() > 512 && !enablePushDownStringMinMax()) {
+                if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()) {
                     return canNotPush;
                 }
             }
@@ -809,11 +803,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         } else {
             return canNotPush;
         }
-    }
-
-    private boolean enablePushDownStringMinMax() {
-        ConnectContext connectContext = ConnectContext.get();
-        return connectContext != null && connectContext.getSessionVariable().isEnablePushDownStringMinMax();
     }
 
     private boolean enablePushDownNoGroupAgg() {
