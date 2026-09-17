@@ -114,7 +114,9 @@ namespace {
 //    requests consumed by the current iterator from paths that still address a data descendant. A
 //    current DATA request requires all data children. Struct owns current-level NULL metadata;
 //    Map and Array own NULL and OFFSET metadata. A supported metadata-only request can stop before
-//    descendant routing and mark every data child SKIP.
+//    descendant routing and mark every data child SKIP. A legacy DATA path whose tail is OFFSET at
+//    a Struct level is not metadata but a field literally named "offset"; it keeps the pre-typed
+//    routing to that field, while a typed META OFFSET request on a Struct is rejected.
 // 2. This router interprets only the first remaining component and routes the path according to
 //    the container topology:
 //    - Struct components already name fields. Select the paths for each field without rewriting.
@@ -1210,7 +1212,7 @@ void ColumnIterator::_recovery_from_place_holder_column(MutableColumnPtr& dst) {
 }
 
 Result<ColumnIterator::AccessPathSplit> ColumnIterator::_split_access_paths(
-        TColumnAccessPaths access_paths) const {
+        TColumnAccessPaths access_paths, bool owns_offset_meta) const {
     AccessPathSplit split;
     for (auto& path : access_paths) {
         const bool uses_legacy_encoding = uses_legacy_access_path_encoding(path);
@@ -1274,7 +1276,22 @@ Result<ColumnIterator::AccessPathSplit> ColumnIterator::_split_access_paths(
                 components->size() == 1 && is_meta_access_path_component((*components)[0]) &&
                 (path.type == TAccessPathType::META || uses_legacy_encoding);
         if (is_current_level_meta) {
-            if (StringCaseEqual()((*components)[0], ACCESS_OFFSET)) {
+            const bool is_offset = StringCaseEqual()((*components)[0], ACCESS_OFFSET);
+            if (is_offset && !owns_offset_meta) {
+                if (uses_legacy_encoding) {
+                    // A legacy sender never requests offsets from an iterator that has none, so a
+                    // trailing OFFSET on a Struct can only name a data field literally called
+                    // "offset". Keep the pre-typed routing and forward it to that field instead of
+                    // consuming it as metadata, which would silently skip every field.
+                    split.descendant_paths.emplace_back(std::move(path));
+                    continue;
+                }
+                return ResultError(Status::InternalError(
+                        "Invalid META access path for column '{}': OFFSET metadata is not "
+                        "supported at this level",
+                        _column_name));
+            }
+            if (is_offset) {
                 split.current_meta_mode = MetaReadMode::OFFSET_ONLY;
             } else if (split.current_meta_mode == MetaReadMode::DEFAULT) {
                 split.current_meta_mode = MetaReadMode::NULL_MAP_ONLY;
@@ -1297,13 +1314,14 @@ Result<ColumnIterator::NestedAccessPathPlan> ColumnIterator::_prepare_nested_acc
     }
 
     NestedAccessPathPlan plan;
-    auto all_split = _split_access_paths(all_access_paths);
+    const bool owns_offset_meta = meta_support == NestedMetaSupport::NULL_MAP_AND_OFFSET;
+    auto all_split = _split_access_paths(all_access_paths, owns_offset_meta);
     if (!all_split.has_value()) {
         return ResultError(std::move(all_split).error());
     }
     plan.all = std::move(all_split).value();
 
-    auto predicate_split = _split_access_paths(predicate_access_paths);
+    auto predicate_split = _split_access_paths(predicate_access_paths, owns_offset_meta);
     if (!predicate_split.has_value()) {
         return ResultError(std::move(predicate_split).error());
     }
@@ -1317,9 +1335,7 @@ Result<ColumnIterator::NestedAccessPathPlan> ColumnIterator::_prepare_nested_acc
 
     if (!plan.predicate.has_descendant_paths()) {
         RETURN_IF_ERROR_RESULT(_check_and_set_meta_read_mode(requirement_before, plan.all));
-        plan.skip_data_descendants =
-                read_null_map_only() ||
-                (meta_support == NestedMetaSupport::NULL_MAP_AND_OFFSET && read_offset_only());
+        plan.skip_data_descendants = read_null_map_only() || read_offset_only();
         if (plan.skip_data_descendants) {
             set_all_data_descendants_read_requirement(ReadRequirement::SKIP);
         }
@@ -2577,8 +2593,11 @@ Status FileColumnIterator::set_access_paths(const TColumnAccessPaths& all_access
         set_read_requirement(ReadRequirement::PREDICATE);
     }
 
-    auto all_split = DORIS_TRY(_split_access_paths(all_access_paths));
-    auto predicate_split = DORIS_TRY(_split_access_paths(predicate_access_paths));
+    // Scalar iterators have no data children, so a NULL/OFFSET tail is always current-level
+    // metadata regardless of the encoding.
+    auto all_split = DORIS_TRY(_split_access_paths(all_access_paths, /*owns_offset_meta=*/true));
+    auto predicate_split =
+            DORIS_TRY(_split_access_paths(predicate_access_paths, /*owns_offset_meta=*/true));
     if (all_split.reads_current_data) {
         set_lazy_output_requirement();
     }
