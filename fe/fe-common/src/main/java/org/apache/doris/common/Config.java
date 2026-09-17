@@ -2650,8 +2650,11 @@ public class Config extends ConfigBase {
             + "automatically. Set to 0 or negative value to disable " + "this limit for user-specified buckets.")
     public static int max_bucket_num_per_partition = 768;
 
-    @ConfField(description = "Maximum number of connections for the Arrow Flight Server per FE.")
-    public static int arrow_flight_max_connections = 4096;
+    @ConfField(description = "Arrow Flight SQL sessions share the one connection pool with MySQL connections:"
+            + " both count against qe_max_connection and the user's max_user_connections. This is the sub-quota of"
+            + " Arrow Flight SQL sessions within that pool: -1 (the default) follows qe_max_connection, and an"
+            + " explicit value never exceeds qe_max_connection.")
+    public static int arrow_flight_max_connections = -1;
 
     @ConfField(mutable = true, description = "Arrow Flight SQL only. A query that scans an external table in "
             + "batch mode keeps its FE coordinator alive after GetFlightInfo, so the BE can keep fetching splits "

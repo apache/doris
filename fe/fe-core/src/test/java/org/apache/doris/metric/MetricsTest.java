@@ -37,6 +37,8 @@ import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.UserProperty;
+import org.apache.doris.qe.ConnectPoolMgr;
+import org.apache.doris.service.ExecuteEnv;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.Lists;
@@ -86,22 +88,23 @@ public class MetricsTest {
 
     @Test
     public void testConnectionMaxMetrics() throws Exception {
-        int originQeMaxConnection = Config.qe_max_connection;
-        int originArrowFlightMaxConnections = Config.arrow_flight_max_connections;
         try {
-            Config.qe_max_connection = 4321;
-            Config.arrow_flight_max_connections = 8765;
             MetricRepo.updateUserConnectionMaxMetric("metric_user", 321L);
+            // One pool for every protocol: connection_max is its limit, and Arrow Flight SQL sessions
+            // are the share of it their sub-quota allows, never more than the pool.
+            ConnectPoolMgr pool = ExecuteEnv.getInstance().getScheduler().getConnectPoolMgr();
+            Assertions.assertTrue(pool.getFlightMaxConnections() <= pool.getMaxConnections());
 
             MetricVisitor visitor = new PrometheusMetricVisitor();
             MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
             String metricResult = visitor.finish();
             Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_connection_max gauge"));
-            Assertions.assertTrue(metricResult.contains("doris_fe_connection_max 13086"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_connection_max " + pool.getMaxConnections() + "\n"));
             Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_total gauge"));
-            Assertions.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_total 0"));
+            Assertions.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_total 0\n"));
             Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_arrow_flight_connection_max gauge"));
-            Assertions.assertTrue(metricResult.contains("doris_fe_arrow_flight_connection_max 8765"));
+            Assertions.assertTrue(metricResult.contains(
+                    "doris_fe_arrow_flight_connection_max " + pool.getFlightMaxConnections() + "\n"));
             Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_user_connection_max gauge"));
             Assertions.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"metric_user\"} 321"));
 
@@ -123,8 +126,6 @@ public class MetricsTest {
             Assertions.assertTrue(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 456"));
             Assertions.assertFalse(metricResult.contains("doris_fe_user_connection_max{user=\"root\"} 789"));
         } finally {
-            Config.qe_max_connection = originQeMaxConnection;
-            Config.arrow_flight_max_connections = originArrowFlightMaxConnections;
             MetricRepo.removeUserConnectionMaxMetric("metric_user");
             Env.getServingEnv().getAuth().updateUserPropertyInternal(Auth.ROOT_USER, Lists.newArrayList(
                     Pair.of(UserProperty.PROP_MAX_USER_CONNECTIONS, "100")), true);

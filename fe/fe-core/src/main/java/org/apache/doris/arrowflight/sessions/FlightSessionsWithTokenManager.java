@@ -23,10 +23,12 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.service.ExecuteEnv;
 
 import org.apache.arrow.flight.CallStatus;
+import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,13 +44,16 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
     @Override
     public ConnectContext getConnectContext(String peerIdentity) {
         try {
-            ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
-                    .getContextWithFlightToken(peerIdentity);
+            ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler()
+                    .getContextWithPeerIdentity(peerIdentity);
             if (null == connectContext) {
                 connectContext = createConnectContext(peerIdentity);
                 return connectContext;
             }
             return connectContext;
+        } catch (FlightRuntimeException e) {
+            // Already the status the client is meant to see (a connection refused for its limit).
+            throw e;
         } catch (Exception e) {
             LOG.warn("get ConnectContext failed, " + e.getMessage(), e);
             throw CallStatus.INTERNAL.withDescription(Util.getRootCauseMessage(e)).withCause(e).toRuntimeException();
@@ -71,15 +76,19 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
                 flightTokenDetails.getUserIdentity(), flightTokenDetails.getRemoteIp());
         ConnectScheduler connectScheduler = ExecuteEnv.getInstance().getScheduler();
         connectScheduler.submit(connectContext);
-        int res = connectScheduler.getFlightSqlConnectPoolMgr().registerConnection(connectContext);
+        // The one pool every protocol registers in: qe_max_connection, the user's
+        // max_user_connections and the Arrow Flight SQL sub-quota, refused in the words a MySQL
+        // client is refused in. The token goes with the refusal, so that the client does not keep a
+        // credential that can never open a session.
+        ConnectPoolMgr pool = connectScheduler.getConnectPoolMgr();
+        int res = pool.registerConnection(connectContext);
         if (res >= 0) {
-            String errMsg = String.format(
-                    "Register arrow flight sql connection failed, Unknown Error, the number of arrow flight "
-                            + "bearer tokens should be equal to arrow flight sql max connections, "
-                            + "max connections: %d, used: %d.",
-                    connectScheduler.getFlightSqlConnectPoolMgr().getMaxConnections(), res);
-            connectContext.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, errMsg);
-            throw new IllegalArgumentException(errMsg);
+            String errMsg = pool.limitReachedMessage(connectContext, res);
+            connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, errMsg);
+            flightTokenManager.invalidateToken(peerIdentity);
+            LOG.warn("refuse arrow flight sql session, bearer token id: {}, user: {}: {}",
+                    TokenMasker.tokenId(peerIdentity), connectContext.getQualifiedUser(), errMsg);
+            throw CallStatus.RESOURCE_EXHAUSTED.withDescription(errMsg).toRuntimeException();
         }
         return connectContext;
     }

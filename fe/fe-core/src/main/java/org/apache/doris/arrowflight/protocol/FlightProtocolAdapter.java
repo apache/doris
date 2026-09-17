@@ -24,10 +24,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
-import org.apache.doris.qe.ConnectPoolMgr;
-import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -266,9 +265,26 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     public void fillForwardRequest(ConnectContext ctx, TMasterOpRequest request) {
     }
 
+    /**
+     * Every Flight SQL session teardown path - idle and query timeout, bearer token expiry or
+     * eviction, CloseSession, KILL - reaches here through the pool's unregisterConnection. The
+     * channel-cached Arrow results go first, then the session is closed for good: teardown does not
+     * wait for a command that may still be running, and what that command defers afterwards is
+     * finalized on the spot ({@link #tearDown}).
+     */
     @Override
-    public ConnectPoolMgr connectPool(ConnectScheduler scheduler) {
-        return scheduler.getFlightSqlConnectPoolMgr();
+    public void releaseSession(ConnectContext ctx) {
+        try {
+            channel.close();
+        } catch (Throwable t) {
+            // RootAllocator.close() marks the allocator closed before it reports outstanding
+            // bytes. The error is actionable, but session teardown must still release the
+            // coordinator, transaction and pool/token bookkeeping. The peer identity IS the bearer
+            // token, so it is logged as a masked id, the same one FlightTokenManagerImpl uses.
+            LOG.warn("failed to close Flight SQL channel while unregistering connection {}, peer identity {}",
+                    ctx.getConnectionId(), TokenMasker.tokenId(peerIdentity), t);
+        }
+        tearDown();
     }
 
     /**
@@ -345,7 +361,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     @Override
     public void closeConnection(ConnectContext ctx) {
         // Releases the channel, the deferred executors and the transaction of the session.
-        connectPool(ctx.getConnectScheduler()).unregisterConnection(ctx);
+        ctx.getConnectScheduler().getConnectPoolMgr().unregisterConnection(ctx);
     }
 
     public String getPeerIdentity() {
