@@ -16,6 +16,46 @@
 // under the License.
 
 suite("test_encode_decode") {
+    sql "drop table if exists test_encode_decode"
+    sql """
+        create table test_encode_decode (
+            id int,
+            plain_text string,
+            binary_value string,
+            charset varchar(32)
+        ) duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties ("replication_num" = "1")
+    """
+
+    sql """
+        insert into test_encode_decode values
+            (1, 'A', unhex('41'), 'US-ASCII'),
+            (2, 'é', unhex('E9'), 'ISO-8859-1'),
+            (3, '中', unhex('E4B8AD'), 'UTF-8'),
+            (4, '中', unhex('4E2D'), 'UTF-16BE'),
+            (5, '中', unhex('2D4E'), 'UTF-16LE'),
+            (6, '中', unhex('FEFF4E2D'), 'UTF-16'),
+            (7, '😀', unhex('D83DDE00'), 'UTF-16BE'),
+            (8, '', unhex(''), 'UTF-16'),
+            (9, '中', unhex('FFFE2D4E'), 'utf-16'),
+            (10, '中', unhex('4E2D'), 'UTF-16'),
+            (11, null, null, 'UTF-8'),
+            (12, 'text', unhex('74657874'), null)
+    """
+
+    order_qt_encode_supported_charsets """
+        select id, hex(encode(plain_text, charset))
+        from test_encode_decode
+        order by id
+    """
+
+    order_qt_decode_supported_charsets """
+        select id, decode(cast(binary_value as varbinary), charset)
+        from test_encode_decode
+        order by id
+    """
+
     test {
         sql "select encode('text', 'GBK')"
         exception "Unsupported character set"
