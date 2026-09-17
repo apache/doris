@@ -21,11 +21,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
 
+import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -149,5 +152,26 @@ public class LazyMaterializeTopNTest {
         Backend remoteB = newBackend(300, "10.1.0.300");
         Assertions.assertNull(LazyMaterializeTopN.buildFetchBackends(
                 Arrays.asList(), Arrays.asList(remoteA, remoteB)));
+    }
+
+    // LazyMaterializeTopN runs before MergeProjectPostProcessor, whose DefaultPlanRewriter
+    // rebuilds ancestors of merged projects via withChildren / withPhysicalPropertiesAndStats.
+    // If those copies drop fetchBackends, the translator emits an empty nodes_info and every
+    // retained row id fails the phase-2 fetch with "failed to find rpc_struct" — for local
+    // tables as well as remote ones.
+    @Test
+    void testFetchBackendsSurvivePlanCopy() {
+        Plan child = Mockito.mock(Plan.class);
+        List<Slot> slots = ImmutableList.of(new SlotReference("a", IntegerType.INSTANCE));
+        List<Backend> fetchBackends = ImmutableList.of(newBackend(200, "192.168.0.200"));
+        PhysicalLazyMaterialize<Plan> node = new PhysicalLazyMaterialize<>(child, slots, slots,
+                ImmutableMap.of(), HashBiMap.create(), ImmutableMap.of(), fetchBackends, null, null);
+
+        Plan copiedChild = node.withChildren(ImmutableList.of(child));
+        Assertions.assertSame(fetchBackends,
+                ((PhysicalLazyMaterialize<?>) copiedChild).getFetchBackends());
+        Assertions.assertSame(fetchBackends,
+                ((PhysicalLazyMaterialize<?>) node.withPhysicalPropertiesAndStats(null, null))
+                        .getFetchBackends());
     }
 }

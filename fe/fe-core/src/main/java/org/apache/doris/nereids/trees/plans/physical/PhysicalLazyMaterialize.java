@@ -119,33 +119,6 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
             List<Slot> materializedSlots,
             Map<Relation, List<Slot>> relationToLazySlotMap,
             BiMap<Relation, SlotReference> relationToRowId,
-            Map<Slot, MaterializeSource> materializeMap) {
-        this(child, materializeInput, materializedSlots, relationToLazySlotMap,
-                relationToRowId, materializeMap, null, null);
-    }
-
-    /**
-     * constructor
-     */
-    public PhysicalLazyMaterialize(CHILD_TYPE child,
-            List<Slot> materializeInput,
-            List<Slot> materializedSlots,
-            Map<Relation, List<Slot>> relationToLazySlotMap,
-            BiMap<Relation, SlotReference> relationToRowId,
-            Map<Slot, MaterializeSource> materializeMap,
-            PhysicalProperties physicalProperties, Statistics statistics) {
-        this(child, materializeInput, materializedSlots, relationToLazySlotMap, relationToRowId,
-                materializeMap, ImmutableList.of(), physicalProperties, statistics);
-    }
-
-    /**
-     * constructor
-     */
-    public PhysicalLazyMaterialize(CHILD_TYPE child,
-            List<Slot> materializeInput,
-            List<Slot> materializedSlots,
-            Map<Relation, List<Slot>> relationToLazySlotMap,
-            BiMap<Relation, SlotReference> relationToRowId,
             Map<Slot, MaterializeSource> materializeMap,
             List<Backend> fetchBackends,
             PhysicalProperties physicalProperties, Statistics statistics) {
@@ -264,7 +237,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
     public Plan withChildren(List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize<>(children.get(0),
                 materializeInput, materializedSlots, relationToLazySlotMap,
-                relationToRowId, materializeMap, null, null));
+                relationToRowId, materializeMap, fetchBackends, null, null));
     }
 
     @Override
@@ -283,7 +256,7 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize(children.get(0),
                 materializeInput, materializedSlots, relationToLazySlotMap,
-                relationToRowId, materializeMap, physicalProperties, statistics));
+                relationToRowId, materializeMap, fetchBackends, physicalProperties, statistics));
     }
 
     @Override
