@@ -355,6 +355,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return ((ExternalTable) table).getConfiguredHiveParquetTimeZone();
     }
 
+    @Override
+    protected boolean applyColumnDefaultsOnRead() {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        return scanProvider == null || onPluginClassLoader(
+                scanProvider, scanProvider::applyColumnDefaultsOnRead);
+    }
+
     /**
      * Immutable (handle, provider) pair for {@link #resolveScanProvider()}'s memo. Both fields final so a single
      * volatile write of the holder safely publishes the pair to concurrent readers (no torn new-key/old-provider
