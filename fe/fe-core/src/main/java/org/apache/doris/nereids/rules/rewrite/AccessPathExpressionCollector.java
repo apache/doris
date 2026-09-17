@@ -322,17 +322,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
 
     @Override
     public Void visitCast(Cast cast, CollectorContext context) {
-        // TRY_CAST semantics cover the WHOLE value: for a composite type any element
-        // conversion failure makes the entire cast NULL (or, for a plain cast under
-        // strict mode, raises an error). Narrowing the read/type to only the fields an
-        // outer expression accesses would drop the conversion attempts of the other
-        // fields and silently change the result (e.g. element_at(try_cast(s as
-        // struct<a:int,b:int>), 'a') must still fail when only field b is unparsable).
-        // Plain Cast over nested types is pruned field-by-field on purpose; TryCast is
-        // not, so do not translate a narrowed access path through a TryCast. Falling
-        // through to the fresh context below reads the whole child value.
         if (!context.accessPathBuilder.isEmpty()
-                && !(cast instanceof TryCast)
                 && cast.getDataType() instanceof NestedColumnPrunable
                 && cast.child().getDataType() instanceof NestedColumnPrunable
                 && !mapTypeIsChanged(cast.child().getDataType(), cast.getDataType(), false)) {
@@ -351,6 +341,21 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             }
         }
         return cast.child(0).accept(this,
+                new CollectorContext(context.statementContext, context.bottomFilter)
+        );
+    }
+
+    @Override
+    public Void visitTryCast(TryCast tryCast, CollectorContext context) {
+        // TRY_CAST semantics cover the WHOLE value: for a composite type any element
+        // conversion failure makes the entire cast NULL. Narrowing the read/type down to
+        // only the fields an outer expression accesses would drop the conversion attempts
+        // of the other fields and silently change the result (e.g. element_at(try_cast(s as
+        // struct<a:int,b:int>), 'a') must still yield NULL when only field b is unparsable,
+        // even though field a alone converts fine). Plain Cast over nested types is pruned
+        // field-by-field on purpose, a TryCast never is: read the whole child value and keep
+        // the cast identity and target type intact.
+        return tryCast.child(0).accept(this,
                 new CollectorContext(context.statementContext, context.bottomFilter)
         );
     }
