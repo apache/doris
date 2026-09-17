@@ -48,7 +48,9 @@ public class DateType extends DateLikeType {
 
     @Override
     public boolean isInjectiveCastTo(DataType target) {
-        return target instanceof DateType || target instanceof DateV2Type || target instanceof CharacterType;
+        return target instanceof DateType || target instanceof DateV2Type
+                || target instanceof DateTimeType || target instanceof DateTimeV2Type
+                || target instanceof CharacterType;
     }
 
     @Override

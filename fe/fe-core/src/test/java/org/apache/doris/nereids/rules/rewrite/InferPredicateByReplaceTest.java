@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SignBit;
@@ -55,6 +56,7 @@ import org.apache.doris.nereids.types.IPv6Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.PredicateInferUtils;
@@ -75,6 +77,19 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 public class InferPredicateByReplaceTest {
+    @Test
+    public void testDoNotInferNoneMovablePredicateInsideOr() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        Expression predicate = new Or(
+                new AssertTrue(new GreaterThan(a, new IntegerLiteral(0)), new StringLiteral("bad")),
+                new GreaterThan(a, new IntegerLiteral(10)));
+        Set<Expression> inputs = new LinkedHashSet<>(ImmutableList.of(new EqualTo(a, b), predicate));
+
+        Assertions.assertEquals(inputs, InferPredicateByReplace.infer(inputs));
+        Assertions.assertEquals(inputs, PredicateInferUtils.inferAllPredicate(inputs));
+    }
+
     @Test
     public void testInferWithEqualTo() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
@@ -252,6 +267,23 @@ public class InferPredicateByReplaceTest {
         EqualTo legacyEqualTo = new EqualTo(
                 roundedToSeconds, new DateTimeLiteral("2024-01-01 00:00:00"));
         Assertions.assertFalse(PredicateInferUtils.getPairFromCast(legacyEqualTo).isPresent());
+    }
+
+    @Test
+    public void testTimestampTzCastIsNotRemovedForPredicateInference() {
+        for (int sourceScale : new int[] {0, 3, 6}) {
+            SlotReference timestampTz = new SlotReference("tz", TimeStampTzType.of(sourceScale));
+            for (DataType target : ImmutableList.of(DateTimeType.INSTANCE,
+                    DateTimeV2Type.of(0), DateTimeV2Type.of(3), DateTimeV2Type.of(6))) {
+                SlotReference localTime = new SlotReference("dt", target);
+                Cast cast = new Cast(timestampTz, target);
+                Assertions.assertFalse(PredicateInferUtils.getPairFromCast(new EqualTo(cast, localTime)).isPresent());
+                Assertions.assertFalse(PredicateInferUtils.getPairFromCast(new GreaterThan(cast, localTime)).isPresent());
+                Assertions.assertFalse(PredicateInferUtils.getPairFromCast(
+                        new EqualTo(new Cast(cast, DateTimeV2Type.of(6)),
+                                new Cast(localTime, DateTimeV2Type.of(6)))).isPresent());
+            }
+        }
     }
 
     @Test

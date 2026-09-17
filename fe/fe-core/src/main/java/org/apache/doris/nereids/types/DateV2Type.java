@@ -37,6 +37,12 @@ public class DateV2Type extends DateLikeType {
     }
 
     @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        return target instanceof DateType || target instanceof DateV2Type
+                || target instanceof DateTimeType || target instanceof DateTimeV2Type;
+    }
+
+    @Override
     public Type toCatalogDataType() {
         return Type.DATEV2;
     }

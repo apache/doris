@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -235,7 +236,9 @@ public class InferPredicateByReplace {
         }
         Map<Expression, Set<Expression>> exprPredicates = new HashMap<>();
         for (Expression input : inputs) {
-            if (input.anyMatch(expr -> !((ExpressionTrait) expr).isDeterministic())
+            // Inference can evaluate a predicate on rows that never reach its original filter.
+            if (input.anyMatch(expr -> expr instanceof NoneMovableFunction
+                    || !((ExpressionTrait) expr).isDeterministic())
                     || input.getInputSlots().size() != 1) {
                 continue;
             }
