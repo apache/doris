@@ -1102,6 +1102,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             attrs.setTrimDoubleQuotes(true);
         }
 
+        if ("true".equals(props.get(ScanNodePropertyKeys.TEXT_HIVE_OPEN_CSV))) {
+            // The optional wire field alone cannot fence old readers during a rolling upgrade.
+            if (Config.be_exec_version < Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION) {
+                throw new UserException("Hive OpenCSVSerde requires backend execution version "
+                        + Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION + " or newer during rolling upgrade");
+            }
+            attrs.setHiveOpenCsv(true);
+        }
         attrs.setTextParams(textParams);
         attrs.setHeaderType("");
         attrs.setEnableTextValidateUtf8(sessionVariable.enableTextValidateUtf8);

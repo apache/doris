@@ -162,7 +162,7 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
     (*field)->setOmitTermFreqAndPositions(
             !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
               INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
-    if (_should_analyzer) {
+    if (_should_analyzer && should_write_index_norms(*_index_meta)) {
         (*field)->setOmitNorms(false);
     }
 
