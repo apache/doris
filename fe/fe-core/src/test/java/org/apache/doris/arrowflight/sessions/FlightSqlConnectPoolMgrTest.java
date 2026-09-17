@@ -28,9 +28,10 @@ public class FlightSqlConnectPoolMgrTest {
 
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259).
     // unregisterConnection() is the catch-all teardown path: idle/query timeout, bearer token expiry
-    // and explicit CloseSession all reach here. It must finalize the deferred coordinators so an
-    // abandoned connection cannot leak them (the external-table batch SplitSource and the query
-    // queue slot the coordinator holds).
+    // and explicit CloseSession all reach here. It must tear the Flight session down -- finalize the
+    // deferred coordinators, so an abandoned connection cannot leak them (the external-table batch
+    // SplitSource and the query queue slot the coordinator holds), and close the session to what a
+    // still-running command defers afterwards.
     @Test
     public void testUnregisterConnectionFinalizesDeferredExecutors() {
         FlightSqlConnectPoolMgr poolMgr = new FlightSqlConnectPoolMgr(100);
@@ -43,7 +44,7 @@ public class FlightSqlConnectPoolMgrTest {
         // The deferred coordinators must be released on teardown even though this connection was
         // never registered in the pool (an abandoned connection is still cleaned up, not leaked).
         Mockito.verify(channel).close();
-        Mockito.verify(ctx).closeFlightSqlDeferredExecutors();
+        Mockito.verify(ctx).tearDownFlightSqlSession();
     }
 
     // Cleanup must run before the connection bookkeeping (closeTxn / map removal), so that a failure
@@ -63,7 +64,7 @@ public class FlightSqlConnectPoolMgrTest {
         poolMgr.unregisterConnection(ctx);
 
         Mockito.verify(channel).close();
-        Mockito.verify(ctx).closeFlightSqlDeferredExecutors();
+        Mockito.verify(ctx).tearDownFlightSqlSession();
         Assertions.assertNull(poolMgr.getConnectionMap().get(7));
     }
 }

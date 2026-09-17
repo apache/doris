@@ -110,13 +110,29 @@ public class PluginApiVersionWiringTest {
     @Test
     public void connectorPluginWithoutLocationPrefixMatchingIsRefused() throws IOException {
         ApiVersionGate gate = ApiVersionGate.forFamily("connector", ConnectorProvider.class);
-        Assertions.assertEquals("11.0", gate.getExpectedVersion());
+        Assertions.assertEquals("12.0", gate.getExpectedVersion());
         ConnectorPluginManager manager = new ConnectorPluginManager();
 
         manager.loadPlugins(Collections.singletonList(connectorPluginRoot("10.0")));
 
         Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
                 "a plugin from before provider-owned location prefix matching must not be admitted");
+    }
+
+    @Test
+    public void connectorPluginWithoutOpenCsvContractIsRefused() throws IOException {
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("8.0")));
+        Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
+                "API 8 plugins omit the OpenCSV semantic flag and must not load on this engine");
+    }
+
+    @Test
+    public void connectorPluginBeforeMergedOpenCsvContractIsRefused() throws IOException {
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("11.0")));
+        Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
+                "API 11 plugins predate the merged OpenCSV contract and must not load on an API 12 engine");
     }
 
     @Test

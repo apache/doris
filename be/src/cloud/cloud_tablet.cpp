@@ -1623,6 +1623,7 @@ Status CloudTablet::sync_meta() {
         }
     }
 
+    last_sync_tablet_meta_time_s = ::time(nullptr);
     return Status::OK();
 }
 

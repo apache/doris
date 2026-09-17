@@ -313,6 +313,10 @@ struct TFileAttributes {
     // org.openx.data.jsonserde.JsonSerDe
     13: optional bool openx_json_ignore_malformed = false;
 
+    // Hive OpenCSVSerde has different field states and physical record boundaries from load CSV.
+    // Requires BE execution version >= 15 and excludes smooth-upgrade source backends.
+    14: optional bool hive_open_csv = false;
+
     // for cloud copy into
     1001: optional bool ignore_csv_redundant_col;
 }

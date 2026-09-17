@@ -143,7 +143,6 @@ import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.statistics.cache.StatisticsCache.OlapTableStatistics;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.ColumnStatisticBuilder;
-import org.apache.doris.statistics.model.Histogram;
 import org.apache.doris.statistics.model.PartitionColumnStatistic;
 import org.apache.doris.statistics.model.PartitionColumnStatisticBuilder;
 import org.apache.doris.statistics.model.StatisticRange;
@@ -184,12 +183,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     protected boolean forbidUnknownColStats = false;
 
-    protected Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
-
-    protected boolean isPlayNereidsDump = false;
-
-    protected Map<String, Histogram> totalHistogramMap = new HashMap<>();
-
     protected Map<CTEId, Statistics> cteIdToStats;
 
     protected CascadesContext cascadesContext;
@@ -204,32 +197,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * StatsCalculator
      * @param groupExpression group Expression
      * @param forbidUnknownColStats forbid UnknownColStats
-     * @param columnStatisticMap columnStatisticMap
-     * @param isPlayNereidsDump isPlayNereidsDump
      * @param cteIdToStats cteIdToStats
      * @param context CascadesContext
      */
     public StatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
-            Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         this.groupExpression = groupExpression;
         this.forbidUnknownColStats = forbidUnknownColStats;
-        this.totalColumnStatisticMap = columnStatisticMap;
-        this.isPlayNereidsDump = isPlayNereidsDump;
         this.cteIdToStats = Objects.requireNonNull(cteIdToStats, "CTEIdToStats can't be null");
         this.cascadesContext = context;
-    }
-
-    public Map<String, Histogram> getTotalHistogramMap() {
-        return totalHistogramMap;
-    }
-
-    public void setTotalHistogramMap(Map<String, Histogram> totalHistogramMap) {
-        this.totalHistogramMap = totalHistogramMap;
-    }
-
-    public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
-        return totalColumnStatisticMap;
     }
 
     /**
@@ -360,7 +336,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     // For unit test only
     public static void estimate(GroupExpression groupExpression, CascadesContext context) {
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false,
-                new HashMap<>(), false, Collections.emptyMap(), context);
+                Collections.emptyMap(), context);
         statsCalculator.estimate();
     }
 
@@ -1238,47 +1214,38 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (connectContext != null && connectContext.getState().isPlanWithUnKnownColumnStats()) {
             return ColumnStatistic.UNKNOWN;
         }
-        OlapTable table = olapTableStatistics.olapTable;
-        if (isPlayNereidsDump) {
-            if (totalColumnStatisticMap.get(table.getName() + colName) != null) {
-                return totalColumnStatisticMap.get(table.getName() + colName);
-            } else {
-                return ColumnStatistic.UNKNOWN;
+        if (!partitionNames.isEmpty()) {
+            PartitionColumnStatisticBuilder builder = new PartitionColumnStatisticBuilder();
+            boolean hasUnknown = false;
+            // check if there is any unknown stats to avoid unnecessary partition column stats merge.
+            List<PartitionColumnStatistic> pColStatsLists = new ArrayList<>(partitionNames.size());
+            for (String partitionName : partitionNames) {
+                PartitionColumnStatistic pcolStats
+                        = olapTableStatistics.getPartitionColumnStatistics(partitionName, colName, connectContext);
+                if (pcolStats.isUnKnown) {
+                    hasUnknown = true;
+                    break;
+                } else {
+                    pColStatsLists.add(pcolStats);
+                }
             }
-        } else {
-            if (!partitionNames.isEmpty()) {
-                PartitionColumnStatisticBuilder builder = new PartitionColumnStatisticBuilder();
-                boolean hasUnknown = false;
-                // check if there is any unknown stats to avoid unnecessary partition column stats merge.
-                List<PartitionColumnStatistic> pColStatsLists = new ArrayList<>(partitionNames.size());
-                for (String partitionName : partitionNames) {
-                    PartitionColumnStatistic pcolStats
-                            = olapTableStatistics.getPartitionColumnStatistics(partitionName, colName, connectContext);
-                    if (pcolStats.isUnKnown) {
-                        hasUnknown = true;
-                        break;
+            if (!hasUnknown) {
+                boolean isFirst = true;
+                // try to merge partition column stats
+                for (PartitionColumnStatistic pcolStats : pColStatsLists) {
+                    if (isFirst) {
+                        builder = new PartitionColumnStatisticBuilder(pcolStats);
+                        isFirst = false;
                     } else {
-                        pColStatsLists.add(pcolStats);
+                        builder.merge(pcolStats);
                     }
                 }
-                if (!hasUnknown) {
-                    boolean isFirst = true;
-                    // try to merge partition column stats
-                    for (PartitionColumnStatistic pcolStats : pColStatsLists) {
-                        if (isFirst) {
-                            builder = new PartitionColumnStatisticBuilder(pcolStats);
-                            isFirst = false;
-                        } else {
-                            builder.merge(pcolStats);
-                        }
-                    }
-                    return builder.toColumnStatistics();
-                }
+                return builder.toColumnStatistics();
             }
-
-            // if any partition-col-stats is unknown, fall back to table level col stats
-            return olapTableStatistics.getColumnStatistics(colName, connectContext);
         }
+
+        // if any partition-col-stats is unknown, fall back to table level col stats
+        return olapTableStatistics.getColumnStatistics(colName, connectContext);
     }
 
     /**
