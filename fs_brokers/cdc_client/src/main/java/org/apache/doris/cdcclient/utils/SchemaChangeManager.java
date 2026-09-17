@@ -104,8 +104,7 @@ public class SchemaChangeManager {
                 ddlFailure.addSuppressed(schemaFailure);
             }
             throw new IOException(
-                    "Failed to execute schema change. SQL: " + operation.getSql(),
-                    ddlFailure);
+                    "Failed to execute schema change. SQL: " + operation.getSql(), ddlFailure);
         }
     }
 

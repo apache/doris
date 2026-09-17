@@ -825,8 +825,7 @@ public class PipelineCoordinator {
         return value.getStruct(Envelope.FieldName.SOURCE).getString("table");
     }
 
-    static String formatSourceRecordFailure(
-            String action, SourceRecord record, Throwable failure) {
+    static String formatSourceRecordFailure(String action, SourceRecord record, Throwable failure) {
         try {
             StringBuilder message = new StringBuilder(action);
             if (record.value() instanceof Struct) {
@@ -845,7 +844,8 @@ public class PipelineCoordinator {
             Throwable rootCause = ExceptionUtils.getRootCause(failure);
             if (rootCause != null
                     && rootCause != failure
-                    && (rootCause.getMessage() == null || !reason.contains(rootCause.getMessage()))) {
+                    && (rootCause.getMessage() == null
+                            || !reason.contains(rootCause.getMessage()))) {
                 message.append("; caused by: ").append(ExceptionUtils.getMessage(rootCause));
             }
             return message.toString();
