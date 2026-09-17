@@ -2306,7 +2306,8 @@ public class Config extends ConfigBase {
     @ConfField(
             mutable = true,
             callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
-            description = "Max mtmv plan cache entries kept by MTMVCacheManager. Default 3000.")
+            description = "Max mtmv plan cache entries kept by MTMVCacheManager. 0 disables the cache, "
+                    + "negative values are rejected. Default 3000.")
     public static int mtmv_cache_manage_num = 3000;
 
     @ConfField(

@@ -17,6 +17,8 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.mtmv.MTMVCacheManager.HotEntry;
 import org.apache.doris.mtmv.MTMVCacheManager.Key;
 import org.apache.doris.mtmv.MTMVCacheManager.Snapshot;
@@ -110,6 +112,57 @@ public class MTMVCacheManagerTest {
         manager.put(2L, false, c);
         manager.invalidateAll();
         Assertions.assertEquals(0L, manager.size());
+    }
+
+    @Test
+    public void testNegativeMaxSizeIsRejected() {
+        Assertions.assertThrows(DdlException.class, () -> MTMVCacheManager.checkMaxSize("-1"));
+        Assertions.assertThrows(DdlException.class, () -> MTMVCacheManager.checkMaxSize("not_a_number"));
+        Assertions.assertDoesNotThrow(() -> MTMVCacheManager.checkMaxSize("0"));
+        Assertions.assertDoesNotThrow(() -> MTMVCacheManager.checkMaxSize(" 10 "));
+    }
+
+    @Test
+    public void testZeroMaxSizeDisablesCacheInsteadOfUnbounding() {
+        int originalMaxSize = Config.mtmv_cache_manage_num;
+        try {
+            Config.mtmv_cache_manage_num = 0;
+            MTMVCacheManager manager = new MTMVCacheManager();
+            for (int i = 0; i < 5; i++) {
+                manager.put(i, true, Mockito.mock(MTMVCache.class));
+            }
+            manager.getCachesForTest().cleanUp();
+            Assertions.assertEquals(0L, manager.size());
+        } finally {
+            Config.mtmv_cache_manage_num = originalMaxSize;
+        }
+    }
+
+    @Test
+    public void testUpdateConfigShrinksToNewMaxSize() {
+        int originalMaxSize = Config.mtmv_cache_manage_num;
+        try {
+            Config.mtmv_cache_manage_num = 10;
+            MTMVCacheManager manager = new MTMVCacheManager();
+            for (int i = 0; i < 10; i++) {
+                manager.put(i, true, Mockito.mock(MTMVCache.class));
+            }
+            manager.getCachesForTest().cleanUp();
+            Assertions.assertEquals(10L, manager.size());
+
+            Config.mtmv_cache_manage_num = 2;
+            manager.updateConfig();
+            Assertions.assertTrue(manager.size() <= 2L, "expected shrink to 2, got " + manager.size());
+
+            Config.mtmv_cache_manage_num = 0;
+            manager.updateConfig();
+            Assertions.assertEquals(0L, manager.size());
+            manager.put(99L, true, Mockito.mock(MTMVCache.class));
+            manager.getCachesForTest().cleanUp();
+            Assertions.assertEquals(0L, manager.size());
+        } finally {
+            Config.mtmv_cache_manage_num = originalMaxSize;
+        }
     }
 
     @Test

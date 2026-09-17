@@ -298,15 +298,19 @@ public class MTMV extends OlapTable {
                     }
                     ivmInfo.clearBaselineRebuild();
                 }
+                // The refresh publishes a new plan, so every cache built before this commit is stale.
+                // Bump before publishing so an in-flight build cannot pass its generation check later.
+                boolean publishCache = needUpdateCache && cacheGeneration == rewriteCacheGeneration && !isDropped;
+                rewriteCacheGeneration++;
                 if (needUpdateCache) {
-                    if (cacheGeneration == rewriteCacheGeneration) {
-                        MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
-                        if (mtmvCacheWithGuard != null) {
+                    MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
+                    if (manager != null) {
+                        if (publishCache && mtmvCacheWithGuard != null) {
                             manager.put(this.id, true, mtmvCacheWithGuard);
                         } else {
                             manager.invalidate(this.id);
                         }
-                        if (mtmvCacheWithoutGuard != null) {
+                        if (publishCache && mtmvCacheWithoutGuard != null) {
                             manager.put(this.id, false, mtmvCacheWithoutGuard);
                         }
                     }
@@ -529,7 +533,9 @@ public class MTMV extends OlapTable {
                 if (existing != null) {
                     return existing;
                 }
-                manager.put(this.id, guarded, generated);
+                if (!isDropped) {
+                    manager.put(this.id, guarded, generated);
+                }
                 return generated;
             } finally {
                 readMvUnlock();
@@ -990,9 +996,17 @@ public class MTMV extends OlapTable {
     @Override
     public void markDropped() {
         super.markDropped();
-        MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
-        if (manager != null) {
-            manager.invalidate(this.id);
+        // A refresh or query building a cache outside the MV lock must not
+        // be able to republish it after the drop.
+        writeMvLock();
+        try {
+            rewriteCacheGeneration++;
+            MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
+            if (manager != null) {
+                manager.invalidate(this.id);
+            }
+        } finally {
+            writeMvUnlock();
         }
     }
 
