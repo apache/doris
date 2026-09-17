@@ -44,6 +44,7 @@ public:
     ~GroupJoinBuildSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status terminate(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 

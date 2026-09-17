@@ -73,6 +73,14 @@ Status GroupJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInf
     return Status::OK();
 }
 
+Status GroupJoinBuildSinkLocalState::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
+    if (_shared_state->data_container == nullptr) {
+        groupjoin::init_data_container(_shared_state);
+    }
+    return Status::OK();
+}
+
 Status GroupJoinBuildSinkLocalState::terminate(RuntimeState* state) {
     if (_terminated) {
         return Status::OK();
