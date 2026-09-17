@@ -1342,8 +1342,9 @@ public class NereidsPlanner extends Planner {
      * string. Controlled by session variable {@code show_hbo_fingerprint} (default off) so that
      * the default explain output is unchanged. For a filter that sits above an olap scan
      * (filter-on-scan) the annotation shows the fingerprint of the scan group, which is the key
-     * used by the hbo read side to override the filter row count — users copy this fingerprint to
-     * the {@code HBO SET STATISTICS} statement.
+     * used by the hbo read side to override the filter row count — users copy the quoted
+     * {@code fingerprint=} / {@code struct=} (or {@code condFingerprint=} / {@code cond=} for a
+     * join expansion) straight into the {@code HBO SET STATISTICS} statement.
      */
     private String appendHboFingerprintAnnotations() {
         StringBuilder sb = new StringBuilder("\n\nHBO fingerprint annotations (join/aggregation/filter):\n");
@@ -1378,15 +1379,17 @@ public class NereidsPlanner extends Planner {
             if (fingerprint == null) {
                 continue;
             }
+            // the fingerprint / struct / condition values are quoted so that they can be copied
+            // straight into HBO SET STATISTICS (which takes them as string literals)
             sb.append("  [").append(node.getId()).append("] kind=").append(kind)
-                    .append(" fingerprint=").append(fingerprint);
+                    .append(" fingerprint='").append(fingerprint).append("'");
             Object noLiteralFingerprint = node.getMutableState(MutableState.KEY_HBO_FP_NO_LITERAL).orElse(null);
             if (noLiteralFingerprint != null && !noLiteralFingerprint.equals(fingerprint)) {
-                sb.append(" fingerprintNoLiteral=").append(noLiteralFingerprint);
+                sb.append(" fingerprintNoLiteral='").append(noLiteralFingerprint).append("'");
             }
             Object struct = node.getMutableState(MutableState.KEY_HBO_STRUCT).orElse(null);
             if (struct != null) {
-                sb.append(" struct=").append(struct);
+                sb.append(" struct='").append(struct).append("'");
             }
             Object hboType = node.getMutableState(MutableState.KEY_HBO_TYPE).orElse(null);
             if (hboType != null) {
@@ -1394,11 +1397,11 @@ public class NereidsPlanner extends Planner {
             }
             Object condFingerprint = node.getMutableState(MutableState.KEY_HBO_COND_FP).orElse(null);
             if (condFingerprint != null) {
-                sb.append(" condFingerprint=").append(condFingerprint);
+                sb.append(" condFingerprint='").append(condFingerprint).append("'");
             }
             Object cond = node.getMutableState(MutableState.KEY_HBO_COND).orElse(null);
             if (cond != null) {
-                sb.append(" cond=").append(cond);
+                sb.append(" cond='").append(cond).append("'");
             }
             Object expansion = node.getMutableState(MutableState.KEY_HBO_EXPANSION).orElse(null);
             if (expansion != null) {

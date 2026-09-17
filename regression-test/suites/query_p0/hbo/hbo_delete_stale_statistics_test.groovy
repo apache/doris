@@ -42,11 +42,11 @@ suite("hbo_delete_stale_statistics_test", "nonConcurrent") {
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "true"); """
         def text = (sql """ explain select * from hbo_ds_r where b = 1 """).flatten().join("\n")
         def matcher = (text =~
-                /kind=filter-on-scan\(table=[^)]*hbo_ds_r[^)]*\) fingerprint=([0-9a-f]+) fingerprintNoLiteral=[0-9a-f]+ struct=(\S+)/)
+                /kind=filter-on-scan\(table=[^)]*hbo_ds_r[^)]*\) fingerprint='([0-9a-f]+)' fingerprintNoLiteral='[0-9a-f]+' struct='([^']*)'/)
         assertTrue(matcher.find(), "no filter annotation found:\n" + text)
         def fingerprint = matcher.group(1)
         def structCanonical = matcher.group(2)
-        sql """ HBO SET STATISTICS '${fingerprint}' = 123456 STRUCT '${structCanonical}'; """
+        sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${fingerprint}' STRUCT='${structCanonical}'; """
         injected.add(fingerprint)
 
         // the creation time of a persisted entry is a datetime, like the other internal tables
@@ -66,7 +66,7 @@ suite("hbo_delete_stale_statistics_test", "nonConcurrent") {
         def unknownStruct = "S{internal.hbo_test.hbo_ds_gone,v1}"
         def unknownFingerprint = java.security.MessageDigest.getInstance("SHA-256")
                 .digest(unknownStruct.getBytes("UTF-8")).encodeHex().toString()
-        sql """ HBO SET STATISTICS '${unknownFingerprint}' = 5 STRUCT '${unknownStruct}'; """
+        sql """ HBO SET STATISTICS VALUE=5 FINGERPRINT='${unknownFingerprint}' STRUCT='${unknownStruct}'; """
         injected.add(unknownFingerprint)
         assertEquals("unknown",
                 (sql """ HBO SHOW PINNED STATISTICS LIKE 'S{hbo_test.hbo_ds_gone}%'; """)[0][6].toString())
@@ -90,14 +90,14 @@ suite("hbo_delete_stale_statistics_test", "nonConcurrent") {
         // only the STALE form is accepted, and OLDER_THAN is the only clause it takes
         test {
             sql """ HBO DELETE BOGUS STATISTICS; """
-            exception "expect 'STALE' keyword in hbo delete stale statistics statement"
+            exception "expect 'STALE' keyword in hbo statement"
         }
         test {
             sql """ HBO DELETE STALE STATISTICS WRONG_WORD 5; """
-            exception "expect 'OLDER_THAN' keyword in hbo delete stale statistics statement"
+            exception "expect 'OLDER_THAN' keyword in hbo statement"
         }
     } finally {
-        injected.each { sql """ HBO DELETE STATISTICS '${it}'; """ }
+        injected.each { sql """ HBO DELETE STATISTICS FINGERPRINT='${it}'; """ }
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "${prevPersist}"); """
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
     }

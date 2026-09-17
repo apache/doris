@@ -141,18 +141,30 @@ statementBase
 // 'HBO DELETE EXPANSION <fp>' can only match the expansion alternative because the statistics
 // alternative would require an extra identifier token after the scope.
 hboStatement
-    : hbo=identifier SET scope=identifier? statistics=identifier key=STRING_LITERAL EQ rows=INTEGER_VALUE
-          (typeWord=TYPE typeName=identifier)?
-          (structWord=identifier structCanonical=STRING_LITERAL)?      #hboSetStatistics
+    // 'VALUE' / 'TYPE' / 'STRUCT' are non reserved words, i.e. they are also valid identifiers, so
+    // the parameter names are matched with hboWord (plain identifiers only) to keep
+    // 'SET STATISTICS VALUE=1 TYPE=EXACT' distinguishable from 'SET STATISTICS VALUE=1 FINGERPRINT=..'
+    : hbo=identifier SET scope=identifier? statistics=identifier
+          VALUE EQ value=(INTEGER_VALUE | DECIMAL_VALUE)
+          TYPE EQ typeName=identifier
+          fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL
+          (STRUCT EQ structCanonical=STRING_LITERAL)?                   #hboSetStatisticsTyped
+    | hbo=identifier SET scope=identifier? statistics=identifier
+          VALUE EQ value=(INTEGER_VALUE | DECIMAL_VALUE)
+          fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL
+          (STRUCT EQ structCanonical=STRING_LITERAL)?                   #hboSetStatistics
     | hbo=identifier DELETE staleWord=identifier statistics=identifier
           (olderWord=identifier olderThan=INTEGER_VALUE)?               #hboDeleteStaleStatistics
-    | hbo=identifier DELETE scope=identifier? statistics=identifier key=STRING_LITERAL
-                                                                       #hboDeleteStatistics
+    | hbo=identifier DELETE scope=identifier? statistics=identifier
+          fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL      #hboDeleteStatistics
     | hbo=identifier SHOW scope=identifier? statistics=identifier (FULL)?
           (LIKE likePattern=STRING_LITERAL)?                           #hboShowStatistics
-    | hbo=identifier SET expansionWord=identifier key=STRING_LITERAL EQ value=(INTEGER_VALUE | DECIMAL_VALUE)
-          (condWord=identifier condCanonical=STRING_LITERAL)?          #hboSetExpansion
-    | hbo=identifier DELETE expansionWord=identifier key=STRING_LITERAL  #hboDeleteExpansion
+    ;
+
+// hbo parameter name: deliberately not 'identifier' (which includes the non reserved keywords)
+hboWord
+    : IDENTIFIER
+    | quotedIdentifier
     ;
 
 queryOrDmlStatement

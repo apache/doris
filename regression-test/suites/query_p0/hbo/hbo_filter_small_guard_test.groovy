@@ -51,7 +51,7 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
     def probeTable = { String predicate -> firstFragment(explainText(predicate)) }
     def filterAnnotationOf = { String predicate ->
         def matcher = (explainText(predicate) =~
-                /kind=filter-on-scan\(table=[^)]*hbo_gs_r[^)]*\) fingerprint=[0-9a-f]+ fingerprintNoLiteral=([0-9a-f]+) struct=(\S+)/)
+                /kind=filter-on-scan\(table=[^)]*hbo_gs_r[^)]*\) fingerprint='[0-9a-f]+' fingerprintNoLiteral='([0-9a-f]+)' struct='([^']*)'/)
         assertTrue(matcher.find(), "no filter annotation for ${predicate}")
         matcher
     }
@@ -67,7 +67,7 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
 
     try {
         // FILTER_SMALL: applied for the pathological estimate ...
-        sql """ HBO SET STATISTICS '${shapeOfPathological}' = 500000 TYPE FILTER_SMALL STRUCT '${structOfPathological}'; """
+        sql """ HBO SET STATISTICS VALUE=500000 TYPE=FILTER_SMALL FINGERPRINT='${shapeOfPathological}' STRUCT='${structOfPathological}'; """
         assertTrue(probeTable(pathological).contains("TABLE: hbo_test.hbo_gs_r(hbo_gs_r)"),
                 probeTable(pathological))
         // the applied node reports its injected entry type in the physical plan
@@ -91,12 +91,12 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
         assertEquals("filter_small", showRows[0][3].toString())
 
         // control: the same fingerprint injected as EXACT overrides the healthy estimate as well
-        sql """ HBO SET STATISTICS '${shapeOfPathological}' = 500000 TYPE EXACT STRUCT '${structOfPathological}'; """
+        sql """ HBO SET STATISTICS VALUE=500000 TYPE=EXACT FINGERPRINT='${shapeOfPathological}' STRUCT='${structOfPathological}'; """
         assertTrue(probeTable(healthy).contains("TABLE: hbo_test.hbo_gs_r(hbo_gs_r)"), probeTable(healthy))
         def exactNode = nodePlanText(healthy)
         assertTrue((exactNode =~ /PhysicalFilter\[\d+\][^\n]*hboType=exact[^\n]*hboUsed=true/).find(), exactNode)
     } finally {
-        sql """ HBO DELETE STATISTICS '${shapeOfPathological}'; """
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${shapeOfPathological}'; """
     }
 
     assertTrue(probeTable(healthy).contains("TABLE: hbo_test.hbo_gs_t(hbo_gs_t)"), probeTable(healthy))

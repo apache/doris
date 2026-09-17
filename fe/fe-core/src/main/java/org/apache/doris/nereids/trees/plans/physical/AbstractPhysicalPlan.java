@@ -114,14 +114,14 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
             return text;
         }
         StringBuilder builder = new StringBuilder(text);
-        builder.append(" hboFingerprint=").append(fingerprint.get());
+        builder.append(" hboFingerprint='").append(fingerprint.get()).append("'");
         Optional<Object> noLiteralFingerprint = getMutableState(MutableState.KEY_HBO_FP_NO_LITERAL);
         if (noLiteralFingerprint.isPresent()) {
-            builder.append(" hboFingerprintNoLiteral=").append(noLiteralFingerprint.get());
+            builder.append(" hboFingerprintNoLiteral='").append(noLiteralFingerprint.get()).append("'");
         }
         Optional<Object> struct = getMutableState(MutableState.KEY_HBO_STRUCT);
         if (struct.isPresent()) {
-            builder.append(" hboStruct=").append(struct.get());
+            builder.append(" hboStruct='").append(struct.get()).append("'");
         }
         Optional<Object> hboType = getMutableState(MutableState.KEY_HBO_TYPE);
         if (hboType.isPresent()) {
@@ -129,11 +129,11 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
         }
         Optional<Object> condFingerprint = getMutableState(MutableState.KEY_HBO_COND_FP);
         if (condFingerprint.isPresent()) {
-            builder.append(" hboCondFingerprint=").append(condFingerprint.get());
+            builder.append(" hboCondFingerprint='").append(condFingerprint.get()).append("'");
         }
         Optional<Object> cond = getMutableState(MutableState.KEY_HBO_COND);
         if (cond.isPresent()) {
-            builder.append(" hboCond=").append(cond.get());
+            builder.append(" hboCond='").append(cond.get()).append("'");
         }
         Optional<Object> expansion = getMutableState(MutableState.KEY_HBO_EXPANSION);
         if (expansion.isPresent()) {

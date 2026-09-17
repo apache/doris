@@ -67,7 +67,8 @@ public class HboStatisticsCommand extends Command {
     private final Op op;
     private final Scope scope;
     private final String fingerprint;
-    private final long rows;
+    // a row count, or the fan-out factor of a PinnedType.JOIN_EXPANSION entry
+    private final double value;
     private final PinnedType type;
     private final String structCanonical;
 
@@ -76,11 +77,11 @@ public class HboStatisticsCommand extends Command {
      * @param op SET or DELETE
      * @param scopeName optional PINNED / LEARNED, null or empty means PINNED
      * @param fingerprint hbo fingerprint (sha256 of the simplified group struct info)
-     * @param rows injected output row count (only meaningful for SET)
+     * @param value injected output row count, or the fan-out factor for JOIN_EXPANSION
      * @param typeName optional EXACT / FILTER_SMALL, null means EXACT
      * @param structCanonical optional human-readable simplified struct info canonical string
      */
-    public HboStatisticsCommand(Op op, String scopeName, String fingerprint, long rows,
+    public HboStatisticsCommand(Op op, String scopeName, String fingerprint, double value,
             String typeName, String structCanonical) {
         super(PlanType.HBO_STATISTICS_COMMAND);
         this.op = op;
@@ -88,7 +89,7 @@ public class HboStatisticsCommand extends Command {
         // sha256 hex fingerprints are lowercase everywhere (group struct info, read-side lookup);
         // normalize user input so an uppercase fingerprint cannot silently miss its entry
         this.fingerprint = fingerprint == null ? null : fingerprint.toLowerCase(Locale.ROOT);
-        this.rows = rows;
+        this.value = value;
         this.type = typeName == null ? PinnedType.EXACT : PinnedType.fromName(typeName);
         this.structCanonical = structCanonical == null ? "" : structCanonical;
     }
@@ -104,26 +105,36 @@ public class HboStatisticsCommand extends Command {
         // silently leave the pinned entry active (it can never match a stored fingerprint)
         validateFingerprint(fingerprint);
         if (type == null) {
-            throw new AnalysisException("invalid hbo statistics type, expect EXACT or FILTER_SMALL");
+            throw new AnalysisException(
+                    "invalid hbo statistics type, expect EXACT, FILTER_SMALL or JOIN_EXPANSION");
         }
         if (scope == Scope.LEARNED && type != PinnedType.EXACT) {
-            // a learned entry only carries the row count; the guard type is a pinned-only concept
+            // a learned entry only carries the row count; the other types are pinned-only concepts
             throw new AnalysisException("TYPE is not supported for hbo learned statistics");
         }
         if (op == Op.SET) {
             // a pinned entry is only displayable when it carries its struct info, and a struct info
             // which does not belong to the fingerprint would make the SHOW output misleading
             validateStructCanonical(fingerprint, structCanonical, scope != Scope.LEARNED);
+            if (type == PinnedType.JOIN_EXPANSION) {
+                if (value < 1) {
+                    throw new AnalysisException(
+                            "hbo join expansion must be greater than or equal to 1: " + value);
+                }
+            } else if (value < 0 || value != Math.floor(value)) {
+                // the VALUE of every other type is a row count
+                throw new AnalysisException("hbo statistics VALUE must be a non-negative integer"
+                        + " for type " + type + ": " + value);
+            }
         }
         switch (op) {
             case SET:
-                if (rows < 0) {
-                    throw new AnalysisException("hbo statistics rows must be non-negative: " + rows);
-                }
                 if (scope == Scope.LEARNED) {
-                    hboManager.putLearnedPlanStatistics(fingerprint, rows, structCanonical);
+                    hboManager.putLearnedPlanStatistics(fingerprint, (long) value, structCanonical);
+                } else if (type == PinnedType.JOIN_EXPANSION) {
+                    hboManager.putPinnedExpansionStatistics(fingerprint, value, structCanonical);
                 } else {
-                    hboManager.putPinnedPlanStatistics(fingerprint, rows, type, structCanonical);
+                    hboManager.putPinnedPlanStatistics(fingerprint, (long) value, type, structCanonical);
                 }
                 break;
             case DELETE:
@@ -156,7 +167,12 @@ public class HboStatisticsCommand extends Command {
     }
 
     public long getRows() {
-        return rows;
+        return (long) value;
+    }
+
+    /** The row count, or the fan-out factor of a JOIN_EXPANSION entry. */
+    public double getValue() {
+        return value;
     }
 
     public PinnedType getPinnedType() {

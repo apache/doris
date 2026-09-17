@@ -48,11 +48,11 @@ suite("hbo_struct_group_level_test", "nonConcurrent") {
         def explainText = { q -> (sql """ explain $q """).flatten().join("\n") }
         // every fingerprint recorded for one kind of node in the annotation block, de duplicated
         def fingerprintsOf = { String text, String kind ->
-            (text =~ /kind=${kind} fingerprint=([0-9a-f]+)/).collect { it[1] }.unique().sort()
+            (text =~ /kind=${kind} fingerprint='([0-9a-f]+)'/).collect { it[1] }.unique().sort()
         }
         // [fingerprint, struct] of every join node of the explain
         def joinAnnotationsOf = { String text ->
-            (text =~ /kind=join fingerprint=([0-9a-f]+) struct=(\S+) condFingerprint=/)
+            (text =~ /kind=join fingerprint='([0-9a-f]+)' struct='([^']*)' condFingerprint=/)
                     .collect { [it[1], it[2]] }
         }
         def joinStructsOf = { String text -> joinAnnotationsOf(text).collect { it[1] } }
@@ -63,7 +63,7 @@ suite("hbo_struct_group_level_test", "nonConcurrent") {
             annotations[0]
         }
         def aggStructsOf = { String text ->
-            (text =~ /kind=aggregation fingerprint=[0-9a-f]+ struct=(\S+)/).collect { it[1] }.unique().sort()
+            (text =~ /kind=aggregation fingerprint='[0-9a-f]+' struct='([^']*)'/).collect { it[1] }.unique().sort()
         }
 
         // the whole three table chain is one flattened node: the conditions of both joins merged into

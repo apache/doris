@@ -92,7 +92,7 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 .addColumn(new Column("Fingerprint", ScalarType.createVarchar(64)))
                 .addColumn(new Column("Granularity", ScalarType.createVarchar(16)))
                 .addColumn(new Column("Type", ScalarType.createVarchar(16)))
-                .addColumn(new Column("Rows", ScalarType.createVarchar(32)))
+                .addColumn(new Column("Value", ScalarType.createVarchar(32)))
                 .addColumn(new Column(fullStructInfo ? "StructInfo" : "SimpleStruct",
                         ScalarType.createVarchar(65533)))
                 .addColumn(new Column("State", ScalarType.createVarchar(16)))
@@ -121,12 +121,19 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 List<String> row = new ArrayList<>();
                 row.add(SCOPE_PINNED);
                 row.add(pinned.getFingerprint());
-                // the literal mode is only known once the entry matched a plan node
-                row.add(pinned.getFingerprintKind().name().toLowerCase(Locale.ROOT));
+                // the literal mode is only known once the entry matched a plan node; an expansion
+                // entry never matches a sub tree, so it has no granularity
+                row.add(pinned.isExpansion() ? "-" : pinned.getFingerprintKind().name().toLowerCase(Locale.ROOT));
                 row.add(pinned.getType().name().toLowerCase(Locale.ROOT));
-                row.add(String.valueOf(pinned.getRows()));
+                // a JOIN_EXPANSION entry carries a fan-out factor instead of a row count; the x
+                // suffix keeps the two readable in one column
+                row.add(pinned.isExpansion()
+                        ? trimDouble(pinned.getExpansion()) + "x" : String.valueOf(pinned.getRows()));
                 row.add(structInfo);
-                row.add(HboStructFreshness.of(pinned.getStructCanonical()).getState());
+                // an expansion entry is keyed by join conditions, so it is not tied to any table
+                // version and can not go stale
+                row.add(pinned.isExpansion() ? "-"
+                        : HboStructFreshness.of(pinned.getStructCanonical()).getState());
                 row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.ofInstant(
                         Instant.ofEpochMilli(pinned.getCreateTime()), ZoneId.systemDefault())));
                 rows.add(row);
@@ -201,6 +208,12 @@ public class HboShowStatisticsCommand extends ShowCommand {
      * a single character, a backslash escapes the next character, which is needed because table and
      * column names in a struct info contain underscores), anchored by the caller via matches().
      */
+    /** Render a fan-out factor without a trailing {@code .0}. */
+    private static String trimDouble(double value) {
+        return value == Math.floor(value) && !Double.isInfinite(value)
+                ? String.valueOf((long) value) : String.valueOf(value);
+    }
+
     private static Pattern compileLikePattern(String like) {
         if (like == null) {
             return null;

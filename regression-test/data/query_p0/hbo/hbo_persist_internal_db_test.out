@@ -4,3 +4,11 @@
 
 -- !delete_cleared --
 
+-- !set_expansion --
+join_expansion	1000	JE{EqualTo(col(internal.hbo_test.x.a),col(internal.hbo_test.y.a))}
+
+-- !expansion_kept --
+join_expansion	1000
+
+-- !expansion_deleted --
+

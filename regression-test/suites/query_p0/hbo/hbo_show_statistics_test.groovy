@@ -47,7 +47,7 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         def fakeFingerprint = "f" * 64
         def filterText = explainText("select * from hbo_sp_r where b = 1")
         def matcher = (filterText =~
-                /kind=filter-on-scan\(table=[^)]*hbo_sp_r[^)]*\) fingerprint=([0-9a-f]+) fingerprintNoLiteral=([0-9a-f]+) struct=(\S+)/)
+                /kind=filter-on-scan\(table=[^)]*hbo_sp_r[^)]*\) fingerprint='([0-9a-f]+)' fingerprintNoLiteral='([0-9a-f]+)' struct='([^']*)'/)
         assertTrue(matcher.find(), "no filter-on-scan annotation found:\n" + filterText)
         def fingerprint = matcher.group(1)
         def noLiteralFingerprint = matcher.group(2)
@@ -56,14 +56,14 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         // a pinned entry must be labelled with the struct info of the node it was taken from: a
         // missing struct info, or one which does not belong to the fingerprint, is rejected
         test {
-            sql """ HBO SET STATISTICS '${fingerprint}' = 123456; """
+            sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${fingerprint}'; """
             exception "hbo statistics STRUCT is required, copy the struct= value of the target node from EXPLAIN"
         }
         test {
-            sql """ HBO SET STATISTICS '${fakeFingerprint}' = 123456 STRUCT '${structCanonical}'; """
+            sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${fakeFingerprint}' STRUCT='${structCanonical}'; """
             exception "hbo statistics STRUCT does not match the fingerprint ${fakeFingerprint}, copy the struct= value of the target node from EXPLAIN"
         }
-        sql """ HBO SET STATISTICS '${fingerprint}' = 123456 STRUCT '${structCanonical}'; """
+        sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${fingerprint}' STRUCT='${structCanonical}'; """
         injected.add(fingerprint)
 
         // default output: the simplified struct info, which LIKE matches
@@ -95,24 +95,24 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
 
         // the constant agnostic fingerprint of the same node accepts the same struct info: the
         // literals of the pasted canonical form are wildcarded before the check
-        sql """ HBO SET STATISTICS '${noLiteralFingerprint}' = 123456 STRUCT '${structCanonical}'; """
+        sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${noLiteralFingerprint}' STRUCT='${structCanonical}'; """
         assertEquals(2, sql(""" HBO SHOW PINNED STATISTICS LIKE '%F{b = 1}%'; """).size())
-        sql """ HBO DELETE STATISTICS '${noLiteralFingerprint}'; """
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${noLiteralFingerprint}'; """
 
         // join entry: the simplified form keeps only the leaves of the chain (no join type, no join
         // condition), the aggregation entry keeps only its grouping keys and its child
         def joinText = explainText("select * from hbo_sp_t x join hbo_sp_r y on x.a = y.a")
-        def joinMatcher = (joinText =~ /kind=join fingerprint=([0-9a-f]+) struct=(\S+) condFingerprint=/)
+        def joinMatcher = (joinText =~ /kind=join fingerprint='([0-9a-f]+)' struct='([^']*)' condFingerprint=/)
         assertTrue(joinMatcher.find(), "no join annotation found:\n" + joinText)
         def joinFingerprint = joinMatcher.group(1)
         def joinStructCanonical = joinMatcher.group(2)
         def aggText = explainText("select x.a, count(*) from hbo_sp_t x join hbo_sp_r y on x.a = y.a group by x.a")
-        def aggMatcher = (aggText =~ /kind=aggregation fingerprint=([0-9a-f]+) struct=(\S+)/)
+        def aggMatcher = (aggText =~ /kind=aggregation fingerprint='([0-9a-f]+)' struct='([^']*)'/)
         assertTrue(aggMatcher.find(), "no aggregation annotation found:\n" + aggText)
         def aggFingerprint = aggMatcher.group(1)
         def aggStructCanonical = aggMatcher.group(2)
-        sql """ HBO SET STATISTICS '${joinFingerprint}' = 100 STRUCT '${joinStructCanonical}'; """
-        sql """ HBO SET STATISTICS '${aggFingerprint}' = 10 STRUCT '${aggStructCanonical}'; """
+        sql """ HBO SET STATISTICS VALUE=100 FINGERPRINT='${joinFingerprint}' STRUCT='${joinStructCanonical}'; """
+        sql """ HBO SET STATISTICS VALUE=10 FINGERPRINT='${aggFingerprint}' STRUCT='${aggStructCanonical}'; """
         injected.add(joinFingerprint)
         injected.add(aggFingerprint)
 
@@ -129,9 +129,9 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         assertEquals(aggStructCanonical,
                 (sql """ HBO SHOW PINNED STATISTICS FULL LIKE 'A{gb%'; """)[0][5].toString())
 
-        sql """ HBO DELETE STATISTICS '${joinFingerprint}'; """
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${joinFingerprint}'; """
         injected.remove(joinFingerprint)
-        sql """ HBO DELETE STATISTICS '${aggFingerprint}'; """
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${aggFingerprint}'; """
         injected.remove(aggFingerprint)
 
         // a load bumps the visible version of the table: the version recorded in the struct info is
@@ -142,7 +142,7 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         assertEquals(1, staleRows.size(), staleRows.toString())
         assertEquals("stale", staleRows[0][6].toString())
     } finally {
-        injected.each { sql """ HBO DELETE STATISTICS '${it}'; """ }
+        injected.each { sql """ HBO DELETE STATISTICS FINGERPRINT='${it}'; """ }
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
     }
 

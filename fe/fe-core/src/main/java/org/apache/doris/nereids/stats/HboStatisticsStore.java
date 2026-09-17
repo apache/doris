@@ -55,6 +55,8 @@ public class HboStatisticsStore {
     private static final int STRUCT_MAX_BYTES = 65533;
     /** creation time of an entry, as a datetime(3) column like the other internal tables */
     private static final String CREATE_TIME_COLUMN = "create_time";
+    /** fan-out factor of a PinnedType.JOIN_EXPANSION entry, NULL for a row count entry */
+    private static final String EXPANSION_COLUMN = "expansion";
     // the schema is checked once per FE: it can only change by a FE upgrade, and the check costs a
     // round trip to the internal table
     private static volatile boolean schemaVerified = false;
@@ -79,8 +81,9 @@ public class HboStatisticsStore {
      */
     private static void verifySchema() throws Exception {
         try {
-            StatisticsUtil.execStatisticQuery(
-                    "SELECT `" + CREATE_TIME_COLUMN + "` FROM " + FULL_QUALIFIED + " LIMIT 0");
+            StatisticsUtil.execStatisticQuery("SELECT `fingerprint`, `row_count`, `stats_type`,"
+                    + " `fingerprint_kind`, `struct_info`, `" + EXPANSION_COLUMN + "`, `"
+                    + CREATE_TIME_COLUMN + "` FROM " + FULL_QUALIFIED + " LIMIT 0");
             schemaVerified = true;
         } catch (Exception t) {
             LOG.warn("cannot read the {} column of {}; when the table was created by an older FE"
@@ -94,7 +97,8 @@ public class HboStatisticsStore {
      * Upsert one pinned entry (UNIQUE KEY fingerprint replaces on conflict).
      */
     public static void persist(String fingerprint, long rows,
-            HboPlanStatisticsManager.PinnedType type, String structCanonical, long createTimeMs) {
+            HboPlanStatisticsManager.PinnedType type, String structCanonical, double expansion,
+            long createTimeMs) {
         try {
             ensureTable();
             HboPlanStatisticsManager.PinnedType statsType = type == null
@@ -104,13 +108,14 @@ public class HboStatisticsStore {
             // value stays UNKNOWN (it is reported by HBO SHOW from the in-memory entry)
             String sql = "INSERT INTO " + FULL_QUALIFIED
                     + " (`fingerprint`, `row_count`, `stats_type`, `fingerprint_kind`, `struct_info`,"
-                    + " `" + CREATE_TIME_COLUMN + "`) VALUES ('"
+                    + " `" + EXPANSION_COLUMN + "`, `" + CREATE_TIME_COLUMN + "`) VALUES ('"
                     + StatisticsUtil.escapeSQL(fingerprint) + "', " + rows + ", '"
                     + StatisticsUtil.escapeSQL(statsType.name().toLowerCase(java.util.Locale.ROOT)) + "', '"
                     + StatisticsUtil.escapeSQL(
                             HboPlanStatisticsManager.FingerprintKind.UNKNOWN.name().toLowerCase(java.util.Locale.ROOT))
-                    + "', '" + StatisticsUtil.escapeSQL(struct) + "', '"
-                    + createTimeLiteral(createTimeMs) + "')";
+                    + "', '" + StatisticsUtil.escapeSQL(struct) + "', "
+                    + (expansion > 0 ? String.valueOf(expansion) : "NULL")
+                    + ", '" + createTimeLiteral(createTimeMs) + "')";
             StatisticsUtil.execUpdate(sql);
         } catch (Exception t) {
             LOG.warn("failed to persist hbo pinned statistics for fingerprint {}", fingerprint, t);
@@ -147,8 +152,8 @@ public class HboStatisticsStore {
         try {
             ensureTable();
             List<ResultRow> rows = StatisticsUtil.execStatisticQuery(
-                    "SELECT `fingerprint`, `row_count`, `stats_type`, `struct_info`, `" + CREATE_TIME_COLUMN
-                            + "` FROM " + FULL_QUALIFIED);
+                    "SELECT `fingerprint`, `row_count`, `stats_type`, `struct_info`, `" + EXPANSION_COLUMN
+                            + "`, `" + CREATE_TIME_COLUMN + "` FROM " + FULL_QUALIFIED);
             for (ResultRow row : rows) {
                 try {
                     HboPlanStatisticsManager.PinnedType type =
@@ -158,7 +163,8 @@ public class HboStatisticsStore {
                             Long.parseLong(row.get(1)),
                             type == null ? HboPlanStatisticsManager.PinnedType.EXACT : type,
                             row.get(3) == null ? "" : row.get(3),
-                            parseCreateTime(row.get(4))));
+                            parseExpansion(row.get(4)),
+                            parseCreateTime(row.get(5))));
                 } catch (RuntimeException e) {
                     LOG.warn("skip malformed hbo pinned statistics row {}", row, e);
                 }
@@ -181,6 +187,7 @@ public class HboStatisticsStore {
                 + "  `stats_type` varchar(32) NOT NULL COMMENT \"\",\n"
                 + "  `fingerprint_kind` varchar(16) NOT NULL COMMENT \"\",\n"
                 + "  `struct_info` varchar(" + STRUCT_MAX_BYTES + ") NULL COMMENT \"\",\n"
+                + "  `expansion` double NULL COMMENT \"\",\n"
                 + "  `create_time` datetime(3) NOT NULL COMMENT \"\"\n"
                 + ") ENGINE = olap\n"
                 + "UNIQUE KEY(`fingerprint`)\n"
@@ -194,6 +201,11 @@ public class HboStatisticsStore {
     private static String createTimeLiteral(long createTimeMs) {
         return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS").format(
                 LocalDateTime.ofInstant(Instant.ofEpochMilli(createTimeMs), ZoneId.systemDefault()));
+    }
+
+    /** The fan-out factor of an entry, 0 when the entry is a row count. */
+    private static double parseExpansion(String value) {
+        return value == null || value.isEmpty() ? 0 : Double.parseDouble(value);
     }
 
     /**

@@ -32,6 +32,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -77,7 +78,16 @@ public class HboPlanStatisticsManager {
          * "extremely small" regime (see {@code Config.hbo_filter_small_ratio}), so a stale
          * injection can not override a healthy estimate.
          */
-        FILTER_SMALL;
+        FILTER_SMALL,
+        /**
+         * Not a row count but the measured fan-out factor of one join
+         * ({@code output rows / max(left rows, right rows)}). The factor is kept in
+         * {@link PinnedHboStatistics#getExpansion()} and the key is the fingerprint of the join
+         * equality conditions (see {@link HboJoinConditions}), not the fingerprint of a sub tree.
+         * Injected with {@code HBO SET STATISTICS ... TYPE=JOIN_EXPANSION}; it is stored in the same
+         * internal table and survives a FE restart like any other pinned entry.
+         */
+        JOIN_EXPANSION;
 
         /** Parse a user supplied type name, returns null when unknown. */
         public static PinnedType fromName(String name) {
@@ -116,13 +126,6 @@ public class HboPlanStatisticsManager {
     // whether pinned statistics have been loaded from the internal table (only when persistence
     // is enabled); planner/command threads access it concurrently
     private volatile boolean hboPinnedLoaded = false;
-    // per join-condition expansion entries injected by HBO SET EXPANSION; they are pure memory
-    // state (no persistence) so the Caffeine cache itself is the synchronization point
-    private final Cache<String, PinnedJoinExpansion> pinnedJoinExpansion =
-            (Config.hbo_expansion_cache_num > 0
-                    ? Caffeine.newBuilder().maximumSize(Config.hbo_expansion_cache_num)
-                    : Caffeine.newBuilder())
-                    .build();
     // canonical struct info of the learned entries which were injected together with a struct
     // literal (HBO SET LEARNED STATISTICS ... STRUCT '...'): a learned key is generated internally,
     // so this is the only way HBO SHOW STATISTICS can print (and match) the struct info of a
@@ -179,12 +182,22 @@ public class HboPlanStatisticsManager {
      * @param structCanonical optional human-readable simplified struct info canonical string
      */
     public void putPinnedPlanStatistics(String fingerprint, long rows, PinnedType type, String structCanonical) {
+        putPinnedStatistics(fingerprint, rows, type, structCanonical, 0);
+    }
+
+    /**
+     * Inject (or overwrite) a pinned statistics entry.
+     *
+     * @param expansion fan-out factor, only for {@link PinnedType#JOIN_EXPANSION} entries
+     */
+    private void putPinnedStatistics(String fingerprint, long rows, PinnedType type, String structCanonical,
+            double expansion) {
         // LRU bounded by Config.hbo_pinned_stats_cache_num; pinned entries are otherwise never
         // expired automatically and are only removed by HBO DELETE STATISTICS or eviction
         long createTimeMs = System.currentTimeMillis();
         synchronized (pinnedLoadLock) {
             pinnedPlanStatistics.put(fingerprint,
-                    new PinnedHboStatistics(fingerprint, rows, type, structCanonical, createTimeMs));
+                    new PinnedHboStatistics(fingerprint, rows, type, structCanonical, expansion, createTimeMs));
             // a SET after a failed DELETE re-creates the entry: drop the deletion intent so a
             // pending load does not skip the re-created row
             pendingLoadTombstones.remove(fingerprint);
@@ -193,14 +206,20 @@ public class HboPlanStatisticsManager {
             // and, when the best-effort writes succeed, the stored row matches the last memory
             // writer (a failed write only logs a warning and may reappear after a FE restart)
             if (persistenceEnabled()) {
-                HboStatisticsStore.persist(fingerprint, rows, type, structCanonical, createTimeMs);
+                HboStatisticsStore.persist(fingerprint, rows, type, structCanonical, expansion, createTimeMs);
             }
         }
     }
 
+    /**
+     * The pinned row-count entry of a sub tree. Entries of another kind (a join expansion factor
+     * keyed by the join conditions) are never returned here, so the two read paths can not pick up
+     * each other's entry.
+     */
     public Optional<PinnedHboStatistics> getPinnedPlanStatistics(String fingerprint) {
         ensurePinnedLoaded();
-        return Optional.ofNullable(pinnedPlanStatistics.getIfPresent(fingerprint));
+        return Optional.ofNullable(pinnedPlanStatistics.getIfPresent(fingerprint))
+                .filter(pinned -> !pinned.isExpansion());
     }
 
     /**
@@ -223,28 +242,26 @@ public class HboPlanStatisticsManager {
     }
 
     /**
-     * Inject (or overwrite) the expansion factor of a set of join equality conditions.
+     * Inject (or overwrite) the fan-out factor of a set of join equality conditions
+     * ({@code HBO SET STATISTICS ... TYPE=JOIN_EXPANSION}). It is a pinned entry like every other
+     * hbo statistics entry - same table, same lifecycle - only its value is a factor instead of a
+     * row count and its key is the join condition fingerprint.
      *
-     * @param condFingerprint sha256 of the canonical equality-condition set
+     * @param fingerprint sha256 of the canonical equality-condition set
      * @param expansion measured fan-out factor: output rows / max(left rows, right rows), >= 1
-     * @param condCanonical optional human readable canonical condition string
+     * @param condCanonical the canonical equality-condition set the factor was measured for
      */
-    public void putPinnedJoinExpansion(String condFingerprint, double expansion, String condCanonical) {
-        pinnedJoinExpansion.put(condFingerprint, new PinnedJoinExpansion(condFingerprint, expansion,
-                condCanonical == null ? "" : condCanonical, System.currentTimeMillis()));
+    public void putPinnedExpansionStatistics(String fingerprint, double expansion, String condCanonical) {
+        putPinnedStatistics(fingerprint, 0, PinnedType.JOIN_EXPANSION, condCanonical, expansion);
     }
 
-    /** Remove an injected join expansion entry. */
-    public void removePinnedJoinExpansion(String condFingerprint) {
-        pinnedJoinExpansion.invalidate(condFingerprint);
-    }
-
-    public Optional<PinnedJoinExpansion> getPinnedJoinExpansion(String condFingerprint) {
-        return Optional.ofNullable(pinnedJoinExpansion.getIfPresent(condFingerprint));
-    }
-
-    public Map<String, PinnedJoinExpansion> getAllPinnedJoinExpansion() {
-        return Collections.unmodifiableMap(pinnedJoinExpansion.asMap());
+    /**
+     * The pinned join expansion entry of a set of equality conditions, if one was injected.
+     */
+    public Optional<PinnedHboStatistics> getPinnedExpansion(String fingerprint) {
+        ensurePinnedLoaded();
+        return Optional.ofNullable(pinnedPlanStatistics.getIfPresent(fingerprint))
+                .filter(PinnedHboStatistics::isExpansion);
     }
 
     /**
@@ -289,6 +306,11 @@ public class HboPlanStatisticsManager {
         long now = System.currentTimeMillis();
         int removed = 0;
         for (PinnedHboStatistics pinned : getAllPinnedPlanStatistics().values()) {
+            // an expansion entry is keyed by join conditions and carries no table version, so it can
+            // neither go stale nor be judged by age: OLDER_THAN must not silently drop it
+            if (pinned.isExpansion()) {
+                continue;
+            }
             HboStructFreshness freshness = HboStructFreshness.of(pinned.getStructCanonical());
             boolean obsolete = freshness.isStale()
                     || (olderThanMillis >= 0 && freshness.isUnknown()
@@ -371,40 +393,6 @@ public class HboPlanStatisticsManager {
     }
 
     /**
-     * A manually injected join expansion entry: the measured fan-out factor of a set of equality
-     * conditions, used to push that join as late as possible in the join order.
-     */
-    public static class PinnedJoinExpansion {
-        private final String condFingerprint;
-        private final double expansion;
-        private final String condCanonical;
-        private final long createTime;
-
-        PinnedJoinExpansion(String condFingerprint, double expansion, String condCanonical, long createTime) {
-            this.condFingerprint = condFingerprint;
-            this.expansion = expansion;
-            this.condCanonical = condCanonical;
-            this.createTime = createTime;
-        }
-
-        public String getCondFingerprint() {
-            return condFingerprint;
-        }
-
-        public double getExpansion() {
-            return expansion;
-        }
-
-        public String getCondCanonical() {
-            return condCanonical;
-        }
-
-        public long getCreateTime() {
-            return createTime;
-        }
-    }
-
-    /**
      * A manually injected hbo statistics entry.
      */
     public static class PinnedHboStatistics {
@@ -412,17 +400,30 @@ public class HboPlanStatisticsManager {
         private final long rows;
         private final PinnedType type;
         private final String structCanonical;
+        // fan-out factor of a PinnedType.JOIN_EXPANSION entry, 0 for a row count entry
+        private final double expansion;
         private final long createTime;
         // which literal mode matched this entry; bound lazily on first application (diagnostics)
         private volatile FingerprintKind fingerprintKind = FingerprintKind.UNKNOWN;
 
         PinnedHboStatistics(String fingerprint, long rows, PinnedType type, String structCanonical,
-                long createTime) {
+                double expansion, long createTime) {
             this.fingerprint = fingerprint;
             this.rows = rows;
             this.type = type == null ? PinnedType.EXACT : type;
             this.structCanonical = structCanonical == null ? "" : structCanonical;
+            this.expansion = expansion;
             this.createTime = createTime;
+        }
+
+        /** True when this entry carries a join fan-out factor instead of a row count. */
+        public boolean isExpansion() {
+            return type == PinnedType.JOIN_EXPANSION;
+        }
+
+        /** The join fan-out factor of an {@link PinnedType#JOIN_EXPANSION} entry. */
+        public double getExpansion() {
+            return expansion;
         }
 
         /** Bind the fingerprint kind observed on the first successful application (idempotent). */

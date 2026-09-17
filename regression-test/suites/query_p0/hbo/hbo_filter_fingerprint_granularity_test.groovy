@@ -48,7 +48,7 @@ suite("hbo_filter_fingerprint_granularity_test", "nonConcurrent") {
     def probeTable = { String predicate -> firstFragment(explainText(predicate)) }
     def filterAnnotationOf = { String predicate ->
         def matcher = (explainText(predicate) =~
-                /kind=filter-on-scan\(table=[^)]*hbo_fg_r[^)]*\) fingerprint=([0-9a-f]+) fingerprintNoLiteral=([0-9a-f]+) struct=(\S+)/)
+                /kind=filter-on-scan\(table=[^)]*hbo_fg_r[^)]*\) fingerprint='([0-9a-f]+)' fingerprintNoLiteral='([0-9a-f]+)' struct='([^']*)'/)
         assertTrue(matcher.find(), "no filter annotation for ${predicate}")
         matcher
     }
@@ -74,28 +74,28 @@ suite("hbo_filter_fingerprint_granularity_test", "nonConcurrent") {
 
     try {
         // 1) exact (literal carrying) injection: only the very same predicate is affected
-        sql """ HBO SET STATISTICS '${exactOne}' = 500000 TYPE EXACT STRUCT '${structOf(predicateOne)}'; """
+        sql """ HBO SET STATISTICS VALUE=500000 TYPE=EXACT FINGERPRINT='${exactOne}' STRUCT='${structOf(predicateOne)}'; """
         assertTrue(probeTable(predicateOne).contains("TABLE: hbo_test.hbo_fg_r(hbo_fg_r)"),
                 probeTable(predicateOne))
         assertTrue(probeTable(predicateTwo).contains("TABLE: hbo_test.hbo_fg_t(hbo_fg_t)"),
                 probeTable(predicateTwo))
-        sql """ HBO DELETE STATISTICS '${exactOne}'; """
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${exactOne}'; """
 
         // 2) constant agnostic injection: every constant of the same predicate shape is affected
-        sql """ HBO SET STATISTICS '${shapeOne}' = 500000 TYPE EXACT STRUCT '${structOf(predicateOne)}'; """
+        sql """ HBO SET STATISTICS VALUE=500000 TYPE=EXACT FINGERPRINT='${shapeOne}' STRUCT='${structOf(predicateOne)}'; """
         assertTrue(probeTable(predicateOne).contains("TABLE: hbo_test.hbo_fg_r(hbo_fg_r)"),
                 probeTable(predicateOne))
         assertTrue(probeTable(predicateTwo).contains("TABLE: hbo_test.hbo_fg_r(hbo_fg_r)"),
                 probeTable(predicateTwo))
     } finally {
-        sql """ HBO DELETE STATISTICS '${exactOne}'; """
-        sql """ HBO DELETE STATISTICS '${shapeOne}'; """
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${exactOne}'; """
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${shapeOne}'; """
     }
 
     // 3) join / aggregation keys carry no literal: the join fingerprint is identical for both
     //    predicates because the subtree filter is encoded with the wildcard literal
     def joinFingerprint = { String predicate ->
-        def matcher = (explainText(predicate) =~ /kind=join fingerprint=([0-9a-f]+)/)
+        def matcher = (explainText(predicate) =~ /kind=join fingerprint='([0-9a-f]+)'/)
         assertTrue(matcher.find(), "no join annotation for ${predicate}")
         matcher.group(1)
     }

@@ -31,18 +31,49 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "true"); """
         try {
             // SET persists the pinned entry (including its stats type) into the internal table
-            sql """ HBO SET STATISTICS '${fingerprint}' = 123456 TYPE FILTER_SMALL STRUCT '${structCanonical}'; """
+            sql """ HBO SET STATISTICS VALUE=123456 TYPE=FILTER_SMALL FINGERPRINT='${fingerprint}' STRUCT='${structCanonical}'; """
             qt_set_persisted """ SELECT fingerprint, row_count, stats_type, fingerprint_kind, struct_info
                 FROM ${tableName} WHERE fingerprint = '${fingerprint}'; """
 
             // DELETE removes the row from the internal table
-            sql """ HBO DELETE STATISTICS '${fingerprint}'; """
+            sql """ HBO DELETE STATISTICS FINGERPRINT='${fingerprint}'; """
             qt_delete_cleared """ SELECT fingerprint, row_count, stats_type, fingerprint_kind, struct_info
                 FROM ${tableName} WHERE fingerprint = '${fingerprint}'; """
+
+            // a join expansion entry is the same kind of entry as a pinned row count - it lives in
+            // the same table and is distinguished by stats_type, but its value column carries the
+            // fan-out factor and its key is the join condition fingerprint
+            def condCanonical = "JE{EqualTo(col(internal.hbo_test.x.a),col(internal.hbo_test.y.a))}"
+            def condFingerprint = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(condCanonical.getBytes("UTF-8")).encodeHex().toString()
+            sql """ HBO SET STATISTICS VALUE=1000 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}' STRUCT='${condCanonical}'; """
+            qt_set_expansion """ SELECT stats_type, expansion, struct_info FROM ${tableName}
+                WHERE fingerprint = '${condFingerprint}'; """
+
+            // the unified list reports it with its own type and the factor as its value
+            def expansionRows = sql """ HBO SHOW PINNED STATISTICS LIKE 'JE{%'; """
+            assertEquals(1, expansionRows.size(), expansionRows.toString())
+            assertEquals("join_expansion", expansionRows[0][3].toString())
+            assertEquals("1000x", expansionRows[0][4].toString())
+            assertEquals(condCanonical, expansionRows[0][5].toString())
+            // no granularity and no table version state for a condition keyed entry
+            assertEquals("-", expansionRows[0][2].toString())
+            assertEquals("-", expansionRows[0][6].toString())
+
+            // a stale clean up never removes an expansion entry: it carries no table version, so
+            // even OLDER_THAN (which removes unresolvable entries) has to leave it alone
+            sql """ HBO DELETE STALE STATISTICS; """
+            sql """ HBO DELETE STALE STATISTICS OLDER_THAN 0; """
+            qt_expansion_kept """ SELECT stats_type, expansion FROM ${tableName}
+                WHERE fingerprint = '${condFingerprint}'; """
+
+            sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
+            qt_expansion_deleted """ SELECT stats_type, expansion FROM ${tableName}
+                WHERE fingerprint = '${condFingerprint}'; """
         } finally {
             // cleanup runs while the config is still on, so a failure between SET and the DELETE
             // above cannot leave a persisted row behind
-            sql """ HBO DELETE STATISTICS '${fingerprint}'; """
+            sql """ HBO DELETE STATISTICS FINGERPRINT='${fingerprint}'; """
         }
     } finally {
         // restore the config last so a failing cleanup can not leak the hot config to later suites

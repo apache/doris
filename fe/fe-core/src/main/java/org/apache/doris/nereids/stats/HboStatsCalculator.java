@@ -130,8 +130,8 @@ public class HboStatsCalculator extends StatsCalculator {
         if (!condFingerprint.isPresent()) {
             return null;
         }
-        Optional<HboPlanStatisticsManager.PinnedJoinExpansion> expansionOpt = Env.getCurrentEnv()
-                .getHboPlanStatisticsManager().getPinnedJoinExpansion(condFingerprint.get());
+        Optional<HboPlanStatisticsManager.PinnedHboStatistics> expansionOpt = Env.getCurrentEnv()
+                .getHboPlanStatisticsManager().getPinnedExpansion(condFingerprint.get());
         if (!expansionOpt.isPresent()) {
             return null;
         }

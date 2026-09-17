@@ -16,7 +16,9 @@
 // under the License.
 
 suite("hbo_join_expansion_inject_test", "nonConcurrent") {
-    // HBO SET EXPANSION injects the measured fan-out factor of a set of join equality conditions.
+    // HBO SET STATISTICS ... TYPE=JOIN_EXPANSION injects the measured fan-out factor of a set of
+    // join equality conditions: it is a hbo statistics entry like any other, only its value is a
+    // factor and its key is the condition fingerprint.
     // Its purpose is join-order control: the injected join is estimated as
     // clamp(expansion * max(leftEst, rightEst), 1, leftEst * rightEst), so a join known to explode
     // looks expensive and is scheduled as late as possible. The key excludes the join type, so the
@@ -61,8 +63,8 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
     assertTrue(baselineOrder[1].contains("a#"), baseline)
 
     // the condition fingerprint of the (t1.a = t2.a) join comes from the explain annotation
-    def matcher = (annotation(query)
-            =~ /condFingerprint=([0-9a-f]+) cond=JE\{EqualTo\(col\(internal\.hbo_test\.hbo_je_t1\.a\),col\(internal\.hbo_test\.hbo_je_t2\.a\)\)\}/)
+    def condCanonical = "JE{EqualTo(col(internal.hbo_test.hbo_je_t1.a),col(internal.hbo_test.hbo_je_t2.a))}"
+    def matcher = (annotation(query) =~ /condFingerprint='([0-9a-f]+)' cond='JE\{EqualTo\(col\(internal\.hbo_test\.hbo_je_t1\.a\),col\(internal\.hbo_test\.hbo_je_t2\.a\)\)\}'/)
     assertTrue(matcher.find(), "no condition fingerprint annotation:\n" + annotation(query))
     def condFingerprint = matcher.group(1)
     log.info("(t1.a = t2.a) condition fingerprint: ${condFingerprint}")
@@ -70,7 +72,8 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
     try {
         // inject a 1000x expansion for the (t1.a = t2.a) conditions: that join must be pushed to
         // the last position of the join order
-        sql """ HBO SET EXPANSION '${condFingerprint}' = 1000 COND 'JE{EqualTo(col(internal.hbo_test.hbo_je_t1.a),col(internal.hbo_test.hbo_je_t2.a))}'; """
+        sql """ HBO SET STATISTICS VALUE=1000 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
+                STRUCT='${condCanonical}'; """
 
         def injected = physicalPlan()
         def injectedOrder = joinOrder(injected)
@@ -82,38 +85,52 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
         assertTrue(injected.contains("stats=(hbo)"), injected)
         assertTrue((annotation(query) =~ /expansion=exp=1000x/).find(), annotation(query))
 
-        // the entry is visible through HBO SHOW EXPANSION STATISTICS
-        def showRows = sql """ HBO SHOW EXPANSION STATISTICS LIKE '${condFingerprint}'; """
-        assertEquals(1, showRows.size())
-        assertEquals(condFingerprint, showRows[0][0].toString())
-        assertEquals("1000x", showRows[0][2].toString())
+        // the entry shows up in the unified HBO SHOW STATISTICS as a JOIN_EXPANSION entry:
+        // no granularity, no row count (its value is the factor) and no table version state
+        def showRows = (sql """ HBO SHOW PINNED STATISTICS; """).findAll { it[1].toString() == condFingerprint }
+        assertEquals(1, showRows.size(), showRows.toString())
+        assertEquals("pinned", showRows[0][0].toString())
+        assertEquals("-", showRows[0][2].toString())
+        assertEquals("join_expansion", showRows[0][3].toString())
+        assertEquals("1000x", showRows[0][4].toString())
+        assertEquals(condCanonical, showRows[0][5].toString())
+        assertEquals("-", showRows[0][6].toString())
     } finally {
-        sql """ HBO DELETE EXPANSION '${condFingerprint}'; """
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
     }
 
     // removing the entry restores the original join order
     assertEquals(baselineOrder, joinOrder(physicalPlan()))
-    assertTrue(sql(""" HBO SHOW EXPANSION STATISTICS LIKE '${condFingerprint}'; """).isEmpty())
+    assertTrue((sql """ HBO SHOW PINNED STATISTICS; """).findAll { it[1].toString() == condFingerprint }.isEmpty())
 
     // semi join: the same equality conditions are printed with the same fingerprint, but a semi
     // join can never expand, so the injected entry is deliberately not applied
     try {
-        sql """ HBO SET EXPANSION '${condFingerprint}' = 5000; """
+        sql """ HBO SET STATISTICS VALUE=5000 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
+                STRUCT='${condCanonical}'; """
         def semiQuery = "select * from hbo_je_t1 where hbo_je_t1.a in (select a from hbo_je_t2)"
         def semiText = annotation(semiQuery)
-        assertTrue(semiText.contains("condFingerprint=" + condFingerprint), semiText)
+        assertTrue(semiText.contains("condFingerprint='" + condFingerprint + "'"), semiText)
         assertTrue((semiText =~ /expansion=skipped=left_semi_join-join-never-expands/).find(), semiText)
     } finally {
-        sql """ HBO DELETE EXPANSION '${condFingerprint}'; """
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
     }
 
     // value validation: the expansion factor is a fan-out multiplier, so it must be >= 1
     test {
-        sql """ HBO SET EXPANSION '${condFingerprint}' = 0.5; """
-        exception "hbo join expansion must be greater than or equal to 1"
+        sql """ HBO SET STATISTICS VALUE=0.5 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
+                STRUCT='${condCanonical}'; """
+        exception "hbo join expansion must be greater than or equal to 1: 0.5"
     }
     test {
-        sql """ HBO SET EXPANSION 'not-a-fingerprint' = 2; """
-        exception "invalid hbo condition fingerprint, expect 64 hex chars"
+        sql """ HBO SET STATISTICS VALUE=2 TYPE=JOIN_EXPANSION FINGERPRINT='not-a-fingerprint'
+                STRUCT='${condCanonical}'; """
+        exception "invalid hbo fingerprint, expect 64 hex chars: not-a-fingerprint"
+    }
+    // the struct literal is what the fingerprint is the sha256 of, for every type
+    test {
+        sql """ HBO SET STATISTICS VALUE=2 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
+                STRUCT='JE{EqualTo(col(internal.hbo_test.other.a),col(internal.hbo_test.other.b))}'; """
+        exception "hbo statistics STRUCT does not match the fingerprint ${condFingerprint}"
     }
 }

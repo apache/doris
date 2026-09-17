@@ -40,13 +40,13 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
     def firstFragment = { String text -> text.substring(0, text.indexOf("PLAN FRAGMENT 1")) }
     def probeTable = { firstFragment(explainText()) }
     def filterFingerprint = {
-        def matcher = (explainText() =~ /kind=filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) fingerprint=([0-9a-f]+)/)
+        def matcher = (explainText() =~ /kind=filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) fingerprint='([0-9a-f]+)'/)
         assertTrue(matcher.find(), "no filter fingerprint: " + explainText())
         matcher.group(1)
     }
     def filterStruct = {
         def matcher = (explainText() =~
-                /kind=filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) fingerprint=[0-9a-f]+ fingerprintNoLiteral=[0-9a-f]+ struct=(\S+)/)
+                /kind=filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) fingerprint='[0-9a-f]+' fingerprintNoLiteral='[0-9a-f]+' struct='([^']*)'/)
         assertTrue(matcher.find(), "no filter struct info: " + explainText())
         matcher.group(1)
     }
@@ -58,7 +58,7 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
 
     try {
         // learned injection: the same plan must now hit the learned entry
-        sql """ HBO SET LEARNED STATISTICS '${fingerprint}' = 500000; """
+        sql """ HBO SET LEARNED STATISTICS VALUE=500000 FINGERPRINT='${fingerprint}'; """
         // this entry is injected by fingerprint alone, so it carries no struct info: it is listed
         // (and can be found by its fingerprint column) but no struct info pattern matches it
         def learnedShow = (sql """ HBO SHOW LEARNED STATISTICS; """).findAll { it[1].toString() == fingerprint }
@@ -73,7 +73,7 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
         def nodeAfter = (sql """ explain physical plan ${query} """).flatten().join("\n")
         assertTrue((nodeAfter =~ /PhysicalFilter\[\d+\].*hboUsed=true/).find(), nodeAfter)
     } finally {
-        sql """ HBO DELETE LEARNED STATISTICS '${fingerprint}'; """
+        sql """ HBO DELETE LEARNED STATISTICS FINGERPRINT='${fingerprint}'; """
     }
 
     // after removal the plan is back to the default shape and the learned scope is empty
@@ -83,18 +83,18 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
 
     // the guard type is a pinned-only clause and is rejected for the learned scope
     test {
-        sql """ HBO SET LEARNED STATISTICS '${fingerprint}' = 1 TYPE FILTER_SMALL; """
+        sql """ HBO SET LEARNED STATISTICS VALUE=1 TYPE=FILTER_SMALL FINGERPRINT='${fingerprint}'; """
         exception "TYPE is not supported for hbo learned statistics"
     }
     // a struct info which does not belong to the fingerprint is rejected for the learned scope too
     test {
-        sql """ HBO SET LEARNED STATISTICS '${fingerprint}' = 1 STRUCT 'S{internal.hbo_test.hbo_li_r,v2}'; """
+        sql """ HBO SET LEARNED STATISTICS VALUE=1 FINGERPRINT='${fingerprint}' STRUCT='S{internal.hbo_test.hbo_li_r,v2}'; """
         exception "hbo statistics STRUCT does not match the fingerprint ${fingerprint}, copy the struct= value of the target node from EXPLAIN"
     }
     // a learned entry may carry the struct info of the node it belongs to, so that HBO SHOW
     // STATISTICS can display it (the simplified form by default, the canonical one with FULL)
     try {
-        sql """ HBO SET LEARNED STATISTICS '${fingerprint}' = 1 STRUCT '${filterStruct()}'; """
+        sql """ HBO SET LEARNED STATISTICS VALUE=1 FINGERPRINT='${fingerprint}' STRUCT='${filterStruct()}'; """
         def simpleRows = sql """ HBO SHOW LEARNED STATISTICS LIKE '%hbo\\_li\\_r%'; """
         assertEquals(1, simpleRows.size(), simpleRows.toString())
         assertEquals("learned", simpleRows[0][0].toString())
@@ -104,6 +104,6 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
         assertEquals(1, fullRows.size(), fullRows.toString())
         assertEquals(filterStruct(), fullRows[0][5].toString())
     } finally {
-        sql """ HBO DELETE LEARNED STATISTICS '${fingerprint}'; """
+        sql """ HBO DELETE LEARNED STATISTICS FINGERPRINT='${fingerprint}'; """
     }
 }
