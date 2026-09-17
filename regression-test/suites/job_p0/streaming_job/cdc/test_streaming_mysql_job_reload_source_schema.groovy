@@ -111,7 +111,7 @@ suite("test_streaming_mysql_job_reload_source_schema",
         })
 
         // Use the complete offset from ErrorMsg, including any event/row restart fields.
-        def offsetMatcher = failureMessage =~ /Source offset: (\{.*?\})\. Reason:/
+        def offsetMatcher = failureMessage =~ /Source offset: (\{.*\})$/
         assert offsetMatcher.find() : "Missing source offset in ErrorMsg: ${failureMessage}"
         String recoveryOffset = offsetMatcher.group(1)
         def parsedOffset = parseJson(recoveryOffset)

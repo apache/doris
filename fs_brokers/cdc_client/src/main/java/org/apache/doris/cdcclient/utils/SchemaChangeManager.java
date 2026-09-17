@@ -220,6 +220,7 @@ public class SchemaChangeManager {
         }
 
         LOG.warn("DDL execution failed. SQL: {}. Response: {}", operation.getSql(), responseBody);
-        throw new IOException("Failed to execute schema change: " + responseBody);
+        throw new IOException(
+                data.isEmpty() ? "Failed to execute schema change: " + responseBody : data);
     }
 }

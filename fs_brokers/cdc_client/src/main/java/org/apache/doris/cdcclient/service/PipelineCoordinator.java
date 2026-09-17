@@ -828,6 +828,15 @@ public class PipelineCoordinator {
     static String formatSourceRecordFailure(String action, SourceRecord record, Throwable failure) {
         try {
             StringBuilder message = new StringBuilder(action);
+            String reason = ExceptionUtils.getMessage(failure);
+            message.append(". Reason: ").append(reason);
+            Throwable rootCause = ExceptionUtils.getRootCause(failure);
+            if (rootCause != null
+                    && rootCause != failure
+                    && (rootCause.getMessage() == null
+                            || !reason.contains(rootCause.getMessage()))) {
+                message.append("; caused by: ").append(ExceptionUtils.getMessage(rootCause));
+            }
             if (record.value() instanceof Struct) {
                 Struct value = (Struct) record.value();
                 if (value.schema().field(Envelope.FieldName.SOURCE) != null) {
@@ -838,15 +847,6 @@ public class PipelineCoordinator {
             if (record.sourceOffset() != null && !record.sourceOffset().isEmpty()) {
                 String sourceOffset = objectMapper.valueToTree(record.sourceOffset()).toString();
                 message.append(". Source offset: ").append(sourceOffset);
-            }
-            String reason = ExceptionUtils.getMessage(failure);
-            message.append(". Reason: ").append(reason);
-            Throwable rootCause = ExceptionUtils.getRootCause(failure);
-            if (rootCause != null
-                    && rootCause != failure
-                    && (rootCause.getMessage() == null
-                            || !reason.contains(rootCause.getMessage()))) {
-                message.append("; caused by: ").append(ExceptionUtils.getMessage(rootCause));
             }
             return message.toString();
         } catch (Exception e) {

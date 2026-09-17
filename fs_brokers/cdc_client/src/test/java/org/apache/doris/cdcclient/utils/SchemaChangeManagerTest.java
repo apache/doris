@@ -87,7 +87,13 @@ class SchemaChangeManagerTest {
 
     @Test
     void singleChangeFailureOmitsRemainingSqls() throws Exception {
-        respondToDdlWithUnknownError();
+        server.createContext(
+                "/api/streaming/schema_change",
+                exchange ->
+                        respond(
+                                exchange,
+                                "{\"code\":1,\"msg\":\"Error\","
+                                        + "\"data\":\"ALTER TABLE command denied to user \\u0027cdc_user\\u0027\"}"));
         respondToSchemaWithColumns("id");
         SchemaChangeOperation operation =
                 SchemaChangeOperation.addColumn(
@@ -109,7 +115,7 @@ class SchemaChangeManagerTest {
                 .satisfies(
                         error ->
                                 assertThat(error.getCause())
-                                        .hasMessageContaining("Column operation cannot be applied"));
+                                        .hasMessage("ALTER TABLE command denied to user 'cdc_user'"));
     }
 
     @Test
