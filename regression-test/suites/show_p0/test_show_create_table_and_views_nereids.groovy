@@ -38,10 +38,6 @@ suite("test_show_create_table_and_views_nereids", "show") {
 
     def ret = sql "SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
     logger.info("${ret}")
-    if (isCloudMode()) {
-        logger.info("This SHOW CREATE TABLE case has no cloud-specific expected results, skip it in cloud mode.")
-        return
-    }
     if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {
         logger.info("enable_feature_binlog=false in frontend config, no need to run this case.")
         return
@@ -54,19 +50,60 @@ suite("test_show_create_table_and_views_nereids", "show") {
     String rollupName = "${suiteName}_rollup"
     String likeName = "${suiteName}_like"
 
-    def forceReplicaAllocation = getFeConfig('force_olap_table_replication_allocation').trim()
-    def effectiveReplicaNum = 1
-    if (!forceReplicaAllocation.isEmpty()) {
-        def matcher = forceReplicaAllocation =~ /^tag\.location\.default:\s*(1|3)$/
-        assertTrue(matcher.matches(),
-                "Unsupported force_olap_table_replication_allocation: ${forceReplicaAllocation}")
-        effectiveReplicaNum = matcher.group(1).toInteger()
-    } else {
-        def forceReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
-        if (forceReplicaNum > 0) {
-            assertTrue(forceReplicaNum in [1, 3],
-                    "Unsupported force_olap_table_replication_num: ${forceReplicaNum}")
-            effectiveReplicaNum = forceReplicaNum
+    String expectedReplicaAllocation = getFeConfig('force_olap_table_replication_allocation')?.trim()
+    if (!expectedReplicaAllocation) {
+        def forcedReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
+        expectedReplicaAllocation = "tag.location.default: ${forcedReplicaNum > 0 ? forcedReplicaNum : 1}"
+    }
+    def replicaAllocationToMap = { String allocation ->
+        allocation.split(',').collectEntries { String entry ->
+            def parts = entry.trim().split(/\s*:\s*/, 2)
+            assertEquals(2, parts.length, "Invalid replica allocation: ${allocation}")
+            [(parts[0]): parts[1].toInteger()]
+        }
+    }
+    String initialCreateTable = null
+    def checkShowCreateTable = { String qualifiedName, String expectedTable ->
+        def result = sql_return_maparray "SHOW CREATE TABLE ${qualifiedName}"
+        assertEquals(1, result.size())
+        assertEquals(expectedTable, result[0]["Table"].toString())
+        def createTable = result[0]["Create Table"].toString()
+        def tablePrefix = "CREATE TABLE `${expectedTable}`"
+        assertTrue(createTable.startsWith(tablePrefix), "SHOW CREATE TABLE ${qualifiedName} returned: ${createTable}")
+        // SHOW CREATE uses double-quoted index comments and escapes an embedded double quote.
+        [
+            "`user_id` largeint NOT NULL",
+            "`good_id` largeint NOT NULL",
+            "`cost` bigint SUM NULL DEFAULT \"0\"",
+            "INDEX index_user_id (`user_id`) USING INVERTED COMMENT \"test index comment\"",
+            "INDEX index_good_id (`good_id`) USING INVERTED COMMENT \"test index\\\" comment\"",
+            "AGGREGATE KEY(`user_id`, `good_id`)",
+            "PARTITION BY RANGE(`good_id`)",
+            'PARTITION p1 VALUES [("-170141183460469231731687303715884105728"), ("100"))',
+            'PARTITION p2 VALUES [("100"), ("200"))',
+            'PARTITION p3 VALUES [("200"), ("300"))',
+            'PARTITION p4 VALUES [("300"), ("400"))',
+            'PARTITION p5 VALUES [("400"), ("500"))',
+            'PARTITION p6 VALUES [("500"), ("600"))',
+            'PARTITION p7 VALUES [("600"), (MAXVALUE)))',
+            "DISTRIBUTED BY HASH(`user_id`) BUCKETS 2",
+            "\"storage_format\" = \"V2\""
+        ].each {
+            assertTrue(createTable.contains(it), "SHOW CREATE TABLE ${qualifiedName} should contain ${it}, actual: ${createTable}")
+        }
+        def replicaAllocation = (createTable =~ /"replication_allocation" = "([^"]+)"/)
+        assertTrue(replicaAllocation.find(), "SHOW CREATE TABLE ${qualifiedName} has no replica allocation: ${createTable}")
+        assertEquals(replicaAllocationToMap(expectedReplicaAllocation), replicaAllocationToMap(replicaAllocation.group(1)),
+                "SHOW CREATE TABLE ${qualifiedName} has the wrong replica allocation")
+
+        // The original golden checked the entire DDL at all four checkpoints. Compare the full
+        // output after normalizing only the table name, so rollup and LIKE cannot silently drift.
+        def normalizedCreateTable = "CREATE TABLE `<table>`" + createTable.substring(tablePrefix.length())
+        if (initialCreateTable == null) {
+            initialCreateTable = normalizedCreateTable
+        } else {
+            assertEquals(initialCreateTable, normalizedCreateTable,
+                    "SHOW CREATE TABLE ${qualifiedName} differs from the original table")
         }
     }
 
@@ -119,7 +156,7 @@ suite("test_show_create_table_and_views_nereids", "show") {
         (2, 200, 1111),
         (23, 900, 1)"""
 
-    quickRunTest("show_initial_replica_${effectiveReplicaNum}", "SHOW CREATE TABLE ${dbName}.${tableName}")
+    checkShowCreateTable("${dbName}.${tableName}", tableName)
     qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY user_id, good_id"
 
     sql "drop view if exists ${dbName}.${viewName};"
@@ -152,16 +189,15 @@ suite("test_show_create_table_and_views_nereids", "show") {
     }
 
     qt_select "SELECT user_id, SUM(cost) FROM ${dbName}.${tableName} GROUP BY user_id ORDER BY user_id"
-    quickRunTest("show_after_rollup_replica_${effectiveReplicaNum}", "SHOW CREATE TABLE ${dbName}.${tableName}")
+    checkShowCreateTable("${dbName}.${tableName}", tableName)
 
     // create like
     sql "CREATE TABLE ${dbName}.${likeName} LIKE ${dbName}.${tableName}"
-    quickRunTest("show_like_replica_${effectiveReplicaNum}", "SHOW CREATE TABLE ${dbName}.${likeName}")
+    checkShowCreateTable("${dbName}.${likeName}", likeName)
 
     // create like with rollup
     sql "CREATE TABLE ${dbName}.${likeName}_with_rollup LIKE ${dbName}.${tableName} WITH ROLLUP"
-    quickRunTest("show_like_with_rollup_replica_${effectiveReplicaNum}",
-            "SHOW CREATE TABLE ${dbName}.${likeName}_with_rollup")
+    checkShowCreateTable("${dbName}.${likeName}_with_rollup", "${likeName}_with_rollup")
 
     sql "DROP TABLE IF EXISTS ${dbName}.${likeName}_with_rollup FORCE"
     sql "DROP TABLE ${dbName}.${likeName} FORCE"
