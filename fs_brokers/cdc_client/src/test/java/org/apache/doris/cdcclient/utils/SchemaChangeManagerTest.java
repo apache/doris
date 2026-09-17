@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger;
 
 class SchemaChangeManagerTest {
@@ -85,7 +86,7 @@ class SchemaChangeManagerTest {
     }
 
     @Test
-    void addColumnKeepsFailureWhenColumnIsAbsent() throws Exception {
+    void singleChangeFailureOmitsRemainingSqls() throws Exception {
         respondToDdlWithUnknownError();
         respondToSchemaWithColumns("id");
         SchemaChangeOperation operation =
@@ -96,10 +97,19 @@ class SchemaChangeManagerTest {
 
         assertThatThrownBy(
                         () ->
-                                SchemaChangeManager.execute(
-                                        feAddr, "target_db", "token", "123", operation))
+                                SchemaChangeManager.executeChanges(
+                                        feAddr,
+                                        "target_db",
+                                        "token",
+                                        "123",
+                                        Arrays.asList(operation)))
                 .isInstanceOf(IOException.class)
-                .hasMessageContaining("Failed to execute schema change");
+                .hasMessageContaining("SQL: " + operation.getSql())
+                .hasMessageNotContaining("Remaining SQLs")
+                .satisfies(
+                        error ->
+                                assertThat(error.getCause())
+                                        .hasMessageContaining("Column operation cannot be applied"));
     }
 
     @Test
@@ -138,7 +148,60 @@ class SchemaChangeManagerTest {
                                         feAddr, "target_db", "token", "123", operation))
                 .isInstanceOf(IOException.class)
                 .hasMessageContaining("Column operation cannot be applied")
-                .satisfies(error -> assertThat(error.getSuppressed()).hasSize(1));
+                .satisfies(
+                        error -> {
+                            assertThat(error.getSuppressed()).hasSize(1);
+                            assertThat(error.getSuppressed()[0])
+                                    .hasMessageContaining("schema unavailable");
+                        });
+    }
+
+    @Test
+    void failedChangeReportsOnlyFailedAndRemainingSqls() throws Exception {
+        AtomicInteger ddlRequests = new AtomicInteger();
+        server.createContext(
+                "/api/streaming/schema_change",
+                exchange ->
+                        respond(
+                                exchange,
+                                ddlRequests.incrementAndGet() == 1
+                                        ? "{\"code\":0,\"msg\":\"success\"}"
+                                        : "{\"code\":1,\"msg\":\"Column operation cannot be applied\"}"));
+        respondToSchemaWithColumns("id", "done_col");
+        SchemaChangeOperation done =
+                SchemaChangeOperation.addColumn(
+                        "target_table",
+                        "done_col",
+                        "ALTER TABLE target_table ADD COLUMN done_col INT");
+        SchemaChangeOperation failed =
+                SchemaChangeOperation.addColumn(
+                        "target_table",
+                        "bad_col",
+                        "ALTER TABLE target_table ADD COLUMN bad_col INT");
+        SchemaChangeOperation remaining =
+                SchemaChangeOperation.addColumn(
+                        "other_table",
+                        "next_col",
+                        "ALTER TABLE other_table ADD COLUMN next_col INT");
+
+        assertThatThrownBy(
+                        () ->
+                                SchemaChangeManager.executeChanges(
+                                        feAddr,
+                                        "target_db",
+                                        "token",
+                                        "123",
+                                        Arrays.asList(done, failed, remaining)))
+                .isInstanceOf(IOException.class)
+                .hasMessageContaining("SQL: " + failed.getSql())
+                .hasMessageContaining("Remaining SQLs: [" + remaining.getSql() + "]")
+                .hasMessageNotContaining(done.getSql())
+                .hasRootCauseMessage(
+                        "Failed to execute schema change: "
+                                + "{\"code\":1,\"msg\":\"Column operation cannot be applied\"}");
+
+        assertThat(ddlRequests).hasValue(2);
+        assertThat(schemaRequests).hasValue(1);
     }
 
     @Test

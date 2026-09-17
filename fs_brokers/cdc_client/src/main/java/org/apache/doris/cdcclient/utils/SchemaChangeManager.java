@@ -70,9 +70,22 @@ public class SchemaChangeManager {
             LOG.info("No DDL statements to execute");
             return;
         }
-        for (SchemaChangeOperation operation : schemaChanges) {
+        for (int i = 0; i < schemaChanges.size(); i++) {
+            SchemaChangeOperation operation = schemaChanges.get(i);
             LOG.info("Executing DDL on FE {}: {}", feAddr, operation.getSql());
-            execute(feAddr, db, token, jobId, operation);
+            try {
+                execute(feAddr, db, token, jobId, operation);
+            } catch (Exception failure) {
+                String message = "Failed to execute schema change. SQL: " + operation.getSql();
+                if (i + 1 < schemaChanges.size()) {
+                    List<String> remainingSqls =
+                            schemaChanges.subList(i + 1, schemaChanges.size()).stream()
+                                    .map(SchemaChangeOperation::getSql)
+                                    .toList();
+                    message += ". Remaining SQLs: " + remainingSqls;
+                }
+                throw new IOException(message, failure);
+            }
         }
     }
 
@@ -103,8 +116,7 @@ public class SchemaChangeManager {
             } catch (IOException schemaFailure) {
                 ddlFailure.addSuppressed(schemaFailure);
             }
-            throw new IOException(
-                    "Failed to execute schema change. SQL: " + operation.getSql(), ddlFailure);
+            throw ddlFailure;
         }
     }
 

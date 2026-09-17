@@ -1101,6 +1101,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider.resetLag();
             if (reloadSourceSchema) {
                 this.offsetProvider.resetSourceSchema();
+                this.needRebuildReader = true;
             }
             this.offsetProviderPersist = offsetProvider.getPersistInfo();
             log.info("modifyPropertiesInternal: offset updated to {}, job {}",
@@ -1110,6 +1111,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
         } else if (reloadSourceSchema) {
             this.offsetProvider.resetSourceSchema();
+            this.needRebuildReader = true;
             this.offsetProviderPersist = offsetProvider.getPersistInfo();
         }
         if (inputProperties.containsKey(StreamingJobProperties.COMPUTE_GROUP_PROPERTY)) {
