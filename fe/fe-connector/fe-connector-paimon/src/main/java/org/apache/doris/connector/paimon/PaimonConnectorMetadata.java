@@ -1835,7 +1835,14 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             String partitionPath = PartitionPathUtils.generatePartitionPath(renderedSpec);
             String partitionName = partitionPath.substring(0, partitionPath.length() - 1);
             if (!seenPartitionNames.add(partitionName)) {
-                throw new IllegalStateException("Duplicate Paimon partition name: " + partitionName);
+                // Paimon may render distinct typed values, notably NULL and an empty string, to the
+                // same physical partition name. The path-oriented Catalog Partition API has already
+                // lost that typed identity, so returning either entry would make Doris prune rows
+                // incorrectly. Match the branch-4.1 behavior and disable Doris-side partition
+                // pruning for the table; Paimon's scan planning remains authoritative.
+                LOG.warn("Ambiguous Paimon partition name {}; disable Doris partition pruning",
+                        partitionName);
+                return Collections.emptyList();
             }
             // partitionValues = renderedSpec (rendered/normalized), keyed by the remote column name:
             // downstream indexes by raw remote keys but reads the Hive-canonical rendered value (see the

@@ -79,6 +79,13 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
         PaimonTableHandle tableHandle = (PaimonTableHandle) handle.getTableHandle();
         FileStoreTable table = resolveTable(tableHandle);
+        WriteOperation operation = handle.getWriteOperation();
+        if (operation == WriteOperation.INSERT || operation == WriteOperation.OVERWRITE) {
+            validateWriteColumnsForMergeEngine(
+                    handle.getColumns().size() + handle.getStaticPartitionSpec().size(),
+                    table.rowType().getFieldCount(), !table.primaryKeys().isEmpty(),
+                    CoreOptions.fromMap(table.options()).mergeEngine());
+        }
         PaimonConnectorTransaction transaction = currentTransaction(session);
         PaimonWriteBinding binding = PaimonWriteBinding.create(
                 tableHandle, table, buildHadoopConfig(), handle.isOverwrite(),
@@ -218,6 +225,19 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         Set<String> result = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         result.addAll(values);
         return result;
+    }
+
+    static void validateWriteColumnsForMergeEngine(int writeColumnCount, int tableColumnCount,
+            boolean primaryKeyTable, CoreOptions.MergeEngine mergeEngine) {
+        if (writeColumnCount == tableColumnCount || !primaryKeyTable) {
+            return;
+        }
+        if (mergeEngine != CoreOptions.MergeEngine.PARTIAL_UPDATE) {
+            throw new DorisConnectorException(
+                    "Paimon primary-key partial-column write requires "
+                            + "merge-engine=partial-update, but table uses merge-engine="
+                            + mergeEngine);
+        }
     }
 
     @Override
