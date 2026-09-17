@@ -62,17 +62,16 @@ suite("test_mtmv_cache_proc", "mtmv") {
     // Query the base table so nereids checks the MV — fills the cache.
     sql """SELECT event_day, id, username FROM ${tableName}"""
 
-    // hot proc: 5 columns, our MV should appear with its real DbName/MvName.
+    // hot proc: 5 columns; our MV MUST appear with its real DbName/MvName.
     def hotRows = sql """SHOW PROC '/mtmv_cache/hot'"""
-    if (!hotRows.isEmpty()) {
-        assertEquals(5, hotRows[0].size())
-        def mvRow = hotRows.find { it[2] == mvName }
-        if (mvRow != null) {
-            assertEquals(dbName, mvRow[1])
-            assertTrue(mvRow[3] == "Yes" || mvRow[3] == "No")
-            assertTrue((mvRow[4] as Long) >= 0L)
-        }
-    }
+    assertTrue(!hotRows.isEmpty(),
+            "hot cache should contain at least one entry after the MV was queried")
+    assertEquals(5, hotRows[0].size())
+    def mvRow = hotRows.find { it[2] == mvName }
+    assertNotNull(mvRow, "MV ${mvName} should be visible in /mtmv_cache/hot after query")
+    assertEquals(dbName, mvRow[1])
+    assertTrue(mvRow[3] == "Yes" || mvRow[3] == "No")
+    assertTrue((mvRow[4] as Long) >= 0L, "IdleMs must be non-negative")
 
     // mtmv_cache_hot_show_num caps the row count.
     def originalCap = sql """ADMIN SHOW FRONTEND CONFIG LIKE 'mtmv_cache_hot_show_num'"""
@@ -80,7 +79,8 @@ suite("test_mtmv_cache_proc", "mtmv") {
     try {
         sql """ADMIN SET FRONTEND CONFIG ('mtmv_cache_hot_show_num' = '1')"""
         def capped = sql """SHOW PROC '/mtmv_cache/hot'"""
-        assertTrue(capped.size() <= 1, "hot row count should be <= 1 after capping, got ${capped.size()}")
+        assertEquals(1, capped.size(),
+                "hot row count should be exactly 1 after capping to 1, got ${capped.size()}")
     } finally {
         sql """ADMIN SET FRONTEND CONFIG ('mtmv_cache_hot_show_num' = '${originalCapVal}')"""
     }

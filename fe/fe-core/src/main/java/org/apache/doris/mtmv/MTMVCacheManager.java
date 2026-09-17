@@ -39,6 +39,9 @@ import java.util.stream.Collectors;
  */
 public class MTMVCacheManager {
 
+    // Guards updateConfig() against concurrent put/invalidate so mutations issued during
+    // a swap are not lost in the retired instance and cannot resurrect an invalidated entry.
+    private final Object swapLock = new Object();
     private volatile Cache<Key, MTMVCache> caches;
 
     public MTMVCacheManager() {
@@ -53,16 +56,22 @@ public class MTMVCacheManager {
         if (cache == null) {
             return;
         }
-        caches.put(new Key(mtmvId, guarded), cache);
+        synchronized (swapLock) {
+            caches.put(new Key(mtmvId, guarded), cache);
+        }
     }
 
     public void invalidate(long mtmvId) {
-        caches.invalidate(new Key(mtmvId, true));
-        caches.invalidate(new Key(mtmvId, false));
+        synchronized (swapLock) {
+            caches.invalidate(new Key(mtmvId, true));
+            caches.invalidate(new Key(mtmvId, false));
+        }
     }
 
     public void invalidateAll() {
-        caches.invalidateAll();
+        synchronized (swapLock) {
+            caches.invalidateAll();
+        }
     }
 
     public long size() {
@@ -75,7 +84,10 @@ public class MTMVCacheManager {
                 s.evictionCount(), s.loadFailureCount(), s.hitRate());
     }
 
-    /** Snapshot for SHOW PROC '/mtmv_cache/hot'. Ordered by most recently accessed first. */
+    /**
+     * Snapshot for SHOW PROC '/mtmv_cache/hot'. Ordered by most-recently-accessed first when
+     * expireAfterAccess is enabled; falls back to iteration order with idleMs=-1 otherwise.
+     */
     public List<HotEntry> hotEntries(int limit) {
         if (limit <= 0) {
             return Collections.emptyList();
@@ -91,7 +103,16 @@ public class MTMVCacheManager {
                         .collect(Collectors.toList()));
     }
 
-    public static synchronized void updateConfig() {
+    public void updateConfig() {
+        Cache<Key, MTMVCache> fresh = build(Config.mtmv_cache_manage_num, Config.expire_mtmv_cache_in_fe_second);
+        synchronized (swapLock) {
+            fresh.putAll(caches.asMap());
+            fresh.cleanUp();
+            caches = fresh;
+        }
+    }
+
+    public static synchronized void reloadConfig() {
         Env env = Env.getCurrentEnv();
         if (env == null) {
             return;
@@ -100,10 +121,7 @@ public class MTMVCacheManager {
         if (manager == null) {
             return;
         }
-        Cache<Key, MTMVCache> fresh = build(Config.mtmv_cache_manage_num, Config.expire_mtmv_cache_in_fe_second);
-        fresh.putAll(manager.caches.asMap());
-        fresh.cleanUp();
-        manager.caches = fresh;
+        manager.updateConfig();
     }
 
     private static Cache<Key, MTMVCache> build(int maxSize, long expireAfterAccessSeconds) {
@@ -123,7 +141,7 @@ public class MTMVCacheManager {
         @Override
         public void handle(Field field, String confVal) throws Exception {
             super.handle(field, confVal);
-            MTMVCacheManager.updateConfig();
+            MTMVCacheManager.reloadConfig();
         }
     }
 
