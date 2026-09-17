@@ -111,4 +111,22 @@ suite("topn_lazy_order_by_alias") {
             order by x limit 2) s
         order by sort_col limit 1;
     """
+
+    // Index mode: the bare lazy_col and its alias both feed the sort key, so both stay materialized and
+    // only other_col is fetched lazily. Before the fix the bare lazy_col could be pruned from the scan
+    // while `lazy_col AS x` below the TopN still read it.
+    sql """ set topn_lazy_materialization_using_index = true; """
+
+    qt_index_mode_selective_lazy_plan """
+        explain shape plan
+        select lazy_col as x, lazy_col, other_col
+        from topn_lazy_order_by_alias_tbl where sort_col > 0 order by x limit 1;
+    """
+
+    order_qt_index_mode_selective_lazy_result """
+        select lazy_col as x, lazy_col, other_col
+        from topn_lazy_order_by_alias_tbl where sort_col > 0 order by x limit 1;
+    """
+
+    sql """ set topn_lazy_materialization_using_index = false; """
 }
