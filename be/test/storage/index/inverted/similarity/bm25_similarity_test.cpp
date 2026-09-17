@@ -19,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <cmath>
 #include <memory>
 
 #include "common/be_mock_util.h"
@@ -289,22 +288,4 @@ TEST_F(BM25SimilarityTest, CacheConsistencyTest) {
                          similarity_->_b * BM25Similarity::LENGTH_TABLE[i] / similarity_->_avgdl));
         ASSERT_FLOAT_EQ(similarity_->_cache[i], expected);
     }
-}
-
-// Indexes without norms report no token count, so avgdl is 0: scores must stay finite and ignore
-// document length instead of turning into NaN.
-TEST_F(BM25SimilarityTest, ZeroAvgDlScoresWithoutLengthNorm) {
-    mock_stats_->set_mock_idf(2.0f);
-    mock_stats_->set_mock_avg_dl(0.0f);
-
-    similarity_->for_one_term(context_, L"field", L"term");
-
-    for (int i = 0; i < 256; ++i) {
-        ASSERT_FLOAT_EQ(similarity_->_cache[i], 1.0f / similarity_->_k1);
-    }
-    float score = similarity_->score(1.0f, 0);
-    ASSERT_FALSE(std::isnan(score));
-    ASSERT_FLOAT_EQ(score,
-                    similarity_->_weight - similarity_->_weight / (1.0f + 1.0f / similarity_->_k1));
-    ASSERT_GT(similarity_->score(2.0f, 0), score);
 }

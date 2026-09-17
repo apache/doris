@@ -20,8 +20,10 @@
 // bytes, so inverted_index_skip_norms_for_variant leaves them out there whatever the property says.
 // This covers both an index declared with a field_pattern and a whole-column
 // index on a VARIANT column, whose per-subcolumn copies inherit the properties of the index they
-// come from. BM25 scoring keeps working with and without norms.
-suite("test_variant_subcolumn_index_norms", "p0") {
+// come from. BM25 scoring needs norms: score() on an index without them fails, also while only
+// some segments lack them, and MATCH filtering keeps working.
+// It flips a BE config, so it must not share the cluster with other suites.
+suite("test_variant_subcolumn_index_norms", "p0,nonConcurrent") {
     if (isCloudMode()) {
         return
     }
@@ -105,13 +107,22 @@ suite("test_variant_subcolumn_index_norms", "p0") {
         order by score() desc
         limit 10
     """
-    order_qt_variant_subcolumn_score_no_norms """
-        select id, round(score(), 4)
+    // without norms MATCH still filters, and score() is refused
+    order_qt_variant_subcolumn_match_no_norms """
+        select id
         from test_variant_subcolumn_index_norms
         where cast(v["t_note"] as string) match_phrase "alpha"
-        order by score() desc
-        limit 10
     """
+    test {
+        sql """
+            select id, score()
+            from test_variant_subcolumn_index_norms
+            where cast(v["t_note"] as string) match_phrase "alpha"
+            order by score() desc
+            limit 10
+        """
+        exception "written without norms"
+    }
     order_qt_plain_column_score """
         select id, round(score(), 4)
         from test_variant_subcolumn_index_norms
@@ -211,5 +222,65 @@ suite("test_variant_subcolumn_index_norms", "p0") {
         assertEquals(false, normsOf(configNorms, "s_host"))
         assertEquals(false, normsOf(configNorms, "c_host"))
         assertEquals(true, configNorms[""])
+    }
+    test {
+        sql """
+            select id, score()
+            from test_variant_subcolumn_index_norms_config
+            where cast(vf["c_host"] as string) match_phrase "alpha"
+            order by score() desc
+            limit 10
+        """
+        exception "written without norms"
+    }
+
+    // segments with and without norms side by side, as while the config is being turned on:
+    // MATCH still filters, and score() is refused rather than ranking the rows of the newer
+    // segment as zero-length documents
+    sql "DROP TABLE IF EXISTS test_variant_subcolumn_index_norms_mixed"
+    sql """
+        CREATE TABLE test_variant_subcolumn_index_norms_mixed (
+            id INT,
+            v variant<
+                's_*' : text,
+                PROPERTIES("variant_max_subcolumns_count"="0")
+            >,
+            INDEX idx_v_s (v) USING INVERTED PROPERTIES(
+                "parser"="english",
+                "support_phrase"="true",
+                "field_pattern"="s_*"
+            )
+        ) ENGINE=OLAP DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "true",
+            "inverted_index_storage_format" = "V2"
+        )
+    """
+    sql """ insert into test_variant_subcolumn_index_norms_mixed values
+            (1, parse_to_variant('{"s_note":"alpha database server"}'))
+    """
+    setBeConfigTemporary([inverted_index_skip_norms_for_variant: true]) {
+        sql """ insert into test_variant_subcolumn_index_norms_mixed values
+                (2, parse_to_variant('{"s_note":"alpha"}'))
+        """
+    }
+    sql " sync "
+
+    order_qt_mixed_match """
+        select id
+        from test_variant_subcolumn_index_norms_mixed
+        where cast(v["s_note"] as string) match_phrase "alpha"
+    """
+    test {
+        sql """
+            select id, score()
+            from test_variant_subcolumn_index_norms_mixed
+            where cast(v["s_note"] as string) match_phrase "alpha"
+            order by score() desc
+            limit 10
+        """
+        exception "written without norms"
     }
 }

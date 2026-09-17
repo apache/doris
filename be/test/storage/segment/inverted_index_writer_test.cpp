@@ -362,10 +362,9 @@ public:
     }
 
     // Helper method to create an inverted index with tokenization enabled
-    void create_tokenized_index(
-            std::string_view rowset_id, int seg_id, bool enable_analyzer,
-            const std::string& index_suffix = "",
-            const std::map<std::string, std::string>& extra_properties = {}) {
+    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer,
+                                const std::string& index_suffix = "",
+                                const std::map<std::string, std::string>& extra_properties = {}) {
         auto tablet_schema = create_schema();
 
         // Create index meta with tokenization setting
