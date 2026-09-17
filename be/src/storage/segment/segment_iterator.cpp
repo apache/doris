@@ -498,12 +498,13 @@ void SegmentIterator::_rebuild_scan_predicate_states() {
     }
 }
 
-void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr) {
+void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated) {
     if (expr->is_slot_ref()) {
         const auto ordinal =
                 cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id());
         DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
         _column_states[ordinal].has_common_expr = true;
+        _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
         _is_need_expr_eval = true;
         return;
     }
@@ -511,11 +512,11 @@ void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr) {
         const auto& virtual_expr =
                 assert_cast<const VirtualSlotRef*>(expr.get())->get_virtual_column_expr();
         DORIS_CHECK(virtual_expr != nullptr);
-        _mark_common_expr_states(virtual_expr);
+        _mark_common_expr_states(virtual_expr, runtime_generated);
         return;
     }
     for (const auto& child : expr->children()) {
-        _mark_common_expr_states(child);
+        _mark_common_expr_states(child, runtime_generated);
     }
 }
 
@@ -2120,12 +2121,20 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     // Step2: extract columns that can execute expr context
     if (!_common_expr_ctxs_push_down.empty()) {
         for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-            _mark_common_expr_states(expr_ctx->root());
+            const auto& root = expr_ctx->root();
+            // TopN filters and runtime filters are attached to the scan on BE after the FE
+            // planner computed nested predicate access paths.
+            _mark_common_expr_states(root, root->is_topn_filter() || root->is_rf_wrapper());
         }
         if (_is_need_expr_eval) {
             for (uint32_t cid = 0; cid < _schema->num_block_columns(); ++cid) {
                 const auto field_type = _schema->column(cid)->type();
-                if (_column_states[cid].has_common_expr && _enable_prune_nested_column &&
+                // A runtime-generated common expression may read nested fields outside the
+                // FE predicate access paths, e.g. ORDER BY s.a with WHERE on s.b. Keep such
+                // a column in the NORMAL read phase so every access path is materialized
+                // before the expression is evaluated.
+                if (_column_states[cid].has_common_expr &&
+                    !_column_states[cid].has_runtime_common_expr && _enable_prune_nested_column &&
                     (field_type == FieldType::OLAP_FIELD_TYPE_STRUCT ||
                      field_type == FieldType::OLAP_FIELD_TYPE_ARRAY ||
                      field_type == FieldType::OLAP_FIELD_TYPE_MAP)) {
