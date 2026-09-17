@@ -2463,6 +2463,54 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testVariantAccessPathTerminatesIcebergFieldTraversal() {
+        Types.NestedField nestedDefault = Types.NestedField.optional("added")
+                .withId(4)
+                .ofType(Types.IntegerType.get())
+                .withInitialDefault(7)
+                .build();
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(1, "message", Types.VariantType.get()));
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "message", Types.VariantType.get()),
+                Types.NestedField.optional(2, "info", Types.StructType.of(
+                        Types.NestedField.optional(3, "payload", Types.VariantType.get()),
+                        nestedDefault)),
+                Types.NestedField.optional(5, "attrs", Types.MapType.ofOptional(
+                        6, 7, Types.StringType.get(), Types.VariantType.get())),
+                Types.NestedField.required(8, "required_variant", Types.VariantType.get()));
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+        SlotDescriptor messageSlot = slotDescriptor(1);
+        messageSlot.setColumn(columns.get(0));
+        SlotDescriptor infoSlot = slotDescriptor(2);
+        infoSlot.setColumn(columns.get(1));
+        SlotDescriptor attrsSlot = slotDescriptor(5);
+        attrsSlot.setColumn(columns.get(2));
+        SlotDescriptor requiredVariantSlot = slotDescriptor(8);
+        requiredVariantSlot.setColumn(columns.get(3));
+
+        assertRequiresRecursiveInitialDefault(schema, messageSlot, false, "1", "mainDomain");
+        // Variant keys are data selectors, even when they spell an Iceberg field ID or access token.
+        assertRequiresRecursiveInitialDefault(schema, messageSlot, false, "1", "4");
+        assertRequiresRecursiveInitialDefault(schema, messageSlot, false,
+                "1", AccessPathInfo.ACCESS_ALL);
+        assertRequiresRecursiveInitialDefault(schema, infoSlot, false, "2", "3", "kind");
+        assertRequiresRecursiveInitialDefault(schema, infoSlot, true, "2", "4");
+        assertRequiresRecursiveInitialDefault(schema, attrsSlot, false,
+                "5", AccessPathInfo.ACCESS_ALL, "object", "kind");
+
+        requiredVariantSlot.setAllAccessPaths(Collections.singletonList(
+                dataAccessPath(ImmutableList.of("8", "mainDomain"))));
+        Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                schema, Collections.singletonList(requiredVariantSlot),
+                ImmutableList.of(historicalSchema)));
+        messageSlot.setAllAccessPaths(Collections.singletonList(
+                dataAccessPath(ImmutableList.of("1", "mainDomain"))));
+        Assert.assertFalse(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                schema, Collections.singletonList(messageSlot), ImmutableList.of(historicalSchema)));
+    }
+
+    @Test
     public void testPotentiallyMissingRequiredFieldsFollowProjection() {
         Types.NestedField existing = Types.NestedField.optional(
                 3, "existing", Types.IntegerType.get());

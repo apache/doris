@@ -1144,6 +1144,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (requiresIcebergField(column, fieldById, isTopLevel, requirement)) {
             return true;
         }
+        if (column.getType().isVariantType()) {
+            // VARIANT has no Iceberg schema children. Any remaining components are object keys or
+            // array indexes inside the encoded value, not Iceberg field IDs or access tokens.
+            return false;
+        }
         if (pathIndex == path.size()) {
             return requiresProjectedIcebergField(column, fieldById, requirement);
         }
