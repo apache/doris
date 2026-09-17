@@ -446,9 +446,9 @@ static std::string debug_info(const Request& req) {
     } else if constexpr (is_any_v<Request, UpdatePackedFileInfoRequest>) {
         return fmt::format(" packed_file_path={}", req.packed_file_path());
     } else if constexpr (is_any_v<Request, ReportSpillStatsRequest>) {
-        return fmt::format(" backend_id={} boot_id={} remote_spill_bytes={}",
+        return fmt::format(" backend_id={} boot_id={} report_seq={} remote_spill_bytes={}",
                            req.stats().backend_id(), req.stats().boot_id(),
-                           req.stats().remote_spill_bytes());
+                           req.stats().report_seq(), req.stats().remote_spill_bytes());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -1901,7 +1901,7 @@ Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_complet
                      });
 }
 
-Status CloudMetaMgr::report_spill_stats(int64_t backend_id, int64_t boot_id,
+Status CloudMetaMgr::report_spill_stats(int64_t backend_id, int64_t boot_id, int64_t report_seq,
                                         int64_t remote_spill_bytes) {
     ReportSpillStatsRequest req;
     ReportSpillStatsResponse resp;
@@ -1910,6 +1910,7 @@ Status CloudMetaMgr::report_spill_stats(int64_t backend_id, int64_t boot_id,
     stats->set_cloud_unique_id(config::cloud_unique_id);
     stats->set_backend_id(backend_id);
     stats->set_boot_id(boot_id);
+    stats->set_report_seq(report_seq);
     stats->set_remote_spill_bytes(remote_spill_bytes);
     return retry_rpc(MetaServiceRPC::REPORT_SPILL_STATS, req, &resp,
                      &MetaService_Stub::report_spill_stats,
@@ -2726,7 +2727,7 @@ Status CloudMetaMgr::list_snapshot(std::vector<SnapshotInfoPB>& snapshots) {
     return Status::OK();
 }
 
-Status CloudMetaMgr::get_instance_id(std::string* instance_id) {
+Status CloudMetaMgr::_get_instance(InstanceInfoPB* instance, int32_t max_retry_times) {
     GetInstanceRequest req;
     GetInstanceResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -2735,34 +2736,36 @@ Status CloudMetaMgr::get_instance_id(std::string* instance_id) {
                               {
                                       .host_limiters = host_level_ms_rpc_rate_limiters_,
                                       .backpressure_handler = ms_backpressure_handler_,
+                                      .max_retry_times = max_retry_times,
                               }));
-    if (res.instance().instance_id().empty()) {
+    *instance = std::move(*res.mutable_instance());
+    return Status::OK();
+}
+
+Status CloudMetaMgr::get_instance_id(std::string* instance_id) {
+    InstanceInfoPB instance;
+    // At most 2 attempts: the caller (RemoteSpillDataDir::ensure_ready) runs on query threads
+    // and retries itself.
+    RETURN_IF_ERROR(_get_instance(&instance, /*max_retry_times=*/1));
+    if (instance.instance_id().empty()) {
         return Status::InternalError("meta-service returned an instance without an id");
     }
-    *instance_id = res.instance().instance_id();
+    *instance_id = instance.instance_id();
     return Status::OK();
 }
 
 Status CloudMetaMgr::get_snapshot_properties(SnapshotSwitchStatus& switch_status,
                                              int64_t& max_reserved_snapshots,
                                              int64_t& snapshot_interval_seconds) {
-    GetInstanceRequest req;
-    GetInstanceResponse res;
-    req.set_cloud_unique_id(config::cloud_unique_id);
-    RETURN_IF_ERROR(retry_rpc(MetaServiceRPC::GET_INSTANCE, req, &res,
-                              &MetaService_Stub::get_instance,
-                              {
-                                      .host_limiters = host_level_ms_rpc_rate_limiters_,
-                                      .backpressure_handler = ms_backpressure_handler_,
-                              }));
-    switch_status = res.instance().has_snapshot_switch_status()
-                            ? res.instance().snapshot_switch_status()
+    InstanceInfoPB instance;
+    RETURN_IF_ERROR(_get_instance(&instance, /*max_retry_times=*/-1));
+    switch_status = instance.has_snapshot_switch_status()
+                            ? instance.snapshot_switch_status()
                             : SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED;
     max_reserved_snapshots =
-            res.instance().has_max_reserved_snapshot() ? res.instance().max_reserved_snapshot() : 0;
-    snapshot_interval_seconds = res.instance().has_snapshot_interval_seconds()
-                                        ? res.instance().snapshot_interval_seconds()
-                                        : 3600;
+            instance.has_max_reserved_snapshot() ? instance.max_reserved_snapshot() : 0;
+    snapshot_interval_seconds =
+            instance.has_snapshot_interval_seconds() ? instance.snapshot_interval_seconds() : 3600;
     return Status::OK();
 }
 

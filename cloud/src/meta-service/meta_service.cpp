@@ -3550,11 +3550,12 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
     }
     const auto& spill_stats = request->stats();
     if (spill_stats.backend_id() <= 0 || spill_stats.boot_id() <= 0 ||
-        spill_stats.remote_spill_bytes() < 0) {
+        spill_stats.report_seq() <= 0 || spill_stats.remote_spill_bytes() < 0) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format("invalid spill stats, backend_id={} boot_id={} remote_spill_bytes={}",
-                          spill_stats.backend_id(), spill_stats.boot_id(),
-                          spill_stats.remote_spill_bytes());
+        msg = fmt::format(
+                "invalid spill stats, backend_id={} boot_id={} report_seq={} remote_spill_bytes={}",
+                spill_stats.backend_id(), spill_stats.boot_id(), spill_stats.report_seq(),
+                spill_stats.remote_spill_bytes());
         return;
     }
 
@@ -3565,9 +3566,13 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
         return;
     }
     // One record per BE (backend_id is FE-assigned and unique; cloud_unique_id is not, several
-    // BEs added by one statement share it). The report carries the current size, so a report
-    // of the same or a newer boot simply replaces the previous one; the record count is bounded
-    // by the number of BEs. A report of an older boot is rejected.
+    // BEs added by one statement share it). The report carries the current size, so a newer
+    // report simply replaces the previous one; the record count is bounded by the number of
+    // BEs. "Newer" is decided by (boot_id, report_seq): a report of an older boot, or of the
+    // same boot with a smaller report_seq, is rejected. The latter matters because a report
+    // whose client-side attempt timed out still executes here later and must not roll back a
+    // newer size (the BE would not re-send an unchanged value before its hourly heartbeat, and
+    // a BE that has shut down never would). The same report_seq (a retried attempt) replaces.
     std::string key = stats_spill_key({instance_id, spill_stats.backend_id()});
     std::string existing_val;
     err = txn->get(key, &existing_val);
@@ -3576,9 +3581,7 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
         msg = fmt::format("failed to get spill stats, err={}", err);
         return;
     }
-    SpillStatsPB value = spill_stats;
-    // Server-owned field: never taken from the report.
-    value.clear_update_time_ms();
+    SpillStatsPB value = spill_stats; // update_time_ms is server-owned and set below
     if (err == TxnErrorCode::TXN_OK) {
         SpillStatsPB existing;
         if (!existing.ParseFromString(existing_val)) {
@@ -3595,6 +3598,16 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
                     "stale spill stats report: boot_id={} is older than the recorded boot_id={} "
                     "of backend_id={} (clock went backwards across a restart?)",
                     spill_stats.boot_id(), existing.boot_id(), spill_stats.backend_id());
+            return;
+        }
+        if (existing.boot_id() == spill_stats.boot_id() &&
+            existing.report_seq() > spill_stats.report_seq()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format(
+                    "stale spill stats report: report_seq={} is older than the recorded "
+                    "report_seq={} of backend_id={} boot_id={}",
+                    spill_stats.report_seq(), existing.report_seq(), spill_stats.backend_id(),
+                    spill_stats.boot_id());
             return;
         }
     }

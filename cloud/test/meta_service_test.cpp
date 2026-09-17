@@ -10241,7 +10241,7 @@ TEST(MetaServiceTest, SetDefaultVaultTest) {
 TEST(MetaServiceTest, SpillStatsTest) {
     auto meta_service = get_meta_service();
 
-    auto report = [&](int64_t be, int64_t boot_id, int64_t bytes) {
+    auto report = [&](int64_t be, int64_t boot_id, int64_t seq, int64_t bytes) {
         brpc::Controller cntl;
         ReportSpillStatsRequest req;
         ReportSpillStatsResponse res;
@@ -10250,6 +10250,7 @@ TEST(MetaServiceTest, SpillStatsTest) {
         stats->set_cloud_unique_id("test_cloud_unique_id");
         stats->set_backend_id(be);
         stats->set_boot_id(boot_id);
+        stats->set_report_seq(seq);
         stats->set_remote_spill_bytes(bytes);
         meta_service->report_spill_stats(&cntl, &req, &res, nullptr);
         return res.status().code();
@@ -10270,17 +10271,21 @@ TEST(MetaServiceTest, SpillStatsTest) {
         ASSERT_EQ(res.stats_size(), 0);
     }
 
-    // A report carries the current size: every report of a boot replaces the previous one, up
-    // and down, and a retried report is idempotent.
-    ASSERT_EQ(report(1, 1000, 100), MetaServiceCode::OK);
-    ASSERT_EQ(report(1, 1000, 300), MetaServiceCode::OK);
-    ASSERT_EQ(report(1, 1000, 300), MetaServiceCode::OK); // retried report
-    ASSERT_EQ(report(1, 1000, 40), MetaServiceCode::OK);  // spill released
+    // A report carries the current size: every newer report of a boot replaces the previous
+    // one, up and down, and a retried report (same seq) is idempotent. A report that arrives
+    // after a newer one of the same boot (a timed-out attempt executed late) is rejected and
+    // leaves the newer value in place.
+    ASSERT_EQ(report(1, 1000, 1, 100), MetaServiceCode::OK);
+    ASSERT_EQ(report(1, 1000, 2, 300), MetaServiceCode::OK);
+    ASSERT_EQ(report(1, 1000, 2, 300), MetaServiceCode::OK);               // retried attempt
+    ASSERT_EQ(report(1, 1000, 3, 40), MetaServiceCode::OK);                // spill released
+    ASSERT_EQ(report(1, 1000, 2, 300), MetaServiceCode::INVALID_ARGUMENT); // late old report
     {
         GetSpillStatsResponse res;
         ASSERT_EQ(get(&res), MetaServiceCode::OK);
         ASSERT_EQ(res.total_remote_spill_bytes(), 40);
         ASSERT_EQ(res.stats_size(), 1);
+        ASSERT_EQ(res.stats(0).report_seq(), 3);
         ASSERT_GT(res.stats(0).update_time_ms(), 0);
     }
 
@@ -10288,10 +10293,13 @@ TEST(MetaServiceTest, SpillStatsTest) {
     // its objects at startup; the record count stays one per BE. Another BE adds a second
     // record. A late report of the dead boot is rejected so that a live BE with a backwards
     // clock does not silently lose its record.
-    ASSERT_EQ(report(1, 1001, 0), MetaServiceCode::OK);
-    ASSERT_EQ(report(1, 1001, 80), MetaServiceCode::OK);
-    ASSERT_EQ(report(1, 1000, 300), MetaServiceCode::INVALID_ARGUMENT);
-    ASSERT_EQ(report(2, 2000, 1000), MetaServiceCode::OK);
+    ASSERT_EQ(report(1, 1001, 1, 0), MetaServiceCode::OK);
+    ASSERT_EQ(report(1, 1001, 2, 80), MetaServiceCode::OK);
+    ASSERT_EQ(report(1, 1000, 9, 300), MetaServiceCode::INVALID_ARGUMENT);
+    // The shutdown case: the final report (0) is followed by the late periodic one.
+    ASSERT_EQ(report(2, 2000, 5, 0), MetaServiceCode::OK);
+    ASSERT_EQ(report(2, 2000, 4, 4000), MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_EQ(report(2, 2000, 6, 1000), MetaServiceCode::OK);
     {
         GetSpillStatsResponse res;
         ASSERT_EQ(get(&res), MetaServiceCode::OK);
@@ -10317,6 +10325,7 @@ TEST(MetaServiceTest, SpillStatsTest) {
         auto* stats = req.mutable_stats();
         stats->set_backend_id(2);
         stats->set_boot_id(2000);
+        stats->set_report_seq(7);
         stats->set_remote_spill_bytes(500);
         stats->set_update_time_ms(1);
         meta_service->report_spill_stats(&cntl, &req, &res, nullptr);
@@ -10337,6 +10346,7 @@ TEST(MetaServiceTest, SpillStatsTest) {
         SpillStatsPB stale;
         stale.set_backend_id(3);
         stale.set_boot_id(3000);
+        stale.set_report_seq(1);
         stale.set_remote_spill_bytes(7000);
         stale.set_update_time_ms(1); // 1970
         txn->put(stats_spill_key({"test_instance", 3}), stale.SerializeAsString());
@@ -10353,7 +10363,7 @@ TEST(MetaServiceTest, SpillStatsTest) {
         ASSERT_EQ(res2.total_remote_spill_bytes(), 7580);
         config::spill_objects_expire_time_second = saved;
         // The BE came back: its fresh report counts again.
-        ASSERT_EQ(report(3, 3001, 10), MetaServiceCode::OK);
+        ASSERT_EQ(report(3, 3001, 1, 10), MetaServiceCode::OK);
         GetSpillStatsResponse res3;
         ASSERT_EQ(get(&res3), MetaServiceCode::OK);
         ASSERT_EQ(res3.total_remote_spill_bytes(), 590);
@@ -10368,16 +10378,17 @@ TEST(MetaServiceTest, SpillStatsTest) {
         GetSpillStatsResponse res;
         ASSERT_EQ(get(&res), MetaServiceCode::PROTOBUF_PARSE_ERR);
         ASSERT_EQ(res.stats_size(), 0);
-        ASSERT_EQ(report(99, 1, 1), MetaServiceCode::PROTOBUF_PARSE_ERR);
+        ASSERT_EQ(report(99, 1, 1, 1), MetaServiceCode::PROTOBUF_PARSE_ERR);
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         txn->remove(stats_spill_key({"test_instance", 99}));
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
     // Invalid reports are rejected.
-    ASSERT_EQ(report(0, 1, 1), MetaServiceCode::INVALID_ARGUMENT);
-    ASSERT_EQ(report(3, 0, 1), MetaServiceCode::INVALID_ARGUMENT);
-    ASSERT_EQ(report(3, 1, -1), MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_EQ(report(0, 1, 1, 1), MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_EQ(report(3, 0, 1, 1), MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_EQ(report(3, 1, 0, 1), MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_EQ(report(3, 1, 1, -1), MetaServiceCode::INVALID_ARGUMENT);
     {
         brpc::Controller cntl;
         ReportSpillStatsRequest req;
