@@ -30,6 +30,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.ref.Reference;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -83,13 +85,16 @@ public class MTMVCacheManagerTest {
         Assertions.assertEquals(1L, snap.size);
         Assertions.assertTrue(snap.hitCount >= 1);
         Assertions.assertTrue(snap.missCount >= 1);
+        Reference.reachabilityFence(c1);
     }
 
     @Test
     public void testHotEntriesHonorsLimit() {
         MTMVCacheManager manager = new MTMVCacheManager();
-        MTMVCache c = Mockito.mock(MTMVCache.class);
+        List<MTMVCache> values = new ArrayList<>();
         for (int i = 0; i < 5; i++) {
+            MTMVCache c = Mockito.mock(MTMVCache.class);
+            values.add(c);
             manager.put(i, true, c);
         }
         List<HotEntry> hot = manager.hotEntries(3);
@@ -98,6 +103,7 @@ public class MTMVCacheManagerTest {
             Assertions.assertTrue(e.idleMs >= 0,
                     "idleMs should be >= 0 when expireAfterAccess is set, got " + e.idleMs);
         }
+        Reference.reachabilityFence(values);
     }
 
     @Test
@@ -223,22 +229,28 @@ public class MTMVCacheManagerTest {
         try {
             Config.mtmv_cache_manage_num = 10;
             MTMVCacheManager manager = new MTMVCacheManager();
+            List<MTMVCache> values = new ArrayList<>();
             for (int i = 0; i < 10; i++) {
-                manager.put(i, true, Mockito.mock(MTMVCache.class));
+                MTMVCache c = Mockito.mock(MTMVCache.class);
+                values.add(c);
+                manager.put(i, true, c);
             }
             manager.getCachesForTest().cleanUp();
             Assertions.assertEquals(10L, manager.size());
 
             Config.mtmv_cache_manage_num = 2;
             manager.updateConfig();
-            Assertions.assertTrue(manager.size() <= 2L, "expected shrink to 2, got " + manager.size());
+            Assertions.assertEquals(2L, manager.size());
 
             Config.mtmv_cache_manage_num = 0;
             manager.updateConfig();
             Assertions.assertEquals(0L, manager.size());
-            manager.put(99L, true, Mockito.mock(MTMVCache.class));
+            MTMVCache discarded = Mockito.mock(MTMVCache.class);
+            manager.put(99L, true, discarded);
             manager.getCachesForTest().cleanUp();
             Assertions.assertEquals(0L, manager.size());
+            Reference.reachabilityFence(values);
+            Reference.reachabilityFence(discarded);
         } finally {
             Config.mtmv_cache_manage_num = originalMaxSize;
         }
