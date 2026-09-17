@@ -3550,12 +3550,11 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
     }
     const auto& spill_stats = request->stats();
     if (spill_stats.backend_id() <= 0 || spill_stats.boot_id() <= 0 ||
-        spill_stats.remote_write_bytes() < 0 || spill_stats.remote_put_requests() < 0) {
+        spill_stats.remote_spill_bytes() < 0) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = fmt::format(
-                "invalid spill stats, backend_id={} boot_id={} write_bytes={} put_requests={}",
-                spill_stats.backend_id(), spill_stats.boot_id(), spill_stats.remote_write_bytes(),
-                spill_stats.remote_put_requests());
+        msg = fmt::format("invalid spill stats, backend_id={} boot_id={} remote_spill_bytes={}",
+                          spill_stats.backend_id(), spill_stats.boot_id(),
+                          spill_stats.remote_spill_bytes());
         return;
     }
 
@@ -3566,11 +3565,9 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
         return;
     }
     // One record per BE (backend_id is FE-assigned and unique; cloud_unique_id is not, several
-    // BEs added by one statement share it). The report carries totals since boot, so a report of
-    // the same boot replaces the previous one (a retry cannot double count). The first report of
-    // a newer boot folds the previous process' totals into prior_boots_*, which keeps the record
-    // count bounded by the number of BEs instead of the number of BE restarts. A report of an
-    // older boot is a late duplicate from a dead process and is ignored.
+    // BEs added by one statement share it). The report carries the current size, so a report
+    // of the same or a newer boot simply replaces the previous one; the record count is bounded
+    // by the number of BEs. A report of an older boot is rejected.
     std::string key = stats_spill_key({instance_id, spill_stats.backend_id()});
     std::string existing_val;
     err = txn->get(key, &existing_val);
@@ -3580,9 +3577,7 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
         return;
     }
     SpillStatsPB value = spill_stats;
-    // Server-owned fields: never taken from the report.
-    value.clear_prior_boots_write_bytes();
-    value.clear_prior_boots_put_requests();
+    // Server-owned field: never taken from the report.
     value.clear_update_time_ms();
     if (err == TxnErrorCode::TXN_OK) {
         SpillStatsPB existing;
@@ -3602,20 +3597,6 @@ void MetaServiceImpl::report_spill_stats(::google::protobuf::RpcController* cont
                     spill_stats.boot_id(), existing.boot_id(), spill_stats.backend_id());
             return;
         }
-        int64_t prior_bytes = existing.prior_boots_write_bytes();
-        int64_t prior_requests = existing.prior_boots_put_requests();
-        if (existing.boot_id() != spill_stats.boot_id()) {
-            prior_bytes += existing.remote_write_bytes();
-            prior_requests += existing.remote_put_requests();
-        } else {
-            // Totals of one process only grow; a late-delivered duplicate must not roll back.
-            value.set_remote_write_bytes(
-                    std::max(existing.remote_write_bytes(), spill_stats.remote_write_bytes()));
-            value.set_remote_put_requests(
-                    std::max(existing.remote_put_requests(), spill_stats.remote_put_requests()));
-        }
-        value.set_prior_boots_write_bytes(prior_bytes);
-        value.set_prior_boots_put_requests(prior_requests);
     }
     value.set_update_time_ms(std::chrono::duration_cast<std::chrono::milliseconds>(
                                      std::chrono::system_clock::now().time_since_epoch())
@@ -3654,8 +3635,13 @@ void MetaServiceImpl::get_spill_stats(::google::protobuf::RpcController* control
     std::string key1 = key0;
     key1.push_back('\xff');
 
+    // A record older than the object TTL belongs to a BE that never came back; the recycler has
+    // deleted its spill objects by now (recycle_expired_spill_objects), so it no longer holds
+    // anything. Live BEs refresh their record at least hourly, well within the TTL (> 1 day).
+    const int64_t now_ms =
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    const int64_t expire_ms = config::spill_objects_expire_time_second * 1000;
     int64_t total_bytes = 0;
-    int64_t total_requests = 0;
     std::unique_ptr<RangeGetIterator> it;
     while (it == nullptr /* may be not init */ || it->more()) {
         err = txn->get(key0, key1, &it);
@@ -3673,16 +3659,16 @@ void MetaServiceImpl::get_spill_stats(::google::protobuf::RpcController* control
                 response->clear_stats();
                 return;
             }
-            total_bytes += pb->remote_write_bytes() + pb->prior_boots_write_bytes();
-            total_requests += pb->remote_put_requests() + pb->prior_boots_put_requests();
+            if (expire_ms <= 0 || now_ms - pb->update_time_ms() <= expire_ms) {
+                total_bytes += pb->remote_spill_bytes();
+            }
             if (!it->has_next()) {
                 key0 = k;
             }
         }
         key0.push_back('\x00');
     }
-    response->set_total_remote_write_bytes(total_bytes);
-    response->set_total_remote_put_requests(total_requests);
+    response->set_total_remote_spill_bytes(total_bytes);
 }
 
 static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, std::stringstream& ss,

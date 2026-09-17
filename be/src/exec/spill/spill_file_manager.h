@@ -94,19 +94,11 @@ public:
     /// Number of query spill directories whose deletion failed and is being retried.
     size_t pending_delete_dir_count();
 
-    /// Send the since-boot object storage traffic to meta-service now, with bounded retries.
-    /// Called on the shutdown path (doris_main after all tasks are done, and stop()) so that the
-    /// last reporting interval is not lost; safe to call more than once and from any thread.
+    /// Report the spill data currently held in object storage to meta-service now, with bounded
+    /// retries. Called on the shutdown path (doris_main after all tasks are done, and stop()) so
+    /// that meta-service sees the final size (normally 0) instead of the last periodic value;
+    /// safe to call more than once and from any thread.
     void flush_remote_spill_stats();
-
-    /// Object storage traffic of spill since this process started; the source of the numbers
-    /// reported to meta-service (SHOW DATA) and exposed as metrics.
-    int64_t remote_write_bytes_since_boot() const {
-        return _remote_write_bytes_since_boot.load(std::memory_order_relaxed);
-    }
-    int64_t remote_put_requests_since_boot() const {
-        return _remote_put_requests_since_boot.load(std::memory_order_relaxed);
-    }
 
 private:
     struct PendingQuerySpillDirectory {
@@ -141,14 +133,13 @@ private:
     std::atomic<bool> _remote_boot_marker_pending {false};
     int64_t _remote_boot_marker_rounds = 0;
     int64_t _remote_not_ready_rounds = 0;
-    std::atomic<int64_t> _remote_write_bytes_since_boot {0};
-    std::atomic<int64_t> _remote_put_requests_since_boot {0};
     // Serialises reports between the GC thread and flush_remote_spill_stats(); guards the
-    // three fields below.
+    // three fields below. -1: nothing reported yet, so the first report always goes out and
+    // replaces whatever the previous process of this backend_id left behind.
     std::mutex _remote_report_mutex;
-    int64_t _reported_remote_write_bytes = 0;
-    int64_t _reported_remote_put_requests = 0;
+    int64_t _reported_remote_spill_bytes = -1;
     int64_t _remote_report_rounds = 0;
+    int64_t _remote_report_checks = 0;
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;
