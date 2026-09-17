@@ -1322,6 +1322,10 @@ message GetVersionResponse {
     repeated int64 versions = 6;
     repeated int64 version_update_time_ms = 7;
     repeated int64 commit_tsos = 8;
+
+    // Pending state for partition versions, after any requested wait.
+    // One entry for scalar reads (including VERSION_NOT_FOUND), or per partition in batch order.
+    repeated bool has_pending_txns = 9;
 };
 
 message GetObjStoreInfoRequest {

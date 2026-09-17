@@ -967,7 +967,8 @@ public class CloudGlobalTransactionMgrTest {
         AtomicReference<CompletableFuture<Void>> snapshotReader = new AtomicReference<>();
         try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenReturn(
-                    partitionVersion(4).toBuilder().addVersions(4).addVersionUpdateTimeMs(40).addCommitTsos(400).build());
+                    partitionVersion(4).toBuilder().addVersions(4).addVersionUpdateTimeMs(40).addCommitTsos(400)
+                            .addHasPendingTxns(false).build());
             Mockito.doAnswer(invocation -> {
                 CountDownLatch started = new CountDownLatch(1);
                 CompletableFuture<Void> reader = CompletableFuture.runAsync(() -> {
@@ -1100,7 +1101,7 @@ public class CloudGlobalTransactionMgrTest {
 
     private Cloud.GetVersionResponse partitionVersion(long version) {
         return Cloud.GetVersionResponse.newBuilder().setVersion(version).addVersions(version)
-                .addVersionUpdateTimeMs(version * 10).addCommitTsos(version * 100).build();
+                .addVersionUpdateTimeMs(version * 10).addCommitTsos(version * 100).addHasPendingTxns(false).build();
     }
 
     private OlapTable getCloudTable(CloudPartition partition) throws Exception {

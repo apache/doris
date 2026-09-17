@@ -127,6 +127,11 @@ public class CloudPartitionTest {
                 Cloud.GetVersionResponse.Builder builder = Cloud.GetVersionResponse.newBuilder();
                 builder.setVersion(singleVersions.get(callCount[0]));
                 builder.addAllVersions(batchVersions.get(callCount[0]));
+                Cloud.GetVersionRequest request = invocation.getArgument(0);
+                int size = request.getBatchMode() ? builder.getVersionsCount() : 1;
+                for (int i = 0; i < size; i++) {
+                    builder.addHasPendingTxns(false);
+                }
                 ++callCount[0];
                 return builder.build();
             };
