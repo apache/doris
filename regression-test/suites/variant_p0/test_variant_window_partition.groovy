@@ -77,4 +77,27 @@ suite("test_variant_window_partition", "p0") {
         select id, row_number() over (partition by v['k'], id % 2 order by id) as rn
         from test_variant_window_partition
     """
+
+    // Once the analytic sink has buffered more than 256 input blocks it erases the rows it has
+    // consumed from its partition and order key columns. A small batch size reaches that with a
+    // few thousand rows; the keys are typed Variant (CAST of a number) and encoded Variant
+    // (parse_to_variant) so both layouts are erased.
+    sql "set batch_size = 8"
+    qt_many_blocks_typed_keys """
+        select count(*), sum(rn), sum(dr) from (
+            select row_number() over (order by v) as rn,
+                   dense_rank() over (partition by p order by v) as dr
+            from (select cast(number as variant) v, cast(number % 3 as variant) p
+                  from numbers("number" = "5000")) t
+        ) r
+    """
+    qt_many_blocks_encoded_keys """
+        select count(*), sum(rn), sum(dr) from (
+            select row_number() over (order by v) as rn,
+                   dense_rank() over (partition by p order by v) as dr
+            from (select parse_to_variant(cast(number as string)) v,
+                         parse_to_variant(cast(number % 3 as string)) p
+                  from numbers("number" = "5000")) t
+        ) r
+    """
 }

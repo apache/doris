@@ -1621,6 +1621,29 @@ void ColumnVariantV2::pop_back(size_t length) {
     _check_invariants();
 }
 
+void ColumnVariantV2::erase(size_t start, size_t length) {
+    DORIS_CHECK_LE(start, size()) << "erase start exceeds the column size";
+    DORIS_CHECK_LE(length, size() - start) << "erase range exceeds the column size";
+    if (length == 0) {
+        return;
+    }
+    if (_shredded) {
+        ensure_encoded();
+    }
+    if (_typed) {
+        mutate_subcolumn(_typed);
+        _typed->erase(start, length);
+        _check_invariants();
+        return;
+    }
+    require_exclusive(_meta_ids, "metadata ids");
+    require_exclusive(_values, "values");
+    // The metadata dictionary keeps blobs that no remaining row references; ids stay valid.
+    _values->erase(start, length);
+    _meta_ids->erase(start, length);
+    _check_invariants();
+}
+
 StringRef ColumnVariantV2::get_data_at(size_t) const {
     throw_unsupported("get_data_at");
 }

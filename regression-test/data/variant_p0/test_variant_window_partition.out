@@ -47,3 +47,9 @@
 7	2
 8	2
 
+-- !many_blocks_typed_keys --
+5000	12502500	4169167
+
+-- !many_blocks_encoded_keys --
+5000	12502500	4169167
+
