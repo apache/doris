@@ -351,6 +351,23 @@ suite("correlated_exists_having") {
             WHERE i.k = e.k GROUP BY i.g) y) z WHERE m <= e.k - 1)
         ORDER BY e.k
     """
+    // the max of the derived table of an empty correlated domain is null, and the HAVING clause
+    // keeps that row: the rewrite groups the max by the correlation key as well, so it produces no
+    // row at all for those outer rows and the semi join would drop them
+    test {
+        sql "SELECT e.k FROM ceh_e e" +
+                " WHERE EXISTS (SELECT max(c) FROM (SELECT count(*) AS c FROM ceh_i i" +
+                " WHERE i.k = e.k GROUP BY i.g) x HAVING max(c) IS NULL)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
+    // the count of the derived table of an empty correlated domain is 0, which the IN subquery
+    // compares with the outer value, and the rewrite has no row to compare
+    test {
+        sql "SELECT e.k FROM ceh_e e" +
+                " WHERE e.k IN (SELECT count(*) FROM (SELECT count(*) AS c FROM ceh_i i" +
+                " WHERE i.k = e.k GROUP BY i.g) x)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
     // the aggregation of the subquery can only be evaluated for the correlation keys of the outer
     // rows when the two evaluations of the outer plan return the same rows, when the correlation
     // keys of the two evaluations are the same, and when the predicates of the subquery do not have
