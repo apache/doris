@@ -252,10 +252,11 @@ inline void format_ipv6(unsigned char* src, char*& dst, uint8_t zeroed_tail_byte
         *    Find the longest run of 0x00's in src[] for :: shorthanding. */
     const size_t remaining_bytes = IPV6_BINARY_LENGTH - zeroed_tail_bytes_count;
     for (size_t i = 0; i + 1 < remaining_bytes; i += 2) {
-        words[i / 2] = static_cast<UInt16>(src[i]) << 8 | src[i + 1];
+        words[i / 2] = static_cast<UInt16>((static_cast<UInt16>(src[i]) << 8) | src[i + 1]);
     }
     if (remaining_bytes % 2 != 0) {
-        words[remaining_bytes / 2] = static_cast<UInt16>(src[remaining_bytes - 1]) << 8;
+        words[remaining_bytes / 2] =
+                static_cast<UInt16>(static_cast<UInt16>(src[remaining_bytes - 1]) << 8);
     }
 
     for (size_t i = 0; i < words.size(); i++) {
