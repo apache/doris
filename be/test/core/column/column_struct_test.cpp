@@ -159,6 +159,68 @@ TEST_F(ColumnStructTest, CrcRangeRespectsOuterNullMap) {
     EXPECT_EQ(hash_row(*fixture.nullable, 2), hash_row(*fixture.plain_struct, 2));
 }
 
+// Struct<x: Nullable(BIGINT)> whose row 0 has a NULL field and row 1 a non-NULL field, wrapped
+// once with an outer NULL on row 1 and once without. Row 0 is the same logical value in both
+// blocks and must hash identically: the batch path keeps the field's batch NULL encoding even
+// when an unrelated outer NULL forces the masked path.
+TEST_F(ColumnStructTest, BatchHashKeepsChildBatchContractWithUnrelatedOuterNull) {
+    auto make_block = [](const std::vector<uint8_t>& outer_null_map) {
+        auto field = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
+        field->insert_default();
+        field->insert(Field::create_field<TYPE_BIGINT>(int64_t(5)));
+        Columns fields;
+        fields.push_back(std::move(field));
+        ColumnPtr struct_column = ColumnStruct::create(std::move(fields));
+        auto null_map_column = ColumnUInt8::create();
+        for (auto v : outer_null_map) {
+            null_map_column->insert_value(v);
+        }
+        return ColumnNullable::create(struct_column, std::move(null_map_column));
+    };
+    ColumnPtr with_outer_null = make_block({0, 1});
+    ColumnPtr without_outer_null = make_block({0, 0});
+
+    constexpr uint32_t seed32 = 0x12345678;
+    std::vector<uint32_t> crc_a(2, seed32);
+    std::vector<uint32_t> crc_b(2, seed32);
+    with_outer_null->update_crc32c_batch(crc_a.data(), nullptr);
+    without_outer_null->update_crc32c_batch(crc_b.data(), nullptr);
+    EXPECT_EQ(crc_a[0], crc_b[0]);
+
+    constexpr uint64_t seed64 = 0x123456789abcdefULL;
+    std::vector<uint64_t> xx_a(2, seed64);
+    std::vector<uint64_t> xx_b(2, seed64);
+    with_outer_null->update_hashes_with_value(xx_a.data(), nullptr);
+    without_outer_null->update_hashes_with_value(xx_b.data(), nullptr);
+    EXPECT_EQ(xx_a[0], xx_b[0]);
+}
+
+TEST_F(ColumnStructTest, RangeHashWithAllZeroMaskMatchesUnmasked) {
+    NullableStructFixture fixture;
+    std::vector<uint8_t> zeros(4, 0);
+    {
+        uint32_t masked = 7;
+        uint32_t plain = 7;
+        fixture.plain_struct->update_crc32c_single(0, 4, masked, zeros.data());
+        fixture.plain_struct->update_crc32c_single(0, 4, plain, nullptr);
+        EXPECT_EQ(masked, plain);
+    }
+    {
+        uint64_t masked = 7;
+        uint64_t plain = 7;
+        fixture.plain_struct->update_xxHash_with_value(0, 4, masked, zeros.data());
+        fixture.plain_struct->update_xxHash_with_value(0, 4, plain, nullptr);
+        EXPECT_EQ(masked, plain);
+    }
+    {
+        uint32_t masked = 7;
+        uint32_t plain = 7;
+        fixture.plain_struct->update_crc_with_value(0, 4, masked, zeros.data());
+        fixture.plain_struct->update_crc_with_value(0, 4, plain, nullptr);
+        EXPECT_EQ(masked, plain);
+    }
+}
+
 TEST_F(ColumnStructTest, StructTypeTesterase) {
     DataTypePtr key_type = (std::make_shared<DataTypeString>());
     DataTypePtr value_type = (std::make_shared<DataTypeInt32>());

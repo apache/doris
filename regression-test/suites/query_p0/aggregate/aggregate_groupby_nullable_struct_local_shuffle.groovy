@@ -19,10 +19,9 @@ suite("aggregate_groupby_nullable_struct_local_shuffle") {
     // IF(cond, NULL, named_struct(...)) yields logical NULL structs whose hidden field payloads
     // differ per row. GROUP BY must treat them as one group no matter how the rows are hashed
     // by the local shuffle before aggregation.
-    def tableName = "agg_groupby_nullable_struct_ls"
-    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ DROP TABLE IF EXISTS agg_groupby_nullable_struct_ls """
     sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE agg_groupby_nullable_struct_ls (
             pk INT NOT NULL
         )
         DUPLICATE KEY(pk)
@@ -31,7 +30,7 @@ suite("aggregate_groupby_nullable_struct_local_shuffle") {
           "replication_num" = "1"
         )
     """
-    sql """ INSERT INTO ${tableName} VALUES (2), (7), (11) """
+    sql """ INSERT INTO agg_groupby_nullable_struct_ls VALUES (2), (7), (11) """
 
     def groupQuery = """
         SELECT k, COUNT(*) AS c
@@ -40,7 +39,7 @@ suite("aggregate_groupby_nullable_struct_local_shuffle") {
                       named_struct('x', CASE WHEN pk = 2 THEN 0
                                              WHEN pk = 7 THEN -2147483648
                                              ELSE 1 END)) AS k
-            FROM ${tableName}
+            FROM agg_groupby_nullable_struct_ls
         ) z
         GROUP BY k
     """
