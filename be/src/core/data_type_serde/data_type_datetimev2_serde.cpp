@@ -441,11 +441,7 @@ Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch(
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
-        // A row marked as NULL is a hidden payload: skip it, but keep the destination at the default
-        // value of the type instead of leaving it uninitialized for consumers that ignore the NULL
-        // map.
         if (null_map && null_map[i]) {
-            col_data.get_data()[i] = MIN_DATETIME_V2;
             continue;
         }
         DateV2Value<DateTimeV2ValueType> val;
@@ -494,11 +490,7 @@ Status DataTypeDateTimeV2SerDe::from_float_strict_mode_batch(
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
-        // A row marked as NULL is a hidden payload: skip it, but keep the destination at the default
-        // value of the type instead of leaving it uninitialized for consumers that ignore the NULL
-        // map.
         if (null_map && null_map[i]) {
-            col_data.get_data()[i] = MIN_DATETIME_V2;
             continue;
         }
         DateV2Value<DateTimeV2ValueType> val;
@@ -548,11 +540,7 @@ Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch(
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
-        // A row marked as NULL is a hidden payload: skip it, but keep the destination at the default
-        // value of the type instead of leaving it uninitialized for consumers that ignore the NULL
-        // map.
         if (null_map && null_map[i]) {
-            col_data.get_data()[i] = MIN_DATETIME_V2;
             continue;
         }
         DateV2Value<DateTimeV2ValueType> val;

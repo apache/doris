@@ -794,11 +794,8 @@ public:
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
                     for (size_t i = 0; i < size; i++) {
-                        // Skip hidden payload of rows marked as null by the input null map, but keep
-                        // the destination slot at the default value of the type instead of leaving
-                        // it uninitialized.
+                        // Skip hidden payload of rows marked as null by the input null map.
                         if (null_map && null_map[i]) {
-                            vec_to_data[i] = typename ToDataType::ColumnType::value_type {};
                             continue;
                         }
                         if (!CastToDecimal::_from_int<typename FromDataType::FieldType,
@@ -882,10 +879,8 @@ public:
                 DataTypeDecimal<ToFieldType::PType>::get_max_digits_number(to_precision);
         typename ToFieldType::NativeType min_result = -max_result;
         for (size_t i = 0; i < size; i++) {
-            // Skip hidden payload of rows marked as null by the input null map, but keep the
-            // destination slot at the default value of the type instead of leaving it uninitialized.
+            // Skip hidden payload of rows marked as null by the input null map.
             if (null_map && null_map[i]) {
-                vec_to_data[i] = typename ToDataType::ColumnType::value_type {};
                 continue;
             }
             if (!CastToDecimal::_from_float<typename FromDataType::FieldType,
@@ -1006,11 +1001,8 @@ public:
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
                     for (size_t i = 0; i < size; i++) {
-                        // Skip hidden payload of rows marked as null by the input null map, but keep
-                        // the destination slot at the default value of the type instead of leaving
-                        // it uninitialized.
+                        // Skip hidden payload of rows marked as null by the input null map.
                         if (null_map && null_map[i]) {
-                            vec_to_data[i] = typename ToDataType::ColumnType::value_type {};
                             continue;
                         }
                         if (!CastToDecimal::_from_decimal<FromFieldType, ToFieldType,
@@ -1120,11 +1112,8 @@ public:
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {
                     for (size_t i = 0; i < size; i++) {
-                        // Skip hidden payload of rows marked as null by the input null map, but keep
-                        // the destination slot at the default value of the type instead of leaving
-                        // it uninitialized.
+                        // Skip hidden payload of rows marked as null by the input null map.
                         if (null_map && null_map[i]) {
-                            vec_to_data[i] = typename ToDataType::ColumnType::value_type {};
                             continue;
                         }
                         if (!CastToDecimal::_from_decimal<FromFieldType, ToFieldType,
