@@ -64,7 +64,7 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
     public FlightTokenManagerImpl(final int cacheSize, final int cacheExpiration) {
         // The cache size of all user tokens in Arrow Flight Server, which will be eliminated by
         // LRU rules after exceeding the limit. The size is the Arrow Flight SQL sub-quota of the
-        // connection pool (arrow_flight_max_connections, following qe_max_connection by default),
+        // connection pool (arrow_flight_max_connections, half of qe_max_connection by default),
         // capped by arrow_flight_token_cache_size - see DorisFlightSqlService. Arrow flight sql is a
         // stateless protocol, the connection is usually not actively disconnected; a bearer token
         // evicted from the cache unregisters its ConnectContext.

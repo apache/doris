@@ -53,7 +53,7 @@ public class ConnectScheduler {
     /**
      * @param maxConnections       the pool's limit, {@code qe_max_connection}
      * @param flightMaxConnections the Arrow Flight SQL sub-quota, {@code arrow_flight_max_connections};
-     *                             negative follows {@code maxConnections}
+     *                             negative is half of {@code maxConnections}
      */
     public ConnectScheduler(int maxConnections, int flightMaxConnections) {
         nextConnectionId = new AtomicInteger(0);

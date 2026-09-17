@@ -42,8 +42,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * connections and Arrow Flight SQL sessions share {@code qe_max_connection}, the per-user
  * {@code max_user_connections}, the processlist, KILL, the timeout checker and the connection
  * metrics. Arrow Flight SQL sessions additionally count against their own sub-quota
- * ({@code arrow_flight_max_connections}, which follows the pool's limit unless set) and are indexed
- * by their peer identity, the bearer token, since that is how Flight requests name their session.
+ * ({@code arrow_flight_max_connections}, half of the pool's limit unless set) and are indexed by
+ * their peer identity, the bearer token, since that is how Flight requests name their session.
  *
  * <p>{@link #unregisterConnection} is where every teardown path of a connection meets - a MySQL
  * channel closing, a Flight bearer token expiring or being evicted, CloseSession, a KILL CONNECTION
@@ -71,7 +71,7 @@ public class ConnectPoolMgr {
     /**
      * @param maxConnections       the pool's limit, {@code qe_max_connection}
      * @param flightMaxConnections the Arrow Flight SQL sub-quota, {@code arrow_flight_max_connections};
-     *                             negative follows {@code maxConnections}
+     *                             negative is half of {@code maxConnections}
      */
     public ConnectPoolMgr(int maxConnections, int flightMaxConnections) {
         this.maxConnections = maxConnections;
@@ -80,11 +80,14 @@ public class ConnectPoolMgr {
     }
 
     /**
-     * The Arrow Flight SQL sub-quota as enforced: a negative setting follows the pool's limit, and an
-     * explicit one can never exceed it, since every Flight session is a connection of the pool too.
+     * The Arrow Flight SQL sub-quota as enforced: a negative setting (the default) is half of the
+     * pool's limit, so that Flight sessions - which their clients mostly never close, and which
+     * therefore stay until a timeout - cannot take the half MySQL clients connect through; an
+     * explicit one can never exceed the pool's limit, since every Flight session is a connection of
+     * the pool too.
      */
     public static int effectiveFlightMaxConnections(int maxConnections, int flightMaxConnections) {
-        return flightMaxConnections < 0 ? maxConnections : Math.min(maxConnections, flightMaxConnections);
+        return flightMaxConnections < 0 ? maxConnections / 2 : Math.min(maxConnections, flightMaxConnections);
     }
 
     private static boolean isFlight(ConnectContext ctx) {
