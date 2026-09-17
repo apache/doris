@@ -46,7 +46,6 @@ public class MTMVCacheStatProcNode implements ProcNodeInterface {
         result.addRow(Lists.newArrayList("hitCount", String.valueOf(s.hitCount)));
         result.addRow(Lists.newArrayList("missCount", String.valueOf(s.missCount)));
         result.addRow(Lists.newArrayList("evictionCount", String.valueOf(s.evictionCount)));
-        result.addRow(Lists.newArrayList("loadFailureCount", String.valueOf(s.loadFailureCount)));
         result.addRow(Lists.newArrayList("hitRate", String.format("%.4f", s.hitRate)));
         return result;
     }

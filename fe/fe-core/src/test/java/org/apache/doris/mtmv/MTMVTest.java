@@ -33,6 +33,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.common.IntervalUnit;
@@ -477,6 +478,34 @@ public class MTMVTest {
     }
 
     @Test
+    public void testRefreshSkipsPlanBuildWhenCacheDisabled() {
+        int originalMaxSize = Config.mtmv_cache_manage_num;
+        try {
+            Config.mtmv_cache_manage_num = 0;
+            MTMVCacheManager manager = new MTMVCacheManager();
+            HookedMTMV mtmv = buildHookedMTMV();
+            mtmv.refreshGuardedCache = Mockito.mock(MTMVCache.class);
+            mtmv.refreshUnguardedCache = Mockito.mock(MTMVCache.class);
+            long generationBefore = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
+
+            Env env = mockEnv(manager);
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
+            }
+
+            // The generation/invalidation transition still happens, but neither plan was built.
+            long generationAfter = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
+            Assertions.assertEquals(generationBefore + 1, generationAfter);
+            Assertions.assertEquals(0, mtmv.refreshBuildCount);
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+        } finally {
+            Config.mtmv_cache_manage_num = originalMaxSize;
+        }
+    }
+
+    @Test
     public void testPausedBuilderCannotRepublishPreRefreshPlan() {
         MTMVCacheManager manager = new MTMVCacheManager();
         HookedMTMV mtmv = buildHookedMTMV();
@@ -596,6 +625,7 @@ public class MTMVTest {
         private MTMVCache refreshGuardedCache;
         private MTMVCache refreshUnguardedCache;
         private int lazyBuildCount;
+        private int refreshBuildCount;
 
         @Override
         protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock,
@@ -611,6 +641,7 @@ public class MTMVTest {
                 hook.run();
             }
             if (needLock) {
+                refreshBuildCount++;
                 return addSessionVarGuard ? refreshGuardedCache : refreshUnguardedCache;
             }
             return lazyCaches.get(Math.min(lazyBuildCount++, lazyCaches.size() - 1));

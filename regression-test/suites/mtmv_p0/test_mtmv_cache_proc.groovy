@@ -17,14 +17,13 @@
 
 suite("test_mtmv_cache_proc", "mtmv") {
     def dbName = "regression_test_mtmv_p0"
-    def tableName = "t_test_mtmv_cache_proc_user"
     def mvName = "mtmv_cache_proc_mv"
 
     sql """drop materialized view if exists ${mvName}"""
-    sql """drop table if exists ${tableName}"""
+    sql """drop table if exists t_test_mtmv_cache_proc_user"""
 
     sql """
-        CREATE TABLE IF NOT EXISTS ${tableName} (
+        CREATE TABLE IF NOT EXISTS t_test_mtmv_cache_proc_user (
             event_day DATE,
             id BIGINT,
             username VARCHAR(20)
@@ -33,17 +32,14 @@ suite("test_mtmv_cache_proc", "mtmv") {
         PROPERTIES ('replication_num' = '1');
         """
 
-    // SHOW PROC '/mtmv_cache' should list two children: stat and hot.
-    def dirRows = sql """SHOW PROC '/mtmv_cache'"""
-    assertEquals(2, dirRows.size())
-    def dirNames = dirRows.collect { it[0] }
-    assertTrue(dirNames.contains("stat"))
-    assertTrue(dirNames.contains("hot"))
+    // The '/mtmv_cache' directory listing is a fixed pair of children.
+    order_qt_mtmv_cache_dir """SHOW PROC '/mtmv_cache'"""
 
-    // SHOW PROC '/mtmv_cache/stat' returns 6 KV rows.
+    // SHOW PROC '/mtmv_cache/stat' returns the same KV rows regardless of cache contents; the
+    // values themselves are runtime-dependent, so only the key set can be checked here.
     def statRows = sql """SHOW PROC '/mtmv_cache/stat'"""
     def statKeys = statRows.collect { it[0] }
-    ["size", "hitCount", "missCount", "evictionCount", "loadFailureCount", "hitRate"].each {
+    ["size", "hitCount", "missCount", "evictionCount", "hitRate"].each {
         assertTrue(statKeys.contains(it), "stat missing key: ${it}")
     }
 
@@ -54,13 +50,13 @@ suite("test_mtmv_cache_proc", "mtmv") {
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
-        SELECT event_day, id, username FROM ${tableName};
+        SELECT event_day, id, username FROM t_test_mtmv_cache_proc_user;
     """
     def jobName = getJobName(dbName, mvName)
     sql """REFRESH MATERIALIZED VIEW ${mvName} AUTO"""
     waitingMTMVTaskFinished(jobName)
     // Query the base table so nereids checks the MV — fills the cache.
-    sql """SELECT event_day, id, username FROM ${tableName}"""
+    sql """SELECT event_day, id, username FROM t_test_mtmv_cache_proc_user"""
 
     // hot proc: 5 columns; our MV MUST appear with its real DbName/MvName.
     def hotRows = sql """SHOW PROC '/mtmv_cache/hot'"""
@@ -84,7 +80,4 @@ suite("test_mtmv_cache_proc", "mtmv") {
     } finally {
         sql """ADMIN SET FRONTEND CONFIG ('mtmv_cache_hot_show_num' = '${originalCapVal}')"""
     }
-
-    sql """drop materialized view if exists ${mvName}"""
-    sql """drop table if exists ${tableName}"""
 }
