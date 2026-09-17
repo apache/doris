@@ -1732,7 +1732,7 @@ message GetTabletStatsResponse {
 }
 
 // Spill data (spill_storage_type=s3) that one BE currently keeps in object storage.
-// A BE reports the current size about once a minute when it changed, and at least once an hour
+// A BE reports the current size about once a minute when it changed, and about once an hour
 // otherwise (heartbeat). Meta-service keeps exactly one record per backend_id: a report of a
 // newer boot_id replaces the previous one (a restarted BE starts from 0 and deletes the objects
 // of its previous process itself); within one boot, report_seq orders the reports so that a
@@ -1749,7 +1749,8 @@ message SpillStatsPB {
     optional int64 remote_spill_bytes = 3;
     optional int64 update_time_ms = 4;       // set by meta-service
     optional int64 backend_id = 5;           // FE-assigned backend id, stable across restarts
-    optional int64 report_seq = 6;           // per boot, increases with every report attempt
+    // Per boot, increases with every report; the retried attempt of one report shares it.
+    optional int64 report_seq = 6;
 }
 
 message ReportSpillStatsRequest {
