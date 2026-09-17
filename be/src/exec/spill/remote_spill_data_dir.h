@@ -46,8 +46,8 @@ namespace doris {
 ///
 /// The file system and the object key root are resolved lazily by ensure_ready(): the storage
 /// vault, the backend id (FE heartbeat) and the instance id (one meta-service GetInstance call,
-/// bounded and not repeated within meta_service_brpc_timeout_ms after a failure) may not be
-/// available when BE starts.
+/// bounded to 2 attempts and not repeated for a minute after a failure) may not be available
+/// when BE starts.
 class RemoteSpillDataDir final : public SpillDataDir {
 public:
     /// @param vault_id  storage vault id, empty means the default vault of the instance.
@@ -105,7 +105,7 @@ private:
     std::string _instance_id;
     std::mutex _init_mutex;
     // Guarded by _init_mutex: after a failed GetInstance, ensure_ready() returns the error
-    // without a new RPC until this time.
+    // without a new RPC until this time (measured from the end of the failed RPC).
     int64_t _instance_id_retry_after_ms = 0;
     Status _instance_id_error;
     std::atomic<bool> _ready {false};

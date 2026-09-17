@@ -534,19 +534,19 @@ void SpillFileManager::_report_remote_spill_stats(RemoteSpillDataDir* store, boo
         return;
     }
     // The spill data this process holds in object storage right now (bytes reserved for parts
-    // being uploaded included). An unchanged value is re-sent once per heartbeat interval so
-    // that meta-service can tell a live BE with stable spill from one that is gone: a record
-    // that is not refreshed within spill_objects_expire_time_second no longer counts. The
-    // heartbeat is wall-clock based (like the boot marker refresh) so that it does not depend on
-    // spill_gc_interval_ms.
+    // being uploaded included). An unchanged value is re-sent about once per heartbeat interval
+    // (wall clock, evaluated on the GC cadence) so that meta-service can tell a live BE with
+    // stable spill from one that is gone: a record that is not refreshed within
+    // spill_objects_expire_time_second no longer counts.
     const int64_t spill_bytes = store->get_spill_data_bytes();
     const int64_t now_ms = MonotonicMillis();
     const bool heartbeat_due = now_ms - _remote_last_report_ms >= _remote_report_heartbeat_ms;
     if (spill_bytes == _reported_remote_spill_bytes && !heartbeat_due) {
         return;
     }
-    // A new sequence number per attempt: meta-service rejects a report that arrives after a
-    // newer one of the same boot (a timed-out attempt is not cancelled on its way).
+    // A new sequence number per report (the retried attempt inside retry_rpc shares it):
+    // meta-service rejects a report that arrives after a newer one of the same boot (a
+    // timed-out attempt is not cancelled on its way).
     const int64_t report_seq = ++_remote_report_seq;
     Status st;
     if (_remote_report_fn != nullptr) {
