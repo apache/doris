@@ -226,7 +226,7 @@ suite('test_clean_tablet_when_drop_force_table', 'docker') {
             assertTrue(beforeGetFromBe.containsKey(it.Key))
             assertEquals(beforeGetFromBe[it.Key], it.Value[1])
         }
-        def tabletIds = beforeGetFromFe.keySet()
+        def tabletIds = beforeGetFromFe.keySet().collect { it.toString().toLong() }
         waitForTabletCacheState.call(tabletIds, true, 90000L)
         if (useDp) {
             GetDebugPoint().enableDebugPointForAllBEs("WorkPoolCloudDropTablet.drop_tablet_callback.failed")

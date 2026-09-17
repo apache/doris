@@ -16,6 +16,27 @@
 // under the License.
 
 import org.apache.doris.regression.suite.ClusterOptions
+import java.util.concurrent.TimeUnit
+
+// Drain both pipes while curl runs. Reading process.text after waitForOrKill can read an
+// already closed stream and also risks blocking when the child fills a pipe.
+def executeCurl = { List command ->
+    def process = command.execute()
+    def stdout = new ByteArrayOutputStream()
+    def stderr = new ByteArrayOutputStream()
+    def stdoutThread = process.consumeProcessOutputStream(stdout)
+    def stderrThread = process.consumeProcessErrorStream(stderr)
+    boolean completed = process.waitFor(7200, TimeUnit.SECONDS)
+    if (!completed) {
+        process.destroyForcibly()
+        process.waitFor()
+    }
+    stdoutThread.join()
+    stderrThread.join()
+    assert completed : "curl timed out: ${stderr.toString('UTF-8')}"
+    assert process.exitValue() == 0 : "curl failed: ${stderr.toString('UTF-8')}"
+    return [stdout.toString('UTF-8').trim(), stderr.toString('UTF-8').trim()]
+}
 
 suite("test_dml_stream_load_be_auth_off_docker", "docker,auth_call") {
     def options = new ClusterOptions()
@@ -63,10 +84,7 @@ suite("test_dml_stream_load_be_auth_off_docker", "docker,auth_call") {
                     "http://${endpoint}/api/${dbName}/${table}/_stream_load"
             ])
             logger.info("stream load target: ${endpoint}, table: ${table}, label: ${label}, user: ${authUser}")
-            def process = command.execute()
-            process.waitForOrKill(7200000)
-            def out = process.text.trim()
-            def err = process.errorStream.text.trim()
+            def (out, err) = executeCurl(command)
             logger.info("stream load out: ${out}, err: ${err}")
             return parseCurlResult(out, err)
         }
@@ -82,10 +100,7 @@ suite("test_dml_stream_load_be_auth_off_docker", "docker,auth_call") {
             ]
             logger.info("stream load 2pc target: ${beHttpAddress}, table: ${table}, "
                     + "txn operation: ${txnOperation}, user: ${authUser}")
-            def process = command.execute()
-            process.waitForOrKill(7200000)
-            def out = process.text.trim()
-            def err = process.errorStream.text.trim()
+            def (out, err) = executeCurl(command)
             logger.info("stream load 2pc out: ${out}, err: ${err}")
             return parseCurlResult(out, err)
         }
@@ -215,10 +230,7 @@ suite("test_dml_stream_load_be_auth_on_docker", "docker,auth_call") {
                     "http://${endpoint}/api/${dbName}/${table}/_stream_load"
             ])
             logger.info("stream load target: ${endpoint}, table: ${table}, label: ${label}, user: ${authUser}")
-            def process = command.execute()
-            process.waitForOrKill(7200000)
-            def out = process.text.trim()
-            def err = process.errorStream.text.trim()
+            def (out, err) = executeCurl(command)
             logger.info("stream load out: ${out}, err: ${err}")
             return parseCurlResult(out, err)
         }
@@ -234,10 +246,7 @@ suite("test_dml_stream_load_be_auth_on_docker", "docker,auth_call") {
             ]
             logger.info("stream load 2pc target: ${beHttpAddress}, table: ${table}, "
                     + "txn operation: ${txnOperation}, user: ${authUser}")
-            def process = command.execute()
-            process.waitForOrKill(7200000)
-            def out = process.text.trim()
-            def err = process.errorStream.text.trim()
+            def (out, err) = executeCurl(command)
             logger.info("stream load 2pc out: ${out}, err: ${err}")
             return parseCurlResult(out, err)
         }
