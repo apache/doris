@@ -764,6 +764,12 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
         done
         touch "${PATCHED_MARK}"
     fi
+    # The base marker may already exist in cached sources; apply PR #83 independently.
+    if [[ ! -f "${PATCHED_MARK}_pr83" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-pr-83.patch"
+        touch "${PATCHED_MARK}_pr83"
+    fi
     cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
 fi

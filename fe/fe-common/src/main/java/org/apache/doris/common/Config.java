@@ -2008,9 +2008,11 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
+    // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
+    public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = TIMESTAMP_NS_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
@@ -2656,8 +2658,10 @@ public class Config extends ConfigBase {
             + "while the client pulls the results (DoGet); that coordinator is normally released when the "
             + "session runs its next query or is closed. Most Flight clients never close a session, so the "
             + "coordinator, and with it the query's workload group queue slot and its active_queries entry, "
-            + "would otherwise stay held until wait_timeout. If the session stays idle for longer than this "
-            + "many seconds after the query started, the coordinator is released anyway. The bound is never "
+            + "would otherwise stay held until wait_timeout. Once this many seconds have passed since the query "
+            + "started and the session is not running a statement, the coordinator is released anyway; each "
+            + "such query is bounded on its own, and the session's other commands in the meantime (a session "
+            + "option, a metadata request) neither release it earlier nor keep it longer. The bound is never "
             + "shorter than the query's own execution timeout, and the session itself is not killed "
             + "(wait_timeout still governs that). 0 disables the bound.")
     public static int arrow_flight_deferred_query_idle_timeout_second = 3600;

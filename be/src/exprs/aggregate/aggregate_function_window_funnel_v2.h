@@ -131,6 +131,8 @@ struct WindowFunnelStateV2 {
     WindowFunnelStateV2(int arg_event_count) : event_count(arg_event_count) {}
 
     void reset() {
+        window = WINDOW_UNSET;
+        window_funnel_mode = WindowFunnelMode::INVALID;
         events_list.clear();
         sorted = true;
     }
@@ -182,27 +184,24 @@ struct WindowFunnelStateV2 {
         if (other.events_list.empty()) {
             return;
         }
-
         if (events_list.empty()) {
-            events_list = other.events_list;
-            sorted = other.sorted;
-        } else {
-            const auto prefix_size = events_list.size();
-            events_list.insert(std::end(events_list), std::begin(other.events_list),
-                               std::end(other.events_list));
-            // Both stable_sort and inplace_merge preserve relative order of equal elements.
-            // Since same-row events have the same timestamp (and thus compare equal in
-            // the primary sort key), they remain consecutive after merge — preserving
-            // the validity of continuation flags.
-            merge_events_list(events_list, prefix_size, sorted, other.sorted);
-            sorted = true;
+            *this = other;
+            return;
+        }
+        if (UNLIKELY(window != other.window || window_funnel_mode != other.window_funnel_mode)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "window_funnel aggregate states have incompatible window or mode");
         }
 
-        event_count = event_count > 0 ? event_count : other.event_count;
-        window = window != WINDOW_UNSET ? window : other.window;
-        window_funnel_mode = window_funnel_mode == WindowFunnelMode::INVALID
-                                     ? other.window_funnel_mode
-                                     : window_funnel_mode;
+        const auto prefix_size = events_list.size();
+        events_list.insert(std::end(events_list), std::begin(other.events_list),
+                           std::end(other.events_list));
+        // Both stable_sort and inplace_merge preserve relative order of equal elements.
+        // Since same-row events have the same timestamp (and thus compare equal in
+        // the primary sort key), they remain consecutive after merge — preserving
+        // the validity of continuation flags.
+        merge_events_list(events_list, prefix_size, sorted, other.sorted);
+        sorted = true;
     }
 
     void write(BufferWritable& out) const {

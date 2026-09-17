@@ -37,6 +37,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
@@ -117,7 +118,17 @@ public:
     }
 
     void merge(const AggregateFunctionSequenceMatchData& other) {
-        if (other.events_list.empty()) return;
+        if (other.events_list.empty()) {
+            return;
+        }
+
+        if (events_list.empty()) {
+            reset();
+            init(other.pattern, other.arg_count);
+        } else if (UNLIKELY(pattern != other.pattern || arg_count != other.arg_count)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "sequence aggregate states have incompatible patterns or event counts");
+        }
 
         events_list.insert(std::end(events_list), std::begin(other.events_list),
                            std::end(other.events_list));
@@ -648,8 +659,6 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena&) const override {
-        const std::string pattern = this->data(rhs).get_pattern();
-        this->data(place).init(pattern, this->data(rhs).get_arg_count());
         this->data(place).merge(this->data(rhs));
     }
 
@@ -659,9 +668,13 @@ public:
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena&) const override {
-        this->data(place).read(buf);
-        const std::string pattern = this->data(place).get_pattern();
-        this->data(place).init(pattern, this->data(place).get_arg_count());
+        auto& state = AggregateFunctionSequenceBase::data(place);
+        state.read(buf);
+        // A serialized uninitialized state has no arguments and must stay uninitialized.
+        if (state.get_arg_count() == 0) {
+            return;
+        }
+        state.init(state.get_pattern(), state.get_arg_count());
     }
 
     void check_input_columns_type(const IColumn** columns) const override {

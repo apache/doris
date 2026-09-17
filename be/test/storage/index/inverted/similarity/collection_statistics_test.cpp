@@ -375,7 +375,9 @@ protected:
         return splits;
     }
 
-    TabletSchemaSPtr create_legacy_v3_schema() {
+    TabletSchemaSPtr create_legacy_v3_schema(std::map<std::string, std::string> properties = {
+                                                     {"parser", "standard"},
+                                                     {"support_phrase", "true"}}) {
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(DUP_KEYS);
         schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
@@ -392,8 +394,7 @@ protected:
         index._index_id = 1;
         index._index_type = IndexType::INVERTED;
         index._col_unique_ids.push_back(1);
-        index._properties["parser"] = "standard";
-        index._properties["support_phrase"] = "true";
+        index._properties = std::move(properties);
         tablet_schema->append_index(std::move(index));
         return tablet_schema;
     }
@@ -908,6 +909,63 @@ TEST_F(CollectionStatisticsTest, LegacyV3SkipsEmptySegmentAfterCollectingAvailab
     ASSERT_TRUE(status.ok()) << status;
     expect_collected_stats(L"1", 1, 2);
     expect_collected_term(L"1", L"alpha", 1);
+}
+
+// BM25 needs norms from every segment of an analyzed index: a segment written without them makes
+// the whole collection refuse to score, on its own or next to segments that have norms.
+TEST_F(CollectionStatisticsTest, LegacyV3RejectsSegmentWrittenWithoutNorms) {
+    auto with_norms_schema = create_legacy_v3_schema();
+    auto without_norms_schema = create_legacy_v3_schema(
+            {{"parser", "standard"}, {"support_phrase", "true"}, {"norms", "false"}});
+    const std::string with_norms_path = test_dir_ + "/legacy_v3_with_norms_0.dat";
+    const std::string without_norms_path = test_dir_ + "/legacy_v3_without_norms_1.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(with_norms_schema, with_norms_path).ok());
+    ASSERT_TRUE(write_legacy_v3_segment(without_norms_schema, without_norms_path).ok());
+
+    auto collect = [&](const std::vector<std::string>& segment_paths) {
+        auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+        auto rowset = std::make_shared<collection_statistics::MockRowset>(without_norms_schema,
+                                                                          rowset_meta);
+        rowset->set_num_segments(static_cast<int>(segment_paths.size()));
+        for (size_t i = 0; i < segment_paths.size(); ++i) {
+            rowset->set_segment_path(static_cast<int>(i), segment_paths[i]);
+        }
+        auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+        std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+        return stats_->collect(runtime_state_.get(), splits, without_norms_schema,
+                               create_match_expr_contexts("alpha"), nullptr);
+    };
+
+    Status status = collect({without_norms_path});
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
+    EXPECT_NE(status.to_string().find("written without norms"), std::string::npos) << status;
+    expect_no_collected_tokens(L"1");
+
+    status = collect({with_norms_path, without_norms_path});
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED) << status;
+    expect_no_collected_tokens(L"1");
+}
+
+// An index that is not analyzed never writes norms, and its scoring statistics are collected as
+// before.
+TEST_F(CollectionStatisticsTest, LegacyV3KeywordIndexWithoutNormsIsStillCollected) {
+    auto tablet_schema = create_legacy_v3_schema({});
+    const std::string segment_path = test_dir_ + "/legacy_v3_keyword_0.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path).ok());
+
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
+                                          create_search_contexts("TERM", "alpha beta"), nullptr);
+
+    ASSERT_TRUE(status.ok()) << status;
+    expect_collected_stats(L"1", 1, 0);
+    expect_collected_term(L"1", L"alpha beta", 1);
 }
 
 TEST_F(CollectionStatisticsTest, SniiScoringUsesPhysicalStatistics) {
