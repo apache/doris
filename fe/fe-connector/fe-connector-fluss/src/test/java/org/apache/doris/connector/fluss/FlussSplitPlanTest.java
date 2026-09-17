@@ -154,6 +154,36 @@ public class FlussSplitPlanTest {
         assertPartition(ranges.get(2), "dt=20260102", 101L, 0, 7L);
     }
 
+    /**
+     * Since fluss 1.0.0 a table's bucket count can be changed after the fact, and a partition keeps the
+     * count it was created with, so the partitions of one table can disagree with each other and with the
+     * table. Each is planned by its own count. By the table's, the 2-bucket partition would be asked for a
+     * bucket it does not have and the 4-bucket one would lose its last bucket — and neither would fail.
+     */
+    @Test
+    public void eachPartitionIsPlannedByTheBucketCountItWasCreatedWith() {
+        registerPartitionedLogTable(3, "20260101", "20260102");
+        partitionBucketCounts(LOG_TABLE, 2, 4);
+        latestOffsets("20260101", 5L, 6L);
+        latestOffsets("20260102", 7L, 8L, 9L, 10L);
+
+        List<ConnectorScanRange> ranges = plan(LOG_TABLE, catalog());
+
+        Assertions.assertEquals(6, ranges.size(), describe(ranges).toString());
+        assertPartition(ranges.get(0), "dt=20260101", 100L, 0, 5L);
+        assertPartition(ranges.get(1), "dt=20260101", 100L, 1, 6L);
+        assertPartition(ranges.get(2), "dt=20260102", 101L, 0, 7L);
+        assertPartition(ranges.get(3), "dt=20260102", 101L, 1, 8L);
+        assertPartition(ranges.get(4), "dt=20260102", 101L, 2, 9L);
+        assertPartition(ranges.get(5), "dt=20260102", 101L, 3, 10L);
+        // The recorder answers with the offsets it was given whichever buckets it was asked for, so the
+        // ranges alone cannot show that the 2-bucket partition was not asked for a third: the calls can.
+        Assertions.assertEquals(Arrays.asList(
+                "listOffsets(db.log_tbl, 20260101, [0, 1], LatestSpec)",
+                "listOffsets(db.log_tbl, 20260102, [0, 1, 2, 3], LatestSpec)"),
+                offsetCalls(), adminOps.calls.toString());
+    }
+
     @Test
     public void onlyThePartitionsTheEnginePrunedToAreScanned() {
         registerPartitionedLogTable(1, "20260101", "20260102", "20260103");
@@ -1256,6 +1286,47 @@ public class FlussSplitPlanTest {
     }
 
     /**
+     * Partitions created before a bucket rescale keep their old count, so on a union read too each
+     * partition is planned by its own: its own buckets are asked for offsets, its own buckets get tails,
+     * and a lake split may name any of them. Bucket 3 exists in the 4-bucket partition and nowhere else;
+     * planned by the table's count of 3, its split would have been refused as a bucket the table does
+     * not have, and the 2-bucket partition would have been asked for a bucket 2 it does not have.
+     */
+    @Test
+    public void unionReadPlansEachPartitionByTheBucketCountItWasCreatedWith() {
+        registerPartitionedPkLakeTable(3, "20260101", "20260102");
+        partitionBucketCounts(PK_TABLE, 2, 4);
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(
+                new long[] {100L, 200L}, new long[] {300L, 400L, 500L, 600L}));
+        kvSnapshots("20260101", new long[] {1L, 2L}, new long[] {10L, 20L});
+        kvSnapshots("20260102", new long[] {3L, 4L, 5L, 6L}, new long[] {30L, 40L, 50L, 60L});
+        latestOffsets("20260101", 105L, 205L);
+        latestOffsets("20260102", 305L, 405L, 505L, 605L);
+        earliestOffsets("20260101", 0L, 0L);
+        earliestOffsets("20260102", 0L, 0L, 0L, 0L);
+        lakeSplits(
+                RecordingLakeSibling.LakeRange.inBucket(3, Collections.singletonMap("dt", "20260102")));
+
+        List<ConnectorScanRange> ranges = plan(PK_TABLE, catalog());
+
+        Assertions.assertEquals(7, ranges.size(), describe(ranges).toString());
+        assertSuppressed(ranges.get(0), 3, 600L, 605L);
+        assertTailRange(ranges.get(1), 0, 100L, 105L);
+        assertTailRange(ranges.get(2), 1, 200L, 205L);
+        assertTailRange(ranges.get(3), 0, 300L, 305L);
+        assertTailRange(ranges.get(4), 1, 400L, 405L);
+        assertTailRange(ranges.get(5), 2, 500L, 505L);
+        assertTailRange(ranges.get(6), 3, 600L, 605L);
+        Assertions.assertEquals("dt=20260102", ranges.get(6).getProperties().get("fluss.partition_name"));
+        Assertions.assertEquals(Arrays.asList(
+                "listOffsets(db.pk_tbl, 20260101, [0, 1], LatestSpec)",
+                "listOffsets(db.pk_tbl, 20260101, [0, 1], EarliestSpec)",
+                "listOffsets(db.pk_tbl, 20260102, [0, 1, 2, 3], LatestSpec)",
+                "listOffsets(db.pk_tbl, 20260102, [0, 1, 2, 3], EarliestSpec)"),
+                offsetCalls(), adminOps.calls.toString());
+    }
+
+    /**
      * A lake split of a partition this scan does not read from fluss — one fluss has dropped, or one the
      * engine pruned away — has no tail to be bound to and is passed through. It cannot be dropped either:
      * partition pruning removes the fluss half of a partition, not the predicate that pruned it.
@@ -1308,6 +1379,27 @@ public class FlussSplitPlanTest {
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> plan(PK_TABLE, catalog()));
         Assertions.assertTrue(e.getMessage().contains("bucketed alike"), e.getMessage());
+    }
+
+    /**
+     * The same for a partition, measured against the partition's own count and not the table's: the table
+     * says 3 here, which would make bucket 2 look like one the fluss side has.
+     */
+    @Test
+    public void lakeSplitInABucketItsPartitionDoesNotHaveIsRefusedByThePartitionsOwnCount() {
+        registerPartitionedPkLakeTable(3, "20260101");
+        partitionBucketCounts(PK_TABLE, 2);
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {100L, 200L}));
+        kvSnapshots("20260101", new long[] {1L, 2L}, new long[] {10L, 20L});
+        latestOffsets("20260101", 105L, 205L);
+        earliestOffsets("20260101", 0L, 0L);
+        lakeSplits(
+                RecordingLakeSibling.LakeRange.inBucket(2, Collections.singletonMap("dt", "20260101")));
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(PK_TABLE, catalog()));
+        Assertions.assertTrue(e.getMessage().contains(
+                "partition 'dt=20260101' of the fluss table has only 2 buckets"), e.getMessage());
     }
 
     /**
@@ -1990,6 +2082,22 @@ public class FlussSplitPlanTest {
         adminOps.partitionsByTable.put(LOG_TABLE, partitions);
     }
 
+    /**
+     * Gives the registered partitions of {@code tablePath}, in registration order, bucket counts of their
+     * own — what fluss 1.0.0 lists after a bucket rescale, where a partition keeps the count it was
+     * created with while the table carries the new one. Everything else about them stays as registered.
+     */
+    private void partitionBucketCounts(TablePath tablePath, int... bucketCounts) {
+        List<PartitionInfo> partitions = adminOps.partitionsByTable.get(tablePath);
+        List<PartitionInfo> rescaled = new ArrayList<>(partitions.size());
+        for (int i = 0; i < partitions.size(); i++) {
+            PartitionInfo partition = partitions.get(i);
+            rescaled.add(new PartitionInfo(partition.getPartitionId(), partition.getResolvedPartitionSpec(),
+                    partition.getRemoteDataDir(), bucketCounts[i]));
+        }
+        adminOps.partitionsByTable.put(tablePath, rescaled);
+    }
+
     private void registerLakeTable(int buckets) {
         adminOps.tableInfos.put(LOG_TABLE, FlussTestTables.builder(LOG_TABLE)
                 .column("id", DataTypes.INT())
@@ -2119,6 +2227,17 @@ public class FlussSplitPlanTest {
             }
         }
         return -1;
+    }
+
+    /** The recorded {@code listOffsets} calls, in order — which buckets of which partition were asked. */
+    private List<String> offsetCalls() {
+        List<String> calls = new ArrayList<>();
+        for (String call : adminOps.calls) {
+            if (call.startsWith("listOffsets(")) {
+                calls.add(call);
+            }
+        }
+        return calls;
     }
 
     private static void assertPartition(ConnectorScanRange range, String partitionName,

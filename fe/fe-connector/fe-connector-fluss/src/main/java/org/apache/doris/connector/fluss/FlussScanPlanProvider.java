@@ -278,10 +278,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         FlussTableHandle handle = (FlussTableHandle) request.getTableHandle();
         UnionRead union = resolveUnionRead(session, handle);
 
-        List<Integer> buckets = allBuckets(handle.getBucketCount());
         List<ConnectorScanRange> ranges = union != null && handle.hasPrimaryKey()
-                ? planPrimaryKeyUnion(session, handle, union, buckets, request)
-                : planWithoutKeyMerging(session, handle, union, buckets, request);
+                ? planPrimaryKeyUnion(session, handle, union, request)
+                : planWithoutKeyMerging(session, handle, union, request);
 
         plannedReadMode = handle.isLogOnly() ? READ_MODE_LOG : READ_MODE_DEFAULT;
         plannedLogRanges = count(ranges, FlussScanRange.RangeType.LOG);
@@ -305,8 +304,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * though they should.
      */
     private List<ConnectorScanRange> planWithoutKeyMerging(ConnectorSession session,
-            FlussTableHandle handle, UnionRead union, List<Integer> buckets,
-            ConnectorScanRequest request) {
+            FlussTableHandle handle, UnionRead union, ConnectorScanRequest request) {
         List<ConnectorScanRange> ranges = new ArrayList<>();
         // The lake half first, so its ranges lead the list the way they lead the table's history. It is
         // planned once for the whole table: the sibling prunes partitions from the pushed-down filter, not
@@ -323,10 +321,11 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 // fluss's own partition name ("20260101$cn"), not the Doris one: this is a fluss API.
                 appendPartitionRanges(ranges, handle, union,
                         FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
-                        buckets, partition.getPartitionName());
+                        bucketsOf(handle, partition), partition.getPartitionName());
             }
         } else {
-            appendPartitionRanges(ranges, handle, union, FlussScanRange.Partition.NONE, buckets, null);
+            appendPartitionRanges(ranges, handle, union, FlussScanRange.Partition.NONE,
+                    bucketsOf(handle, null), null);
         }
         return ranges;
     }
@@ -342,20 +341,20 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * from the very same offsets, and is the plan {@code disabled} would have produced.
      */
     private List<ConnectorScanRange> planPrimaryKeyUnion(ConnectorSession session,
-            FlussTableHandle handle, UnionRead union, List<Integer> buckets,
-            ConnectorScanRequest request) {
+            FlussTableHandle handle, UnionRead union, ConnectorScanRequest request) {
         List<PartitionState> states = new ArrayList<>();
         if (handle.isPartitioned()) {
             for (PartitionInfo partition : selectedPartitions(handle, request.getRequiredPartitions())) {
                 states.add(readPartitionState(handle, union,
                         FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
-                        buckets, partition.getPartitionName()));
+                        bucketsOf(handle, partition), partition.getPartitionName()));
             }
         } else {
-            states.add(readPartitionState(handle, union, FlussScanRange.Partition.NONE, buckets, null));
+            states.add(readPartitionState(handle, union, FlussScanRange.Partition.NONE,
+                    bucketsOf(handle, null), null));
         }
 
-        String truncated = firstTruncatedTail(states, buckets);
+        String truncated = firstTruncatedTail(states);
         if (truncated != null) {
             if (plannedUnionReadMode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                 throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
@@ -366,7 +365,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                         + " table from fluss alone, which still returns every row.");
             }
             degradeToFlussOnly(DEGRADED_TAIL_TRUNCATED);
-            return pkRangesFromFlussAlone(states, buckets);
+            return pkRangesFromFlussAlone(states);
         }
 
         // The offsets fluss just reported say exactly how many log records each tail holds, so a read too
@@ -374,7 +373,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         // table from fluss alone returns every row without caching a single tail. Doing it here rather
         // than at read time also means the ceilings are reported once, from the numbers that tripped them,
         // instead of by whichever bucket happened to reach its limit first on some BE.
-        String tooLarge = firstTailOverBudget(states, buckets);
+        String tooLarge = firstTailOverBudget(states);
         if (tooLarge != null) {
             if (plannedUnionReadMode == FlussCatalogProperties.UnionReadMode.REQUIRED) {
                 throw new DorisConnectorException("Table '" + handle.getDatabaseName() + "."
@@ -384,7 +383,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                         + " lake, or raise the ceiling.");
             }
             degradeToFlussOnly(DEGRADED_TAIL_TOO_LARGE);
-            return pkRangesFromFlussAlone(states, buckets);
+            return pkRangesFromFlussAlone(states);
         }
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
@@ -392,8 +391,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             ranges.add(bindTailToLakeSplit(handle, lakeSplit, states));
         }
         for (PartitionState state : states) {
-            for (int bucket : buckets) {
-                BucketState bucketState = state.buckets.get(bucket);
+            for (Map.Entry<Integer, BucketState> entry : state.buckets.entrySet()) {
+                int bucket = entry.getKey();
+                BucketState bucketState = entry.getValue();
                 if (bucketState.lakeEnd == null) {
                     // Never tiered: the lake holds nothing of this bucket, so it is read exactly as it
                     // would be with no lake at all, and no lake split of it can be suppressed.
@@ -408,7 +408,13 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         return ranges;
     }
 
-    /** What planning read about one partition of a primary-key table, or about an unpartitioned one. */
+    /**
+     * What planning read about one partition of a primary-key table, or about an unpartitioned one.
+     *
+     * <p>{@link #buckets} is keyed by this partition's OWN buckets, in order, and everything that walks a
+     * state walks that map rather than a table-wide bucket list: since fluss 1.0.0 the partitions of one
+     * table need not have the same number of buckets (see {@link #bucketsOf}).
+     */
     private static final class PartitionState {
         private final FlussScanRange.Partition partition;
         private final KvSnapshots snapshots;
@@ -481,10 +487,11 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * <p>A bucket fluss did not answer for at all counts as truncated: the check is the only thing
      * standing between a deleted tail and a silently short answer, and "could not verify" is not "fine".
      */
-    private static String firstTruncatedTail(List<PartitionState> states, List<Integer> buckets) {
+    private static String firstTruncatedTail(List<PartitionState> states) {
         for (PartitionState state : states) {
-            for (int bucket : buckets) {
-                BucketState bucketState = state.buckets.get(bucket);
+            for (Map.Entry<Integer, BucketState> entry : state.buckets.entrySet()) {
+                int bucket = entry.getKey();
+                BucketState bucketState = entry.getValue();
                 if (bucketState.lakeEnd == null || bucketState.lakeEnd >= bucketState.stop) {
                     continue;
                 }
@@ -513,12 +520,13 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * would ever report. Summed over the whole scan rather than per BE because planning does not decide
      * which BE gets which split, and over-counting a scan that fits is the safe direction.
      */
-    private String firstTailOverBudget(List<PartitionState> states, List<Integer> buckets) {
+    private String firstTailOverBudget(List<PartitionState> states) {
         long maxTailRows = catalogProperties.getMaxTailRows();
         long total = 0;
         for (PartitionState state : states) {
-            for (int bucket : buckets) {
-                BucketState bucketState = state.buckets.get(bucket);
+            for (Map.Entry<Integer, BucketState> entry : state.buckets.entrySet()) {
+                int bucket = entry.getKey();
+                BucketState bucketState = entry.getValue();
                 if (bucketState.lakeEnd == null || bucketState.lakeEnd >= bucketState.stop) {
                     continue;
                 }
@@ -544,11 +552,10 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /** Every bucket read whole from fluss: the plan {@code disabled} produces, and the safe fallback. */
-    private static List<ConnectorScanRange> pkRangesFromFlussAlone(List<PartitionState> states,
-            List<Integer> buckets) {
+    private static List<ConnectorScanRange> pkRangesFromFlussAlone(List<PartitionState> states) {
         List<ConnectorScanRange> ranges = new ArrayList<>();
         for (PartitionState state : states) {
-            for (int bucket : buckets) {
+            for (int bucket : state.buckets.keySet()) {
                 appendPkFullRange(ranges, state, bucket);
             }
         }
@@ -594,10 +601,15 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         int bucket = lakeSplitBucket(handle, lakeSplit);
         BucketState bucketState = state.buckets.get(bucket);
         if (bucketState == null) {
+            // The partition's own count, not the table's: after a bucket rescale the two can differ, and
+            // it is the partition's buckets this split is being matched against.
             throw new DorisConnectorException("The lake table of fluss table '" + handle.getDatabaseName()
-                    + "." + handle.getTableName() + "' has a split in bucket " + bucket + ", but the fluss"
-                    + " table has only " + handle.getBucketCount() + " buckets. The two are not bucketed"
-                    + " alike, so their rows cannot be matched by bucket");
+                    + "." + handle.getTableName() + "' has a split in bucket " + bucket + ", but "
+                    + (state.partition.isPartitioned()
+                            ? "partition '" + state.partition.getName() + "' of the fluss table"
+                            : "the fluss table")
+                    + " has only " + state.buckets.size() + " buckets. The two are not bucketed alike, so"
+                    + " their rows cannot be matched by bucket");
         }
         if (bucketState.lakeEnd == null) {
             throw new DorisConnectorException("The lake table of fluss table '" + handle.getDatabaseName()
@@ -1126,6 +1138,22 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return found;
+    }
+
+    /**
+     * The buckets of {@code partition}, or of the whole table when it is unpartitioned ({@code partition}
+     * is null).
+     *
+     * <p>Since fluss 1.0.0 a table's bucket count can be changed after the table exists, and a partition
+     * keeps the count it was created with: after a rescale the partitions that already existed have the
+     * old count, while the table — and every partition created since — has the new one. So each partition
+     * is planned by its own count and never by the table's. Planned by the table's, a partition created
+     * before a scale-up would be asked for offsets of buckets it does not have, and one created before a
+     * scale-down would have its highest buckets left out of the scan, which reads as a table with fewer
+     * rows than it holds. An unpartitioned table has the one count.
+     */
+    private static List<Integer> bucketsOf(FlussTableHandle handle, PartitionInfo partition) {
+        return allBuckets(PartitionInfo.bucketCountOrDefault(partition, handle.getBucketCount()));
     }
 
     private static List<Integer> allBuckets(int bucketCount) {
