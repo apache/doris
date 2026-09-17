@@ -24,11 +24,17 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayConcat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayFlatten;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopBack;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopFront;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayZip;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DeduplicateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lcm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapEntries;
@@ -48,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -643,6 +650,23 @@ class DerivedFunctionSignatureTest {
         StructType refreshedItem = (StructType) ((ArrayType) refreshed.getDataType()).getItemType();
         Assertions.assertEquals("current_name", refreshedItem.getFields().get(0).getName());
         Assertions.assertTrue(refreshedItem.getFields().get(0).isNullable());
+        Assertions.assertTrue(refreshed.getArgument(1) instanceof NullLiteral);
+        Assertions.assertTrue(ChildDerivedSignature.hasSameTypeMetadata(
+                refreshedItem, refreshed.getArgument(1).getDataType()));
+
+        CreateMap structMapThenTypedNull = new CreateMap(
+                new IntegerLiteral(1), originalStruct,
+                new IntegerLiteral(2), new NullLiteral(originalType));
+        structMapThenTypedNull.getSignature();
+        CreateMap refreshedMap = MoreFieldsThread.keepFunctionSignature(
+                () -> structMapThenTypedNull.withChildren(List.of(
+                        new IntegerLiteral(1), currentStruct,
+                        new IntegerLiteral(2), new NullLiteral(originalType))));
+        StructType refreshedMapValue = (StructType) ((MapType) refreshedMap.getDataType()).getValueType();
+        Assertions.assertTrue(refreshedMapValue.getFields().get(0).isNullable());
+        Assertions.assertTrue(refreshedMap.getArgument(3) instanceof NullLiteral);
+        Assertions.assertTrue(ChildDerivedSignature.hasSameTypeMetadata(
+                refreshedMapValue, refreshedMap.getArgument(3).getDataType()));
 
         Array bareNull = MoreFieldsThread.keepFunctionSignature(
                 () -> structThenTypedNull.withChildren(List.of(currentStruct, NullLiteral.INSTANCE)));
@@ -712,6 +736,71 @@ class DerivedFunctionSignatureTest {
         StructType zippedItemType = (StructType) ((ArrayType) rewrittenZip.getDataType()).getItemType();
         StructType zippedFieldType = (StructType) zippedItemType.getFields().get(0).getDataType();
         Assertions.assertFalse(zippedFieldType.getFields().get(0).isNullable());
+    }
+
+    @Test
+    void testStandardFollowSignaturesRefreshNestedStructMetadata() {
+        StructType requiredStruct = new StructType(List.of(
+                new StructField("event_time", DateTimeV2Type.of(6), false, "")));
+        StructType nullableStruct = new StructType(List.of(
+                new StructField("event_time", DateTimeV2Type.of(6), true, "")));
+        SlotReference requiredArray = new SlotReference(
+                "required_array", ArrayType.of(requiredStruct), false);
+        SlotReference nullableArray = new SlotReference(
+                "nullable_array", ArrayType.of(nullableStruct), false);
+
+        ArrayPopBack originalPopBack = new ArrayPopBack(requiredArray);
+        originalPopBack.getSignature();
+        ArrayPopBack refreshedPopBack = MoreFieldsThread.keepFunctionSignature(
+                () -> originalPopBack.withChildren(List.of(nullableArray)));
+        Assertions.assertEquals(nullableArray.getDataType(), refreshedPopBack.getSignature().getArgType(0));
+        Assertions.assertEquals(nullableArray.getDataType(), refreshedPopBack.getDataType());
+
+        ArrayPopFront originalPopFront = new ArrayPopFront(requiredArray);
+        originalPopFront.getSignature();
+        ArrayPopFront refreshedPopFront = MoreFieldsThread.keepFunctionSignature(
+                () -> originalPopFront.withChildren(List.of(nullableArray)));
+        Assertions.assertEquals(nullableArray.getDataType(), refreshedPopFront.getSignature().getArgType(0));
+        Assertions.assertEquals(nullableArray.getDataType(), refreshedPopFront.getDataType());
+
+        ArraySlice originalSlice = new ArraySlice(requiredArray, new IntegerLiteral(1));
+        originalSlice.getSignature();
+        ArraySlice refreshedSlice = MoreFieldsThread.keepFunctionSignature(
+                () -> originalSlice.withChildren(List.of(nullableArray, new IntegerLiteral(1))));
+        Assertions.assertEquals(nullableArray.getDataType(), refreshedSlice.getSignature().getArgType(0));
+        Assertions.assertEquals(nullableArray.getDataType(), refreshedSlice.getDataType());
+
+        ArrayConcat originalConcat = new ArrayConcat(requiredArray, requiredArray);
+        FunctionSignature originalConcatSignature = originalConcat.getSignature();
+        ArrayConcat refreshedConcat = MoreFieldsThread.keepFunctionSignature(
+                () -> originalConcat.withChildren(List.of(requiredArray, nullableArray)));
+        ArrayType concatType = (ArrayType) refreshedConcat.getDataType();
+        StructType concatItemType = (StructType) concatType.getItemType();
+        Assertions.assertTrue(concatItemType.getFields().get(0).isNullable());
+        Assertions.assertEquals(DateTimeV2Type.of(6), concatItemType.getFields().get(0).getDataType());
+        Assertions.assertEquals(originalConcatSignature.argumentsTypes.size(),
+                refreshedConcat.getSignature().argumentsTypes.size());
+
+        SlotReference splitPoints = new SlotReference(
+                "split_points", ArrayType.of(BooleanType.INSTANCE), false);
+        ArraySplit originalSplit = new ArraySplit(requiredArray, splitPoints);
+        originalSplit.getSignature();
+        ArraySplit refreshedSplit = MoreFieldsThread.keepFunctionSignature(
+                () -> originalSplit.withChildren(List.of(nullableArray, splitPoints)));
+        ArrayType splitOuterType = (ArrayType) refreshedSplit.getDataType();
+        ArrayType splitInnerType = (ArrayType) splitOuterType.getItemType();
+        Assertions.assertEquals(nullableStruct, splitInnerType.getItemType());
+
+        SlotReference requiredMap = new SlotReference(
+                "required_map", MapType.of(IntegerType.INSTANCE, requiredStruct), false);
+        SlotReference nullableMap = new SlotReference(
+                "nullable_map", MapType.of(IntegerType.INSTANCE, nullableStruct), false);
+        DeduplicateMap originalDeduplicate = new DeduplicateMap(requiredMap);
+        originalDeduplicate.getSignature();
+        DeduplicateMap refreshedDeduplicate = MoreFieldsThread.keepFunctionSignature(
+                () -> originalDeduplicate.withChildren(List.of(nullableMap)));
+        Assertions.assertEquals(nullableMap.getDataType(), refreshedDeduplicate.getSignature().getArgType(0));
+        Assertions.assertEquals(nullableMap.getDataType(), refreshedDeduplicate.getDataType());
     }
 
     @Test
@@ -850,6 +939,20 @@ class DerivedFunctionSignatureTest {
                         new IntegerLiteral(1), new IntegerLiteral(2),
                         new IntegerLiteral(3), new IntegerLiteral(4))));
         Assertions.assertThrows(AnalysisException.class, rewritten::getSignature);
+    }
+
+    @Test
+    void testCreateMapKeepsFrozenScalarBindingAfterLiteralFolding() {
+        CreateMap original = new CreateMap(
+                new StringLiteral("str1"), new VarcharLiteral("world", 10));
+        FunctionSignature originalSignature = original.getSignature();
+
+        CreateMap folded = MoreFieldsThread.keepFunctionSignature(
+                () -> original.withChildren(List.of(
+                        new StringLiteral("str1"), new VarcharLiteral("world"))));
+
+        Assertions.assertSame(originalSignature, folded.getSignature());
+        Assertions.assertEquals(originalSignature.returnType, folded.getDataType());
     }
 
     @Test

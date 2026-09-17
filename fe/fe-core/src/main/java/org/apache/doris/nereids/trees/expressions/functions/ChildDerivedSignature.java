@@ -25,11 +25,16 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
+import org.apache.doris.nereids.types.coercion.FollowToArgumentType;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -38,9 +43,202 @@ import java.util.Optional;
  * <p>This hook runs only after the framework has reused an already-resolved signature. Implementations rebuild the
  * same function shape from the current children; they must not search overloads or rerun generic signature
  * computation. This keeps binding, coercion, and precision decisions frozen while allowing nested complex-type
-     * metadata to follow equivalent child rewrites.</p>
+ * metadata to follow equivalent child rewrites.</p>
  */
 public interface ChildDerivedSignature extends ComputeSignature {
+
+    /**
+     * Refresh standard Any/Follow signatures without asking every passthrough function to implement the same logic.
+     * The selected signature supplies the dependency graph and the resolved signature supplies every frozen scalar
+     * leaf. Only bindings that contain a struct are visited because struct fields are the complex-type metadata that
+     * can change during AdjustNullable.
+     */
+    static FunctionSignature refreshFollowTypeMetadata(
+            FunctionSignature selectedSignature, FunctionSignature resolvedSignature,
+            List<Expression> immediateOriginArguments, List<Expression> currentArguments) {
+        if (!selectedSignature.hasVarArgs
+                && currentArguments.size() != resolvedSignature.argumentsTypes.size()) {
+            return resolvedSignature;
+        }
+
+        Map<Integer, MetadataBinding> indexedBindings = new HashMap<>();
+        Map<String, MetadataBinding> positionalBindings = new HashMap<>();
+        for (int i = 0; i < currentArguments.size(); i++) {
+            DataType resolvedType = resolvedSignature.getArgType(i);
+            DataType originType = i < immediateOriginArguments.size()
+                    ? immediateOriginArguments.get(i).getDataType() : resolvedType;
+            collectFollowTypeMetadata(
+                    selectedSignature.getArgType(i), resolvedType,
+                    currentArguments.get(i).getDataType(), originType, i, "",
+                    indexedBindings, positionalBindings);
+        }
+        if (indexedBindings.isEmpty() && positionalBindings.isEmpty()) {
+            return resolvedSignature;
+        }
+
+        indexedBindings.values().forEach(MetadataBinding::merge);
+        positionalBindings.values().forEach(MetadataBinding::merge);
+        // Keep the formal signature shape. In particular, a one-slot vararg signature must not
+        // become an N-slot vararg signature merely because this expression has N actual children.
+        ImmutableList.Builder<DataType> argumentTypes = ImmutableList.builderWithExpectedSize(
+                resolvedSignature.argumentsTypes.size());
+        for (int i = 0; i < resolvedSignature.argumentsTypes.size(); i++) {
+            argumentTypes.add(instantiateFollowTypeMetadata(
+                    selectedSignature.getArgType(i), resolvedSignature.getArgType(i),
+                    i, "", indexedBindings, positionalBindings, null));
+        }
+        ImmutableList<DataType> refreshedArgumentTypes = argumentTypes.build();
+        DataType returnType = instantiateFollowTypeMetadata(
+                selectedSignature.returnType, resolvedSignature.returnType,
+                -1, "return", indexedBindings, positionalBindings, refreshedArgumentTypes);
+        FunctionSignature refreshedSignature = resolvedSignature
+                .withArgumentTypes(resolvedSignature.hasVarArgs, refreshedArgumentTypes)
+                .withReturnType(returnType);
+        return hasSameSignatureMetadata(resolvedSignature, refreshedSignature)
+                ? resolvedSignature : refreshedSignature;
+    }
+
+    /** Collect current metadata candidates for one Any/Follow binding. */
+    static void collectFollowTypeMetadata(
+            DataType selectedType, DataType resolvedType, DataType currentType, DataType originType,
+            int argumentIndex, String path,
+            Map<Integer, MetadataBinding> indexedBindings,
+            Map<String, MetadataBinding> positionalBindings) {
+        if (!containsStructType(resolvedType)) {
+            return;
+        }
+        if (selectedType instanceof AnyDataType || selectedType instanceof FollowToAnyDataType) {
+            int typeIndex = selectedType instanceof AnyDataType
+                    ? ((AnyDataType) selectedType).getIndex()
+                    : ((FollowToAnyDataType) selectedType).getIndex();
+            MetadataBinding binding = typeIndex >= 0
+                    ? indexedBindings.computeIfAbsent(typeIndex, key -> new MetadataBinding())
+                    : positionalBindings.computeIfAbsent(
+                            argumentIndex + path, key -> new MetadataBinding());
+            binding.add(resolvedType, currentType, originType);
+            return;
+        }
+        if (selectedType instanceof ArrayType && resolvedType instanceof ArrayType) {
+            DataType currentItemType = nestedArrayItemType(currentType);
+            DataType originItemType = nestedArrayItemType(originType);
+            collectFollowTypeMetadata(
+                    ((ArrayType) selectedType).getItemType(),
+                    ((ArrayType) resolvedType).getItemType(),
+                    currentItemType, originItemType, argumentIndex, path + "[]",
+                    indexedBindings, positionalBindings);
+        } else if (selectedType instanceof MapType && resolvedType instanceof MapType) {
+            DataType currentKeyType = nestedMapKeyType(currentType);
+            DataType currentValueType = nestedMapValueType(currentType);
+            DataType originKeyType = nestedMapKeyType(originType);
+            DataType originValueType = nestedMapValueType(originType);
+            collectFollowTypeMetadata(
+                    ((MapType) selectedType).getKeyType(),
+                    ((MapType) resolvedType).getKeyType(),
+                    currentKeyType, originKeyType, argumentIndex, path + ".key",
+                    indexedBindings, positionalBindings);
+            collectFollowTypeMetadata(
+                    ((MapType) selectedType).getValueType(),
+                    ((MapType) resolvedType).getValueType(),
+                    currentValueType, originValueType, argumentIndex, path + ".value",
+                    indexedBindings, positionalBindings);
+        }
+    }
+
+    /** Instantiate one selected-signature type from the refreshed Any/Follow bindings. */
+    static DataType instantiateFollowTypeMetadata(
+            DataType selectedType, DataType resolvedType, int argumentIndex, String path,
+            Map<Integer, MetadataBinding> indexedBindings,
+            Map<String, MetadataBinding> positionalBindings,
+            List<DataType> refreshedArgumentTypes) {
+        if (selectedType instanceof FollowToArgumentType) {
+            int followedArgument = ((FollowToArgumentType) selectedType).argumentIndex;
+            if (refreshedArgumentTypes == null || followedArgument >= refreshedArgumentTypes.size()) {
+                throw new AnalysisException(
+                        "Cannot refresh a FollowToArgumentType without its resolved argument");
+            }
+            return refreshedArgumentTypes.get(followedArgument);
+        }
+        if (selectedType instanceof AnyDataType || selectedType instanceof FollowToAnyDataType) {
+            int typeIndex = selectedType instanceof AnyDataType
+                    ? ((AnyDataType) selectedType).getIndex()
+                    : ((FollowToAnyDataType) selectedType).getIndex();
+            MetadataBinding binding = typeIndex >= 0
+                    ? indexedBindings.get(typeIndex) : positionalBindings.get(argumentIndex + path);
+            return binding == null ? resolvedType : binding.getMergedType();
+        }
+        if (selectedType instanceof ArrayType && resolvedType instanceof ArrayType) {
+            return ArrayType.of(instantiateFollowTypeMetadata(
+                    ((ArrayType) selectedType).getItemType(),
+                    ((ArrayType) resolvedType).getItemType(),
+                    argumentIndex, path + "[]", indexedBindings, positionalBindings,
+                    refreshedArgumentTypes));
+        }
+        if (selectedType instanceof MapType && resolvedType instanceof MapType) {
+            return MapType.of(
+                    instantiateFollowTypeMetadata(
+                            ((MapType) selectedType).getKeyType(),
+                            ((MapType) resolvedType).getKeyType(),
+                            argumentIndex, path + ".key", indexedBindings, positionalBindings,
+                            refreshedArgumentTypes),
+                    instantiateFollowTypeMetadata(
+                            ((MapType) selectedType).getValueType(),
+                            ((MapType) resolvedType).getValueType(),
+                            argumentIndex, path + ".value", indexedBindings, positionalBindings,
+                            refreshedArgumentTypes));
+        }
+        return resolvedType;
+    }
+
+    /** Return an array item type while allowing a bare NULL to be validated by the merge step. */
+    static DataType nestedArrayItemType(DataType dataType) {
+        if (dataType.isNullType()) {
+            return dataType;
+        }
+        if (!(dataType instanceof ArrayType)) {
+            throw new AnalysisException(
+                    "Cannot refresh array metadata from a non-array type: " + dataType);
+        }
+        return ((ArrayType) dataType).getItemType();
+    }
+
+    /** Return a map key type while allowing a bare NULL to be validated by the merge step. */
+    static DataType nestedMapKeyType(DataType dataType) {
+        if (dataType.isNullType()) {
+            return dataType;
+        }
+        if (!(dataType instanceof MapType)) {
+            throw new AnalysisException(
+                    "Cannot refresh map metadata from a non-map type: " + dataType);
+        }
+        return ((MapType) dataType).getKeyType();
+    }
+
+    /** Return a map value type while allowing a bare NULL to be validated by the merge step. */
+    static DataType nestedMapValueType(DataType dataType) {
+        if (dataType.isNullType()) {
+            return dataType;
+        }
+        if (!(dataType instanceof MapType)) {
+            throw new AnalysisException(
+                    "Cannot refresh map metadata from a non-map type: " + dataType);
+        }
+        return ((MapType) dataType).getValueType();
+    }
+
+    /** Whether a type contains struct-field metadata at any nesting level. */
+    static boolean containsStructType(DataType dataType) {
+        if (dataType instanceof StructType) {
+            return true;
+        }
+        if (dataType instanceof ArrayType) {
+            return containsStructType(((ArrayType) dataType).getItemType());
+        }
+        if (dataType instanceof MapType) {
+            return containsStructType(((MapType) dataType).getKeyType())
+                    || containsStructType(((MapType) dataType).getValueType());
+        }
+        return false;
+    }
 
     /**
      * Refresh only nested container metadata from a rewritten child while retaining resolved scalar leaf types.
@@ -188,13 +386,15 @@ public interface ChildDerivedSignature extends ComputeSignature {
 
     /** Derive the signature metadata owned by this function from its current children. */
     FunctionSignature deriveSignatureFromChildren(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments);
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments);
 
     @Override
     default FunctionSignature refreshDerivedSignature(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
+            FunctionSignature selectedSignature, FunctionSignature resolvedSignature,
+            List<Expression> immediateOriginArguments, List<Expression> currentArguments) {
         FunctionSignature refreshed = deriveSignatureFromChildren(
-                resolvedSignature, immediateOriginArguments);
+                resolvedSignature, immediateOriginArguments, currentArguments);
         return hasSameSignatureMetadata(resolvedSignature, refreshed) ? resolvedSignature : refreshed;
     }
 
@@ -251,5 +451,35 @@ public interface ChildDerivedSignature extends ComputeSignature {
             return true;
         }
         return left.equals(right);
+    }
+
+    /** Metadata candidates for one Any/Follow binding in a selected signature. */
+    class MetadataBinding {
+        private DataType resolvedType;
+        private final List<DataType> currentTypes = new ArrayList<>();
+        private final List<DataType> originTypes = new ArrayList<>();
+        private DataType mergedType;
+
+        void add(DataType resolvedType, DataType currentType, DataType originType) {
+            if (this.resolvedType == null) {
+                this.resolvedType = resolvedType;
+            } else if (!hasSameTypeMetadata(this.resolvedType, resolvedType)) {
+                throw new AnalysisException(
+                        "Cannot refresh one Any/Follow binding with different resolved types: "
+                                + this.resolvedType + " and " + resolvedType);
+            }
+            currentTypes.add(currentType);
+            originTypes.add(originType);
+        }
+
+        void merge() {
+            mergedType = mergeNestedTypeMetadata(resolvedType, currentTypes, originTypes)
+                    .orElseThrow(() -> new AnalysisException(
+                            "Cannot safely refresh Any/Follow metadata for resolved type " + resolvedType));
+        }
+
+        DataType getMergedType() {
+            return mergedType;
+        }
     }
 }

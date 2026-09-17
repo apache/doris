@@ -156,8 +156,9 @@ public class Array extends ScalarFunction
 
     @Override
     public FunctionSignature deriveSignatureFromChildren(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
-        if (children.isEmpty()) {
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
+        if (currentArguments.isEmpty()) {
             if (!resolvedSignature.hasVarArgs && resolvedSignature.argumentsTypes.isEmpty()) {
                 return resolvedSignature;
             }
@@ -169,7 +170,7 @@ public class Array extends ScalarFunction
             throw new AnalysisException(
                     "Cannot safely reuse an empty or fixed-arity ARRAY signature for a non-empty ARRAY");
         }
-        List<DataType> currentTypes = children.stream()
+        List<DataType> currentTypes = currentArguments.stream()
                 .map(ExpressionTrait::getDataType)
                 .collect(Collectors.toList());
         List<DataType> originTypes = new ArrayList<>(currentTypes.size());

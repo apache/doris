@@ -98,12 +98,13 @@ public class ArrayZip extends ScalarFunction implements ExplicitlyCastableSignat
 
     @Override
     public FunctionSignature deriveSignatureFromChildren(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
-        int argumentCount = children.size();
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
+        int argumentCount = currentArguments.size();
         ImmutableList.Builder<DataType> argumentTypes = ImmutableList.builderWithExpectedSize(argumentCount);
         ImmutableList.Builder<StructField> structFields = ImmutableList.builderWithExpectedSize(argumentCount);
         for (int i = 0; i < argumentCount; i++) {
-            DataType currentType = getArgument(i).getDataType();
+            DataType currentType = currentArguments.get(i).getDataType();
             if (!(currentType instanceof ArrayType) && !currentType.isNullType()) {
                 throw new AnalysisException(
                         "Cannot safely reuse array_zip signature with a non-array argument");

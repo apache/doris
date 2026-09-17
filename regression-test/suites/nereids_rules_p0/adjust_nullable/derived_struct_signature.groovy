@@ -78,6 +78,31 @@ suite("derived_struct_signature") {
          and length(to_json(named_struct('nested', struct(l.number, r.number)))) > 0
     """
 
+    order_qt_left_array_popback_struct """
+        select count(*) as c
+        from numbers('number'='2') l
+        left join numbers('number'='1') r
+          on l.number = r.number
+         and length(to_json(array_popback(
+             array(struct(l.number, r.number), struct(l.number, r.number))))) > 0
+    """
+
+    order_qt_left_array_typed_null """
+        select count(*) as c
+        from numbers('number'='2') l
+        left join numbers('number'='1') r
+          on l.number = r.number
+         and length(to_json(array(struct(l.number, r.number), null))) > 0
+    """
+
+    order_qt_left_map_typed_null """
+        select count(*) as c
+        from numbers('number'='2') l
+        left join numbers('number'='1') r
+          on l.number = r.number
+         and length(to_json(map('first', struct(l.number, r.number), 'second', null))) > 0
+    """
+
     qt_map_entries_nested_struct """
         select if(cast(map_from_entries(map_entries(map(
             cast('2026-01-01 00:00:00' as datetimev2(0)),

@@ -126,9 +126,10 @@ public class ToJson extends ScalarFunction
 
     @Override
     public FunctionSignature deriveSignatureFromChildren(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
         DataType argumentType = ChildDerivedSignature.refreshNestedTypeMetadata(
-                resolvedSignature.getArgType(0), child(0).getDataType(),
+                resolvedSignature.getArgType(0), currentArguments.get(0).getDataType(),
                 immediateOriginArguments.get(0).getDataType());
         return resolvedSignature.withArgumentType(0, argumentType);
     }

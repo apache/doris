@@ -101,20 +101,22 @@ public class CreateNamedStruct extends ScalarFunction
         if (arity() == 0) {
             return SIGNATURE;
         } else {
-            return FunctionSignature.ret(computeStructType())
+            return FunctionSignature.ret(computeStructType(children))
                     .args(children.stream().map(ExpressionTrait::getDataType).toArray(DataType[]::new));
         }
     }
 
     @Override
     public FunctionSignature deriveSignatureFromChildren(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
-        if (arity() % 2 != 0) {
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
+        if (currentArguments.size() % 2 != 0) {
             throw new AnalysisException("Cannot safely refresh named_struct with an odd argument count");
         }
-        ImmutableList.Builder<DataType> argumentTypeBuilder = ImmutableList.builderWithExpectedSize(arity());
-        for (int i = 0; i < arity(); i++) {
-            DataType currentType = getArgument(i).getDataType();
+        ImmutableList.Builder<DataType> argumentTypeBuilder = ImmutableList.builderWithExpectedSize(
+                currentArguments.size());
+        for (int i = 0; i < currentArguments.size(); i++) {
+            DataType currentType = currentArguments.get(i).getDataType();
             boolean existingPosition = i < immediateOriginArguments.size();
             // Name literals define field metadata rather than scalar payload. New value positions have no prior
             // binding; existing value positions must retain the resolved or immediate-origin leaf.
@@ -125,8 +127,9 @@ public class CreateNamedStruct extends ScalarFunction
                             immediateOriginArguments.get(i).getDataType()));
         }
         ImmutableList<DataType> argumentTypes = argumentTypeBuilder.build();
-        StructType currentReturnType = computeStructType();
-        ImmutableList.Builder<StructField> fieldBuilder = ImmutableList.builderWithExpectedSize(arity() / 2);
+        StructType currentReturnType = computeStructType(currentArguments);
+        ImmutableList.Builder<StructField> fieldBuilder = ImmutableList.builderWithExpectedSize(
+                currentArguments.size() / 2);
         for (int i = 0; i < currentReturnType.getFields().size(); i++) {
             StructField currentField = currentReturnType.getFields().get(i);
             fieldBuilder.add(currentField.withDataTypeAndNullable(
@@ -136,15 +139,15 @@ public class CreateNamedStruct extends ScalarFunction
                 .withReturnType(new StructType(fieldBuilder.build()));
     }
 
-    private StructType computeStructType() {
+    private StructType computeStructType(List<Expression> arguments) {
         ImmutableList.Builder<StructField> structFields = ImmutableList.builder();
-        for (int i = 0; i < arity(); i = i + 2) {
-            StringLikeLiteral nameLiteral = (StringLikeLiteral) child(i);
+        for (int i = 0; i < arguments.size(); i = i + 2) {
+            StringLikeLiteral nameLiteral = (StringLikeLiteral) arguments.get(i);
             // A named struct has the same value-nullability contract as struct(...); keeping
             // the field nullable here would reject safe casts into required target fields.
             structFields.add(new StructField(nameLiteral.getStringValue(),
-                    children.get(i + 1).getDataType(),
-                    StructLiteral.computeFieldNullable(children.get(i + 1)), ""));
+                    arguments.get(i + 1).getDataType(),
+                    StructLiteral.computeFieldNullable(arguments.get(i + 1)), ""));
         }
         return new StructType(structFields.build());
     }

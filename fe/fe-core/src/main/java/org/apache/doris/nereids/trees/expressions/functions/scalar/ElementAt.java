@@ -192,13 +192,14 @@ public class ElementAt extends ScalarFunction
 
     @Override
     public FunctionSignature deriveSignatureFromChildren(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
         DataType resolvedContainerType = resolvedSignature.getArgType(0);
-        DataType currentContainerType = getArgument(0).getDataType();
+        DataType currentContainerType = currentArguments.get(0).getDataType();
         DataType originContainerType = immediateOriginArguments.get(0).getDataType();
         DataType containerType = ChildDerivedSignature.refreshNestedTypeMetadata(
                 resolvedContainerType, currentContainerType, originContainerType);
-        DataType currentSelectorType = getArgument(1).getDataType();
+        DataType currentSelectorType = currentArguments.get(1).getDataType();
         DataType selectorType;
         DataType returnType = resolvedSignature.returnType;
         if (resolvedContainerType instanceof StructType && currentContainerType instanceof StructType) {
@@ -206,7 +207,7 @@ public class ElementAt extends ScalarFunction
                 throw new AnalysisException(
                         "Cannot safely reuse struct element signature with a non-struct origin");
             }
-            Expression selector = getArgument(1);
+            Expression selector = currentArguments.get(1);
             if (!(selector instanceof IntegerLikeLiteral || selector instanceof StringLikeLiteral)) {
                 throw new AnalysisException(
                         "Cannot safely reuse struct element signature with a non-literal selector");

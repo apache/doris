@@ -103,9 +103,10 @@ public class MapEntries extends ScalarFunction
     // MAP<DECIMAL(38,6), DECIMAL(38,6)>, and nested DATETIMEV2(6) as DATETIMEV2(0).
     @Override
     public FunctionSignature deriveSignatureFromChildren(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
         DataType inputType = ChildDerivedSignature.refreshNestedTypeMetadata(
-                resolvedSignature.getArgType(0), getArgument(0).getDataType(),
+                resolvedSignature.getArgType(0), currentArguments.get(0).getDataType(),
                 immediateOriginArguments.get(0).getDataType());
         if (inputType instanceof NullType) {
             return resolvedSignature.withArgumentType(0, inputType);

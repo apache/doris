@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 
 /** BoundFunction. */
 public abstract class BoundFunction extends Function implements ComputeSignature {
-    private final Supplier<FunctionSignature> signatureCache;
+    private final Supplier<SignatureComputation> signatureCache;
 
     public BoundFunction(String name, Expression... arguments) {
         super(name, arguments);
@@ -67,7 +67,11 @@ public abstract class BoundFunction extends Function implements ComputeSignature
     }
 
     public FunctionSignature getSignature() {
-        return signatureCache.get();
+        return signatureCache.get().resolvedSignature;
+    }
+
+    FunctionSignature getSelectedSignature() {
+        return signatureCache.get().selectedSignature;
     }
 
     @Override
@@ -156,20 +160,36 @@ public abstract class BoundFunction extends Function implements ComputeSignature
         }
     }
 
-    private Supplier<FunctionSignature> buildSignatureCache(
+    private Supplier<SignatureComputation> buildSignatureCache(
             FunctionParams.SignatureReuseContext reuseContext) {
         if (reuseContext != null) {
             // Keep the selected overload and computed precision stable, but let functions refresh
             // metadata that is derived from their current children (for example struct fields).
-            return LazyCompute.of(() -> refreshDerivedSignature(
-                    reuseContext.getResolvedSignature(), reuseContext.getImmediateOriginArguments()));
+            return LazyCompute.of(() -> {
+                FunctionSignature selectedSignature = reuseContext.getSelectedSignature();
+                FunctionSignature resolvedSignature = reuseContext.getResolvedSignature();
+                return new SignatureComputation(selectedSignature, refreshDerivedSignature(
+                        selectedSignature, resolvedSignature,
+                        reuseContext.getImmediateOriginArguments(), getArguments()));
+            });
         } else {
             return LazyCompute.of(() -> {
                 // first step: find the candidate signature in the signature list
                 FunctionSignature matchedSignature = searchSignature(getSignatures());
                 // second step: change the signature, e.g. fill precision for decimal v2
-                return computeSignature(matchedSignature);
+                return new SignatureComputation(matchedSignature, computeSignature(matchedSignature));
             });
+        }
+    }
+
+    private static final class SignatureComputation {
+        private final FunctionSignature selectedSignature;
+        private final FunctionSignature resolvedSignature;
+
+        private SignatureComputation(
+                FunctionSignature selectedSignature, FunctionSignature resolvedSignature) {
+            this.selectedSignature = selectedSignature;
+            this.resolvedSignature = resolvedSignature;
         }
     }
 

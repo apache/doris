@@ -125,32 +125,38 @@ public class CreateMap extends ScalarFunction
 
     @Override
     public FunctionSignature deriveSignatureFromChildren(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
-        if (arity() % 2 != 0) {
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
+        int argumentCount = currentArguments.size();
+        if (argumentCount % 2 != 0) {
             throw new AnalysisException("Cannot safely refresh map with an odd argument count");
         }
-        if (arity() != immediateOriginArguments.size()
-                || arity() != resolvedSignature.argumentsTypes.size()) {
+        if (argumentCount != immediateOriginArguments.size()
+                || argumentCount != resolvedSignature.argumentsTypes.size()) {
             throw new AnalysisException(
                     "Cannot safely reuse map signature after changing its argument count");
         }
-        if (arity() == 0) {
+        if (argumentCount == 0) {
             return resolvedSignature;
         }
         if (!(resolvedSignature.returnType instanceof MapType)) {
             throw new AnalysisException("Cannot safely reuse map signature with a non-map return type");
         }
-        List<DataType> currentKeyTypes = new ArrayList<>(arity() / 2);
-        List<DataType> currentValueTypes = new ArrayList<>(arity() / 2);
-        List<DataType> originKeyTypes = new ArrayList<>(arity() / 2);
-        List<DataType> originValueTypes = new ArrayList<>(arity() / 2);
-        for (int i = 0; i < arity(); i += 2) {
-            currentKeyTypes.add(getArgument(i).getDataType());
-            currentValueTypes.add(getArgument(i + 1).getDataType());
-            originKeyTypes.add(immediateOriginArguments.get(i).getDataType());
-            originValueTypes.add(immediateOriginArguments.get(i + 1).getDataType());
-        }
         MapType resolvedMapType = (MapType) resolvedSignature.returnType;
+        List<DataType> currentKeyTypes = new ArrayList<>(argumentCount / 2);
+        List<DataType> currentValueTypes = new ArrayList<>(argumentCount / 2);
+        List<DataType> originKeyTypes = new ArrayList<>(argumentCount / 2);
+        List<DataType> originValueTypes = new ArrayList<>(argumentCount / 2);
+        for (int i = 0; i < argumentCount; i += 2) {
+            DataType originKeyType = immediateOriginArguments.get(i).getDataType();
+            DataType originValueType = immediateOriginArguments.get(i + 1).getDataType();
+            currentKeyTypes.add(normalizeFoldedStringType(
+                    resolvedMapType.getKeyType(), currentArguments.get(i).getDataType(), originKeyType));
+            currentValueTypes.add(normalizeFoldedStringType(
+                    resolvedMapType.getValueType(), currentArguments.get(i + 1).getDataType(), originValueType));
+            originKeyTypes.add(originKeyType);
+            originValueTypes.add(originValueType);
+        }
         DataType keyType = ChildDerivedSignature.mergeNestedTypeMetadata(
                 resolvedMapType.getKeyType(), currentKeyTypes, originKeyTypes)
                 .orElseThrow(() -> new AnalysisException(
@@ -159,11 +165,21 @@ public class CreateMap extends ScalarFunction
                 resolvedMapType.getValueType(), currentValueTypes, originValueTypes)
                 .orElseThrow(() -> new AnalysisException(
                         "Cannot safely reuse map signature with incompatible value metadata"));
-        ImmutableList.Builder<DataType> argumentTypes = ImmutableList.builderWithExpectedSize(arity());
-        for (int i = 0; i < arity(); i++) {
+        ImmutableList.Builder<DataType> argumentTypes = ImmutableList.builderWithExpectedSize(argumentCount);
+        for (int i = 0; i < argumentCount; i++) {
             argumentTypes.add(i % 2 == 0 ? keyType : valueType);
         }
         return resolvedSignature.withArgumentTypes(false, argumentTypes.build())
                 .withReturnType(MapType.of(keyType, valueType));
+    }
+
+    private static DataType normalizeFoldedStringType(
+            DataType resolvedType, DataType currentType, DataType originType) {
+        // Constant folding can replace CAST('world' AS VARCHAR(10)) with a VARCHAR(5)
+        // literal. All string-like types have the same physical payload here, so retain
+        // the frozen resolved binding without relaxing Decimal or temporal precision.
+        return resolvedType.isStringLikeType()
+                && currentType.isStringLikeType()
+                && originType.isStringLikeType() ? originType : currentType;
     }
 }

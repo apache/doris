@@ -96,12 +96,15 @@ public class CreateStruct extends ScalarFunction
 
     @Override
     public FunctionSignature deriveSignatureFromChildren(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
-        StructType currentReturnType = StructLiteral.computeDataType(children);
-        ImmutableList.Builder<DataType> argumentTypes = ImmutableList.builderWithExpectedSize(arity());
-        ImmutableList.Builder<StructField> fields = ImmutableList.builderWithExpectedSize(arity());
-        for (int i = 0; i < arity(); i++) {
-            DataType currentType = getArgument(i).getDataType();
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
+        StructType currentReturnType = StructLiteral.computeDataType(currentArguments);
+        ImmutableList.Builder<DataType> argumentTypes = ImmutableList.builderWithExpectedSize(
+                currentArguments.size());
+        ImmutableList.Builder<StructField> fields = ImmutableList.builderWithExpectedSize(
+                currentArguments.size());
+        for (int i = 0; i < currentArguments.size(); i++) {
+            DataType currentType = currentArguments.get(i).getDataType();
             // A newly added independent field has no prior scalar binding. Existing positions must retain theirs.
             DataType argumentType = i < immediateOriginArguments.size()
                     ? ChildDerivedSignature.refreshNestedTypeMetadata(

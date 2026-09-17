@@ -120,15 +120,15 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
 
     /**
      * Refresh argument and return metadata that is derived directly from the current children after reusing a
-     * previously resolved signature. The immediate origin arguments are supplied with that signature so an override
-     * can distinguish an unchanged raw child from an unrelated replacement without eagerly recomputing either type.
-     * The default is intentionally identity: overload selection, coercion, and value-dependent precision decisions
-     * remain frozen across equivalent rewrites. An override must only rebuild metadata that the function definition
-     * derives from its children; it must not search overloads or rerun generic signature computation.
+     * previously resolved signature. The selected signature retains the Any/Follow dependency graph, while the
+     * resolved signature freezes overload selection, coercion, and scalar precision. The default implementation
+     * handles standard Any/Follow passthroughs; functions that construct a new complex shape override this hook.
      */
     default FunctionSignature refreshDerivedSignature(
-            FunctionSignature signature, List<Expression> immediateOriginArguments) {
-        return signature;
+            FunctionSignature selectedSignature, FunctionSignature resolvedSignature,
+            List<Expression> immediateOriginArguments, List<Expression> currentArguments) {
+        return ChildDerivedSignature.refreshFollowTypeMetadata(
+                selectedSignature, resolvedSignature, immediateOriginArguments, currentArguments);
     }
 
     /** use processor to process computeSignature */

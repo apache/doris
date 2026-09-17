@@ -84,12 +84,13 @@ public class MapFromArrays extends ScalarFunction
 
     @Override
     public FunctionSignature deriveSignatureFromChildren(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
         ArrayType keyArrayType = (ArrayType) ChildDerivedSignature.refreshNestedTypeMetadata(
-                resolvedSignature.getArgType(0), getArgument(0).getDataType(),
+                resolvedSignature.getArgType(0), currentArguments.get(0).getDataType(),
                 immediateOriginArguments.get(0).getDataType());
         ArrayType valueArrayType = (ArrayType) ChildDerivedSignature.refreshNestedTypeMetadata(
-                resolvedSignature.getArgType(1), getArgument(1).getDataType(),
+                resolvedSignature.getArgType(1), currentArguments.get(1).getDataType(),
                 immediateOriginArguments.get(1).getDataType());
         return resolvedSignature
                 .withArgumentTypes(false, ImmutableList.of(keyArrayType, valueArrayType))

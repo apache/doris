@@ -81,9 +81,10 @@ public class MapKeys extends ScalarFunction
 
     @Override
     public FunctionSignature deriveSignatureFromChildren(
-            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments) {
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
         MapType mapType = (MapType) ChildDerivedSignature.refreshNestedTypeMetadata(
-                resolvedSignature.getArgType(0), getArgument(0).getDataType(),
+                resolvedSignature.getArgType(0), currentArguments.get(0).getDataType(),
                 immediateOriginArguments.get(0).getDataType());
         return resolvedSignature.withArgumentType(0, mapType)
                 .withReturnType(ArrayType.of(mapType.getKeyType()));

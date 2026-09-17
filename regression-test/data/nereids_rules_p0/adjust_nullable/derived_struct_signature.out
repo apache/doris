@@ -23,5 +23,14 @@
 -- !nested_struct --
 2
 
+-- !left_array_popback_struct --
+2
+
+-- !left_array_typed_null --
+2
+
+-- !left_map_typed_null --
+2
+
 -- !map_entries_nested_struct --
 1
