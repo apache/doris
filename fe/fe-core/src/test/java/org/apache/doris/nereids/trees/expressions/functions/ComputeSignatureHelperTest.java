@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
@@ -47,6 +48,8 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -376,10 +379,12 @@ public class ComputeSignatureHelperTest {
                 new ArrayLiteral(Lists.newArrayList(new IntegerLiteral(0))));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof ArrayType);
-        // non-MAP decimal slots keep the original behavior of using the wider type
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
+        // each fixed ARRAY slot is an independent logical type variable and keeps its own
+        // item type instead of being merged with the other slots
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(5, 4),
                 ((ArrayType) signature.getArgType(0)).getItemType());
         Assertions.assertTrue(signature.getArgType(1) instanceof ArrayType);
+        // a NULL ARRAY argument has no item type of its own, so it falls back to the wider type
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
                 ((ArrayType) signature.getArgType(1)).getItemType());
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
@@ -670,6 +675,104 @@ public class ComputeSignatureHelperTest {
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(27, 9),
                 ((ArrayType) signature.getArgType(0)).getItemType());
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(27, 9), signature.getArgType(1));
+    }
+
+    @Test
+    void testArraySortByIndependentArraySlots() {
+        // array_sortby declares two independent INSTANCE_WITHOUT_INDEX ARRAY slots: the sort
+        // keys must not widen the source (nor the source the keys), otherwise the source
+        // values lose their low order digits before the BE returns them
+        FunctionSignature template = FunctionSignature.ret(ArrayType.of(DecimalV3Type.createDecimalV3Type(38, 38)))
+                .args(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
+                        ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX));
+        // resolved signature (after implementAnyDataTypeWithOutIndex): each slot keeps the
+        // exact type of its own argument, the two item types differ in range and scale
+        FunctionSignature signature = FunctionSignature.ret(
+                        ArrayType.of(DecimalV3Type.createDecimalV3Type(38, 38)))
+                .args(ArrayType.of(DecimalV3Type.createDecimalV3Type(38, 38)),
+                        ArrayType.of(DecimalV3Type.createDecimalV3Type(38, 32)));
+        List<Expression> arguments = Lists.newArrayList(
+                new ArrayLiteral(Lists.newArrayList(new DecimalV3Literal(
+                        new BigDecimal("0.12345678901234567890123456789012345678")))),
+                new ArrayLiteral(Lists.newArrayList(new DecimalV3Literal(
+                        new BigDecimal("123456.12345678901234567890123456789012")))));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(template), signature, arguments);
+        // neither slot may be promoted to the wider DECIMAL(38,32), which would truncate
+        // the 38 scale source values
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 38),
+                ((ArrayType) signature.getArgType(0)).getItemType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 32),
+                ((ArrayType) signature.getArgType(1)).getItemType());
+    }
+
+    @Test
+    void testArrayEnumerateUniqExpandedVarArgSlots() {
+        // array_enumerate_uniq declares varArgs(ARRAY<INSTANCE_WITHOUT_INDEX>): the vararg is
+        // expanded to one slot per argument and every occurrence is its own type variable, so
+        // truncating them to one wider type could collapse distinct composite sort keys
+        FunctionSignature template = FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE))
+                .varArgs(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX));
+        FunctionSignature signature = FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE))
+                .args(ArrayType.of(DecimalV3Type.createDecimalV3Type(38, 38)),
+                        ArrayType.of(DecimalV3Type.createDecimalV3Type(38, 32)),
+                        ArrayType.of(DecimalV3Type.createDecimalV3Type(38, 32)));
+        List<Expression> arguments = Lists.newArrayList(
+                new ArrayLiteral(Lists.newArrayList(new DecimalV3Literal(
+                        new BigDecimal("0.12345678901234567890123456789012345678")))),
+                new ArrayLiteral(Lists.newArrayList(new DecimalV3Literal(
+                        new BigDecimal("123456.12345678901234567890123456789012")))),
+                new ArrayLiteral(Lists.newArrayList(new DecimalV3Literal(
+                        new BigDecimal("654321.12345678901234567890123456789012")))));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(template), signature, arguments);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 38),
+                ((ArrayType) signature.getArgType(0)).getItemType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 32),
+                ((ArrayType) signature.getArgType(1)).getItemType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(38, 32),
+                ((ArrayType) signature.getArgType(2)).getItemType());
+    }
+
+    @Test
+    void testCommonExactVarArgArrayAggregates() {
+        // a common exact vararg ARRAY slot (declared with a wildcard instead of
+        // INSTANCE_WITHOUT_INDEX) still aggregates all its expanded arguments
+        FunctionSignature template = FunctionSignature.ret(BooleanType.INSTANCE)
+                .varArgs(ArrayType.of(DecimalV3Type.WILDCARD));
+        FunctionSignature signature = FunctionSignature.ret(BooleanType.INSTANCE)
+                .varArgs(ArrayType.of(DecimalV3Type.WILDCARD));
+        List<Expression> arguments = Lists.newArrayList(
+                new ArrayLiteral(Lists.newArrayList(new DecimalV3Literal(new BigDecimal("1.1234")))),
+                new ArrayLiteral(Lists.newArrayList(new DecimalV3Literal(new BigDecimal("123.123")))));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(template), signature, arguments);
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
+                ((ArrayType) signature.getArgType(0)).getItemType());
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
+                ((ArrayType) signature.getArgType(1)).getItemType());
+    }
+
+    @Test
+    void testArrayZipIndependentFixedSlotsKeepStructReturnConsistent() {
+        // array_zip builds its signature and its Struct return type from the arguments, so
+        // promoting one array to the wider type of the other would leave the return type
+        // inconsistent with the expected input types
+        DataType itemType0 = DecimalV3Type.createDecimalV3Type(38, 38);
+        DataType itemType1 = DecimalV3Type.createDecimalV3Type(38, 32);
+        StructType returnStruct = new StructType(Lists.newArrayList(
+                new StructField("col1", itemType0, true, ""),
+                new StructField("col2", itemType1, true, "")));
+        FunctionSignature template = FunctionSignature.ret(ArrayType.of(returnStruct))
+                .args(ArrayType.of(itemType0), ArrayType.of(itemType1));
+        FunctionSignature signature = template;
+        List<Expression> arguments = Lists.newArrayList(
+                new ArrayLiteral(Lists.newArrayList(new DecimalV3Literal(
+                        new BigDecimal("0.12345678901234567890123456789012345678")))),
+                new ArrayLiteral(Lists.newArrayList(new DecimalV3Literal(
+                        new BigDecimal("123456.12345678901234567890123456789012")))));
+        signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(template), signature, arguments);
+        Assertions.assertEquals(itemType0, ((ArrayType) signature.getArgType(0)).getItemType());
+        Assertions.assertEquals(itemType1, ((ArrayType) signature.getArgType(1)).getItemType());
+        // the Struct return type of array_zip stays consistent with the input types
+        Assertions.assertEquals(ArrayType.of(returnStruct), signature.returnType);
     }
 
     @Test
