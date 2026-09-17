@@ -53,6 +53,16 @@ x:a	y:b
 -- !transform_values_array --
 [10, 1]	[20, 21, 2]
 
+-- !transform_values_array_size --
+1	{1:1, 2:2}
+2	{}
+3	\N
+
+-- !transform_values_struct_is_null --
+1	{1:0, 2:1}
+2	{}
+3	\N
+
 -- !nested_array_lambda --
 {1:[21], 2:[32, 33]}
 

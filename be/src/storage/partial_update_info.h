@@ -127,6 +127,13 @@ struct RidAndPos {
 
 class FixedReadPlan {
 public:
+    enum class ReadStrategy {
+        // Use the full row-store column when available; otherwise read physical columns.
+        PREFER_ROW_STORE,
+        // Read only the requested physical columns, even when a full row-store column exists.
+        COLUMN_STORE,
+    };
+
     bool empty() const;
     void clear() { plan.clear(); }
     void prepare_to_read(const RowLocation& row_location, size_t pos);
@@ -134,7 +141,7 @@ public:
                                 std::vector<uint32_t> cids_to_read,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
                                 Block& block, std::map<uint32_t, uint32_t>* read_index,
-                                bool force_read_old_delete_signs,
+                                ReadStrategy read_strategy, bool force_read_old_delete_signs,
                                 const signed char* __restrict cur_delete_signs = nullptr) const;
     Status fill_missing_columns(const segment_v2::HistoricalRowRetrieverContext& historical_context,
                                 const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,

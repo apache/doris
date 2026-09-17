@@ -22,12 +22,31 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   java-checkstyle:
     name: "CheckStyle"
     runs-on: ubuntu-latest
+    concurrency:
+      group: fe-code-style-${{ github.event.pull_request.number || github.run_id }}-${{ github.sha }}
+      cancel-in-progress: true
     if: github.event_name == 'pull_request'
     steps:
+      - name: Verify current PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          current_head_sha=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')
+          if [[ "${current_head_sha}" != "${EXPECTED_HEAD_SHA}" ]]; then
+            echo "::error::PR #${PR_NUMBER} moved from ${EXPECTED_HEAD_SHA} to ${current_head_sha}; refusing stale validation"
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v3
         with:
@@ -56,4 +75,3 @@ jobs:
         if: steps.filter.outputs.fe_changes == 'true'
         run:
           cd fe && mvn clean checkstyle:check
-
