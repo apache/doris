@@ -339,6 +339,10 @@ BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
 RowBinlogRowsetWriter::RowBinlogRowsetWriter(StorageEngine& engine) : BetaRowsetWriter(engine) {}
 
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
+    // Finish callbacks before removing files they can still read on cancellation.
+    if (_calc_delete_bitmap_token) {
+        _calc_delete_bitmap_token->cancel();
+    }
     if (!_already_built && _rowset_meta->is_local()) {
         // abnormal exit, remove all files generated
         auto& fs = io::global_local_filesystem();
@@ -351,9 +355,6 @@ BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
             WARN_IF_ERROR(fs->delete_file(seg_path),
                           fmt::format("Failed to delete file={}", seg_path));
         }
-    }
-    if (_calc_delete_bitmap_token) {
-        _calc_delete_bitmap_token->cancel();
     }
 }
 

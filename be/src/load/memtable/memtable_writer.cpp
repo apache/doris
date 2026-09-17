@@ -132,6 +132,9 @@ Status MemTableWriter::write(const Block* block, const TabletAddRowsPayload& row
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        return _req.load_cancel_status->status();
+    }
     if (_is_cancelled) {
         return _cancel_status;
     }
@@ -221,6 +224,18 @@ Status MemTableWriter::_flush_memtable_async() {
 
 Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        // Reclaim the unsubmitted memtable even while an RPC retains this writer.
+        // Do not cancel the flush token here: pressure flushing holds the limiter
+        // lock and must not wait for running flush tasks. Leave _is_cancelled
+        // unset so the final owner's cancel still drains the token.
+        {
+            std::lock_guard<std::mutex> lm(_mem_table_ptr_lock);
+            _mem_table.reset();
+        }
+        return Status::Cancelled("Load has been cancelled: {}",
+                                 _req.load_cancel_status->status().to_string());
+    }
     // Three calling paths:
     // 1. call by local, from `VTabletWriterV2::_write_memtable`.
     // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
@@ -280,6 +295,9 @@ Status MemTableWriter::close() {
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        return _req.load_cancel_status->status();
+    }
     if (_is_cancelled) {
         return _cancel_status;
     }

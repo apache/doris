@@ -97,8 +97,14 @@ BaseDeltaWriter::~BaseDeltaWriter() {
         return;
     }
 
-    // cancel and wait all memtables in flush queue to be finished
+    // Stop flush producers before releasing their rowset builders.
     static_cast<void>(_memtable_writer->cancel());
+    // Close may observe cancellation after submitting bitmap work. Drain that
+    // work before derived builders roll back transactions or clear rowset caches.
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        WARN_IF_ERROR(_rowset_builder->wait_calc_delete_bitmap(),
+                      "delete bitmap calculation failed while destroying cancelled writer");
+    }
 
     if (_rowset_builder->tablet() != nullptr) {
         const FlushStatistic& stat = _memtable_writer->get_flush_token_stats();
@@ -136,7 +142,14 @@ int64_t BaseDeltaWriter::table_id() const {
 
 DeltaWriter::~DeltaWriter() = default;
 
+Status BaseDeltaWriter::_get_load_cancel_status() const {
+    return _req.load_cancel_status && !_req.load_cancel_status->ok()
+                   ? _req.load_cancel_status->status()
+                   : Status::OK();
+}
+
 Status BaseDeltaWriter::init() {
+    RETURN_IF_ERROR(_get_load_cancel_status());
     if (_is_init) {
         return Status::OK();
     }
@@ -166,13 +179,14 @@ Status DeltaWriter::write(const Block* block, const TabletAddRowsPayload& rows,
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_table_memtable_backpressure(
                 [this]() {
                     std::lock_guard<std::mutex> l(_lock);
-                    return _is_cancelled;
+                    return _is_cancelled || !_get_load_cancel_status().ok();
                 },
                 table_id());
     }
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
+    RETURN_IF_ERROR(_get_load_cancel_status());
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
@@ -182,6 +196,7 @@ Status DeltaWriter::write(const Block* block, const TabletAddRowsPayload& rows,
                 config::memtable_flush_running_count_limit *
                 (_req.write_req_type == WriteRequestType::GROUP ? 2 : 1);
         while (_memtable_writer->flush_running_count() >= effective_flush_running_count_limit) {
+            RETURN_IF_ERROR(_get_load_cancel_status());
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
@@ -207,6 +222,7 @@ Status DeltaWriter::close() {
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
+    RETURN_IF_ERROR(_get_load_cancel_status());
     if (!_is_init && !_is_cancelled) {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet
@@ -221,6 +237,7 @@ Status DeltaWriter::close() {
 Status BaseDeltaWriter::build_rowset() {
     SCOPED_TIMER(_close_wait_timer);
     RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
+    RETURN_IF_ERROR(_get_load_cancel_status());
     return _rowset_builder->build_rowset();
 }
 
@@ -232,6 +249,7 @@ Status DeltaWriter::build_rowset() {
 }
 
 Status BaseDeltaWriter::submit_calc_delete_bitmap_task() {
+    RETURN_IF_ERROR(_get_load_cancel_status());
     return _rowset_builder->submit_calc_delete_bitmap_task();
 }
 
@@ -242,6 +260,7 @@ Status BaseDeltaWriter::wait_calc_delete_bitmap() {
 Status DeltaWriter::commit_txn() {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
+    RETURN_IF_ERROR(_get_load_cancel_status());
     return _rowset_builder->commit_txn();
 }
 
