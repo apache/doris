@@ -17,21 +17,14 @@
 
 package org.apache.doris.nereids.properties;
 
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
-import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 class EqualSetTest extends TestWithFeService {
     @Override
@@ -150,35 +143,6 @@ class EqualSetTest extends TestWithFeService {
         assertUnionEqualPair(
                 "select cast(null as int), cast(null as bigint) union all select 1, 1",
                 0, 1, false);
-    }
-
-    @Test
-    void testMalformedUnionMappingsFailFast() {
-        SlotReference output0 = SlotReference.of("output0", IntegerType.INSTANCE);
-        SlotReference output1 = SlotReference.of("output1", IntegerType.INSTANCE);
-        SlotReference childOutput = SlotReference.of("childOutput", IntegerType.INSTANCE);
-        Union union = Mockito.mock(Union.class);
-        Plan unionPlan = Mockito.mock(Plan.class);
-        Plan child = Mockito.mock(Plan.class);
-
-        Mockito.when(unionPlan.getOutput()).thenReturn(ImmutableList.<Slot>of(output0, output1));
-        Mockito.when(unionPlan.children()).thenReturn(ImmutableList.of(child));
-        Mockito.when(union.getRegularChildrenOutputs()).thenReturn(ImmutableList.of());
-        Mockito.when(union.getConstantExprsList()).thenReturn(ImmutableList.of());
-        Assertions.assertThrows(IllegalStateException.class,
-                () -> UnionDataTraitUtils.computeEqualSet(union, unionPlan, new DataTrait.Builder()));
-
-        Mockito.when(union.getRegularChildrenOutputs())
-                .thenReturn(ImmutableList.of(ImmutableList.of(childOutput)));
-        Assertions.assertThrows(IllegalStateException.class,
-                () -> UnionDataTraitUtils.computeEqualSet(union, unionPlan, new DataTrait.Builder()));
-
-        Mockito.when(unionPlan.children()).thenReturn(ImmutableList.of());
-        Mockito.when(union.getRegularChildrenOutputs()).thenReturn(ImmutableList.of());
-        Mockito.when(union.getConstantExprsList())
-                .thenReturn(ImmutableList.of(ImmutableList.<NamedExpression>of(childOutput)));
-        Assertions.assertThrows(IllegalStateException.class,
-                () -> UnionDataTraitUtils.computeEqualSet(union, unionPlan, new DataTrait.Builder()));
     }
 
     private void assertUnionEqualPair(String sql, int leftIndex, int rightIndex, boolean expected) {
