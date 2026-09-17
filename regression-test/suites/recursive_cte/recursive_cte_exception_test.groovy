@@ -227,4 +227,22 @@ suite("exception_test", "rec_cte") {
                 SELECT n FROM r ORDER BY n;"""
         exception "inline is blocked"
     }
+
+    // the volatile CTE is only a transitive dependency of the CTE used by the recursive child:
+    // v is inlined into the recursive side, so u has to be inlined as well
+    test {
+        sql """WITH RECURSIVE
+                u AS (SELECT random() AS x),
+                v AS (SELECT x FROM u),
+                r(n) AS (
+                    SELECT CAST(1 AS INT)
+                    UNION ALL
+                    SELECT CAST(n + 1 AS INT)
+                    FROM r
+                    JOIN v ON TRUE
+                    WHERE n < 2
+                )
+                SELECT n FROM r ORDER BY n;"""
+        exception "inline is blocked"
+    }
 }

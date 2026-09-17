@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -157,5 +158,63 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
             connectContext.getSessionVariable().inlineCTEReferencedThreshold = oldInlineCteReferencedThreshold;
             connectContext.getSessionVariable().setDisableNereidsRules("");
         }
+    }
+
+    @Test
+    public void mustInlineVolatileCteLiveReference() {
+        // u is referenced by the recursive child, so it must be inlined, but uuid() can not be inlined
+        String sql = "with recursive "
+                + "u as (select uuid() as v), "
+                + "r(n) as (select cast(1 as int) union all "
+                + "select cast(n + 1 as int) from r join u u1 on true join u u2 on true "
+                + "where n < 2 and u1.v = u2.v) "
+                + "select n from r order by n";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> planRecursiveCte(sql), "Not throw expected exception.");
+        Assertions.assertTrue(exception.getMessage().contains("inline is blocked"));
+    }
+
+    @Test
+    public void mustInlineTransitiveVolatileCteLiveReference() {
+        // u is only referenced by v, but v is referenced by the recursive child, so u must be inlined too
+        String sql = "with recursive "
+                + "u as (select random() as x), "
+                + "v as (select x from u), "
+                + "r(n) as (select cast(1 as int) union all "
+                + "select cast(n + 1 as int) from r join v on true where n < 2) "
+                + "select n from r order by n";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> planRecursiveCte(sql), "Not throw expected exception.");
+        Assertions.assertTrue(exception.getMessage().contains("inline is blocked"));
+    }
+
+    @Test
+    public void mustInlineVolatileCteUsedByAnchorOnly() {
+        // the anchor child is executed once, so u may stay materialized even if it contains uuid()
+        String sql = "with recursive "
+                + "u as (select uuid() as v), "
+                + "r(n) as (select cast(1 as int) from u union all "
+                + "select cast(n + 1 as int) from r where n < 3) "
+                + "select n from r order by n";
+        planRecursiveCte(sql);
+    }
+
+    @Test
+    public void mustInlineVolatileCteReferenceRemovedAsDeadCode() {
+        // the reference of u is eliminated together with the dead branch, so nothing has to be inlined
+        String sql = "with recursive "
+                + "u as (select uuid() as v), "
+                + "r(n) as (select cast(1 as int) union all "
+                + "select cast(n + 1 as int) from r join u on true where n < 3 and false) "
+                + "select n from r order by n";
+        planRecursiveCte(sql);
+    }
+
+    private void planRecursiveCte(String sql) {
+        LogicalPlan unboundPlan = new NereidsParser().parseSingle(sql);
+        NereidsPlanner planner = new NereidsPlanner(new StatementContext(connectContext,
+                new OriginStatement(sql, 0)));
+        planner.planWithLock(unboundPlan, PhysicalProperties.ANY,
+                ExplainCommand.ExplainLevel.REWRITTEN_PLAN);
     }
 }

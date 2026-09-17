@@ -44,6 +44,7 @@ import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionA
 import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
+import org.apache.doris.nereids.rules.rewrite.CheckMustInlineVolatileCTE;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
 import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
@@ -908,6 +909,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     custom(RuleType.REWRITE_CTE_CHILDREN,
                                             () -> new RewriteCteChildren(beforePushDownJobs, runCboRules)
                                     )
+                            ),
+                            topic("check recursive cte must inline volatile ctes",
+                                    custom(RuleType.CHECK_MUST_INLINE_VOLATILE_CTE,
+                                            CheckMustInlineVolatileCTE::new)
                             )));
                     rewriteJobs.addAll(jobs(topic("convert outer join to anti",
                             custom(RuleType.CONVERT_OUTER_JOIN_TO_ANTI, ConvertOuterJoinToAntiJoin::new))));

@@ -195,8 +195,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     leading.putRelationIdAndTableName(Pair.of(consumer.getRelationId(), tableName));
                     leading.getRelationIdToScanMap().put(consumer.getRelationId(), consumer);
                 }
-                if (cascadesContext.getRecursiveCteContext().isPresent()) {
-                    // we are analyzing recursive CTE's recursive child, must inline all used CTEs
+                if (cascadesContext.getRecursiveCteContext().isPresent()
+                        && !cascadesContext.isAnalyzingRecursiveCteAnchorChild()) {
+                    // only the recursive child is reset and re-executed on every iteration, so only the
+                    // CTEs it references must be inlined. The anchor child (non-recursive term) is executed
+                    // once, so the CTEs it references are allowed to stay materialized.
                     cascadesContext.getStatementContext().addToMustLineCTEs(cteContext.getCteId());
                 }
                 return consumer;

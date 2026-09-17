@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
@@ -54,10 +54,12 @@ import java.util.Set;
 public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implements CustomRewriter {
     // all cte used by recursive cte's recursive child should be inline
     private Set<CTEId> mustInlineCTEs;
+    private StatementContext statementContext;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        mustInlineCTEs = jobContext.getCascadesContext().getStatementContext().getMustInlineCTEs();
+        statementContext = jobContext.getCascadesContext().getStatementContext();
+        mustInlineCTEs = statementContext.getMustInlineCTEs();
         if (!mustInlineCTEs.isEmpty()) {
             collectRecursiveCteDependencies(plan);
         }
@@ -111,9 +113,15 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
             });
             if (mustInlineCTEs.contains(cteAnchor.getCteId())) {
                 LogicalCTEProducer<?> cteProducer = (LogicalCTEProducer<?>) cteAnchor.left();
-                if (containsNondeterministicFunction(cteProducer)) {
-                    throw new AnalysisException("recursive cte must inline all used ctes, but inline is blocked by"
-                            + " none deterministic function");
+                if (containsVolatileExpression(cteProducer)) {
+                    // The recursive child is reset and re-executed on every iteration, so this cte can not
+                    // stay materialized there, while inlining would evaluate the volatile expression once
+                    // per iteration and once per reference. A reference which is later removed as dead code
+                    // (for example below a false filter) does not need to be inlined at all, so keep the
+                    // cte materialized for now and let CheckMustInlineVolatileCTE reject live references.
+                    statementContext.addDeferredInlineVolatileCTE(cteAnchor.getCteId());
+                    Plan deferredRight = cteAnchor.right().accept(this, null);
+                    return cteAnchor.withChildren(cteAnchor.left(), deferredRight);
                 }
                 // should inline
                 Plan root = cteAnchor.right().accept(this, cteProducer);
@@ -163,5 +171,15 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
         List<Expression> nondeterministicFunctions = new ArrayList<>();
         producer.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
         return !nondeterministicFunctions.isEmpty();
+    }
+
+    /**
+     * Whether the plan contains a volatile expression, e.g. rand(), uuid() or a volatile udf.
+     * Only volatile expressions are unsafe to inline, a stable udf must return the same value
+     * for the same arguments within a statement.
+     */
+    private boolean containsVolatileExpression(LogicalCTEProducer<?> producer) {
+        return producer.anyMatch(node -> node instanceof Plan
+                && ((Plan) node).getExpressions().stream().anyMatch(Expression::containsVolatileExpression));
     }
 }
