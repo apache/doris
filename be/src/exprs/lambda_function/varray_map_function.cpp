@@ -159,11 +159,11 @@ public:
 
         const auto& first_array_offsets =
                 assert_cast<const ColumnArray::ColumnOffsets&>(*lambda_offsets[0]).get_data();
-        const auto& outside_null_map_data = outside_null_map->get_data();
-        const bool has_outer_null =
-                std::ranges::any_of(outside_null_map_data, [](uint8_t is_null) { return is_null; });
+        const auto& null_map_data = outside_null_map->get_data();
+        const bool has_null =
+                std::ranges::any_of(null_map_data, [](uint8_t is_null) { return is_null; });
         bool has_hidden_nested_data = false;
-        if (!has_outer_null) {
+        if (!has_null) {
             // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
             // c_array1: [0,1,2,3,4,5,6,7,8,9]
             for (int i = 1; i < arguments.size(); ++i) {
@@ -184,14 +184,14 @@ public:
             std::vector<size_t> previous_offsets(arguments.size(), 0);
             for (size_t row = 0; row < count; ++row) {
                 const size_t first_row_size = first_array_offsets[row] - previous_offsets[0];
-                has_hidden_nested_data |= outside_null_map_data[row] != 0 && first_row_size > 0;
+                has_hidden_nested_data |= null_map_data[row] != 0 && first_row_size > 0;
                 for (int i = 1; i < arguments.size(); ++i) {
                     const auto& offsets =
                             assert_cast<const ColumnArray::ColumnOffsets&>(*lambda_offsets[i])
                                     .get_data();
                     const size_t row_size = offsets[row] - previous_offsets[i];
-                    has_hidden_nested_data |= outside_null_map_data[row] != 0 && row_size > 0;
-                    if (outside_null_map_data[row] == 0 && first_row_size != row_size) {
+                    has_hidden_nested_data |= null_map_data[row] != 0 && row_size > 0;
+                    if (null_map_data[row] == 0 && first_row_size != row_size) {
                         return Status::InvalidArgument(
                                 "in array map function, the input column size are not equal "
                                 "completely at row {}, 1st size is {}, {}th size is {}.",
@@ -213,7 +213,7 @@ public:
             size_t compacted_rows = 0;
             for (size_t row = 0; row < count; ++row) {
                 const size_t current_offset = first_array_offsets[row];
-                if (outside_null_map_data[row] == 0) {
+                if (null_map_data[row] == 0) {
                     const size_t row_size = current_offset - previous_offset;
                     compacted_rows += row_size;
                 }
