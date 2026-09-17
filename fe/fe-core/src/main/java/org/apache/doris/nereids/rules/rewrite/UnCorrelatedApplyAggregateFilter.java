@@ -25,6 +25,7 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -551,6 +552,14 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         CorrelatedAggregatePredicates predicates =
                 CorrelatedAggregatePredicates.of(apply, correlatedPredicate,
                         aggregation.filtersAboveTheAggregation());
+        // A global aggregate above an aggregate which can return no row for a correlation key
+        // returns a row for the empty input of that key, and neither rewrite can reproduce it (see
+        // observesTheEmptyInputOfAGlobalAggregate): report those subqueries instead of dropping the
+        // row and evaluating the subquery to false.
+        if (observesTheEmptyInputOfAGlobalAggregate(apply, aggregation, predicates)) {
+            throw new AnalysisException("Unsupported correlated subquery with grouping and/or aggregation "
+                    + apply.right());
+        }
         if (needCorrelatedAggregationOnOuter(apply, aggregation, correlatedPredicate, predicates)) {
             Plan aggregatedOuter = pullUpCorrelatedPredicateByAggregatingOuter(
                     apply, aggregation, unCorrelatedPredicate, predicates);
@@ -645,6 +654,84 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         List<NamedExpression> outputs = Lists.newArrayList(aggregate.getOutputExpressions());
         keys.forEach(key -> outputs.add((NamedExpression) key));
         return new LogicalAggregate<>(groupBy, outputs, aggregate.child(0));
+    }
+
+    /**
+     * Whether the aggregation of the subquery holds a global aggregate above an aggregate which can
+     * return no row for a correlation key, and the subquery observes the row which that global
+     * aggregate returns for the empty input.
+     *
+     * The rewrite adds the correlation keys to the group by of every aggregate of the chain (see
+     * pullUpCorrelatedFilter and withTheKeysInTheGroupBy), so a global aggregate above the
+     * aggregation of the domain produces no row at all for a key whose rows below it are missing,
+     * while the aggregation of the original subquery returns one row for that empty input. The
+     * subquery of
+     *
+     *     select t1.c1 from t1 where exists (select max(c) from (select count(*) as c from t2
+     *         where t2.c1 = t1.c1 group by t2.c2) x having max(c) is null)
+     *
+     * is true for the outer rows whose correlated domain is empty, because the max of the empty
+     * derived table is null and the HAVING clause keeps that row, while the rewrite produces no row
+     * for those keys and the semi join drops the outer row. Neither the aggregation of the inner
+     * side (a global aggregate above the aggregation of the domain would aggregate the rows of every
+     * correlation key together) nor the aggregation of the outer side (it groups that aggregate by
+     * the correlation key) is equivalent for such subqueries, so the caller reports them.
+     */
+    private static boolean observesTheEmptyInputOfAGlobalAggregate(LogicalApply<?, ?> apply,
+            TheAggregation aggregation, CorrelatedAggregatePredicates predicates) {
+        List<LogicalAggregate<?>> chain = aggregation.aggregationChain();
+        if (chain.get(chain.size() - 1).getGroupByExpressions().isEmpty()) {
+            // the aggregation of the domain returns a row for every correlation key, so no
+            // aggregate above it can observe an empty input
+            return false;
+        }
+        // the aggregates above the deepest one: the deepest one reads the rows of the domain of a
+        // correlation key, and the predicates of that domain may leave them empty
+        List<LogicalAggregate<?>> aboveTheDomain = chain.subList(0, chain.size() - 1);
+        if (apply.isExist()) {
+            // the row which the global aggregate returns for the empty input decides whether the
+            // EXISTS reports the outer row, unless the nodes above the aggregation reject that row
+            // (the predicates of the HAVING clause which reference the outer query were pulled into
+            // the apply, and they decide on the row of the empty input as well)
+            List<Expression> havingConjuncts = predicates.havingPredicates();
+            return aboveTheDomain.stream()
+                    .filter(aggregate -> aggregate.getGroupByExpressions().isEmpty())
+                    .anyMatch(aggregate -> havingMayHoldWithEmptyInput(aggregate,
+                            Sets.newLinkedHashSet(havingConjuncts)));
+        }
+        if (apply.isScalar()) {
+            // A scalar subquery exposes the output of the aggregation of its domain: the join of
+            // the rewrite reports a null for the keys whose rows below the aggregation are missing,
+            // and SubqueryToApply repairs that null with the nvl of the value which the top
+            // aggregate returns for an empty input. A global aggregate below the top aggregate
+            // changes the value which the top one computes out of the row of the empty input.
+            boolean hasAGlobalAggregateBelowTheTop = aboveTheDomain.stream().skip(1)
+                    .anyMatch(aggregate -> aggregate.getGroupByExpressions().isEmpty());
+            return hasAGlobalAggregateBelowTheTop
+                    && (returnsAValueForAnEmptyInput(chain.get(0)) || aboveTheDomain.stream().skip(1)
+                            .anyMatch(UnCorrelatedApplyAggregateFilter::returnsAValueForAnEmptyInput));
+        }
+        // An IN subquery compares the outer value with the value of the aggregation of its domain:
+        // the value which a global aggregate returns for an empty input can match the outer value,
+        // while the rewrite has no row to compare it with (a null value of the aggregation does not
+        // match either, so an aggregation of nullable aggregates alone is left alone).
+        return aboveTheDomain.stream()
+                .anyMatch(UnCorrelatedApplyAggregateFilter::returnsAValueForAnEmptyInput);
+    }
+
+    /**
+     * Whether one of the aggregates of the aggregation returns a value of its own for an empty
+     * input (the count 0 or the empty array of an array_agg, for example), instead of the null
+     * which the nullable aggregations return for it.
+     */
+    private static boolean returnsAValueForAnEmptyInput(LogicalAggregate<?> aggregate) {
+        for (NamedExpression output : aggregate.getOutputExpressions()) {
+            if (output.collect(AggregateFunction.class::isInstance).stream()
+                    .anyMatch(function -> function instanceof NotNullableAggregateFunction)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1432,7 +1519,14 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         Slot matchMarker = null;
         if (keepEmptyDomain) {
             Alias marker = new Alias(BooleanLiteral.TRUE, CORRELATION_MATCH_MARKER);
-            matchMarker = marker.toSlot();
+            // The column is null for the rows which the left outer join keeps for an empty
+            // correlated domain, so the join reports it as a nullable column (see
+            // JoinUtils.getJoinOutput, which makes the slots of the side which a left outer join
+            // may fill with nulls nullable), and the aggregates above the join which read it have
+            // to use that nullable slot: a reference to the not-nullable slot of the projection
+            // below the join makes AdjustNullable convert it (and that conversion is reported as an
+            // error while fe_debug is set).
+            matchMarker = marker.toSlot().withNullable(true);
             List<NamedExpression> projects = Lists.newArrayList(marker);
             projects.addAll(inner.getOutput());
             inner = new LogicalProject<>(projects, inner);
@@ -1615,6 +1709,10 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 Expression substituted = emptyValues.isEmpty() ? simpleConjunct
                         : ExpressionUtils.replace(simpleConjunct, emptyValues);
                 Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(substituted);
+                // A comparison of a null with any other value is null as well, which the folding of
+                // the expressions does not evaluate, and the predicate which holds it rejects the
+                // row of the empty input: the comparison is replaced by a null boolean first.
+                folded = FoldConstantRuleOnFE.evaluateWithoutContext(replaceComparisonsWithNull(folded));
                 if (folded instanceof Literal && !BooleanLiteral.TRUE.equals(folded)) {
                     // false or null: this conjunct rejects the row of the empty input, no matter what
                     // the other conjuncts evaluate to, even the ones whose value is unknown
@@ -1623,6 +1721,25 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             }
         }
         return true;
+    }
+
+    /**
+     * Replace every comparison which has a null operand by a null boolean (the null safe equality
+     * is the exception: it evaluates the comparison of a null with a null to true and the
+     * comparison of a null with any other value to false).
+     */
+    private static Expression replaceComparisonsWithNull(Expression expression) {
+        return expression.rewriteDownShortCircuit(node -> {
+            if (!(node instanceof ComparisonPredicate) || node instanceof NullSafeEqual) {
+                return node;
+            }
+            for (Expression child : node.children()) {
+                if (child.isNullLiteral()) {
+                    return NullLiteral.BOOLEAN_INSTANCE;
+                }
+            }
+            return node;
+        });
     }
 
     /**
