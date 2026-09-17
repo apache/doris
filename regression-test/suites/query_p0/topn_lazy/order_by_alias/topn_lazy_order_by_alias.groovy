@@ -128,5 +128,75 @@ suite("topn_lazy_order_by_alias") {
         from topn_lazy_order_by_alias_tbl where sort_col > 0 order by x limit 1;
     """
 
+    // A direct filter predicate that no alias reads is evaluated through the index and fetched by the
+    // scan for the predicate, so it stays lazy above the TopN while the alias feeding the sort key keeps
+    // its base column materialized.
+    qt_index_mode_filter_predicate_lazy_plan """
+        explain shape plan
+        select lazy_col as x, sort_col, other_col
+        from topn_lazy_order_by_alias_tbl where sort_col > 0 order by x limit 1;
+    """
+
+    order_qt_index_mode_filter_predicate_lazy_result """
+        select lazy_col as x, sort_col, other_col
+        from topn_lazy_order_by_alias_tbl where sort_col > 0 order by x limit 1;
+    """
+
     sql """ set topn_lazy_materialization_using_index = false; """
+
+    sql """
+        drop table if exists topn_lazy_order_by_alias_arr_tbl;
+        create table topn_lazy_order_by_alias_arr_tbl (
+            sort_col int,
+            lazy_col int,
+            other_col int,
+            arr array<int>
+        ) duplicate key(sort_col)
+        distributed by hash(sort_col) buckets 1
+        properties('replication_num' = '1');
+    """
+    sql """
+        insert into topn_lazy_order_by_alias_arr_tbl values (3,30,300,[3]),(1,10,100,[1,10]),(2,20,200,[2,20]);
+    """
+
+    // The generate conjunct is evaluated by the generate itself, so the alias it reads must keep its base
+    // column materialized: PhysicalGenerate exposes only its generators through getInputSlots(), otherwise
+    // lazy_col is pruned from the scan while `lazy_col AS x` below the generate still reads it. Only
+    // other_col, which nothing below the TopN reads, is fetched lazily.
+    qt_lateral_generate_conjunct_plan """
+        explain shape plan
+        select s.y, s.w from (
+            select lazy_col as x, lazy_col as y, other_col as w, arr, sort_col
+            from topn_lazy_order_by_alias_arr_tbl) s
+        left join lateral unnest(s.arr) tt(tag) on tt.tag = s.x
+        order by s.sort_col limit 1;
+    """
+
+    order_qt_lateral_generate_conjunct_result """
+        select s.y, s.w from (
+            select lazy_col as x, lazy_col as y, other_col as w, arr, sort_col
+            from topn_lazy_order_by_alias_arr_tbl) s
+        left join lateral unnest(s.arr) tt(tag) on tt.tag = s.x
+        order by s.sort_col limit 1;
+    """
+
+    // The conjunct reads the bare lazy_col, which the same Project also aliases as `y`. Probing `y`
+    // resolves through that alias to lazy_col, and no operator below the TopN stops the probe for the bare
+    // slot, so lazy_col has to stay materialized for the conjunct as well.
+    qt_lateral_generate_bare_conjunct_plan """
+        explain shape plan
+        select s.y, s.w from (
+            select lazy_col as y, other_col as w, arr, sort_col, lazy_col
+            from topn_lazy_order_by_alias_arr_tbl) s
+        left join lateral unnest(s.arr) tt(tag) on tt.tag = s.lazy_col
+        order by s.sort_col limit 1;
+    """
+
+    order_qt_lateral_generate_bare_conjunct_result """
+        select s.y, s.w from (
+            select lazy_col as y, other_col as w, arr, sort_col, lazy_col
+            from topn_lazy_order_by_alias_arr_tbl) s
+        left join lateral unnest(s.arr) tt(tag) on tt.tag = s.lazy_col
+        order by s.sort_col limit 1;
+    """
 }

@@ -37,17 +37,20 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -319,10 +322,22 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
      * longer produces and the final {@link Validator} rejects it. The same happens when an identity alias
      * is consumed by a filter, a join condition or any other operator that stays below the TopN.
      *
-     * <p>Therefore every slot consumed below this TopN (its own order keys, the expressions of every
-     * descendant operator and the slots that are required materialized already) is resolved through its
-     * identity alias chain. Project expressions are handled by {@link #collectProjectExprInputSlots},
-     * which knows that a transparent {@code Alias(Slot)} output may still be fetched lazily.
+     * <p>Therefore the slots consumed below this TopN (its own order keys, the expressions of every
+     * descendant operator and the slots that are required materialized already) are resolved through the
+     * identity alias chains that can reach them, which means the consumed slots that take part in an alias
+     * chain: the alias outputs themselves and the slots an alias reads. The slot an alias reads has to be
+     * closed as well, because probing an output that aliases it resolves to that slot without passing the
+     * operator that consumes it, for example a generate conjunct that reads the bare column the same
+     * Project also aliases.
+     *
+     * <p>A consumed slot that no alias reads needs no entry here: an operator stops the probe for the
+     * slots it consumes itself, so such a slot is already classified materialized when it is probed, and
+     * forcing it materialized would only lose laziness. In particular the predicate slots of an index
+     * filter stay lazy, which is the documented behaviour of
+     * {@link MaterializeProbeVisitor#visitPhysicalFilter} and of
+     * {@link LazySlotPruning#visitPhysicalFilter}. Project expressions are handled by
+     * {@link #collectProjectExprInputSlots}, which knows that a transparent {@code Alias(Slot)} output may
+     * still be fetched lazily.
      *
      * <p>A set operation is a boundary: {@link MaterializeProbeVisitor} never reports a lazy source for a
      * slot produced by a set operation, and {@link #collectIdentityAliasMap} stops at it, so the aliases
@@ -333,6 +348,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             Set<Slot> requiredMaterializedSlots) {
         Map<Slot, Slot> aliasToChild = new HashMap<>();
         collectIdentityAliasMap(topN.child(), aliasToChild);
+        Set<Slot> aliasSources = new HashSet<>(aliasToChild.values());
 
         Set<Slot> consumedSlots = new HashSet<>();
         for (OrderKey orderKey : topN.getOrderKeys()) {
@@ -341,7 +357,9 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         collectConsumedSlots(topN.child(), consumedSlots);
         consumedSlots.addAll(requiredMaterializedSlots);
         for (Slot slot : consumedSlots) {
-            collectAliasChain(slot, aliasToChild, requiredMaterializedSlots);
+            if (aliasToChild.containsKey(slot) || aliasSources.contains(slot)) {
+                collectAliasChain(slot, aliasToChild, requiredMaterializedSlots);
+            }
         }
     }
 
@@ -355,6 +373,15 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             // Project expressions are covered by collectProjectExprInputSlots, which keeps the input of a
             // transparent Alias(Slot) lazy because that alias output may still be fetched later.
             consumedSlots.addAll(plan.getInputSlots());
+        }
+        if (plan instanceof PhysicalGenerate) {
+            // PhysicalGenerate.getExpressions() exposes the generators only, while the lateral conjuncts
+            // are preserved by the implementation rule and executed by the generate itself. Generator
+            // outputs are produced by the generate, never by the child, exactly like LogicalGenerate.
+            PhysicalGenerate<?> generate = (PhysicalGenerate<?>) plan;
+            consumedSlots.addAll(Sets.difference(
+                    PlanUtils.fastGetInputSlots(generate.getConjuncts()),
+                    new HashSet<>(generate.getGeneratorOutput())));
         }
         for (Plan child : plan.children()) {
             collectConsumedSlots(child, consumedSlots);

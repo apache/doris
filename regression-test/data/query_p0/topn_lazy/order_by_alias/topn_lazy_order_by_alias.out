@@ -60,3 +60,47 @@ PhysicalResultSink
 -- !index_mode_selective_lazy_result --
 10	10	100
 
+-- !index_mode_filter_predicate_lazy_plan --
+PhysicalResultSink
+--PhysicalProject[topn_lazy_order_by_alias_tbl.other_col, topn_lazy_order_by_alias_tbl.sort_col, x]
+----PhysicalLazyMaterialize[materializedSlots:(x) lazySlots:(topn_lazy_order_by_alias_tbl.other_col,topn_lazy_order_by_alias_tbl.sort_col)]
+------PhysicalTopN[MERGE_SORT]
+--------PhysicalDistribute[DistributionSpecGather]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalProject[regression_test_query_p0_topn_lazy_order_by_alias.__DORIS_GLOBAL_ROWID_COL__topn_lazy_order_by_alias_tbl, topn_lazy_order_by_alias_tbl.lazy_col AS `x`]
+--------------filter((topn_lazy_order_by_alias_tbl.sort_col > 0))
+----------------PhysicalLazyMaterializeOlapScan[topn_lazy_order_by_alias_tbl lazySlots:(topn_lazy_order_by_alias_tbl.other_col)]
+
+-- !index_mode_filter_predicate_lazy_result --
+10	1	100
+
+-- !lateral_generate_conjunct_plan --
+PhysicalResultSink
+--PhysicalProject[s.w, s.y]
+----PhysicalLazyMaterialize[materializedSlots:(s.y,s.sort_col) lazySlots:(s.w)]
+------PhysicalTopN[MERGE_SORT]
+--------PhysicalDistribute[DistributionSpecGather]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalProject[regression_test_query_p0_topn_lazy_order_by_alias.__DORIS_GLOBAL_ROWID_COL__topn_lazy_order_by_alias_arr_tbl, s.sort_col, s.y]
+--------------PhysicalGenerate
+----------------PhysicalProject[regression_test_query_p0_topn_lazy_order_by_alias.__DORIS_GLOBAL_ROWID_COL__topn_lazy_order_by_alias_arr_tbl, s.arr, s.sort_col, topn_lazy_order_by_alias_arr_tbl.lazy_col AS `x`, topn_lazy_order_by_alias_arr_tbl.lazy_col AS `y`]
+------------------PhysicalLazyMaterializeOlapScan[topn_lazy_order_by_alias_arr_tbl lazySlots:(topn_lazy_order_by_alias_arr_tbl.other_col)]
+
+-- !lateral_generate_conjunct_result --
+10	100
+
+-- !lateral_generate_bare_conjunct_plan --
+PhysicalResultSink
+--PhysicalProject[s.w, s.y]
+----PhysicalLazyMaterialize[materializedSlots:(s.y,s.sort_col) lazySlots:(s.w)]
+------PhysicalTopN[MERGE_SORT]
+--------PhysicalDistribute[DistributionSpecGather]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalProject[regression_test_query_p0_topn_lazy_order_by_alias.__DORIS_GLOBAL_ROWID_COL__topn_lazy_order_by_alias_arr_tbl, s.sort_col, s.y]
+--------------PhysicalGenerate
+----------------PhysicalProject[regression_test_query_p0_topn_lazy_order_by_alias.__DORIS_GLOBAL_ROWID_COL__topn_lazy_order_by_alias_arr_tbl, s.arr, s.lazy_col, s.sort_col, topn_lazy_order_by_alias_arr_tbl.lazy_col AS `y`]
+------------------PhysicalLazyMaterializeOlapScan[topn_lazy_order_by_alias_arr_tbl lazySlots:(topn_lazy_order_by_alias_arr_tbl.other_col)]
+
+-- !lateral_generate_bare_conjunct_result --
+10	100
+
