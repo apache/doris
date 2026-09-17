@@ -569,7 +569,7 @@ public class PaimonConnectorMetadataPartitionTest {
     }
 
     @Test
-    public void duplicatePartitionNamesFailLoud() {
+    public void duplicatePartitionNamesDisableDorisPruning() {
         List<String> cols = Collections.singletonList("part");
         FakePaimonTable table = stringTable(cols);
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
@@ -578,10 +578,10 @@ public class PaimonConnectorMetadataPartitionTest {
                 partition(Collections.singletonMap("part", "same"), 1L, 1L, 1L),
                 partition(Collections.singletonMap("part", "same"), 2L, 2L, 2L));
 
-        // WHY: two genuinely-duplicate remote partition specs must fail loud, not silently collapse to one
-        // via a later name->item map-put. MUTATION: dropping the seenPartitionNames guard -> no throw -> red.
-        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class,
-                () -> metadataWith(ops).listPartitions(null, stringHandle(table, cols), Optional.empty()));
-        Assertions.assertTrue(ex.getMessage().contains("Duplicate Paimon partition name"));
+        // WHY: the path-oriented partition API cannot distinguish typed values that render to the
+        // same physical name. Returning either one would make Doris prune rows incorrectly, so an
+        // ambiguous set disables Doris-side pruning and delegates partition selection to Paimon.
+        Assertions.assertTrue(metadataWith(ops)
+                .listPartitions(null, stringHandle(table, cols), Optional.empty()).isEmpty());
     }
 }

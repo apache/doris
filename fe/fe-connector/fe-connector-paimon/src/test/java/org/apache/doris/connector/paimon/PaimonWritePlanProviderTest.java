@@ -19,10 +19,12 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 
+import org.apache.paimon.CoreOptions;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -55,6 +57,25 @@ public class PaimonWritePlanProviderTest {
         Assertions.assertEquals(
                 Arrays.asList(PaimonWritePlanProvider.ROW_KIND_COLUMN, "id", "name", "score"),
                 PaimonWritePlanProvider.outputColumnNames(handle));
+    }
+
+    @Test
+    public void partialPrimaryKeyWriteRequiresPartialUpdateMergeEngine() {
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> PaimonWritePlanProvider.validateWriteColumnsForMergeEngine(
+                        2, 3, true, CoreOptions.MergeEngine.FIRST_ROW));
+
+        Assertions.assertDoesNotThrow(
+                () -> PaimonWritePlanProvider.validateWriteColumnsForMergeEngine(
+                        2, 3, true, CoreOptions.MergeEngine.PARTIAL_UPDATE));
+    }
+
+    @Test
+    public void fullOrAppendOnlyWriteDoesNotRequirePartialUpdateMergeEngine() {
+        Assertions.assertDoesNotThrow(() -> PaimonWritePlanProvider.validateWriteColumnsForMergeEngine(
+                3, 3, true, CoreOptions.MergeEngine.FIRST_ROW));
+        Assertions.assertDoesNotThrow(() -> PaimonWritePlanProvider.validateWriteColumnsForMergeEngine(
+                2, 3, false, CoreOptions.MergeEngine.FIRST_ROW));
     }
 
     private static List<ConnectorColumn> columns(String... names) {
