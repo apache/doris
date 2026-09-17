@@ -24,6 +24,9 @@ suite("paimon_timestamp_types", "p0,external") {
     }
 
     def originalTimeZone = sql("SELECT @@time_zone")[0][0]
+    def originalSettings = ["enable_file_scanner_v2", "force_jni_scanner"].collectEntries { name ->
+        [(name): sql("show variables like '${name}'")[0][1]]
+    }
     try {
         String catalog_name = "paimon_timestamp_types"
         String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
@@ -101,6 +104,33 @@ suite("paimon_timestamp_types", "p0,external") {
 
         }
 
+        def precisionEvolutionQuery = { table ->
+            return """
+                select id, cast(ts as string), microsecond(ts)
+                from ${table}
+                order by id
+            """
+        }
+
+        sql """set force_jni_scanner=false"""
+        sql """set enable_file_scanner_v2=false"""
+        order_qt_precision_evolution_v1_parquet precisionEvolutionQuery(
+                "timestamp_precision_evolution_parquet")
+        order_qt_precision_evolution_v1_orc precisionEvolutionQuery(
+                "timestamp_precision_evolution_orc")
+
+        sql """set enable_file_scanner_v2=true"""
+        order_qt_precision_evolution_v2_parquet precisionEvolutionQuery(
+                "timestamp_precision_evolution_parquet")
+        order_qt_precision_evolution_v2_orc precisionEvolutionQuery(
+                "timestamp_precision_evolution_orc")
+
+        sql """set force_jni_scanner=true"""
+        order_qt_precision_evolution_jni_parquet precisionEvolutionQuery(
+                "timestamp_precision_evolution_parquet")
+        order_qt_precision_evolution_jni_orc precisionEvolutionQuery(
+                "timestamp_precision_evolution_orc")
+
         sql """set force_jni_scanner=true"""
         test_scale()
         // test_ltz_ntz("test_timestamp_ntz_ltz_orc")
@@ -115,7 +145,8 @@ suite("paimon_timestamp_types", "p0,external") {
         test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_orc", "2024-01-02 02:12:34.123456")
         test_ltz_ntz_simple("test_timestamp_ntz_ltz_simple_parquet", "2024-01-02 10:12:34.123456")
     } finally {
-        sql """set force_jni_scanner=false"""
+        sql """set enable_file_scanner_v2=${originalSettings.enable_file_scanner_v2}"""
+        sql """set force_jni_scanner=${originalSettings.force_jni_scanner}"""
         sql """set time_zone = '${originalTimeZone}'"""
     }
 
@@ -353,5 +384,29 @@ insert into test_timestamp_ntz_ltz_simple_parquet values (
     ARRAY[timestamp '2024-01-01 10:12:34.123456', timestamp '2024-01-02 10:12:34.123456', timestamp '2024-01-03 10:12:34.123456'],
     ROW(timestamp '2024-01-01 10:12:34.123456', timestamp '2024-01-02 10:12:34.123456')
 );
+
+create table timestamp_precision_evolution_parquet (
+    id int,
+    ts timestamp(6)
+) with ('file.format' = 'parquet');
+
+insert into timestamp_precision_evolution_parquet values
+    (1, timestamp '2025-01-01 00:00:01.600000'),
+    (2, timestamp '2025-01-01 00:00:02.999999'),
+    (3, timestamp '2025-01-01 00:00:03.400000');
+
+alter table timestamp_precision_evolution_parquet modify ts timestamp(0);
+
+create table timestamp_precision_evolution_orc (
+    id int,
+    ts timestamp(6)
+) with ('file.format' = 'orc');
+
+insert into timestamp_precision_evolution_orc values
+    (1, timestamp '2025-01-01 00:00:01.600000'),
+    (2, timestamp '2025-01-01 00:00:02.999999'),
+    (3, timestamp '2025-01-01 00:00:03.400000');
+
+alter table timestamp_precision_evolution_orc modify ts timestamp(0);
 
 */

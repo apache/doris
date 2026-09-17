@@ -24,14 +24,46 @@
 #include <ostream>
 
 #include "common/status.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
+#include "core/column/column_nullable.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 
 namespace doris::format {
+
+static bool can_truncate_datetimev2_precision(const DataTypePtr& source_type,
+                                              const DataTypePtr& target_type) {
+    const auto source = remove_nullable(source_type);
+    const auto target = remove_nullable(target_type);
+    return source->get_primitive_type() == TYPE_DATETIMEV2 &&
+           target->get_primitive_type() == TYPE_DATETIMEV2 &&
+           source->get_scale() > target->get_scale();
+}
+
+static void truncate_datetimev2_precision(ColumnPtr* column, const DataTypePtr& target_type) {
+    DORIS_CHECK(column != nullptr);
+    auto mutable_column = IColumn::mutate(std::move(*column));
+    IColumn* nested_column = mutable_column.get();
+    if (is_column_nullable(*nested_column)) {
+        nested_column = static_cast<ColumnNullable*>(nested_column)->get_nested_column_ptr().get();
+    }
+    auto& data = assert_cast<ColumnDateTimeV2&>(*nested_column).get_data();
+    const auto scale = remove_nullable(target_type)->get_scale();
+    uint32_t divisor = 1;
+    for (uint32_t i = scale; i < 6; ++i) {
+        divisor *= 10;
+    }
+    for (auto& value : data) {
+        value.unchecked_set_time_unit<TimeUnit::MICROSECOND>(value.microsecond() / divisor *
+                                                             divisor);
+    }
+    *column = std::move(mutable_column);
+}
 
 Status Cast::prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
@@ -116,6 +148,13 @@ Status Cast::_do_execute(VExprContext* context, const Block* block, const Select
     ColumnPtr tmp_arg_column;
     RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, tmp_arg_column));
     auto arg_type = _children[0]->execute_type(block);
+    if (_truncate_datetimev2_precision && can_truncate_datetimev2_precision(arg_type, _data_type)) {
+        auto result = _data_type->create_column();
+        result->insert_range_from(*tmp_arg_column, 0, count);
+        result_column = std::move(result);
+        truncate_datetimev2_precision(&result_column, _data_type);
+        return Status::OK();
+    }
     temp_block.insert({tmp_arg_column, arg_type, _children[0]->expr_name()});
     args[0] = 0;
 

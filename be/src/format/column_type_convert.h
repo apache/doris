@@ -152,6 +152,37 @@ class ConsistentConverter : public ColumnTypeConverter {
     bool is_consistent() override { return true; }
 };
 
+class DateTimeV2PrecisionConverter : public ColumnTypeConverter {
+public:
+    explicit DateTimeV2PrecisionConverter(UInt32 to_scale) : _to_scale(to_scale) {}
+
+    // NOLINTNEXTLINE(readability-make-member-function-const): base virtual method is non-const.
+    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
+        using ColumnType = typename PrimitiveTypeTraits<TYPE_DATETIMEV2>::ColumnType;
+
+        ColumnPtr from_col = remove_nullable(src_col);
+        IColumn* to_col = get_mutable_inner_col(dst_col);
+        const auto& src_data = static_cast<const ColumnType*>(from_col.get())->get_data();
+        const size_t start_idx = to_col->size();
+        to_col->resize(start_idx + src_data.size());
+        auto& dst_data = static_cast<ColumnType&>(*to_col).get_data();
+        uint32_t divisor = 1;
+        for (UInt32 i = _to_scale; i < 6; ++i) {
+            divisor *= 10;
+        }
+        for (size_t i = 0; i < src_data.size(); ++i) {
+            auto value = src_data[i];
+            value.unchecked_set_time_unit<TimeUnit::MICROSECOND>(value.microsecond() / divisor *
+                                                                 divisor);
+            dst_data[start_idx + i] = value;
+        }
+        return Status::OK();
+    }
+
+private:
+    UInt32 _to_scale;
+};
+
 /**
  * Unsupported type change, eg. from int to date
  */

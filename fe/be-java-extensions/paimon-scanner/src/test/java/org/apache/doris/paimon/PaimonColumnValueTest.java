@@ -222,6 +222,12 @@ public class PaimonColumnValueTest {
                 LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999_999_999),
                 timestampValue.getTimeStampTz());
 
+        PaimonColumnValue secondsPrecisionValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromEpochMillis(1_735_689_601_600L)), 0,
+                ColumnType.parseType("t", "datetimev2(0)"), new TimestampType(0), "UTC");
+        Assertions.assertEquals(
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1), secondsPrecisionValue.getDateTime());
+
         PaimonColumnValue localZonedValue = new PaimonColumnValue(
                 GenericRow.of(Timestamp.fromInstant(Instant.parse("2024-03-10T10:30:00.123456789Z"))), 0,
                 dorisTimestampType, new LocalZonedTimestampType(9), "America/Los_Angeles");

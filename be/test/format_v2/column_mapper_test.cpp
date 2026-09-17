@@ -31,6 +31,7 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -3578,6 +3579,40 @@ TEST_F(ColumnMapperCastTest, ColumnMapperBuildsCastProjectionForTypeMismatch) {
     EXPECT_EQ(result_column.get_data()[0], 11);
     EXPECT_EQ(result_column.get_data()[1], 22);
 
+    mapping.projection->close();
+}
+
+TEST_F(ColumnMapperCastTest, PaimonTimestampPrecisionNarrowingTruncatesWithoutRounding) {
+    const auto file_type = std::make_shared<DataTypeDateTimeV2>(6);
+    const auto table_type = std::make_shared<DataTypeDateTimeV2>(0);
+    const std::vector<ColumnDefinition> table_schema = {name_col("ts", table_type)};
+    const std::vector<ColumnDefinition> file_schema = {name_col("ts", file_type, 0)};
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME,
+                              .truncate_datetimev2_precision_for_paimon = true});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    EXPECT_TRUE(mapper.mappings()[0].truncate_datetimev2_precision);
+    EXPECT_EQ(mapper.mappings()[0].filter_conversion, FilterConversionType::FINALIZE_ONLY);
+
+    FileScanRequest file_request;
+    ASSERT_TRUE(mapper.create_scan_request({}, table_schema, &file_request).ok());
+    const auto& mapping = mapper.mappings()[0];
+    ASSERT_NE(mapping.projection, nullptr);
+
+    auto source = ColumnDateTimeV2::create();
+    DateV2Value<DateTimeV2ValueType> value;
+    value.unchecked_set_time(2025, 1, 1, 0, 0, 1, 600000);
+    source->get_data().push_back(value);
+    Block block;
+    block.insert({std::move(source), file_type, "ts"});
+    int result_column_id = -1;
+    ASSERT_TRUE(prepare_open_execute(mapping.projection.get(), &block, &result_column_id).ok());
+
+    const auto& result =
+            assert_cast<const ColumnDateTimeV2&>(*block.get_by_position(result_column_id).column);
+    ASSERT_EQ(result.size(), 1);
+    EXPECT_EQ(result.get_data()[0].second(), 1);
+    EXPECT_EQ(result.get_data()[0].microsecond(), 0);
     mapping.projection->close();
 }
 

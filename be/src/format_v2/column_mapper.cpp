@@ -1549,6 +1549,9 @@ static FilterConversionType direct_filter_conversion(const ColumnMapping& mappin
     if (type_contains_varbinary(mapping.table_type)) {
         return FilterConversionType::FINALIZE_ONLY;
     }
+    if (mapping.truncate_datetimev2_precision) {
+        return FilterConversionType::FINALIZE_ONLY;
+    }
     const auto table_type = remove_nullable(mapping.table_type);
     const auto file_type = remove_nullable(mapping.file_type);
     // TIMESTAMPTZ scale mismatch is intentionally materialized as pass-through: a SQL cast rounds
@@ -2183,7 +2186,7 @@ static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position
         return;
     }
 
-    auto expr = Cast::create_shared(mapping->table_type);
+    auto expr = Cast::create_shared(mapping->table_type, mapping->truncate_datetimev2_precision);
     expr->add_child(VSlotRef::create_shared(cast_set<int>(block_position.value()),
                                             cast_set<int>(block_position.value()), -1,
                                             mapping->file_type, mapping->file_column_name));
@@ -2898,6 +2901,12 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->projected_file_children = file_field.children;
     mapping->timestamp_is_adjusted_to_utc = file_field.timestamp_is_adjusted_to_utc;
     mapping->file_type = file_field.type;
+    const auto file_type = remove_nullable(mapping->file_type);
+    const auto table_type = remove_nullable(mapping->table_type);
+    mapping->truncate_datetimev2_precision = _options.truncate_datetimev2_precision_for_paimon &&
+                                             file_type->get_primitive_type() == TYPE_DATETIMEV2 &&
+                                             table_type->get_primitive_type() == TYPE_DATETIMEV2 &&
+                                             file_type->get_scale() > table_type->get_scale();
     // Access paths are relative to the Variant terminal, so recursive complex mappings must carry
     // them instead of leaving them only on the top-level table column.
     mapping->variant_access_paths = table_column.variant_access_paths;
