@@ -44,7 +44,8 @@ public class ConnectPoolMgrTest {
     @Test
     public void testBothProtocolsShareThePoolsLimit() {
         Env env = ConnectPoolTestSupport.envAllowing(100);
-        ConnectPoolMgr pool = new ConnectPoolMgr(2);
+        // The sub-quota is the whole pool here: only the pool's limit is in play.
+        ConnectPoolMgr pool = new ConnectPoolMgr(2, 2);
 
         ConnectContext mysql = registered(pool, ConnectPoolTestSupport.mysqlConnection(env, ALICE), 1);
         ConnectContext flight = registered(pool, ConnectPoolTestSupport.flightSession(env, BOB, "token-2"), 2);
@@ -106,18 +107,36 @@ public class ConnectPoolMgrTest {
         Assertions.assertEquals(2, pool.getConnectionNum());
     }
 
+    // Unset, the sub-quota is half of the pool's limit: Flight sessions, which their clients mostly
+    // never close, cannot take the half MySQL clients connect through. Set, it never exceeds the limit.
     @Test
-    public void testTheFlightSubQuotaFollowsThePoolsLimitUnlessSetAndNeverExceedsIt() {
-        Assertions.assertEquals(10, ConnectPoolMgr.effectiveFlightMaxConnections(10, -1));
-        Assertions.assertEquals(10, new ConnectPoolMgr(10).getFlightMaxConnections());
+    public void testTheFlightSubQuotaIsHalfThePoolsLimitUnlessSetAndNeverExceedsIt() {
+        Assertions.assertEquals(5, ConnectPoolMgr.effectiveFlightMaxConnections(10, -1));
+        Assertions.assertEquals(5, new ConnectPoolMgr(10).getFlightMaxConnections());
+        Assertions.assertEquals(512, ConnectPoolMgr.effectiveFlightMaxConnections(1024, -1));
+        Assertions.assertEquals(0, ConnectPoolMgr.effectiveFlightMaxConnections(1, -1));
         Assertions.assertEquals(3, ConnectPoolMgr.effectiveFlightMaxConnections(10, 3));
+        Assertions.assertEquals(10, ConnectPoolMgr.effectiveFlightMaxConnections(10, 10));
         Assertions.assertEquals(10, ConnectPoolMgr.effectiveFlightMaxConnections(10, 4096));
+
+        // The default half is enforced like any sub-quota: the sixth Flight session of a pool of ten is
+        // refused while MySQL connections still get in.
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectPoolMgr pool = new ConnectPoolMgr(10);
+        for (int i = 1; i <= 5; i++) {
+            registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-" + i), i);
+        }
+        Assertions.assertEquals(5, pool.registerConnection(ConnectPoolTestSupport.flightSession(env, BOB, "b")));
+        registered(pool, ConnectPoolTestSupport.mysqlConnection(env, BOB), 6);
+        Assertions.assertEquals(6, pool.getConnectionNum());
+        Assertions.assertEquals(5, pool.getFlightConnectionNum());
     }
 
     @Test
     public void testTheRefusalReadsTheSameForEveryProtocol() {
         Env env = ConnectPoolTestSupport.envAllowing(5);
-        ConnectPoolMgr pool = new ConnectPoolMgr(10);
+        // A sub-quota equal to the pool's limit and no Flight session in the pool: the plain sentence.
+        ConnectPoolMgr pool = new ConnectPoolMgr(10, 10);
         Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 10",
                 pool.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 10));
         Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 10",
@@ -135,12 +154,12 @@ public class ConnectPoolMgrTest {
         Assertions.assertEquals(
                 "Reach limit of connections. Total: 10, User: 5, Current: 2, Arrow Flight SQL: 2 (current: 1)",
                 quota.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 2));
-        ConnectPoolMgr following = new ConnectPoolMgr(10);
-        registered(following, ConnectPoolTestSupport.flightSession(env, BOB, "b"), 1);
-        registered(following, ConnectPoolTestSupport.mysqlConnection(env, BOB), 2);
+        ConnectPoolMgr halved = new ConnectPoolMgr(10);
+        registered(halved, ConnectPoolTestSupport.flightSession(env, BOB, "b"), 1);
+        registered(halved, ConnectPoolTestSupport.mysqlConnection(env, BOB), 2);
         Assertions.assertEquals(
-                "Reach limit of connections. Total: 10, User: 5, Current: 10, Arrow Flight SQL: 10 (current: 1)",
-                following.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 10));
+                "Reach limit of connections. Total: 10, User: 5, Current: 10, Arrow Flight SQL: 5 (current: 1)",
+                halved.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 10));
 
         // A sub-quota tighter than the pool's limit is named to a Flight client even while no
         // Flight session is in the pool: it is the limit that refused it.

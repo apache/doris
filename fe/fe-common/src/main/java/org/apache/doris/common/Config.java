@@ -760,7 +760,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = "Maximum number of connections per FE. MySQL connections and Arrow Flight SQL "
             + "sessions share this one pool (see arrow_flight_max_connections for the share Flight sessions "
-            + "may take of it).")
+            + "may take of it: half by default).")
     public static int qe_max_connection = 1024;
 
     @ConfField(mutable = true, description = "Colocate join PlanFragment instance memory limit penalty factor. The "
@@ -2652,20 +2652,20 @@ public class Config extends ConfigBase {
 
     @ConfField(description = "Arrow Flight SQL sessions share the one connection pool with MySQL connections:"
             + " both count against qe_max_connection and the user's max_user_connections. This is the sub-quota of"
-            + " Arrow Flight SQL sessions within that pool: -1 (the default) follows qe_max_connection, and an"
-            + " explicit value never exceeds qe_max_connection (a larger one is capped, with a warning at startup)."
-            + " Mind how a Flight session ends: with CloseSession, a KILL CONNECTION from another connection,"
-            + " wait_timeout, or the expiry or eviction of its bearer token (arrow_flight_token_alive_time_second;"
-            + " the token cache, see below; and per user at most max_user_connections / 2 tokens). Most Flight"
-            + " clients never send CloseSession, so a session whose client has gone stays in the pool until"
-            + " wait_timeout (8 hours by default) or its token's expiry (24 hours by default), whichever comes"
-            + " first, and with the default -1 such sessions can fill the whole pool and refuse every MySQL login"
-            + " until then. On an FE that serves both protocols, set this explicitly below qe_max_connection to"
-            + " keep room for MySQL connections. The bearer token cache is sized to this sub-quota (capped by"
-            + " arrow_flight_token_cache_size), so the Flight limit shows as the eviction of the oldest token and"
-            + " its session rather than as a refusal. -1 is accepted from this version on: an older FE that serves"
-            + " Arrow Flight SQL exits at startup with -1 in fe.conf; remove the setting or set a positive value"
-            + " before a downgrade.")
+            + " Arrow Flight SQL sessions within that pool: -1 (the default) is half of qe_max_connection (512 with"
+            + " the default pool of 1024), and an explicit value never exceeds qe_max_connection (a larger one is"
+            + " capped, with a warning at startup). Mind how a Flight session ends: with CloseSession, a KILL"
+            + " CONNECTION from another connection, wait_timeout, or the expiry or eviction of its bearer token"
+            + " (arrow_flight_token_alive_time_second; the token cache, see below; and per user at most"
+            + " max_user_connections / 2 tokens). Most Flight clients never send CloseSession, so a session whose"
+            + " client has gone stays in the pool until wait_timeout (8 hours by default) or its token's expiry"
+            + " (24 hours by default), whichever comes first; the default leaves the other half of the pool to"
+            + " MySQL connections however many such sessions there are. Raise it with qe_max_connection, or set"
+            + " it to qe_max_connection on an FE that serves Arrow Flight SQL only. The bearer token cache is"
+            + " sized to this sub-quota (capped by arrow_flight_token_cache_size), so the Flight limit shows as"
+            + " the eviction of the oldest token and its session rather than as a refusal. -1 is accepted from"
+            + " this version on: an older FE that serves Arrow Flight SQL exits at startup with -1 in fe.conf;"
+            + " remove the setting or set a positive value before a downgrade.")
     public static int arrow_flight_max_connections = -1;
 
     @ConfField(mutable = true, description = "Arrow Flight SQL only. A query that scans an external table in "
@@ -2696,7 +2696,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = "The cap of the bearer token cache of the Arrow Flight SQL server. The cache holds"
             + " as many tokens as the Arrow Flight SQL sub-quota of the connection pool allows"
-            + " (arrow_flight_max_connections, which follows qe_max_connection by default) but never more than"
+            + " (arrow_flight_max_connections, half of qe_max_connection by default) but never more than"
             + " this; beyond that the oldest token is evicted by LRU, and the session it names is closed with it."
             + " Arrow Flight SQL clients rarely close their session, so the effective cache size - the sub-quota"
             + " unless this is smaller - is what bounds their sessions in practice, and per user"
