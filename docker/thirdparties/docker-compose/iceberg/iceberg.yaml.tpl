@@ -28,6 +28,12 @@ services:
         condition: service_started
       mc:
         condition: service_completed_successfully
+      spark-master:
+        condition: service_healthy
+      spark-worker-1:
+        condition: service_healthy
+      spark-worker-2:
+        condition: service_healthy
     volumes:
       - ./data/output/spark-warehouse:/opt/spark/warehouse
       - ./data:/mnt/data
@@ -52,6 +58,85 @@ services:
       interval: 5s
       timeout: 120s
       retries: 120
+
+  spark-master:
+    image: apache/spark:4.0.0
+    container_name: doris--spark-master
+    hostname: doris--spark-master
+    entrypoint:
+      - /bin/sh
+      - -c
+      - /opt/spark/sbin/start-master.sh -h doris--spark-master -p 7077 && tail -f /dev/null
+    user: root
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080 >/dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+
+  spark-worker-1:
+    image: apache/spark:4.0.0
+    container_name: doris--spark-worker-1
+    hostname: doris--spark-worker-1
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    environment:
+      - SPARK_WORKER_CORES=1
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    volumes:
+      - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
+      - ./data/input/jars/iceberg-aws-bundle-1.10.1.jar:/opt/spark/jars/iceberg-aws-bundle-1.10.1.jar
+      - ./data/input/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar:/opt/spark/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar
+      - ./data/input/jars/paimon-s3-1.3.1.jar:/opt/spark/jars/paimon-s3-1.3.1.jar
+      - ./data/input/jars/paimon-spark-4.0-1.3.1.jar:/opt/spark/jars/paimon-spark-4.0-1.3.1.jar
+    entrypoint:
+      - /bin/sh
+      - -c
+      - /opt/spark/sbin/start-worker.sh -h doris--spark-worker-1 spark://doris--spark-master:7077 && tail -f /dev/null
+    user: root
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081 >/dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+
+  spark-worker-2:
+    image: apache/spark:4.0.0
+    container_name: doris--spark-worker-2
+    hostname: doris--spark-worker-2
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    environment:
+      - SPARK_WORKER_CORES=1
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+    volumes:
+      - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
+      - ./data/input/jars/iceberg-aws-bundle-1.10.1.jar:/opt/spark/jars/iceberg-aws-bundle-1.10.1.jar
+      - ./data/input/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar:/opt/spark/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar
+      - ./data/input/jars/paimon-s3-1.3.1.jar:/opt/spark/jars/paimon-s3-1.3.1.jar
+      - ./data/input/jars/paimon-spark-4.0-1.3.1.jar:/opt/spark/jars/paimon-spark-4.0-1.3.1.jar
+    entrypoint:
+      - /bin/sh
+      - -c
+      - /opt/spark/sbin/start-worker.sh -h doris--spark-worker-2 spark://doris--spark-master:7077 && tail -f /dev/null
+    user: root
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081 >/dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
 
   postgres:
     image: ${ICEBERG_POSTGRES_IMAGE:-postgis/postgis:14-3.3}
