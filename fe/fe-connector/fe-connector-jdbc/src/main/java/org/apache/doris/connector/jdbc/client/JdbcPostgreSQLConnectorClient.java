@@ -81,6 +81,13 @@ public class JdbcPostgreSQLConnectorClient extends JdbcConnectorClient {
             String cat = getCatalogName(conn);
             rs = getRemoteColumns(meta, cat, remoteDbName, remoteTableName);
             while (rs.next()) {
+                // getColumns treats schema/table as LIKE patterns and the pattern is deliberately left
+                // unescaped (see escapeSearchPattern), so a `_` in the name also matches a neighbour
+                // table (t_1 vs tx1); drop the rows that belong to one.
+                if (!remoteDbName.equals(rs.getString("TABLE_SCHEM"))
+                        || !remoteTableName.equals(rs.getString("TABLE_NAME"))) {
+                    continue;
+                }
                 int sqlType = rs.getInt("DATA_TYPE");
                 if (sqlType == Types.ARRAY) {
                     int arrayDim = getArrayDimensions(conn, remoteDbName, rs.getString("COLUMN_NAME"),
@@ -247,7 +254,9 @@ public class JdbcPostgreSQLConnectorClient extends JdbcConnectorClient {
             case "bool":
                 return ConnectorType.of("BOOLEAN");
             case "bpchar":
-                return ConnectorType.of("CHAR", fieldInfo.requiredColumnSize(), -1);
+                // A Doris CHAR(n) measures bytes; a PostgreSQL char(n) measures characters. Inside an
+                // array there is no place to widen it, so the element stays a STRING (as the pre-SPI
+                // resolver did).
             case "varchar":
             case "text":
             case "json":

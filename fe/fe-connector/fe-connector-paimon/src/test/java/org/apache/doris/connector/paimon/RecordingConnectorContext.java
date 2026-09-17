@@ -127,6 +127,14 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
         return 0;
     }
 
+    /** The engine environment the fake hands the connector (default: none). */
+    Map<String, String> environment = Collections.emptyMap();
+
+    @Override
+    public Map<String, String> getEnvironment() {
+        return environment;
+    }
+
     @Override
     public <T> T executeAuthenticated(Callable<T> task) throws Exception {
         authCount++;

@@ -17,21 +17,22 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
-import org.apache.doris.datasource.jdbc.client.JdbcClient;
+import org.apache.doris.connector.spi.ConnectorQueryResult;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.util.StreamingJobUtils;
+import org.apache.doris.job.util.StreamingSourceClient;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.Statement;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class DataSourceConfigValidatorTest {
@@ -476,28 +477,28 @@ public class DataSourceConfigValidatorTest {
 
     @Test
     public void testOceanBaseMysqlCompatibilityModePasses() throws Exception {
-        JdbcClient jdbcClient = mockOceanBaseCompatibilityMode(true, "MYSQL");
+        StreamingSourceClient sourceClient = mockOceanBaseCompatibilityMode(true, "MYSQL");
 
         try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
-            utils.when(() -> StreamingJobUtils.getJdbcClient(
+            utils.when(() -> StreamingJobUtils.openSourceClient(
                             Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
-                    .thenReturn(jdbcClient);
+                    .thenReturn(sourceClient);
 
             DataSourceConfigValidator.validateSourceBeforeTableCreation(
                     DataSourceType.OCEANBASE, new HashMap<>());
         }
 
-        Mockito.verify(jdbcClient).closeClient();
+        Mockito.verify(sourceClient).close();
     }
 
     @Test
     public void testOceanBaseOracleCompatibilityModeIsRejected() throws Exception {
-        JdbcClient jdbcClient = mockOceanBaseCompatibilityMode(true, "ORACLE");
+        StreamingSourceClient sourceClient = mockOceanBaseCompatibilityMode(true, "ORACLE");
 
         try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
-            utils.when(() -> StreamingJobUtils.getJdbcClient(
+            utils.when(() -> StreamingJobUtils.openSourceClient(
                             Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
-                    .thenReturn(jdbcClient);
+                    .thenReturn(sourceClient);
 
             JobException exception = Assertions.assertThrows(JobException.class,
                     () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
@@ -505,17 +506,17 @@ public class DataSourceConfigValidatorTest {
             Assertions.assertTrue(exception.getMessage().contains("Oracle compatibility mode"));
         }
 
-        Mockito.verify(jdbcClient).closeClient();
+        Mockito.verify(sourceClient).close();
     }
 
     @Test
     public void testOceanBaseUnknownCompatibilityModeIsRejected() throws Exception {
-        JdbcClient jdbcClient = mockOceanBaseCompatibilityMode(true, "UNKNOWN");
+        StreamingSourceClient sourceClient = mockOceanBaseCompatibilityMode(true, "UNKNOWN");
 
         try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
-            utils.when(() -> StreamingJobUtils.getJdbcClient(
+            utils.when(() -> StreamingJobUtils.openSourceClient(
                             Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
-                    .thenReturn(jdbcClient);
+                    .thenReturn(sourceClient);
 
             JobException exception = Assertions.assertThrows(JobException.class,
                     () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
@@ -523,17 +524,17 @@ public class DataSourceConfigValidatorTest {
             Assertions.assertTrue(exception.getMessage().contains("UNKNOWN"));
         }
 
-        Mockito.verify(jdbcClient).closeClient();
+        Mockito.verify(sourceClient).close();
     }
 
     @Test
     public void testOceanBaseEmptyCompatibilityModeResultIsRejected() throws Exception {
-        JdbcClient jdbcClient = mockOceanBaseCompatibilityMode(false, null);
+        StreamingSourceClient sourceClient = mockOceanBaseCompatibilityMode(false, null);
 
         try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
-            utils.when(() -> StreamingJobUtils.getJdbcClient(
+            utils.when(() -> StreamingJobUtils.openSourceClient(
                             Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
-                    .thenReturn(jdbcClient);
+                    .thenReturn(sourceClient);
 
             JobException exception = Assertions.assertThrows(JobException.class,
                     () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
@@ -541,20 +542,19 @@ public class DataSourceConfigValidatorTest {
             Assertions.assertTrue(exception.getMessage().contains("Failed to determine"));
         }
 
-        Mockito.verify(jdbcClient).closeClient();
+        Mockito.verify(sourceClient).close();
     }
 
     @Test
     public void testOceanBaseCompatibilityModeQueryFailurePreservesCause() throws Exception {
-        JdbcClient jdbcClient = Mockito.mock(JdbcClient.class);
-        Connection connection = Mockito.mock(Connection.class);
-        Mockito.when(jdbcClient.getConnection()).thenReturn(connection);
-        Mockito.when(connection.createStatement()).thenThrow(new IllegalStateException("query failed"));
+        StreamingSourceClient sourceClient = Mockito.mock(StreamingSourceClient.class);
+        Mockito.when(sourceClient.executeQuery(Mockito.anyString(), Mockito.anyList()))
+                .thenThrow(new IllegalStateException("query failed"));
 
         try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
-            utils.when(() -> StreamingJobUtils.getJdbcClient(
+            utils.when(() -> StreamingJobUtils.openSourceClient(
                             Mockito.eq(DataSourceType.OCEANBASE), Mockito.anyMap()))
-                    .thenReturn(jdbcClient);
+                    .thenReturn(sourceClient);
 
             JobException exception = Assertions.assertThrows(JobException.class,
                     () -> DataSourceConfigValidator.validateSourceBeforeTableCreation(
@@ -563,21 +563,18 @@ public class DataSourceConfigValidatorTest {
             Assertions.assertNotNull(exception.getCause());
         }
 
-        Mockito.verify(jdbcClient).closeClient();
+        Mockito.verify(sourceClient).close();
     }
 
-    private JdbcClient mockOceanBaseCompatibilityMode(boolean hasResult, String mode)
+    private StreamingSourceClient mockOceanBaseCompatibilityMode(boolean hasResult, String mode)
             throws Exception {
-        JdbcClient jdbcClient = Mockito.mock(JdbcClient.class);
-        Connection connection = Mockito.mock(Connection.class);
-        Statement statement = Mockito.mock(Statement.class);
-        ResultSet resultSet = Mockito.mock(ResultSet.class);
-        Mockito.when(jdbcClient.getConnection()).thenReturn(connection);
-        Mockito.when(connection.createStatement()).thenReturn(statement);
-        Mockito.when(statement.executeQuery("SHOW VARIABLES LIKE 'ob_compatibility_mode'"))
-                .thenReturn(resultSet);
-        Mockito.when(resultSet.next()).thenReturn(hasResult);
-        Mockito.when(resultSet.getString(2)).thenReturn(mode);
-        return jdbcClient;
+        StreamingSourceClient sourceClient = Mockito.mock(StreamingSourceClient.class);
+        List<List<Object>> rows = hasResult
+                ? Collections.singletonList(Arrays.asList("ob_compatibility_mode", mode))
+                : Collections.emptyList();
+        Mockito.when(sourceClient.executeQuery(Mockito.eq("SHOW VARIABLES LIKE 'ob_compatibility_mode'"),
+                        Mockito.anyList()))
+                .thenReturn(new ConnectorQueryResult(Arrays.asList("Variable_name", "Value"), rows));
+        return sourceClient;
     }
 }

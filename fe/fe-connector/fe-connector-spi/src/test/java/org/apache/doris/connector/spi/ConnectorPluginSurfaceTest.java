@@ -82,7 +82,12 @@ public class ConnectorPluginSurfaceTest {
             version.load(in);
         }
         // Latest-schema publication is explicit in major 8; older engines cannot honor the opt-in contract.
-        Assertions.assertEquals("8.0", version.getProperty("api.version"));
+        // Major 9 moved the driver-jar policy out of the engine: ConnectorValidationContext lost its two
+        // driver methods (validateAndResolveDriverPath / computeDriverChecksum), ConnectorContext gained
+        // fetchPluginFile, ConnectorMetadata gained getPrimaryKeys and ConnectorPassthroughSqlOps gained
+        // executeQuery. A plugin built against major 8 calls methods that no longer exist and must be
+        // refused rather than run against a contract it did not compile against.
+        Assertions.assertEquals("9.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

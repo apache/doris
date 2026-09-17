@@ -22,7 +22,9 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorContractValidator;
 import org.apache.doris.connector.spi.ConnectorPassthroughSqlOps;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.DriverUrlPolicy;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.NoOpConnectorTransaction;
 import org.apache.doris.connector.spi.handle.WriteOperation;
@@ -30,8 +32,12 @@ import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -40,6 +46,10 @@ import java.util.Map;
 class JdbcDorisConnectorTest {
 
     private static ConnectorContext testContext() {
+        return testContext(Collections.emptyMap());
+    }
+
+    private static ConnectorContext testContext(Map<String, String> environment) {
         return new ConnectorContext() {
             @Override
             public String getCatalogName() {
@@ -53,9 +63,41 @@ class JdbcDorisConnectorTest {
 
             @Override
             public Map<String, String> getEnvironment() {
-                return Collections.emptyMap();
+                return environment;
             }
         };
+    }
+
+    /** A validation context over a plain property map, the way the engine's one wraps the catalog's. */
+    private static ConnectorValidationContext validationContext(Map<String, String> props) {
+        return new ConnectorValidationContext() {
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public String getProperty(String key) {
+                return props.get(key);
+            }
+
+            @Override
+            public void storeProperty(String key, String value) {
+                props.put(key, value);
+            }
+
+            @Override
+            public void requestBeConnectivityTest(byte[] serializedDescriptor, int connectionTypeValue,
+                    String testQuery) {
+                props.put("be_test_requested", "true");
+            }
+        };
+    }
+
+    private static Path writeJar(Path dir, String name) throws IOException {
+        Path jar = dir.resolve(name);
+        Files.write(jar, "not really a jar".getBytes(StandardCharsets.UTF_8));
+        return jar;
     }
 
     private static Map<String, String> minimalProps() {
@@ -117,6 +159,70 @@ class JdbcDorisConnectorTest {
         // jdbc catalog with "not supported" -> red here.
         Assertions.assertTrue(ConnectorPassthroughSqlOps.class.isAssignableFrom(JdbcConnectorMetadata.class),
                 "jdbc must implement ConnectorPassthroughSqlOps or query()/EXECUTE_STMT stop admitting it");
+    }
+
+    @Test
+    void preCreateValidationResolvesTheDriverAndStoresItsChecksum(@TempDir Path dir) throws Exception {
+        // The driver-jar policy now runs inside the connector: a bare name resolves under the drivers
+        // directory the plugin was told about, and the checksum of that file is what the catalog stores.
+        writeJar(dir, "mysql.jar");
+        Map<String, String> env = new HashMap<>();
+        env.put(DriverUrlPolicy.ENV_DRIVERS_DIR, dir.toString());
+        env.put(DriverUrlPolicy.ENV_DORIS_HOME, dir.toString());
+        Map<String, String> props = new HashMap<>();
+        props.put(JdbcCatalogProperties.JDBC_URL, "jdbc:mysql://localhost:3306/test");
+        props.put(JdbcCatalogProperties.DRIVER_URL, "mysql.jar");
+        props.put(JdbcCatalogProperties.DRIVER_CLASS, "com.mysql.cj.jdbc.Driver");
+        props.put(JdbcCatalogProperties.TEST_CONNECTION, "false");
+        JdbcDorisConnector connector = new JdbcDorisConnector(props, testContext(env));
+
+        connector.preCreateValidation(validationContext(props));
+
+        // The checksum is that of the file the bare name resolved to.
+        Assertions.assertEquals(
+                DriverUrlPolicy.checksum(dir.resolve("mysql.jar").toUri().toString(), null),
+                props.get(JdbcCatalogProperties.DRIVER_CHECKSUM));
+        Assertions.assertNull(props.get("be_test_requested"), "test_connection=false requests no BE test");
+
+        // A checksum the user supplies is verified against the file, not overwritten.
+        props.put(JdbcCatalogProperties.DRIVER_CHECKSUM, "0000");
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> new JdbcDorisConnector(props, testContext(env)).preCreateValidation(validationContext(props)));
+        Assertions.assertTrue(e.getMessage().contains("does not match the computed checksum"), e.getMessage());
+    }
+
+    @Test
+    void preCreateValidationRejectsADriverOutsideTheAllowedPaths(@TempDir Path dir) throws Exception {
+        writeJar(dir, "evil.jar");
+        Map<String, String> env = new HashMap<>();
+        env.put(DriverUrlPolicy.ENV_DRIVER_SECURE_PATH, "file:///opt/doris/jdbc_drivers");
+        Map<String, String> props = new HashMap<>();
+        props.put(JdbcCatalogProperties.JDBC_URL, "jdbc:mysql://localhost:3306/test");
+        props.put(JdbcCatalogProperties.DRIVER_URL, dir.resolve("evil.jar").toUri().toString());
+        props.put(JdbcCatalogProperties.DRIVER_CLASS, "com.mysql.cj.jdbc.Driver");
+        JdbcDorisConnector connector = new JdbcDorisConnector(props, testContext(env));
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> connector.preCreateValidation(validationContext(props)));
+        Assertions.assertNull(props.get(JdbcCatalogProperties.DRIVER_CHECKSUM), "a rejected driver stores nothing");
+    }
+
+    @Test
+    void loadingTheDriverAppliesTheAllowedPathsToo(@TempDir Path dir) throws Exception {
+        // Not only CREATE: the same policy runs when the client is built, so a catalog whose driver sits
+        // outside a since-tightened jdbc_driver_secure_path fails to connect instead of loading the jar.
+        writeJar(dir, "evil.jar");
+        Map<String, String> env = new HashMap<>();
+        env.put(DriverUrlPolicy.ENV_DRIVER_SECURE_PATH, "file:///opt/doris/jdbc_drivers");
+        Map<String, String> props = new HashMap<>();
+        props.put(JdbcCatalogProperties.JDBC_URL, "jdbc:postgresql://localhost:5432/test");
+        props.put(JdbcCatalogProperties.DRIVER_URL, dir.resolve("evil.jar").toUri().toString());
+        props.put(JdbcCatalogProperties.DRIVER_CLASS, "java.lang.Object");
+        JdbcDorisConnector connector = new JdbcDorisConnector(props, testContext(env));
+
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                connector::getWritePlanProvider);
+        Assertions.assertTrue(e.getMessage().contains("does not match any allowed paths"), e.getMessage());
     }
 
     @Test

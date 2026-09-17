@@ -19,6 +19,7 @@ package org.apache.doris.connector.spi;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 
 /**
@@ -47,6 +48,8 @@ public interface ConnectorContext {
      *   <li>{@code doris_home} — the DORIS_HOME path</li>
      *   <li>{@code hadoop_config_dir} — the configured Hadoop resource directory</li>
      *   <li>{@code jdbc_drivers_dir} — the configured JDBC drivers directory</li>
+     *   <li>{@code jdbc_driver_secure_path}, {@code jdbc_driver_url_white_list} — the FE's driver-jar
+     *       allow-lists, consumed through {@link DriverUrlPolicy}</li>
      * </ul>
      */
     default Map<String, String> getEnvironment() {
@@ -176,5 +179,24 @@ public interface ConnectorContext {
      */
     default ConnectorStorageContext getStorageContext() {
         return ConnectorStorageContext.NOOP;
+    }
+
+    /**
+     * Fetches a plugin file that is missing from the FE's local plugin directory from the deployment's
+     * external plugin store, when the deployment has one (a cloud deployment keeps its JDBC driver jars
+     * and Java UDF jars in its object store and copies them down on first use).
+     *
+     * <p>{@code category} names the store's file category ({@code "jdbc_drivers"}), {@code fileName} is the
+     * bare file name and {@code targetPath} is where the engine should place the copy. Returns the local
+     * path of the fetched file, or {@link Optional#empty()} when this deployment has no such store — the
+     * caller then reports the file as missing. Throws when the store exists but the fetch fails; the message
+     * names the file.</p>
+     *
+     * <p>The only engine service left on the driver-jar path: the policy that decides whether a jar may be
+     * loaded at all is {@link DriverUrlPolicy}, applied by the connector. Fetching needs the engine's
+     * metaservice client, which no plugin has.</p>
+     */
+    default Optional<String> fetchPluginFile(String category, String fileName, String targetPath) {
+        return Optional.empty();
     }
 }

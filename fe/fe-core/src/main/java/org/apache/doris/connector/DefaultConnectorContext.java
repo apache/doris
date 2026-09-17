@@ -24,6 +24,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.plugin.CloudPluginDownloader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
@@ -62,8 +63,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -210,6 +213,25 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     @Override
     public ConnectorStorageContext getStorageContext() {
         return this;
+    }
+
+    /**
+     * A cloud deployment keeps its plugin files (JDBC driver jars, Java UDF jars) in its object store and
+     * copies one down on first use; every other deployment has no such store, so the plugin file simply
+     * does not exist. {@code category} is the store's file category, which is the plugin type's name.
+     */
+    @Override
+    public Optional<String> fetchPluginFile(String category, String fileName, String targetPath) {
+        if (!Config.isCloudMode()) {
+            return Optional.empty();
+        }
+        CloudPluginDownloader.PluginType type;
+        try {
+            type = CloudPluginDownloader.PluginType.valueOf(category.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Unknown plugin file category: " + category, e);
+        }
+        return Optional.of(CloudPluginDownloader.downloadFromCloud(type, fileName, targetPath));
     }
 
     @Override
@@ -606,6 +628,11 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         // HMS resources may be read before storage binding publishes this process-global FE setting.
         env.put("hadoop_config_dir", Config.hadoop_config_dir);
         env.put("jdbc_drivers_dir", Config.jdbc_drivers_dir);
+        // The driver-jar allow-lists are fe.conf-only security settings shared by every connector that loads
+        // a driver jar into the FE JVM (jdbc, iceberg, paimon); the policy that reads them is
+        // org.apache.doris.connector.spi.DriverUrlPolicy, keyed by these exact names.
+        env.put("jdbc_driver_secure_path", Config.jdbc_driver_secure_path);
+        env.put("jdbc_driver_url_white_list", String.join(",", Config.jdbc_driver_url_white_list));
         env.put("force_sqlserver_jdbc_encrypt_false",
                 String.valueOf(Config.force_sqlserver_jdbc_encrypt_false));
         // HMS metastore client socket-timeout default (C4): the metastore-spi cannot read FE Config

@@ -18,7 +18,6 @@
 package org.apache.doris.connector;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
@@ -39,9 +38,10 @@ import java.util.concurrent.Future;
 /**
  * Engine-side implementation of {@link ConnectorValidationContext}.
  *
- * <p>Provides driver validation (via {@link JdbcResource}), checksum computation,
- * and deferred BE→external connectivity testing (via BRPC) as infrastructure
- * services that connectors can call during pre-creation validation.</p>
+ * <p>Provides property access and deferred BE→external connectivity testing (via BRPC) as
+ * infrastructure services that connectors can call during pre-creation validation. Driver-jar
+ * validation is not an engine service: connectors apply the shared
+ * {@code org.apache.doris.connector.spi.DriverUrlPolicy} themselves.</p>
  *
  * <p>Connectors register a BE connectivity test via {@link #requestBeConnectivityTest};
  * the engine calls {@link #executePendingBeTests()} after validation to send
@@ -75,16 +75,6 @@ public class DefaultConnectorValidationContext implements ConnectorValidationCon
     @Override
     public void storeProperty(String key, String value) {
         catalogProperty.addProperty(key, value);
-    }
-
-    @Override
-    public String validateAndResolveDriverPath(String driverUrl) throws Exception {
-        return JdbcResource.getFullDriverUrl(driverUrl);
-    }
-
-    @Override
-    public String computeDriverChecksum(String driverUrl) throws Exception {
-        return JdbcResource.computeObjectChecksum(driverUrl);
     }
 
     @Override

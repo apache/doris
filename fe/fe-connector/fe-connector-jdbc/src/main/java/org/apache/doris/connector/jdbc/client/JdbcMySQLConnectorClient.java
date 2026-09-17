@@ -215,20 +215,18 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
     public List<String> getPrimaryKeys(String remoteDbName, String remoteTableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
-        List<String> primaryKeys = new ArrayList<>();
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
+            // MySQL exposes databases as JDBC catalogs, hence (db, null, table) rather than the base
+            // class's (catalog, schema, table).
             rs = databaseMetaData.getPrimaryKeys(remoteDbName, null, remoteTableName);
-            while (rs.next()) {
-                primaryKeys.add(rs.getString("COLUMN_NAME"));
-            }
+            return readPrimaryKeysInKeyOrder(rs);
         } catch (SQLException e) {
             throw new DorisConnectorException(
                     "Failed to get primary keys for " + remoteDbName + "." + remoteTableName, e);
         } finally {
             closeResources(rs, conn);
         }
-        return primaryKeys;
     }
 
     @Override

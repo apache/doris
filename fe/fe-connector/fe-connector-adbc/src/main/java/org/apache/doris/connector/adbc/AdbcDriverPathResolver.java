@@ -40,7 +40,7 @@ import java.util.regex.Pattern;
  * file, and a URL each node downloads for itself cannot promise that. Rejecting remote schemes outright
  * keeps that failure -- which surfaces as an unreadable partition, far from its cause -- unreachable.
  *
- * <p>This does NOT reuse {@code ConnectorValidationContext#validateAndResolveDriverPath}: that one resolves
+ * <p>This does NOT reuse the shared {@code DriverUrlPolicy} of fe-connector-spi: that one resolves
  * against {@code jdbc_drivers_dir} and enforces a {@code .jar} grammar.
  */
 public final class AdbcDriverPathResolver {

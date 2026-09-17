@@ -19,6 +19,7 @@ package org.apache.doris.connector.spi;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 
 /**
@@ -108,5 +109,10 @@ public abstract class ForwardingConnectorContext implements ConnectorContext {
     @Override
     public ConnectorStorageContext getStorageContext() {
         return delegate.getStorageContext();
+    }
+
+    @Override
+    public Optional<String> fetchPluginFile(String category, String fileName, String targetPath) {
+        return delegate.fetchPluginFile(category, fileName, targetPath);
     }
 }
