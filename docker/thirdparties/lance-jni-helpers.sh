@@ -79,11 +79,11 @@ lance_jni_extract_verified() (
     fi
 )
 
-# Surefire searches test-classes before dependency JARs. Supplying the same resource
-# path overrides only the native library; the Maven dependency remains untouched.
+# Prepare the native library under src/test/resources so it survives Maven auto-clean.
+# Maven copies it to test-classes, which Surefire searches before dependency JARs.
 lance_jni_prepare_test_resources() (
     set -eo pipefail
-    local test_output="$1"
+    local test_resources="$1"
     local thirdparty_dir="$2"
     local lance_version="$3"
     local target_system="$4"
@@ -96,7 +96,7 @@ lance_jni_prepare_test_resources() (
         exit 1
     fi
 
-    local resource_dir="${test_output}/nativelib/linux-x86-64"
+    local resource_dir="${test_resources}/nativelib/linux-x86-64"
     local library="${resource_dir}/liblance_jni.so"
     local archive work_dir
     if [[ -f "${library}" ]] && [[ "$(sha256sum "${library}" | awk '{print $1}')" == "${LANCE_JNI_LIBRARY_SHA256}" ]]; then
