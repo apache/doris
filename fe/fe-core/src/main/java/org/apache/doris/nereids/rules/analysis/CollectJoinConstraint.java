@@ -147,14 +147,8 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
     private void collectJoinConstraintList(LeadingHint leading, Long leftHand, Long rightHand, JoinType joinType,
                                             Long filterTableBitMap, Long nonNullableSlotBitMap) {
         Long totalTables = LongBitmap.or(leftHand, rightHand);
-        if (joinType.isInnerJoin()) {
+        if (joinType.isInnerOrCrossJoin()) {
             leading.setInnerJoinBitmap(LongBitmap.or(leading.getInnerJoinBitmap(), totalTables));
-            return;
-        }
-        if (joinType.isCrossJoin()) {
-            JoinConstraint newJoinConstraint = new JoinConstraint(leftHand, rightHand, leftHand, rightHand,
-                    JoinType.CROSS_JOIN, false);
-            leading.getJoinConstraintList().add(newJoinConstraint);
             return;
         }
         if (joinType.isFullOuterJoin()) {

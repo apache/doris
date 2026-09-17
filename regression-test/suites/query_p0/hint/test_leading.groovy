@@ -1152,11 +1152,14 @@ suite("test_leading") {
     qt_select107_8 """select /*+ leading(t3 broadcast {t1 shuffle t2}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
     qt_select107_9 """select /*+ leading(t3 broadcast {t2 shuffle t1}) */ count(*) from t1 left outer join t2 on c1 = c2 join t3 on c2 = c3;"""
 
-    qt_select_full_1 """SELECT /*+ LEADING(a,b) */ count(*) FROM t1 FULL OUTER JOIN t2 ON t1.c1 > 100;"""
-    qt_select_full_2 """SELECT /*+ LEADING(a,b) */ count(*) FROM t1 FULL OUTER JOIN t2 ON t2.c2 > 100;"""
+    // one-sided ON conjuncts of a full outer join must not be pushed into the inputs
+    qt_select_full_1 """SELECT /*+ LEADING(t1, t2) */ count(*) FROM t1 FULL OUTER JOIN t2 ON t1.c1 > 100;"""
+    qt_select_full_2 """SELECT /*+ LEADING(t1, t2) */ count(*) FROM t1 FULL OUTER JOIN t2 ON t2.c2 > 100;"""
 
-    qt_select_cross """SELECT /*+ leading(b c a) */ COUNT(*) FROM (t1 LEFT SEMI JOIN t2 ON t1.c1 = t2.c2) CROSS JOIN t3;"""
-    
+    // the order (t2 t3 t1) cannot be honored: the matched (right) side of the left semi join
+    // must not absorb t3 before the preserved side t1 arrives, so the hint has to be ignored
+    qt_select_cross """SELECT /*+ leading(t2 t3 t1) */ COUNT(*) FROM (t1 LEFT SEMI JOIN t2 ON t1.c1 = t2.c2) CROSS JOIN t3;"""
+
     sql """drop table if exists t1;"""
     sql """drop table if exists t2;"""
     sql """drop table if exists t3;"""
