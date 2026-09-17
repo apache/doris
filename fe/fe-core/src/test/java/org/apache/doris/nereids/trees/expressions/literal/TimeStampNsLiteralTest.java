@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
@@ -196,8 +197,10 @@ class TimeStampNsLiteralTest {
 
         Assertions.assertEquals("2024-02-29",
                 ((Literal) normal.checkedCastTo(DateV2Type.INSTANCE)).getStringValue());
-        Assertions.assertEquals("12:34:56.123457",
+        Assertions.assertEquals("12:34:56.123456789",
                 ((Literal) normal.checkedCastTo(TimeV2Type.MAX)).getStringValue());
+        Assertions.assertEquals("12:34:56.123457",
+                ((Literal) normal.checkedCastTo(TimeV2Type.of(6))).getStringValue());
         Assertions.assertEquals(20240229123456L,
                 ((BigIntLiteral) normal.checkedCastTo(BigIntType.INSTANCE)).getValue());
         Assertions.assertEquals("20240229123456",
@@ -208,6 +211,12 @@ class TimeStampNsLiteralTest {
                 () -> normal.checkedCastTo(SmallIntType.INSTANCE));
         Assertions.assertThrowsExactly(AnalysisException.class,
                 () -> normal.checkedCastTo(IntegerType.INSTANCE));
+
+        Assertions.assertEquals("12:34:56.123456789",
+                ((TimeV2Literal) DateTimeArithmetic.time(normal)).getStringValue());
+        TimeV2Literal twoNanoseconds = TimeV2Literal.fromNanosecond(0, 0, 0, 2, 9, false);
+        Assertions.assertEquals("2024-02-29 12:34:56.123456791",
+                ((TimeStampNsLiteral) DateTimeArithmetic.addTime(normal, twoNanoseconds)).getStringValue());
     }
 
     @Test

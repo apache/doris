@@ -1134,8 +1134,7 @@ public abstract class DataType {
                 }
                 break;
             }
-            case TIMEV2:
-            case TIMESTAMPTZ: {
+            case TIMEV2: {
                 int precision = scalarType.decimalPrecision();
                 int scale = scalarType.decimalScale();
                 if (precision != ScalarType.DATETIME_PRECISION) {
@@ -1143,8 +1142,24 @@ public abstract class DataType {
                             "Precision of Time must be " + ScalarType.DATETIME_PRECISION
                                     + "." + " Precision was set to: " + precision + ".");
                 }
-                if (scale < 0 || scale > 6) {
-                    throw new AnalysisException("Scale of Time must between 0 and 6."
+                if (scale < 0 || scale > ScalarType.MAX_TIMEV2_SCALE) {
+                    throw new AnalysisException("Scale of Time must between 0 and "
+                            + ScalarType.MAX_TIMEV2_SCALE + "."
+                            + " Scale was set to: " + scale + ".");
+                }
+                break;
+            }
+            case TIMESTAMPTZ: {
+                int precision = scalarType.decimalPrecision();
+                int scale = scalarType.decimalScale();
+                if (precision != ScalarType.DATETIME_PRECISION) {
+                    throw new AnalysisException(
+                            "Precision of Timestamptz must be " + ScalarType.DATETIME_PRECISION
+                                    + ". Precision was set to: " + precision + ".");
+                }
+                if (scale < 0 || scale > ScalarType.MAX_DATETIMEV2_SCALE) {
+                    throw new AnalysisException("Scale of Timestamptz must between 0 and "
+                            + ScalarType.MAX_DATETIMEV2_SCALE + "."
                             + " Scale was set to: " + scale + ".");
                 }
                 break;

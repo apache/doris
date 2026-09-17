@@ -846,8 +846,7 @@ public:
                     return TimeValue::to_format_string_conservative(
                             format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN, time,
                             datetime_val.nanosecond());
-                } else if constexpr (ArgPType == PrimitiveType::TYPE_DATETIMEV2 ||
-                                     ArgPType == PrimitiveType::TYPE_TIMEV2) {
+                } else if constexpr (ArgPType == PrimitiveType::TYPE_DATETIMEV2) {
                     return TimeValue::to_format_string_conservative(
                             format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN, time,
                             TimeValue::microsecond(time) * 1000);
@@ -874,7 +873,7 @@ private:
         if constexpr (ArgPType == PrimitiveType::TYPE_TIMEV2) {
             return static_cast<TimeValue::TimeType>(datetime_val);
         } else if constexpr (ArgPType == PrimitiveType::TYPE_TIMESTAMP_NS) {
-            return static_cast<TimeValue::TimeType>(datetime_val.time_part_to_microsecond());
+            return TimeValue::from_nanoseconds(datetime_val.time_part_to_nanosecond());
         } else {
             return TimeValue::make_time(datetime_val.hour(), datetime_val.minute(),
                                         datetime_val.second(), datetime_val.microsecond());

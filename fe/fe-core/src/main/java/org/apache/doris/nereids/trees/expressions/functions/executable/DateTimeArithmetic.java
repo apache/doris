@@ -1187,8 +1187,8 @@ public class DateTimeArithmetic {
 
     @ExecFunction(name = "time")
     public static Expression time(TimeStampNsLiteral date) {
-        return new TimeV2Literal((int) date.getHour(), (int) date.getMinute(), (int) date.getSecond(),
-                (int) date.getMicroSecond(), TimeV2Type.MAX_SCALE, false);
+        return TimeV2Literal.fromNanosecond((int) date.getHour(), (int) date.getMinute(),
+                (int) date.getSecond(), (int) date.getNanoSecond(), TimeV2Type.MAX_SCALE, false);
     }
 
     /**
@@ -1201,7 +1201,9 @@ public class DateTimeArithmetic {
 
     @ExecFunction(name = "add_time")
     public static Expression addTime(TimeV2Literal t1, TimeV2Literal t2) {
-        return t1.plusMicroSeconds((long) t2.getValue());
+        int precision = Math.max(((TimeV2Type) t1.getDataType()).getScale(),
+                ((TimeV2Type) t2.getDataType()).getScale());
+        return t1.plusNanoSeconds(t2.getValueInNanoseconds(), precision);
     }
 
     @ExecFunction(name = "add_time")
@@ -1211,7 +1213,7 @@ public class DateTimeArithmetic {
 
     @ExecFunction(name = "add_time")
     public static Expression addTime(TimeStampNsLiteral date, TimeV2Literal time) {
-        return date.plusMicroSeconds((long) time.getValue());
+        return date.plusNanoSeconds(time.getValueInNanoseconds());
     }
 
     /**
@@ -1224,7 +1226,9 @@ public class DateTimeArithmetic {
 
     @ExecFunction(name = "sub_time")
     public static Expression subTime(TimeV2Literal t1, TimeV2Literal t2) {
-        return t1.plusMicroSeconds(-(long) t2.getValue());
+        int precision = Math.max(((TimeV2Type) t1.getDataType()).getScale(),
+                ((TimeV2Type) t2.getDataType()).getScale());
+        return t1.plusNanoSeconds(-t2.getValueInNanoseconds(), precision);
     }
 
     @ExecFunction(name = "sub_time")
@@ -1234,6 +1238,6 @@ public class DateTimeArithmetic {
 
     @ExecFunction(name = "sub_time")
     public static Expression subTime(TimeStampNsLiteral date, TimeV2Literal time) {
-        return date.plusMicroSeconds(-(long) time.getValue());
+        return date.plusNanoSeconds(-time.getValueInNanoseconds());
     }
 }

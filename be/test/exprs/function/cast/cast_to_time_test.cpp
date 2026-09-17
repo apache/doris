@@ -95,6 +95,16 @@ TEST_F(FunctionCastTest, test_from_string_non_strict_mode_to_time) {
     check_function_for_cast<DataTypeTimeV2>(input_types, data_set, 6);
 }
 
+TEST_F(FunctionCastTest, test_from_string_to_nanosecond_time) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    const DataSet data_set = {
+            {{std::string("12:34:56.123456789")}, std::string("12:34:56.123456789")},
+            {{std::string("-00:00:00.000000001")}, std::string("-00:00:00.000000001")},
+            {{std::string("12:34:56.1234567895")}, std::string("12:34:56.123456790")},
+    };
+    check_function_for_cast_strict_mode<DataTypeTimeV2>(input_types, data_set, "", 9);
+}
+
 TEST_F(FunctionCastTest, test_from_numeric_to_time) {
     // Test casting from Int64
     {

@@ -26,6 +26,8 @@ import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 
 /**
@@ -33,14 +35,15 @@ import java.time.LocalDateTime;
  */
 public class TimeV2Literal extends Literal {
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
-    private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
-    private static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 0, 6, true);
-    private static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 0, 6, false);
+    private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999999);
+    private static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 0, 9, true);
+    private static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 0, 9, false);
 
     protected int hour;
     protected int minute;
     protected int second;
     protected int microsecond;
+    protected int nanosecondRemainder;
     protected boolean negative;
 
     public TimeV2Literal(TimeV2Type dataType, String s) {
@@ -58,19 +61,7 @@ public class TimeV2Literal extends Literal {
      */
     public TimeV2Literal(double value) throws AnalysisException {
         super(TimeV2Type.of(6));
-        if (value > (double) MAX_VALUE.getValue() || value < (double) MIN_VALUE.getValue()) {
-            throw new AnalysisException("The value " + value + " is out of range, expect value range is ["
-                    + (double) MIN_VALUE.getValue() + ", " + (double) MAX_VALUE.getValue() + "]");
-        }
-        this.negative = value < 0;
-        long v = (long) Math.abs(value);
-        this.microsecond = (int) (v % 1000000);
-        v /= 1000000;
-        this.second = (int) (v % 60);
-        v /= 60;
-        this.minute = (int) (v % 60);
-        v /= 60;
-        this.hour = (int) v;
+        init(value, 6);
     }
 
     /**
@@ -78,19 +69,7 @@ public class TimeV2Literal extends Literal {
      */
     public TimeV2Literal(double value, int scale) throws AnalysisException {
         super(TimeV2Type.of(scale));
-        if (value > (double) MAX_VALUE.getValue() || value < (double) MIN_VALUE.getValue()) {
-            throw new AnalysisException("The value " + value + " is out of range, expect value range is ["
-                + (double) MIN_VALUE.getValue() + ", " + (double) MAX_VALUE.getValue() + "]");
-        }
-        this.negative = value < 0;
-        long v = (long) Math.abs(value);
-        this.microsecond = (int) (v % 1000000);
-        v /= 1000000;
-        this.second = (int) (v % 60);
-        v /= 60;
-        this.minute = (int) (v % 60);
-        v /= 60;
-        this.hour = (int) v;
+        init(value, scale);
     }
 
     /**
@@ -99,15 +78,30 @@ public class TimeV2Literal extends Literal {
     // for -00:... so we need explicite negative
     public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale, boolean negative)
             throws AnalysisException {
+        this(hour, minute, second, (long) microsecond * 1000, scale, negative);
+    }
+
+    private TimeV2Literal(int hour, int minute, int second, long nanosecond, int scale, boolean negative)
+            throws AnalysisException {
         super(TimeV2Type.of(scale));
         this.hour = hour;
         this.minute = minute;
         this.second = second;
-        this.microsecond = (int) (microsecond / Math.pow(10, 6 - scale)) * (int) Math.pow(10, 6 - scale);
+        int factor = (int) Math.pow(10, TimeV2Type.MAX_SCALE - scale);
+        int roundedNanosecond = (int) (nanosecond / factor * factor);
+        this.microsecond = roundedNanosecond / 1000;
+        this.nanosecondRemainder = roundedNanosecond % 1000;
         this.negative = negative;
-        if (checkRange(this.hour, this.minute, this.second, this.microsecond) || scale > 6 || scale < 0) {
-            throw new AnalysisException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
+        if (checkRange(this.hour, this.minute, this.second, roundedNanosecond)) {
+            throw new AnalysisException(
+                    "time literal is out of range [-838:59:59.999999999, 838:59:59.999999999]");
         }
+    }
+
+    /** Create a TIMEV2 literal from a full nanosecond-of-second value. */
+    public static TimeV2Literal fromNanosecond(int hour, int minute, int second, int nanosecond,
+            int scale, boolean negative) {
+        return new TimeV2Literal(hour, minute, second, (long) nanosecond, scale, negative);
     }
 
     protected static String normalize(String s) {
@@ -146,61 +140,32 @@ public class TimeV2Literal extends Literal {
      * parse time string and avoid throw exception directly for better performance.
      */
     public static Result<TimeV2Literal, AnalysisException> parseTimeLiteral(String s) {
-        int hour;
-        int minute;
-        int second;
-        int microsecond;
-        boolean negative = false;
-        String normalized = normalize(s);
-        if (normalized.charAt(0) == '-') {
-            negative = true;
-            normalized = normalized.substring(1);
-        } else if (normalized.charAt(0) == '+') {
-            normalized = normalized.substring(1);
-        }
-        // start parse string
-        String[] parts = normalized.split(":");
-        if (parts.length != 3) {
-            return Result.err(() -> new AnalysisException("Invalid format, must have 3 parts separated by ':'"));
-        }
         try {
-            hour = Integer.parseInt(parts[0]);
-        } catch (NumberFormatException e) {
-            return Result.err(() -> new AnalysisException("Invalid hour format"));
+            int scale = determineScale(s);
+            return Result.ok(new TimeV2Literal(TimeV2Type.of(scale), s));
+        } catch (AnalysisException e) {
+            return Result.err(() -> e);
         }
+    }
 
-        try {
-            minute = Integer.parseInt(parts[1]);
-        } catch (NumberFormatException e) {
-            return Result.err(() -> new AnalysisException("Invalid minute format"));
+    private void init(double value, int scale) {
+        if (value > (double) MAX_VALUE.getValue() || value < (double) MIN_VALUE.getValue()) {
+            throw new AnalysisException("The value " + value + " is out of range, expect value range is ["
+                + (double) MIN_VALUE.getValue() + ", " + (double) MAX_VALUE.getValue() + "]");
         }
-        // if parts[2] is 60.000 it will cause judge feed execute error
-        if (parts[2].startsWith("60")) {
-            return Result.err(() -> new AnalysisException("second out of range"));
-        }
-        double secPart;
-        try {
-            secPart = Double.parseDouble(parts[2]);
-        } catch (NumberFormatException e) {
-            return Result.err(() -> new AnalysisException("Invalid second format"));
-        }
-        secPart = secPart * (int) Math.pow(10, 6);
-        secPart = Math.round(secPart);
-        second = (int) (secPart / 1000000);
-        microsecond = (int) (secPart % 1000000);
-        if (second == 60) {
-            minute += 1;
-            second -= 60;
-            if (minute == 60) {
-                hour += 1;
-                minute -= 60;
-            }
-        }
-
-        if (checkRange(hour, minute, second, microsecond)) {
-            return Result.err(() -> new AnalysisException("time literal [" + s + "] is out of range"));
-        }
-        return Result.ok(new TimeV2Literal(hour, minute, second, microsecond, 6, negative));
+        this.negative = value < 0;
+        long v = Math.round(Math.abs(value) * 1000);
+        long factor = (long) Math.pow(10, TimeV2Type.MAX_SCALE - scale);
+        v = (v + factor / 2) / factor * factor;
+        int nanosecond = (int) (v % 1000000000);
+        this.microsecond = nanosecond / 1000;
+        this.nanosecondRemainder = nanosecond % 1000;
+        v /= 1000000000;
+        this.second = (int) (v % 60);
+        v /= 60;
+        this.minute = (int) (v % 60);
+        v /= 60;
+        this.hour = (int) v;
     }
 
     // should like be/src/vec/runtime/time_value.h timev2_to_double_from_str
@@ -233,38 +198,36 @@ public class TimeV2Literal extends Literal {
         if (parts[2].startsWith("60")) {
             throw new AnalysisException("second out of range");
         }
-        double secPart;
+        long scaledSecond;
         try {
-            secPart = Double.parseDouble(parts[2]);
-        } catch (NumberFormatException e) {
+            scaledSecond = new BigDecimal(parts[2]).movePointRight(scale)
+                    .setScale(0, RoundingMode.HALF_UP).longValueExact();
+        } catch (ArithmeticException | NumberFormatException e) {
             throw new AnalysisException("Invalid second format", e);
         }
-        secPart = secPart * (int) Math.pow(10, scale);
-        secPart = Math.round(secPart);
-        secPart = (long) secPart * (long) Math.pow(10, 6 - scale);
-        second = (int) (secPart / 1000000);
-        if (scale != 0) {
-            microsecond = (int) (secPart % 1000000);
-            if (second == 60) {
-                minute += 1;
-                second -= 60;
-                if (minute == 60) {
-                    hour += 1;
-                    minute -= 60;
-                }
+        long secondInNanoseconds = scaledSecond
+                * (long) Math.pow(10, TimeV2Type.MAX_SCALE - scale);
+        second = (int) (secondInNanoseconds / 1000000000);
+        int nanosecond = (int) (secondInNanoseconds % 1000000000);
+        microsecond = nanosecond / 1000;
+        nanosecondRemainder = nanosecond % 1000;
+        if (second == 60) {
+            minute += 1;
+            second -= 60;
+            if (minute == 60) {
+                hour += 1;
+                minute -= 60;
             }
-        } else {
-            microsecond = 0;
         }
 
-        if (checkRange(hour, minute, second, microsecond)) {
+        if (checkRange(hour, minute, second, nanosecond)) {
             throw new AnalysisException("time literal [" + s + "] is out of range");
         }
     }
 
-    protected static boolean checkRange(double hour, int minute, int second, int microsecond) {
-        return hour > 838 || minute > 59 || second > 59 || microsecond > 999999 || minute < 0 || second < 0
-                || microsecond < 0;
+    protected static boolean checkRange(double hour, int minute, int second, int nanosecond) {
+        return hour > 838 || minute > 59 || second > 59 || nanosecond > 999999999
+                || minute < 0 || second < 0 || nanosecond < 0;
     }
 
     /**
@@ -282,7 +245,7 @@ public class TimeV2Literal extends Literal {
         while (len > 0 && microPart.charAt(len - 1) == '0') {
             len--; // remove trailing zeros
         }
-        return Math.min(len, 6); // max scale is 6
+        return Math.min(len, TimeV2Type.MAX_SCALE);
     }
 
     public int getHour() {
@@ -301,13 +264,22 @@ public class TimeV2Literal extends Literal {
         return microsecond;
     }
 
+    public int getNanoSecond() {
+        return microsecond * 1000 + nanosecondRemainder;
+    }
+
+    public long getValueInNanoseconds() {
+        long value = ((hour * 60L + minute) * 60L + second) * 1000000000L + getNanoSecond();
+        return negative ? -value : value;
+    }
+
     @Override
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
-        long microsecondValue = ((Double) getValue()).longValue();
+        long nanosecondValue = getValueInNanoseconds();
         DateTimeV2Literal time = (DateTimeV2Literal) DateTimeV2Literal.fromJavaDateType(LocalDateTime
                 .now(DateUtils.getTimeZone()).withHour(0).withMinute(0).withSecond(0).withNano(0)
-                        .plusNanos(microsecondValue * 1000),
-                ((TimeV2Type) dataType).getScale());
+                        .plusNanos(nanosecondValue),
+                Math.min(((TimeV2Type) dataType).getScale(), 6));
         if (targetType.isDateType()) {
             return new DateLiteral(time.getYear(), time.getMonth(), time.getDay());
         } else if (targetType.isDateV2Type()) {
@@ -316,8 +288,11 @@ public class TimeV2Literal extends Literal {
             return new DateTimeLiteral(time.getYear(), time.getMonth(), time.getDay(), time.getHour(), time.getMinute(),
                     time.getSecond());
         } else if (targetType instanceof TimeStampNsType) {
-            return new TimeStampNsLiteral(time.getYear(), time.getMonth(), time.getDay(),
-                    time.getHour(), time.getMinute(), time.getSecond(), time.getMicroSecond() * 1000L);
+            LocalDateTime timestamp = LocalDateTime.now(DateUtils.getTimeZone())
+                    .withHour(0).withMinute(0).withSecond(0).withNano(0).plusNanos(nanosecondValue);
+            return new TimeStampNsLiteral(timestamp.getYear(), timestamp.getMonthValue(),
+                    timestamp.getDayOfMonth(), timestamp.getHour(), timestamp.getMinute(),
+                    timestamp.getSecond(), timestamp.getNano());
         } else if (targetType.isDateTimeV2Type()) {
             return time;
         }
@@ -332,7 +307,8 @@ public class TimeV2Literal extends Literal {
     @Override
     public LiteralExpr toLegacyLiteral() {
         int scale = ((TimeV2Type) dataType).getScale();
-        return new org.apache.doris.analysis.TimeV2Literal(hour, minute, second, microsecond, scale, negative);
+        return org.apache.doris.analysis.TimeV2Literal.fromNanosecond(
+                hour, minute, second, getNanoSecond(), scale, negative);
     }
 
     @Override
@@ -346,12 +322,10 @@ public class TimeV2Literal extends Literal {
         } else {
             sb.append(String.format("%02d:%02d:%02d", hour, minute, second));
         }
-        // why re caculate microsecond? example:
-        // the microsecond is 001000, it will parsed to 1000
-        // the scale is 3, we need make sure it not become start with 1
         int scale = ((TimeV2Type) dataType).getScale();
         if (scale > 0) {
-            sb.append(String.format(".%0" + scale + "d", microsecond / (int) Math.pow(10, 6 - scale)));
+            sb.append(String.format(".%0" + scale + "d",
+                    getNanoSecond() / (int) Math.pow(10, TimeV2Type.MAX_SCALE - scale)));
         }
         return sb.toString();
     }
@@ -380,17 +354,33 @@ public class TimeV2Literal extends Literal {
             throw new AnalysisException("datetime out of range" + dateTime.toString());
         }
         int value = (int) Math.pow(10, TimeV2Type.MAX_SCALE - precision);
-        return new TimeV2Literal(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
-                (dateTime.getNano() / 1000) / value * value, precision, false);
+        return TimeV2Literal.fromNanosecond(dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
+                dateTime.getNano() / value * value, precision, false);
     }
 
     public LocalDateTime toJavaDateType() {
         return LocalDateTime.of(0, 1, 1, ((int) getHour()), ((int) getMinute()), ((int) getSecond()),
-                (int) getMicroSecond() * 1000);
+                getNanoSecond());
     }
 
     public Expression plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)));
+    }
+
+    /** Add nanoseconds and retain the requested TIMEV2 precision. */
+    public Expression plusNanoSeconds(long nanoSeconds, int precision) {
+        long result = Math.addExact(getValueInNanoseconds(), nanoSeconds);
+        long maxValue = MAX_VALUE.getValueInNanoseconds();
+        result = Math.max(-maxValue, Math.min(maxValue, result));
+        boolean resultNegative = result < 0;
+        long absolute = Math.abs(result);
+        int resultNanosecond = (int) (absolute % 1000000000L);
+        long totalSeconds = absolute / 1000000000L;
+        int resultSecond = (int) (totalSeconds % 60);
+        int resultMinute = (int) (totalSeconds / 60 % 60);
+        int resultHour = (int) (totalSeconds / 3600);
+        return TimeV2Literal.fromNanosecond(resultHour, resultMinute, resultSecond,
+                resultNanosecond, precision, resultNegative);
     }
 
     public Expression plusMilliSeconds(long milliSeconds) {
@@ -412,9 +402,11 @@ public class TimeV2Literal extends Literal {
     @Override
     public Object getValue() {
         if (negative) {
-            return (((double) (-hour * 60) - minute) * 60 - second) * 1000000 - microsecond;
+            return (((double) (-hour * 60) - minute) * 60 - second) * 1000000
+                    - microsecond - nanosecondRemainder / 1000.0;
         }
-        return (((double) (hour * 60) + minute) * 60 + second) * 1000000 + microsecond;
+        return (((double) (hour * 60) + minute) * 60 + second) * 1000000
+                + microsecond + nanosecondRemainder / 1000.0;
     }
 
     @Override

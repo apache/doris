@@ -423,6 +423,22 @@ TEST_F(DataTypeDateTimeV2SerDeTest, ArrowTimeToTimeV2) {
                                        arrow::default_memory_pool());
     ASSERT_TRUE(nanos_builder.Append(45296123456789).ok());
     read_time(&nanos_builder, 6, {45296123456.0});
+
+    arrow::Time64Builder exact_nanos_builder(arrow::time64(arrow::TimeUnit::NANO),
+                                             arrow::default_memory_pool());
+    ASSERT_TRUE(exact_nanos_builder.Append(45296123456789).ok());
+    read_time(&exact_nanos_builder, 9, {45296123456.789});
+}
+
+TEST_F(DataTypeDateTimeV2SerDeTest, MysqlBinaryNanosecondTimeAsString) {
+    auto column = ColumnTimeV2::create();
+    column->insert_value(TimeValue::make_time_from_nanoseconds(12, 34, 56, 123456789));
+    DataTypeTimeV2SerDe serde(9);
+    MysqlRowBinaryBuffer buffer;
+    DataTypeSerDe::FormatOptions options;
+    ASSERT_TRUE(serde.write_column_to_mysql_binary(*column, buffer, 0, false, options).ok());
+    ASSERT_EQ(static_cast<uint8_t>(buffer.buf()[0]), 18);
+    EXPECT_EQ(std::string(buffer.buf() + 1, 18), "12:34:56.123456789");
 }
 
 TEST_F(DataTypeDateTimeV2SerDeTest, RejectsInvalidArrowTimeValues) {

@@ -94,6 +94,20 @@ suite("test_timestamp_ns_functions") {
     sql "set debug_skip_fold_constant = false"
     testFoldConst(scalarFunctionConstantsSql)
 
+    order_qt_timev2_nanosecond_precision """
+        select
+            cast('12:34:56.123456789' as time(9)),
+            cast('-00:00:00.000000001' as time(9)),
+            cast(cast('2024-02-29 12:34:56.123456789' as timestamp_ns) as time(9)),
+            time_format(cast('12:34:56.123456789' as time(9)), '%f|%n'),
+            sec_to_time(1.123456789),
+            maketime(1, 2, 3.123456789),
+            add_time(cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
+                     cast('00:00:00.000000001' as time(9))),
+            sub_time(cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
+                     cast('00:00:00.000000001' as time(9)))
+    """
+
     def additionalCalendarFunctionsSql = """
         select
             months_between(

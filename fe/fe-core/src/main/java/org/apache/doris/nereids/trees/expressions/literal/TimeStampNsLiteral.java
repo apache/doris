@@ -303,10 +303,9 @@ public final class TimeStampNsLiteral extends DateLiteral {
             int resultHour = (int) (timeNanos / NANOS_PER_SECOND / 60 / 60);
             int resultMinute = (int) (timeNanos / NANOS_PER_SECOND / 60 % 60);
             int resultSecond = (int) (timeNanos / NANOS_PER_SECOND % 60);
-            int resultMicroSecond = (int) (timeNanos % NANOS_PER_SECOND / 1000 / (factor / 1000)
-                    * (factor / 1000));
-            return new TimeV2Literal(resultHour, resultMinute, resultSecond,
-                    resultMicroSecond, scale, false);
+            int resultNanosecond = (int) (timeNanos % NANOS_PER_SECOND / factor * factor);
+            return TimeV2Literal.fromNanosecond(resultHour, resultMinute, resultSecond,
+                    resultNanosecond, scale, false);
         }
         if (targetType.isTimeStampTzType()) {
             int scale = ((TimeStampTzType) targetType).getScale();

@@ -777,6 +777,21 @@ TEST(DataTypeSerDeParquetTest, MaterializesTimeUnitsDirectly) {
                              .ok());
         EXPECT_EQ(invalid_dictionary_column->size(), 0);
     }
+
+    TestParquetDecodeSource nanosecond_source;
+    nanosecond_source.set_fixed_values<int64_t>({1, 86399999999999});
+    const ParquetDecodeContext nanosecond_context {.physical_type = ParquetPhysicalType::INT64,
+                                                   .logical_type = ParquetLogicalType::TIME,
+                                                   .time_unit = ParquetTimeUnit::NANOS};
+    ParquetMaterializationState nanosecond_state;
+    DataTypeTimeV2 nanosecond_type(9);
+    auto nanosecond_column = nanosecond_type.create_column();
+    ASSERT_TRUE(nanosecond_type.get_serde()
+                        ->read_column_from_parquet(*nanosecond_column, nanosecond_source,
+                                                   nanosecond_context, 2, nanosecond_state)
+                        .ok());
+    EXPECT_EQ(nanosecond_type.to_string(*nanosecond_column, 0), "00:00:00.000000001");
+    EXPECT_EQ(nanosecond_type.to_string(*nanosecond_column, 1), "23:59:59.999999999");
 }
 
 TEST(DataTypeSerDeParquetTest, MaterializesTimestampTzDirectly) {

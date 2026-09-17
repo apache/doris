@@ -305,7 +305,13 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
             }
         }
     } else if (logicalType.__isset.TIME) {
-        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable);
+        int scale = 9;
+        if (logicalType.TIME.unit.__isset.MILLIS) {
+            scale = 3;
+        } else if (logicalType.TIME.unit.__isset.MICROS) {
+            scale = 6;
+        }
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable, 0, scale);
     } else if (logicalType.__isset.TIMESTAMP) {
         if (_enable_mapping_timestamp_tz) {
             if (logicalType.TIMESTAMP.isAdjustedToUTC) {
