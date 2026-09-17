@@ -78,10 +78,7 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
 
     private List<Long> selectNonEmptyPartitionIds(LogicalOlapScan scan, OlapTable table,
             List<Long> partitionIds) {
-        boolean hasFixedVisibleVersions = table instanceof OlapTableWrapper
-                && ((OlapTableWrapper) table).hasFixedVisibleVersions();
-        if (Config.isCloudMode() && !hasFixedVisibleVersions && scan.getScanParams().isPresent()
-                && scan.getScanParams().get().incrementalRead()) {
+        if (shouldRefreshPartitionVersionsFromMs(scan, table)) {
             List<CloudPartition> partitions = partitionIds.stream()
                     .map(table::getPartition)
                     .filter(Objects::nonNull)
@@ -119,6 +116,13 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
                     .collect(Collectors.toList());
         }
         return table.selectNonEmptyPartitionIds(partitionIds, scan.getStreamReadMode());
+    }
+
+    private boolean shouldRefreshPartitionVersionsFromMs(LogicalOlapScan scan, OlapTable table) {
+        boolean hasFixedVisibleVersions = table instanceof OlapTableWrapper
+                && ((OlapTableWrapper) table).hasFixedVisibleVersions();
+        return Config.isCloudMode() && !hasFixedVisibleVersions && scan.getScanParams().isPresent()
+                && scan.getScanParams().get().incrementalRead();
     }
 
     private void selectNonEmptyPartitionIdsForTxnLoad(TransactionEntry txnEntry, OlapTable table, long indexId,
