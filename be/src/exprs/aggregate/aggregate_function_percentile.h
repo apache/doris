@@ -28,6 +28,7 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
@@ -136,20 +137,21 @@ struct PercentileApproxState {
     }
 
     void merge(const PercentileApproxState& rhs) {
-        if (!rhs.init_flag) {
+        if (!rhs.init_flag || rhs.digest->total_size() == 0) {
             return;
         }
-        if (init_flag) {
-            DCHECK(digest.get() != nullptr);
-            digest->merge(rhs.digest.get());
-        } else {
-            digest = TDigest::create_unique(compressions);
-            digest->merge(rhs.digest.get());
-            init_flag = true;
-        }
-        if (target_quantile == PercentileApproxState::INIT_QUANTILE) {
+        if (!init_flag || digest->total_size() == 0) {
             target_quantile = rhs.target_quantile;
+            compressions = rhs.compressions;
+            digest = TDigest::create_unique(compressions);
+            init_flag = true;
+        } else if (UNLIKELY(target_quantile != rhs.target_quantile ||
+                            compressions != rhs.compressions)) {
+            throw Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "percentile_approx aggregate states have incompatible quantile or compression");
         }
+        digest->merge(rhs.digest.get());
     }
 
     void add(double source) { digest->add(static_cast<float>(source)); }
@@ -330,6 +332,8 @@ public:
 };
 
 struct PercentileApproxArrayState {
+    bool has_samples() const { return !levels.empty() && digest->total_size() != 0; }
+
     void init(const PaddedPODArray<Float64>& quantiles, const NullMap& null_map, size_t start,
               size_t size, float compression = 10000) {
         if (init_flag) {
@@ -367,16 +371,15 @@ struct PercentileApproxArrayState {
     }
 
     void write(BufferWritable& buf) const {
-        buf.write_binary(init_flag);
-        if (!init_flag) {
+        // Sample-free states share the fresh-state encoding, independent of their parameters.
+        const bool has_data = has_samples();
+        buf.write_binary(has_data);
+        if (!has_data) {
             return;
         }
 
         levels.write(buf);
         buf.write_binary(compressions);
-        if (levels.empty()) {
-            return;
-        }
         uint32_t serialize_size = digest->serialized_size();
         std::string result(serialize_size, '0');
         digest->serialize(reinterpret_cast<uint8_t*>(result.data()));
@@ -402,28 +405,22 @@ struct PercentileApproxArrayState {
     }
 
     void merge(const PercentileApproxArrayState& rhs) {
-        if (!rhs.init_flag) {
+        if (!rhs.has_samples()) {
             return;
         }
 
-        if (!init_flag) {
-            levels.merge(rhs.levels);
+        if (!has_samples()) {
+            levels = rhs.levels;
             compressions = rhs.compressions;
-            if (!levels.empty()) {
-                digest = TDigest::create_unique(compressions);
-            }
+            digest = TDigest::create_unique(compressions);
             init_flag = true;
-        } else {
-            if (compressions != rhs.compressions || levels.quantiles != rhs.levels.quantiles) {
-                throw Exception(
-                        ErrorCode::INVALID_ARGUMENT,
-                        "percentile_approx_array aggregate states have incompatible quantiles "
-                        "or compression");
-            }
+        } else if (UNLIKELY(compressions != rhs.compressions ||
+                            levels.quantiles != rhs.levels.quantiles)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "percentile_approx_array aggregate states have incompatible quantiles "
+                            "or compression");
         }
-        if (!levels.empty()) {
-            digest->merge(rhs.digest.get());
-        }
+        digest->merge(rhs.digest.get());
     }
 
     void reset() {
@@ -435,7 +432,7 @@ struct PercentileApproxArrayState {
 
     void insert_result_into(IColumn& to) const {
         auto& column_data = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data();
-        if (levels.empty()) {
+        if (!has_samples()) {
             return;
         }
 
@@ -636,20 +633,20 @@ struct PercentileState {
     }
 
     void merge(const PercentileState& rhs) {
-        if (!rhs.inited_flag) {
+        if (rhs.vec_counts.empty()) {
             return;
         }
         int size_num = cast_set<int>(rhs.vec_quantile.size());
-        if (!inited_flag) {
+        if (vec_counts.empty()) {
             vec_counts.resize(size_num);
-            vec_quantile.resize(size_num, -1);
+            vec_quantile = rhs.vec_quantile;
             inited_flag = true;
+        } else if (UNLIKELY(vec_quantile != rhs.vec_quantile)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "percentile aggregate states have incompatible quantiles");
         }
 
         for (int i = 0; i < size_num; ++i) {
-            if (vec_quantile[i] == -1.0) {
-                vec_quantile[i] = rhs.vec_quantile[i];
-            }
             vec_counts[i].merge(&(rhs.vec_counts[i]));
         }
     }
@@ -733,11 +730,14 @@ struct PercentileExactState {
             return;
         }
 
-        if (!inited_flag) {
+        if (values.empty()) {
             levels = rhs.levels;
             inited_flag = true;
-        } else {
-            levels.merge(rhs.levels);
+        } else if (rhs.values.empty()) {
+            return;
+        } else if (UNLIKELY(levels.quantiles != rhs.levels.quantiles)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "percentile aggregate states have incompatible quantiles");
         }
         _append(rhs.values.data(), rhs.values.size());
     }
