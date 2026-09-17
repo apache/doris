@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
@@ -379,13 +380,14 @@ public class ComputeSignatureHelperTest {
                 new ArrayLiteral(Lists.newArrayList(new IntegerLiteral(0))));
         signature = ComputeSignatureHelper.computePrecision(new FakeComputeSignature(), signature, arguments);
         Assertions.assertTrue(signature.getArgType(0) instanceof ArrayType);
-        // each fixed ARRAY slot is an independent logical type variable and keeps its own
-        // item type instead of being merged with the other slots
+        // both ARRAY slots declare the same item type, so they share one decimal group
+        // instead of being truncated to the wider type of all the decimal slots
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(5, 4),
                 ((ArrayType) signature.getArgType(0)).getItemType());
         Assertions.assertTrue(signature.getArgType(1) instanceof ArrayType);
-        // a NULL ARRAY argument has no item type of its own, so it falls back to the wider type
-        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
+        // a NULL ARRAY argument has no item type of its own, so it takes the type of the
+        // group it belongs to
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(5, 4),
                 ((ArrayType) signature.getArgType(1)).getItemType());
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
                 signature.getArgType(2));
@@ -748,6 +750,28 @@ public class ComputeSignatureHelperTest {
                 ((ArrayType) signature.getArgType(0)).getItemType());
         Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 4),
                 ((ArrayType) signature.getArgType(1)).getItemType());
+    }
+
+    @Test
+    void testIfCommonBranchTypeIsNotSplitIntoSlotGroups() {
+        // if() resolves both branches and its return type to the common DECIMAL(10,3), so the
+        // expected input types must stay common as well: narrowing the DECIMAL(9,2) branch
+        // back to its own type would leave the signature asking for an ARRAY<DECIMAL(9,2)>
+        // while the common return column is an ARRAY<DECIMAL(10,3)> (a Decimal32 nested
+        // column inserted into a Decimal64 one on the BE).
+        DataType commonType = DecimalV3Type.createDecimalV3Type(10, 3);
+        FunctionSignature template = FunctionSignature.ret(ArrayType.of(commonType))
+                .args(BooleanType.INSTANCE, ArrayType.of(commonType), ArrayType.of(commonType));
+        List<Expression> arguments = Lists.newArrayList(
+                BooleanLiteral.TRUE,
+                new ArrayLiteral(Lists.newArrayList(new DecimalV3Literal(new BigDecimal("1234567.12")))),
+                new ArrayLiteral(Lists.newArrayList(new DecimalV3Literal(new BigDecimal("1234567.123")))));
+        FunctionSignature signature = ComputeSignatureHelper.computePrecision(
+                new FakeComputeSignature(template), template, arguments);
+        Assertions.assertEquals(ArrayType.of(commonType), signature.getArgType(1));
+        Assertions.assertEquals(ArrayType.of(commonType), signature.getArgType(2));
+        // the return type stays consistent with the expected input types
+        Assertions.assertEquals(ArrayType.of(commonType), signature.returnType);
     }
 
     @Test

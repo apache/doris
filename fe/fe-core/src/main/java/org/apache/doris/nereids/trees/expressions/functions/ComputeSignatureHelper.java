@@ -73,8 +73,7 @@ public class ComputeSignatureHelper {
     private static final String MAP_CONTAINER_GROUP = "cidx:";
     // group key prefix for the leaves of one independent argument slot: an
     // INSTANCE_WITHOUT_INDEX occurrence (array_sortby's src/keys, the expanded arguments
-    // of array_enumerate_uniq) or a fixed slot the signature declares separately
-    // (array_zip's arrays) is its own logical type variable, so its decimal leaves keep
+    // of array_enumerate_uniq) is its own logical type variable, so its decimal leaves keep
     // their own group instead of being merged with the other slots
     private static final String SLOT_GROUP = "slot:";
 
@@ -669,7 +668,7 @@ public class ComputeSignatureHelper {
         for (int i = 0; i < arguments.size(); i++) {
             DataType targetType = getSignatureArgumentType(signature, i);
             DataType templateType = template == null ? null : getSignatureArgumentType(template, i);
-            String slotScope = slotScope(template, i, templateType);
+            String slotScope = slotScope(i, templateType);
             collectDecimalLeaf(targetType, arguments.get(i).getDataType(), arguments.get(i),
                     "", templateType, -1, slotScope, indexToMapLeafGroup, mapLeafGroupByType, groupWider,
                     scalarGroupWider, scalarLeaves, widerHolder);
@@ -699,7 +698,7 @@ public class ComputeSignatureHelper {
         List<DataType> newArgTypes = Lists.newArrayListWithCapacity(signature.argumentsTypes.size());
         for (int i = 0; i < signature.argumentsTypes.size(); i++) {
             DataType templateType = template == null ? null : getSignatureArgumentType(template, i);
-            String slotScope = slotScope(template, i, templateType);
+            String slotScope = slotScope(i, templateType);
             newArgTypes.add(replaceDecimalV3Leaf(signature.argumentsTypes.get(i), "", templateType, -1,
                     slotScope, indexToMapLeafGroup, mapLeafGroupByType, groupWider, scalarGroupWider,
                     widerType));
@@ -744,10 +743,10 @@ public class ComputeSignatureHelper {
      * {@code containerIndex} is the Any/Follow index of an enclosing MAP container that
      * owns this leaf as a whole (i.e. the container itself is an Any/Follow slot), or -1
      * when there is none. {@code slotScope} is the group key prefix of the argument slot
-     * (see {@link #slotScope}): empty for a common exact vararg slot whose expanded
-     * arguments have to aggregate, otherwise a per-slot prefix so every independent
-     * occurrence keeps its own group. {@code widerHolder} accumulates the wider type
-     * across all decimal leaves.
+     * (see {@link #slotScope}): empty for a common slot whose leaves share their group with
+     * the slots declaring the same type, otherwise a per-slot prefix so every slot the
+     * signature declares as an independent occurrence keeps its own group.
+     * {@code widerHolder} accumulates the wider type across all decimal leaves.
      */
     private static void collectDecimalLeaf(DataType sigType, DataType argType, Expression arg,
             String path, DataType templateType, int containerIndex, String slotScope,
@@ -808,10 +807,13 @@ public class ComputeSignatureHelper {
             } else if (promoted != null) {
                 // non-MAP ARRAY leaf: an indexed Any/Follow keeps the original identity so
                 // it is promoted together with the linked scalar slot of the same group
-                // (e.g. array_contains(ARRAY<Any(0)>, Any(0))), otherwise the leaf keeps its
-                // own slot group (see slotScope), so independent occurrences such as
-                // array_sortby's src/keys, array_zip's arrays and the expanded arguments of
-                // array_enumerate_uniq are never merged into one truncated type
+                // (e.g. array_contains(ARRAY<Any(0)>, Any(0))). Every other leaf is grouped
+                // by its own slot scope (see slotScope) and its declared item type: a slot
+                // the signature declares as an independent occurrence (array_sortby's
+                // src/sort_keys, array_zip's arrays, the expanded arguments of
+                // array_enumerate_uniq) is therefore never truncated to the type of another
+                // slot, while the slots a resolved signature already made common (if()'s
+                // branches) still aggregate into one group
                 int index = anyFollowIndex(templateType);
                 String groupKey = index >= 0
                         ? ANY_INDEX_GROUP + index
@@ -899,9 +901,10 @@ public class ComputeSignatureHelper {
      * Replace every decimal leaf in {@code sigType}: leaves inside a MAP use the wider
      * type of their own structural group, top-level scalar slots use the wider type of
      * their own logical group (slots of the same resolved type), the item of an ARRAY uses
-     * the wider type of its own slot group (see {@link #slotScope}), and every remaining
-     * leaf keeps the original behavior of using the single wider type across all decimal
-     * slots.
+     * the wider type of its own slot group when the signature declares the slot as an
+     * independent occurrence and of the shared group otherwise (see {@link #slotScope}),
+     * and every remaining leaf keeps the original behavior of using the single wider type
+     * across all decimal slots.
      */
     private static DataType replaceDecimalV3Leaf(DataType sigType, String path, DataType templateType,
             int containerIndex, String slotScope, Map<Integer, String> indexToMapLeafGroup,
@@ -961,10 +964,11 @@ public class ComputeSignatureHelper {
             }
             // non-MAP ARRAY leaf (e.g. the item of ARRAY<Any(index)>): keep the original
             // Any/Follow identity so it stays promoted together with the linked scalar
-            // slot of the same group, otherwise the array and the probe diverge. An
-            // independent occurrence (array_sortby's src/keys, array_zip's arrays, the
-            // expanded arguments of array_enumerate_uniq) uses its own slot group instead,
-            // so it is not truncated to the wider type of the other slots.
+            // slot of the same group, otherwise the array and the probe diverge. A leaf of
+            // a slot the signature declares as an independent occurrence (array_sortby's
+            // src/sort_keys, array_zip's arrays, the expanded arguments of
+            // array_enumerate_uniq) keeps the type of its own slot group instead, while the
+            // leaves of the slots a resolved signature made common keep sharing one group.
             int index = anyFollowIndex(templateType);
             if (index >= 0) {
                 DecimalV3Type groupType = groupWider.get(ANY_INDEX_GROUP + index);
@@ -1096,21 +1100,22 @@ public class ComputeSignatureHelper {
     }
 
     /**
-     * The group key prefix of one argument slot. It is empty for a common exact vararg
-     * slot, whose expanded arguments all share the declared type and therefore have to
-     * aggregate into one decimal group (e.g. a variadic MAP argument). Every other
-     * occurrence is an independent logical type variable - an INSTANCE_WITHOUT_INDEX
-     * declaration such as array_sortby's src/keys or the expanded arguments of
-     * array_enumerate_uniq, and a fixed slot such as array_zip's arrays - and gets a
-     * per-slot prefix so it keeps its own precision/scale instead of being truncated to
-     * the wider type of the other slots.
+     * The group key prefix of one argument slot. Only a slot that the signature declares as
+     * an individual occurrence - an {@link AnyDataType#INSTANCE_WITHOUT_INDEX} leaf such as
+     * array_sortby's src/sort_keys or the expanded arguments of array_enumerate_uniq - is an
+     * own logical type variable and gets a per-slot prefix, so it is never truncated to the
+     * wider type of another slot. Every other slot keeps the original behavior of the single
+     * common group: the expanded arguments of an exact vararg all declare the same type, and
+     * a fixed slot of a resolved signature has already been made common with the other slots
+     * (e.g. if() resolves both branches and its return type to one common type), so narrowing
+     * such a slot back to the type of its own argument would leave the expected argument types
+     * inconsistent with the declared return type.
      */
-    private static String slotScope(FunctionSignature template, int index, DataType templateType) {
-        if (template != null && template.hasVarArgs && index >= template.arity - 1
-                && !declaresInstanceWithoutIndex(templateType)) {
-            return "";
+    private static String slotScope(int index, DataType templateType) {
+        if (templateType != null && declaresInstanceWithoutIndex(templateType)) {
+            return SLOT_GROUP + index + "/";
         }
-        return SLOT_GROUP + index + "/";
+        return "";
     }
 
     /**
