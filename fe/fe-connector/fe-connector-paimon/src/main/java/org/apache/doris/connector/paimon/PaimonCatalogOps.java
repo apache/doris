@@ -17,15 +17,18 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogUtils;
 import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -428,7 +431,15 @@ public interface PaimonCatalogOps {
                 return -1;
             }
             FileStoreTable fileStoreTable = (FileStoreTable) table;
-            switch (fileStoreTable.coreOptions().startupMode()) {
+            CoreOptions options = fileStoreTable.coreOptions();
+            // Batch scans can exclude level-0 files or postponed buckets even in full-snapshot mode.
+            // The snapshot counter includes those files; do not enumerate manifests to correct it.
+            if ((!fileStoreTable.primaryKeys().isEmpty() && options.batchScanSkipLevel0()
+                    && options.toConfiguration().get(CoreOptions.BATCH_SCAN_MODE) == CoreOptions.BatchScanMode.NONE)
+                    || options.bucket() == BucketMode.POSTPONE_BUCKET) {
+                return -1;
+            }
+            switch (options.startupMode()) {
                 case LATEST:
                 case LATEST_FULL:
                 case FROM_TIMESTAMP:
@@ -439,6 +450,12 @@ public interface PaimonCatalogOps {
                     // Incremental/file-creation-time scans and unresolved compacted-full scans
                     // do not read the full snapshot selected by TimeTravelUtil.
                     return -1;
+            }
+            if (fileStoreTable instanceof PrivilegedFileStoreTable) {
+                // Match the old scan's SELECT check without planning any splits. TimeTravelUtil
+                // eagerly calls tagManager(), which requires INSERT on the privilege wrapper.
+                fileStoreTable.newScan();
+                fileStoreTable = PaimonTableDecorators.unwrapToFallbackOrBase(fileStoreTable);
             }
             Snapshot snapshot = TimeTravelUtil.tryTravelOrLatest(fileStoreTable);
             // Old snapshot versions can omit totalRecordCount; an empty table has no snapshot.

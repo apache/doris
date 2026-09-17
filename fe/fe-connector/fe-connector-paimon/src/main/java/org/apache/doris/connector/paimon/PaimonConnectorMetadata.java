@@ -1608,6 +1608,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         long rowCount;
         try {
+            if (PaimonScanParams.getPinnedFileCreationTime(paimonHandle.getScanOptions()).isPresent()) {
+                return Optional.empty();
+            }
             Table table = PaimonReaderOptions.runtimeSafeTable(resolveTable(paimonHandle));
             table = runtimeSafeSystemTable(paimonHandle, table, Collections.emptyMap());
             PaimonReaderOptions.validateEffectiveTable(table);
@@ -1643,8 +1646,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 // first commit even though execution is still required to scan zero rows.
                 return Optional.empty();
             }
-            Table table = resolveTable(pinned);
             Map<String, String> scanOptions = pinned.getScanOptions();
+            // applyOptions removes this Doris-only marker, but execution still filters files by it.
+            // This also covers scan.creation-time-millis when it resolves to a file-creation scan.
+            if (PaimonScanParams.getPinnedFileCreationTime(scanOptions).isPresent()) {
+                return Optional.empty();
+            }
+            Table table = resolveTable(pinned);
             if (scanOptions != null && !scanOptions.isEmpty()) {
                 table = PaimonScanParams.isOptionsPin(scanOptions)
                         ? PaimonScanParams.applyOptions(table, scanOptions)

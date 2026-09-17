@@ -17,14 +17,25 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.SeekableInputStream;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.privilege.PrivilegeChecker;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
+import org.apache.paimon.table.sink.BatchTableCommit;
+import org.apache.paimon.table.sink.BatchTableWrite;
+import org.apache.paimon.table.sink.BatchWriteBuilder;
+import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.system.SnapshotsTable;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
@@ -32,8 +43,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Snapshot statistics must not open manifests or construct a split plan. */
 public class PaimonCatalogRowCountTest {
@@ -122,13 +138,129 @@ public class PaimonCatalogRowCountTest {
         Assertions.assertEquals(-1L, ops.rowCount(new FallbackReadFileStoreTable(table, fallback)));
     }
 
+    @Test
+    public void committedFilesExcludedByBatchScanReturnUnknown() throws Exception {
+        for (Map<String, String> options : List.of(
+                Collections.singletonMap("deletion-vectors.enabled", "true"),
+                Collections.singletonMap("merge-engine", "first-row"),
+                Collections.singletonMap("bucket", "-2"))) {
+            ManifestGuardFileIO fileIO = new ManifestGuardFileIO();
+            fileIO.rejectManifests = false;
+            FileStoreTable table = newTable(options.keySet().iterator().next(), true, options, fileIO);
+            append(table);
+            Assertions.assertEquals(1L, table.latestSnapshot().get().totalRecordCount().longValue());
+            Assertions.assertEquals(0L, table.newScan().plan().splits().stream().mapToLong(Split::rowCount).sum(),
+                    "The committed file must be invisible to the ordinary batch scan");
+
+            FileStoreTable compactScan = table.copy(Collections.singletonMap("batch-scan-mode", "compact"));
+            fileIO.rejectManifests = true;
+            Assertions.assertEquals(-1L, ops.rowCount(table));
+            Assertions.assertEquals(options.containsKey("bucket") ? -1L : 1L, ops.rowCount(compactScan));
+        }
+    }
+
+    @Test
+    public void committedOrdinaryTableKeepsSnapshotEstimate() throws Exception {
+        ManifestGuardFileIO fileIO = new ManifestGuardFileIO();
+        fileIO.rejectManifests = false;
+        FileStoreTable table = newTable("committed", true, Collections.emptyMap(), fileIO);
+        append(table);
+        Assertions.assertEquals(1L, table.newScan().plan().splits().stream().mapToLong(Split::rowCount).sum());
+        fileIO.rejectManifests = true;
+        Assertions.assertEquals(1L, ops.rowCount(table));
+    }
+
+    @Test
+    public void preservedPrivilegeWrapperNeedsOnlySelect() throws Exception {
+        FileStoreTable table = newTable("privileged", false);
+        snapshot(table, 1, 10L);
+        AtomicInteger selectChecks = new AtomicInteger();
+        AtomicBoolean denySelect = new AtomicBoolean();
+        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
+                PrivilegeChecker.class.getClassLoader(), new Class<?>[] {PrivilegeChecker.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("assertCanInsert")) {
+                        throw new SecurityException("INSERT denied");
+                    }
+                    if (method.getName().equals("assertCanSelect")
+                            || method.getName().equals("assertCanSelectOrInsert")) {
+                        selectChecks.incrementAndGet();
+                        if (denySelect.get()) {
+                            throw new SecurityException("SELECT denied");
+                        }
+                    }
+                    return null;
+                });
+        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(table, checker, Identifier.create("db", "t"));
+        Assertions.assertSame(privileged, PaimonReaderOptions.runtimeSafeTable(privileged));
+        PaimonConnectorMetadata metadata = metadata();
+        PaimonTableHandle handle = handle(privileged);
+        Assertions.assertEquals(10L, metadata.getTableStatistics(null, handle).get().getRowCount());
+        Assertions.assertEquals(10L, metadata.getTableStatistics(null, handle,
+                ConnectorMvccSnapshot.builder().snapshotId(1L).property("scan.snapshot-id", "1").build())
+                .get().getRowCount());
+        Assertions.assertTrue(selectChecks.get() >= 2);
+        denySelect.set(true);
+        Assertions.assertThrows(SecurityException.class, () -> ops.rowCount(privileged));
+    }
+
+    @Test
+    public void normalizedFileCreationHandlesReturnUnknown() throws Exception {
+        ManifestGuardFileIO fileIO = new ManifestGuardFileIO();
+        fileIO.rejectManifests = false;
+        FileStoreTable table = newTable("creation", false, Collections.emptyMap(), fileIO);
+        append(table);
+        fileIO.rejectManifests = true;
+        PaimonConnectorMetadata metadata = metadata();
+        for (String key : new String[] {"scan.file-creation-time-millis", "scan.creation-time-millis"}) {
+            // A threshold before the first snapshot forces creation-time's file-filter fallback.
+            Map<String, String> resolved = PaimonScanParams.markAsOptions(PaimonScanParams.resolveOptions(
+                    table, Collections.singletonMap(key, "1")));
+            Assertions.assertTrue(PaimonScanParams.getPinnedFileCreationTime(resolved).isPresent());
+            FileStoreTable selected = (FileStoreTable) PaimonScanParams.applyOptions(table, resolved);
+            Assertions.assertEquals(CoreOptions.StartupMode.FROM_SNAPSHOT, selected.coreOptions().startupMode());
+            Assertions.assertEquals(1L, ops.rowCount(selected), "The Table alone has lost the file filter");
+            ConnectorMvccSnapshot snapshot = ConnectorMvccSnapshot.builder().snapshotId(1L)
+                    .properties(resolved).build();
+            Assertions.assertFalse(metadata.getTableStatistics(null, handle(table), snapshot).isPresent());
+            Assertions.assertFalse(metadata.getTableStatistics(null,
+                    handle(table).withScanOptions(resolved)).isPresent());
+        }
+    }
+
+    private PaimonConnectorMetadata metadata() {
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()),
+                new RecordingConnectorContext());
+    }
+
+    private PaimonTableHandle handle(FileStoreTable table) {
+        PaimonTableHandle handle = new PaimonTableHandle("db", "t", table.partitionKeys(), table.primaryKeys());
+        handle.setPaimonTable(table);
+        return handle;
+    }
+
+    private void append(FileStoreTable table) throws Exception {
+        BatchWriteBuilder builder = table.newBatchWriteBuilder();
+        try (BatchTableWrite write = builder.newWrite(); BatchTableCommit commit = builder.newCommit()) {
+            write.write(GenericRow.of(1));
+            commit.commit(write.prepareCommit());
+        }
+    }
+
     private FileStoreTable newTable(String name, boolean primaryKey) throws Exception {
-        LocalFileIO fileIO = new ManifestGuardFileIO();
+        return newTable(name, primaryKey, Collections.emptyMap(), new ManifestGuardFileIO());
+    }
+
+    private FileStoreTable newTable(String name, boolean primaryKey,
+            Map<String, String> options, LocalFileIO fileIO) throws Exception {
         org.apache.paimon.fs.Path path = new org.apache.paimon.fs.Path(warehouse.resolve(name).toUri());
-        Schema.Builder schema = Schema.newBuilder().column("id", DataTypes.INT());
+        Schema.Builder schema = Schema.newBuilder().column("id", DataTypes.INT())
+                .option("file.format", "parquet").option("write-only", "true")
+                .option("scan.manifest.parallelism", "1");
         if (primaryKey) {
             schema.primaryKey("id").option("bucket", "1");
         }
+        options.forEach(schema::option);
         new SchemaManager(fileIO, path).createTable(schema.build());
         return FileStoreTableFactory.create(fileIO, path);
     }
@@ -144,9 +276,11 @@ public class PaimonCatalogRowCountTest {
     }
 
     private static class ManifestGuardFileIO extends LocalFileIO {
+        private boolean rejectManifests = true;
+
         @Override
         public SeekableInputStream newInputStream(org.apache.paimon.fs.Path path) throws IOException {
-            Assertions.assertFalse(path.toString().contains("/manifest/"),
+            Assertions.assertFalse(rejectManifests && path.toString().contains("/manifest/"),
                     "Row count estimation must not read manifests: " + path);
             return super.newInputStream(path);
         }
