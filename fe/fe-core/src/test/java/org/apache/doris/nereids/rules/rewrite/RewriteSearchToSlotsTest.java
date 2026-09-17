@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -245,10 +246,10 @@ public class RewriteSearchToSlotsTest {
         Search searchFunc = new Search(new StringLiteral("NAME:alice"));
 
         Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
-                "rewriteSearch", Search.class, Plan.class);
+                "rewriteSearch", Search.class, Plan.class, CascadesContext.class);
         rewriteMethod.setAccessible(true);
 
-        Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan);
+        Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan, null);
         Assertions.assertInstanceOf(SearchExpression.class, rewritten);
 
         SearchExpression searchExpression = (SearchExpression) rewritten;
@@ -269,10 +270,10 @@ public class RewriteSearchToSlotsTest {
         Search searchFunc = new Search(new StringLiteral("V.foo:bar"));
 
         Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
-                "rewriteSearch", Search.class, Plan.class);
+                "rewriteSearch", Search.class, Plan.class, CascadesContext.class);
         rewriteMethod.setAccessible(true);
 
-        Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan);
+        Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan, null);
         Assertions.assertInstanceOf(SearchExpression.class, rewritten);
 
         SearchExpression searchExpression = (SearchExpression) rewritten;
@@ -294,11 +295,11 @@ public class RewriteSearchToSlotsTest {
         Search searchFunc = new Search(new StringLiteral("unknown_field:value"));
 
         Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
-                "rewriteSearch", Search.class, Plan.class);
+                "rewriteSearch", Search.class, Plan.class, CascadesContext.class);
         rewriteMethod.setAccessible(true);
 
         InvocationTargetException thrown = Assertions.assertThrows(InvocationTargetException.class,
-                () -> rewriteMethod.invoke(rewriteRule, searchFunc, scan));
+                () -> rewriteMethod.invoke(rewriteRule, searchFunc, scan, null));
         Assertions.assertNotNull(thrown.getCause());
         Assertions.assertInstanceOf(AnalysisException.class, thrown.getCause());
         Assertions.assertTrue(thrown.getCause().getMessage().contains("unknown_field"));
@@ -313,11 +314,11 @@ public class RewriteSearchToSlotsTest {
         Search searchFunc = new Search(new StringLiteral("name:alice"));
 
         Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
-                "rewriteSearch", Search.class, Plan.class);
+                "rewriteSearch", Search.class, Plan.class, CascadesContext.class);
         rewriteMethod.setAccessible(true);
 
         InvocationTargetException thrown = Assertions.assertThrows(InvocationTargetException.class,
-                () -> rewriteMethod.invoke(rewriteRule, searchFunc, scan));
+                () -> rewriteMethod.invoke(rewriteRule, searchFunc, scan, null));
         Assertions.assertNotNull(thrown.getCause());
         Assertions.assertInstanceOf(AnalysisException.class, thrown.getCause());
         Assertions.assertTrue(thrown.getCause().getMessage().contains("inverted index"),
@@ -332,10 +333,10 @@ public class RewriteSearchToSlotsTest {
         Search searchFunc = new Search(new StringLiteral("name:alice"));
 
         Method rewriteMethod = RewriteSearchToSlots.class.getDeclaredMethod(
-                "rewriteSearch", Search.class, Plan.class);
+                "rewriteSearch", Search.class, Plan.class, CascadesContext.class);
         rewriteMethod.setAccessible(true);
 
-        Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan);
+        Object rewritten = rewriteMethod.invoke(rewriteRule, searchFunc, scan, null);
         Assertions.assertInstanceOf(SearchExpression.class, rewritten);
 
         SearchExpression searchExpression = (SearchExpression) rewritten;

@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.Pair;
+
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -35,6 +37,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -276,6 +280,9 @@ public class SearchDslParser {
         }
     }
 
+    // an escaped character, or an unescaped @
+    private static final Pattern ESCAPED_OR_AT = Pattern.compile("\\\\.|@");
+
     private static String buildFieldPath(SearchParser.FieldPathContext ctx) {
         if (ctx == null) {
             throw new RuntimeException("Invalid field query: missing field path");
@@ -289,13 +296,47 @@ public class SearchDslParser {
             }
             String segment = segments.get(i).getText();
             if (segment.startsWith("\"") && segment.endsWith("\"")) {
-                // Preserve a literal @ in quoted field names until slot binding,
-                // where an unquoted @ selects the field's analyzer.
-                segment = segment.substring(1, segment.length() - 1).replace("@", "\\@");
+                // An @ inside quotes is part of the field name; see splitAnalyzerSelector.
+                segment = ESCAPED_OR_AT.matcher(segment.substring(1, segment.length() - 1))
+                        .replaceAll(m -> Matcher.quoteReplacement(m.group().equals("@") ? "\\@" : m.group()));
             }
             fullPath.append(segment);
         }
         return fullPath.toString();
+    }
+
+    /**
+     * Splits a DSL field reference {@code path[@analyzer]} into the field path and the analyzer name (null when
+     * no analyzer is selected). The split is purely syntactic and never depends on the table schema: the last
+     * unescaped {@code @} that follows a non-empty path segment selects the analyzer, while {@code \@}, an
+     * {@code @} inside a quoted segment (escaped by buildFieldPath) and an {@code @} that starts a segment
+     * ({@code v.@timestamp}) belong to the field name.
+     */
+    public static Pair<String, String> splitAnalyzerSelector(String fieldReference) {
+        StringBuilder path = new StringBuilder();
+        int selector = -1;
+        for (int i = 0; i < fieldReference.length(); i++) {
+            char c = fieldReference.charAt(i);
+            if (c == '\\' && i + 1 < fieldReference.length()) {
+                char escaped = fieldReference.charAt(++i);
+                if (escaped != '@') {
+                    path.append(c);
+                }
+                path.append(escaped);
+                continue;
+            }
+            if (c == '@' && i > 0 && fieldReference.charAt(i - 1) != '.') {
+                selector = path.length();
+            }
+            path.append(c);
+        }
+        if (selector < 0) {
+            return Pair.of(path.toString(), null);
+        }
+        if (selector == path.length() - 1) {
+            throw new SearchDslSyntaxException("SEARCH analyzer selector must be field@analyzer: " + fieldReference);
+        }
+        return Pair.of(path.substring(0, selector), path.substring(selector + 1));
     }
 
     private static String normalizeNestedFieldPath(String fieldPath, @Nullable String nestedPath) {
@@ -1303,6 +1344,13 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
 
         public String getNestedPath() {
             return nestedPath;
+        }
+
+        /**
+         * Sets the nested path (used for field name normalization).
+         */
+        public void setNestedPath(String nestedPath) {
+            this.nestedPath = nestedPath;
         }
 
         /**

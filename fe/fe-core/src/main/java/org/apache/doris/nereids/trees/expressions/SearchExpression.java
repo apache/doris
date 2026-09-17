@@ -32,6 +32,11 @@ import java.util.Objects;
 /**
  * SearchExpression represents a search query with bound slot references.
  * This is created by RewriteSearchToSlots rule from Search scalar function.
+ *
+ * <p>Each child binds one DSL field, in the order of the QsPlan field bindings: a slot, or element_at on a slot
+ * for a variant subcolumn. BE evaluates the expression only with the inverted indexes of those fields inside an
+ * OLAP scan, never row by row. Rewrites are free to move the expression; CheckAfterRewrite verifies on the final
+ * plan that it sits in a scan (filter conjunct or virtual column) and that {@link #bindsOnlyFields()} holds.
  */
 public class SearchExpression extends Expression {
     private final String dslString;
@@ -74,17 +79,33 @@ public class SearchExpression extends Expression {
 
     @Override
     public SearchExpression withChildren(List<Expression> children) {
-        // Null-rejection inference temporarily replaces input slots with NULL.
-        // Such symbolic expressions are not execution-time field bindings.
+        // Rewrites may replace a field with NULL: null-rejection inference does so on a temporary copy, and
+        // NULL padding of an outer join side (e.g. ON false, outer-to-anti join) does so in the plan.
+        // Such a SEARCH no longer binds an index field; CheckAfterRewrite rejects it via bindsOnlyFields.
         for (Expression child : children) {
             if (!(child instanceof SlotReference || child instanceof ElementAt
                     || child instanceof NullLiteral)) {
                 throw new IllegalArgumentException(
-                        "SEARCH field binding must be a slot, subcolumn, or inference NULL, found "
+                        "SEARCH field binding must be a slot, subcolumn, or NULL, found "
                                 + child.getClass().getSimpleName());
             }
         }
         return new SearchExpression(dslString, qsPlan, children);
+    }
+
+    /**
+     * Whether every child still binds an index field: a slot, or a variant subcolumn of a slot.
+     */
+    public boolean bindsOnlyFields() {
+        return children().stream().allMatch(SearchExpression::isFieldBinding);
+    }
+
+    private static boolean isFieldBinding(Expression expression) {
+        Expression current = expression;
+        while (current instanceof ElementAt) {
+            current = current.child(0);
+        }
+        return current instanceof SlotReference;
     }
 
     @Override

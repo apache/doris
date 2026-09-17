@@ -169,3 +169,85 @@
 2	2
 3	3
 
+-- !search_self_join_left --
+1	1
+2	2
+3	3
+6	6
+
+-- !search_self_join_right --
+1	1
+2	2
+3	3
+7	7
+
+-- !search_renamed_column --
+\N	\N
+1	1
+1	1
+2	\N
+4	4
+6	6
+
+-- !search_renamed_variant --
+1	1
+1	1
+2	\N
+
+-- !match_case_scan --
+\N	hit
+1	hit
+2	hit
+3	miss
+4	miss
+5	miss
+6	hit
+7	miss
+
+-- !match_case_join --
+\N	\N	hit
+1	1	hit
+1	1	hit
+2	\N	hit
+3	\N	miss
+4	4	miss
+5	5	miss
+6	6	hit
+7	\N	miss
+
+-- !match_case_null_side --
+\N	null
+1	hit
+1	hit
+4	miss
+5	null
+6	hit
+8	null
+
+-- !search_not_inferred_for_equal_column --
+\N	10
+1	10
+2	20
+6	20
+
+-- !search_not_inferred_through_intersect --
+hello
+hello world
+
+-- !nullside_nonstrict_match_where --
+\N
+1
+1
+5
+6
+8
+
+-- !nullside_nonstrict_match_select --
+\N	true
+1	true
+1	true
+4	false
+5	true
+6	true
+8	true
+

@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_crm_search_analyzers") {
+    // The pipeline randomizes these defaults. A VARIANT subcolumn stored in the sparse or doc column has no
+    // inverted index, so SEARCH finds nothing in it and MATCH fails without enable_match_without_inverted_index.
+    sql "set default_variant_enable_doc_mode = false"
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
+    sql "set default_variant_max_subcolumns_count = 0"
     // Chapters X and XI: a normalized keyword index and a full-text index.
     sql "DROP TABLE IF EXISTS crm_search_analyzers"
     sql "DROP INVERTED INDEX ANALYZER IF EXISTS crm_doc_text"
@@ -74,6 +79,11 @@ suite("test_crm_search_analyzers") {
         sql """SELECT id FROM crm_search_analyzers WHERE search('name@does_not_exist:John')"""
         exception "No inverted index found for SEARCH analyzer"
     }
+    // The selector names an analyzer the way the index lookup does, ignoring case.
+    order_qt_document_11_selector_case """
+        SELECT id FROM crm_search_analyzers
+        WHERE search('name@CRM_DOC_EXACT:"John Smith" AND name@crm_doc_exact:"john smith"')
+    """
     // Chapter XIII is outside P0-P2. Ordinary IN must keep SQL equality semantics.
     order_qt_document_13_ordinary_in """
         SELECT id FROM crm_search_analyzers WHERE name IN ('John Smith','Mason Jackson')
@@ -102,5 +112,10 @@ suite("test_crm_search_analyzers") {
     order_qt_literal_variant_at """
         SELECT id FROM crm_search_literal_fields WHERE search('"v.email@work":john')
     """
+    // An unquoted @ always selects an analyzer, whatever columns the table has.
+    test {
+        sql """SELECT id FROM crm_search_literal_fields WHERE search('name@literal:john')"""
+        exception "Field 'name' not found"
+    }
 
 }

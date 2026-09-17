@@ -51,6 +51,7 @@ import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 import org.roaringbitmap.RoaringBitmap;
 
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -66,15 +67,39 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
             checkUnexpectedExpression(plan);
             checkMetricTypeIsUsedCorrectly(plan);
             checkMatchIsUsedCorrectly(plan);
-            if (!(plan instanceof LogicalOlapScan)
-                    && !(plan instanceof LogicalFilter && plan.child(0) instanceof LogicalOlapScan)
-                    && plan.getExpressions().stream().anyMatch(expression ->
-                            expression.anyMatch(e -> e instanceof SearchExpression))) {
-                throw new AnalysisException("SEARCH must be evaluated by an OLAP scan; "
-                        + "unsupported expression placement in " + plan.getType());
-            }
+            checkSearchIsUsedCorrectly(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
+    }
+
+    /**
+     * The execution invariant of SEARCH, checked in this one place for every way a rewrite can move it: BE
+     * evaluates a SearchExpression only with inverted indexes inside an OLAP scan, so it must be a conjunct of
+     * the filter on the scan or a scan virtual column, and every child must still bind an index field.
+     */
+    private void checkSearchIsUsedCorrectly(Plan plan) {
+        // Scan virtual columns are not part of LogicalOlapScan.getExpressions().
+        List<? extends Expression> expressions = plan instanceof LogicalOlapScan
+                ? ((LogicalOlapScan) plan).getVirtualColumns() : plan.getExpressions();
+        boolean evaluatedByScan = plan instanceof LogicalOlapScan
+                || (plan instanceof LogicalFilter && plan.child(0) instanceof LogicalOlapScan);
+        for (Expression expression : expressions) {
+            for (SearchExpression search : expression.<SearchExpression>collect(SearchExpression.class::isInstance)) {
+                if (!search.bindsOnlyFields()) {
+                    // e.g. LEFT JOIN ... ON false, or an outer join converted to an anti join
+                    throw new AnalysisException("SEARCH on the null-generating side of an outer join is not "
+                            + "supported: its field is always NULL in " + search.toSql());
+                }
+                if (!evaluatedByScan) {
+                    throw new AnalysisException("SEARCH must be evaluated by an OLAP scan, but " + search.toSql()
+                            + " remains in " + plan.getType() + ". Unless it is a WHERE conjunct that reaches the "
+                            + "scan, all its fields must come from one DUP_KEYS or merge-on-write UNIQUE_KEYS "
+                            + "table reference that is neither on the null-generating side of an outer join nor "
+                            + "below a LIMIT, TopN, aggregate or window; combine separate SEARCH expressions with "
+                            + "SQL AND/OR to search several tables");
+                }
+            }
+        }
     }
 
     private void checkUnexpectedExpression(Plan plan) {

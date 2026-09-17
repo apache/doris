@@ -37,9 +37,13 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 
 /**
- * Check that search() is used in WHERE filters over OLAP tables.
+ * Check that search() is used in WHERE filters over OLAP tables, including joins of them.
  * This rule validates that search() expressions only appear in supported contexts.
  * Must run in analysis phase before search() gets optimized away.
+ *
+ * <p>This is a placement check on the analyzed plan and only a necessary condition: predicate push down may
+ * still move the filter anywhere below. Whether the search can be evaluated by a scan is decided by
+ * PushDownIndexSearchAsVirtualColumn and verified on the final plan by CheckAfterRewrite.
  */
 public class CheckSearchUsage implements AnalysisRuleFactory {
     private static final Logger LOG = LogManager.getLogger(CheckSearchUsage.class);
@@ -67,13 +71,13 @@ public class CheckSearchUsage implements AnalysisRuleFactory {
             for (Expression expr : agg.getGroupByExpressions()) {
                 if (containsSearchExpression(expr)) {
                     throw new AnalysisException("search() cannot appear in GROUP BY expressions; "
-                            + "search predicates are only supported in WHERE filters on single-table scans");
+                            + "search predicates are only supported in WHERE filters over OLAP tables");
                 }
             }
             for (Expression expr : agg.getOutputExpressions()) {
                 if (containsSearchExpression(expr)) {
                     throw new AnalysisException("search() cannot appear in aggregate output expressions; "
-                            + "search predicates are only supported in WHERE filters on single-table scans");
+                            + "search predicates are only supported in WHERE filters over OLAP tables");
                 }
             }
         }
@@ -83,7 +87,6 @@ public class CheckSearchUsage implements AnalysisRuleFactory {
             LogicalProject<?> project = (LogicalProject<?>) plan;
             for (Expression expr : project.getProjects()) {
                 if (containsSearchExpression(expr)) {
-                    // Only allow if it's the project directly above a filter->scan pattern
                     throw new AnalysisException("search() can only appear in WHERE filters on OLAP scans; "
                             + "projection of search() is not supported");
                 }
@@ -104,9 +107,9 @@ public class CheckSearchUsage implements AnalysisRuleFactory {
                 throw new AnalysisException("search() predicates require an OLAP scan pipeline");
             }
         } else if (!(plan instanceof LogicalProject)) {
-            // search() can only appear in LogicalFilter or specific LogicalProject nodes
-            throw new AnalysisException("search() predicates are only supported inside WHERE filters on "
-                    + "single-table scans");
+            // a projection gets its own message in checkPlanRecursively
+            throw new AnalysisException("search() predicates are only supported inside WHERE filters over "
+                    + "OLAP tables");
         }
     }
 
@@ -131,6 +134,7 @@ public class CheckSearchUsage implements AnalysisRuleFactory {
         return false;
     }
 
+    // Every relation below the filter must be an OLAP scan; unary nodes in between are not restricted here.
     private boolean isOlapScanPipeline(Plan plan) {
         Plan current = plan;
         while (true) {

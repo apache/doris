@@ -89,8 +89,7 @@ public class CheckSearchUsageTest extends TestWithFeService implements MemoPatte
         Assertions.assertTrue(
                 exception.getMessage().contains("search()")
                         && (exception.getMessage().contains("GROUP BY")
-                        || exception.getMessage().contains("WHERE filters")
-                        || exception.getMessage().contains("single-table")),
+                        || exception.getMessage().contains("WHERE filters")),
                 "Expected error about search() usage restrictions, got: " + exception.getMessage());
     }
 

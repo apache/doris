@@ -16,6 +16,11 @@
 // under the License.
 
 suite("test_crm_search_variant_topn") {
+    // The pipeline randomizes these defaults. A VARIANT subcolumn stored in the sparse or doc column has no
+    // inverted index, so SEARCH finds nothing in it and MATCH fails without enable_match_without_inverted_index.
+    sql "set default_variant_enable_doc_mode = false"
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
+    sql "set default_variant_max_subcolumns_count = 0"
     // Chapter XII. More than LIMIT matching rows and absent payload paths.
     sql "DROP TABLE IF EXISTS crm_search_products"
     sql """CREATE TABLE crm_search_products (id BIGINT, v VARIANT,

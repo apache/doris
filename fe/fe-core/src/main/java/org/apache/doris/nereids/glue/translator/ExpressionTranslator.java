@@ -250,7 +250,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // column/table reference (e.g., after CTE inlining or join projection remapping),
         // we gracefully fall back to invertedIndex = null. The BE can still evaluate MATCH
         // correctly without inverted index (slow path), or the PushDownProject /
-        // PushDownMatchProjectionAsVirtualColumn rules may have already pushed the expression
+        // PushDownIndexSearchAsVirtualColumn rules may have already pushed the expression
         // down for storage-level index evaluation (fast path).
         Index invertedIndex = null;
         String analyzer = match.getAnalyzer().orElse(null);

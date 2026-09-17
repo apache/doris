@@ -18,6 +18,11 @@
 // Source: query string and search+join examples, revision 23.
 suite("test_crm_search_join_document") {
     sql "set enable_match_without_inverted_index = false"
+    // The pipeline randomizes these defaults. A VARIANT subcolumn stored in the sparse or doc column has no
+    // inverted index, so SEARCH finds nothing in it and MATCH fails without enable_match_without_inverted_index.
+    sql "set default_variant_enable_doc_mode = false"
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
+    sql "set default_variant_max_subcolumns_count = 0"
 
     sql "DROP TABLE IF EXISTS crm_search_objects"
     sql """CREATE TABLE crm_search_objects (
@@ -931,11 +936,104 @@ select objects_0_1___OBJECTID from `results`
         WHERE search('OVERFLOWPROPERTIES.string_8:john') OR search('v.name:john')
     """
 
+    // A SEARCH field resolves like a SQL column reference: a table alias picks one side of a self join,
+    // and an output alias still searches the physical column and its index.
+    order_qt_search_self_join_left """
+        SELECT a.k1, b.k1 FROM crm_search_full_a a JOIN crm_search_full_a b ON a.k1=b.k1
+        WHERE search('a.content:hello') OR b.k1=3
+    """
+    order_qt_search_self_join_right """
+        SELECT a.k1, b.k1 FROM crm_search_full_a a JOIN crm_search_full_a b ON a.k1=b.k1
+        WHERE search('b.content:world') OR a.k1=2
+    """
+    test {
+        sql """SELECT a.k1 FROM crm_search_full_a a JOIN crm_search_full_a b ON a.k1=b.k1
+            WHERE search('content:hello')"""
+        exception "Ambiguous field 'content'"
+    }
+    // b has k1=1 twice: the join's duplicate rows must survive the virtual column.
+    order_qt_search_renamed_column """
+        SELECT t.k1, b.k1 FROM (SELECT k1, content AS body FROM crm_search_full_a) t
+        LEFT JOIN crm_search_full_b b ON t.k1=b.k1
+        WHERE search('body:hello') OR b.k1=4
+    """
+    order_qt_search_renamed_variant """
+        SELECT o.id, l.k1 FROM (SELECT id, v AS props FROM crm_search_mow) o
+        LEFT JOIN crm_search_full_b l ON o.id=l.k1
+        WHERE search('props.name:john') OR l.k1=1
+    """
+    // A MATCH wrapped in another expression is materialized the same way above a scan and above a join;
+    // on the null-generating side it stays NULL for rows without a join partner.
+    order_qt_match_case_scan """
+        SELECT k1, CASE WHEN content MATCH_ANY 'hello' THEN 'hit' ELSE 'miss' END
+        FROM crm_search_full_a
+    """
+    order_qt_match_case_join """
+        SELECT a.k1, b.k1, CASE WHEN a.content MATCH_ANY 'hello' THEN 'hit' ELSE 'miss' END
+        FROM crm_search_full_a a LEFT JOIN crm_search_full_b b ON a.k1=b.k1
+    """
+    order_qt_match_case_null_side """
+        SELECT b.k1, CASE WHEN a.content MATCH_ANY 'hello' THEN 'hit'
+            WHEN (a.content MATCH_ANY 'hello') IS NULL THEN 'null' ELSE 'miss' END
+        FROM crm_search_full_b b LEFT JOIN crm_search_full_a a ON b.k1=a.k1
+    """
+    // a.content = n.name lets predicates on a.content be inferred for n.name, but a SEARCH is bound to the
+    // inverted index of a.content: copied to n.name, which has no index, it would drop every joined row.
+    sql "DROP TABLE IF EXISTS crm_search_names"
+    sql """CREATE TABLE crm_search_names (id INT, name TEXT)
+        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num"="1")"""
+    sql "INSERT INTO crm_search_names VALUES (10,'hello world'),(20,'hello'),(30,'world')"
+    order_qt_search_not_inferred_for_equal_column """
+        SELECT a.k1, n.id FROM crm_search_full_a a JOIN crm_search_names n ON a.content=n.name
+        WHERE search('a.content:hello') OR a.content='zzz'
+    """
+    // The same holds for the positional inference of INTERSECT: the SEARCH stays in its own branch.
+    order_qt_search_not_inferred_through_intersect """
+        (SELECT content FROM crm_search_full_a WHERE search('content:hello'))
+        INTERSECT (SELECT name FROM crm_search_names)
+    """
+    // A SEARCH that cannot reach one scan is rejected instead of being evaluated without an index.
+    test {
+        sql """SELECT k1 FROM (SELECT k1, content FROM crm_search_full_a ORDER BY k1 LIMIT 3) t
+            WHERE search('content:hello')"""
+        exception "SEARCH must be evaluated by an OLAP scan"
+    }
+    test {
+        sql """SELECT a.k1 FROM crm_search_full_a a JOIN crm_search_mow m ON a.k1=m.id
+            WHERE search('content:hello OR v.name:john')"""
+        exception "SEARCH must be evaluated by an OLAP scan"
+    }
+
     // Keep SEARCH on the null-generating side gated until its full DSL NULL contract is established.
     test {
         sql """SELECT b.k1 FROM crm_search_full_b b LEFT JOIN crm_search_mow m ON b.k1=m.id
             WHERE search('NOT v.name:john') OR b.k1=8"""
         exception "SEARCH must be evaluated by an OLAP scan"
     }
+    // Rewrites that NULL-pad that side (ON false, outer join to anti join) must not bypass the gate.
+    test {
+        sql """SELECT b.k1 FROM crm_search_full_b b LEFT JOIN crm_search_full_a a ON false
+            WHERE NOT search('content:hello') OR b.k1=8"""
+        exception "null-generating side of an outer join"
+    }
+    test {
+        sql """SELECT b.k1 FROM crm_search_full_b b LEFT JOIN crm_search_full_a a ON b.k1=a.k1
+            WHERE a.k1 IS NULL AND (NOT search('content:hello') OR b.k1=8)"""
+        exception "null-generating side of an outer join"
+    }
+
+    // nvl(NULL, 'hello') matches: a MATCH with such an operand must stay above the outer join,
+    // so rows without a join partner (b.k1 = 8 and NULL) are kept and project TRUE.
+    sql "set enable_match_without_inverted_index = true"
+    order_qt_nullside_nonstrict_match_where """
+        SELECT b.k1 FROM crm_search_full_b b LEFT JOIN crm_search_full_a a ON b.k1=a.k1
+        WHERE nvl(a.content, 'hello') MATCH_ANY 'hello' OR b.k1=100
+    """
+    order_qt_nullside_nonstrict_match_select """
+        SELECT b.k1, nvl(a.content, 'hello') MATCH_ANY 'hello'
+        FROM crm_search_full_b b LEFT JOIN crm_search_full_a a ON b.k1=a.k1
+    """
+    sql "set enable_match_without_inverted_index = false"
 
 }
