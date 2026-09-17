@@ -672,6 +672,34 @@ const IColumn& ColumnVariantV2::typed_column() const {
     return *_typed;
 }
 
+void ColumnVariantV2::validate_typed_rows() const {
+    DORIS_CHECK(_typed != nullptr) << "validate_typed_rows requires ColumnVariantV2 typed state";
+    switch (_typed_type->get_primitive_type()) {
+    // Every value of these types maps to a Variant scalar, so there is nothing to reject and no
+    // reason to format each LARGEINT or IP address only to discard the text.
+    case TYPE_BOOLEAN:
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+    case TYPE_LARGEINT:
+    case TYPE_FLOAT:
+    case TYPE_DOUBLE:
+    case TYPE_TIMESTAMP_NS:
+    case TYPE_IPV4:
+    case TYPE_IPV6:
+        return;
+    default:
+        break;
+    }
+    // with_variant_typed_scalar() is the one definition of what Variant can encode: it throws for
+    // an invalid date, a string that is not UTF-8 or a decimal outside its width. A type missing
+    // from the list above is validated, which is the safe side.
+    visit_typed_scalar_column(assert_cast<const ColumnNullable&>(*_typed),
+                              _typed_type->get_primitive_type(), _typed_type->get_scale(), 0,
+                              _typed->size(), [](size_t, const VariantScalarRef&) {});
+}
+
 const DataTypePtr& ColumnVariantV2::typed_type() const {
     DORIS_CHECK(_typed_type != nullptr) << "typed_type requires ColumnVariantV2 typed state";
     return _typed_type;
@@ -1044,13 +1072,51 @@ std::pair<const ColumnNullable*, const ColumnNullable*> ColumnVariantV2::_typed_
         !(_typed_type == right._typed_type || _typed_type->equals(*right._typed_type))) {
         return {nullptr, nullptr};
     }
-    const PrimitiveType type = _typed_type->get_primitive_type();
-    // IPv4 and IPv6 typed values use their textual representation in Variant, whose lexical
-    // ordering differs from the native address ordering. LARGEINT magnitudes above 10^38 - 1
-    // become Variant strings, so native Int128 order is not the canonical order. Floating point is
-    // excluded for callers that cannot apply Variant's canonical NaN ordering.
-    if (type == TYPE_IPV4 || type == TYPE_IPV6 || type == TYPE_LARGEINT ||
-        (!allow_floating && (type == TYPE_FLOAT || type == TYPE_DOUBLE))) {
+    // Admission is a whitelist: a typed type takes the native path only after its native order has
+    // been checked against the canonical Variant order (scalar_compare in variant_canonical.cpp).
+    // The premises shared by every admitted type:
+    //   - both sides have the same typed type including its parameters, so DECIMAL scales and
+    //     DATETIME precisions match and native values are directly comparable;
+    //   - every non-null typed row is a value Variant can encode (the rule and who enforces it
+    //     are at create_typed()), so the native order does not rank a value the canonical path
+    //     would reject, such as an invalid date or a string that is not UTF-8;
+    //   - a typed NULL is the Variant null, which the callers order first, as the canonical order
+    //     does.
+    // A type that is not listed falls back to the canonical comparison, which is always correct.
+    switch (_typed_type->get_primitive_type()) {
+    // Exact numerics and temporal values: both orders are the numeric/chronological order.
+    case TYPE_BOOLEAN:
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+    case TYPE_DECIMALV2:
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I:
+    case TYPE_DATE:
+    case TYPE_DATEV2:
+    case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP_NS:
+    case TYPE_TIMESTAMPTZ:
+    // Strings: both orders compare the bytes as unsigned.
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING:
+        break;
+    // Canonical order puts every NaN last and equal to each other, and -0 equal to +0. compare_at()
+    // of a floating point column orders the same way; its compare_internal() uses < and >, which
+    // leave NaN unordered.
+    case TYPE_FLOAT:
+    case TYPE_DOUBLE:
+        if (!allow_floating) {
+            return {nullptr, nullptr};
+        }
+        break;
+    // Not admitted: LARGEINT magnitudes above 10^38 - 1 are Variant strings, and IPv4/IPv6 are
+    // Variant strings whose byte order is not the address order.
+    default:
         return {nullptr, nullptr};
     }
     return {&assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column()),
@@ -1075,43 +1141,37 @@ int ColumnVariantV2::compare_at(size_t n, size_t m, const IColumn& rhs,
                 n, m, right_nullable->get_nested_column(), nan_direction_hint);
     }
 
-    int result = 0;
-    // Both sides are typed but the fast path declined them (different typed types, or a type whose
-    // native order is not the canonical one). Compare the scalars directly: encoding them into
-    // Variant bytes first would allocate a scratch buffer per comparison, and a sort does this
-    // O(n log n) times. A null row becomes the canonical null scalar, which sorts smallest - the
-    // same order the typed fast path above applies.
-    if (is_typed() && right.is_typed()) {
-        const auto& left_nullable =
-                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column());
-        const auto& right_nullable =
-                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                        right.typed_column());
-        visit_typed_scalar_column(
-                left_nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), n,
-                n + 1, [&](size_t, const VariantScalarRef& left_scalar) {
-                    visit_typed_scalar_column(
-                            right_nullable, right._typed_type->get_primitive_type(),
-                            right._typed_type->get_scale(), m, m + 1,
-                            [&](size_t, const VariantScalarRef& right_scalar) {
-                                result = canonical_compare(left_scalar, right_scalar);
-                            });
-                });
-        return result;
-    }
-    // Neither side is typed, so both rows already hold canonical Variant bytes and can be compared
-    // without the row visitor's revalidation and buffers.
+    // A column is in exactly one of three states. Encoded rows are canonical Variant bytes that
+    // get_value_ref() reads in place. A shredded column has no row bytes until its state
+    // materializes them; get_value_ref() asks the state for them, which builds and caches them on
+    // the first call. A typed row is a scalar, compared below without being encoded: a sort compares
+    // O(n log n) times, so nothing here may allocate or encode per comparison.
     if (!is_typed() && !right.is_typed()) {
         return canonical_compare(get_value_ref(n), right.get_value_ref(m));
     }
-    // One side typed, one encoded: the typed side still has to be encoded once.
-    visit_variant_v2_values(
-            *this, n, n + 1, {}, [](size_t) { DCHECK(false); },
-            [&](size_t, VariantRef left_value) {
-                visit_variant_v2_values(
-                        right, m, m + 1, {}, [](size_t) { DCHECK(false); },
-                        [&](size_t, VariantRef right_value) {
-                            result = canonical_compare(left_value, right_value);
+    if (!is_typed()) {
+        // Keep the typed side on the left; canonical_compare() is antisymmetric.
+        return -right.compare_at(m, n, *this, nan_direction_hint);
+    }
+    // The typed fast path declined (different typed types, a type outside its whitelist, or an
+    // encoded/shredded right side). A typed null row is the canonical null scalar, which sorts
+    // first - the same order the typed fast path applies.
+    int result = 0;
+    const auto& left_nullable =
+            assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(typed_column());
+    visit_typed_scalar_column(
+            left_nullable, _typed_type->get_primitive_type(), _typed_type->get_scale(), n, n + 1,
+            [&](size_t, const VariantScalarRef& left_scalar) {
+                if (!right.is_typed()) {
+                    result = canonical_compare(left_scalar, right.get_value_ref(m));
+                    return;
+                }
+                visit_typed_scalar_column(
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                right.typed_column()),
+                        right._typed_type->get_primitive_type(), right._typed_type->get_scale(), m,
+                        m + 1, [&](size_t, const VariantScalarRef& right_scalar) {
+                            result = canonical_compare(left_scalar, right_scalar);
                         });
             });
     return result;

@@ -384,6 +384,7 @@ void expect_scalar_equivalent(const VariantScalarRef& scalar_ref, const OwnedVal
     EXPECT_EQ(scalar_hashes.crc, encoded_hashes.crc);
     EXPECT_EQ(scalar_hashes.crc32c, encoded_hashes.crc32c);
     EXPECT_EQ(arena(scalar_ref), arena(encoded_value.ref()));
+    EXPECT_EQ(canonical_compare(scalar_ref, encoded_value.ref()), 0);
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity) -- exhaustive typed/encoded parity matrix.
@@ -627,6 +628,38 @@ TEST(VariantCanonicalTest, ComparisonBoundariesAndCrossKindTransitivity) {
     // Numbers order before strings and containers.
     expect_order(double_value(std::numeric_limits<double>::quiet_NaN()), string_value("0"));
     expect_order(string_value("0"), array_value({}));
+}
+
+TEST(VariantCanonicalTest, ScalarAgainstEncodedRootMatchesEncodedComparison) {
+    // The mixed overload must order a scalar exactly as its encoded bytes would be ordered, for
+    // every kind of encoded root including the containers a scalar can never equal.
+    const std::string text = "b";
+    const std::array<VariantScalarRef, 8> scalars {
+            VariantScalarRef::null_value(),
+            VariantScalarRef::boolean(true),
+            VariantScalarRef::integer(2),
+            VariantScalarRef::decimal(15, 1),
+            VariantScalarRef::float64(1.5),
+            VariantScalarRef::float64(std::numeric_limits<double>::quiet_NaN()),
+            VariantScalarRef::string(StringRef(text)),
+            VariantScalarRef::date(19000)};
+    const std::array<OwnedValue, 9> roots {
+            scalar(primitive(VariantPrimitiveId::NULL_VALUE)),
+            integer_value(2, 1),
+            decimal_value(15, 1),
+            double_value(1.5),
+            double_value(2.5),
+            string_value("a"),
+            string_value("b"),
+            array_value({integer_value(1, 1).value}),
+            object_value({"a"}, true, {0}, {integer_value(1, 1).value}, {0})};
+    for (const VariantScalarRef& value : scalars) {
+        const OwnedValue encoded = scalar(physical(value));
+        for (const OwnedValue& root : roots) {
+            EXPECT_EQ(canonical_compare(value, root.ref()),
+                      canonical_compare(encoded.ref(), root.ref()));
+        }
+    }
 }
 
 TEST(VariantCanonicalTest, PrimitiveTypeClasses) {

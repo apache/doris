@@ -48,7 +48,6 @@
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "exprs/function_context.h"
 #include "runtime/runtime_state.h"
-#include "util/utf8_check.h"
 
 namespace doris::CastWrapper::variant_v2_internal {
 namespace {
@@ -490,23 +489,14 @@ Status cast_scalar_to_variant(const ColumnPtr& source, const DataTypePtr& source
     if (!forced_nulls.empty()) {
         std::ranges::copy(forced_nulls, nulls->get_data().begin());
     }
-    const PrimitiveType primitive = source_type->get_primitive_type();
-    if (primitive == TYPE_STRING || primitive == TYPE_CHAR || primitive == TYPE_VARCHAR) {
-        // Variant strings are UTF-8. Reject invalid bytes here, as encoding does, so the typed
-        // state never compares or hashes a value that its encoded form could not hold.
-        const auto& strings = assert_cast<const ColumnString&>(*source);
-        const auto& null_flags = nulls->get_data();
-        for (size_t row = 0; row < rows; ++row) {
-            const StringRef value = strings.get_data_at(row);
-            if (null_flags[row] == 0 && value.size != 0 && !validate_utf8(value.data, value.size)) {
-                return Status::InvalidArgument(
-                        "Cannot CAST a string that is not valid UTF-8 to Variant");
-            }
-        }
-    }
     ColumnPtr null_map = std::move(nulls);
     ColumnPtr nullable = ColumnNullable::create(source, null_map);
-    *output = ColumnVariantV2::create_typed(std::move(nullable), source_type);
+    auto typed = ColumnVariantV2::create_typed(std::move(nullable), source_type);
+    // A scalar column can hold values Variant cannot, such as a string that is not UTF-8. Reject
+    // them here, as encoding would, so the typed state never compares or hashes a value that its
+    // encoded form could not hold. The CAST wrapper turns the exception into the statement error.
+    typed->validate_typed_rows();
+    *output = std::move(typed);
     return Status::OK();
 }
 

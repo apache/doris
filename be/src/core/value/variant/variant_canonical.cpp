@@ -1210,6 +1210,14 @@ int canonical_compare(const VariantScalarRef& left, const VariantScalarRef& righ
     return scalar_compare(normalized_left, normalized_right);
 }
 
+int canonical_compare(const VariantScalarRef& left, VariantRef right) {
+    require_exact_value(right);
+    // A scalar never has a container kind, so an object or array on the right is decided by the
+    // kind order inside scalar_compare(), as compare_node() decides it, without walking the
+    // container.
+    return scalar_compare(VariantScalarAdapter::normalize(left), normalize_value(right));
+}
+
 template <typename Sink>
 void canonical_hash(const VariantScalarRef& value, Sink& sink) {
     const NormalizedValue normalized = VariantScalarAdapter::normalize(value);

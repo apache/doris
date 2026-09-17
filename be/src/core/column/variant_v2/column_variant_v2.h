@@ -158,7 +158,21 @@ public:
 
     // The input must be an exact, non-Const ColumnNullable whose nested column matches the
     // non-nullable supported scalar type.
+    //
+    // Every row that is non-null in the typed column's own null map must be a value Variant can
+    // encode. That null map is the only mask every consumer honours: hashing, for one, maps a row
+    // to a scalar before it looks at an outer null map. Nothing is checked here, because validity
+    // is enforced where a row becomes a scalar (with_variant_typed_scalar() throws), which covers
+    // hashing, serialization, encoding and the canonical comparison. The native comparison paths
+    // do not go through that mapping and rely on the rule instead:
+    //   - producers that decode stored or transported Variant data build valid rows; an external
+    //     Parquet file is trusted to follow its specification, and a violation surfaces as an
+    //     error when the row is hashed or encoded;
+    //   - CAST from a scalar takes arbitrary values, so it folds its null map into the typed one
+    //     and calls validate_typed_rows().
     static MutablePtr create_typed(ColumnPtr column, DataTypePtr scalar_type);
+    // Throws unless every non-null typed row is a value Variant can encode.
+    void validate_typed_rows() const;
     static MutablePtr create_shredded(std::shared_ptr<VariantShreddedState> state);
 
     bool is_typed() const noexcept { return _typed != nullptr; }

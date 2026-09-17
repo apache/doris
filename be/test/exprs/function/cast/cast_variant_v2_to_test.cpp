@@ -114,6 +114,24 @@ TEST(CastVariantV2ToTest, InvalidUtf8StringSourceReturnsAnError) {
     }
 }
 
+TEST(CastVariantV2ToTest, InvalidDateSourceReturnsAnError) {
+    // The same check covers every scalar Variant cannot hold, not only strings.
+    auto source = ColumnDateV2::create();
+    DateV2Value<DateV2ValueType> valid;
+    valid.unchecked_set_time(2024, 1, 2, 0, 0, 0);
+    DateV2Value<DateV2ValueType> invalid;
+    ASSERT_FALSE(invalid.is_valid_date());
+    source->insert_value(valid);
+    source->insert_value(invalid);
+    const auto source_type = std::make_shared<DataTypeDateV2>();
+    CastResult cast = execute_to_variant(source->get_ptr(), source_type);
+    EXPECT_TRUE(cast.status.is<ErrorCode::INVALID_ARGUMENT>()) << cast.status;
+
+    const std::array<NullMap::value_type, 2> null_map {0, 1};
+    CastResult null_row = execute_to_variant(source->get_ptr(), source_type, null_map.data());
+    EXPECT_TRUE(null_row.status.ok()) << null_row.status;
+}
+
 TEST(CastVariantV2ToTest, Decimal256ReturnsAnErrorInsteadOfStringifying) {
     auto type = std::make_shared<DataTypeDecimal256>(76, 2);
     auto source = ColumnDecimal256::create(0, 2);

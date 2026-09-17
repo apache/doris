@@ -82,12 +82,27 @@ private:
 // Compares logical Variant values. Numeric normalization is deliberately limited to the exact
 // integer domain that canonical Variant decimal16 can encode: [-(10^38-1), +(10^38-1)]. A finite
 // integral float/double outside that domain remains floating so canonical arena bytes stay valid.
+//
+// The canonical equality contract for numbers:
+//   - an integer, a decimal with a zero fraction and an integral float/double in the domain above
+//     are one value: 1, 1.0 (decimal) and 1.0 (double) are equal;
+//   - a decimal and a float/double with a fraction are never equal, even when they print the same:
+//     DECIMAL 1.5 != DOUBLE 1.5. They order by numeric value, and at a numeric tie the decimal
+//     sorts first. Equating them would need a lossless common form, and the exact value of most
+//     doubles (0.1 for one) does not fit the 38 digits of a Variant decimal.
+// canonical_equals(), canonical_compare() == 0, canonical_hash() and the canonical serialized key
+// (GROUP BY, DISTINCT, join build) all implement this one rule, and sort peers follow it. A change
+// to the rule has to change all of them together.
 bool canonical_equals(VariantRef left, VariantRef right);
 
 // Container values are compared lexicographically after scalar normalization. Object keys use
 // their canonical byte order. Numeric kinds share a numeric order, with canonical kind as a
 // deterministic tie-breaker when two numerically equal values are not canonically equal.
 int canonical_compare(VariantRef left, VariantRef right);
+
+// Compares a typed scalar with an encoded root in the same order, without encoding the scalar:
+// canonical_compare(left, right) == canonical_compare(encode(left), right).
+int canonical_compare(const VariantScalarRef& left, VariantRef right);
 
 // Hashes canonical logical tokens without re-encoding the value. Supported production sinks are
 // SipHash, VariantXxHashSink, VariantCrc32HashSink, and VariantCrc32cHashSink; all four are explicit

@@ -99,6 +99,8 @@ TEST(VariantV2ExecutionTest, TypedEquality) {
     auto encoded = ColumnVariantV2::create();
     encoded->insert_range_from(*typed, 0, typed->size());
     encoded->ensure_encoded();
+    ASSERT_TRUE(typed->is_typed());
+    ASSERT_FALSE(encoded->is_typed());
     for (const auto& left : {typed->get_ptr(), encoded->get_ptr()}) {
         for (const auto& right : {typed->get_ptr(), encoded->get_ptr()}) {
             for (size_t row = 0; row < left->size(); ++row) {

@@ -287,6 +287,50 @@ private:
     ColumnVariantV2::MutablePtr _serialized;
 };
 
+// A complete shredded state over known rows that counts how often its canonical rows are asked for.
+class MaterializingShreddedState final : public VariantShreddedState {
+public:
+    MaterializingShreddedState(ColumnPtr rows, std::shared_ptr<size_t> materialized_calls)
+            : _rows(std::move(rows)), _materialized_calls(std::move(materialized_calls)) {}
+
+    size_t size() const override { return _rows->size(); }
+    size_t byte_size() const override { return 0; }
+    size_t allocated_bytes() const override { return 0; }
+    void sanity_check() const override {}
+    void for_each_subcolumn(IColumn::ColumnCallback) const override {}
+    std::shared_ptr<VariantShreddedState> filter(const IColumn::Filter&, ssize_t) const override {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "row selection is not under test");
+    }
+    std::shared_ptr<VariantShreddedState> select_range(size_t, size_t) const override {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "row selection is not under test");
+    }
+    std::shared_ptr<VariantShreddedState> select_indices(const uint32_t*,
+                                                         const uint32_t*) const override {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "row selection is not under test");
+    }
+    bool can_materialize() const override { return true; }
+    bool try_append(const VariantShreddedState&) override { return false; }
+    std::optional<VariantShreddedTypedValue> find_typed_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    std::optional<ColumnPtr> find_normalized_value(
+            std::span<const VariantShreddedPathSegment>) const override {
+        return std::nullopt;
+    }
+    const ColumnVariantV2& materialized_column() const override {
+        ++*_materialized_calls;
+        return assert_cast<const ColumnVariantV2&>(*_rows);
+    }
+    const ColumnVariantV2& serialized_column() const override {
+        return assert_cast<const ColumnVariantV2&>(*_rows);
+    }
+
+private:
+    ColumnPtr _rows;
+    std::shared_ptr<size_t> _materialized_calls;
+};
+
 template <typename Function>
 void expect_not_implemented(Function&& function, std::string_view marker) {
     try {
@@ -465,6 +509,20 @@ void validate_encoded_column(const ColumnVariantV2& column) {
     for (size_t row = 0; row < column.size(); ++row) {
         validate_canonical(column.get_value_ref(row));
     }
+}
+
+// The encoded twin of a typed column. insert_range_from() into an empty column keeps the source's
+// typed state, so a test that wants the other representation has to encode explicitly; both
+// physical states are asserted so a variable name cannot stand in for coverage.
+ColumnVariantV2::MutablePtr encoded_copy_of(const ColumnVariantV2& typed) {
+    EXPECT_TRUE(typed.is_typed());
+    auto encoded = ColumnVariantV2::create();
+    encoded->insert_range_from(typed, 0, typed.size());
+    encoded->ensure_encoded();
+    EXPECT_FALSE(encoded->is_typed());
+    EXPECT_FALSE(encoded->is_shredded());
+    EXPECT_EQ(encoded->size(), typed.size());
+    return encoded;
 }
 
 void ensure_typed_fields_match_direct_encoding(ColumnVariantV2& column) {
@@ -2429,6 +2487,30 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     ASSERT_EQ(zero_dates.size(), 2);
     EXPECT_EQ(zero_dates.get_data()[0], valid_date);
     EXPECT_EQ(zero_dates.get_data()[1], invalid_date);
+
+    // validate_typed_rows() is the check CAST runs on arbitrary scalars. It reads the rows the
+    // typed null map leaves visible and nothing else.
+    EXPECT_THROW(zero_date->validate_typed_rows(), Exception);
+    auto masked_nested = ColumnDateV2::create();
+    masked_nested->insert_value(valid_date);
+    masked_nested->insert_value(invalid_date);
+    auto masked_nulls = ColumnUInt8::create();
+    masked_nulls->insert_value(0);
+    masked_nulls->insert_value(1);
+    auto masked = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(masked_nested), std::move(masked_nulls)),
+            std::make_shared<DataTypeDateV2>());
+    EXPECT_NO_THROW(masked->validate_typed_rows());
+    masked->ensure_encoded();
+    validate_encoded_column(*masked);
+    EXPECT_TRUE(masked->get_value_ref(1).is_null());
+
+    constexpr std::array<std::string_view, 2> INVALID_UTF8_ROWS {"ok", "\xFF"};
+    constexpr std::array<uint8_t, 2> INVALID_UTF8_VISIBLE {0, 0};
+    constexpr std::array<uint8_t, 2> INVALID_UTF8_HIDDEN {0, 1};
+    EXPECT_THROW(typed_strings(INVALID_UTF8_ROWS, INVALID_UTF8_VISIBLE)->validate_typed_rows(),
+                 Exception);
+    EXPECT_NO_THROW(typed_strings(INVALID_UTF8_ROWS, INVALID_UTF8_HIDDEN)->validate_typed_rows());
 }
 
 TEST(ColumnVariantV2Test, TypedRowTransformsCloneAndCow) {
@@ -3232,9 +3314,7 @@ TEST(ColumnVariantV2Test, TypedComparisonBoundariesMatchEncodedWithoutMaterializ
     auto check = [](const ColumnVariantV2::MutablePtr& typed) {
         ASSERT_TRUE(typed->is_typed());
         const auto* original = &typed->typed_column();
-        auto encoded = ColumnVariantV2::create();
-        encoded->insert_range_from(*typed, 0, typed->size());
-        encoded->ensure_encoded();
+        auto encoded = encoded_copy_of(*typed);
         ASSERT_FALSE(encoded->is_typed());
         for (size_t right = 0; right < typed->size(); ++right) {
             for (int hint : {-1, 1}) {
@@ -3344,14 +3424,8 @@ TEST(ColumnVariantV2Test, TypedComparisonAcrossTypeParametersMatchesEncoded) {
             ColumnVariantV2::create_typed(nullable_decimal<ColumnDecimal64, Decimal64>(
                                                   3, {Decimal64 {1400}, Decimal64 {-50}}, {0, 0}),
                                           std::make_shared<DataTypeDecimal64>(18, 3));
-    auto encode = [](const ColumnVariantV2::MutablePtr& typed) {
-        auto encoded = ColumnVariantV2::create();
-        encoded->insert_range_from(*typed, 0, typed->size());
-        encoded->ensure_encoded();
-        return encoded;
-    };
-    auto left_encoded = encode(left);
-    auto right_encoded = encode(right);
+    auto left_encoded = encoded_copy_of(*left);
+    auto right_encoded = encoded_copy_of(*right);
     for (size_t right_row = 0; right_row < right->size(); ++right_row) {
         for (size_t left_row = 0; left_row < left->size(); ++left_row) {
             EXPECT_EQ(left->compare_at(left_row, right_row, *right, 1),
@@ -3371,12 +3445,100 @@ TEST(ColumnVariantV2Test, TypedComparisonAcrossTypeParametersMatchesEncoded) {
     }
 }
 
+TEST(ColumnVariantV2Test, TypedAgainstEncodedRootsMatchesEncoded) {
+    // The encoded side holds every kind of root a typed scalar can meet, including containers and
+    // canonical peers of the typed values (2 and 2.0, 1.5 as a decimal).
+    auto encoded_roots = ColumnVariantV2::create();
+    for (const char* json :
+         {"null", "true", "1", "2", "2.0", "1.5", R"("a")", R"("2")", "[2]", R"({"k":2})"}) {
+        insert_encoded_field(*encoded_roots, encode_json(json));
+    }
+    ASSERT_FALSE(encoded_roots->is_typed());
+
+    auto check = [&](const ColumnVariantV2::MutablePtr& typed) {
+        auto encoded = encoded_copy_of(*typed);
+        const auto* original = &typed->typed_column();
+        for (size_t row = 0; row < typed->size(); ++row) {
+            for (size_t root = 0; root < encoded_roots->size(); ++root) {
+                const int expected = encoded->compare_at(row, root, *encoded_roots, 1);
+                EXPECT_EQ(typed->compare_at(row, root, *encoded_roots, 1), expected)
+                        << "row=" << row << " root=" << root;
+                EXPECT_EQ(encoded_roots->compare_at(root, row, *typed, 1), -expected)
+                        << "row=" << row << " root=" << root;
+            }
+        }
+        for (size_t root = 0; root < encoded_roots->size(); ++root) {
+            for (int direction : {-1, 1}) {
+                std::vector<uint8_t> typed_cmp(typed->size(), 0);
+                std::vector<uint8_t> encoded_cmp(typed->size(), 0);
+                IColumn::Filter typed_filter(typed->size(), 0);
+                IColumn::Filter encoded_filter(typed->size(), 0);
+                typed->compare_internal(root, *encoded_roots, 1, direction, typed_cmp,
+                                        typed_filter.data());
+                encoded->compare_internal(root, *encoded_roots, 1, direction, encoded_cmp,
+                                          encoded_filter.data());
+                EXPECT_EQ(typed_cmp, encoded_cmp);
+                EXPECT_EQ(typed_filter, encoded_filter);
+            }
+        }
+        // Comparing must not change the state of the typed column.
+        EXPECT_TRUE(typed->is_typed());
+        EXPECT_EQ(&typed->typed_column(), original);
+    };
+    constexpr std::array<int32_t, 4> INTEGERS {1, 2, 3, 0};
+    constexpr std::array<uint8_t, 4> INTEGER_NULLS {0, 0, 0, 1};
+    check(typed_int32(INTEGERS, INTEGER_NULLS));
+    check(ColumnVariantV2::create_typed(
+            nullable_fixed<ColumnFloat64>({1.5, 2.0, std::numeric_limits<double>::quiet_NaN()},
+                                          {0, 0, 0}),
+            std::make_shared<DataTypeFloat64>()));
+    check(ColumnVariantV2::create_typed(nullable_decimal<ColumnDecimal64, Decimal64>(
+                                                1, {Decimal64 {15}, Decimal64 {20}}, {0, 0}),
+                                        std::make_shared<DataTypeDecimal64>(18, 1)));
+    constexpr std::array<std::string_view, 3> STRINGS {"a", "2", "b"};
+    constexpr std::array<uint8_t, 3> STRING_NULLS {0, 0, 0};
+    check(typed_strings(STRINGS, STRING_NULLS));
+}
+
+TEST(ColumnVariantV2Test, ShreddedComparisonMatchesEncodedAndStaysShredded) {
+    auto encoded = ColumnVariantV2::create();
+    for (const char* json : {"2", "1.5", R"("a")", R"({"k":1})", "null"}) {
+        insert_encoded_field(*encoded, encode_json(json));
+    }
+    auto materialized_calls = std::make_shared<size_t>(0);
+    auto shredded = ColumnVariantV2::create_shredded(
+            std::make_shared<MaterializingShreddedState>(encoded->get_ptr(), materialized_calls));
+    ASSERT_TRUE(shredded->is_shredded());
+    constexpr std::array<int32_t, 3> INTEGERS {1, 2, 3};
+    constexpr std::array<uint8_t, 3> NOT_NULL {0, 0, 0};
+    auto typed = typed_int32(INTEGERS, NOT_NULL);
+    auto typed_encoded = encoded_copy_of(*typed);
+
+    for (size_t left = 0; left < encoded->size(); ++left) {
+        for (size_t right = 0; right < encoded->size(); ++right) {
+            const int expected = encoded->compare_at(left, right, *encoded, 1);
+            EXPECT_EQ(shredded->compare_at(left, right, *shredded, 1), expected);
+            EXPECT_EQ(shredded->compare_at(left, right, *encoded, 1), expected);
+            EXPECT_EQ(encoded->compare_at(left, right, *shredded, 1), expected);
+        }
+        for (size_t right = 0; right < typed->size(); ++right) {
+            const int expected = encoded->compare_at(left, right, *typed_encoded, 1);
+            EXPECT_EQ(shredded->compare_at(left, right, *typed, 1), expected);
+            EXPECT_EQ(typed->compare_at(right, left, *shredded, 1), -expected);
+        }
+    }
+    // Comparison reads the rows the state materializes (a real state caches them); the column
+    // itself stays shredded, and the typed peer stays typed.
+    EXPECT_GT(*materialized_calls, 0);
+    EXPECT_TRUE(shredded->is_shredded());
+    EXPECT_TRUE(typed->is_typed());
+}
+
 TEST(ColumnVariantV2Test, TypedNaNOrderingIgnoresNullDirectionHint) {
     auto typed = ColumnVariantV2::create_typed(
             nullable_fixed<ColumnFloat64>({1.0, std::numeric_limits<double>::quiet_NaN()}, {0, 0}),
             std::make_shared<DataTypeFloat64>());
-    auto encoded = ColumnVariantV2::create();
-    encoded->insert_range_from(*typed, 0, typed->size());
+    auto encoded = encoded_copy_of(*typed);
     for (int hint : {-1, 1}) {
         for (size_t left = 0; left < typed->size(); ++left) {
             for (size_t right = 0; right < typed->size(); ++right) {
@@ -3393,8 +3555,7 @@ TEST(ColumnVariantV2Test, TypedPhysicalInterfacesStayUnsupportedAndOrderingWorks
     auto typed = typed_int32(VALUES, NULLS);
     expect_not_implemented([&] { static_cast<void>(typed->get_data_at(0)); },
                            "intentionally unsupported");
-    auto encoded = ColumnVariantV2::create();
-    encoded->insert_range_from(*typed, 0, typed->size());
+    auto encoded = encoded_copy_of(*typed);
     for (size_t left = 0; left < typed->size(); ++left) {
         for (size_t right = 0; right < typed->size(); ++right) {
             for (int nan_direction_hint : {-1, 1}) {
@@ -3550,9 +3711,7 @@ TEST(ColumnVariantV2Test, NullableTypedSortMatchesEncoded) {
         return std::vector<int32_t>(output.get_data().begin(), output.get_data().end());
     };
     auto typed = typed_int32(VALUES, VARIANT_NULLS);
-    auto encoded = ColumnVariantV2::create();
-    encoded->insert_range_from(*typed, 0, typed->size());
-    encoded->ensure_encoded();
+    auto encoded = encoded_copy_of(*typed);
     for (int direction : {-1, 1}) {
         for (int nulls_direction : {-1, 1}) {
             EXPECT_EQ(sorted_ids(typed->get_ptr(), direction, nulls_direction),
