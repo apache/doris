@@ -183,6 +183,17 @@ TEST(FunctionIpTest, FunctionCutIPv6Test) {
     InputTypeSet input_types = {PrimitiveType::TYPE_IPV6, PrimitiveType::TYPE_TINYINT,
                                 PrimitiveType::TYPE_TINYINT};
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
+
+    std::array<uint8_t, 16> ipv6_bytes {0xff, 0x12, 0xcd, 0xab, 0x04, 0x00, 0x03, 0x00,
+                                        0x02, 0x00, 0x01, 0x00, 0xb8, 0x0d, 0x01, 0x20};
+    IPv6 ipv6;
+    std::memcpy(&ipv6, &ipv6_bytes, sizeof(IPv6));
+    DataSet odd_bytes_data_set = {
+            {{ipv6, (int8_t)1, (int8_t)0}, std::string("2001:db8:1:2:3:4:abcd:1200")},
+            {{ipv6, (int8_t)3, (int8_t)0}, std::string("2001:db8:1:2:3:4:ab00:0")},
+            {{ipv6, (int8_t)15, (int8_t)0}, std::string("2000::")}};
+    static_cast<void>(
+            check_function<DataTypeString, true>(func_name, input_types, odd_bytes_data_set));
 }
 
 class MockIndexReader : public segment_v2::InvertedIndexReader {

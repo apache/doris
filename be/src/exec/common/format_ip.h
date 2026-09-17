@@ -233,7 +233,7 @@ inline void print_integer(char*& out, T value) {
   * bounds checking, unnecessary string copying and length calculation.
   * @param src         - pointer to IPv6 (16 bytes) stored in little-endian byte order
   * @param dst         - where to put format result bytes
-  * @param zeroed_tail_bytes_count - the parameter is currently not being used
+  * @param zeroed_tail_bytes_count - number of bytes to zero from the address tail
   */
 inline void format_ipv6(unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_count = 0) {
     struct {
@@ -250,8 +250,12 @@ inline void format_ipv6(unsigned char* src, char*& dst, uint8_t zeroed_tail_byte
     /** Preprocess:
         *    Copy the input (bytewise) array into a wordwise array.
         *    Find the longest run of 0x00's in src[] for :: shorthanding. */
-    for (size_t i = 0; i < (IPV6_BINARY_LENGTH - zeroed_tail_bytes_count); i += 2) {
-        words[i / 2] = (uint16_t)(src[i] << 8) | src[i + 1];
+    const size_t remaining_bytes = IPV6_BINARY_LENGTH - zeroed_tail_bytes_count;
+    for (size_t i = 0; i + 1 < remaining_bytes; i += 2) {
+        words[i / 2] = static_cast<UInt16>(src[i]) << 8 | src[i + 1];
+    }
+    if (remaining_bytes % 2 != 0) {
+        words[remaining_bytes / 2] = static_cast<UInt16>(src[remaining_bytes - 1]) << 8;
     }
 
     for (size_t i = 0; i < words.size(); i++) {
