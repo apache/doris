@@ -3766,6 +3766,18 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    def scp_udf_file_to_all_fe = { udf_file_path ->
+        def udf_file = new File(udf_file_path).absoluteFile
+        assertTrue(udf_file.isFile(), "UDF file does not exist: ${udf_file}")
+        def fe_hosts = sql_return_maparray("SHOW FRONTENDS").collect { it.Host }.unique()
+        assertTrue(!fe_hosts.isEmpty(), "No frontend found to copy UDF file to")
+
+        fe_hosts.each { fe_host ->
+            sshExec("root", fe_host, "mkdir -p ${udf_file.parent}")
+            scpFiles("root", fe_host, udf_file.path, udf_file.path, false)
+        }
+    }
+
     def check_fold_consistency = { test_sql ->
         def re_fe = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=false)*/ ${test_sql}"
         def re_be = order_sql "select /*+SET_VAR(enable_fold_constant_by_be=true)*/ ${test_sql}"

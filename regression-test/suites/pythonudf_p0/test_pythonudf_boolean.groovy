@@ -18,6 +18,7 @@
 suite("test_pythonudf_boolean") {
     def pyPath = """${context.file.parent}/udf_scripts/pyudf.zip"""
     scp_udf_file_to_all_be(pyPath)
+    scp_udf_file_to_all_fe(pyPath)
     def runtime_version = getPythonUdfRuntimeVersion()
     log.info("Python Zip path: ${pyPath}".toString())
     try {
