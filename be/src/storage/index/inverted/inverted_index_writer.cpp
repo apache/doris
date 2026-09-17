@@ -162,7 +162,13 @@ Status InvertedIndexColumnWriter<field_type>::create_field(lucene::document::Fie
     (*field)->setOmitTermFreqAndPositions(
             !(get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
               INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES));
-    (*field)->setOmitNorms(false);
+    // Norms cost one byte per segment row, including rows without a value. Every variant
+    // subcolumn (non-empty index suffix) gets its own index, so a segment may hold thousands of
+    // them and their norms can dwarf the data. BM25 on such an index scores without length norms.
+    if (_should_analyzer && (_index_meta->get_index_suffix().empty() ||
+                             config::inverted_index_write_norms_for_variant_subcolumn)) {
+        (*field)->setOmitNorms(false);
+    }
     DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_field_v3", {
         if (_index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::V3) {
             return Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(

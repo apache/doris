@@ -17,6 +17,7 @@
 
 #include "storage/index/inverted/similarity/bm25_similarity.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace doris::segment_v2 {
@@ -44,6 +45,13 @@ BM25Similarity::BM25Similarity(float idf, float avgdl) : _idf(idf), _avgdl(avgdl
 }
 
 void BM25Similarity::compute_tf_cache() {
+    // CLucene keeps a field's token count in its .nrm header, so avgdl is 0 when no segment of the
+    // field stores norms (e.g. variant subcolumn indexes). Every document then has an unknown length:
+    // score without length normalization instead of computing 0 / 0.
+    if (_avgdl <= 0.0F) {
+        std::fill(_cache.begin(), _cache.end(), 1.0F / _k1);
+        return;
+    }
     for (int i = 0; i < _cache.size(); i++) {
         _cache[i] = 1.0F / (_k1 * ((1 - _b) + _b * LENGTH_TABLE[i] / _avgdl));
     }
