@@ -447,8 +447,9 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
 
 void SpillFileManager::_remote_gc(RemoteSpillDataDir* store) {
     if (!store->ready()) {
-        // Retry about once a minute at the default 2s GC interval. ensure_ready() only reads
-        // what the vault refresh thread and the FE heartbeat already brought in.
+        // Retry about once a minute at the default 2s GC interval. ensure_ready() reads what
+        // the vault refresh thread and the FE heartbeat already brought in, plus one bounded
+        // meta-service call for the instance id.
         if (_remote_not_ready_rounds++ % 30 != 0) {
             return;
         }
@@ -458,7 +459,10 @@ void SpillFileManager::_remote_gc(RemoteSpillDataDir* store) {
             return;
         }
     }
-    _report_remote_spill_stats(store);
+    // About once a minute at the default 2s GC interval, starting with the first round.
+    if (_remote_report_rounds++ % 30 == 0) {
+        _report_remote_spill_stats(store);
+    }
     if (BackendOptions::get_backend_id() != store->backend_id()) {
         // DROP + ADD BACKEND of a live node hands it a new id. The store keeps the id it was
         // bound with (objects and stats of this process stay consistent); the new id takes
@@ -511,32 +515,53 @@ void SpillFileManager::flush_remote_spill_stats() {
     }
 }
 
+void SpillFileManager::set_remote_spill_report_fn_for_test(RemoteSpillReportFn fn,
+                                                           int64_t heartbeat_ms) {
+    std::lock_guard<std::mutex> lock(_remote_report_mutex);
+    _remote_report_fn = std::move(fn);
+    _remote_report_heartbeat_ms = heartbeat_ms;
+}
+
+void SpillFileManager::report_remote_spill_stats_for_test(bool final_report) {
+    if (_remote_store != nullptr) {
+        _report_remote_spill_stats(_remote_store, final_report);
+    }
+}
+
 void SpillFileManager::_report_remote_spill_stats(RemoteSpillDataDir* store, bool final_report) {
     std::lock_guard<std::mutex> lock(_remote_report_mutex);
-    // About once a minute at the default 2s GC interval; a final report skips the cadence.
-    if (!final_report && _remote_report_rounds++ % 30 != 0) {
-        return;
-    }
     if (!store->ready() || !config::is_cloud_mode()) {
         return;
     }
     // The spill data this process holds in object storage right now (bytes reserved for parts
-    // being uploaded included). An unchanged value is re-sent about once an hour so that
-    // meta-service can tell a live BE with stable spill from one that is gone: a record that is
-    // not refreshed within spill_objects_expire_time_second (> 1 day) no longer counts.
-    int64_t spill_bytes = store->get_spill_data_bytes();
-    bool heartbeat_due = ++_remote_report_checks % 60 == 0;
+    // being uploaded included). An unchanged value is re-sent once per heartbeat interval so
+    // that meta-service can tell a live BE with stable spill from one that is gone: a record
+    // that is not refreshed within spill_objects_expire_time_second no longer counts. The
+    // heartbeat is wall-clock based (like the boot marker refresh) so that it does not depend on
+    // spill_gc_interval_ms.
+    const int64_t spill_bytes = store->get_spill_data_bytes();
+    const int64_t now_ms = MonotonicMillis();
+    const bool heartbeat_due = now_ms - _remote_last_report_ms >= _remote_report_heartbeat_ms;
     if (spill_bytes == _reported_remote_spill_bytes && !heartbeat_due) {
         return;
     }
-    auto st = ExecEnv::GetInstance()->storage_engine().to_cloud().meta_mgr().report_spill_stats(
-            store->backend_id(), store->boot_id(), spill_bytes);
+    // A new sequence number per attempt: meta-service rejects a report that arrives after a
+    // newer one of the same boot (a timed-out attempt is not cancelled on its way).
+    const int64_t report_seq = ++_remote_report_seq;
+    Status st;
+    if (_remote_report_fn != nullptr) {
+        st = _remote_report_fn(store->backend_id(), store->boot_id(), report_seq, spill_bytes);
+    } else {
+        st = ExecEnv::GetInstance()->storage_engine().to_cloud().meta_mgr().report_spill_stats(
+                store->backend_id(), store->boot_id(), report_seq, spill_bytes);
+    }
     if (!st.ok()) {
         LOG_EVERY_T(WARNING, 60) << "failed to report spill stats to meta-service"
                                  << (final_report ? "" : ", will retry") << ": " << st;
         return;
     }
     _reported_remote_spill_bytes = spill_bytes;
+    _remote_last_report_ms = now_ms;
 }
 
 Status SpillFileManager::_remote_startup_cleanup(RemoteSpillDataDir* store, bool* done) {

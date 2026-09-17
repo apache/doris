@@ -379,19 +379,11 @@ Status S3FileWriter::_close_impl() {
         RETURN_IF_ERROR(_set_upload_to_remote_less_than_buffer_size());
     }
 
-    if (_bytes_appended == 0 && _pending_buf == nullptr) {
-        DCHECK_EQ(_cur_part_num, 1);
-        // No data written, but need to create an empty file. close() normally builds this buffer
-        // already (so that it passes the upload gate); this is the fallback for a writer whose
-        // close() was skipped.
-        RETURN_IF_ERROR(_build_upload_buffer());
-        if (!_used_by_s3_committer) {
-            auto* pending_buf = dynamic_cast<UploadFileBuffer*>(_pending_buf.get());
-            pending_buf->set_upload_to_remote([this](UploadFileBuffer& buf) { _put_object(buf); });
-        } else {
-            RETURN_IF_ERROR(_create_multi_upload_request());
-        }
-    }
+    // close() builds the buffer of an empty object before passing the gate, so an empty writer
+    // arrives here either with that buffer or failed (the gate refused it, or an append failed
+    // before any byte was counted). A failed writer must not create the object: _complete()
+    // reports its status below.
+    DCHECK(_failed || _bytes_appended > 0 || _pending_buf != nullptr);
 
     if (_pending_buf != nullptr) { // there is remaining data in buffer need to be uploaded
         const size_t pending_capacity = _pending_buf->get_capacaticy();
