@@ -130,13 +130,11 @@ under the License.
             <scope>test</scope>
         </dependency>
 
-        <!-- fluss's own test helpers (retry/await utilities the cluster extension calls into). Its own
-             property rather than ${fluss.version} only because the two snapshot build numbers differ;
-             see fe/pom.xml, which keeps them on the same deploy. -->
+        <!-- fluss's own test helpers (retry/await utilities the cluster extension calls into). -->
         <dependency>
             <groupId>org.apache.fluss</groupId>
             <artifactId>fluss-test-utils</artifactId>
-            <version>${fluss-test-utils.version}</version>
+            <version>${fluss.version}</version>
             <scope>test</scope>
         </dependency>
 

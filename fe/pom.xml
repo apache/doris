@@ -450,20 +450,17 @@ under the License.
              marked @Internal (KvSnapshotAndLogBatchScanner / LakeSnapshotAndLogSplitScanner) whose
              signatures carry no compatibility promise; a version skew therefore breaks the read path at
              runtime, not at build time. These MUST stay equal — do NOT override fluss.version per-module.
-             Fluss 1.0 is not released yet (0.9.1-incubating lacks the APIs this connector is built on:
-             getReadableLakeSnapshot, the batch scanners above), so this is a 1.0-SNAPSHOT build from
-             the apache snapshots repository declared at the bottom of this pom. It is spelled as the
-             timestamped build rather than the floating "1.0-SNAPSHOT" on purpose: build.sh packages the
-             FE (fe option) and the BE extensions (be option) in separate maven invocations, and a
-             floating snapshot would hand them different builds whenever fluss redeploys in between —
-             exactly the skew above. Moving to a newer snapshot is therefore a deliberate edit of BOTH
-             properties here, with the values read off <artifact>/1.0-SNAPSHOT/maven-metadata.xml in
-             that repository. -->
-        <fluss.version>1.0-20260901.094454-3</fluss.version>
-        <!-- The test-only helpers (retry/await utilities the embedded-cluster tests call into), from
-             the same 2026-09-01 deploy as fluss.version. The build number differs only because this
-             artifact had been deployed once more before that day; bump the two together. -->
-        <fluss-test-utils.version>1.0-20260901.094454-4</fluss-test-utils.version>
+             1.0.0 is the first fluss with the APIs this connector is built on (getReadableLakeSnapshot,
+             the batch scanners above; 0.9.1-incubating has none of them), and it is at the
+             release-candidate stage: the artifacts are staged on repository.apache.org for the release
+             vote and are not on Maven Central yet. That staging repository is declared in this pom as
+             fluss-staging, once in the general-env profile and once in the <repositories> at the bottom,
+             and it is the only reason either entry exists. When 1.0.0 lands on central, the only edit
+             needed is deleting those two entries; the version and everything else stays, since a
+             promoted staging repository ships the very same files to central. (A local repository that
+             fetched them from staging downloads them once more from central then, because maven records
+             which repository each cached artifact came from — a re-download, not a failure.) -->
+        <fluss.version>1.0.0</fluss.version>
         <disruptor.version>3.4.4</disruptor.version>
         <jetbrains-annotations.version>17.0.0</jetbrains-annotations.version>
         <!-- arrow flight sql -->
@@ -516,6 +513,22 @@ under the License.
                     <id>snapshots</id>
                     <name>apache snapshots maven repo https</name>
                     <url>https://repository.apache.org/content/repositories/snapshots/</url>
+                </repository>
+                <!-- The fluss 1.0.0 release candidate, staged for its vote and not on central yet. Only
+                     org.apache.fluss:* at ${fluss.version} comes from here (the fluss.version comment
+                     says why); delete this entry, and its twin in the <repositories> at the bottom of
+                     this pom, once 1.0.0 is on central. Releases only: the same server hosts the
+                     snapshots repository above, and this one holds no snapshots to look for. -->
+                <repository>
+                    <id>fluss-staging</id>
+                    <name>apache fluss 1.0.0 release-candidate staging repo https</name>
+                    <url>https://repository.apache.org/content/repositories/orgapachefluss-1013/</url>
+                    <releases>
+                        <enabled>true</enabled>
+                    </releases>
+                    <snapshots>
+                        <enabled>false</enabled>
+                    </snapshots>
                 </repository>
             </repositories>
             <pluginRepositories>
@@ -2277,6 +2290,21 @@ under the License.
             <url>https://repository.apache.org/content/repositories/snapshots/</url>
             <snapshots>
                 <updatePolicy>always</updatePolicy>
+            </snapshots>
+        </repository>
+        <!-- The fluss 1.0.0 release candidate, staged for its vote and not on central yet; the twin of
+             the entry in the general-env profile, declared here as well so that a build with
+             CUSTOM_MAVEN_REPO set (which switches that profile off) still reaches it. Delete both once
+             1.0.0 is on central; see the fluss.version comment. -->
+        <repository>
+            <id>fluss-staging</id>
+            <name>apache fluss 1.0.0 release-candidate staging repo https</name>
+            <url>https://repository.apache.org/content/repositories/orgapachefluss-1013/</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
             </snapshots>
         </repository>
     </repositories>

@@ -17,11 +17,12 @@
 #
 
 # Copied from apache/fluss docker/fluss/Dockerfile, the recipe the fluss project
-# builds its own server image with. Fluss 1.0 is not released, so there is no
-# image to pull, and the distribution tarball in the maven snapshots repository
-# carries no Dockerfile; build-images.sh unpacks that tarball to build-target/
-# beside this file and builds from here. Kept verbatim apart from this note --
-# re-check it against upstream when FLUSS_SNAPSHOT_VERSION (fluss.env.tpl) moves.
+# builds its own server image with. Fluss 1.0.0 is a release candidate with no
+# image published for it yet, and the distribution tarball in the maven
+# repository carries no Dockerfile; build-images.sh unpacks that tarball to
+# build-target/ beside this file and builds from here. Kept verbatim apart from
+# this note -- re-check it against upstream when FLUSS_VERSION (fluss.env.tpl)
+# moves.
 
 # --------------
 # Stream edition
