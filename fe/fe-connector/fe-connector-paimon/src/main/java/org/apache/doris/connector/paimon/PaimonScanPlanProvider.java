@@ -431,6 +431,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return true;
     }
 
+    @Override
+    public boolean applyColumnDefaultsOnRead() {
+        // Paimon applies a field default when a later write omits that field. It does not reinterpret
+        // rows in files written before the field existed; Spark/Paimon returns NULL for those rows.
+        return false;
+    }
+
     /**
      * Paimon is predicate-driven: {@code planScan} ignores {@code requiredPartitions} and re-plans through
      * the SDK with the pushed predicate, so a FE prune-to-zero must scan-all rather than short-circuit to
