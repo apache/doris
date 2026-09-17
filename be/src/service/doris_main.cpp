@@ -808,9 +808,10 @@ int main(int argc, char** argv) {
 #endif
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
-    // Spill traffic is a billing input (SHOW DATA): report what accrued since the last periodic
-    // report now that every query has finished. This has to happen here because the default
-    // exit path below calls _exit() and never reaches ExecEnv::destroy().
+    // The spill data held in object storage is shown by SHOW DATA: report the final size (0 once
+    // every query has finished and its objects are deleted) so that meta-service does not keep
+    // the last periodic value. This has to happen here because the default exit path below
+    // calls _exit() and never reaches ExecEnv::destroy().
     if (auto* spill_file_mgr = exec_env->spill_file_mgr(); spill_file_mgr != nullptr) {
         spill_file_mgr->flush_remote_spill_stats();
     }
