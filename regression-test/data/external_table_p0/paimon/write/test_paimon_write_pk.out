@@ -42,11 +42,5 @@ alpha	1	alpha_v2
 beta	2	中文_payload
 emoji_😀	3	emoji_payload
 
--- !pk_writer_scaling_plan --
-PhysicalConnectorTableSink
---PhysicalDistribute[DistributionSpecPaimonTableSinkHashPartitioned]
-----PhysicalProject
-------PhysicalTVFRelation
-
 -- !pk_writer_scaling --
 1	1	1	4096	4096

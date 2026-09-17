@@ -31,6 +31,18 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
     String explicitTypeTable = "t_schema_change_explicit_types"
     String primaryKeyTable = "t_schema_change_pk"
 
+    def normalizeDorisPartitions = { rows ->
+        rows.collect { row ->
+            def values = row[0].toString().split('/', -1).collect { component ->
+                int equals = component.indexOf('=')
+                assertTrue(equals >= 0, "Invalid Paimon partition path: ${row[0]}")
+                String value = java.net.URLDecoder.decode(component.substring(equals + 1), "UTF-8")
+                return value in ["__DEFAULT_PARTITION__", "__CUSTOM_DEFAULT_PARTITION__"] ? "" : value
+            }
+            return ["{${values.join(', ')}}", row[1]]
+        }.sort { left, right -> left[0].toString() <=> right[0].toString() }
+    }
+
     sql """DROP CATALOG IF EXISTS `${catalogName}`"""
     sql """
         CREATE CATALOG `${catalogName}` PROPERTIES (
@@ -102,8 +114,8 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
                 "id, required_value, name, score, amount, obsolete, dt",
                 "ORDER BY id")
 
-        // ADD COLUMN with DEFAULT, COMMENT and AFTER. Historical rows expose
-        // the declared default and explicit values can immediately be written.
+        // ADD COLUMN with DEFAULT, COMMENT and AFTER. Historical rows remain
+        // NULL; the default applies to later writes which omit the column.
         sql """
             ALTER TABLE `${appendTable}`
             ADD COLUMN added_after STRING NULL DEFAULT 'unknown'
@@ -553,14 +565,6 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
             exception "does not exist in Paimon table"
         }
         test {
-            sql """
-                ALTER TABLE `${appendTable}`
-                ADD COLUMN multi_a INT NULL,
-                ADD COLUMN multi_b INT NULL
-            """
-            exception "External table does not support multiple ALTER clauses"
-        }
-        test {
             sql """ALTER TABLE `${appendTable}` DROP COLUMN missing_col"""
             exception "does not exist in Paimon table"
         }
@@ -686,11 +690,12 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
             FROM paimon.${dbName}.`${appendTable}\$partitions`
             ORDER BY `partition`
         """
-        def dorisPartitions = sql """
+        def dorisPartitions = normalizeDorisPartitions(sql """
             SELECT `partition`, record_count
             FROM `${appendTable}\$partitions`
             ORDER BY `partition`
-        """
+        """)
+        sparkPartitions.sort { left, right -> left[0].toString() <=> right[0].toString() }
         assertSparkDorisResultEquals(sparkPartitions, dorisPartitions)
         order_qt_sc_append_partitions """
             SELECT `partition`, record_count

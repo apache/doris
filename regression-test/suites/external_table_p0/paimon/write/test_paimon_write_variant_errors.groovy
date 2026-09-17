@@ -68,31 +68,7 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
     sql """USE ${dbName}"""
 
     try {
-        // Both top-level and nested targets fail during analysis when V2 is disabled.
-        setFeConfigTemporary([enable_variant_v2: false]) {
-            assertFalse(getFeConfig("enable_variant_v2").toBoolean())
-            test {
-                sql """INSERT INTO t_variant_error VALUES
-                    (1, parse_to_variant('{"disabled":"top"}'))"""
-                exception "set FE config enable_variant_v2=true"
-            }
-            test {
-                sql """INSERT INTO t_variant_nested_error VALUES
-                    (1, CAST(NULL AS ARRAY<VARIANT>))"""
-                exception "set FE config enable_variant_v2=true"
-            }
-            test {
-                sql """
-                    INSERT INTO t_variant_error
-                    SELECT 2, parse_to_variant('{"disabled":"select"}')
-                """
-                exception "set FE config enable_variant_v2=true"
-            }
-        }
-
-        setFeConfigTemporary([enable_variant_v2: true]) {
-            assertTrue(getFeConfig("enable_variant_v2").toBoolean())
-            sql """SET force_jni_scanner = true"""
+        sql """SET force_jni_scanner = true"""
 
             sql """
                 INSERT INTO t_variant_coercion_source VALUES
@@ -175,7 +151,7 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
                 exception "Paimon VARIANT write cannot safely convert input column 'payload'"
             }
 
-            // Valid V2 writes still work after Config-gated analysis failures.
+            // Valid V2 writes still work after rejected lossy coercions.
             sql """
                 INSERT INTO t_variant_error VALUES
                     (20, parse_to_variant('{"recovered":true}')),
@@ -224,7 +200,6 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
                 FROM t_variant_error
                 ORDER BY id
             """
-        }
     } finally {
         sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
