@@ -28,9 +28,11 @@
 #include "core/block/block.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
+#include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -85,6 +87,29 @@ private:
     const std::string _name = "test_binary_predicate";
 };
 
+// A cast node wrapping an operand, like the BE tree of
+// `CAST(amount AS DECIMAL(10,1)) = 1.2`. The converter only inspects
+// node_type() and the children, never executes the expr.
+class TestCastExpr final : public VExpr {
+public:
+    TestCastExpr(const DataTypePtr& target_type, VExprSPtr child) : VExpr(target_type, false) {
+        _node_type = TExprNodeType::CAST_EXPR;
+        add_child(std::move(child));
+    }
+
+    const std::string& expr_name() const override { return _name; }
+
+    Status execute_column_impl(VExprContext* /*context*/, const Block* /*block*/,
+                               const Selector* /*selector*/, size_t /*count*/,
+                               ColumnPtr& result_column) const override {
+        result_column = ColumnUInt8::create();
+        return Status::OK();
+    }
+
+private:
+    const std::string _name = "test_cast";
+};
+
 // A slot ref resolved by column name, like FileScannerV2's rewritten conjuncts.
 VExprSPtr slot_ref(const std::string& column_name, const DataTypePtr& type) {
     return std::make_shared<VSlotRef>(0, 0, -1, type, column_name);
@@ -112,6 +137,19 @@ VExprSPtr datetimev2_literal(uint32_t microsecond) {
                                    Field::create_field<TYPE_DATETIMEV2>(value));
 }
 
+// A DECIMAL(10,2) column type.
+const DataTypePtr& decimal_type() {
+    static const auto type = make_nullable(std::make_shared<DataTypeDecimal64>(10, 2));
+    return type;
+}
+
+// A DECIMAL(10,2) literal, e.g. decimal_literal(1, 24) is 1.24.
+VExprSPtr decimal_literal(int64_t integer, int64_t fraction) {
+    return VLiteral::create_shared(std::make_shared<DataTypeDecimal64>(10, 2),
+                                   Field::create_field<TYPE_DECIMAL64>(
+                                           Decimal64::from_int_frac(integer, fraction, 2)));
+}
+
 } // namespace
 
 // Pins the EQ_FOR_NULL (<=>) decision matrix of the converter. Semantics are
@@ -131,7 +169,8 @@ protected:
         static constexpr const char* kSchemaJson =
                 R"json({"version":3,"id":0,"fields":[{"id":0,"name":"a","type":"INT"},)json"
                 R"json({"id":1,"name":"b","type":"INT"},{"id":2,"name":"ts",)json"
-                R"json("type":"TIMESTAMP(6)"}],"highestFieldId":2,)json"
+                R"json("type":"TIMESTAMP(6)"},{"id":3,"name":"amount",)json"
+                R"json("type":"DECIMAL(10, 2)"}],"highestFieldId":3,)json"
                 R"json("partitionKeys":[],"primaryKeys":[],"options":{},"timeMillis":0})json";
         auto result = paimon_table_from_schema_json("/tmp/paimon_rust_predicate_converter_test",
                                                     kSchemaJson, "db", "t", "main", nullptr, 0);
@@ -147,9 +186,10 @@ protected:
         }
         _table.reset(result.table);
 
-        _column_names = {"a", "b", "ts"};
+        _column_names = {"a", "b", "ts", "amount"};
         _column_types = {make_nullable(std::make_shared<DataTypeInt32>()),
-                         make_nullable(std::make_shared<DataTypeInt32>()), datetimev2_type()};
+                         make_nullable(std::make_shared<DataTypeInt32>()), datetimev2_type(),
+                         decimal_type()};
     }
 
     // Runs one conjunct through a fresh converter; a null return means the
@@ -242,6 +282,60 @@ TEST_F(PaimonRustPredicateConverterTest, TimestampV2FractionalEqualityIsPushed) 
     auto predicate = push(TExprOpcode::EQ, slot_ref("ts", datetimev2_type()),
                            datetimev2_literal(123456));
     EXPECT_NE(predicate.get(), nullptr);
+}
+
+// ---- casted operands are rejected, mirroring the FE converter ----
+
+TEST_F(PaimonRustPredicateConverterTest, CastedColumnEqIsNotPushed) {
+    // `CAST(a AS BIGINT) = 1` must stay in the residual: a cast on the column
+    // is not equivalence-preserving in general, so like the FE converter's
+    // convertDorisExprToSlotRef the cast is not unwrapped. (The old code
+    // stripped it via expr_without_cast and pushed against the raw column.)
+    auto casted = std::make_shared<TestCastExpr>(make_nullable(std::make_shared<DataTypeInt64>()),
+                                                 slot_ref("a"));
+    EXPECT_EQ(push(TExprOpcode::EQ, std::move(casted), int_literal(1)).get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, DecimalScaleCastColumnIsNotPushed) {
+    // The review's P1 case: for a DECIMAL(10,2) column holding 1.24,
+    // `CAST(amount AS DECIMAL(10,1)) = 1.2` must retain the row, but pushing
+    // the unwrapped `amount = 1.2` against the original column prunes it. The
+    // rust filter does not save us either: it accepts decimal literals with
+    // different scales and compares their mathematical values (1.24 != 1.2),
+    // so the unsafe predicate is not rejected as a type mismatch. The conjunct
+    // must stay in the Doris residual.
+    auto casted = std::make_shared<TestCastExpr>(
+            make_nullable(std::make_shared<DataTypeDecimal64>(10, 1)),
+            slot_ref("amount", decimal_type()));
+    EXPECT_EQ(push(TExprOpcode::EQ, std::move(casted), decimal_literal(1, 2)).get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, DecimalLiteralEqIsPushed) {
+    // Positive control: the same decimal literal converts against the uncast
+    // column, so the rejection above comes from the cast, not decimal support.
+    auto predicate = push(TExprOpcode::EQ, slot_ref("amount", decimal_type()),
+                          decimal_literal(1, 24));
+    EXPECT_NE(predicate.get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, SingleCastLiteralIsStillPushed) {
+    // FE parity (convertDorisExprToLiteralExpr): a single cast wrapping a
+    // direct literal is unwrapped and the pre-cast literal value converts
+    // against the column type.
+    auto casted = std::make_shared<TestCastExpr>(make_nullable(std::make_shared<DataTypeInt64>()),
+                                                 int_literal(1));
+    EXPECT_NE(push(TExprOpcode::EQ, slot_ref("a"), std::move(casted)).get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, NestedCastLiteralIsNotPushed) {
+    // `CAST(CAST(1 AS BIGINT) AS DOUBLE)`: deeper cast trees are rejected,
+    // mirroring FE (its instanceof check only unwraps one CastExpr around a
+    // direct LiteralExpr). The old code stripped all cast levels.
+    auto inner = std::make_shared<TestCastExpr>(make_nullable(std::make_shared<DataTypeInt64>()),
+                                                int_literal(1));
+    auto outer = std::make_shared<TestCastExpr>(make_nullable(std::make_shared<DataTypeFloat64>()),
+                                                std::move(inner));
+    EXPECT_EQ(push(TExprOpcode::EQ, slot_ref("a"), std::move(outer)).get(), nullptr);
 }
 
 } // namespace doris

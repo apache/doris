@@ -150,9 +150,10 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_expr(const VExprSPtr& e
         return nullptr;
     }
 
-    auto uncast = VExpr::expr_without_cast(expr);
-
-    if (auto* direct_in = dynamic_cast<VDirectInPredicate*>(uncast.get())) {
+    // Casts are not unwrapped anywhere (predicate root included): a cast node
+    // fails every dispatch below and the conjunct stays in the Doris residual,
+    // mirroring the FE converter, which keeps casted expressions unconverted.
+    if (auto* direct_in = dynamic_cast<VDirectInPredicate*>(expr.get())) {
         VExprSPtr in_expr;
         if (direct_in->get_slot_in_expr(in_expr)) {
             return _convert_in(in_expr);
@@ -160,14 +161,14 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_expr(const VExprSPtr& e
         return nullptr;
     }
 
-    if (dynamic_cast<VInPredicate*>(uncast.get()) != nullptr) {
-        return _convert_in(uncast);
+    if (dynamic_cast<VInPredicate*>(expr.get()) != nullptr) {
+        return _convert_in(expr);
     }
 
-    switch (uncast->op()) {
+    switch (expr->op()) {
     case TExprOpcode::COMPOUND_AND:
     case TExprOpcode::COMPOUND_OR:
-        return _convert_compound(uncast);
+        return _convert_compound(expr);
     case TExprOpcode::COMPOUND_NOT:
         return nullptr;
     case TExprOpcode::EQ:
@@ -177,18 +178,18 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_expr(const VExprSPtr& e
     case TExprOpcode::GT:
     case TExprOpcode::LE:
     case TExprOpcode::LT:
-        return _convert_binary(uncast);
+        return _convert_binary(expr);
     default:
         break;
     }
 
-    if (auto* fn = dynamic_cast<VectorizedFnCall*>(uncast.get())) {
+    if (auto* fn = dynamic_cast<VectorizedFnCall*>(expr.get())) {
         auto fn_name = _normalize_name(fn->function_name());
         if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
-            return _convert_is_null(uncast, fn_name);
+            return _convert_is_null(expr, fn_name);
         }
         if (fn_name == "like") {
-            return _convert_like_prefix(uncast);
+            return _convert_like_prefix(expr);
         }
     }
 
@@ -375,8 +376,13 @@ std::optional<PaimonRustPredicateConverter::FieldMeta> PaimonRustPredicateConver
     if (!expr) {
         return std::nullopt;
     }
-    auto slot_expr = VExpr::expr_without_cast(expr);
-    auto* slot_ref = dynamic_cast<VSlotRef*>(slot_expr.get());
+    // Mirror the FE converter's convertDorisExprToSlotRef: a casted column is
+    // rejected, never unwrapped. Stripping a lossy cast changes which rows match
+    // — for a DECIMAL(10,2) column, CAST(amount AS DECIMAL(10,1)) = 1.2 keeps
+    // the row 1.24 while the unwrapped `amount = 1.2` prunes it — and rows
+    // pruned by the pushed filter cannot be recovered by the Doris residual.
+    // The conjunct stays in the residual instead.
+    auto* slot_ref = dynamic_cast<VSlotRef*>(expr.get());
     if (!slot_ref) {
         return std::nullopt;
     }
@@ -397,7 +403,15 @@ std::optional<PaimonRustPredicateConverter::FieldMeta> PaimonRustPredicateConver
 std::optional<PaimonRustPredicateConverter::DatumHolder>
 PaimonRustPredicateConverter::_convert_literal(const VExprSPtr& expr,
                                                const DataTypePtr& column_type) const {
-    auto literal_expr = VExpr::expr_without_cast(expr);
+    // Mirror the FE converter's convertDorisExprToLiteralExpr: a bare literal
+    // or a single cast wrapping a direct literal converts; anything deeper is
+    // rejected. Unwrapping recursively would silently apply the inner casts'
+    // lossy semantics (e.g. a DECIMAL scale reduction), which FE also rejects
+    // (its instanceof check only unwraps one CastExpr around a LiteralExpr).
+    VExprSPtr literal_expr = expr;
+    if (expr->node_type() == TExprNodeType::CAST_EXPR) {
+        literal_expr = expr->get_child(0);
+    }
     auto* literal = dynamic_cast<VLiteral*>(literal_expr.get());
     if (!literal) {
         return std::nullopt;
@@ -596,7 +610,12 @@ PaimonRustPredicateConverter::_convert_literal(const VExprSPtr& expr,
 
 std::optional<std::string> PaimonRustPredicateConverter::_extract_string_literal(
         const VExprSPtr& expr) const {
-    auto literal_expr = VExpr::expr_without_cast(expr);
+    // Same one-level cast rule as _convert_literal: a bare string literal or a
+    // single cast wrapping one converts; deeper cast trees stay in the residual.
+    VExprSPtr literal_expr = expr;
+    if (expr->node_type() == TExprNodeType::CAST_EXPR) {
+        literal_expr = expr->get_child(0);
+    }
     auto* literal = dynamic_cast<VLiteral*>(literal_expr.get());
     if (!literal) {
         return std::nullopt;
