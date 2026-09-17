@@ -274,8 +274,9 @@ public class MTMV extends OlapTable {
             }
             try {
                 // The replay thread may not have initialized the catalog yet to avoid getting stuck due
-                // to connection issues such as S3, so it is directly set to null
-                if (!isReplay) {
+                // to connection issues such as S3, so it is directly set to null.
+                MTMVCacheManager cacheManager = Env.getCurrentEnv().getMtmvCacheManager();
+                if (!isReplay && cacheManager != null && cacheManager.isEnabled()) {
                     ConnectContext currentContext = ConnectContext.get();
                     // shouldn't do this while holding mvWriteLock
                     // TODO: these two cache compute share something same, can be simplified in future

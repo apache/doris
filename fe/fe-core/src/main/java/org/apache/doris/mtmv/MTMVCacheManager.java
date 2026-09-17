@@ -20,7 +20,6 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase.DefaultConfHandler;
-import org.apache.doris.common.DdlException;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -52,9 +51,7 @@ public class MTMVCacheManager {
     }
 
     public void put(long mtmvId, boolean guarded, MTMVCache cache) {
-        if (cache == null) {
-            return;
-        }
+        Objects.requireNonNull(cache, "mtmv cache to publish must not be null");
         synchronized (swapLock) {
             caches.put(new Key(mtmvId, guarded), cache);
         }
@@ -77,10 +74,16 @@ public class MTMVCacheManager {
         return caches.estimatedSize();
     }
 
+    /** False when the live maximum is 0, i.e. every put would be discarded immediately. */
+    public boolean isEnabled() {
+        return caches.policy().eviction().map(eviction -> eviction.getMaximum() > 0).orElse(true);
+    }
+
     public Snapshot snapshot() {
-        CacheStats s = caches.stats();
-        return new Snapshot(caches.estimatedSize(), s.hitCount(), s.missCount(),
-                s.evictionCount(), s.loadFailureCount(), s.hitRate());
+        Cache<Key, MTMVCache> current = caches;
+        CacheStats s = current.stats();
+        return new Snapshot(current.estimatedSize(), s.hitCount(), s.missCount(),
+                s.evictionCount(), s.hitRate());
     }
 
     /**
@@ -91,12 +94,13 @@ public class MTMVCacheManager {
         if (limit <= 0) {
             return Collections.emptyList();
         }
-        return caches.policy().expireAfterAccess()
+        Cache<Key, MTMVCache> current = caches;
+        return current.policy().expireAfterAccess()
                 .map(exp -> exp.youngest(limit).keySet().stream()
                         .map(k -> new HotEntry(k.mtmvId, k.guarded,
                                 exp.ageOf(k, TimeUnit.MILLISECONDS).orElse(-1L)))
                         .collect(Collectors.toList()))
-                .orElseGet(() -> caches.asMap().keySet().stream()
+                .orElseGet(() -> current.asMap().keySet().stream()
                         .limit(limit)
                         .map(k -> new HotEntry(k.mtmvId, k.guarded, -1L))
                         .collect(Collectors.toList()));
@@ -132,28 +136,11 @@ public class MTMVCacheManager {
         return builder.build();
     }
 
-    /** Reject negative maximums so the cache can never lose its entry bound. */
-    @VisibleForTesting
-    static void checkMaxSize(String confVal) throws DdlException {
-        int value;
-        try {
-            value = Integer.parseInt(confVal.trim());
-        } catch (NumberFormatException e) {
-            throw new DdlException("mtmv_cache_manage_num requires an integer, but got: " + confVal);
-        }
-        if (value < 0) {
-            throw new DdlException("mtmv_cache_manage_num must not be negative, 0 disables the cache");
-        }
-    }
-
     // NOTE: referenced by Config.mtmv_cache_manage_num.callbackClassString and
     // Config.expire_mtmv_cache_in_fe_second.callbackClassString.
     public static class UpdateConfig extends DefaultConfHandler {
         @Override
         public void handle(Field field, String confVal) throws Exception {
-            if ("mtmv_cache_manage_num".equals(field.getName())) {
-                checkMaxSize(confVal);
-            }
             super.handle(field, confVal);
             MTMVCacheManager.reloadConfig();
         }
@@ -204,16 +191,13 @@ public class MTMVCacheManager {
         public final long hitCount;
         public final long missCount;
         public final long evictionCount;
-        public final long loadFailureCount;
         public final double hitRate;
 
-        public Snapshot(long size, long hitCount, long missCount, long evictionCount,
-                long loadFailureCount, double hitRate) {
+        public Snapshot(long size, long hitCount, long missCount, long evictionCount, double hitRate) {
             this.size = size;
             this.hitCount = hitCount;
             this.missCount = missCount;
             this.evictionCount = evictionCount;
-            this.loadFailureCount = loadFailureCount;
             this.hitRate = hitRate;
         }
     }

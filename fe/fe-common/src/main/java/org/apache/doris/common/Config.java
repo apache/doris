@@ -2307,10 +2307,28 @@ public class Config extends ConfigBase {
 
     @ConfField(
             mutable = true,
+            callback = NonNegativeMtmvCacheNumConfHandler.class,
             callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
             description = "Max mtmv plan cache entries kept by MTMVCacheManager. 0 disables the cache, "
                     + "negative values are rejected. Default 3000.")
     public static int mtmv_cache_manage_num = 3000;
+
+    public static class NonNegativeMtmvCacheNumConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 0) {
+                throw new ConfigException(field.getName() + " must not be negative, 0 disables the cache");
+            }
+            field.setInt(null, parsed);
+        }
+    }
+
+    public static void validateMtmvCacheConfig() throws ConfigException {
+        if (mtmv_cache_manage_num < 0) {
+            throw new ConfigException("mtmv_cache_manage_num must not be negative, 0 disables the cache");
+        }
+    }
 
     @ConfField(
             mutable = true,
