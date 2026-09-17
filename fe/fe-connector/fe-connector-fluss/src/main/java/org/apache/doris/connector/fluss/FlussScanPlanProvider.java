@@ -687,12 +687,14 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * The sibling's own column handles for the columns this scan reads.
      *
      * <p>Needed because the sibling projects by ITS handle type and silently ignores anything else: handing
-     * it fluss's handles would leave it with no projection at all. The lake table's columns are this table's
-     * columns plus the three fluss system columns appended at the end ({@code __bucket} / {@code __offset} /
-     * {@code __timestamp}), so every column asked for here exists there under the same name and the extra
-     * three are simply never asked for. A column that is missing is a real mismatch between the two schemas
-     * — the lake table was not created by this fluss table's tiering — and fails loud rather than reading a
-     * silently narrower row.
+     * it fluss's handles would leave it with no projection at all. The lake table fluss 1.0.0 tiers into
+     * carries this table's columns under the same names and no fluss system columns (the {@code __bucket} /
+     * {@code __offset} / {@code __timestamp} columns earlier releases appended are gone; paimon 2.0's
+     * {@code lakestream.enabled} table option took their place), plus the invisible metadata columns the
+     * sibling itself declares ({@code __paimon_file_path} / {@code __paimon_row_index}), which are simply
+     * never asked for. A column that is missing is a real mismatch between the two schemas — the lake table
+     * was not created by this fluss table's tiering — and fails loud rather than reading a silently narrower
+     * row.
      */
     private List<ConnectorColumnHandle> lakeColumns(ConnectorSession session, UnionRead union,
             List<ConnectorColumnHandle> columns, ConnectorTableHandle handle) {

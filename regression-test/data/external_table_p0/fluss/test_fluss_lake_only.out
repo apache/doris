@@ -5,16 +5,10 @@
 3	lake3	3.30
 4	lake4	4.40
 
--- !system_columns --
-4
-
 -- !desc_lake_log_lake --
 id	int	Yes	true	\N	NONE
 name	text	Yes	true	\N	NONE
 price	decimal(10,2)	Yes	true	\N	NONE
-__bucket	int	Yes	true	\N	NONE
-__offset	bigint	Yes	true	\N	NONE
-__timestamp	datetime(3)	Yes	true	\N	NONE
 
 -- !desc_lake_log --
 id	int	Yes	true	\N	
@@ -62,9 +56,6 @@ f_timestamp_ltz	datetime(3)	Yes	true	\N	NONE
 f_array	array<int>	Yes	true	\N	NONE
 f_map	map<text,int>	Yes	true	\N	NONE
 f_row	struct<r_int:int,r_string:text>	Yes	true	\N	NONE
-__bucket	int	Yes	true	\N	NONE
-__offset	bigint	Yes	true	\N	NONE
-__timestamp	datetime(3)	Yes	true	\N	NONE
 
 -- !lake_types_row --
 1	true	1	2	3	4	1.5	2.5	123.4567	char1	string1	010203	0A0B	2026-01-01	2026-01-01T01:02:03.456789	2026-01-01T09:02:03.456	[1, 2, 3]	["k1", "k2"]	[1, 2]	{"r_int":1, "r_string":"nested1"}
