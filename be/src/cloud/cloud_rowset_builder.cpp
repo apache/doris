@@ -78,7 +78,7 @@ Status CloudRowsetBuilder::init() {
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
-    context.file_cache_ttl_sec = _tablet->ttl_seconds();
+    context.file_cache_expiration_time = _tablet->file_cache_ttl_expiration_time();
     context.storage_resource = _engine.get_storage_resource(_req.storage_vault_id);
     if (!context.storage_resource) {
         return Status::InternalError("vault id not found, maybe not sync, vault id {}",

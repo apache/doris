@@ -391,7 +391,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         // like the load and compaction output does. Otherwise it is cached in the
         // NORMAL/INDEX queues here, while every warm-up path downloads it into the TTL
         // queue on the destination cluster.
-        context.file_cache_ttl_sec = _new_tablet->ttl_seconds();
+        context.file_cache_expiration_time = _new_tablet->file_cache_ttl_expiration_time();
         context.tablet = _new_tablet;
         if (!context.storage_resource) {
             return Status::InternalError("vault id not found, maybe not sync, vault id {}",
