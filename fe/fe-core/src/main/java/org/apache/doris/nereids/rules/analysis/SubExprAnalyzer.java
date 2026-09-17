@@ -469,11 +469,12 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                                 throw new AnalysisException(
                                         "access outer query's column before two agg nodes is not supported");
                             }
-                            if (nodeInfo.hasGroupBy) {
-                                // TODO support later
-                                throw new AnalysisException(
-                                        "access outer query's column before agg with group by is not supported");
-                            }
+                            // the aggregation of the subquery may group the inner rows and it may
+                            // filter them with a HAVING clause: the rewrite which unnests the
+                            // subquery (UnCorrelatedApplyAggregateFilter) groups the aggregation of
+                            // every outer row by the correlation key of that row, so that the groups
+                            // of the aggregation of one outer row are the rows of the subquery for
+                            // that row
                             checkAfterAggNode = true;
                             topAggregate = nodeInfo.aggregate;
                             break;
@@ -493,6 +494,12 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
                             break;
                         case LOGICAL_PROJECT:
                             // allow any project node
+                            break;
+                        case LOGICAL_FILTER:
+                            // allow any filter node: the filters above the aggregation of the
+                            // subquery are the predicates of its HAVING clause, which the rewrite
+                            // evaluates on the aggregation of every outer row (and which it keeps
+                            // where filter pushdown placed them)
                             break;
                         case LOGICAL_SUBQUERY_ALIAS:
                             // allow any subquery alias

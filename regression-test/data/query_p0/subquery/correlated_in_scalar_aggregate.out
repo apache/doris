@@ -123,3 +123,27 @@
 2	1
 7	0
 
+-- !scalar_grouped_count --
+\N	\N
+-1	\N
+1	1
+2	1
+7	\N
+
+-- !scalar_having_count_eq_0 --
+\N	0
+-1	0
+1	\N
+2	\N
+7	0
+
+-- !scalar_having_count_gt_0 --
+\N	\N
+-1	\N
+1	1
+2	1
+7	\N
+
+-- !in_nested_aggregation --
+1
+

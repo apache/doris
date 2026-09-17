@@ -163,19 +163,39 @@ suite("correlated_in_scalar_aggregate") {
     order_qt_scalar_nullsafe_equal_count """
         SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k <=> o.k) AS c FROM cisa_o o ORDER BY o.k
     """
+    // the aggregation of a scalar subquery may group the rows of its domain: the value of an outer
+    // row is the value of the single row of its domain, and the outer rows whose domain has no row
+    // at all (or whose rows form several groups, which the runtime check of a scalar subquery
+    // rejects) return null
+    order_qt_scalar_grouped_count """
+        SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) AS c FROM cisa_o o ORDER BY o.k
+    """
+    // a HAVING clause of a global aggregation decides whether the row of the domain survives: the
+    // aggregation of the empty domain (the count 0) satisfies the HAVING clause of this subquery, so
+    // those outer rows return the count of their empty domain
+    order_qt_scalar_having_count_eq_0 """
+        SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k = o.k HAVING count(*) = 0) AS c
+        FROM cisa_o o ORDER BY o.k
+    """
+    // ... while a HAVING clause which rejects the row of the empty domain keeps it out
+    order_qt_scalar_having_count_gt_0 """
+        SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k = o.k HAVING count(*) > 0) AS c
+        FROM cisa_o o ORDER BY o.k
+    """
+    // the aggregation of the subquery may itself be aggregated by a derived table: the outer row is
+    // matched against the rows of that aggregation for the correlation key of the outer row
+    order_qt_in_nested_aggregation """
+        SELECT o.k FROM cisa_o o
+        WHERE o.k IN (SELECT max(c) FROM (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x)
+        ORDER BY o.k
+    """
 
     // The shapes below are not supported by the scalar and IN subquery rewrites: they must be
-    // rejected with a user error and must never return a wrong result silently. A scalar subquery
-    // whose aggregation is filtered or grouped cannot be unnested by this rule at all: the analyzer
-    // rejects it before the rewrite runs (see SubExprAnalyzer.validateNodeInfoList).
+    // rejected with a user error and must never return a wrong result silently.
     test {
-        sql "SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) AS c FROM cisa_o o"
-        exception "access outer query's column before agg with group by is not supported"
-    }
-    test {
-        sql "SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k = o.k HAVING count(*) = 0) AS c" +
+        sql "SELECT o.k, (SELECT count(*) FROM cisa_i i WHERE i.k = o.k GROUP BY i.g HAVING count(*) >= o.k - 1) AS c" +
                 " FROM cisa_o o"
-        exception "only project, sort and subquery alias node is allowed after agg node"
+        exception "access outer query's column in two places is not supported"
     }
     // a correlated predicate whose side mixes the outer query and the subquery cannot be evaluated
     // by the join which unnests the scalar subquery either

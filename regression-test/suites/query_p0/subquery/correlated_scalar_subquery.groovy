@@ -225,15 +225,12 @@ suite("correlated_scalar_subquery") {
         sql """
               select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select count(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 group by c2);
         """
-        exception "access outer query's column before agg with group by is not supported"
+        exception "correlate scalar subquery must return only 1 row"
     }
 
-    test {
-        sql """
+    qt_select_having_over_count """
               select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select count(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 having count(c1) > 10);
-        """
-        exception "only project, sort and subquery alias node is allowed after agg node"
-    }
+    """
 
     test {
         sql """
