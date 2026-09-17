@@ -57,9 +57,6 @@ public:
     // Returns empty index if file is not in merge file
     Status get_packed_slice_location(PackedSliceLocation* location) const override;
 
-    // Returns true if this file's data was written to a packed file (not direct write)
-    bool is_in_packed_file() const override { return !_is_direct_write; }
-
 #ifdef BE_TEST
     size_t buffer_capacity_for_test() const { return _buffer.capacity(); }
 #endif
