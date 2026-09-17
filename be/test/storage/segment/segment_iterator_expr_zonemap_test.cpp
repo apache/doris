@@ -131,6 +131,15 @@ std::shared_ptr<AndBlockColumnPredicate> make_commit_tso_gt_predicate(int32_t co
     return predicates;
 }
 
+void add_commit_tso_gt_predicate(StorageReadOptions* opts, int64_t value) {
+    auto predicate = std::make_shared<ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>>(
+            1, COMMIT_TSO_COL, Field::create_field<TYPE_BIGINT>(value));
+    opts->column_predicates.push_back(predicate);
+    auto predicates = AndBlockColumnPredicate::create_shared();
+    predicates->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+    opts->col_id_to_predicates.emplace(1, std::move(predicates));
+}
+
 // Read schema covers all tablet columns in order, so ordinal == tablet cid.
 ReadSchemaSPtr make_read_schema(const TabletSchemaSPtr& tablet_schema) {
     return std::make_shared<ReadSchema>(tablet_schema->columns());
@@ -264,6 +273,54 @@ protected:
         for (size_t i = 0; i < count; ++i) {
             EXPECT_EQ(expected[i], assert_cast<ColumnInt64&>(*dst).get_element(i));
         }
+    }
+
+    void expect_commit_tso_block(RowwiseIterator* iter, const ReadSchemaSPtr& schema,
+                                 bool output_tso) {
+        auto block = schema->create_read_block();
+        auto st = iter->next_batch(&block);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(kCommitTsoRows, block.rows());
+        const auto& keys = assert_cast<const ColumnInt32&>(*block.get_by_position(0).column);
+        for (int rid = 0; rid < kCommitTsoRows; ++rid) {
+            EXPECT_EQ(rid, keys.get_element(rid));
+            if (output_tso) {
+                const auto& tsos =
+                        assert_cast<const ColumnInt64&>(*block.get_by_position(1).column);
+                EXPECT_EQ(42, tsos.get_element(rid));
+            }
+        }
+    }
+
+    void expect_always_true_commit_tso_pruning(const std::shared_ptr<Segment>& segment,
+                                               bool output_tso) {
+        auto schema = make_read_schema(_tablet_schema);
+        auto opts = commit_tso_read_options();
+        opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+        std::set<int32_t> output_columns {0};
+        if (output_tso) {
+            output_columns.insert(1);
+        }
+        opts.output_columns = &output_columns;
+        // Physical TSO is 0, but every logical row satisfies 42 > 41.
+        add_commit_tso_gt_predicate(&opts, 41);
+        std::unique_ptr<RowwiseIterator> iter;
+        ASSERT_TRUE(segment->new_iterator(schema, opts, &iter).ok());
+        ASSERT_FALSE(iter->empty());
+        auto* scan = assert_cast<SegmentIterator*>(iter.get());
+        EXPECT_TRUE(scan->_opts.column_predicates.empty());
+        EXPECT_TRUE(scan->_opts.col_id_to_predicates.empty());
+        EXPECT_TRUE(scan->_opts.zonemap_always_true_pred_cols.contains(1));
+        EXPECT_EQ(output_tso, scan->_need_read_data(1));
+
+        // Simplification belongs to this segment; the caller's predicates are reusable.
+        EXPECT_EQ(1, opts.column_predicates.size());
+
+        ASSERT_NO_FATAL_FAILURE(expect_commit_tso_block(iter.get(), schema, output_tso));
+
+        // Other expression dependencies must still force the real TSO to be read.
+        scan->_column_states[1].has_common_expr = true;
+        EXPECT_TRUE(scan->_need_read_data(1));
     }
 
     void prepare_expr_context(const VExprContextSPtr& expr_ctx) {
@@ -409,6 +466,76 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionVal
     EXPECT_TRUE(iter->empty());
     EXPECT_EQ(1, _stats.total_segment_number);
     EXPECT_EQ(1, _stats.filtered_segment_number);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, CommitTsoAlwaysTruePruningIgnoresPhysicalCacheState) {
+    _tablet_schema = make_commit_tso_tablet_schema();
+    for (bool physical_first : {false, true}) {
+        SCOPED_TRACE(physical_first);
+        std::shared_ptr<Segment> segment;
+        ASSERT_NO_FATAL_FAILURE(build_commit_tso_segment(&segment));
+        if (physical_first) {
+            std::shared_ptr<ColumnReader> physical;
+            ASSERT_TRUE(segment->get_physical_column_reader(_tablet_schema->column(1), &physical,
+                                                            &_stats)
+                                .ok());
+        }
+        for (bool output_tso : {false, true}) {
+            SCOPED_TRACE(output_tso);
+            ASSERT_NO_FATAL_FAILURE(expect_always_true_commit_tso_pruning(segment, output_tso));
+        }
+    }
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, MultiVersionCommitTsoPrunesOnlyAlwaysTruePredicates) {
+    _tablet_schema = make_commit_tso_tablet_schema();
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_commit_tso_segment(&segment, {42, 42, 42, 42, 84, 84, 84, 84}));
+    auto schema = make_read_schema(_tablet_schema);
+    for (int64_t threshold : {41, 42}) {
+        SCOPED_TRACE(threshold);
+        auto opts = commit_tso_read_options();
+        opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+        opts.version = Version(7, 8);
+        opts.commit_tso = TsoRange(42, 84);
+        std::set<int32_t> output_columns {0, 1};
+        opts.output_columns = &output_columns;
+        add_commit_tso_gt_predicate(&opts, threshold);
+        std::unique_ptr<RowwiseIterator> iter;
+        ASSERT_TRUE(segment->new_iterator(schema, opts, &iter).ok());
+        ASSERT_FALSE(iter->empty());
+        auto* scan = assert_cast<SegmentIterator*>(iter.get());
+        const bool always_true = threshold < 42;
+        EXPECT_EQ(always_true, scan->_opts.column_predicates.empty());
+        EXPECT_EQ(always_true, scan->_opts.col_id_to_predicates.empty());
+        EXPECT_EQ(always_true, scan->_opts.zonemap_always_true_pred_cols.contains(1));
+        auto block = schema->create_read_block();
+        auto st = iter->next_batch(&block);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(always_true ? 8 : 4, block.rows());
+        const auto& tsos = assert_cast<const ColumnInt64&>(*block.get_by_position(1).column);
+        for (size_t rid = 0; rid < block.rows(); ++rid) {
+            EXPECT_EQ(always_true && rid < 4 ? 42 : 84, tsos.get_element(rid));
+        }
+    }
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, UnpublishedCommitTsoPruningUsesPhysicalValue) {
+    _tablet_schema = make_commit_tso_tablet_schema();
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_commit_tso_segment(&segment));
+    auto schema = make_read_schema(_tablet_schema);
+    auto opts = commit_tso_read_options(-1);
+    opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+    // No commit TSO is assigned yet: use the physical 0, so 0 > -1 is always true.
+    add_commit_tso_gt_predicate(&opts, -1);
+    std::unique_ptr<RowwiseIterator> iter;
+    ASSERT_TRUE(segment->new_iterator(schema, opts, &iter).ok());
+    ASSERT_FALSE(iter->empty());
+    auto* scan = assert_cast<SegmentIterator*>(iter.get());
+    EXPECT_TRUE(scan->_opts.column_predicates.empty());
+    EXPECT_TRUE(scan->_opts.zonemap_always_true_pred_cols.contains(1));
+    EXPECT_FALSE(scan->_need_read_data(1));
 }
 
 // Internal unpublished reads and logical reads share a Segment, but must never change each

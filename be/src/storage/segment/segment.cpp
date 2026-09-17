@@ -410,6 +410,11 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
     RETURN_IF_ERROR(_create_column_meta_once(read_options.stats, &read_options.io_ctx));
 
     read_options.stats->total_segment_number++;
+    // Logical TSO values depend on this scan's rowset/read options, while the shared cache
+    // stores physical readers by column identity. Retain the reader locally for predicate
+    // simplification below: cache enumeration would miss a cold logical TSO column, and
+    // resolving it again would allocate another constant reader.
+    std::shared_ptr<ColumnReader> commit_tso_reader;
     // trying to prune the current segment by segment-level zone map
     for (const auto& entry : read_options.col_id_to_predicates) {
         // col_id_to_predicates is keyed by read-schema ordinal.
@@ -424,6 +429,9 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
         RETURN_IF_ERROR(st);
         // should be OK
         DCHECK(reader != nullptr);
+        if (column_id == schema->commit_tso_ordinal()) {
+            commit_tso_reader = reader;
+        }
         if (!reader->has_zone_map()) {
             continue;
         }
@@ -514,16 +522,21 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
             if (ordinal < 0) {
                 continue;
             }
-            // This enumeration contains physical readers only. A cached TSO placeholder must
-            // not make a logical predicate look unconditionally true.
-            auto reader = it.second;
+            // TSO is handled once with the reader retained above, regardless of cache warmup.
+            // Its cached physical placeholder must never prove a logical predicate always true.
             if (ordinal == schema->commit_tso_ordinal()) {
-                RETURN_IF_ERROR(get_column_reader(*schema->column(ordinal), &reader, read_options));
+                continue;
             }
             bool tmp_pruned = false;
-            RETURN_IF_ERROR(
-                    reader->prune_predicates_by_zone_map(pruned_predicates, ordinal, &tmp_pruned));
+            RETURN_IF_ERROR(it.second->prune_predicates_by_zone_map(pruned_predicates, ordinal,
+                                                                    &tmp_pruned));
             pruned |= tmp_pruned;
+        }
+        if (commit_tso_reader) {
+            bool tso_pruned = false;
+            RETURN_IF_ERROR(commit_tso_reader->prune_predicates_by_zone_map(
+                    pruned_predicates, schema->commit_tso_ordinal(), &tso_pruned));
+            pruned |= tso_pruned;
         }
 
         if (pruned) {

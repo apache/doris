@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -90,6 +91,51 @@ TEST_F(ConstantColumnIteratorTest, MatchConditionUsesConstantZoneMap) {
     st = reader.match_condition(&prune, &matched);
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_FALSE(matched);
+}
+
+TEST_F(ConstantColumnIteratorTest, PrunePredicatesUsesLogicalZoneMap) {
+    // Call through the base interface: the constant reader has no physical zone-map index.
+    ConstantColumnReader constant_reader(Field::create_field<TYPE_BIGINT>(int64_t {100}));
+    ColumnReader& reader = constant_reader;
+    auto make_gt_predicate = [](int column_id, int64_t value) {
+        return std::make_shared<ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>>(
+                column_id, "", Field::create_field<TYPE_BIGINT>(value));
+    };
+    auto always_true = make_gt_predicate(0, 99);
+    auto not_always_true = make_gt_predicate(0, 100);
+    auto other_column = make_gt_predicate(1, 99);
+    // EQ does not implement is_always_true(); preserve its existing conservative behavior.
+    auto unsupported = std::make_shared<ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ>>(
+            0, "", Field::create_field<TYPE_BIGINT>(int64_t {100}));
+    std::vector<std::shared_ptr<ColumnPredicate>> predicates {always_true, not_always_true,
+                                                              other_column, unsupported};
+    bool pruned = false;
+    ASSERT_TRUE(reader.prune_predicates_by_zone_map(predicates, 0, &pruned).ok());
+    EXPECT_TRUE(pruned);
+    ASSERT_EQ(3, predicates.size());
+    EXPECT_EQ(not_always_true, predicates[0]);
+    EXPECT_EQ(other_column, predicates[1]);
+    EXPECT_EQ(unsupported, predicates[2]);
+
+    ASSERT_TRUE(reader.prune_predicates_by_zone_map(predicates, 0, &pruned).ok());
+    EXPECT_FALSE(pruned);
+    EXPECT_EQ(3, predicates.size());
+}
+
+TEST_F(ConstantColumnIteratorTest, NullConstantDoesNotProveComparisonAlwaysTrue) {
+    ConstantColumnReader reader {Field()};
+    segment_v2::ZoneMap zone_map;
+    ASSERT_TRUE(reader.get_segment_zone_map(&zone_map).ok());
+    EXPECT_TRUE(zone_map.has_null);
+    EXPECT_FALSE(zone_map.has_not_null);
+    auto predicate = std::make_shared<ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>>(
+            0, "", Field::create_field<TYPE_BIGINT>(int64_t {0}));
+    std::vector<std::shared_ptr<ColumnPredicate>> predicates {predicate};
+    bool pruned = true;
+    ASSERT_TRUE(reader.prune_predicates_by_zone_map(predicates, 0, &pruned).ok());
+    EXPECT_FALSE(pruned);
+    ASSERT_EQ(1, predicates.size());
+    EXPECT_EQ(predicate, predicates[0]);
 }
 
 // A constant reader has no physical index to open, so index-iterator creation is a no-op rather
