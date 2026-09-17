@@ -328,6 +328,16 @@ struct OlapReaderStatistics {
     // Pushed-down conjuncts skipped (never index-evaluated) because the row
     // bitmap was already empty when their turn came.
     int64_t inverted_index_conjuncts_short_circuited = 0;
+    // Rows pruned by the approximate (gram) index: rows removed when the candidate bitmap is
+    // intersected with _row_bitmap.
+    int64_t rows_gram_index_filtered = 0;
+    // Candidate rows produced by the approximate (gram) index: rows that still need expression
+    // re-verification after the intersection.
+    int64_t gram_index_candidate_rows = 0;
+    // Query nodes the gram index's cost gate widened to the whole segment rather than read. A
+    // non-zero count is why the two numbers above can show an index that eliminated nothing: it
+    // was not consulted for those nodes, by a cost decision rather than because no gram matched.
+    int64_t gram_index_gate_gave_up = 0;
     int64_t inverted_index_analyzer_timer = 0;
     int64_t inverted_index_lookup_timer = 0;
     // See snii_query_stats.h: one field here instead of one per SNII counter.

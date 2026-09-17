@@ -164,6 +164,28 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         }
         field_type = get_inverted_index_leaf_field_type(column_type);
     }
+    // A gram query names no analyzer, so the generic order would hand it the lowest-id FULLTEXT
+    // reader even when that is an ordinary tokenized index, which can only decline it. Prefer the
+    // lowest-id reader whose analyzer cuts grams; without one the usual choice stands, and that
+    // reader declines the query as before.
+    if (is_gram_query(query_type) && normalized_key.empty() && _selection_candidates.size() > 1) {
+        std::optional<size_t> gram_reader;
+        for (size_t i = 0; i < _selection_candidates.size(); ++i) {
+            const auto& candidate = _selection_candidates[i];
+            if (candidate.reader_type != InvertedIndexReaderType::FULLTEXT ||
+                (gram_reader.has_value() &&
+                 _selection_candidates[*gram_reader].index_id < candidate.index_id)) {
+                continue;
+            }
+            DORIS_CHECK(i < _readers.size());
+            if (_readers[i]->is_gram_family()) {
+                gram_reader = i;
+            }
+        }
+        if (gram_reader.has_value()) {
+            return _readers[*gram_reader];
+        }
+    }
     auto selection = select_best_inverted_index_candidate(_selection_candidates, _key_to_entries,
                                                           field_type, query_type, normalized_key);
     if (!selection.has_value()) {
