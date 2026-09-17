@@ -19,6 +19,9 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <cmath>
+#include <vector>
+
 #include "core/arena.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
@@ -286,6 +289,55 @@ public:
         }
     }
 
+    std::string run_float64_linear_histogram(const std::vector<double>& values, double interval,
+                                             double offset = 0) {
+        DataTypes data_types = {std::make_shared<DataTypeFloat64>(),
+                                std::make_shared<DataTypeFloat64>()};
+        if (offset != 0) {
+            data_types.push_back(std::make_shared<DataTypeFloat64>());
+        }
+
+        AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+        auto agg_function = factory.get("linear_histogram", data_types, nullptr, false, -1,
+                                        {.column_names = {""}});
+        EXPECT_NE(agg_function, nullptr);
+
+        std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+        AggregateDataPtr place = memory.get();
+        agg_function->create(place);
+
+        auto value_column = ColumnFloat64::create();
+        auto interval_column = ColumnFloat64::create();
+        auto offset_column = ColumnFloat64::create();
+        for (double value : values) {
+            value_column->insert_data(reinterpret_cast<const char*>(&value), 0);
+            interval_column->insert_data(reinterpret_cast<const char*>(&interval), 0);
+            if (offset != 0) {
+                offset_column->insert_data(reinterpret_cast<const char*>(&offset), 0);
+            }
+        }
+
+        if (offset != 0) {
+            const IColumn* columns[3] = {value_column.get(), interval_column.get(),
+                                         offset_column.get()};
+            for (int row = 0; row < value_column->size(); ++row) {
+                agg_function->add(place, columns, row, _agg_arena_pool);
+            }
+        } else {
+            const IColumn* columns[2] = {value_column.get(), interval_column.get()};
+            for (int row = 0; row < value_column->size(); ++row) {
+                agg_function->add(place, columns, row, _agg_arena_pool);
+            }
+        }
+
+        auto result_column = ColumnString::create();
+        agg_function->insert_result_into(place, *result_column);
+        std::string result = result_column->get_data_at(0).to_string();
+
+        agg_function->destroy(place);
+        return result;
+    }
+
 private:
     Arena _agg_arena_pool;
 };
@@ -333,6 +385,99 @@ TEST_F(AggLinearHistogramTest, test_with_data) {
     test_agg_linear_histogram<DataTypeDecimal64>(5, 0.5, 0.25);
     test_agg_linear_histogram<DataTypeDecimal128>(5, 0.5, 0.25);
     test_agg_linear_histogram<DataTypeDecimal256>(5, 0.5, 0.25);
+}
+
+TEST_F(AggLinearHistogramTest, test_decimal_interval_boundary) {
+    EXPECT_EQ(run_float64_linear_histogram({0.1, 0.2, 0.3, 0.4}, 0.1),
+              "{\"num_buckets\":4,\"buckets\":["
+              "{\"lower\":0.1,\"upper\":0.2,\"count\":1,\"acc_count\":1},"
+              "{\"lower\":0.2,\"upper\":0.3,\"count\":1,\"acc_count\":2},"
+              "{\"lower\":0.3,\"upper\":0.4,\"count\":1,\"acc_count\":3},"
+              "{\"lower\":0.4,\"upper\":0.5,\"count\":1,\"acc_count\":4}"
+              "]}");
+}
+
+TEST_F(AggLinearHistogramTest, test_decimal_interval_raw_boundary_snaps) {
+    EXPECT_EQ(run_float64_linear_histogram({0.3, 0.1 + 0.2}, 0.1),
+              "{\"num_buckets\":1,\"buckets\":["
+              "{\"lower\":0.3,\"upper\":0.4,\"count\":2,\"acc_count\":2}"
+              "]}");
+}
+
+TEST_F(AggLinearHistogramTest, test_decimal_interval_does_not_snap_previous_value) {
+    const double value_before_boundary = std::nextafter(0.3, 0.0);
+    EXPECT_EQ(run_float64_linear_histogram({value_before_boundary, 0.3}, 0.1),
+              "{\"num_buckets\":2,\"buckets\":["
+              "{\"lower\":0.2,\"upper\":0.3,\"count\":1,\"acc_count\":1},"
+              "{\"lower\":0.3,\"upper\":0.4,\"count\":1,\"acc_count\":2}"
+              "]}");
+}
+
+TEST_F(AggLinearHistogramTest, test_near_decimal_interval_does_not_snap_boundary_value) {
+    EXPECT_EQ(run_float64_linear_histogram({0.1}, 0.10000000000000002),
+              "{\"num_buckets\":1,\"buckets\":["
+              "{\"lower\":0.0,\"upper\":0.10000000000000002,\"count\":1,\"acc_count\":1}"
+              "]}");
+}
+
+TEST_F(AggLinearHistogramTest, test_decimal_interval_boundary_with_offset) {
+    EXPECT_EQ(run_float64_linear_histogram({0.15, 0.25, 0.35}, 0.1, 0.05),
+              "{\"num_buckets\":3,\"buckets\":["
+              "{\"lower\":0.15,\"upper\":0.25,\"count\":1,\"acc_count\":1},"
+              "{\"lower\":0.25,\"upper\":0.35,\"count\":1,\"acc_count\":2},"
+              "{\"lower\":0.35,\"upper\":0.45,\"count\":1,\"acc_count\":3}"
+              "]}");
+}
+
+TEST_F(AggLinearHistogramTest, test_negative_decimal_interval_boundary) {
+    EXPECT_EQ(run_float64_linear_histogram({-0.3, -0.2, -0.1}, 0.1),
+              "{\"num_buckets\":3,\"buckets\":["
+              "{\"lower\":-0.3,\"upper\":-0.2,\"count\":1,\"acc_count\":1},"
+              "{\"lower\":-0.2,\"upper\":-0.1,\"count\":1,\"acc_count\":2},"
+              "{\"lower\":-0.1,\"upper\":0.0,\"count\":1,\"acc_count\":3}"
+              "]}");
+}
+
+TEST_F(AggLinearHistogramTest, test_negative_decimal_interval_does_not_snap_previous_value) {
+    const double value_before_boundary =
+            std::nextafter(-0.3, -std::numeric_limits<double>::infinity());
+    EXPECT_EQ(run_float64_linear_histogram({value_before_boundary, -0.3}, 0.1),
+              "{\"num_buckets\":2,\"buckets\":["
+              "{\"lower\":-0.4,\"upper\":-0.3,\"count\":1,\"acc_count\":1},"
+              "{\"lower\":-0.3,\"upper\":-0.2,\"count\":1,\"acc_count\":2}"
+              "]}");
+}
+
+TEST_F(AggLinearHistogramTest, test_exact_integer_interval_does_not_snap_previous_value) {
+    const double value_before_boundary = std::nextafter(1.0, 0.0);
+    EXPECT_EQ(run_float64_linear_histogram({value_before_boundary, 1.0}, 1.0),
+              "{\"num_buckets\":2,\"buckets\":["
+              "{\"lower\":0.0,\"upper\":1.0,\"count\":1,\"acc_count\":1},"
+              "{\"lower\":1.0,\"upper\":2.0,\"count\":1,\"acc_count\":2}"
+              "]}");
+}
+
+TEST_F(AggLinearHistogramTest, test_large_value_near_boundary_does_not_snap) {
+    EXPECT_EQ(run_float64_linear_histogram({999999999.999999, 1000000000.0}, 1.0),
+              "{\"num_buckets\":2,\"buckets\":["
+              "{\"lower\":999999999.0,\"upper\":1000000000.0,\"count\":1,\"acc_count\":1},"
+              "{\"lower\":1000000000.0,\"upper\":1000000001.0,\"count\":1,\"acc_count\":2}"
+              "]}");
+}
+
+TEST_F(AggLinearHistogramTest, test_large_value_near_bucket_limit_does_not_snap) {
+    EXPECT_EQ(run_float64_linear_histogram({2147483646.999999}, 1.0),
+              "{\"num_buckets\":1,\"buckets\":["
+              "{\"lower\":2147483646.0,\"upper\":2147483647.0,\"count\":1,\"acc_count\":1}"
+              "]}");
+}
+
+TEST_F(AggLinearHistogramTest, test_small_nonzero_interval_keeps_raw_boundaries) {
+    EXPECT_EQ(run_float64_linear_histogram({1e-16, 2e-16}, 1e-16),
+              "{\"num_buckets\":2,\"buckets\":["
+              "{\"lower\":1e-16,\"upper\":2e-16,\"count\":1,\"acc_count\":1},"
+              "{\"lower\":2e-16,\"upper\":3e-16,\"count\":1,\"acc_count\":2}"
+              "]}");
 }
 
 } // namespace doris
