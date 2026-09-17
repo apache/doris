@@ -373,7 +373,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         return (PaimonConnectorTransaction) current.get();
     }
 
-    private List<String> outputColumnNames(ConnectorWriteHandle handle) {
+    static List<String> outputColumnNames(ConnectorWriteHandle handle) {
         List<String> names = new ArrayList<>();
         WriteOperation operation = handle.getWriteOperation();
         if (operation == WriteOperation.DELETE
@@ -381,7 +381,10 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
                 || operation == WriteOperation.MERGE) {
             names.add(ROW_KIND_COLUMN);
         }
-        for (ConnectorColumn column : handle.getColumns()) {
+        // Paimon declares requiresFullSchemaWriteOrder(), so BindSink projects every data block in
+        // bound-target-schema order. getColumns() instead retains the explicit INSERT list order and
+        // can also omit columns. The JNI Arrow schema is positional and must follow the projected block.
+        for (ConnectorColumn column : handle.getBoundTargetColumns()) {
             names.add(column.getName());
         }
         return names;
