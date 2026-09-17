@@ -56,8 +56,14 @@ public class DorisFlightSqlService {
         int flightMaxConnections = ConnectPoolMgr.effectiveFlightMaxConnections(
                 Config.qe_max_connection, Config.arrow_flight_max_connections);
         if (Config.arrow_flight_max_connections > Config.qe_max_connection) {
+            // A fe.conf from before the pools were merged may still carry the old default, 4096: capped
+            // to the whole pool, that is exactly the sharing the default of half is there to prevent.
             LOG.warn("arrow_flight_max_connections={} exceeds qe_max_connection={}: Arrow Flight SQL sessions are"
-                            + " connections of the one pool, so the sub-quota is capped at {}",
+                            + " connections of the one pool, so the sub-quota is capped at {}, the whole pool."
+                            + " Flight sessions, which their clients mostly never close, can then hold every"
+                            + " connection until wait_timeout and refuse MySQL logins. On an FE that serves both"
+                            + " protocols, remove the setting (the default is half of qe_max_connection; 4096 was"
+                            + " the default before the pools were merged) or set it below qe_max_connection",
                     Config.arrow_flight_max_connections, Config.qe_max_connection, flightMaxConnections);
         }
         // The token cache holds as many tokens as the sub-quota allows, capped by
