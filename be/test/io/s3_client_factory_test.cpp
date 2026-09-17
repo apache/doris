@@ -21,6 +21,8 @@
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/s3/model/HeadObjectResult.h>
+#include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -715,6 +717,133 @@ TEST_F(S3ClientFactoryTest, LegacyAzureSharedKeyRetainsCustomEndpointAndS3Uri) {
     EXPECT_TRUE(conf.client_conf.ak.empty());
     EXPECT_TRUE(conf.client_conf.sk.empty());
     EXPECT_TRUE(conf.client_conf.region.empty());
+}
+
+namespace {
+
+// Base64 test key: a real SharedKey client can sign with it, and the signed
+// blob URL exposes exactly which container base the SDK was built with.
+constexpr const char* LEGACY_AZURE_ACCOUNT_KEY {"MDEyMzQ1Njc4OWFiY2RlZg=="};
+
+// The three established SharedKey producers hand the endpoint over literally:
+// old FE property maps, storage vault ObjectStoreInfoPB and TS3StorageParam.
+S3Conf legacy_azure_property_conf(const std::string& endpoint) {
+    std::map<std::string, std::string> properties {{"provider", "azure"},
+                                                   {"AWS_ENDPOINT", endpoint},
+                                                   {"AWS_ACCESS_KEY", "account"},
+                                                   {"AWS_SECRET_KEY", LEGACY_AZURE_ACCOUNT_KEY},
+                                                   {"AWS_REGION", "legacy-region"}};
+    S3URI uri("s3://container/path/file");
+    EXPECT_TRUE(uri.parse().ok());
+    S3Conf conf;
+    auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf);
+    EXPECT_TRUE(status.ok()) << status;
+    return conf;
+}
+
+S3Conf legacy_azure_pb_conf(const std::string& endpoint) {
+    cloud::ObjectStoreInfoPB info;
+    info.set_endpoint(endpoint);
+    info.set_ak("account");
+    info.set_sk(LEGACY_AZURE_ACCOUNT_KEY);
+    info.set_bucket("container");
+    info.set_prefix("vault-prefix");
+    info.set_provider(cloud::ObjectStoreInfoPB::AZURE);
+    return S3Conf::get_s3_conf(info);
+}
+
+S3Conf legacy_azure_thrift_conf(const std::string& endpoint) {
+    TS3StorageParam param;
+    param.__set_endpoint(endpoint);
+    param.__set_ak("account");
+    param.__set_sk(LEGACY_AZURE_ACCOUNT_KEY);
+    param.__set_bucket("container");
+    param.__set_root_path("resource-prefix");
+    param.__set_provider(TObjStorageType::AZURE);
+    return S3Conf::get_s3_conf(param);
+}
+
+using LegacyAzureConfBuilder = S3Conf (*)(const std::string&);
+
+const std::vector<std::pair<const char*, LegacyAzureConfBuilder>>& legacy_azure_producers() {
+    static const std::vector<std::pair<const char*, LegacyAzureConfBuilder>> producers {
+            {"properties", legacy_azure_property_conf},
+            {"ObjectStoreInfoPB", legacy_azure_pb_conf},
+            {"TS3StorageParam", legacy_azure_thrift_conf}};
+    return producers;
+}
+
+#ifdef USE_AZURE
+// The blob URL the SDK signs is built from the container client, so it shows
+// the exact transport base the factory handed to the SDK.
+std::string azure_signed_blob_base(const S3ClientConf& conf) {
+    auto client = S3ClientFactory::instance().create(conf);
+    if (!client.has_value()) {
+        ADD_FAILURE() << client.error();
+        return {};
+    }
+    const auto url =
+            client.value()->generate_presigned_url({.bucket = conf.bucket, .key = "dir/file"}, 60);
+    return url.substr(0, url.find('?'));
+}
+#endif
+
+} // namespace
+
+TEST_F(S3ClientFactoryTest, LegacyAzureEndpointsKeepSingleLabelHosts) {
+    // The legacy contract never required a scheme or a dotted host, and the old
+    // factory only defaulted the scheme. An internal proxy or emulator with a
+    // one-label DNS name must not be redirected to the public Blob origin.
+    for (const auto& [producer, build] : legacy_azure_producers()) {
+        SCOPED_TRACE(producer);
+        for (const auto& [endpoint, transport_base] :
+             std::vector<std::pair<std::string, std::string>> {
+                     {"storage-proxy", "https://storage-proxy/container"},
+                     {"storage-proxy:10000", "https://storage-proxy:10000/container"},
+                     {"http://storage-proxy", "http://storage-proxy/container"},
+                     {"account.dfs.core.windows.net",
+                      "https://account.dfs.core.windows.net/container"}}) {
+            SCOPED_TRACE(endpoint);
+            const auto conf = build(endpoint);
+            EXPECT_EQ(conf.client_conf.provider, io::ObjStorageProvider::AZURE);
+            EXPECT_EQ(conf.client_conf.endpoint, endpoint);
+            EXPECT_EQ(conf.client_conf.azure_credentials.type, AzureCredentialType::SHARED_KEY);
+            EXPECT_EQ(conf.client_conf.azure_credentials.account_name, "account");
+            EXPECT_EQ(conf.client_conf.azure_credentials.account_key, LEGACY_AZURE_ACCOUNT_KEY);
+            EXPECT_EQ(conf.bucket, "container");
+            EXPECT_EQ(conf.client_conf.bucket, "container");
+            EXPECT_TRUE(conf.client_conf.ak.empty());
+            EXPECT_TRUE(conf.client_conf.sk.empty());
+#ifdef USE_AZURE
+            EXPECT_EQ(azure_signed_blob_base(conf.client_conf), transport_base + "/dir/file");
+#endif
+        }
+    }
+}
+
+TEST_F(S3ClientFactoryTest, LegacyAzureEndpointsKeepCustomBasePathsBytePreserving) {
+    // Repeated separators can be meaningful reverse-proxy routes. Only the
+    // endpoint/container join boundary is normalized; the persisted endpoint
+    // itself is never rewritten.
+    for (const auto& [producer, build] : legacy_azure_producers()) {
+        SCOPED_TRACE(producer);
+        for (const auto& [endpoint, transport_base] :
+             std::vector<std::pair<std::string, std::string>> {
+                     {"https://proxy.example/gateway//tenant",
+                      "https://proxy.example/gateway//tenant/container"},
+                     {"https://proxy.example:8443/gateway/tenant/",
+                      "https://proxy.example:8443/gateway/tenant/container"},
+                     {"proxy.example/base%2Fpath",
+                      "https://proxy.example/base%2Fpath/container"}}) {
+            SCOPED_TRACE(endpoint);
+            const auto conf = build(endpoint);
+            EXPECT_EQ(conf.client_conf.endpoint, endpoint);
+            EXPECT_EQ(conf.client_conf.azure_credentials.account_name, "account");
+#ifdef USE_AZURE
+            EXPECT_EQ(azure_signed_blob_base(conf.client_conf), transport_base + "/dir/file");
+#endif
+        }
+    }
 }
 
 TEST_F(S3ClientFactoryTest, RequiresExplicitAzureProviderAndAuthentication) {

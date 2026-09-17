@@ -266,6 +266,9 @@ bool has_property(const StringCaseMap<std::string>& properties,
     return find_property(properties, names) != nullptr;
 }
 
+// Native protocol only: resolves the documented AZURE_ENDPOINT shorthands
+// (bare account name, official DFS host) into the Blob transport origin. Legacy
+// SharedKey endpoints are literal and never pass through here.
 std::string normalize_azure_endpoint(std::string endpoint) {
     if (endpoint.empty()) {
         return endpoint;
@@ -320,12 +323,27 @@ std::string endpoint_authority(const std::string& endpoint) {
     return authority;
 }
 
+// The endpoint handed to the SDK. Native endpoints were already normalized
+// while parsing the native protocol. Legacy SharedKey producers hand over an
+// endpoint literal that only ever received a default scheme, so keep that
+// contract here: no account-name inference, no DFS-to-Blob rewrite and no path
+// rewriting, which would silently redirect single-label proxy hosts or custom
+// reverse-proxy routes after an upgrade. Only the endpoint/container join
+// boundary is normalized.
+std::string azure_transport_endpoint(std::string endpoint) {
+    if (endpoint.find("://") == std::string::npos) {
+        endpoint = "https://" + endpoint;
+    }
+    while (endpoint.ends_with('/')) {
+        endpoint.pop_back();
+    }
+    return endpoint;
+}
+
 // Only established SharedKey wire producers use AWS fields for Azure. Once
-// translated here the native factory never inspects these fields again.
+// translated here the native factory never inspects these fields again. The
+// endpoint stays byte-for-byte as configured, exactly like the old factory.
 void import_legacy_azure_shared_key(S3ClientConf* conf) {
-    // Keep the established SharedKey endpoint normalization at the legacy
-    // boundary. Native endpoints and object keys retain their internal slashes.
-    conf->endpoint = normalize_http_uri(conf->endpoint);
     conf->azure_credentials = {};
     conf->azure_credentials.type = AzureCredentialType::SHARED_KEY;
     conf->azure_credentials.account_name = std::move(conf->ak);
@@ -781,7 +799,7 @@ void S3ClientFactory::clear_client_creator_for_test() {
 Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_azure_client(
         const S3ClientConf& s3_conf) {
 #ifdef USE_AZURE
-    const std::string endpoint = normalize_azure_endpoint(s3_conf.endpoint);
+    const std::string endpoint = azure_transport_endpoint(s3_conf.endpoint);
     const std::string container_name = s3_conf.bucket;
     std::string uri = fmt::format("{}/{}", endpoint, container_name);
 
