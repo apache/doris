@@ -28,8 +28,6 @@ services:
         condition: service_started
       mc:
         condition: service_completed_successfully
-      spark-master:
-        condition: service_healthy
       spark-worker-1:
         condition: service_healthy
       spark-worker-2:
@@ -59,32 +57,12 @@ services:
       timeout: 120s
       retries: 120
 
-  spark-master:
-    image: apache/spark:4.0.0
-    container_name: doris--spark-master
-    hostname: doris--spark-master
-    entrypoint:
-      - /bin/sh
-      - -c
-      - /opt/spark/sbin/start-master.sh -h doris--spark-master -p 7077 && tail -f /dev/null
-    user: root
-    networks:
-      - doris--iceberg
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080 >/dev/null"]
-      interval: 5s
-      timeout: 10s
-      retries: 60
-
   spark-worker-1:
     image: apache/spark:4.0.0
     container_name: doris--spark-worker-1
     hostname: doris--spark-worker-1
-    depends_on:
-      spark-master:
-        condition: service_healthy
     environment:
-      - SPARK_WORKER_CORES=1
+      - SPARK_WORKER_CORES=4
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
@@ -97,7 +75,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - /opt/spark/sbin/start-worker.sh -h doris--spark-worker-1 spark://doris--spark-master:7077 && tail -f /dev/null
+      - /opt/spark/sbin/start-worker.sh -h doris--spark-worker-1 spark://doris--spark-iceberg:7077 && tail -f /dev/null
     user: root
     networks:
       - doris--iceberg
@@ -111,11 +89,8 @@ services:
     image: apache/spark:4.0.0
     container_name: doris--spark-worker-2
     hostname: doris--spark-worker-2
-    depends_on:
-      spark-master:
-        condition: service_healthy
     environment:
-      - SPARK_WORKER_CORES=1
+      - SPARK_WORKER_CORES=4
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
@@ -128,7 +103,7 @@ services:
     entrypoint:
       - /bin/sh
       - -c
-      - /opt/spark/sbin/start-worker.sh -h doris--spark-worker-2 spark://doris--spark-master:7077 && tail -f /dev/null
+      - /opt/spark/sbin/start-worker.sh -h doris--spark-worker-2 spark://doris--spark-iceberg:7077 && tail -f /dev/null
     user: root
     networks:
       - doris--iceberg
