@@ -30,7 +30,6 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
@@ -103,13 +102,6 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
         }
         this.dbName = db;
 
-        ConnectContext ctx = ConnectContext.get();
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
-                dbName, tableName, PrivPredicate.SELECT)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
-                    PrivPredicate.SELECT.getPrivs().toString(), tableName);
-        }
-
         this.partitionNamesInfo = parsePartitionNamesInfo(validParams.get(PARTITION));
         this.specifiedTabletIds = parseTabletIds(validParams.get(TABLET));
 
@@ -134,6 +126,16 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
             this.rowBinlogTableWrapper = new RowBinlogTableWrapper(originTable);
         } finally {
             originTable.readUnlock();
+        }
+    }
+
+    @Override
+    public void checkAuth(ConnectContext ctx) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, InternalCatalog.INTERNAL_CATALOG_NAME,
+                dbName, tableName, PrivPredicate.SELECT)) {
+            String message = ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.SELECT.getPrivs().toString(), tableName);
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(message);
         }
     }
 

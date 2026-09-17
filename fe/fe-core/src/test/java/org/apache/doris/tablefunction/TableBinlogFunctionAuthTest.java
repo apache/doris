@@ -17,45 +17,61 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.RowBinlogTableWrapper;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryState;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class TableBinlogFunctionAuthTest {
 
     @Test
-    public void testRequiresSelectPrivilegeBeforeLoadingTableMetadata() {
+    public void testCheckAuthRequiresSelectPrivilege() throws Exception {
         Env env = Mockito.mock(Env.class);
         ConnectContext context = Mockito.mock(ConnectContext.class);
         AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
-        Mockito.when(context.getState()).thenReturn(new QueryState());
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+
         Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbOrMetaException("test_db")).thenReturn(database);
+        Mockito.when(database.getTableOrMetaException("test_table", TableType.OLAP)).thenReturn(table);
+        Mockito.when(table.needRowBinlog()).thenReturn(true);
         Mockito.when(accessManager.checkTblPriv(context, InternalCatalog.INTERNAL_CATALOG_NAME,
                 "test_db", "test_table", PrivPredicate.SELECT)).thenReturn(false);
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
-                MockedStatic<ConnectContext> mockedContext = Mockito.mockStatic(ConnectContext.class)) {
+                MockedConstruction<RowBinlogTableWrapper> ignored =
+                        Mockito.mockConstruction(RowBinlogTableWrapper.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            mockedContext.when(ConnectContext::get).thenReturn(context);
+
+            TableBinlogFunction function = new TableBinlogFunction(ImmutableMap.of(
+                    "db", "test_db", "table", "test_table"));
+            Mockito.verifyNoInteractions(accessManager);
 
             AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> new TableBinlogFunction(ImmutableMap.of(
-                            "db", "test_db", "table", "test_table")));
-
+                    () -> function.checkAuth(context));
             Assertions.assertTrue(exception.getMessage().contains("Access denied"));
             Mockito.verify(accessManager).checkTblPriv(context, InternalCatalog.INTERNAL_CATALOG_NAME,
                     "test_db", "test_table", PrivPredicate.SELECT);
-            Mockito.verify(env, Mockito.never()).getInternalCatalog();
+
+            Mockito.when(accessManager.checkTblPriv(context, InternalCatalog.INTERNAL_CATALOG_NAME,
+                    "test_db", "test_table", PrivPredicate.SELECT)).thenReturn(true);
+            Assertions.assertDoesNotThrow(() -> function.checkAuth(context));
         }
     }
 }
