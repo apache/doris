@@ -383,7 +383,9 @@ Status S3FileWriter::_close_impl() {
     // arrives here either with that buffer or failed (the gate refused it, or an append failed
     // before any byte was counted). A failed writer must not create the object: _complete()
     // reports its status below.
-    DCHECK(_failed || _bytes_appended > 0 || _pending_buf != nullptr);
+    DORIS_CHECK(_failed || _bytes_appended > 0 || _pending_buf != nullptr)
+            << "empty writer reached _close_impl() without its buffer, path="
+            << _obj_storage_path_opts.path.native();
 
     if (_pending_buf != nullptr) { // there is remaining data in buffer need to be uploaded
         const size_t pending_capacity = _pending_buf->get_capacaticy();
