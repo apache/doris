@@ -24,9 +24,11 @@
 #include <variant>
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/exception.h"
 #include "core/arena.h"
 #include "core/column/column_nullable.h"
+#include "exec/common/agg_utils.h"
 #include "exec/common/hash_table/hash_map_context.h"
 #include "exec/common/hash_table/hash_map_util.h"
 #include "exec/common/template_helpers.hpp"
@@ -50,8 +52,11 @@ void GroupJoinSharedState::update_memory_usage() {
                                      return method.hash_table->get_buffer_size_in_bytes();
                                  }},
                        data_variants->method_variant);
-    // Entries, aggregate state storage and persisted keys already belong to the arena.
-    COUNTER_SET(memory_used_counter, arena->size() + hash_table_bytes);
+    const auto data_container_bytes =
+            data_container == nullptr ? 0 : data_container->memory_usage();
+    // Persisted string keys and aggregate-state-owned allocations belong to the arena. Keys,
+    // entries and inline aggregate state storage belong to the data container.
+    COUNTER_SET(memory_used_counter, arena->size() + hash_table_bytes + data_container_bytes);
 }
 
 GroupJoinSharedState::~GroupJoinSharedState() {
@@ -61,6 +66,30 @@ GroupJoinSharedState::~GroupJoinSharedState() {
 } // namespace doris
 
 namespace doris::groupjoin {
+
+namespace {
+
+inline void prefetch_group_join_entry(const AggregateDataPtr* places, uint32_t row,
+                                      uint32_t num_rows) {
+    const auto future_row = row + HASH_MAP_PREFETCH_DIST;
+    if (future_row >= num_rows) {
+        return;
+    }
+    auto* future_entry = reinterpret_cast<GroupJoinEntry*>(places[future_row]);
+    if (future_entry != nullptr) {
+        __builtin_prefetch(future_entry, 1, 1);
+    }
+}
+
+AggregateDataPtr get_entry_agg_states(GroupJoinEntry* entry,
+                                      const GroupJoinSharedState* shared_state) {
+    DCHECK(entry != nullptr);
+    DCHECK(shared_state->agg_layout_ready);
+    DCHECK(!shared_state->aggregate_evaluators.empty());
+    return reinterpret_cast<AggregateDataPtr>(entry) + sizeof(GroupJoinEntry);
+}
+
+} // namespace
 
 Status validate_group_join_node(const TPlanNode& tnode) {
     if (!tnode.__isset.group_join_node) {
@@ -134,6 +163,9 @@ Status register_agg_state_layout(GroupJoinSharedState* shared_state,
                                  const std::vector<AggFnEvaluator*>& aggregate_evaluators) {
     if (shared_state->aggregate_sides.empty()) {
         shared_state->aggregate_sides = aggregate_sides;
+        shared_state->has_build_side_aggregate =
+                std::find(aggregate_sides.begin(), aggregate_sides.end(),
+                          TGroupJoinAggSide::BUILD) != aggregate_sides.end();
         shared_state->sizes_of_aggregate_states.assign(aggregate_sides.size(), 0);
         shared_state->aligns_of_aggregate_states.assign(aggregate_sides.size(), 1);
         shared_state->offsets_of_aggregate_states.assign(aggregate_sides.size(), 0);
@@ -209,6 +241,31 @@ Status register_agg_state_layout(GroupJoinSharedState* shared_state,
     return Status::OK();
 }
 
+void init_data_container(GroupJoinSharedState* shared_state) {
+    DORIS_CHECK(shared_state->agg_layout_ready);
+    DORIS_CHECK(shared_state->data_container == nullptr);
+
+    // AggregateDataContainer uses a fixed stride. Round the trailing aggregate-state block
+    // exactly as regular aggregation does so states in every slot retain their alignment.
+    const auto aligned_states_size = (shared_state->total_size_of_aggregate_states +
+                                      shared_state->align_aggregate_states - 1) /
+                                     shared_state->align_aggregate_states *
+                                     shared_state->align_aggregate_states;
+    const auto size_of_entry = sizeof(GroupJoinEntry) + aligned_states_size;
+
+    std::visit(
+            Overload {[&](std::monostate&) {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                      },
+                      [&](auto& hash_method) {
+                          using HashMethodType = std::decay_t<decltype(hash_method)>;
+                          using KeyType = typename HashMethodType::Key;
+                          shared_state->data_container = std::make_unique<AggregateDataContainer>(
+                                  sizeof(KeyType), size_of_entry);
+                      }},
+            shared_state->data_variants->method_variant);
+}
+
 void create_all_agg_states(GroupJoinSharedState* shared_state, AggregateDataPtr data) {
     for (size_t i = 0; i < shared_state->aggregate_evaluators.size(); ++i) {
         try {
@@ -234,26 +291,17 @@ void destroy_all_agg_states(GroupJoinSharedState* shared_state, AggregateDataPtr
     }
 }
 
-void ensure_entry_agg_states(GroupJoinEntry* entry, GroupJoinSharedState* shared_state,
-                             Arena& arena) {
-    DCHECK(!shared_state->aggregate_evaluators.empty())
-            << "ensure_entry_agg_states is called only when this side has aggregate evaluators";
-    DCHECK(shared_state->agg_layout_ready)
-            << "aggregate state layout must be registered before creating entry states";
-    if (entry->agg_states != nullptr) {
-        return;
-    }
-    auto* agg_states = arena.aligned_alloc(shared_state->total_size_of_aggregate_states,
-                                           shared_state->align_aggregate_states);
-    create_all_agg_states(shared_state, agg_states);
-    entry->agg_states = agg_states;
+void create_entry_agg_states(GroupJoinEntry* entry, GroupJoinSharedState* shared_state) {
+    create_all_agg_states(shared_state, get_entry_agg_states(entry, shared_state));
 }
 
 Status add_build_counts_by_key(GroupJoinSharedState* shared_state, Arena& arena,
                                ColumnRawPtrs& key_not_nullable_columns, uint32_t num_rows,
                                const uint8_t* null_map, const std::vector<int>& aggregate_indices,
                                AggregateDataPtr* places) {
-    std::fill(places, places + num_rows, nullptr);
+    if (null_map != nullptr) {
+        std::fill(places, places + num_rows, nullptr);
+    }
     return std::visit(
             Overload {[&](std::monostate&) -> Status {
                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
@@ -267,7 +315,8 @@ Status add_build_counts_by_key(GroupJoinSharedState* shared_state, Arena& arena,
 
                           auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                               HashMethodType::try_presis_key_and_origin(key, origin, arena);
-                              auto* mapped = new (arena.alloc<GroupJoinEntry>()) GroupJoinEntry();
+                              auto* mapped = new (shared_state->data_container->append_data(origin))
+                                      GroupJoinEntry();
                               ctor(key, mapped);
                           };
                           auto creator_for_null_key = [](auto&) {
@@ -277,14 +326,7 @@ Status add_build_counts_by_key(GroupJoinSharedState* shared_state, Arena& arena,
                           };
 
                           auto result_handler = [&](uint32_t row, auto& mapped) {
-                              ++mapped->build_count;
-                              // Only create aggregate states when the build side
-                              // has aggregate functions to update. Otherwise this
-                              // side only maintains row counts.
-                              if (!aggregate_indices.empty()) {
-                                  ensure_entry_agg_states(mapped, shared_state, arena);
-                              }
-                              places[row] = mapped->agg_states;
+                              places[row] = reinterpret_cast<AggregateDataPtr>(mapped);
                           };
                           if (null_map == nullptr) {
                               lazy_emplace_batch(hash_method, state, num_rows, creator,
@@ -302,12 +344,51 @@ Status add_build_counts_by_key(GroupJoinSharedState* shared_state, Arena& arena,
                                   result_handler(row, mapped);
                               }
                           }
+                          for (uint32_t row = 0; row < num_rows; ++row) {
+                              auto* mapped = reinterpret_cast<GroupJoinEntry*>(places[row]);
+                              if (mapped == nullptr) {
+                                  continue;
+                              }
+                              prefetch_group_join_entry(places, row, num_rows);
+                              // Only create aggregate states when the build side has aggregate
+                              // functions to update. The count advances only after state creation
+                              // succeeds, so zero also identifies an uninitialized state during
+                              // exception cleanup.
+                              if (!aggregate_indices.empty()) {
+                                  if (mapped->build_count == 0) {
+                                      create_entry_agg_states(mapped, shared_state);
+                                  }
+                                  places[row] = get_entry_agg_states(mapped, shared_state);
+                              } else {
+                                  places[row] = nullptr;
+                              }
+                              ++mapped->build_count;
+                          }
                           return Status::OK();
                       }},
             shared_state->data_variants->method_variant);
 }
 
-Status update_probe_counts(GroupJoinSharedState* shared_state, Arena& arena,
+void build_repeat_vectors(const std::vector<GroupJoinEntry*>& entries, uint32_t num_rows,
+                          bool needs_build_counts, bool needs_probe_counts,
+                          std::vector<uint64_t>& build_counts,
+                          std::vector<uint64_t>& probe_counts) {
+    DCHECK_GE(entries.size(), num_rows);
+    if (needs_build_counts) {
+        build_counts.resize(num_rows);
+        for (uint32_t row = 0; row < num_rows; ++row) {
+            build_counts[row] = entries[row]->build_count;
+        }
+    }
+    if (needs_probe_counts) {
+        probe_counts.resize(num_rows);
+        for (uint32_t row = 0; row < num_rows; ++row) {
+            probe_counts[row] = entries[row]->probe_count;
+        }
+    }
+}
+
+Status update_probe_counts(GroupJoinSharedState* shared_state,
                            ColumnRawPtrs& key_not_nullable_columns, uint32_t num_rows,
                            const uint8_t* null_map, const std::vector<int>& aggregate_indices,
                            AggregateDataPtr* places, int64_t& matched_rows,
@@ -326,22 +407,34 @@ Status update_probe_counts(GroupJoinSharedState* shared_state, Arena& arena,
                           hash_method.init_serialized_keys(key_not_nullable_columns, num_rows,
                                                            null_map);
                           find_batch(hash_method, state, num_rows, [&](uint32_t row, auto& result) {
-                              // For normal inner equal join, any row with a NULL join key can never
-                              // match the build side.
+                              // For normal inner equal join, any row with a NULL join key
+                              // can never match the build side.
                               if ((null_map != nullptr && null_map[row]) || !result.is_found()) {
                                   return;
                               }
-                              auto* mapped = result.get_mapped();
+                              places[row] = reinterpret_cast<AggregateDataPtr>(result.get_mapped());
+                          });
+                          for (uint32_t row = 0; row < num_rows; ++row) {
+                              auto* mapped = reinterpret_cast<GroupJoinEntry*>(places[row]);
+                              if (mapped == nullptr) {
+                                  continue;
+                              }
+                              prefetch_group_join_entry(places, row, num_rows);
+                              // Only create aggregate states when the probe side has aggregate
+                              // functions and the build side did not already initialize them.
+                              if (!aggregate_indices.empty()) {
+                                  if (!shared_state->has_build_side_aggregate &&
+                                      mapped->probe_count == 0) {
+                                      create_entry_agg_states(mapped, shared_state);
+                                  }
+                                  places[row] = get_entry_agg_states(mapped, shared_state);
+                              } else {
+                                  places[row] = nullptr;
+                              }
                               ++mapped->probe_count;
                               ++matched_probe_rows;
                               matched_rows += cast_set<int64_t>(mapped->build_count);
-                              // Only create aggregate states when the probe side has aggregate
-                              // functions to update. Otherwise this side only maintains row counts.
-                              if (!aggregate_indices.empty()) {
-                                  ensure_entry_agg_states(mapped, shared_state, arena);
-                              }
-                              places[row] = mapped->agg_states;
-                          });
+                          }
                           return Status::OK();
                       }},
             shared_state->data_variants->method_variant);
@@ -357,10 +450,6 @@ Status drain_groupjoin_result(GroupJoinSharedState* shared_state, size_t batch_s
                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
                       },
                       [&](auto& hash_method) -> Status {
-                          if (!shared_state->drain_inited) {
-                              hash_method.init_iterator();
-                              shared_state->drain_inited = true;
-                          }
                           using HashMethodType = std::decay_t<decltype(hash_method)>;
                           using KeyType = typename HashMethodType::Key;
                           std::vector<KeyType> keys(batch_size);
@@ -371,23 +460,23 @@ Status drain_groupjoin_result(GroupJoinSharedState* shared_state, size_t batch_s
                               if (local_state._entries.size() < batch_size) {
                                   local_state._entries.resize(batch_size);
                               }
-                              if (local_state._repeats.size() < batch_size) {
-                                  local_state._repeats.resize(batch_size);
-                              }
                           }
 
                           uint32_t num_rows = 0;
-                          auto& iter = hash_method.begin;
-                          while (iter != hash_method.end && num_rows < batch_size) {
-                              auto* entry = iter.get_second();
-                              // Inner join only outputs groups that have valid rows on both sides.
-                              // Build-side NULL rows may create an entry before being skipped, so
-                              // probe_count alone is not sufficient.
+                          shared_state->data_container->init_once();
+                          auto& iter = shared_state->data_container->iterator;
+                          while (iter != shared_state->data_container->end() &&
+                                 num_rows < batch_size) {
+                              auto* entry =
+                                      reinterpret_cast<GroupJoinEntry*>(iter.get_aggregate_data());
+                              // Inner join only outputs groups that have valid rows on both
+                              // sides, so probe_count alone is not sufficient.
                               if (entry->build_count > 0 && entry->probe_count > 0) {
-                                  keys[num_rows] = iter.get_first();
+                                  keys[num_rows] = iter.template get_key<KeyType>();
                                   if (agg_size != 0) {
                                       local_state._entries[num_rows] = entry;
-                                      local_state._values[num_rows] = entry->agg_states;
+                                      local_state._values[num_rows] =
+                                              get_entry_agg_states(entry, shared_state);
                                   }
                                   ++num_rows;
                               }
@@ -395,33 +484,45 @@ Status drain_groupjoin_result(GroupJoinSharedState* shared_state, size_t batch_s
                           }
 
                           hash_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                          if (agg_size != 0) {
+                              const bool needs_build_counts =
+                                      std::find(shared_state->aggregate_sides.begin(),
+                                                shared_state->aggregate_sides.end(),
+                                                TGroupJoinAggSide::PROBE) !=
+                                      shared_state->aggregate_sides.end();
+                              const bool needs_probe_counts =
+                                      std::find(shared_state->aggregate_sides.begin(),
+                                                shared_state->aggregate_sides.end(),
+                                                TGroupJoinAggSide::BUILD) !=
+                                      shared_state->aggregate_sides.end();
+                              build_repeat_vectors(local_state._entries, num_rows,
+                                                   needs_build_counts, needs_probe_counts,
+                                                   local_state._build_counts,
+                                                   local_state._probe_counts);
+                          }
                           for (size_t i = 0; i < agg_size; ++i) {
-                              for (uint32_t row = 0; row < num_rows; ++row) {
-                                  local_state._repeats[row] =
-                                          shared_state->aggregate_sides[i] ==
-                                                          TGroupJoinAggSide::BUILD
-                                                  ? local_state._entries[row]->probe_count
-                                                  : local_state._entries[row]->build_count;
-                              }
+                              const auto& repeats =
+                                      shared_state->aggregate_sides[i] == TGroupJoinAggSide::BUILD
+                                              ? local_state._probe_counts
+                                              : local_state._build_counts;
                               shared_state->aggregate_evaluators[i]->insert_result_info_repeat_vec(
                                       local_state._values,
-                                      shared_state->offsets_of_aggregate_states[i],
-                                      local_state._repeats, value_columns[i].get(), num_rows,
-                                      local_state._output_arena);
+                                      shared_state->offsets_of_aggregate_states[i], repeats,
+                                      value_columns[i].get(), num_rows, local_state._output_arena);
                           }
 
-                          output_eos = iter == hash_method.end;
+                          output_eos = iter == shared_state->data_container->end();
                           return Status::OK();
                       }},
             shared_state->data_variants->method_variant);
 }
 
 void destroy_entry_agg_states(GroupJoinSharedState* shared_state, GroupJoinEntry* entry) {
-    if (entry == nullptr || entry->agg_states == nullptr) {
+    if (entry == nullptr || (shared_state->has_build_side_aggregate ? entry->build_count == 0
+                                                                    : entry->probe_count == 0)) {
         return;
     }
-    destroy_all_agg_states(shared_state, entry->agg_states);
-    entry->agg_states = nullptr;
+    destroy_all_agg_states(shared_state, get_entry_agg_states(entry, shared_state));
 }
 
 void destroy_agg_states(GroupJoinSharedState* shared_state) {
@@ -429,19 +530,15 @@ void destroy_agg_states(GroupJoinSharedState* shared_state) {
         return;
     }
     // Pure GROUP BY entries have no aggregate states to destroy.
-    if (shared_state->aggregate_evaluators.empty()) {
+    if (shared_state->aggregate_evaluators.empty() || shared_state->data_container == nullptr) {
         return;
     }
-    std::visit(Overload {[&](std::monostate&) -> void {},
-                         [&](auto& hash_method) -> void {
-                             auto& hash_table = *hash_method.hash_table;
-                             auto iter = hash_table.begin();
-                             while (iter != hash_table.end()) {
-                                 destroy_entry_agg_states(shared_state, iter.get_second());
-                                 ++iter;
-                             }
-                         }},
-               shared_state->data_variants->method_variant);
+    auto iter = shared_state->data_container->begin();
+    while (iter != shared_state->data_container->end()) {
+        auto* entry = reinterpret_cast<GroupJoinEntry*>(iter.get_aggregate_data());
+        destroy_entry_agg_states(shared_state, entry);
+        ++iter;
+    }
 }
 
 } // namespace doris::groupjoin

@@ -30,6 +30,7 @@
 namespace doris {
 
 class AggFnEvaluator;
+struct AggregateDataContainer;
 class Arena;
 struct GroupJoinDataVariants;
 
@@ -47,9 +48,9 @@ struct GroupJoinSharedState : public BasicSharedState {
     bool probe_eos = false;
     bool result_emitted = false;
     std::unique_ptr<GroupJoinDataVariants> data_variants;
+    std::unique_ptr<AggregateDataContainer> data_container;
     std::shared_ptr<Arena> arena;
     int64_t total_match_count = 0;
-    bool drain_inited = false;
     std::vector<TGroupJoinAggSide::type> aggregate_sides;
     std::vector<AggFnEvaluator*> aggregate_evaluators;
     std::vector<size_t> offsets_of_aggregate_states;
@@ -58,6 +59,7 @@ struct GroupJoinSharedState : public BasicSharedState {
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
     bool agg_layout_ready = false;
+    bool has_build_side_aggregate = false;
 };
 
 } // namespace doris

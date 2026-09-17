@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <memory>
 #include <variant>
 #include <vector>
@@ -27,9 +28,11 @@
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/common/agg_utils.h"
 #include "exec/common/hash_table/hash_map_util.h"
 #include "exec/common/template_helpers.hpp"
 #include "exec/operator/groupjoin_shared_state.h"
+#include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
 
 namespace doris {
@@ -42,8 +45,11 @@ namespace {
     } while (false)
 
 Status init_int32_groupjoin_state(GroupJoinSharedState* shared_state) {
-    return init_hash_method<GroupJoinDataVariants>(shared_state->data_variants.get(),
-                                                   {std::make_shared<DataTypeInt32>()}, true);
+    RETURN_IF_ERROR(init_hash_method<GroupJoinDataVariants>(
+            shared_state->data_variants.get(), {std::make_shared<DataTypeInt32>()}, true));
+    RETURN_IF_ERROR(groupjoin::register_agg_state_layout(shared_state, {}, {}, {}, {}, {}));
+    groupjoin::init_data_container(shared_state);
+    return Status::OK();
 }
 
 size_t count_hash_table_entries(GroupJoinSharedState* shared_state) {
@@ -55,6 +61,53 @@ size_t count_hash_table_entries(GroupJoinSharedState* shared_state) {
                           return count;
                       }},
             shared_state->data_variants->method_variant);
+}
+
+TEST(GroupJoinOperatorUtilsTest, DataContainerInlinesStatesForBuildAggregates) {
+    GroupJoinSharedState shared_state;
+    ASSERT_OK(init_hash_method<GroupJoinDataVariants>(shared_state.data_variants.get(),
+                                                      {std::make_shared<DataTypeInt32>()}, true));
+    shared_state.aggregate_sides = {TGroupJoinAggSide::BUILD, TGroupJoinAggSide::PROBE};
+    shared_state.total_size_of_aggregate_states = 24;
+    shared_state.align_aggregate_states = 16;
+    shared_state.agg_layout_ready = true;
+
+    groupjoin::init_data_container(&shared_state);
+
+    EXPECT_EQ(sizeof(GroupJoinEntry), 2 * sizeof(uint64_t));
+    auto* first_entry = reinterpret_cast<GroupJoinEntry*>(
+            shared_state.data_container->append_data(int32_t {1}));
+    auto* second_entry = reinterpret_cast<GroupJoinEntry*>(
+            shared_state.data_container->append_data(int32_t {2}));
+    auto* states = reinterpret_cast<AggregateDataPtr>(first_entry) + sizeof(GroupJoinEntry);
+
+    EXPECT_EQ(reinterpret_cast<AggregateDataPtr>(second_entry) -
+                      reinterpret_cast<AggregateDataPtr>(first_entry),
+              sizeof(GroupJoinEntry) + 32);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(states) % 16, 0);
+}
+
+TEST(GroupJoinOperatorUtilsTest, DataContainerInlinesStatesForProbeOnlyAggregates) {
+    GroupJoinSharedState shared_state;
+    ASSERT_OK(init_hash_method<GroupJoinDataVariants>(shared_state.data_variants.get(),
+                                                      {std::make_shared<DataTypeInt32>()}, true));
+    shared_state.aggregate_sides = {TGroupJoinAggSide::PROBE};
+    shared_state.total_size_of_aggregate_states = 8;
+    shared_state.align_aggregate_states = 8;
+    shared_state.agg_layout_ready = true;
+
+    groupjoin::init_data_container(&shared_state);
+
+    auto* first_entry = reinterpret_cast<GroupJoinEntry*>(
+            shared_state.data_container->append_data(int32_t {1}));
+    auto* second_entry = reinterpret_cast<GroupJoinEntry*>(
+            shared_state.data_container->append_data(int32_t {2}));
+    auto* states = reinterpret_cast<AggregateDataPtr>(first_entry) + sizeof(GroupJoinEntry);
+
+    EXPECT_EQ(reinterpret_cast<AggregateDataPtr>(second_entry) -
+                      reinterpret_cast<AggregateDataPtr>(first_entry),
+              sizeof(GroupJoinEntry) + shared_state.total_size_of_aggregate_states);
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(states) % 8, 0);
 }
 
 TEST(GroupJoinOperatorUtilsTest, SharedMemoryUsageTracksGrowthWithoutDoubleCounting) {
@@ -133,13 +186,31 @@ TEST(GroupJoinOperatorUtilsTest, AddBuildCountsWithoutNullMapUsesBatchPath) {
     std::vector<AggregateDataPtr> probe_places(probe_key->size());
     int64_t matched_rows = 0;
     uint32_t matched_probe_rows = 0;
-    ASSERT_OK(groupjoin::update_probe_counts(&shared_state, *shared_state.arena, probe_key_columns,
-                                             static_cast<uint32_t>(probe_key->size()), nullptr,
-                                             aggregate_indices, probe_places.data(), matched_rows,
-                                             matched_probe_rows));
+    ASSERT_OK(groupjoin::update_probe_counts(
+            &shared_state, probe_key_columns, static_cast<uint32_t>(probe_key->size()), nullptr,
+            aggregate_indices, probe_places.data(), matched_rows, matched_probe_rows));
 
     EXPECT_EQ(matched_probe_rows, 3);
     EXPECT_EQ(matched_rows, 4);
+    EXPECT_EQ(shared_state.data_container->total_count(), 3);
+}
+
+TEST(GroupJoinOperatorUtilsTest, BuildRepeatVectorsOncePerCountSide) {
+    GroupJoinEntry first {.build_count = 2, .probe_count = 3};
+    GroupJoinEntry second {.build_count = 5, .probe_count = 7};
+    std::vector<GroupJoinEntry*> entries {&first, &second};
+    std::vector<uint64_t> build_counts;
+    std::vector<uint64_t> probe_counts;
+
+    groupjoin::build_repeat_vectors(entries, 2, true, true, build_counts, probe_counts);
+
+    EXPECT_EQ(build_counts, (std::vector<uint64_t> {2, 5}));
+    EXPECT_EQ(probe_counts, (std::vector<uint64_t> {3, 7}));
+
+    probe_counts.clear();
+    groupjoin::build_repeat_vectors(entries, 2, true, false, build_counts, probe_counts);
+    EXPECT_EQ(build_counts, (std::vector<uint64_t> {2, 5}));
+    EXPECT_TRUE(probe_counts.empty());
 }
 
 TEST(GroupJoinOperatorUtilsTest, AddBuildCountsSkipsNullKeyRowsBeforeEmplace) {
@@ -173,10 +244,9 @@ TEST(GroupJoinOperatorUtilsTest, AddBuildCountsSkipsNullKeyRowsBeforeEmplace) {
     std::vector<AggregateDataPtr> probe_places(probe_key->size());
     int64_t matched_rows = 0;
     uint32_t matched_probe_rows = 0;
-    ASSERT_OK(groupjoin::update_probe_counts(&shared_state, *shared_state.arena, probe_key_columns,
-                                             static_cast<uint32_t>(probe_key->size()), nullptr,
-                                             aggregate_indices, probe_places.data(), matched_rows,
-                                             matched_probe_rows));
+    ASSERT_OK(groupjoin::update_probe_counts(
+            &shared_state, probe_key_columns, static_cast<uint32_t>(probe_key->size()), nullptr,
+            aggregate_indices, probe_places.data(), matched_rows, matched_probe_rows));
 
     EXPECT_EQ(matched_probe_rows, 2);
     EXPECT_EQ(matched_rows, 4);
