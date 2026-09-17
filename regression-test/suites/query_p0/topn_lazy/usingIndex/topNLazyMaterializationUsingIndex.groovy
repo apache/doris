@@ -73,7 +73,6 @@ suite("topNLazyMaterializationUsingIndex") {
 
         set topn_lazy_materialization_using_index = true;
         set topn_lazy_materialization_threshold = 1;
-        set enable_segment_limit_pushdown = false;
         SET detail_shape_nodes='PhysicalProject';
         """
         qt_plan """
