@@ -33,6 +33,7 @@
 #include "storage/olap_define.h"
 #include "storage/storage_policy.h"
 #include "util/pretty_printer.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -69,7 +70,9 @@ Status RemoteSpillDataDir::ensure_ready() {
                 "spill to s3 is not ready: backend id is unknown, waiting for FE heartbeat");
     }
     // The vault is resolved from what the refresh thread already brought in; the instance id
-    // needs one GetInstance RPC (bounded by retry_rpc). Callers retry on failure.
+    // needs one GetInstance RPC (2 attempts at most). Callers retry on failure, but a failed RPC
+    // is not repeated for a while: every caller waits on _init_mutex, so re-running the RPC for
+    // each of them would multiply the stall of an unreachable meta-service.
     auto& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
     std::string vault_id = _vault_id.empty() ? engine.default_vault_id() : _vault_id;
     io::RemoteFileSystemSPtr fs =
@@ -85,8 +88,17 @@ Status RemoteSpillDataDir::ensure_ready() {
         return Status::NotSupported("spill to s3 only supports S3 storage vaults, vault '{}' is {}",
                                     vault_id, fs->type());
     }
+    const int64_t now_ms = MonotonicMillis();
+    if (now_ms < _instance_id_retry_after_ms) {
+        return _instance_id_error;
+    }
     std::string instance_id;
-    RETURN_IF_ERROR(engine.meta_mgr().get_instance_id(&instance_id));
+    Status st = engine.meta_mgr().get_instance_id(&instance_id);
+    if (!st.ok()) {
+        _instance_id_error = st;
+        _instance_id_retry_after_ms = now_ms + config::meta_service_brpc_timeout_ms;
+        return st;
+    }
     init_remote_fs(fs, std::move(instance_id), backend_id);
     return Status::OK();
 }
