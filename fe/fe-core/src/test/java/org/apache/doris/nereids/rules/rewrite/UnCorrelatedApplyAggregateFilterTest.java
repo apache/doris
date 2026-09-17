@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -73,14 +74,12 @@ import java.util.function.Function;
  * aggregation of one outer row cannot be represented by a group of the inner side, and the rule has
  * to build the aggregation on the outer side:
  *
- * <pre>
  *   Apply(EXISTS, correlationSlot=[x])
  *     +-- L
  *     +-- Filter(having)                     // may hold for an empty input
  *          +-- Aggregate(group by [] or [r2], count(*))
- *               +-- Filter(correlated predicate(r1 &lt; x))
+ *               +-- Filter(correlated predicate(r1 < x))
  *                    +-- R
- * </pre>
  */
 class UnCorrelatedApplyAggregateFilterTest {
 
@@ -151,7 +150,7 @@ class UnCorrelatedApplyAggregateFilterTest {
 
     @Test
     public void testScalarSubqueryWithANullSafeEqualityCorrelationIsAggregatedOnOuter() {
-        // `r1 <=> x` is an equality whose domain contains the inner rows of the null key, which the
+        // r1 <=> x is an equality whose domain contains the inner rows of the null key, which the
         // condition of the left outer join of ScalarApplyToJoin cannot express (it admits a plain
         // equality alone), so the aggregation of the domain is built on the outer side as well
         Plan rewritten = rewrite(NullSafeEqual::new, true, null, LogicalApply.SubQueryType.SCALAR_SUBQUERY);
@@ -290,7 +289,7 @@ class UnCorrelatedApplyAggregateFilterTest {
     @Test
     public void testHavingWhichRejectsTheNullOfSumKeepsThePlan() {
         Alias sum = new Alias(new Sum(new BigIntLiteral(1)), "s");
-        // sum returns null for an empty input, so `sum(...) is not null` rejects the row of the
+        // sum returns null for an empty input, so sum(...) is not null rejects the row of the
         // empty correlated domain: the original rewrite is still equivalent and has to be kept
         Plan rewritten = rewriteWithGlobalAggregate(sum, slot -> new Not(new IsNull(sum.toSlot())), null);
         Assertions.assertTrue(rewritten instanceof LogicalApply);
@@ -309,9 +308,12 @@ class UnCorrelatedApplyAggregateFilterTest {
     }
 
     /**
-     * build `L exists (select x.c from (select count(*) c, c2 from R where r1 = x having count(*) = 0)
-     * x where x.c2 &lt; 0)` where `c2` is a volatile expression or a deterministic one, and apply the
-     * rule.
+     * build the plan of
+     *
+     *     L exists (select x.c from (select count(*) c, c2 from R where r1 = x having count(*) = 0)
+     *         x where x.c2 < 0)
+     *
+     * where c2 is a volatile expression or a deterministic one, and apply the rule.
      */
     private Plan rewriteWithFilterAboveHaving(boolean overVolatileAlias) {
         LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
@@ -510,6 +512,41 @@ class UnCorrelatedApplyAggregateFilterTest {
     }
 
     @Test
+    public void testNestedApplyOfTheSubqueryIsRejected() {
+        // the subquery of the subquery keeps its own correlation bookkeeping, which this rewrite
+        // does not update: the right side of the apply of the outer subquery still contains the
+        // nested apply, which the aggregation of one correlation key cannot evaluate
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+        LogicalOlapScan nested = PlanConstructor.newLogicalOlapScan(2, "t3", 1);
+
+        // the nested subquery: exists (select * from t3 where t3.id = t2.id), which the outer
+        // subquery reads as a mark join
+        LogicalApply<LogicalOlapScan, LogicalOlapScan> nestedApply = new LogicalApply<>(
+                ImmutableList.of(r1), LogicalApply.SubQueryType.EXITS_SUBQUERY, false,
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, false,
+                right, nested);
+        LogicalFilter<LogicalApply<LogicalOlapScan, LogicalOlapScan>> where =
+                new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), nestedApply);
+        Alias count = new Alias(new Count(), "c");
+        LogicalAggregate<LogicalFilter<LogicalApply<LogicalOlapScan, LogicalOlapScan>>> agg =
+                new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(count), where);
+        LogicalFilter<LogicalAggregate<LogicalFilter<LogicalApply<LogicalOlapScan, LogicalOlapScan>>>> having =
+                new LogicalFilter<>(ImmutableSet.of(new EqualTo(count.toSlot(), new BigIntLiteral(0))), agg);
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(
+                ImmutableList.of(x), LogicalApply.SubQueryType.EXITS_SUBQUERY, false,
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, false,
+                left, having);
+
+        ConnectContext connectContext = new ConnectContext();
+        Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules().get(0);
+        Assertions.assertThrows(AnalysisException.class,
+                () -> rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply)));
+    }
+
+    @Test
     public void testVolatileAggregateOutputWhichDoesNotFeedTheHavingIsAccepted() {
         Alias count = new Alias(new Count(), "c");
         Alias sum = new Alias(new Sum(new Random()), "s");
@@ -526,7 +563,7 @@ class UnCorrelatedApplyAggregateFilterTest {
     public void testVolatileAggregateOutputWhichFeedsTheHavingIsRejected() {
         Alias count = new Alias(new Count(), "c");
         Alias sum = new Alias(new Sum(new Random()), "s");
-        // the HAVING clause uses the aggregated value (`sum(<volatile>) is null` holds for the row of
+        // the HAVING clause uses the aggregated value (sum(random()) is null holds for the row of
         // an empty input, so the aggregation has to be built on the outer side), which would be
         // computed once for two outer rows with the same correlation key
         Assertions.assertThrows(AnalysisException.class, () -> rewriteWithGlobalAggregate(
@@ -599,11 +636,11 @@ class UnCorrelatedApplyAggregateFilterTest {
         Alias count = new Alias(new Count(), "c");
         Plan subquery = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(count),
                 new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right));
-        // `select c from (select count(*) as c, random() as r ...) x where x.r < 0.5`: the predicate
-        // over the volatile column of the derived table decides whether the row of an empty
-        // correlated domain is kept, which the groups of the inner side cannot reproduce, and the
-        // aggregation of one outer row cannot be built on the outer side either while the predicate
-        // is volatile
+        // the subquery of select c from (select count(*) as c, random() as r ...) x where x.r < 0.5:
+        // the predicate over the volatile column of the derived table decides whether the row
+        // of an empty correlated domain is kept, which the groups of the inner side cannot
+        // reproduce, and the aggregation of one outer row cannot be built on the outer side either
+        // while the predicate is volatile
         Alias random = new Alias(new Random(), "r");
         subquery = new LogicalProject<>(ImmutableList.of(count.toSlot(), random), subquery);
         subquery = new LogicalFilter<>(ImmutableSet.of(new LessThan(random.toSlot(), new DoubleLiteral(0.5))),
@@ -621,9 +658,12 @@ class UnCorrelatedApplyAggregateFilterTest {
     }
 
     /**
-     * build `outer exists (select count(*) from R where r1 = x having count(*) = 0)` where the
-     * aggregation of the subquery has to be computed on the outer side (the HAVING clause holds for
-     * an empty input), and apply the rule.
+     * build the plan of
+     *
+     *     outer exists (select count(*) from R where r1 = x having count(*) = 0)
+     *
+     * where the aggregation of the subquery has to be computed on the outer side (the HAVING clause
+     * holds for an empty input), and apply the rule.
      */
     private Plan rewriteWithOuter(Plan outer, List<Slot> correlationSlots) {
         LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
@@ -648,9 +688,13 @@ class UnCorrelatedApplyAggregateFilterTest {
     }
 
     /**
-     * build `L exists (select &lt;outputs&gt; from R where r1 = x [and &lt;extraWherePredicate&gt;]
-     * [having &lt;havingOnAggregate&gt;])` where a predicate of the HAVING clause which was pulled into
-     * the apply may be provided as well, and apply the rule.
+     * build the plan of
+     *
+     *     L exists (select outputs from R where r1 = x [and extraWherePredicate]
+     *         [having havingOnAggregate])
+     *
+     * where a predicate of the HAVING clause which was pulled into the apply may be provided as
+     * well, and apply the rule.
      */
     private Plan rewriteWithGlobalAggregate(List<NamedExpression> outputs,
             Function<Slot, Expression> havingOnAggregate, Function<Slot, Expression> pulledPredicate,
@@ -691,9 +735,12 @@ class UnCorrelatedApplyAggregateFilterTest {
     }
 
     /**
-     * build `L exists (select count(*) from R where r1 = x [having count(*) &gt; 0] having count(*) &lt;= x)`
+     * build the plan of
+     *
+     *     L exists (select count(*) from R where r1 = x [having count(*) > 0] having count(*) <= x)
+     *
      * after the rule which pulls the correlated predicates out of the filter under the apply
-     * ({@link UnCorrelatedApplyFilter}) moved the predicate of the HAVING clause into the apply, and
+     * (UnCorrelatedApplyFilter) moved the predicate of the HAVING clause into the apply, and
      * apply the rule which matches that apply. The projection of the select list of the subquery and
      * the predicates of the HAVING clause which do not reference the outer query may stay below the
      * apply.
@@ -729,10 +776,125 @@ class UnCorrelatedApplyAggregateFilterTest {
         return transformed.get(0);
     }
 
+    @Test
+    public void testScalarSubqueryWithAGroupedAggregation() {
+        // the domain of an outer row is exactly one group of the inner side, so the aggregation of
+        // the subquery stays on the inner side; the count(*)/any_value(*) aggregation which
+        // SubqueryToApply adds above it (the runtime check and the value of the scalar subquery) has
+        // to group the rows of one correlation key as well, so that it does not mix the rows of two
+        // outer rows with different keys
+        Plan rewritten = rewriteTheScalarAggregationOfSubqueryToApply(false, null, new Count());
+        Assertions.assertTrue(rewritten instanceof LogicalApply);
+        LogicalApply<?, ?> apply = (LogicalApply<?, ?>) rewritten;
+        Assertions.assertTrue(apply.getCorrelationFilter().isPresent());
+        for (Expression conjunct : ExpressionUtils.extractConjunction(apply.getCorrelationFilter().get())) {
+            for (Slot slot : conjunct.getInputSlots()) {
+                if (!apply.getCorrelationSlot().contains(slot)) {
+                    Assertions.assertTrue(apply.right().getOutput().contains(slot),
+                            "the correlation key of the scalar subquery has to be exposed: " + conjunct);
+                }
+            }
+        }
+        LogicalAggregate<?> wrapper = aggregationOfTheRightSide(apply.right(), 0);
+        Assertions.assertFalse(wrapper.getGroupByExpressions().isEmpty(),
+                "the count(*)/any_value(*) aggregation has to keep the keys apart");
+        Assertions.assertEquals(1, wrapper.getGroupByExpressions().size());
+        LogicalAggregate<?> aggregation = aggregationOfTheRightSide(apply.right(), 1);
+        Assertions.assertTrue(aggregation.getGroupByExpressions().stream()
+                        .anyMatch(expression -> expression instanceof Slot),
+                "the aggregation of the domain groups by the key as well");
+    }
+
+    @Test
+    public void testScalarSubqueryWithAHavingClauseWhichHoldsForAnEmptyInput() {
+        // the global aggregation of the subquery returns a row for an outer row with an empty
+        // correlated domain (the count 0, which satisfies the HAVING clause), so the aggregation of
+        // the domain is built on the outer side, and the count(*)/any_value(*) aggregation above it
+        // is rebuilt for every correlation key
+        Plan rewritten = rewriteTheScalarAggregationOfSubqueryToApply(true, new BigIntLiteral(0), new Count());
+        Assertions.assertTrue(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty());
+        Assertions.assertEquals(JoinType.LEFT_OUTER_JOIN,
+                joinWhichPairsTheOuterRowsWithTheirKey(rewritten).getJoinType());
+        Assertions.assertTrue(containsCompensatedCount(rewritten),
+                "count(*) must not count the row which is kept for an empty correlated domain");
+        LogicalAggregate<?> wrapper = aggregationOfTheRightSide(
+                joinWhichPairsTheOuterRowsWithTheirKey(rewritten).right(), 0);
+        Assertions.assertFalse(wrapper.getGroupByExpressions().isEmpty(),
+                "the count(*)/any_value(*) aggregation has to keep the keys apart");
+    }
+
+    @Test
+    public void testScalarSubqueryWhoseAggregationReturnsAValueOfItsOwnForAnEmptyInput() {
+        // an array_agg of an empty correlated domain is an empty array, which SubqueryToApply
+        // wraps around the output of the subquery with an nvl: the null which the original rewrite
+        // keeps for the outer rows of an empty domain is turned into that value, so the subquery
+        // keeps the aggregation of its domain on the inner side
+        Plan rewritten = rewriteTheScalarAggregationOfSubqueryToApply(true, null, new ArrayAgg(new BigIntLiteral(1)));
+        Assertions.assertTrue(rewritten instanceof LogicalApply);
+    }
+
+    /** the aggregate of the right side of an apply, walking down from its root */
+    private static LogicalAggregate<?> aggregationOfTheRightSide(Plan right, int position) {
+        Plan below = right;
+        while (!(below instanceof LogicalAggregate)) {
+            below = below.child(0);
+        }
+        LogicalAggregate<?> aggregate = (LogicalAggregate<?>) below;
+        for (int i = 0; i < position; i++) {
+            Plan child = aggregate.child(0);
+            while (!(child instanceof LogicalAggregate)) {
+                child = child.child(0);
+            }
+            aggregate = (LogicalAggregate<?>) child;
+        }
+        return aggregate;
+    }
+
     /**
-     * build `L &lt;subqueryType&gt; (select count(*) [group by r2] from R where &lt;predicate&gt;(r1, x)
-     * [having count(*) = &lt;havingValue&gt;])` and apply the rule which matches an apply on top of a
-     * filtered aggregate. A null {@code havingValue} builds the subquery without a HAVING clause.
+     * build the right side of a correlated scalar subquery the way SubqueryToApply builds it: the
+     * count(*)/any_value(*) aggregation above the aggregation of the subquery (the count is the
+     * runtime check of the scalar subquery, the any_value is its value), the projection of its select
+     * list, and its aggregation (with the group by and the HAVING clause of the parameters), and apply
+     * the rule.
+     */
+    private static Plan rewriteTheScalarAggregationOfSubqueryToApply(boolean globalAggregate,
+            Expression havingValue, AggregateFunction aggregationFunction) {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+        Slot r2 = right.getOutput().get(1); // t2.name
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Alias value = new Alias(aggregationFunction, "c");
+        List<Expression> groupBy = globalAggregate ? ImmutableList.of() : ImmutableList.of(r2);
+        Plan aggregation = new LogicalAggregate<>(groupBy, ImmutableList.of(value), where);
+        Plan subquery = new LogicalProject<>(ImmutableList.of(value.toSlot()), aggregation);
+        if (havingValue != null) {
+            subquery = new LogicalFilter<>(ImmutableSet.of(new EqualTo(value.toSlot(), havingValue)), subquery);
+        }
+        Alias count = new Alias(new Count(), "cnt");
+        Alias anyValue = new Alias(new AnyValue(value.toSlot()), "v");
+        Plan wrapped = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(count, anyValue), subquery);
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x),
+                LogicalApply.SubQueryType.SCALAR_SUBQUERY, false, Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), true, false, left, wrapped);
+
+        ConnectContext connectContext = new ConnectContext();
+        Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules().get(0);
+        List<Plan> transformed = rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply));
+        Assertions.assertEquals(1, transformed.size());
+        return transformed.get(0);
+    }
+
+    /**
+     * build the plan of
+     *
+     *     L [subqueryType] (select count(*) [group by r2] from R where [predicate(r1, x)]
+     *         [having count(*) = [havingValue]])
+     *
+     * and apply the rule which matches an apply on top of a filtered aggregate. A null havingValue
+     * builds the subquery without a HAVING clause.
      */
     private static Plan rewrite(BiFunction<Slot, Slot, Expression> predicate, boolean globalAggregate,
             Expression havingValue, LogicalApply.SubQueryType subQueryType) {

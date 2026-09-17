@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
@@ -34,12 +33,14 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullIgnoringAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
@@ -74,6 +75,7 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -81,55 +83,214 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Merge the correlated predicate and agg in the filter under apply.
- * And keep the unCorrelated predicate under agg.
+ * Pull the correlated predicates of a subquery which aggregates out of the subquery, so that the
+ * aggregation computes the aggregation of the correlated domain of one outer row instead of the
+ * aggregation of all the inner rows of the subquery.
  *
- * Use the correlated column as the group by column of agg,
- * the output column is the correlated column and the input column.
+ * The correlated predicates sit in the filter below the aggregation of the subquery before the
+ * rewrite (its WHERE clause): the right side of the apply is the nodes above that filter (the
+ * HAVING clause, the projections of the select list, the aggregation), the filter itself and the
+ * inner table. This rule pulls the correlated conjuncts of that filter into the apply (they become
+ * the conditions which unnest the apply) and rebuilds the aggregation around them, keeping the
+ * nodes above it in place; the uncorrelated conjuncts stay in the filter below the aggregation.
  *
- * Before the rewrite, the correlated predicate is in the filter below the aggregation of the
- * subquery: the right side of the apply is the filter which holds the predicates of the HAVING
- * clause (if the subquery has one), below it the aggregation, below that the filter with the
- * correlated predicate, and at the bottom the inner table. The rewrite pulls the correlated
- * predicate into the apply, adds the inner side of the predicate to the group by columns and to
- * the output of the aggregation (so that the join which unnests the apply can read the key), and
- * keeps only the uncorrelated predicates in the filter below the aggregation.
+ * The shape of the subquery selects one of two strategies for the new aggregation:
  *
- * This rewrite keeps the aggregation of the subquery on the inner side, which is only equivalent
- * to the original subquery when the correlated predicate is an equality between the outer side
- * and the inner side: in that case the inner rows of one outer row are exactly the groups of the
- * aggregate whose key is the value of that inner side, so the HAVING clause of every group is the
- * HAVING clause of the outer row.
- * The aggregation of an EXISTS/NOT EXISTS subquery is built on the outer side instead when that
- * equivalence does not hold, see pullUpCorrelatedPredicateByAggregatingOuter below.
+ * The aggregation stays on the inner side when the inner rows of one outer row are exactly the
+ * groups of the aggregation: the inner side of the correlated predicate is added to the group by
+ * of the aggregation and to its output (so that the conditions of the apply can read the key), and
+ * every outer row is paired with the group of its own domain. This needs an equality between the
+ * outer side and the inner side (eg. t2.c1 = t1.c1), because the value of the inner side is what
+ * selects the group of the outer row. For the subquery of
  *
- * For example the EXISTS subquery of select t1.c1 from t1 where exists (select count(*) from t2
- * where t2.c1 = t1.c1 having count(*) = 0) has to be aggregated on the outer side (a global
- * aggregate returns one row for every outer row, the rows of an empty correlated domain included),
- * while the EXISTS subquery of select t1.c1 from t1 where exists (select count(*) from t2 where
- * t2.c1 = t1.c1 group by t2.c2 having count(*) > 0) keeps the aggregation on the inner side.
- * The scalar subquery of select t1.c1, (select max(t2.c1) from t2 where t2.c1 = t1.c1) from t1
- * keeps the aggregation on the inner side as well: the aggregation groups the inner rows by t2.c1
- * and the predicate t2.c1 = t1.c1 becomes the condition of the left outer join which the scalar
- * subquery is rewritten into.
- * A scalar subquery whose correlated predicate is not an equality, for example
- * select t1.c1, (select count(*) from t2 where t2.c1 < t1.c1) from t1, aggregates on the outer side
- * like the other subquery types: the left outer join of a scalar subquery pairs the outer row with
- * the groups of the inner side whose key is the value of the outer row, which only reproduces the
- * aggregation of the correlated domain of the outer row when the correlated predicate is an
- * equality between the outer side and the inner side.
- * An IN subquery whose correlated predicate sits below the aggregation is rewritten like the EXISTS
- * subquery: an IN subquery compares the values which the aggregation returns, so the row which the
- * aggregation of an empty correlated domain returns has to be produced for it as well (for example
- * count(*) = 0, where `k in (0)` holds for the outer value 0), and those subqueries aggregate on
- * the outer side too. The keys which the rewrite appends to the output of the aggregation come
- * after the outputs of the subquery, so the first column which the IN compares does not move, and
- * the projection of the select list of the subquery stays below the apply (see
- * PullUpProjectUnderApply) so that this column is the value of the select list.
+ *     select t1.c1 from t1 where exists (select count(*) from t2
+ *         where t2.c1 = t1.c1 group by t2.c2 having count(*) > 0)
+ *
+ * the rewritten plan is (the EXISTS reads the aggregation through a semi join, see below):
+ *
+ *     LEFT SEMI JOIN (t2.c1 = t1.c1)                       [the correlation filter of the apply]
+ *       |-- t1
+ *       +-- Filter(count(*) > 0)                           [the HAVING clause, kept in place]
+ *             +-- Aggregate(group by [t2.c1, t2.c2], output [t2.c1, t2.c2, count(*)])
+ *                   +-- t2
+ *
+ * The aggregation is built on the outer side in every other case: a deep copy of the outer plan
+ * computes the distinct correlation keys, the keys are joined with the inner side on the
+ * predicates of the domain, the result is grouped by the keys, and every outer row is paired with
+ * the aggregation of its own key (see pullUpCorrelatedPredicateByAggregatingOuter). For the
+ * subquery of
+ *
+ *     select t1.c1 from t1 where exists (select count(*) from t2
+ *         where t2.c1 < t1.c1 group by t2.c2 having count(*) = 2)
+ *
+ * the rewritten plan is:
+ *
+ *     LEFT SEMI JOIN (t1.c1 <=> key.c1)
+ *       |-- t1
+ *       +-- Filter(count(*) = 2)
+ *             +-- Aggregate(group by [key.c1, t2.c2], output [key.c1, t2.c2, count(*)])
+ *                   +-- INNER JOIN (t2.c1 < key.c1)
+ *                         |-- Aggregate(group by [t1.c1], output [t1.c1])    [the keys of t1]
+ *                         |     +-- t1
+ *                         +-- t2
+ *
+ * The two properties which select the strategy are independent: whether the correlated predicate
+ * is an equality or not, and whether the aggregation has a group by or not (a global aggregate).
+ * The four combinations:
+ *
+ * 1. equality + group by: inner side (the first example). The domain of an outer row is exactly
+ *    the group whose key is the value of the inner side, so the HAVING clause of that group is the
+ *    HAVING clause of the outer row, and an outer row with an empty domain has no group at all,
+ *    exactly like the grouped aggregate of the subquery.
+ *
+ * 2. non-equality + group by: outer side (the second example). The domain of an outer row is the
+ *    union of several groups, so the aggregates of the subquery (eg. count(*)) are computed over
+ *    the union, while one group of the inner side holds a part of the domain only.
+ *
+ * 3. non-equality, no group by: outer side, for the reason of 2. For the subquery of
+ *
+ *        select t1.c1 from t1 where exists (select count(*) from t2
+ *            where t2.c1 < t1.c1 having count(*) = 0)
+ *
+ *    the plan is the plan of 2. without the group by of the subquery, with the row of the empty
+ *    domain kept by a left outer join (a global aggregate returns a row for an empty correlated
+ *    domain, and the count of that row has to be 0):
+ *
+ *        LEFT SEMI JOIN (t1.c1 <=> key.c1)
+ *          |-- t1
+ *          +-- Filter(count($correlation_match_marker) = 0)
+ *                +-- Aggregate(group by [key.c1], output [key.c1, count($correlation_match_marker)])
+ *                      +-- LEFT OUTER JOIN (t2.c1 < key.c1)                 [keeps the empty domain]
+ *                            |-- Aggregate(group by [t1.c1], output [t1.c1])
+ *                            |     +-- t1
+ *                            +-- Project([true AS $correlation_match_marker, t2.c1])
+ *                                  +-- t2
+ *
+ * 4. equality, no group by: inner side when the subquery does not need the row which the global
+ *    aggregate returns for an empty correlated domain, outer side when it does, because that row
+ *    has no group on the inner side to be produced from. For the subquery of
+ *
+ *        select t1.c1 from t1 where exists (select count(*) from t2
+ *            where t2.c1 = t1.c1 having count(*) > 0)
+ *
+ *    the HAVING clause is false for the empty input, so the row of the empty domain disappears
+ *    from the result anyway and the aggregation stays on the inner side (the plan of 1. without
+ *    the group by of the subquery); for the subquery of
+ *
+ *        select t1.c1 from t1 where exists (select count(*) from t2
+ *            where t2.c1 = t1.c1 having count(*) = 0)
+ *
+ *    the row of the empty domain survives (its count is 0), so the aggregation is built on the
+ *    outer side (the plan of 3. with the equality of the domain):
+ *
+ *        LEFT SEMI JOIN (t1.c1 <=> key.c1)
+ *          |-- t1
+ *          +-- Filter(count($correlation_match_marker) = 0)
+ *                +-- Aggregate(group by [key.c1], output [key.c1, count($correlation_match_marker)])
+ *                      +-- LEFT OUTER JOIN (t2.c1 = key.c1)                  [keeps the empty domain]
+ *                            |-- Aggregate(group by [t1.c1], output [t1.c1])
+ *                            |     +-- t1
+ *                            +-- Project([true AS $correlation_match_marker, t2.c1])
+ *                                  +-- t2
+ *
+ * The three subquery types differ in what they need from the aggregation (see
+ * needCorrelatedAggregationOnOuter for the exact conditions):
+ *
+ * - EXISTS/NOT EXISTS is decided by the aggregation, which this rule reads through a LEFT SEMI
+ *   JOIN (a LEFT ANTI JOIN for NOT EXISTS): it needs the row of an empty correlated domain only
+ *   when that row can decide the subquery (a HAVING clause which may hold for it, or a node which
+ *   the subquery keeps above its aggregation), see the examples of 4.
+ * - IN/NOT IN compares the outer expression with the value of the subquery, which is the first
+ *   column of the aggregation (the keys are appended after the outputs of the subquery, so this
+ *   column does not move). The row which a global aggregate returns for an empty correlated domain
+ *   is part of the values the IN compares: the subquery of
+ *
+ *       select t1.c1 from t1 where t1.c1 in (select count(*) from t2 where t2.c1 = t1.c1)
+ *
+ *   compares the outer row with the count 0 of its empty domain (k in (0) holds for the outer row
+ *   0), so its aggregation is built on the outer side (the plan of 3. with the count of the
+ *   marker) and the rewrite keeps the apply, whose correlation filter pairs every outer row with
+ *   the aggregation of its own key; the rule which converts the IN into a join then compares the
+ *   outer expression with the first column of that aggregation. A grouped aggregate has no value
+ *   for an empty domain, so the subquery of
+ *
+ *       select t1.c1 from t1 where t1.c1 in (select count(*) from t2
+ *           where t2.c1 = t1.c1 group by t2.c2)
+ *
+ *   keeps the aggregation on the inner side (the plan of 1. with the projection of the select list
+ *   kept below the apply, see PullUpProjectUnderApply):
+ *
+ *       Apply(IN, correlationFilter=[(t2.c1 = t1.c1)])
+ *         |-- t1
+ *         +-- Project([count(*), t2.c1])                    [the select list, the key appended]
+ *               +-- Aggregate(group by [t2.c1, t2.c2], output [t2.c2, count(*), t2.c1])
+ *                     +-- t2
+ * - scalar exposes the value of the aggregation as the value of the subquery. The left outer join
+ *   which pairs an outer row with the aggregation of its own key returns null for the outer rows
+ *   whose domain is empty, which is the value of those outer rows only for the aggregates whose
+ *   value for an empty input the rewrite knows (see returnsNullForAnEmptyInput): the subquery of
+ *
+ *       select t1.c1, (select max(t2.c2) from t2 where t2.c1 = t1.c1) from t1
+ *
+ *   keeps the aggregation on the inner side (max returns null for an empty input, which is the
+ *   null of the join), while the subquery of
+ *
+ *       select t1.c1, (select count(*) from t2 where t2.c1 < t1.c1) from t1
+ *
+ *   is built on the outer side (the correlated predicate is not an equality, and the count of an
+ *   empty domain is 0, which no null of the inner side can produce):
+ *
+ *       LEFT OUTER JOIN (t1.c1 <=> key.c1)
+ *         |-- t1
+ *         +-- Aggregate(group by [key.c1], output [key.c1, count($correlation_match_marker)])
+ *               +-- LEFT OUTER JOIN (t2.c1 < key.c1)                      [keeps the empty domain]
+ *                     |-- Aggregate(group by [t1.c1], output [t1.c1])
+ *                     |     +-- t1
+ *                     +-- Project([true AS $correlation_match_marker, t2.c1])
+ *                           +-- t2
+ *
+ * To summarize, the aggregation of the subquery stays on the inner side for the subqueries whose
+ * correlated domain of one outer row is one group of the aggregation and whose empty domain needs
+ * no row: every equality predicate with a group by, the global aggregates whose HAVING clause
+ * rejects the empty input (or whose value for the empty input is the null which the left outer
+ * join keeps), the grouped IN subqueries, and the scalar subqueries of the aggregates whose empty
+ * value the rewrite knows. It is built on the outer side for the subqueries whose domain is
+ * several groups of the aggregation (a non-equality predicate, whatever the subquery type and the
+ * aggregate are), and for the subqueries which need the row of an empty correlated domain (a
+ * global aggregate whose HAVING clause may hold for the empty input, an IN subquery which
+ * compares the value of a global aggregate, an EXISTS subquery which keeps nodes above its
+ * aggregation, a scalar subquery whose empty value is not the null of the join).
+ *
+ * Keeping the aggregation on the inner side in the cases of the outer side returns a wrong result,
+ * which is why the rewrite of the outer side has to exist. The subquery of
+ *
+ *     select cq_o.k from cq_o where exists (select count(*) from cq_i
+ *         where cq_i.k = cq_o.k having count(*) = 0)
+ *
+ * returns the outer row 7 when its domain is empty (the count of an empty domain is 0, which the
+ * HAVING clause accepts), while the aggregation of the inner side groups the inner rows by
+ * cq_i.k: the outer row 7 has no group there, so its row would be dropped. The subquery of
+ *
+ *     select cn_o.k from cn_o where exists (select count(*) from cn_i
+ *         where cn_i.k < cn_o.k group by cn_i.g having count(*) = 2)
+ *
+ * returns the outer row 3 when its domain is the two rows (1, 10) and (2, 10) of the single group
+ * g = 10 (the count of the domain is 2), while the aggregation of the inner side groups the inner
+ * rows by (cn_i.k, cn_i.g): those two rows are two groups of count 1 and the HAVING clause would
+ * never hold.
  */
 public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
 
-    /** name of the projected column which tells whether an inner row matched the correlated predicate */
+    /**
+     * name of the projected column which tells whether an inner row matched the correlated
+     * predicate: the left outer join of the aggregation of the outer side keeps one row whose
+     * marker is null for every correlation key which has no inner row, so the aggregations of this
+     * column see the empty correlated domain as an empty input (see guardAggregateArguments). For
+     * example the plan of the second case of needCorrelatedAggregationOnOuter evaluates
+     * count($correlation_match_marker) over the rows of Project([true AS
+     * $correlation_match_marker, t2.c1]), and the row which the left outer join keeps for an empty
+     * domain has a null marker, which that count does not count.
+     */
     private static final String CORRELATION_MATCH_MARKER = "$correlation_match_marker";
 
     @Override
@@ -146,66 +307,236 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * The aggregation of the subquery and the filter which holds the predicates of its HAVING clause
-     * which were not pulled into the apply: the nodes between the apply and the aggregate are the
-     * projections and the filters of the subquery, and the projections between the aggregate and its
-     * filter only carry the columns which the aggregation needs.
+     * The aggregation of the subquery: the aggregates between the apply and the filter which holds
+     * the predicates of its WHERE clause (from the one below the apply to the one above that
+     * filter), the filters whose predicates decide which rows of that aggregation survive (the
+     * HAVING clause of the subquery), and the filter of the WHERE clause itself.
+     *
+     * The nodes of the subquery of
+     *
+     *     select t1.c1 from t1 where exists (
+     *         select sum(x.c) from (select count(*) as c from t2
+     *             where t2.c1 = t1.c1 group by t2.c2 having count(*) > 1) x having sum(x.c) > 2)
+     *
+     * before the rewrite, with the member which holds every node:
+     *
+     *     Apply(correlationFilter=empty)                                    [the apply of the subquery]
+     *       |-- t1
+     *       +-- Filter(sum(x.c) > 2)               [havingFilter, filtersAboveTheAggregation(0)]
+     *             +-- Aggregate(group by [], output [sum(c) as sum(x.c)])     [chain(0) =
+     *                   +-- Project([c])                                         topAggregation]
+     *                         +-- Filter(c > 1)                       [filtersAboveTheAggregation(1)]
+     *                               +-- Aggregate(group by [t2.c2], output [t2.c2, count(*) as c])
+     *                               ...                                       [chain(1) =
+     *                                     +-- Project([t2.c2])                 domainAggregation]
+     *                                           +-- Filter(t2.c1 = t1.c1)     [domainFilter]
+     *                                                 +-- t2
+     *
+     * - chain: every aggregate between the apply and the filter of the WHERE clause, from the top
+     *   down (here the sum over the derived table, then the count of that table);
+     * - topAggregation: chain(0), the aggregate below the apply, which the whole chain is rebuilt
+     *   around;
+     * - domainAggregation: the deepest aggregate of the chain, which reads the rows of the filter
+     *   of the WHERE clause;
+     * - filtersAboveTheAggregation: the filters whose predicates decide on the rows of the
+     *   aggregation below them (here both HAVING clauses: the sum(x.c) > 2 of the subquery and the
+     *   count(*) > 1 of the derived table); a filter whose predicate selects the rows of the
+     *   domain of an outer row instead is not one of them, see selectsTheRowsOfTheDomain;
+     * - havingFilter: the deepest filter above the topAggregation, i.e. the first filter met when
+     *   walking down from the apply (here the filter of sum(x.c) > 2, which sits directly above
+     *   the aggregation of the sum);
+     * - domainFilter: the filter which holds the predicates of the WHERE clause (here
+     *   t2.c1 = t1.c1, which the walk finds when it stops below the deepest aggregate).
+     *
+     * A subquery may wrap its aggregation with further aggregations: SubqueryToApply adds a
+     * count(*)/any_value(*) aggregation above the aggregation of a correlated scalar subquery whose
+     * output is used in the outer scope and which has no top level scalar aggregation (the count is
+     * the runtime check of the scalar subquery, the any_value is its value), and the user may
+     * aggregate the aggregation of a derived table (the example above). The rows of the subquery
+     * for one outer row are the rows of the whole chain for the correlation key of that row, so
+     * every aggregate of the chain has to keep the keys in its group by (see pullUpCorrelatedFilter
+     * and withTheKeysInTheGroupBy).
      */
-    private static Optional<Pair<LogicalAggregate<?>, Optional<LogicalFilter<Plan>>>> locateAggregate(
-            LogicalApply<?, ?> apply) {
+    private static final class TheAggregation {
+        /** the aggregates between the apply and the filter of the WHERE clause, from the top down */
+        private final List<LogicalAggregate<?>> chain;
+        /** every filter above the deepest aggregate, whose predicates decide on the aggregation rows */
+        private final List<LogicalFilter<Plan>> filtersAboveTheAggregation;
+        /** the deepest filter above the top aggregate, which sits directly below the projections above it */
+        private final Optional<LogicalFilter<Plan>> havingFilter;
+        /** the filter which holds the predicates of the WHERE clause of the subquery */
+        private final LogicalFilter<Plan> domainFilter;
+
+        private TheAggregation(List<LogicalAggregate<?>> chain,
+                List<LogicalFilter<Plan>> filtersAboveTheAggregation,
+                Optional<LogicalFilter<Plan>> havingFilter, LogicalFilter<Plan> domainFilter) {
+            this.chain = chain;
+            this.filtersAboveTheAggregation = filtersAboveTheAggregation;
+            this.havingFilter = havingFilter;
+            this.domainFilter = domainFilter;
+        }
+
+        /** the aggregate which reads the rows of the filter, at the bottom of the chain */
+        private LogicalAggregate<?> domainAggregation() {
+            return chain.get(chain.size() - 1);
+        }
+
+        /** the aggregate below the apply, which the whole chain is rebuilt around */
+        private LogicalAggregate<?> topAggregation() {
+            return chain.get(0);
+        }
+
+        /** the aggregates between the apply and the filter, from the top down */
+        private List<LogicalAggregate<?>> aggregationChain() {
+            return chain;
+        }
+
+        /** every filter above the deepest aggregate, whose predicates decide on the aggregation rows */
+        private List<LogicalFilter<Plan>> filtersAboveTheAggregation() {
+            return filtersAboveTheAggregation;
+        }
+
+        /** the filter which holds the predicates of the WHERE clause of the subquery */
+        private LogicalFilter<Plan> domainFilter() {
+            return domainFilter;
+        }
+
+        /** whether the subquery does not wrap its aggregation with another aggregation */
+        private boolean onlyTheAggregationOfTheDomain() {
+            return chain.size() == 1;
+        }
+    }
+
+    /**
+     * Locate the aggregation of the subquery, walking down from the right side of the apply: the
+     * nodes above its aggregates are the projections and the filters of the subquery, the
+     * projections between its aggregates only carry the columns which they need, and the filter
+     * below the deepest aggregate holds the predicates of its WHERE clause. The walk stops at a
+     * filter whose child is not an aggregate: that filter is the filter of the WHERE clause, while
+     * a filter which sits directly above an aggregate (through projections) is a HAVING clause of
+     * that aggregate.
+     *
+     * The steps of the walk for the subquery of
+     *
+     *     select t1.c1 from t1 where exists (
+     *         select sum(x.c) from (select count(*) as c from t2
+     *             where t2.c1 = t1.c1 group by t2.c2 having count(*) > 1) x having sum(x.c) > 2)
+     *
+     * whose plan is (see TheAggregation):
+     *
+     *     Apply(t1, Filter(sum(x.c) > 2) - Aggregate(sum) - Project([c]) - Filter(c > 1)
+     *         - Aggregate(count) - Project([t2.c2]) - Filter(t2.c1 = t1.c1) - t2)
+     *
+     * 1. the first loop walks down from the apply while the node is not an aggregate: the filter
+     *    sum(x.c) > 2 is remembered as the havingFilter and added to filtersAboveTheAggregation,
+     *    and the walk stops at the aggregate of the sum (the topAggregation of the chain);
+     * 2. the second loop walks down from that aggregate: the projection of c carries a column of
+     *    the node below it alone, so it is walked through; the filter c > 1 sits above the
+     *    aggregate of the count (through that projection) and its predicate reads the output of
+     *    that aggregate, so it decides on its rows (a HAVING clause of that aggregate): it is
+     *    added to filtersAboveTheAggregation and the chain continues below it;
+     * 3. the aggregate of the count is the deepest aggregate of the chain (the domainAggregation,
+     *    which reads the rows of the filter of the WHERE clause);
+     * 4. the projection of t2.c2 carries a column of the node below it alone, so it is walked
+     *    through, and the walk stops at the filter t2.c1 = t1.c1: its child is a scan and not an
+     *    aggregate, so it is the domainFilter, which holds the predicates of the WHERE clause (the
+     *    correlated predicate is one of them). The walk returns an empty result (the rule leaves
+     *    the apply alone) when a node of the subquery is neither a projection nor a filter nor an
+     *    aggregate, when a projection below an aggregate computes one of its columns instead of
+     *    passing a column of the node below it through, and when the filter of the WHERE clause
+     *    has no child.
+     */
+    private static Optional<TheAggregation> locateAggregate(LogicalApply<?, ?> apply) {
         Plan below = apply.right();
         Optional<LogicalFilter<Plan>> havingFilter = Optional.empty();
+        List<LogicalFilter<Plan>> filtersAboveTheAggregation = Lists.newArrayList();
         while (!(below instanceof LogicalAggregate)) {
             if (below instanceof LogicalFilter) {
                 havingFilter = Optional.of((LogicalFilter<Plan>) below);
+                filtersAboveTheAggregation.add((LogicalFilter<Plan>) below);
             } else if (!(below instanceof LogicalProject)) {
                 return Optional.empty();
             }
             below = below.child(0);
         }
-        LogicalAggregate<?> agg = (LogicalAggregate<?>) below;
-        Plan belowAggregate = agg.child(0);
-        while (belowAggregate instanceof LogicalProject) {
-            for (NamedExpression project : ((LogicalProject<?>) belowAggregate).getProjects()) {
-                if (!(project instanceof Slot)) {
-                    // the projection computes the arguments of the aggregation itself, so it cannot
-                    // be replaced together with the aggregation
-                    return Optional.empty();
+        List<LogicalAggregate<?>> chain = Lists.newArrayList();
+        chain.add((LogicalAggregate<?>) below);
+        Plan belowAggregate = below.child(0);
+        LogicalFilter<Plan> domainFilter = null;
+        while (true) {
+            if (belowAggregate instanceof LogicalProject) {
+                for (NamedExpression project : ((LogicalProject<?>) belowAggregate).getProjects()) {
+                    if (!(project instanceof Slot)) {
+                        // the projection computes the columns of the nodes above it itself, so it
+                        // cannot be replaced together with the aggregation below it
+                        return Optional.empty();
+                    }
                 }
+                belowAggregate = belowAggregate.child(0);
+                continue;
             }
-            belowAggregate = belowAggregate.child(0);
-        }
-        if (!(belowAggregate instanceof LogicalFilter) || belowAggregate.child(0) == null) {
+            if (belowAggregate instanceof LogicalAggregate) {
+                chain.add((LogicalAggregate<?>) belowAggregate);
+                belowAggregate = belowAggregate.child(0);
+                continue;
+            }
+            if (belowAggregate instanceof LogicalFilter) {
+                Plan belowTheFilter = belowAggregate.child(0);
+                while (belowTheFilter instanceof LogicalProject) {
+                    belowTheFilter = belowTheFilter.child(0);
+                }
+                if (belowTheFilter instanceof LogicalAggregate
+                        && !selectsTheRowsOfTheDomain((LogicalFilter<Plan>) belowAggregate, apply)) {
+                    // the filter decides which rows of the aggregate below it survive (a HAVING
+                    // clause of that aggregate), the chain continues below it
+                    filtersAboveTheAggregation.add((LogicalFilter<Plan>) belowAggregate);
+                    belowAggregate = belowAggregate.child(0);
+                    continue;
+                }
+                domainFilter = (LogicalFilter<Plan>) belowAggregate;
+                break;
+            }
             return Optional.empty();
         }
-        return Optional.of(Pair.of(agg, havingFilter));
+        if (domainFilter.child(0) == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new TheAggregation(chain, filtersAboveTheAggregation, havingFilter, domainFilter));
     }
 
     /**
-     * The filter below the aggregation of the subquery, which holds the predicates of its WHERE clause.
-     * The projections between the aggregation and that filter only carry the columns which the
-     * aggregation needs, so the rewrite replaces them together with the aggregation.
+     * The rewrite of one correlated apply whose subquery aggregates: locate the aggregation (see
+     * locateAggregate), split the conjuncts of the filter below it into the correlated ones (they
+     * become the conditions of the apply) and the others (they stay in the filter above the inner
+     * side), classify the predicates (see CorrelatedAggregatePredicates) and rebuild the subquery
+     * with the strategy which needCorrelatedAggregationOnOuter selects: the aggregation of the
+     * domain on the outer side (pullUpCorrelatedPredicateByAggregatingOuter), or the aggregation
+     * of the domain on the inner side, with the inner side of the correlated predicate added to
+     * the group by and to the output of every aggregate of the chain (see
+     * rebuildTheAggregationChain).
+     *
+     * For example the subquery of
+     *
+     *     select t1.c1 from t1 where exists (select count(*) from t2
+     *         where t2.c1 = t1.c1 having count(*) <= t1.c1 - 7)
+     *
+     * reaches this method with the predicate of its HAVING clause already pulled into the apply
+     * (the earlier rules pull the HAVING predicates which reference the outer query, see
+     * CorrelatedAggregatePredicates) and with the filter t2.c1 = t1.c1 below the aggregation: the
+     * aggregation is built on the outer side, because the HAVING clause references the outer row
+     * and decides on the row which the aggregation returns for an empty correlated domain as well.
      */
-    private static LogicalFilter<Plan> filterBelowAggregate(LogicalAggregate<?> agg) {
-        Plan below = agg.child(0);
-        while (below instanceof LogicalProject) {
-            below = below.child(0);
-        }
-        return (LogicalFilter<Plan>) below;
-    }
-
     private static Plan pullUpCorrelatedFilter(LogicalApply<?, ?> apply) {
         // the correlated predicates of the HAVING clause (the filter below the apply) may already have
-        // been pulled into the apply, and a projection which only exposes the output of the aggregate
-        // may sit between the apply and the aggregate. Walk down to the aggregate and remember the
-        // filter which still holds predicates of the HAVING clause.
-        Optional<Pair<LogicalAggregate<?>, Optional<LogicalFilter<Plan>>>> located = locateAggregate(apply);
+        // been pulled into the apply, and projections which only expose the output of the aggregates
+        // may sit between the apply and the aggregates. Walk down to the aggregation of the subquery
+        // and remember the filters which still hold predicates of its HAVING clause.
+        Optional<TheAggregation> located = locateAggregate(apply);
         if (!located.isPresent()) {
             return apply;
         }
-        LogicalAggregate<?> agg = located.get().first;
-        Optional<LogicalFilter<Plan>> havingFilter = located.get().second;
-        LogicalFilter<Plan> filter = filterBelowAggregate(agg);
+        TheAggregation aggregation = located.get();
+        LogicalFilter<Plan> filter = aggregation.domainFilter();
         // split filter conjuncts to correlated and unCorrelated ones
         Map<Boolean, List<Expression>> split =
                 Utils.splitCorrelatedConjuncts(filter.getConjuncts(), apply.getCorrelationSlot());
@@ -218,10 +549,11 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         }
 
         CorrelatedAggregatePredicates predicates =
-                CorrelatedAggregatePredicates.of(apply, agg, filter, havingFilter, correlatedPredicate);
-        if (needCorrelatedAggregationOnOuter(apply, agg, havingFilter, correlatedPredicate, predicates)) {
+                CorrelatedAggregatePredicates.of(apply, correlatedPredicate,
+                        aggregation.filtersAboveTheAggregation());
+        if (needCorrelatedAggregationOnOuter(apply, aggregation, correlatedPredicate, predicates)) {
             Plan aggregatedOuter = pullUpCorrelatedPredicateByAggregatingOuter(
-                    apply, agg, filter, unCorrelatedPredicate, predicates);
+                    apply, aggregation, unCorrelatedPredicate, predicates);
             if (aggregatedOuter != null) {
                 return aggregatedOuter;
             }
@@ -232,24 +564,45 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                     + apply.right());
         }
 
-        // pull up correlated filter into apply node
-        List<NamedExpression> newAggOutput = new ArrayList<>(agg.getOutputExpressions());
-        List<Expression> newGroupby =
-                Utils.getUnCorrelatedExprs(correlatedPredicate, apply.getCorrelationSlot());
-        newGroupby.addAll(agg.getGroupByExpressions());
+        // pull up correlated filter into apply node: the inner side of every correlated predicate
+        // becomes a group by column and an output column of the aggregation below the filter, so that
+        // the aggregation of one outer row is the aggregation of the rows of its own key, and every
+        // aggregate above that aggregation groups the rows of its child by the same keys (a scalar
+        // subquery keeps the rows of its aggregation through an aggregation which SubqueryToApply adds
+        // above it, and those rows may not be mixed between two correlation keys either)
+        List<Expression> newGroupby = Utils.getUnCorrelatedExprs(correlatedPredicate, apply.getCorrelationSlot());
         Map<Expression, Slot> unCorrelatedExprToSlot = Maps.newHashMap();
+        List<NamedExpression> newGroupbyOutputs = Lists.newArrayListWithCapacity(newGroupby.size());
         for (Expression expression : newGroupby) {
             if (expression instanceof Slot) {
-                newAggOutput.add((NamedExpression) expression);
+                newGroupbyOutputs.add((NamedExpression) expression);
             } else {
                 Alias alias = new Alias(expression);
                 unCorrelatedExprToSlot.put(expression, alias.toSlot());
-                newAggOutput.add(alias);
+                newGroupbyOutputs.add(alias);
             }
         }
+        // the keys which the aggregates above the deepest one group by: the slots the keys have in
+        // the output of the aggregation below them
+        List<NamedExpression> keySlots = newGroupbyOutputs.stream()
+                .map(NamedExpression::toSlot).collect(ImmutableList.toImmutableList());
         correlatedPredicate = ExpressionUtils.replace(correlatedPredicate, unCorrelatedExprToSlot);
-        LogicalAggregate newAgg = new LogicalAggregate<>(newGroupby, newAggOutput,
-                PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child()));
+        Map<LogicalAggregate<?>, Plan> newAggregations = new IdentityHashMap<>();
+        for (LogicalAggregate<?> aggregate : aggregation.aggregationChain()) {
+            boolean isTheAggregationOfTheDomain = aggregate == aggregation.domainAggregation();
+            List<Expression> groupBy = Lists.newArrayList(
+                    isTheAggregationOfTheDomain ? newGroupby : keySlots);
+            groupBy.addAll(aggregate.getGroupByExpressions());
+            List<NamedExpression> outputs = Lists.newArrayList(aggregate.getOutputExpressions());
+            outputs.addAll(isTheAggregationOfTheDomain ? newGroupbyOutputs : keySlots);
+            Plan child = isTheAggregationOfTheDomain
+                    // the projections below it only carry the columns which the aggregation needs, so
+                    // the new aggregation reads the rows of the filter directly
+                    ? PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate),
+                            aggregation.domainFilter().child())
+                    : aggregate.child(0);
+            newAggregations.put(aggregate, new LogicalAggregate<>(groupBy, outputs, child));
+        }
         // the predicates which were already pulled into the apply are the predicates of the HAVING
         // clause of the subquery: they were evaluated on the rows of the old aggregate and have to
         // stay in the filter of the new apply, otherwise the subquery loses them
@@ -265,31 +618,116 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // makes the apply unresolvable
         Set<Slot> keysToExpose = newCorrelationFilter.stream()
                 .flatMap(conjunct -> conjunct.getInputSlots().stream())
-                .filter(slot -> newAgg.getOutput().contains(slot))
+                .filter(slot -> newAggregations.get(aggregation.topAggregation()).getOutput().contains(slot))
                 .collect(ImmutableSet.toImmutableSet());
         return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryType(), apply.isNot(),
                 apply.getCompareExpr(), apply.getTypeCoercionExpr(),
                 ExpressionUtils.optionalAnd(newCorrelationFilter), apply.getMarkJoinSlotReference(),
                 apply.isNeedAddSubOutputToProjects(), apply.isMarkJoinSlotNotNull(), apply.left(),
-                exposeCorrelationKeys(replaceAggregate(apply.right(), newAgg), keysToExpose));
+                rebuildTheAggregationChain(apply.right(), aggregation, newAggregations, keysToExpose));
+    }
+
+    /**
+     * The aggregation of the subquery with the keys of the correlation added to its group by and to
+     * its output: the rows of one correlation key are the rows of the subquery for the outer rows
+     * which own that key, so an aggregation above the aggregation of the domain may not mix them.
+     * For example the aggregate of the sum of the example of TheAggregation is rewritten into
+     *
+     *     Aggregate(group by [key.c1], output [sum(c) as sum(x.c), key.c1])
+     *
+     * around the rewritten aggregation of the domain, whose rows carry the key as well (see
+     * rebuildTheAggregationChain).
+     */
+    private static LogicalAggregate<?> withTheKeysInTheGroupBy(LogicalAggregate<?> aggregate,
+            List<? extends Expression> keys) {
+        List<Expression> groupBy = Lists.newArrayList(keys);
+        groupBy.addAll(aggregate.getGroupByExpressions());
+        List<NamedExpression> outputs = Lists.newArrayList(aggregate.getOutputExpressions());
+        keys.forEach(key -> outputs.add((NamedExpression) key));
+        return new LogicalAggregate<>(groupBy, outputs, aggregate.child(0));
+    }
+
+    /**
+     * Replace every aggregate of the chain with its rewritten version and expose the keys through
+     * the projections between them, so that every aggregate above the deepest one can group by the
+     * keys. The walk stops at the deepest aggregate: its rewritten version already reads the rows of
+     * the filter below it (see pullUpCorrelatedFilter).
+     *
+     * For example the plan of the example of TheAggregation is rewritten into
+     *
+     *     Apply(correlationFilter=[t2.c1 = t1.c1])
+     *       |-- t1
+     *       +-- Filter(sum(x.c) > 2)
+     *             +-- Aggregate(group by [key.c1], output [sum(c) as sum(x.c), key.c1])
+     *                   +-- Project([c, key.c1])                    [the key exposed between the
+     *                         +-- Filter(c > 1)                          aggregates]
+     *                               +-- Aggregate(group by [key.c1, t2.c2],
+     *                                     output [t2.c2, count(*) as c, key.c1])
+     *                                     +-- t2
+     */
+    private static Plan rebuildTheAggregationChain(Plan plan, TheAggregation aggregation,
+            Map<LogicalAggregate<?>, Plan> newAggregations, Set<Slot> keysToExpose) {
+        Plan replacement = newAggregations.get(plan);
+        if (plan == aggregation.domainAggregation()) {
+            return replacement;
+        }
+        Plan child = rebuildTheAggregationChain(plan.child(0), aggregation, newAggregations, keysToExpose);
+        if (replacement != null) {
+            return replacement.withChildren(child);
+        }
+        if (plan instanceof LogicalProject) {
+            // the projections between the aggregates carry the columns which the aggregates above
+            // them need, the keys of the correlation included
+            LogicalProject<?> project = (LogicalProject<?>) plan;
+            Set<Slot> exposed = project.getProjects().stream()
+                    .map(NamedExpression::toSlot).collect(ImmutableSet.toImmutableSet());
+            List<NamedExpression> projects = Lists.newArrayList(project.getProjects());
+            boolean added = false;
+            for (Slot key : keysToExpose) {
+                if (!exposed.contains(key)) {
+                    projects.add(key);
+                    added = true;
+                }
+            }
+            if (added) {
+                return new LogicalProject<>(projects, project.isDistinct(), project.getAsteriskOutputs(), child);
+            }
+        }
+        return plan.withChildren(child);
     }
 
     /**
      * Whether an EXISTS subquery keeps a node above its aggregation which decides on the rows the
      * subquery returns: the projection of its select list, or a filter which sits above the
      * projection and above the HAVING clause of the subquery (see the two methods below). The
-     * rewrite keeps those nodes (see {@link #replaceAggregate}), and the aggregation of one outer
-     * row is the aggregation of the rows which they produce, so the aggregation is built on the
-     * outer side and the nodes are evaluated on the aggregation of one correlation key.
+     * rewrite keeps those nodes (see rebuildTheAggregationChain), and the aggregation of
+     * one outer row is the aggregation of the rows which they produce, so the aggregation is built
+     * on the outer side and the nodes are evaluated on the aggregation of one correlation key.
      *
      * Only an EXISTS subquery is decided by the nodes above its aggregation this way: the value
      * which an IN or scalar subquery exposes is the output of the aggregation itself, which the
-     * rewrite reads through the nodes above it (see {@link #exposeCorrelationKeys}).
+     * rewrite reads through the nodes above it (see rebuildTheAggregationChain).
+     *
+     * For example the subquery of
+     *
+     *     select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 = t1.c1
+     *         having count(*) <= t1.c1 - 7 and count(*) >= 0)
+     *
+     * keeps the projection of its select list above the aggregation (see
+     * hasProjectionAboveAggregate), and the subquery of
+     *
+     *     select t1.c1 from t1 where exists (select x.c from (select count(*) as c, random() as r
+     *         from t2 where t2.c1 = t1.c1 having count(*) = 0) x where x.r < -1)
+     *
+     * keeps a filter above the projection and above the HAVING clause (see
+     * hasFilterAboveHavingFilter); the nodes decide on the rows which the EXISTS has to report, so
+     * the aggregation of one outer row is the aggregation of the rows which they produce and is
+     * built on the outer side.
      */
-    private static boolean keepsNodesAboveTheAggregation(LogicalApply<?, ?> apply, LogicalAggregate<?> agg,
-            Optional<LogicalFilter<Plan>> havingFilter) {
-        return apply.isExist() && (hasProjectionAboveAggregate(apply, agg)
-                || (havingFilter.isPresent() && hasFilterAboveHavingFilter(apply, havingFilter.get())));
+    private static boolean keepsNodesAboveTheAggregation(LogicalApply<?, ?> apply, TheAggregation aggregation) {
+        return apply.isExist() && (hasProjectionAboveAggregate(apply, aggregation.topAggregation())
+                || (aggregation.havingFilter.isPresent()
+                        && hasFilterAboveHavingFilter(apply, aggregation.havingFilter.get())));
     }
 
     /**
@@ -301,13 +739,12 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      *     select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 = t1.c1
      *         having count(*) <= t1.c1 - 7 and count(*) >= 0)
      *
-     * sits between the apply and the aggregation, and so does the projection of
-     *
-     *     select t1.c1 from t1 where exists (select x.c from (select count(*) as c
-     *         from t2 where t2.c1 = t1.c1 group by t2.c2) x)
-     *
-     * (a grouped aggregation is not folded into TRUE by the analyzer the way the EXISTS of a
-     * global aggregate is, so the subquery reaches this rule with its projection in place).
+     * sits between the apply and the aggregation when this rule matches: the right side of the
+     * apply is the projection of the select list of the subquery, below it the filter of the
+     * HAVING clause which stayed in the plan, below it the aggregation, the filter of the WHERE
+     * clause and t2. A projection is not always kept there (a projection which only passes a
+     * column of the aggregation through is merged into the nodes above it), so the strategy is
+     * decided on the plan which this rule receives, not on the query text.
      */
     private static boolean hasProjectionAboveAggregate(LogicalApply<?, ?> apply, LogicalAggregate<?> agg) {
         Plan below = apply.right();
@@ -345,53 +782,6 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * Keep the nodes which wrap the aggregate (the HAVING clause, the projection of the subquery)
-     * when the aggregate is replaced.
-     */
-    private static Plan replaceAggregate(Plan plan, Plan newAggregate) {
-        if (plan instanceof LogicalAggregate) {
-            return newAggregate;
-        }
-        return plan.withChildren(replaceAggregate(plan.child(0), newAggregate));
-    }
-
-    /**
-     * The predicates of the correlation filter are the join conditions of the plan which unnests
-     * the apply, so the keys they read from the right side have to be part of the output of that
-     * side: every projection which sits above the aggregate has to expose them, and a key which a
-     * projection does not carry is added to the end of its output (an EXISTS subquery does not
-     * read its output, and an IN or scalar subquery reads the value of the first column, which the
-     * keys appended after it do not move). For example the correlated predicate t2.c1 = t1.c1
-     * reads t2.c1, which the projections above the aggregate (for example the projections which
-     * output [c1], or [c1, c2], over an aggregate computing count(*) as c1 and random() as c2) do
-     * not carry.
-     */
-    private static Plan exposeCorrelationKeys(Plan plan, Set<Slot> keys) {
-        if (plan instanceof LogicalAggregate) {
-            // the aggregation of the rewrite outputs the correlation keys itself
-            return plan;
-        }
-        Plan child = exposeCorrelationKeys(plan.child(0), keys);
-        if (plan instanceof LogicalProject) {
-            LogicalProject<?> project = (LogicalProject<?>) plan;
-            Set<Slot> exposed = project.getProjects().stream()
-                    .map(NamedExpression::toSlot).collect(ImmutableSet.toImmutableSet());
-            List<NamedExpression> projects = Lists.newArrayList(project.getProjects());
-            boolean added = false;
-            for (Slot key : keys) {
-                if (!exposed.contains(key)) {
-                    projects.add(key);
-                    added = true;
-                }
-            }
-            if (added) {
-                return new LogicalProject<>(projects, project.isDistinct(), project.getAsteriskOutputs(), child);
-            }
-        }
-        return plan.withChildren(child);
-    }
-
-    /**
      * The predicates which relate the correlated subquery to the outer query, classified by the
      * node on which they have to be evaluated.
      *
@@ -414,8 +804,8 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      *     select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 = t1.c1
      *         having count(*) <= t1.c1 - 7 and count(*) >= 0)
      *
-     * is split into `count(*) <= t1.c1 - 7` (it references t1.c1, so it is the correlation filter
-     * of the apply when this rule matches) and `count(*) >= 0` (it does not reference the outer
+     * is split into count(*) <= t1.c1 - 7 (it references t1.c1, so it is the correlation filter
+     * of the apply when this rule matches) and count(*) >= 0 (it does not reference the outer
      * query, so it is the filter which still sits between the apply and the aggregation and stays
      * there in the rewritten plan). The two collections are kept apart because of that difference,
      * and the methods which return both of them together (havingPredicates) are the ones which only
@@ -430,8 +820,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         private final Set<Expression> havingConjuncts = Sets.newLinkedHashSet();
 
         private static CorrelatedAggregatePredicates of(LogicalApply<?, ?> apply,
-                LogicalAggregate<?> agg, LogicalFilter<Plan> filter,
-                Optional<LogicalFilter<Plan>> havingFilter, List<Expression> whereConjuncts) {
+                List<Expression> whereConjuncts, List<LogicalFilter<Plan>> filtersAboveTheAggregation) {
             CorrelatedAggregatePredicates predicates = new CorrelatedAggregatePredicates();
             predicates.whereConjuncts.addAll(whereConjuncts);
             // Every predicate which was pulled into the apply was pulled from the filter which sits
@@ -444,7 +833,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                     .map(ExpressionUtils::extractConjunction)
                     .orElse(ImmutableList.of())
                     .forEach(predicates.aggregatePredicates::add);
-            havingFilter.ifPresent(remaining -> predicates.havingConjuncts.addAll(remaining.getConjuncts()));
+            filtersAboveTheAggregation.forEach(filter -> predicates.havingConjuncts.addAll(filter.getConjuncts()));
             return predicates;
         }
 
@@ -492,15 +881,15 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
          *     select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 = t1.c1
          *         having count(*) <= t1.c1 - 7)
          *
-         * give the key t1.c1: it is the right operand of the domain predicate `t2.c1 = t1.c1` and
-         * it appears inside the arithmetic of the HAVING predicate `count(*) <= t1.c1 - 7` (whose
+         * give the key t1.c1: it is the right operand of the domain predicate t2.c1 = t1.c1 and
+         * it appears inside the arithmetic of the HAVING predicate count(*) <= t1.c1 - 7 (whose
          * count(*) is the output of the aggregation), and the aggregation of the rewrite is
          * grouped by it. A subquery may use several correlation slots and a slot may appear in any
-         * position of the predicate: the domain predicates `t2.c1 = t1.c1 and t2.c2 = t1.c2` give
+         * position of the predicate: the domain predicates t2.c1 = t1.c1 and t2.c2 = t1.c2 give
          * the two keys t1.c1 and t1.c2 (the aggregation is grouped by both of them and the join of
-         * the domain compares `t2.c1 = key.c1 and t2.c2 = key.c2`), while the predicate
-         * `t2.c1 = t1.c1 + 1` gives the key t1.c1 alone (the join of the domain compares
-         * `t2.c1 = key.c1 + 1` after the rewrite).
+         * the domain compares t2.c1 = key.c1 and t2.c2 = key.c2), while the predicate
+         * t2.c1 = t1.c1 + 1 gives the key t1.c1 alone (the join of the domain compares
+         * t2.c1 = key.c1 + 1 after the rewrite).
          */
         private Set<Slot> keySlots(List<Slot> correlationSlots) {
             Set<Slot> keys = new LinkedHashSet<>();
@@ -523,29 +912,32 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
 
         /**
          * Whether every predicate can be evaluated by the plan of the aggregation, that is if it only
-         * uses the correlation keys, the inner rows and the output of the aggregate. The predicates
-         * which are still in the plan of the subquery keep their node, so only the predicates which
-         * were pulled into the apply have to be evaluated above the aggregation of the rewrite.
+         * uses the correlation keys, the inner rows, the output of the aggregation of the domain and
+         * the output of the aggregates above it (which the predicates evaluated above the chain may
+         * read). The predicates which are still in the plan of the subquery keep their node, so only
+         * the predicates which were pulled into the apply have to be evaluated above the aggregation
+         * of the rewrite.
          *
          * The predicates which the earlier rules pulled out of a filter above the projection of the
          * select list may read a column of that projection, which is computed above the aggregation
          * and is not available to the aggregation of the rewrite: for example the predicate
-         * `x.c2 <= t1.c1` of the subquery of
+         * x.c2 <= t1.c1 of the subquery of
          *
          *     select t1.c1 from t1 where exists (select x.c1 from (select count(*) as c1,
          *         count(*) + 1 as c2 from t2 where t2.c1 = t1.c1) x where x.c2 <= t1.c1)
          *
-         * reads `x.c2`, which the projection `[c1, (c1 + 1) as c2]` computes above the aggregation,
+         * reads x.c2, which the projection [c1, (c1 + 1) as c2] computes above the aggregation,
          * so this rewrite cannot evaluate the predicate for the keys and reports the subquery with
          * the "Unsupported correlated subquery with grouping and/or aggregation" error. A predicate
-         * which reads the output of the aggregation instead (for example `x.c1 <= t1.c1` in the same
+         * which reads the output of the aggregation instead (for example x.c1 <= t1.c1 in the same
          * subquery) is evaluated without an error.
          */
-        private boolean isResolvable(LogicalApply<?, ?> apply, LogicalAggregate<?> agg,
+        private boolean isResolvable(LogicalApply<?, ?> apply, TheAggregation aggregation,
                 LogicalFilter<Plan> filter) {
             Set<ExprId> allowed = Sets.newHashSet();
             apply.getCorrelationSlot().forEach(slot -> allowed.add(slot.getExprId()));
-            agg.getOutput().forEach(slot -> allowed.add(slot.getExprId()));
+            aggregation.domainAggregation().getOutput().forEach(slot -> allowed.add(slot.getExprId()));
+            aggregation.topAggregation().getOutput().forEach(slot -> allowed.add(slot.getExprId()));
             filter.child().getOutput().forEach(slot -> allowed.add(slot.getExprId()));
             return domainPredicates().stream().allMatch(conjunct -> allowed.containsAll(conjunct.getInputSlotExprIds()))
                     && pulledPredicates().stream()
@@ -656,9 +1048,39 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * subquery above with the LEFT SEMI JOIN replaced by a LEFT OUTER JOIN, which keeps the outer
      * rows whose aggregation has no row and returns null for them).
      */
-    private static boolean needCorrelatedAggregationOnOuter(LogicalApply<?, ?> apply, LogicalAggregate<?> agg,
-            Optional<LogicalFilter<Plan>> havingFilter, List<Expression> correlatedPredicate,
-            CorrelatedAggregatePredicates predicates) {
+    private static boolean needCorrelatedAggregationOnOuter(LogicalApply<?, ?> apply, TheAggregation aggregation,
+            List<Expression> correlatedPredicate, CorrelatedAggregatePredicates predicates) {
+        LogicalAggregate<?> agg = aggregation.domainAggregation();
+        // The subqueries which are aggregated on the outer side whatever their correlated predicates
+        // say, because the rewrite of the outer side evaluates those predicates itself: the plan
+        // below is a set of domains, one for every correlation key, and the correlated predicates
+        // are the conditions of the join which pairs a domain with the inner rows (see
+        // pullUpCorrelatedPredicateByAggregatingOuter), so they do not have to be split into an
+        // outer side and an inner side. An EXISTS subquery which has to keep the nodes above its
+        // aggregation (they decide on the rows of the subquery) and a global aggregate whose HAVING
+        // clause references the outer query (the row of the empty correlated domain exists as well)
+        // are those subqueries; for the others, a predicate whose sides mix the outer query and the
+        // subquery keeps the error of the original rewrite (see isSupportedCorrelatedConjuncts).
+        if (!apply.isScalar()) {
+            if (keepsNodesAboveTheAggregation(apply, aggregation)) {
+                // an EXISTS subquery which has to keep such a node cannot be evaluated on the
+                // groups of the inner side (see keepsNodesAboveTheAggregation)
+                return true;
+            }
+            if (predicates.hasAggregatePredicates() && agg.getGroupByExpressions().isEmpty()) {
+                // a predicate of the HAVING clause which references the outer query decides whether
+                // the row of a global aggregate is kept, and that row exists for every outer row
+                // including the rows of an empty correlated domain, so the predicate cannot be
+                // evaluated on a group of the inner side (eg. the IN subquery of select t1.c1
+                // from t1 where t1.c1 in (select count(*) from t2 where t2.c1 = t1.c1 having
+                // count(*) <= t1.c1 - 7))
+                return true;
+            }
+        }
+        if (!isSupportedCorrelatedConjuncts(correlatedPredicate, apply.getCorrelationSlot())) {
+            // every kind of subquery keeps the error of the original rewrite for these predicates
+            return false;
+        }
         if (apply.isScalar()) {
             // The left outer join of a scalar subquery pairs the outer row with the groups of the
             // inner side whose key is the value of the outer row, which is the aggregation of the
@@ -667,45 +1089,41 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // (eg. t2.c1 < t1.c1, or t2.c1 <=> t1.c1 whose domain contains the inner rows of the
             // null key) is evaluated by the aggregation of the outer side: the join of the scalar
             // subquery reports those predicates (ScalarApplyToJoin admits an equality alone, see
-            // its guard). A comparison whose side mixes the outer query and the subquery
-            // (eg. t2.c1 = t1.c1 + t2.c2) cannot be evaluated by either rewrite, so it keeps the
-            // error of the original rewrite. The scalar subqueries whose aggregation is wrapped by
-            // a filter or by a grouping do not reach this rule at all: the analyzer rejects them
-            // (see SubExprAnalyzer.validateNodeInfoList), so the correlation alone decides here.
-            if (!hasOnlyComparisonsWhichTheOriginalRewriteSupports(correlatedPredicate,
-                    apply.getCorrelationSlot())) {
-                // keep the behavior of the original rewrite, which reports these predicates
+            // its guard).
+            if (!isEqualityBetweenTheOuterSideAndTheInnerSide(correlatedPredicate)) {
+                return true;
+            }
+            if (!agg.getGroupByExpressions().isEmpty()) {
+                // the domain of an equality correlated predicate is exactly one group of the
+                // aggregation: the rows of the subquery for one outer row are the rows of that
+                // group, and the outer rows of an empty correlated domain have no group at all (the
+                // subquery returns no row for them, whatever its HAVING clause says)
                 return false;
             }
-            return !isEqualityBetweenTheOuterSideAndTheInnerSide(correlatedPredicate);
-        }
-        if (keepsNodesAboveTheAggregation(apply, agg, havingFilter)) {
-            // an EXISTS subquery which has to keep such a node cannot be evaluated on the groups of
-            // the inner side (see keepsNodesAboveTheAggregation)
-            return true;
+            // A global aggregation returns a row for the outer rows of an empty correlated domain as
+            // well: the left outer join of the original rewrite keeps a null for the output of the
+            // subquery of those rows, which is the value of the aggregation of that domain (see
+            // returnsNullForAnEmptyInput), but a HAVING clause decides on the row of the empty
+            // domain instead, and a row of the empty domain exists whatever its predicate says. The
+            // aggregation of the domain is built on the outer side for those subqueries as well.
+            if (predicates.hasHaving()) {
+                return havingMayHoldWithEmptyInput(agg, predicates.havingConjuncts());
+            }
+            return !returnsNullForAnEmptyInput(agg);
         }
         if (apply.isExist() && !predicates.hasHaving()) {
             // an EXISTS/NOT EXISTS subquery without a HAVING clause only depends on the existence of
             // the aggregation result, which is kept by grouping the inner side; an IN subquery
             // compares the value of the aggregation instead, so the row which a global aggregate
-            // returns for an empty correlated domain (eg. `select t1.c1 from t1 where t1.c1 in
-            // (select count(*) from t2 where t2.c1 = t1.c1)` compares the outer row with the count
+            // returns for an empty correlated domain (eg. select t1.c1 from t1 where t1.c1 in
+            // (select count(*) from t2 where t2.c1 = t1.c1) compares the outer row with the count
             // 0 of its empty domain) has to be produced for it as well
             return false;
         }
-        if (predicates.hasAggregatePredicates() && agg.getGroupByExpressions().isEmpty()) {
-            // a predicate of the HAVING clause which references the outer query decides whether the
-            // row of a global aggregate is kept, and that row exists for every outer row including
-            // the rows of an empty correlated domain, so the predicate cannot be evaluated on a
-            // group of the inner side (eg. the IN subquery of `select t1.c1 from t1 where t1.c1 in
-            // (select count(*) from t2 where t2.c1 = t1.c1 having count(*) <= t1.c1 - 7)`)
-            return true;
-        }
-        if (!hasOnlyComparisonsWhichTheOriginalRewriteSupports(correlatedPredicate,
-                apply.getCorrelationSlot())) {
-            // keep the behavior of the original rewrite, which reports these predicates
-            return false;
-        }
+        // The IN subqueries and the EXISTS/NOT EXISTS subqueries which have a HAVING clause: the
+        // rows of the subquery for one outer row are the rows of the aggregation of its domain as
+        // long as the correlated predicates map the domain of every outer row onto one group of the
+        // aggregate, so that the HAVING clause of that group is the HAVING clause of the outer row.
         if (hasDomainPredicateWhichBreaksThePartitionOfTheGroups(predicates, apply)) {
             // the domain of one outer row is the union of several groups of the aggregate
             return true;
@@ -716,7 +1134,8 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             return false;
         }
         if (!agg.getGroupByExpressions().isEmpty()) {
-            // an equality correlated predicate maps the domain of every outer row onto exactly one group
+            // an equality correlated predicate maps the domain of every outer row onto exactly one
+            // group
             return false;
         }
         return havingMayHoldWithEmptyInput(agg, predicates.havingConjuncts());
@@ -729,11 +1148,22 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * alone). Those are the predicates for which the rows of the domain of one outer row are
      * exactly one group of the inner side, which is what the left outer join of a scalar subquery
      * pairs the outer row with.
+     *
+     * The null safe equality is the counterexample: t2.c1 <=> t1.c1 is an equal predicate as well,
+     * but its domain contains the inner rows whose key is null, which the condition of the left
+     * outer join of ScalarApplyToJoin cannot express (that join admits an EqualTo alone). The
+     * scalar subquery of
+     *
+     *     select nq_o.k, (select count(*) from nq_i where nq_i.k <=> nq_o.k) from nq_o
+     *
+     * is evaluated by the aggregation of the outer side, whose join of the domain compares the
+     * inner key with the key of the outer row by the null safe equality, so that the inner rows
+     * whose key is null are part of the domain of the outer row whose key is null.
      */
     private static boolean isEqualityBetweenTheOuterSideAndTheInnerSide(List<Expression> correlatedPredicate) {
         for (Expression conjunct : correlatedPredicate) {
             if (!(conjunct instanceof EqualTo)) {
-                // `t2.c1 <=> t1.c1` is an EqualPredicate as well but not an EqualTo: its domain
+                // t2.c1 <=> t1.c1 is an EqualPredicate as well but not an EqualTo: its domain
                 // contains the inner rows whose key is null, which the condition of the left outer
                 // join of ScalarApplyToJoin cannot express (that join admits an EqualTo alone)
                 return false;
@@ -743,8 +1173,91 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
+     * Whether the null which the original rewrite keeps for the outer rows of an empty correlated
+     * domain is the value which the subquery has for that domain. The scalar subquery exposes the
+     * output of its aggregation, and the left outer join of the original rewrite reports a null for
+     * it:
+     *
+     * - an aggregate of the nullable family returns a null for an empty input, which is the value
+     *   the subquery has for the empty domain;
+     *
+     * - SubqueryToApply wraps the aggregates which return a value of their own for an empty input
+     *   (the count 0 of select count(*) from t2 where t2.c1 = t1.c1, the empty array of an
+     *   array_agg, ...) with an nvl on that value, and the nvl turns the null of the join into the
+     *   value of the aggregation of the empty domain. The count(*)/any_value wrapper which it adds
+     *   around the select list of a scalar subquery is not part of the value: its any_value is null
+     *   for the rows of the join, which is the value of the empty domain.
+     *
+     * An aggregate of any other kind is not known to return a null for an empty input, so the
+     * subquery instead needs the aggregation of its domain on the outer side. For example the max
+     * of the subquery of
+     *
+     *     select t1.c1, (select max(t2.c2) from t2 where t2.c1 = t1.c1) from t1
+     *
+     * keeps the aggregation on the inner side (the null which the left outer join of
+     * ScalarApplyToJoin keeps for the outer rows without a group is the value of the empty
+     * domain), and so does the count of the subquery of
+     *
+     *     select t1.c1, (select count(*) from t2 where t2.c1 = t1.c1) from t1
+     *
+     * (SubqueryToApply wraps that count as ifnull(count(*), 0) in the projection of the left outer
+     * join, which turns the null of the join into the count 0 of the empty domain), while the
+     * subquery of select t1.c1, (select my_udaf(t2.c2) from t2 where t2.c1 = t1.c1) from t1 is
+     * aggregated on the outer side when my_udaf is a JavaUDAF, whose value for an empty input
+     * this rewrite does not know.
+     */
+    private static boolean returnsNullForAnEmptyInput(LogicalAggregate<?> aggregate) {
+        Set<AggregateFunction> functions = Sets.newLinkedHashSet();
+        for (NamedExpression output : aggregate.getOutputExpressions()) {
+            functions.addAll(output.collect(AggregateFunction.class::isInstance));
+        }
+        return functions.stream().allMatch(function -> function instanceof AlwaysNullable
+                || function instanceof NotNullableAggregateFunction);
+    }
+
+    /**
+     * Whether a filter which sits directly above the aggregation below it selects the rows of the
+     * domain of one outer row, instead of deciding which rows of the aggregation below it survive
+     * (the HAVING clause of that aggregation). For example the WHERE clause of the subquery of
+     *
+     *     select t1.c1 from t1 where t1.c2 >
+     *         (select col from (select c2 as col from t2 group by c2) tt where t1.c1 = tt.col)
+     *
+     * was pushed into the derived table, so it sits above the aggregation of that table and reads
+     * the columns of its output. The aggregation below such a filter already produces the rows
+     * which the outer row has to be paired with, while the aggregates above it have to group those
+     * rows by the correlation key.
+     *
+     * A predicate whose inner side is the value of an aggregation decides on the rows of that
+     * aggregation instead (the HAVING clause of the subquery): an aggregation cannot group by the
+     * value of another aggregation, so such a filter keeps the chain of the aggregation.
+     */
+    private static boolean selectsTheRowsOfTheDomain(LogicalFilter<Plan> filter, LogicalApply<?, ?> apply) {
+        Map<Boolean, List<Expression>> split =
+                Utils.splitCorrelatedConjuncts(filter.getConjuncts(), apply.getCorrelationSlot());
+        List<Expression> correlatedConjuncts = split.get(true);
+        if (correlatedConjuncts.isEmpty()) {
+            // a filter which does not read a column of the outer query cannot select the domain of
+            // an outer row
+            return false;
+        }
+        if (correlatedConjuncts.stream()
+                .anyMatch(conjunct -> !(conjunct instanceof BinaryExpression)
+                        && !(conjunct instanceof Not && conjunct.child(0) instanceof BinaryExpression))) {
+            // the inner side of such a predicate cannot be read (see Utils.getUnCorrelatedExprs)
+            return false;
+        }
+        for (Expression innerSide : Utils.getUnCorrelatedExprs(correlatedConjuncts, apply.getCorrelationSlot())) {
+            if (innerSide.anyMatch(AggregateFunction.class::isInstance)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Whether one of the predicates of the domain of the outer rows partitions the inner rows of
-     * one outer row into several groups of the aggregate (see {@link #breaksDomainPartition}).
+     * one outer row into several groups of the aggregate (see breaksDomainPartition).
      */
     private static boolean hasDomainPredicateWhichBreaksThePartitionOfTheGroups(
             CorrelatedAggregatePredicates predicates, LogicalApply<?, ?> apply) {
@@ -753,10 +1266,12 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * Whether every correlated predicate is a comparison which the original rewrite can split into
-     * an outer side and an inner side (see {@link #isSupportedCorrelatedComparison}).
+     * Whether every correlated conjunct is a comparison which the rewrites can split into an outer
+     * side and an inner side, see isSupportedCorrelatedComparison: those are the
+     * predicates which the original rewrite groups the inner side by, and the predicates of which
+     * the rewrite of the outer side replaces the outer side by a correlation key.
      */
-    private static boolean hasOnlyComparisonsWhichTheOriginalRewriteSupports(
+    private static boolean isSupportedCorrelatedConjuncts(
             List<Expression> correlatedPredicate, List<Slot> correlationSlots) {
         for (Expression conjunct : correlatedPredicate) {
             if (!isSupportedCorrelatedComparison(conjunct, correlationSlots)) {
@@ -788,12 +1303,12 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * evaluated by joining the two sides, and the ones supported by the original rewrite.
      *
      * A comparison whose one side mixes the outer query and the subquery is not supported, for
-     * example `t2.c1 = t1.c1 + t2.c2` (its right side reads the outer slot t1.c1 and the inner
+     * example t2.c1 = t1.c1 + t2.c2 (its right side reads the outer slot t1.c1 and the inner
      * column t2.c2, so the two sides cannot be joined apart): the aggregation keeps the behavior
      * of the original rewrite and the subquery is reported with the "Unsupported correlated
      * subquery with correlated predicate t2.c1 = t1.c1 + t2.c2" error. The same comparison with a
-     * side which is built from the outer query alone is supported, for example `t2.c1 = t1.c1 + 1`
-     * (the key is t1.c1 and the domain is joined on `t2.c1 = key.c1 + 1`).
+     * side which is built from the outer query alone is supported, for example t2.c1 = t1.c1 + 1
+     * (the key is t1.c1 and the domain is joined on t2.c1 = key.c1 + 1).
      */
     private static boolean isSupportedCorrelatedComparison(Expression conjunct, List<Slot> correlationSlots) {
         Expression predicate = conjunct;
@@ -855,8 +1370,10 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      *         as unsupported
      */
     private static Plan pullUpCorrelatedPredicateByAggregatingOuter(LogicalApply<?, ?> apply,
-            LogicalAggregate<?> agg, LogicalFilter<Plan> filter,
-            List<Expression> unCorrelatedPredicate, CorrelatedAggregatePredicates predicates) {
+            TheAggregation aggregation, List<Expression> unCorrelatedPredicate,
+            CorrelatedAggregatePredicates predicates) {
+        LogicalAggregate<?> agg = aggregation.domainAggregation();
+        LogicalFilter<Plan> filter = aggregation.domainFilter();
         Set<Slot> correlationSlots = predicates.keySlots(apply.getCorrelationSlot());
         if (containsSensitiveExpression(apply.left(), correlationSlots)
                 || hasNonDeterministicRows(apply.left())
@@ -864,7 +1381,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 || containsSensitiveSubqueryExpression(apply, predicates)
                 || referencesOuterSlot(apply.right(), ImmutableSet.copyOf(predicates.whereConjuncts),
                         apply.getCorrelationSlot())
-                || !predicates.isResolvable(apply, agg, filter)) {
+                || !predicates.isResolvable(apply, aggregation, filter)) {
             return null;
         }
 
@@ -956,7 +1473,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             newOutputs.add((NamedExpression) ExpressionUtils.replace(output, compensated));
         }
         // the keys are appended after the outputs of the subquery: the first column of the output is
-        // the value which an IN subquery compares (eg. the count which `k in (select count(*) ...)`
+        // the value which an IN subquery compares (eg. the count which k in (select count(*) ...)
         // compares the outer value with) and the value which a scalar subquery exposes, and neither
         // of them may move
         newOutputs.addAll(keyExpressions);
@@ -964,19 +1481,36 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
 
         // the predicates which were pulled into the apply are not part of the plan of the subquery
         // any more: they were evaluated on the rows of the old aggregation and have to be evaluated
-        // on the rows of the new one
+        // on the rows of the new one, directly above the aggregate of the domain they were pulled
+        // from when the subquery does not wrap that aggregate (otherwise they are evaluated above
+        // the whole chain, whose aggregates are the ones their columns belong to)
         Set<Expression> movedPredicates = Sets.newLinkedHashSet();
         for (Expression conjunct : predicates.pulledPredicates()) {
             movedPredicates.add(ExpressionUtils.replace(ExpressionUtils.replace(conjunct, compensated), slotToKey));
         }
-        Plan newBase = movedPredicates.isEmpty() ? newAggregate
-                : new LogicalFilter<>(movedPredicates, newAggregate);
+        Map<LogicalAggregate<?>, Plan> newAggregations = new IdentityHashMap<>();
+        for (LogicalAggregate<?> aggregate : aggregation.aggregationChain()) {
+            if (aggregate == agg) {
+                newAggregations.put(aggregate, movedPredicates.isEmpty() || !aggregation.onlyTheAggregationOfTheDomain()
+                        ? newAggregate
+                        : new LogicalFilter<>(movedPredicates, newAggregate));
+                continue;
+            }
+            // the aggregates above the deepest one read the rows it produces, so they keep the rows
+            // of one correlation key together as well (the keys are appended to their output, so
+            // that the aggregate above them can group by them)
+            newAggregations.put(aggregate, withTheKeysInTheGroupBy(aggregate, keyExpressions));
+        }
         // the nodes above the aggregation of the subquery (the HAVING clause, the filters over the
         // projection of the select list, that projection) are kept as they are: they are evaluated on
         // the rows of the new aggregation, which are the rows of the aggregation of the subquery for
         // the correlation key of one outer row
-        Plan newRight = exposeCorrelationKeys(replaceAggregate(apply.right(), newBase),
-                slotToKey.values().stream().map(key -> (Slot) key).collect(ImmutableSet.toImmutableSet()));
+        Set<Slot> keysToExpose = keyExpressions.stream().map(NamedExpression::toSlot)
+                .collect(ImmutableSet.toImmutableSet());
+        Plan newRight = rebuildTheAggregationChain(apply.right(), aggregation, newAggregations, keysToExpose);
+        if (!movedPredicates.isEmpty() && !aggregation.onlyTheAggregationOfTheDomain()) {
+            newRight = new LogicalFilter<>(movedPredicates, newRight);
+        }
 
         // the aggregate of the subquery is now computed for the correlation keys of every outer row,
         // so the outer rows which own one of those groups are the rows for which the subquery has rows
@@ -1110,18 +1644,53 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * The outer plan is evaluated twice by this rewrite (the original plan on the left of the
-     * resulting join and a deep copy which computes the correlation keys), so the two evaluations
-     * have to return the same rows and the same values of the correlation keys. A volatile
-     * expression (eg. random()) is rejected when it decides which rows the plan returns (the
-     * predicates and the groupings of the plan) or when it contributes to the value of a
-     * correlation key, directly or through the slots of the expressions below: the values are
-     * followed through the slots of the plan, so a volatile column which only decorates the output
-     * with a value the rewrite does not use is accepted. For example the outer plan select random()
-     * as c1, c2 from t1 ... is rejected because its correlation key is volatile, and so is the plan
-     * of select c1 from t1 where random() < 0.5 ... because that predicate decides the rows of the
-     * outer plan, while select c1, random() as c2 from t1 ... is accepted when the subquery does
-     * not read c2 (a decorative output).
+     * Whether the outer plan of the apply computes a value which this rewrite may not evaluate
+     * twice.
+     *
+     * The rewrite evaluates the outer plan twice (the original plan on the left of the resulting
+     * join, and a deep copy which computes the distinct correlation keys), so the two evaluations
+     * have to return the same rows and the same values of the correlation keys. The values of the
+     * plan are followed through its slots (see collectVolatileSlots), and a volatile value such as
+     * random() is rejected when it decides which rows the plan returns (its predicates and its
+     * groupings) and when it contributes to the value of a correlation key. A volatile column
+     * which only decorates the output is accepted, because the rewrite reads the correlation keys
+     * of the plan alone, and the output of the rewritten plan is the original plan.
+     *
+     * - a volatile correlation key is rejected: the outer plan of the query of
+     *
+     *       select t.k from (select random() as k from t1 e) t
+     *       where exists (select count(*) from t2 i where i.k < t.k having count(*) = 0)
+     *
+     *   is the plan
+     *
+     *       LogicalProject[k = random()] over LogicalOlapScan(t1)
+     *
+     *   and the slot k of its output is the correlation key, so the two evaluations of the plan
+     *   compute different keys: the aggregation of one key would not be the aggregation of the
+     *   subquery for the outer rows which own it.
+     *
+     * - a volatile value which decides the rows of the outer plan is rejected as well, for example
+     *   the plan of the outer query of
+     *
+     *       select e.k from t1 e
+     *       where random() < 0.5 and exists (select count(*) from t2 i
+     *           where i.k < e.k having count(*) = 0)
+     *
+     *       LogicalFilter[random() < 0.5] over LogicalOlapScan(t1)
+     *
+     *   (collectVolatileSlots returns null for it): the predicate decides which rows the two
+     *   evaluations return, and the rows which only one of them returns cannot be paired with
+     *   their aggregation.
+     *
+     * - a volatile column which only decorates the output is accepted, for example the column r of
+     *   the outer query of
+     *
+     *       select t.k from (select e.k as k, random() as r from t1 e) t
+     *       where exists (select count(*) from t2 i where i.k < t.k having count(*) = 0)
+     *
+     *       LogicalProject[k = e.k, r = random()] over LogicalOlapScan(t1)
+     *
+     *   because no predicate, no grouping and no correlation key reads r.
      *
      * A NoneMovableFunction (the only implementation today is assert_true) is rejected wherever it
      * appears instead, even in such a decorative output: its evaluation must not be duplicated,
@@ -1139,7 +1708,18 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         return volatileSlots == null || volatileSlots.stream().anyMatch(correlationKeys::contains);
     }
 
-    /** whether an expression of the plan is a function whose evaluation must not be duplicated */
+    /**
+     * Whether an expression of the plan is a function whose evaluation must not be duplicated.
+     * The subquery of
+     *
+     *     select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 = t1.c1
+     *         having count(*) = 0 and assert_true(t1.c2 > 0, 'positive'))
+     *
+     * is reported with the "Unsupported correlated subquery with grouping and/or aggregation"
+     * error: the predicate of the HAVING clause which reads assert_true is pulled into the apply
+     * (it references the outer row), and the rewrite would evaluate it once for every correlation
+     * key instead of once for every outer row.
+     */
     private static boolean containsNoneMovableFunction(Plan plan) {
         for (Expression expression : plan.getExpressions()) {
             if (expression.containsType(NoneMovableFunction.class)) {
@@ -1266,8 +1846,10 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * The outer plan is evaluated twice by this rewrite (the original plan on the left of the
-     * resulting join and a deep copy which computes the correlation keys), and the rows of the two
+     * Whether the outer plan returns rows which its two evaluations may choose differently.
+     *
+     * The rewrite evaluates the outer plan twice (the original plan on the left of the resulting
+     * join, and a deep copy which computes the distinct correlation keys), and the rows of the two
      * evaluations have to carry the same correlation keys: the outer rows whose key the deep copy
      * did not produce find no row of the aggregation and are dropped by the semi/anti join.
      *
@@ -1277,11 +1859,29 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * of rows which are equal on the order keys, the query semantics allows any subset of that
      * group to be returned, and the two evaluations are two instances of the same plan in
      * different places of the resulting plan, so they can keep rows with different correlation
-     * keys. This rule does not prove that the order keys are total, so every topn is rejected (for
-     * example the subquery of ... where exists (select count(*) from (select c1 from t1 order by c2
-     * limit 1) t2 ...)), together with the limit without an order (... (select c1 from t1 limit 1)
-     * ..., which returns arbitrary rows) and the sampled scan (... from t1 tablesample(1 rows) ...,
-     * whose two evaluations sample different rows).
+     * keys. This rule does not prove that the order keys are total, so every topn and every limit
+     * is rejected: the outer plan of
+     *
+     *     select t.k from (select e.k as k from t1 e limit 1) t
+     *     where exists (select count(*) from t2 i where i.k < t.k having count(*) = 0)
+     *
+     * is the plan
+     *
+     *     LogicalLimit[limit 1] over LogicalProject[k = e.k] over LogicalOlapScan(t1)
+     *
+     * (the same plan with a LogicalTopN instead of the LogicalLimit when the query writes an order
+     * by, for example select t.k from (select e.k as k from t1 e order by e.k limit 1) t where
+     * exists (select count(*) from t2 i where i.k < t.k having count(*) = 0)), and the limit
+     * without an order returns an arbitrary row: the row which one of the two evaluations keeps
+     * can carry another correlation key than the row of the other one.
+     *
+     * A sampled scan is rejected as well, because its two evaluations sample different rows: the
+     * scan of
+     *
+     *     select t.k from (select e.k as k from t1 e tablesample(1 rows)) t
+     *     where exists (select count(*) from t2 i where i.k < t.k having count(*) = 0)
+     *
+     * is a LogicalOlapScan which carries the table sample.
      */
     private static boolean hasNonDeterministicRows(Plan plan) {
         if (plan instanceof LogicalLimit || plan instanceof LogicalTopN) {
@@ -1299,10 +1899,51 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * The aggregation below the correlated predicate can only provide the correlation keys, so the
-     * correlated predicates must be the only place where the subquery references the outer query.
-     * Nested subqueries keep their own correlation bookkeeping which this rewrite does not update,
-     * so they are rejected as well.
+     * Whether the right side of the apply reads a slot of the outer row outside the correlated
+     * predicates of the subquery.
+     *
+     * The rewrite evaluates the right side of the apply once for every correlation key instead of
+     * once for every outer row: the plan of the rewritten right side is the aggregation of a domain
+     * of a key (see pullUpCorrelatedPredicateByAggregatingOuter), whose conditions are the
+     * correlated predicates with their outer side replaced by that key. The correlated predicates
+     * of the WHERE clause are therefore the only expressions of the right side which may read the
+     * outer row, and the plan shapes below are reported as unsupported instead of producing a plan
+     * whose aggregation cannot evaluate the value of the outer row:
+     *
+     * - a subquery of the subquery: the right side of the apply contains the nested apply, whose
+     *   right side reads the rows of the subquery (and possibly the outer row) with its own
+     *   correlation bookkeeping, which this rewrite does not update. For example the right side of
+     *   the apply of the outer subquery of
+     *
+     *       select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 = t1.c1
+     *           and exists (select count(*) from t3 where t3.c1 = t2.c2 having count(*) > 0))
+     *
+     *   is the plan
+     *
+     *       LogicalAggregate[count(*)] over LogicalFilter[t2.c1 = t1.c1] over
+     *           LogicalFilter[mark slot] over LogicalProject[t2.c1, mark slot] over
+     *               LogicalApply[EXITS_SUBQUERY, left = LogicalOlapScan(t2),
+     *                   right = LogicalFilter[t3.c1 = t2.c2] over LogicalOlapScan(t3)]
+     *
+     *   while the nested apply has not been unnested (the other rules of the batch rewrite it by
+     *   their own, see ExistsApplyToJoin).
+     *
+     * - a predicate which sits above the aggregation of the subquery and reads a slot of the outer
+     *   row, when the rules which pull the predicates of the HAVING clause into the apply did not
+     *   move it there (see UnCorrelatedApplyFilter and UnCorrelatedApplyProjectFilter). The filter
+     *   of the derived table of
+     *
+     *       select t1.c1 from t1 where exists (select x.c from (select count(*) as c,
+     *           count(*) + 1 as c2 from t2 where t2.c1 = t1.c1) x where x.c2 < t1.c1)
+     *
+     *   is an example of such a predicate, and the plan shape of the right side of the apply which
+     *   this method reports is
+     *
+     *       LogicalFilter[c2 < t1.c1] over LogicalProject[c = count(*), c2 = count(*) + 1] over
+     *           LogicalAggregate[count(*)] over LogicalFilter[t2.c1 = t1.c1] over LogicalOlapScan(t2)
+     *
+     *   (the projection computes the column which the filter reads, so filter pushdown cannot move
+     *   the predicate below it either).
      */
     private static boolean referencesOuterSlot(Plan plan, Set<Expression> correlatedPredicate,
             List<Slot> correlationSlots) {

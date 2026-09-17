@@ -336,6 +336,21 @@ suite("correlated_exists_having") {
                 " WHERE i.k < t.k HAVING s >= 0)"
         exception "Unsupported correlated subquery with grouping and/or aggregation"
     }
+    // the aggregation of the subquery may itself be aggregated (the derived table wraps it): the rows
+    // of the subquery for one outer row are the rows of that aggregation for the correlation key of
+    // the outer row, so every aggregate above the aggregation of the domain keeps the keys apart
+    order_qt_eq_nested_aggregation_having_refs_outer """
+        SELECT e.k FROM ceh_e e
+        WHERE EXISTS (SELECT m FROM (SELECT max(c) AS m FROM (SELECT count(*) AS c FROM ceh_i i
+            WHERE i.k = e.k GROUP BY i.g) y) z WHERE m <= e.k - 1)
+        ORDER BY e.k
+    """
+    order_qt_eq_nested_aggregation_having_refs_outer_not_exists """
+        SELECT e.k FROM ceh_e e
+        WHERE NOT EXISTS (SELECT m FROM (SELECT max(c) AS m FROM (SELECT count(*) AS c FROM ceh_i i
+            WHERE i.k = e.k GROUP BY i.g) y) z WHERE m <= e.k - 1)
+        ORDER BY e.k
+    """
     // the aggregation of the subquery can only be evaluated for the correlation keys of the outer
     // rows when the two evaluations of the outer plan return the same rows, when the correlation
     // keys of the two evaluations are the same, and when the predicates of the subquery do not have
