@@ -19,6 +19,7 @@ package org.apache.doris.connector.hudi;
 
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
@@ -70,7 +71,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
@@ -107,6 +110,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     // HudiScanNode.canUseNativeReader() / setScanParams (sessionVariable.isForceJniScanner()). Same key + read
     // path as the paimon connector's FORCE_JNI_SCANNER. Default false, so normal reads are unaffected.
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
+    static final String SCAN_REUSE_NAMESPACE = "hudi.scan-reuse";
 
     // Scan-node prop carrying the base64 native-reader schema-evolution dictionary (current_schema_id +
     // history_schema_info). getScanNodeProperties builds it; populateScanLevelParams copies it onto the real
@@ -197,6 +201,89 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private List<ConnectorScanRange> planScanInScope(ConnectorSession session, ConnectorScanRequest request) {
+        // Statement-scoped reuse: within one statement the identical scan (same table, same
+        // instant/incremental pin, same partition set, same table generation) plans once and every
+        // duplicated relation shares the result. The generation token (latest completed instant)
+        // fences the key against same-path table recreation: without it, alias A's ranges (stamped
+        // with generation-A schema_id values) could be paired with alias B's generation-B
+        // history_schema_info dictionary, causing BE to map files through wrong field identities.
+        // The scope is NONE for offline planning and tests, in which case the loader runs on every
+        // call. Session variables are constant within a statement and deliberately absent.
+        if (session == null || !session.isExternalScanTaskReuseEnabled()) {
+            return doPlanScan(session, request);
+        }
+        String generation = resolveHudiGeneration(session, (HudiTableHandle) request.getTableHandle());
+        String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
+        Map<HudiScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
+                memoKey, () -> new ConcurrentHashMap<>());
+        HudiScanReuseKey reuseKey = hudiScanReuseKey((HudiTableHandle) request.getTableHandle(), generation);
+        return scanReuse.computeIfAbsent(reuseKey,
+                key -> Collections.unmodifiableList(doPlanScan(session, request)));
+    }
+
+    /**
+     * Resolve the Hudi table generation at the statement scope and return a stable token (the
+     * latest completed instant timestamp, or "none" when unavailable). The metaClient is cached at
+     * the scope so {@link #getScanNodeProperties} observes the same generation as the scan path.
+     */
+    private String resolveHudiGeneration(ConnectorSession session, HudiTableHandle hudiHandle) {
+        if (session == null || session.getStatementScope() == null
+                || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return "none";
+        }
+        String metaClientKey = SCAN_REUSE_NAMESPACE + ":metaClient:" + session.getCatalogId() + ":"
+                + hudiHandle.getDbName() + "." + hudiHandle.getTableName();
+        try {
+            HoodieTableMetaClient metaClient = session.getStatementScope().computeIfAbsent(
+                    metaClientKey, () -> {
+                        Configuration conf = buildHadoopConf();
+                        return HoodieTableMetaClient.builder()
+                                .setConf(new org.apache.hudi.storage.hadoop.HadoopStorageConfiguration(conf))
+                                .setBasePath(hudiHandle.getBasePath())
+                                .build();
+                    });
+            if (metaClient == null) {
+                return "none";
+            }
+            return metaClient.getCommitsAndCompactionTimeline()
+                    .filterCompletedInstants()
+                    .lastInstant()
+                    .map(i -> i.getTimestamp())
+                    .orElse("none");
+        } catch (Exception e) {
+            return "none";
+        }
+    }
+
+    /**
+     * Resolve the Hudi metaClient consistently with {@link #resolveHudiGeneration}: when the
+     * statement scope already holds a cached metaClient (set by the reuse path in planScan),
+     * return that SAME instance so getScanNodeProperties observes the same generation. Otherwise
+     * resolve fresh.
+     */
+    private HoodieTableMetaClient resolveMetaClientConsistent(
+            ConnectorSession session, HudiTableHandle hudiHandle) {
+        if (session != null && session.isExternalScanTaskReuseEnabled()
+                && session.getStatementScope() != null
+                && session.getStatementScope() != ConnectorStatementScope.NONE) {
+            String metaClientKey = SCAN_REUSE_NAMESPACE + ":metaClient:" + session.getCatalogId() + ":"
+                    + hudiHandle.getDbName() + "." + hudiHandle.getTableName();
+            Object cached = session.getStatementScope().computeIfAbsent(metaClientKey, () -> {
+                Configuration conf = buildHadoopConf();
+                return HoodieTableMetaClient.builder()
+                        .setConf(new org.apache.hudi.storage.hadoop.HadoopStorageConfiguration(conf))
+                        .setBasePath(hudiHandle.getBasePath())
+                        .build();
+            });
+            if (cached instanceof HoodieTableMetaClient) {
+                return (HoodieTableMetaClient) cached;
+            }
+        }
+        return buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath());
+    }
+
+    // Package-private so the statement-reuse test can replace remote Hudi planning with a recording loader.
+    List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request) {
         HudiTableHandle hudiHandle = (HudiTableHandle) request.getTableHandle();
         String basePath = hudiHandle.getBasePath();
 
@@ -418,7 +505,10 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         if (!isForceJniScannerEnabled(session)) {
             try {
                 // Inside the executor for the same reason planScan is: the metaClient opens filesystems.
-                Optional<String> dict = executor.execute(() -> schemaEvolutionDict(hudiHandle, columns));
+                // When statement-scoped reuse is active, use the SAME metaClient planScan cached at the
+                // scope so the schema evolution dictionary reflects the same generation the scan plan
+                // was built against.
+                Optional<String> dict = executor.execute(() -> schemaEvolutionDict(session, hudiHandle, columns));
                 dict.ifPresent(v -> props.put(SCHEMA_EVOLUTION_PROP, v));
             } catch (Exception e) {
                 LOG.warn("Failed to build Hudi schema-evolution dict for {}.{}; native reads fall back to BY_NAME: {}",
@@ -430,9 +520,14 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /** The native-reader schema-evolution dictionary of {@code getScanNodeProperties}, or empty. */
-    private Optional<String> schemaEvolutionDict(HudiTableHandle hudiHandle, List<ConnectorColumnHandle> columns)
-            throws Exception {
-        HoodieTableMetaClient metaClient = buildMetaClient(buildHadoopConf(), hudiHandle.getBasePath());
+    private Optional<String> schemaEvolutionDict(ConnectorSession session, HudiTableHandle hudiHandle,
+            List<ConnectorColumnHandle> columns) throws Exception {
+        // When statement-scoped reuse is active, use the SAME metaClient planScan cached at the scope
+        // so the schema evolution dictionary reflects the same generation the scan plan was built
+        // against. Without this, a same-path table recreation can give getScanNodeProperties a
+        // different generation than doPlanScan used, pairing generation-A ranges with generation-B
+        // history_schema_info dictionary.
+        HoodieTableMetaClient metaClient = resolveMetaClientConsistent(session, hudiHandle);
         TableSchemaResolver schemaResolver = new TableSchemaResolver(metaClient);
         // HD-C5b: FOR TIME AS OF over a schema-on-read table -> re-resolve the native -1 overlay from the
         // FULL schema AT the pinned instant. The requested column HANDLES are latest-keyed
@@ -1163,5 +1258,97 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     /** This catalog's engine-owned storage services (see {@link ConnectorContext#getStorageContext()}). */
     private ConnectorStorageContext storage() {
         return context.getStorageContext();
+    }
+
+    /** Package-private for offline unit tests of key construction. */
+    static HudiScanReuseKey hudiScanReuseKey(HudiTableHandle handle, String generation) {
+        return new HudiScanReuseKey(handle, generation);
+    }
+
+    /**
+     * Statement-scoped cache key for one Hudi scan.
+     *
+     * <p>Includes every input that changes the planned split list: table identity, the snapshot
+     * instant, the incremental window (begin/end instant + incremental options), the pruned
+     * partition set, the partition keys, the JNI metadata carriers (input format / serde), and
+     * the resolved table generation (latest completed instant). The generation fences the key
+     * against same-path table recreation: without it, alias A's ranges (stamped with
+     * generation-A per-file schema_id values) could be paired with alias B's generation-B
+     * history_schema_info dictionary, causing BE to map files through wrong field identities.
+     * Session variables are statement-constant and deliberately absent.
+     */
+    static final class HudiScanReuseKey {
+        private final String dbName;
+        private final String tableName;
+        private final String basePath;
+        private final String queryInstant;
+        private final String beginInstant;
+        private final String endInstant;
+        private final Map<String, String> incrementalParams;
+        private final List<String> prunedPartitionPaths;
+        private final List<String> partitionKeyNames;
+        private final String inputFormat;
+        private final String serdeLib;
+        private final String generation;
+
+        // Hudi scan-planning identity is fully captured by the handle, its query/incremental
+        // parameters, and the resolved table generation; request-level filter, columns, and
+        // countPushdown do not affect split planning and are deliberately excluded from the key.
+        private HudiScanReuseKey(HudiTableHandle handle, String generation) {
+            // Catalog and query isolation are provided by the statement-scope memo key.
+            this.dbName = handle.getDbName();
+            this.tableName = handle.getTableName();
+            this.basePath = handle.getBasePath();
+            this.queryInstant = handle.getQueryInstant();
+            this.beginInstant = handle.getBeginInstant();
+            this.endInstant = handle.getEndInstant();
+            this.incrementalParams = handle.getIncrementalParams() == null
+                    ? Collections.emptyMap()
+                    : Collections.unmodifiableMap(new HashMap<>(handle.getIncrementalParams()));
+            this.prunedPartitionPaths = handle.getPrunedPartitionPaths() == null
+                    ? null
+                    : Collections.unmodifiableList(new ArrayList<>(handle.getPrunedPartitionPaths()));
+            this.partitionKeyNames = handle.getPartitionKeyNames() == null
+                    ? Collections.emptyList()
+                    : Collections.unmodifiableList(new ArrayList<>(handle.getPartitionKeyNames()));
+            this.inputFormat = handle.getInputFormat();
+            this.serdeLib = handle.getSerdeLib();
+            this.generation = generation;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof HudiScanReuseKey)) {
+                return false;
+            }
+            HudiScanReuseKey that = (HudiScanReuseKey) object;
+            return Objects.equals(dbName, that.dbName)
+                    && Objects.equals(tableName, that.tableName)
+                    && Objects.equals(basePath, that.basePath)
+                    && Objects.equals(queryInstant, that.queryInstant)
+                    && Objects.equals(beginInstant, that.beginInstant)
+                    && Objects.equals(endInstant, that.endInstant)
+                    && Objects.equals(incrementalParams, that.incrementalParams)
+                    && Objects.equals(prunedPartitionPaths, that.prunedPartitionPaths)
+                    && Objects.equals(partitionKeyNames, that.partitionKeyNames)
+                    && Objects.equals(inputFormat, that.inputFormat)
+                    && Objects.equals(serdeLib, that.serdeLib)
+                    && Objects.equals(generation, that.generation);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(dbName, tableName, basePath,
+                    queryInstant, beginInstant, endInstant, incrementalParams,
+                    prunedPartitionPaths, partitionKeyNames, inputFormat, serdeLib, generation);
+        }
+
+        @Override
+        public String toString() {
+            return "HudiScanReuseKey{table=" + dbName + "." + tableName + "}";
+        }
     }
 }
