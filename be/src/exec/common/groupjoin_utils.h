@@ -34,10 +34,13 @@
 namespace doris {
 
 struct GroupJoinEntry {
+    // Aggregate states immediately follow this fixed-size header in the same
+    // AggregateDataContainer value slot.
     uint64_t build_count = 0;
     uint64_t probe_count = 0;
-    AggregateDataPtr agg_states = nullptr;
 };
+
+static_assert(sizeof(GroupJoinEntry) == 2 * sizeof(uint64_t));
 
 template <typename T>
 using GroupJoinData = PHHashMap<T, GroupJoinEntry*, HashCRC32<T>>;

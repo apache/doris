@@ -132,9 +132,9 @@ Status GroupJoinProbeOperatorX::push(RuntimeState* state, Block* input_block, bo
         int64_t matched_rows = 0;
         uint32_t matched_probe_rows = 0;
         RETURN_IF_ERROR(groupjoin::update_probe_counts(
-                local_state._shared_state, *local_state._shared_state->arena,
-                local_state._probe_key_not_nullable_columns, rows, null_map, _aggregate_indices,
-                local_state._places.data(), matched_rows, matched_probe_rows));
+                local_state._shared_state, local_state._probe_key_not_nullable_columns, rows,
+                null_map, _aggregate_indices, local_state._places.data(), matched_rows,
+                matched_probe_rows));
         local_state._shared_state->total_match_count += matched_rows;
         for (size_t i = 0; i < local_state._aggregate_evaluators.size(); ++i) {
             const auto offset =
@@ -167,10 +167,10 @@ Status GroupJoinProbeOperatorX::pull(RuntimeState* state, Block* output_block, b
         return Status::OK();
     }
 
-    auto columns_with_schema = VectorizedUtils::create_columns_with_type_and_name(
-            operator_row_desc_before_projection());
     const size_t key_size = local_state._probe_expr_ctxs.size();
     const size_t agg_size = shared_state->aggregate_evaluators.size();
+    auto columns_with_schema = VectorizedUtils::create_columns_with_type_and_name(
+            operator_row_desc_before_projection());
     DCHECK_EQ(columns_with_schema.size(), key_size + agg_size);
 
     MutableColumns key_columns;
