@@ -325,6 +325,22 @@ public class ConnectContextTest {
     }
 
     @Test
+    public void testThreadInfoUsesSessionCloudCluster() {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getSelfNode())
+                    .thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9030));
+
+            ConnectContext ctx = new ConnectContext();
+            ctx.cloudCluster = "test";
+            ctx.setCloudCluster("test1");
+
+            List<String> row = ctx.toThreadInfo(false).toRow(-1, 0, Optional.empty());
+            Assertions.assertEquals("test1", row.get(14));
+        }
+    }
+
+    @Test
     public void testSleepTimeout() {
         ConnectContext ctx = new ConnectContext();
         ctx.setCommand(MysqlCommand.COM_SLEEP);
