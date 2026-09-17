@@ -21,43 +21,43 @@ import org.awaitility.Awaitility;
 
 Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_id,
                                           Integer timeout_sec = 10, Integer max_retries = 10  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id),
-            null, timeout_sec, context.config.feHttpUser, context.config.feHttpPassword, max_retries)
+    return delegate.curl("GET", String.format("http://%s:%s/api/compaction/run_status?tablet_id=%s", ip, port, tablet_id),
+            null, timeout_sec, "", "", max_retries)
 }
 
 Suite.metaClass.be_get_overall_compaction_status{ String ip, String port  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
+    return delegate.curl("GET", String.format("http://%s:%s/api/compaction/run_status", ip, port))
 }
 
 Suite.metaClass.be_show_tablet_status{ String ip, String port, String tablet_id,
                                       Integer timeout_sec = 10, Integer max_retries = 10  /* param */->
-    return curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id),
-            null, timeout_sec, context.config.feHttpUser, context.config.feHttpPassword, max_retries)
+    return delegate.curl("GET", String.format("http://%s:%s/api/compaction/show?tablet_id=%s", ip, port, tablet_id),
+            null, timeout_sec, "", "", max_retries)
 }
 
 Suite.metaClass._be_run_compaction = { String ip, String port, String tablet_id, String compact_type ->
-    return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=%s",
+    return delegate.curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=%s",
             ip, port, tablet_id, compact_type))
 }
 
 Suite.metaClass.be_run_base_compaction = { String ip, String port, String tablet_id  /* param */->
-    return _be_run_compaction(ip, port, tablet_id, "base")
+    return delegate._be_run_compaction(ip, port, tablet_id, "base")
 }
 
 logger.info("Added 'be_run_base_compaction' function to Suite")
 
 Suite.metaClass.be_run_cumulative_compaction = { String ip, String port, String tablet_id  /* param */->
-    return _be_run_compaction(ip, port, tablet_id, "cumulative")
+    return delegate._be_run_compaction(ip, port, tablet_id, "cumulative")
 }
 
 logger.info("Added 'be_run_cumulative_compaction' function to Suite")
 
 Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet_id  /* param */->
-    return _be_run_compaction(ip, port, tablet_id, "full")
+    return delegate._be_run_compaction(ip, port, tablet_id, "full")
 }
 
 Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, String table_id  /* param */->
-    return curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id))
+    return delegate.curl("POST", String.format("http://%s:%s/api/compaction/run?table_id=%s&compact_type=full", ip, port, table_id))
 }
 
 logger.info("Added 'be_run_full_compaction' function to Suite")
@@ -89,7 +89,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
     for (tablet in tablets) {
         def be_host = backendId_to_backendIP["${tablet.BackendId}"]
         def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
-        (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
+        (exit_code, stdout, stderr) = delegate.be_show_tablet_status(be_host, be_port, tablet.TabletId)
         assert exit_code == 0: "get tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
 
         def tabletStatus = parseJson(stdout.trim())
@@ -104,13 +104,13 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
         while (true) {
             switch (compaction_type) {
                 case "cumulative":
-                    (exit_code, stdout, stderr) = be_run_cumulative_compaction(be_host, be_port, tablet.TabletId)
+                    (exit_code, stdout, stderr) = delegate.be_run_cumulative_compaction(be_host, be_port, tablet.TabletId)
                     break
                 case "base":
-                    (exit_code, stdout, stderr) = be_run_base_compaction(be_host, be_port, tablet.TabletId)
+                    (exit_code, stdout, stderr) = delegate.be_run_base_compaction(be_host, be_port, tablet.TabletId)
                     break
                 case "full":
-                    (exit_code, stdout, stderr) = be_run_full_compaction(be_host, be_port, tablet.TabletId)
+                    (exit_code, stdout, stderr) = delegate.be_run_full_compaction(be_host, be_port, tablet.TabletId)
                     break
             }
             assert exit_code == 0: "trigger compaction failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
@@ -126,7 +126,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                 // The transient trigger failure updates the tablet's failure timestamp.
                 // Refresh the baseline so it cannot be mistaken for completion of the
                 // later successful asynchronous trigger.
-                (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
+                (exit_code, stdout, stderr) = delegate.be_show_tablet_status(be_host, be_port, tablet.TabletId)
                 assert exit_code == 0:
                         "refresh tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
                 be_tablet_compaction_status.put("${be_host}-${tablet.TabletId}", parseJson(stdout.trim()))
@@ -171,7 +171,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
 
             // Awaitility owns the retry loop. Keep each HTTP probe bounded so an
             // inner curl retry cannot consume the entire compaction timeout.
-            (exit_code, stdout, stderr) = be_get_compaction_status(be_host, be_port, tablet.TabletId, 5, 1)
+            (exit_code, stdout, stderr) = delegate.be_get_compaction_status(be_host, be_port, tablet.TabletId, 5, 1)
             if (exit_code != 0) {
                 logger.warn("get compaction status failed, will retry, be host: ${be_host}, tablet id: ${tablet.TabletId}, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}")
                 return false
@@ -182,7 +182,7 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             running = compactionStatus.run_status
 
             if (!is_time_series_compaction) {
-                (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId, 5, 1)
+                (exit_code, stdout, stderr) = delegate.be_show_tablet_status(be_host, be_port, tablet.TabletId, 5, 1)
                 if (exit_code != 0) {
                     logger.warn("get tablet status failed, will retry, be host: ${be_host}, tablet id: ${tablet.TabletId}, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}")
                     return false
