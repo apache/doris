@@ -87,7 +87,6 @@ public:
                 if (!CastToInt::from_int(vec_from[i], vec_to[i], params)) {
                     if constexpr (CastMode == CastModeType::NonStrictMode) {
                         vec_null_map_to[i] = 1;
-                        vec_to[i] = typename ToDataType::FieldType {};
                         continue;
                     } else {
                         return params.status;
@@ -97,7 +96,6 @@ public:
                 if (!CastToInt::from_float(vec_from[i], vec_to[i], params)) {
                     if constexpr (CastMode == CastModeType::NonStrictMode) {
                         vec_null_map_to[i] = 1;
-                        vec_to[i] = typename ToDataType::FieldType {};
                         continue;
                     } else {
                         return params.status;
@@ -107,7 +105,6 @@ public:
                 if (!CastToInt::from_time(vec_from[i], vec_to[i], params)) {
                     if constexpr (CastMode == CastModeType::NonStrictMode) {
                         vec_null_map_to[i] = 1;
-                        vec_to[i] = typename ToDataType::FieldType {};
                         continue;
                     } else {
                         return params.status;
@@ -201,7 +198,6 @@ public:
                         vec_from_data[i], from_precision, from_scale, vec_to_data[i], params)) {
                 if (set_nullable) {
                     null_map_data[i] = 1;
-                    vec_to_data[i] = typename ToDataType::FieldType {};
                 } else {
                     return params.status;
                 }

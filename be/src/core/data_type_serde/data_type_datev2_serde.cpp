@@ -519,11 +519,7 @@ Status DataTypeDateV2SerDe::from_string_strict_mode_batch(
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < row; ++i) {
-        // A row marked as NULL is a hidden payload: skip it, but keep the destination at the default
-        // value of the type instead of leaving it uninitialized for consumers that ignore the NULL
-        // map.
         if (null_map && null_map[i]) {
-            col_data.get_data()[i] = MIN_DATE_V2;
             continue;
         }
         auto str = col_str.get_data_at(i);
