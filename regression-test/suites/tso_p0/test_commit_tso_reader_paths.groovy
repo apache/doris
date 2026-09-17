@@ -71,6 +71,17 @@ suite("test_commit_tso_reader_paths", "nonConcurrent") {
     sql "SELECT v FROM test_commit_tso_reader_mow WHERE k = 1"
     check_sql_equal("SELECT __DORIS_COMMIT_TSO_COL__ FROM test_commit_tso_reader_mow WHERE k = 1",
                     "SELECT CAST(${firstTso} AS BIGINT)")
+    // Full row store still resolves TSO through its source rowset when ordinary column-store
+    // access is disabled. Exercise both an empty JSONB projection and mixed output slot order.
+    check_sql_equal("""SELECT /*+ SET_VAR(enable_short_circuit_query_access_column_store=false) */
+                         __DORIS_COMMIT_TSO_COL__ FROM test_commit_tso_reader_mow WHERE k = 1""",
+                    "SELECT CAST(${firstTso} AS BIGINT)")
+    check_sql_equal("""SELECT /*+ SET_VAR(enable_short_circuit_query_access_column_store=false) */
+                         __DORIS_COMMIT_TSO_COL__, v FROM test_commit_tso_reader_mow WHERE k = 1""",
+                    "SELECT CAST(${firstTso} AS BIGINT), 7")
+    check_sql_equal("""SELECT /*+ SET_VAR(enable_short_circuit_query_access_column_store=false) */
+                         v, __DORIS_COMMIT_TSO_COL__ FROM test_commit_tso_reader_mow WHERE k = 2""",
+                    "SELECT 8, CAST(${firstTso} AS BIGINT)")
 
     sql "SET enable_unique_key_partial_update = true"
     sql "INSERT INTO test_commit_tso_reader_mow(k, v) VALUES (1, 70)"

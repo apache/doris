@@ -24,71 +24,332 @@
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "exprs/vexpr.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/cached_remote_file_reader.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/point_query_executor.h"
 #include "storage/mow/mow_transform_test_base.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/segment_loader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
-class PointQueryCommitTsoTest : public MowTransformTestBase {};
+class PointQueryCommitTsoTest : public MowTransformTestBase {
+protected:
+    TabletSchemaSPtr tso_schema(bool partial_row_store = false, bool row_store = true) {
+        auto schema = row_store ? create_row_store_schema() : create_mow_schema(false);
+        TabletSchemaPB pb;
+        schema->to_schema_pb(&pb);
+        pb.set_delete_sign_idx(2);
+        if (partial_row_store) {
+            // Deliberately claim TSO is covered by row store; its logical value must still
+            // come from the source rowset. The ordinary value column needs column-store I/O.
+            for (int uid : {0, 2, 10}) {
+                pb.add_row_store_column_unique_ids(uid);
+            }
+        }
+        schema->init_from_pb(pb);
+        schema->append_column(*create_commit_tso_column(10));
+        return schema;
+    }
+
+    Status init_executor(PointQueryExecutor& executor, const TabletSchemaSPtr& schema,
+                         const TabletSharedPtr& tablet, const RowsetSharedPtr& rowset,
+                         const std::vector<int>& uids, bool allow_column_store = true) {
+        TDescriptorTableBuilder descriptors;
+        TTupleDescriptorBuilder tuple;
+        std::vector<TExpr> exprs;
+        for (size_t pos = 0; pos < uids.size(); ++pos) {
+            const auto& column = schema->column_by_uid(uids[pos]);
+            auto type = TYPE_INT;
+            if (uids[pos] == 10) {
+                type = TYPE_BIGINT;
+            } else if (uids[pos] == 2) {
+                type = TYPE_TINYINT;
+            }
+            auto slot = TSlotDescriptorBuilder()
+                                .type(type)
+                                .nullable(column.is_nullable())
+                                .column_name(column.name())
+                                .column_pos(pos)
+                                .build();
+            slot.__set_col_unique_id(uids[pos]);
+            tuple.add_slot(slot);
+            if (uids[pos] == 2) {
+                continue; // Delete sign is required for filtering, not an output expression.
+            }
+            TExprNode node;
+            node.__set_node_type(TExprNodeType::SLOT_REF);
+            node.__set_type(create_type_desc(type));
+            node.__set_is_nullable(column.is_nullable());
+            TSlotRef ref;
+            ref.__set_slot_id(pos);
+            ref.__set_tuple_id(0);
+            node.__set_slot_ref(ref);
+            TExpr expr;
+            expr.__set_nodes({node});
+            exprs.push_back(expr);
+        }
+        tuple.build(&descriptors);
+        TQueryOptions options;
+        options.__set_enable_short_circuit_query_access_column_store(allow_column_store);
+        executor._reusable = std::make_shared<Reusable>();
+        RETURN_IF_ERROR(executor._reusable->init(descriptors.desc_tbl(), exprs, options, *schema));
+        executor._tablet = tablet;
+        executor._result_block = executor._reusable->get_block();
+        executor._row_hits = 2;
+        executor._row_read_ctxs.resize(2);
+        for (uint32_t i = 0; i < 2; ++i) {
+            auto& ctx = executor._row_read_ctxs[i];
+            ctx._row_location = RowLocation(rowset->rowset_id(), 0, i);
+            rowset->acquire();
+            ctx._rowset_ptr.reset(new RowsetSharedPtr(rowset));
+        }
+        return Status::OK();
+    }
+
+    void expect_tso(const PointQueryExecutor& executor, int64_t first, int64_t second) {
+        const int pos = executor._reusable->commit_tso_idx();
+        const auto& result = assert_cast<const ColumnInt64&>(
+                *executor._result_block->get_by_position(pos).column);
+        ASSERT_EQ(2, result.size());
+        EXPECT_EQ(first, result.get_element(0));
+        EXPECT_EQ(second, result.get_element(1));
+        for (const auto& column : executor._result_block->get_columns()) {
+            EXPECT_EQ(2, column->size());
+        }
+    }
+
+    void expect_values(const PointQueryExecutor& executor) {
+        const int pos = executor._reusable->get_col_uid_to_idx().at(1);
+        const auto& result = assert_cast<const ColumnNullable&>(
+                *executor._result_block->get_by_position(pos).column);
+        const auto& values = assert_cast<const ColumnInt32&>(result.get_nested_column());
+        ASSERT_EQ(2, values.size());
+        EXPECT_EQ(11, values.get_element(0));
+        EXPECT_EQ(22, values.get_element(1));
+    }
+
+    void check_projection(bool partial_row_store, const std::vector<int>& uids,
+                          bool allow_column_store) {
+        auto schema = tso_schema(partial_row_store);
+        TabletSharedPtr tablet;
+        auto rowset =
+                write_rowset(schema, 6051, 2, {{.k = 1, .v = 11}, {.k = 2, .v = 22}}, &tablet);
+        rowset->make_visible(Version(2, 2), 42);
+        Defer erase_segments(
+                [&] { SegmentLoader::instance()->erase_segments(*rowset->rowset_meta()); });
+        PointQueryExecutor executor;
+        ASSERT_TRUE(init_executor(executor, schema, tablet, rowset, uids, allow_column_store).ok());
+        EXPECT_FALSE(executor._reusable->include_col_uids().contains(10));
+        EXPECT_TRUE(executor._reusable->missing_col_uids().contains(10));
+        ASSERT_TRUE(executor._lookup_row_data().ok());
+        expect_tso(executor, 42, 42);
+        if (executor._reusable->get_col_uid_to_idx().contains(1)) {
+            expect_values(executor);
+        } else {
+            // TSO-only queries need no JSONB/data-page read for a published singleton.
+            EXPECT_TRUE(executor._reusable->include_col_uids().empty());
+            EXPECT_EQ(0, executor.read_stats().total_pages_num);
+        }
+    }
+
+    RowsetSharedPtr write_multiversion_rowset(const TabletSchemaSPtr& schema,
+                                              TabletSharedPtr* tablet) {
+        auto rowset = write_rowset_block(
+                schema, 6055, 2,
+                [](Block& block) {
+                    auto columns_guard = block.mutate_columns_scoped();
+                    auto& columns = columns_guard.mutable_columns();
+                    for (int32_t i = 1; i <= 2; ++i) {
+                        const int32_t value = i * 11;
+                        const int64_t tso = i * 100;
+                        columns[0]->insert_data(reinterpret_cast<const char*>(&i), sizeof(i));
+                        columns[1]->insert_data(reinterpret_cast<const char*>(&value),
+                                                sizeof(value));
+                        columns[2]->insert_default();
+                        columns[3]->insert_default();
+                        columns[4]->insert_data(reinterpret_cast<const char*>(&tso), sizeof(tso));
+                    }
+                },
+                tablet);
+        rowset->make_visible(Version(2, 3), 200);
+        rowset->rowset_meta()->set_commit_tso(TsoRange {100, 200});
+        return rowset;
+    }
+
+    void expect_remote_read_stats(const PointQueryExecutor& executor) {
+        const auto& stats = executor._profile_metrics.read_stats;
+        EXPECT_GT(stats.total_pages_num, 0);
+        EXPECT_GT(stats.compressed_bytes_read, 0);
+        EXPECT_GT(stats.io_ns, 0);
+        EXPECT_GT(stats.file_cache_stats.bytes_read_from_remote, 0);
+        EXPECT_GT(stats.file_cache_stats.remote_io_timer, 0);
+    }
+
+    void expect_cache_policy(const PointQueryExecutor& executor, io::BlockFileCache* cache,
+                             const io::UInt128Wrapper& key, bool limited) {
+        const auto& stats = executor._profile_metrics.read_stats;
+        if (limited) {
+            EXPECT_EQ(0, stats.file_cache_stats.bytes_write_into_cache);
+            EXPECT_GT(stats.file_cache_stats.num_skip_cache_io_total, 0);
+            EXPECT_TRUE(cache->get_blocks_by_key(key).empty());
+        } else {
+            // Control: the same cold physical read normally admits data into file cache.
+            EXPECT_GT(stats.file_cache_stats.bytes_write_into_cache, 0);
+            EXPECT_FALSE(cache->get_blocks_by_key(key).empty());
+        }
+    }
+
+    void check_remote_tso_read(int64_t budget, bool exhaust_budget);
+};
 
 TEST_F(PointQueryCommitTsoTest, RowStoreResolvesCommitTsoForEveryRow) {
-    auto schema = create_row_store_schema();
-    TabletSchemaPB schema_pb;
-    schema->to_schema_pb(&schema_pb);
-    schema_pb.set_delete_sign_idx(2);
-    schema->init_from_pb(schema_pb);
-    schema->append_column(*create_commit_tso_column(10));
-    TabletSharedPtr tablet;
-    auto rowset = write_rowset(schema, 6051, 2, {{1, 11}, {2, 22}}, &tablet);
-    rowset->make_visible(Version(2, 2), 42);
+    check_projection(false, {10}, false);
+}
 
-    auto slot = TSlotDescriptorBuilder()
-                        .type(TYPE_BIGINT)
-                        .nullable(false)
-                        .column_name(COMMIT_TSO_COL)
-                        .column_pos(0)
-                        .build();
-    slot.__set_col_unique_id(10);
-    TDescriptorTableBuilder descriptors;
-    TTupleDescriptorBuilder().add_slot(slot).build(&descriptors);
-    TExprNode node;
-    node.__set_node_type(TExprNodeType::SLOT_REF);
-    node.__set_type(create_type_desc(TYPE_BIGINT));
-    node.__set_is_nullable(false);
-    TSlotRef ref;
-    ref.__set_slot_id(0);
-    ref.__set_tuple_id(0);
-    node.__set_slot_ref(ref);
-    TExpr expr;
-    expr.__set_nodes({node});
-    auto reusable = std::make_shared<Reusable>();
-    ASSERT_TRUE(reusable->init(descriptors.desc_tbl(), {expr}, TQueryOptions {}, *schema).ok());
-    ASSERT_EQ(0, reusable->commit_tso_idx());
+TEST_F(PointQueryCommitTsoTest, FullRowStoreSkipsTsoPlaceholder) {
+    check_projection(false, {10, 1, 2}, false);
+}
+
+TEST_F(PointQueryCommitTsoTest, FullRowStoreWithTsoAfterValue) {
+    check_projection(false, {1, 10, 2}, true);
+}
+
+TEST_F(PointQueryCommitTsoTest, PartialRowStoreResolvesTsoAndMissingValue) {
+    check_projection(true, {10, 1, 2}, true);
+}
+
+TEST_F(PointQueryCommitTsoTest, PartialRowStoreTsoOnlyWithColumnStoreDisabled) {
+    check_projection(true, {10}, false);
+}
+
+TEST_F(PointQueryCommitTsoTest, DisabledColumnStoreStillRejectsOrdinaryMissingColumns) {
+    auto schema = tso_schema(true);
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 6052, 2, {{.k = 1, .v = 11}, {.k = 2, .v = 22}}, &tablet);
+    rowset->make_visible(Version(2, 2), 42);
+    Defer erase_segments(
+            [&] { SegmentLoader::instance()->erase_segments(*rowset->rowset_meta()); });
+    PointQueryExecutor executor;
+    ASSERT_TRUE(init_executor(executor, schema, tablet, rowset, {10, 1, 2}, false).ok());
+    const auto status = executor._lookup_row_data();
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("missing columns: v,"));
+}
+
+TEST_F(PointQueryCommitTsoTest, ColumnStoreOnlyResolvesTsoAndValues) {
+    auto schema = tso_schema(false, false);
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 6053, 2, {{.k = 1, .v = 11}, {.k = 2, .v = 22}}, &tablet);
+    rowset->make_visible(Version(2, 2), 42);
+    Defer erase_segments(
+            [&] { SegmentLoader::instance()->erase_segments(*rowset->rowset_meta()); });
+    PointQueryExecutor executor;
+    ASSERT_TRUE(init_executor(executor, schema, tablet, rowset, {10, 1, 2}).ok());
+    EXPECT_TRUE(executor._reusable->include_col_uids().empty());
+    ASSERT_TRUE(executor._lookup_row_data().ok());
+    expect_tso(executor, 42, 42);
+    expect_values(executor);
+    EXPECT_GT(executor.read_stats().total_pages_num, 0);
+    EXPECT_EQ(&executor.read_stats(), &executor._profile_metrics.read_stats);
+}
+
+TEST_F(PointQueryCommitTsoTest, OrdinaryRowStoreQueryStillFiltersDeleteSign) {
+    auto schema = tso_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(
+            schema, 6054, 2,
+            {{.k = 1, .v = 11, .delete_sign = 1}, {.k = 2, .v = 22, .delete_sign = 1}}, &tablet);
+    Defer erase_segments(
+            [&] { SegmentLoader::instance()->erase_segments(*rowset->rowset_meta()); });
+    PointQueryExecutor executor;
+    ASSERT_TRUE(init_executor(executor, schema, tablet, rowset, {1, 2}, false).ok());
+    EXPECT_TRUE(executor._reusable->missing_col_uids().empty());
+    ASSERT_TRUE(executor._lookup_row_data().ok());
+    EXPECT_EQ(0, executor._result_block->rows());
+}
+
+void PointQueryCommitTsoTest::check_remote_tso_read(int64_t budget, bool exhaust_budget) {
+    const bool old_disable_page_cache = config::disable_storage_page_cache;
+    config::disable_storage_page_cache = true;
+    Defer restore_config([&] { config::disable_storage_page_cache = old_disable_page_cache; });
+    io::FileCacheFactory cache_factory;
+    auto* old_factory = io::FileCacheFactory::instance();
+    ExecEnv::GetInstance()->set_file_cache_factory(&cache_factory);
+    Defer restore_factory([&] { ExecEnv::GetInstance()->set_file_cache_factory(old_factory); });
+    auto settings = io::get_file_cache_settings(8 * 1024 * 1024, 0, 75, 12, 13, 0, "memory");
+    ASSERT_TRUE(cache_factory.create_file_cache("memory", settings).ok());
+    // The default UT loader has only 1000 bytes of capacity and would evict this segment,
+    // causing the point query to reopen the local file instead of using our remote reader.
+    SegmentLoader segment_loader(64 * 1024 * 1024, 1000);
+    auto* old_loader = SegmentLoader::instance();
+    ExecEnv::GetInstance()->set_segment_loader(&segment_loader);
+    Defer restore_loader([&] { ExecEnv::GetInstance()->set_segment_loader(old_loader); });
+
+    auto schema = tso_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_multiversion_rowset(schema, &tablet);
+    Defer erase_segments(
+            [&] { SegmentLoader::instance()->erase_segments(*rowset->rowset_meta()); });
+    SegmentCacheHandle segments;
+    ASSERT_TRUE(
+            SegmentLoader::instance()
+                    ->load_segments(std::static_pointer_cast<BetaRowset>(rowset), &segments, true)
+                    .ok());
+    ASSERT_EQ(1, segments.get_segments().size());
+    auto segment = segments.get_segments()[0];
+    // Use the real cloud file-cache reader with a local file standing in for object storage,
+    // as in BlockFileCacheTest. Footer is loaded, but TSO readers and data pages are still cold.
+    io::FileReaderOptions reader_options;
+    reader_options.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    reader_options.is_doris_table = true;
+    reader_options.tablet_id = tablet->tablet_id();
+    segment->_file_reader =
+            std::make_shared<io::CachedRemoteFileReader>(segment->file_reader(), reader_options);
+    SegmentCacheHandle cached_segments;
+    ASSERT_TRUE(SegmentLoader::instance()
+                        ->load_segments(std::static_pointer_cast<BetaRowset>(rowset),
+                                        &cached_segments, true)
+                        .ok());
+    ASSERT_EQ(segment, cached_segments.get_segments()[0]);
+    auto key = io::BlockFileCache::hash(segment->file_reader()->path().filename().string());
+    auto* cache = cache_factory.get_by_path(key);
+    EXPECT_TRUE(cache->get_blocks_by_key(key).empty());
 
     PointQueryExecutor executor;
-    executor._tablet = tablet;
-    executor._reusable = reusable;
-    executor._result_block = reusable->get_block();
-    executor._row_hits = 2;
-    executor._row_read_ctxs.resize(2);
-    for (uint32_t i = 0; i < 2; ++i) {
-        auto& ctx = executor._row_read_ctxs[i];
-        ctx._row_location = RowLocation(rowset->rowset_id(), 0, i);
-        rowset->acquire();
-        ctx._rowset_ptr.reset(new RowsetSharedPtr(rowset));
+    ASSERT_TRUE(init_executor(executor, schema, tablet, rowset, {10}, false).ok());
+    if (budget >= 0) {
+        executor._remote_scan_cache_write_limiter =
+                std::make_unique<io::RemoteScanCacheWriteLimiter>(TUniqueId {}, budget);
+    }
+    if (exhaust_budget) {
+        EXPECT_TRUE(executor._remote_scan_cache_write_limiter->try_admit_cache_write(budget));
+        EXPECT_FALSE(executor._remote_scan_cache_write_limiter->try_admit_cache_write(1));
     }
     ASSERT_TRUE(executor._lookup_row_data().ok());
-    const auto& result =
-            assert_cast<const ColumnInt64&>(*executor._result_block->get_by_position(0).column);
-    ASSERT_EQ(2, result.size());
-    EXPECT_EQ(42, result.get_element(0));
-    EXPECT_EQ(42, result.get_element(1));
+    expect_tso(executor, 100, 200);
+    expect_remote_read_stats(executor);
+    expect_cache_policy(executor, cache, key, budget >= 0);
+}
+
+TEST_F(PointQueryCommitTsoTest, PhysicalTsoHonorsZeroCacheWriteBudget) {
+    check_remote_tso_read(0, false);
+}
+
+TEST_F(PointQueryCommitTsoTest, PhysicalTsoHonorsExhaustedCacheWriteBudget) {
+    check_remote_tso_read(128, true);
+}
+
+TEST_F(PointQueryCommitTsoTest, PhysicalTsoPopulatesCacheWithoutLimiter) {
+    check_remote_tso_read(-1, false);
 }
 
 // Helper class for setting up Reusable objects to test LookupConnectionCache
@@ -469,7 +730,7 @@ TEST_F(LookupConnectionCacheTest, PQTestEntryLifetime) {
         auto entry = cache.get(123);
         ASSERT_NE(entry, nullptr);
         EXPECT_EQ(entry.use_count(), 3); // Cache + local reference
-    }                                    // Local reference released
+    } // Local reference released
 
     // Verify cache maintains ownership
     auto entry = cache.get(123);

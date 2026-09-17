@@ -79,9 +79,8 @@ public:
 
 Reusable::~Reusable() = default;
 
-// get missing and include column ids
-// input include_cids : the output expr slots columns unique ids
-// missing_cids : the output expr columns that not in row columns cids
+// Partition the required slots into explicit row-store and column-reader projections.
+// JSONB may contain a commit TSO placeholder, so it never supplies this column's logical value.
 static void get_missing_and_include_cids(const TabletSchema& schema,
                                          const std::vector<SlotDescriptor*>& slots,
                                          int target_rs_column_id,
@@ -89,25 +88,18 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
                                          std::unordered_set<int>& include_cids) {
     missing_cids.clear();
     include_cids.clear();
-    for (auto* slot : slots) {
-        missing_cids.insert(slot->col_unique_id());
-    }
-    // insert delete sign column id
-    missing_cids.insert(schema.columns()[schema.delete_sign_idx()]->unique_id());
-    if (target_rs_column_id == -1) {
-        // no row store columns
-        return;
-    }
-    const TabletColumn& target_rs_column = schema.column_by_uid(target_rs_column_id);
-    DCHECK(target_rs_column.is_row_store_column());
-    // The full column group is considered a full match, thus no missing cids
-    if (schema.row_columns_uids().empty()) {
-        missing_cids.clear();
-        return;
-    }
-    for (int cid : schema.row_columns_uids()) {
-        missing_cids.erase(cid);
-        include_cids.insert(cid);
+    const std::unordered_set<int32_t> row_store_cids(schema.row_columns_uids().begin(),
+                                                     schema.row_columns_uids().end());
+    for (const auto* slot : slots) {
+        const int cid = slot->col_unique_id();
+        const bool covered_by_row_store = target_rs_column_id != -1 &&
+                                          slot->col_name() != COMMIT_TSO_COL &&
+                                          (row_store_cids.empty() || row_store_cids.contains(cid));
+        if (covered_by_row_store) {
+            include_cids.insert(cid);
+        } else {
+            missing_cids.insert(cid);
+        }
     }
 }
 
@@ -178,6 +170,7 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     // get the delete sign idx in block
     if (has_delete_sign) {
         _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
+        output_slot_descs.push_back(tuple_desc()->slots()[_delete_sign_idx]);
     }
 
     if (schema.have_column(BeConsts::ROW_STORE_COL)) {
@@ -189,7 +182,6 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     for (const auto* slot : output_slot_descs) {
         if (slot->col_name() == COMMIT_TSO_COL) {
             _commit_tso_idx = _col_uid_to_idx.at(slot->col_unique_id());
-            _missing_col_uids.erase(slot->col_unique_id());
             break;
         }
     }
@@ -541,12 +533,14 @@ Status PointQueryExecutor::_lookup_row_data() {
         MutableColumns& result_columns = result_columns_guard.mutable_columns();
         for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
             if (_row_read_ctxs[i]._cached_row_data.valid()) {
-                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
-                        _reusable->get_data_type_serdes(),
-                        _row_read_ctxs[i]._cached_row_data.data().data,
-                        _row_read_ctxs[i]._cached_row_data.data().size,
-                        _reusable->get_col_uid_to_idx(), result_columns,
-                        _reusable->get_col_default_values(), _reusable->include_col_uids()));
+                if (!_reusable->include_col_uids().empty()) {
+                    RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
+                            _reusable->get_data_type_serdes(),
+                            _row_read_ctxs[i]._cached_row_data.data().data,
+                            _row_read_ctxs[i]._cached_row_data.data().size,
+                            _reusable->get_col_uid_to_idx(), result_columns,
+                            _reusable->get_col_default_values(), _reusable->include_col_uids()));
+                }
                 continue;
             }
             if (!_row_read_ctxs[i]._row_location.has_value()) {
@@ -554,9 +548,10 @@ Status PointQueryExecutor::_lookup_row_data() {
             }
             std::string value;
             const int tso_idx = _reusable->commit_tso_idx();
-            const size_t old_tso_rows = tso_idx == -1 ? 0 : result_columns[tso_idx]->size();
             // fill block by row store
-            if (_reusable->rs_column_uid() != -1) {
+            // An empty JSONB projection means no row-store read. The decoder interprets an
+            // empty include set as "all columns", which would also fill the TSO placeholder.
+            if (!_reusable->include_col_uids().empty()) {
                 bool use_row_cache = !config::disable_storage_row_cache && tso_idx == -1;
                 io::IOContext io_ctx;
                 io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -573,11 +568,19 @@ Status PointQueryExecutor::_lookup_row_data() {
                         _reusable->get_col_default_values(), _reusable->include_col_uids()));
             }
             if (!_reusable->missing_col_uids().empty()) {
-                if (!_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
+                // Resolving TSO is mandatory even for full row-store queries with column-store
+                // access disabled. Keep the existing restriction for ordinary missing columns.
+                const size_t missing_user_columns =
+                        _reusable->missing_col_uids().size() - (tso_idx != -1 ? 1 : 0);
+                if (missing_user_columns != 0 &&
+                    !_reusable->runtime_state()->enable_short_circuit_query_access_column_store()) {
                     std::string missing_columns;
                     for (int cid : _reusable->missing_col_uids()) {
-                        missing_columns +=
-                                _tablet->tablet_schema()->column_by_uid(cid).name() + ",";
+                        const auto& column = _tablet->tablet_schema()->column_by_uid(cid);
+                        if (column.name() == COMMIT_TSO_COL) {
+                            continue;
+                        }
+                        missing_columns += column.name() + ",";
                     }
                     return Status::InternalError(
                             "Not support column store, set store_row_column=true or "
@@ -586,17 +589,20 @@ Status PointQueryExecutor::_lookup_row_data() {
                 }
                 // fill missing columns by column store
                 RowLocation row_loc = _row_read_ctxs[i]._row_location.value();
-                BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
-                        _tablet->get_rowset(row_loc.rowset_id));
+                // Key lookup pins the source rowset for this read, even if compaction replaces
+                // it in the tablet's version map before the value fetch.
+                BetaRowsetSharedPtr rowset =
+                        std::static_pointer_cast<BetaRowset>(*(_row_read_ctxs[i]._rowset_ptr));
                 SegmentCacheHandle segment_cache;
                 io::IOContext io_ctx;
                 io_ctx.reader_type = ReaderType::READER_QUERY;
-                io_ctx.file_cache_stats = &_read_stats.file_cache_stats;
+                io_ctx.file_cache_stats = &_profile_metrics.read_stats.file_cache_stats;
                 io_ctx.remote_scan_cache_write_limiter = _remote_scan_cache_write_limiter.get();
                 {
                     SCOPED_TIMER(&_profile_metrics.load_segment_data_stage_ns);
                     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                            rowset, &segment_cache, true, false, &_read_stats, &io_ctx));
+                            rowset, &segment_cache, true, false, &_profile_metrics.read_stats,
+                            &io_ctx));
                 }
                 // find segment
                 auto it = std::find_if(segment_cache.get_segments().cbegin(),
@@ -613,7 +619,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                     std::unique_ptr<ColumnIterator> iter;
                     SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
                     StorageReadOptions storage_read_options;
-                    storage_read_options.stats = &_read_stats;
+                    storage_read_options.stats = &_profile_metrics.read_stats;
                     storage_read_options.io_ctx = io_ctx;
                     storage_read_options.tablet_schema = rowset->tablet_schema();
                     storage_read_options.rowset_id = rowset->rowset_id();
@@ -623,15 +629,6 @@ Status PointQueryExecutor::_lookup_row_data() {
                                                                     row_ids, column,
                                                                     storage_read_options, iter));
                 }
-            }
-            if (tso_idx != -1) {
-                const auto& loc = _row_read_ctxs[i]._row_location.value();
-                auto& column = result_columns[tso_idx];
-                column->resize(old_tso_rows);
-                const auto* slot = _reusable->tuple_desc()->slots()[tso_idx];
-                RETURN_IF_ERROR(BaseTablet::fetch_value_by_rowids(
-                        *(_row_read_ctxs[i]._rowset_ptr), loc.segment_id, {loc.row_id},
-                        _tablet->tablet_schema()->column_by_uid(slot->col_unique_id()), column));
             }
         }
         if (result_columns.size() > _reusable->include_col_uids().size()) {

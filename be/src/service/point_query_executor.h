@@ -94,9 +94,9 @@ public:
 
     int32_t rs_column_uid() const { return _row_store_column_ids; }
 
-    const std::unordered_set<int32_t> missing_col_uids() const { return _missing_col_uids; }
+    const std::unordered_set<int32_t>& missing_col_uids() const { return _missing_col_uids; }
 
-    const std::unordered_set<int32_t> include_col_uids() const { return _include_col_uids; }
+    const std::unordered_set<int32_t>& include_col_uids() const { return _include_col_uids; }
 
     RuntimeState* runtime_state() { return _runtime_state.get(); }
 
@@ -119,9 +119,9 @@ private:
     std::vector<std::string> _col_default_values;
     // picked rowstore(column group) column unique id
     int32_t _row_store_column_ids = -1;
-    // some column is missing in rowstore(column group), we need to fill them with column store values
+    // Required columns not supplied by row store, including logical commit TSO.
     std::unordered_set<int32_t> _missing_col_uids;
-    // included cids in rowstore(column group)
+    // Explicit row-store projection; empty means skip row-store reading and JSONB decoding.
     std::unordered_set<int32_t> _include_col_uids;
     // delete sign idx in block
     int32_t _delete_sign_idx = -1;
@@ -309,7 +309,7 @@ public:
 
     void print_profile();
 
-    const OlapReaderStatistics& read_stats() const { return _read_stats; }
+    const OlapReaderStatistics& read_stats() const { return _profile_metrics.read_stats; }
 
 private:
     Status _init_keys(const PTabletKeyLookupRequest* request);
@@ -348,7 +348,6 @@ private:
     std::unique_ptr<Block> _result_block;
     Metrics _profile_metrics;
     bool _binary_row_format = false;
-    OlapReaderStatistics _read_stats;
     std::unique_ptr<io::RemoteScanCacheWriteLimiter> _remote_scan_cache_write_limiter;
     int32_t _row_hits = 0;
     // snapshot read version
