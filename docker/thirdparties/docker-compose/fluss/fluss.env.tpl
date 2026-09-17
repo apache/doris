@@ -17,9 +17,9 @@
 # under the License.
 
 # Rendered to fluss.env by run-thirdparties-docker.sh (envsubst).
-# build-images.sh also sources this template directly, for the snapshot version,
-# the image tags and the paimon/hadoop versions, so keep those lines free of
-# variable references.
+# build-images.sh also sources this template directly, for the fluss version
+# and repository, the image tags and the paimon/hadoop versions, so keep those
+# lines free of variable references.
 
 DOCKER_FLUSS_ZOOKEEPER_EXTERNAL_PORT=22181
 DOCKER_FLUSS_COORDINATOR_EXTERNAL_PORT=19123
@@ -27,21 +27,33 @@ DOCKER_FLUSS_TABLET_EXTERNAL_PORT=19124
 DOCKER_FLUSS_FLINK_JOBMANAGER_EXTERNAL_PORT=18085
 DOCKER_FLUSS_MINIO_EXTERNAL_PORT=19125
 
-# Fluss 1.0 is not released yet, so there is no published image to pull:
-# build-images.sh builds both tags from the 1.0-SNAPSHOT artifacts the fluss
-# project deploys to the apache maven snapshots repository (fluss-dist for the
-# server image; the flink connector, the tiering job and fluss-lake-paimon for
-# the flink image). The build is pinned to one timestamped snapshot -- the same
-# one fe/pom.xml pins fluss.version to, so the cluster the suites run against is
-# the build the connector and the BE scanner were compiled against -- and it is
-# spelled out again in each image tag rather than referenced, because this file
-# is rendered with envsubst, which resolves names from the environment and not
-# from the lines above it. Moving to a newer snapshot means editing all three
-# lines (and fe/pom.xml with them); the new tags then rebuild by themselves,
-# because FLUSS_DOCKER_REUSE_IMAGES only ever skips a tag that already exists.
-FLUSS_SNAPSHOT_VERSION=1.0-20260901.094454-3
-FLUSS_SERVER_IMAGE=doris-fluss-server:1.0-20260901.094454-3
-FLUSS_FLINK_IMAGE=doris-fluss-flink:1.20.3-fluss-1.0-20260901.094454-3
+# Fluss 1.0.0 is a release candidate: its artifacts are staged on
+# repository.apache.org for the release vote, not published to Maven Central,
+# and no official image exists for it yet, so there is nothing to pull.
+# build-images.sh builds both tags from the staged artifacts (fluss-dist for
+# the server image; the flink connector, the tiering job and fluss-lake-paimon
+# for the flink image), taking every org/apache/fluss artifact from
+# FLUSS_MAVEN_REPO_URL and everything else (paimon, hadoop) from central. The
+# version is the same one fe/pom.xml pins fluss.version to, so the cluster the
+# suites run against is the build the connector and the BE scanner were
+# compiled against, and it is spelled out again in each image tag rather than
+# referenced, because this file is rendered with envsubst, which resolves names
+# from the environment and not from the lines above it. Moving the version
+# means editing all three of those lines (and fe/pom.xml with them); the new
+# tags then rebuild by themselves, because FLUSS_DOCKER_REUSE_IMAGES only ever
+# skips a tag that already exists.
+#
+# When 1.0.0 is released the staging repository is retired and the same files
+# are on central: point FLUSS_MAVEN_REPO_URL at https://repo1.maven.org/maven2,
+# or delete the line (build-images.sh then defaults to central), and once the
+# fluss project publishes its 1.0.0 images the official apache/fluss image can
+# replace the local server build. A timestamped snapshot version
+# (1.0-YYYYMMDD.HHMMSS-N) still works in FLUSS_VERSION too: build-images.sh
+# resolves one from the apache snapshots repository whatever this URL says.
+FLUSS_VERSION=1.0.0
+FLUSS_MAVEN_REPO_URL=https://repository.apache.org/content/repositories/orgapachefluss-1013
+FLUSS_SERVER_IMAGE=doris-fluss-server:1.0.0
+FLUSS_FLINK_IMAGE=doris-fluss-flink:1.20.3-fluss-1.0.0
 
 # Address the fluss servers advertise to clients. Doris FE/BE run on the host,
 # so the servers must hand out the host address plus the published ports, not
@@ -97,12 +109,13 @@ FLUSS_LAKE_S3_SECRET_KEY=minioadmin
 
 # Paimon build the flink image carries (paimon-flink, paimon-s3), and the
 # paimon-s3 the server image gets beside fluss-dist's own plugins/paimon. Matched
-# to the paimon.version the fluss snapshot was compiled against, which is also
-# what fluss-dist ships as paimon-bundle; read it off the fluss parent pom in the
-# snapshots repository when FLUSS_SNAPSHOT_VERSION moves. NOT matched to Doris's
-# own paimon.version (1.3.1 as of this pin): Doris reads the lake half of a table
-# with its own paimon, so the tables tiered here double as the check that a
-# paimon 1.x reader still reads what a 2.x writer produced.
+# to the paimon.version fluss 1.0.0 was compiled against, which is also what
+# fluss-dist ships as paimon-bundle; read it off the fluss parent pom
+# (org/apache/fluss/fluss/<version>/ under FLUSS_MAVEN_REPO_URL) when
+# FLUSS_VERSION moves. NOT matched to Doris's own paimon.version (1.3.1 as of
+# this pin): Doris reads the lake half of a table with its own paimon, so the
+# tables tiered here double as the check that a paimon 1.x reader still reads
+# what a 2.x writer produced.
 FLUSS_PAIMON_VERSION=2.0.0
 
 # Paimon builds its CatalogContext around a hadoop Configuration whatever the

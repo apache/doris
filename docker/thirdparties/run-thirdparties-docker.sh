@@ -1513,8 +1513,9 @@ start_fluss() {
         return 0
     fi
 
-    # Fluss 1.0 is unreleased: both images are built from the snapshot artifacts
-    # the fluss project deploys to the apache maven snapshots repository.
+    # Fluss 1.0.0 is a release candidate with no official image yet: both images
+    # are built from the artifacts staged for its vote (fluss.env.tpl names the
+    # repository; docker-compose/fluss/README.md has the details).
     FLUSS_DOCKER_REUSE_IMAGES="${FLUSS_DOCKER_REUSE_IMAGES:-1}" \
         bash "${fluss_dir}/build-images.sh"
 
