@@ -20,14 +20,15 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -51,8 +52,8 @@ import java.util.Set;
  *
  * <p>Two union output slots are equal only when the corresponding values are equal in every regular
  * child and every constant row. Regular children contribute equality information through their data
- * traits, while constant rows contribute equality information through constant folding and SQL
- * comparison semantics.
+ * traits, while constant rows contribute equality information through constant folding and
+ * null-safe equality semantics.
  */
 public final class UnionDataTraitUtils {
 
@@ -67,7 +68,7 @@ public final class UnionDataTraitUtils {
      * {@code regularChildrenOutputs}, and every constant row. For regular children, this method keeps
      * only groups of ordinals whose mapped child slots belong to the same equality class in every
      * child. It then refines those groups with every constant row. A constant row retains a pair only
-     * when folding their expressions and evaluating their SQL equality produces {@code TRUE}.
+     * when folding their expressions and evaluating their null-safe equality produces {@code TRUE}.
      *
      * <p>The union is assumed to satisfy the structural invariants established during analysis: each
      * regular child has one output mapping and every regular or constant input has the union output
@@ -179,9 +180,10 @@ public final class UnionDataTraitUtils {
      *
      * <p>Each expression is first folded to a literal when possible. Candidate ordinals are bucketed by
      * a normalized {@link ConstantValueKey} to avoid comparing values that clearly differ. Every
-     * multi-ordinal bucket is then verified with SQL equality against its first ordinal. An ordinal
-     * whose expression is NULL, cannot be folded, cannot be normalized, or cannot be proven equal is
-     * omitted from the returned groups.
+     * multi-ordinal bucket is then verified with null-safe equality against its first ordinal. All
+     * typed NULL literals use one shared key, so two NULL expressions can reach that final proof.
+     * An ordinal whose expression cannot be folded, cannot be normalized, or cannot be proven
+     * null-safe equal is omitted from the returned groups.
      *
      * @param equalGroups candidate output-ordinal groups proven equal by inputs processed so far
      * @param row constant expressions in union output-ordinal order
@@ -212,7 +214,7 @@ public final class UnionDataTraitUtils {
                 int first = sameValueOrdinals.get(0);
                 boolean allProvenEqual = true;
                 for (int i = 1; i < sameValueOrdinals.size(); i++) {
-                    if (!isEqualInConstantRow(row, first, sameValueOrdinals.get(i), context)) {
+                    if (!isNullSafeEqualInConstantRow(row, first, sameValueOrdinals.get(i), context)) {
                         allProvenEqual = false;
                         break;
                     }
@@ -226,27 +228,29 @@ public final class UnionDataTraitUtils {
     }
 
     /**
-     * Tests whether two ordinals in a constant row are provably equal under SQL comparison semantics.
+     * Tests whether two ordinals in a constant row are provably equal under null-safe semantics.
      *
-     * <p>The expressions are unwrapped, coerced as operands of {@link EqualTo}, and constant-folded.
-     * Only the literal result {@code TRUE} proves equality; {@code FALSE}, SQL {@code NULL}/unknown,
-     * an unavailable fold result, and unsupported coercion or folding all return {@code false}.
+     * <p>The expressions are unwrapped, coerced as operands of {@link NullSafeEqual}, and
+     * constant-folded. Only the literal result {@code TRUE} proves equality. This deliberately treats
+     * two NULL values as equal while treating a one-sided NULL as unequal. {@code FALSE}, an
+     * unavailable fold result, and unsupported coercion or folding all return {@code false}.
      *
      * @param row constant expressions in union output-ordinal order
      * @param left ordinal of the left expression to compare
      * @param right ordinal of the right expression to compare
      * @param context optional rewrite context used for constant evaluation
-     * @return {@code true} only if the coerced equality folds to {@link BooleanLiteral#TRUE}
+     * @return {@code true} only if the coerced null-safe equality folds to
+     *         {@link BooleanLiteral#TRUE}
      */
-    private static boolean isEqualInConstantRow(List<NamedExpression> row, int left, int right,
+    private static boolean isNullSafeEqualInConstantRow(List<NamedExpression> row, int left, int right,
             Optional<ExpressionRewriteContext> context) {
         try {
             Expression leftExpression = unwrapAlias(row.get(left));
             Expression rightExpression = unwrapAlias(row.get(right));
             Expression equality = TypeCoercionUtils.processComparisonPredicate(
-                    new EqualTo(leftExpression, rightExpression));
+                    new NullSafeEqual(leftExpression, rightExpression));
             Optional<Literal> result = ExpressionUtils.checkConstantExpr(equality, context);
-            // NULL = NULL is UNKNOWN, so only a folded TRUE is a proof of equality.
+            // The trait is null-safe, so NULL <=> NULL is a valid proof while NULL <=> value is not.
             return result.isPresent() && BooleanLiteral.TRUE.equals(result.get());
         } catch (RuntimeException e) {
             // Unsupported coercion or an expression that cannot be folded is not proof.
@@ -275,17 +279,18 @@ public final class UnionDataTraitUtils {
      *
      * <p>All numeric literals share a numeric family and use a scale-insensitive decimal value.
      * String-like and date literals are grouped within their respective families by string value.
-     * Other literals retain their concrete class and literal object. NULL has no key because SQL NULL
-     * never proves equality, and any failure while extracting a value yields an empty optional. Key
-     * equality is only a prefilter; {@link #isEqualInConstantRow(List, int, int, Optional)} performs the
-     * final SQL-semantic proof.
+     * Other literals retain their concrete class and literal object. Every typed NULL literal maps to
+     * the same dedicated key because null-safe equality considers two NULL values equal. A failure
+     * while extracting any other value yields an empty optional. Key equality is only a prefilter;
+     * {@link #isNullSafeEqualInConstantRow(List, int, int, Optional)} performs the final proof.
      *
      * @param literal folded literal to normalize
-     * @return a normalized non-NULL value key, or an empty optional if no safe key can be produced
+     * @return a normalized value key, including the shared NULL key, or an empty optional if no safe
+     *         key can be produced
      */
     private static Optional<ConstantValueKey> constantValueKey(Literal literal) {
         if (literal.isNullLiteral()) {
-            return Optional.empty();
+            return Optional.of(ConstantValueKey.NULL_VALUE_KEY);
         }
         try {
             if (literal instanceof NumericLiteral) {
@@ -371,7 +376,7 @@ public final class UnionDataTraitUtils {
     }
 
     /**
-     * Normalized identity used to pre-group folded constants before evaluating SQL equality.
+     * Normalized identity used to pre-group folded constants before evaluating null-safe equality.
      *
      * <p>The key deliberately combines a literal family with a canonical value. The family prevents
      * unrelated literal categories from sharing a bucket, while allowing representations within a
@@ -379,6 +384,10 @@ public final class UnionDataTraitUtils {
      * matching key is only a cheap candidate signal; it is never used by itself as proof of equality.
      */
     private static final class ConstantValueKey {
+        /** Shared identity for SQL NULL, independent of the target type carried by a {@link NullLiteral}. */
+        private static final ConstantValueKey NULL_VALUE_KEY
+                = new ConstantValueKey(NullLiteral.class, NullLiteral.class);
+
         /** Literal category used to keep values from unrelated SQL type families in separate buckets. */
         private final Class<?> family;
 
@@ -386,7 +395,7 @@ public final class UnionDataTraitUtils {
         private final Object value;
 
         /**
-         * Creates a key from a literal family and its canonical non-NULL value.
+         * Creates a key from a literal family and its canonical value.
          *
          * @param family normalized literal category used as the first part of key identity
          * @param value canonical value within {@code family}, used as the second part of key identity

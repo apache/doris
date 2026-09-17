@@ -128,7 +128,7 @@ class EqualSetTest extends TestWithFeService {
     }
 
     @Test
-    void testConstantOnlyUnionEqualSetUsesSqlEquality() {
+    void testConstantOnlyUnionEqualSetUsesNullSafeEquality() {
         assertUnionEqualPair(
                 "select cast(1 as int), cast(1 as bigint) "
                         + "union all select cast(2 as int), cast(2 as bigint)",
@@ -142,6 +142,9 @@ class EqualSetTest extends TestWithFeService {
                 0, 1, false);
         assertUnionEqualPair(
                 "select cast(null as int), cast(null as bigint) union all select 1, 1",
+                0, 1, true);
+        assertUnionEqualPair(
+                "select cast(null as int), cast(1 as bigint) union all select 1, 1",
                 0, 1, false);
     }
 
