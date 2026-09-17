@@ -101,57 +101,67 @@ suite("variant_relational_performance", "p2,nonConcurrent") {
                 (${castGroups}) EXCEPT (${nativeGroups})) difference"""))[0][0].toString().toInteger())
             record([event: "full_group_correctness", key: key])
 
+            // ORDER BY ... LIMIT is a TopN and never sorts the whole input. The window forces a
+            // full sort of every row, and its order-sensitive checksum compares the complete
+            // native order with the CAST order instead of the first rows only.
+            def fullSort = { orderKey -> """SELECT count(*), sum(CAST(id AS LARGEINT) * rn) FROM (
+                SELECT id, row_number() OVER (ORDER BY ${orderKey} NULLS FIRST, id) rn
+                FROM github_events) ranked""" }
             def queries = [
                 group: [
                     native: "SELECT count(*), sum(n*n), sum(first_id) FROM (${nativeGroups}) g",
                     cast: "SELECT count(*), sum(n*n), sum(first_id) FROM (${castGroups}) g"
                 ],
-                order: [
+                order_topn: [
                     native: "SELECT id FROM github_events ORDER BY ${nativeKey} NULLS FIRST, id LIMIT 1000",
                     cast: "SELECT id FROM github_events ORDER BY ${castKey} NULLS FIRST, id LIMIT 1000"
-                ]
+                ],
+                order_full: [native: fullSort(nativeKey), cast: fullSort(castKey)]
             ]
-            queries.each { operation, pair ->
-                def oracle = query(pair.cast).hash
-                assertEquals(oracle, query(pair.native).hash)
-                pair.each { mode, statement ->
+
+            // A join against an empty or stale dimension still makes native and CAST agree, so
+            // prove the dimension is the current grouping of the source before timing a join.
+            def dimension = "SELECT id, CAST(k AS ${spec.type}) k FROM variant_relational_dim_${key}"
+            def expectedDimension = """SELECT min(id) id, ${castKey} k FROM github_events
+                WHERE ${nativeKey} IS NOT NULL GROUP BY ${castKey}"""
+            def dimensionRows = (sql("SELECT count(*) FROM variant_relational_dim_${key}"))[0][0]
+                    .toString().toLong()
+            assertTrue(dimensionRows > 0)
+            assertEquals(0, (sql("""SELECT count(*) FROM (
+                (${dimension}) EXCEPT (${expectedDimension})) difference"""))[0][0].toString().toInteger())
+            assertEquals(0, (sql("""SELECT count(*) FROM (
+                (${expectedDimension}) EXCEPT (${dimension})) difference"""))[0][0].toString().toInteger())
+            record([event: "dimension_verified", key: key, rows: dimensionRows])
+
+            // Variant keys get no runtime filter while the CAST keys do, so cast_no_rf isolates the
+            // key comparison cost from the runtime filter benefit.
+            def leftKey = "l.${spec.column}['${spec.path}']"
+            def castPredicate = "CAST(${leftKey} AS ${spec.type}) = CAST(r.k AS ${spec.type})"
+            ["broadcast", "shuffle"].each { distribution ->
+                def join = { hint, predicate -> """SELECT ${hint} count(*), sum(l.id) FROM github_events l
+                    JOIN [${distribution}] variant_relational_dim_${key} r ON ${predicate}""" }
+                queries["join_${distribution}".toString()] = [
+                    native: join("", "${leftKey} = r.k"),
+                    cast: join("", castPredicate),
+                    cast_no_rf: join("/*+ SET_VAR(runtime_filter_mode='OFF') */", castPredicate)
+                ]
+            }
+
+            queries.each { operation, statements ->
+                def oracle = query(statements.cast).hash
+                statements.each { mode, statement ->
                     record([event: "plan", key: key, operation: operation, mode: mode,
                             plan: sql("EXPLAIN ${statement}")])
                 }
+                def modes = statements.keySet() as List
                 for (int round = -warmups; round < repeats; ++round) {
-                    def modes = round % 2 == 0 ? ["native", "cast"] : ["cast", "native"]
+                    // Rotate the starting mode so no mode always runs first or last.
+                    Collections.rotate(modes, 1)
                     modes.each { mode ->
-                        def sample = query(pair[mode])
+                        def sample = query(statements[mode])
                         assertEquals(oracle, sample.hash)
                         record(sample + [event: "sample", key: key, operation: operation,
-                                mode: mode, round: round, sql: pair[mode]])
-                    }
-                }
-            }
-
-            def leftKey = "l.${spec.column}['${spec.path}']"
-            def joinOracle = query("""SELECT count(*), sum(l.id) FROM github_events l
-                JOIN [broadcast] variant_relational_dim_${key} r
-                  ON CAST(${leftKey} AS ${spec.type}) = CAST(r.k AS ${spec.type})""").hash
-            ["broadcast", "shuffle"].each { distribution ->
-                def pair = [
-                    native: "${leftKey} = r.k",
-                    cast: "CAST(${leftKey} AS ${spec.type}) = CAST(r.k AS ${spec.type})"
-                ]
-                pair.each { mode, predicate ->
-                    record([event: "plan", key: key, operation: "join_${distribution}", mode: mode,
-                            plan: sql("""EXPLAIN SELECT count(*), sum(l.id) FROM github_events l
-                                JOIN [${distribution}] variant_relational_dim_${key} r ON ${predicate}""")])
-                }
-                for (int round = -warmups; round < repeats; ++round) {
-                    def modes = round % 2 == 0 ? ["native", "cast"] : ["cast", "native"]
-                    modes.each { mode ->
-                        def statement = """SELECT count(*), sum(l.id) FROM github_events l
-                            JOIN [${distribution}] variant_relational_dim_${key} r ON ${pair[mode]}"""
-                        def sample = query(statement)
-                        assertEquals(joinOracle, sample.hash)
-                        record(sample + [event: "sample", key: key, operation: "join_${distribution}",
-                                mode: mode, round: round, sql: statement])
+                                mode: mode, round: round, sql: statements[mode]])
                     }
                 }
             }

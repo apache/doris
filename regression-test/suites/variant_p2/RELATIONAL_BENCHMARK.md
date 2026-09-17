@@ -24,7 +24,25 @@ Each query has native VARIANT and explicit CAST forms. SQL cache and query cache
 are disabled. GROUP BY correctness uses bidirectional EXCEPT between complete
 native and CAST group results before timing compact aggregate checksums. JOIN
 checks count and ID sum and uses one dimension row per key to avoid many-to-many
-output explosion. ORDER BY compares the first 1,000 IDs with an ID tie-breaker.
+output explosion.
+
+| Operation | What it measures |
+| --- | --- |
+| `group` | GROUP BY on the key, reduced to a compact checksum |
+| `order_topn` | `ORDER BY key NULLS FIRST, id LIMIT 1000`: a TopN, not a full sort |
+| `order_full` | `row_number() OVER (ORDER BY key NULLS FIRST, id)` over every row: a full sort whose `sum(id * rn)` checksum compares the complete native and CAST orders |
+| `join_broadcast`, `join_shuffle` | equality join against the dimension table |
+
+Variant join keys get no runtime filter while CAST keys do. Each join therefore
+has three modes: `native`, `cast`, and `cast_no_rf` (the CAST join with
+`runtime_filter_mode='OFF'`). Compare `native` with `cast_no_rf` for the key
+comparison cost and `cast` with `cast_no_rf` for the runtime filter benefit.
+
+A join against an empty or stale dimension table would still make native and
+CAST agree. Before timing a join, the query phase checks with bidirectional
+EXCEPT that the dimension table equals the current grouping of `github_events`
+and is not empty; rerun the load phase (or `VARIANT_BENCH_PHASE=prepare`) if it
+fails.
 
 Mixed-type semantics belong in `variant_p0/test_variant_relational_corners.groovy`.
 They are deliberately excluded from these performance pairs: CAST may merge
@@ -67,7 +85,7 @@ The runner verifies the running BE matches the installed Release binary. Each
 new evidence directory contains revision/binary/affinity metadata, host load,
 regression logs, query plans, every warmup/measured latency and result SHA-256,
 and median/min/max summaries. Latency includes client round-trip and result
-consumption. Native/CAST order alternates each round. Interpret forced-spill
+consumption. The starting mode rotates each round. Interpret forced-spill
 measurements separately from ordinary queries. A completed repeat run checks
 repeatability, not long-duration soak, concurrent ingestion, or crash recovery.
 
