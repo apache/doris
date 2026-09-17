@@ -174,14 +174,18 @@ suite("test_paimon_write_pk", "p0,external,paimon") {
             FROM t_pk_string_bucket ORDER BY event_id"""
         assertTableEquals("t_pk_string_bucket", "ORDER BY event_id")
 
-        // FT-045: The bucket-aware Exchange may use multiple writers, but every
-        // (partition, bucket) remains owned by exactly one writer.
+        // FT-045: The sink may use a bucket-aware Exchange when the negotiated
+        // BE execution version supports it, or gather during rolling-upgrade
+        // compatibility. Either plan must preserve one owner per bucket.
         sql """SET parallel_pipeline_task_num = 4"""
         sql """SET enable_strict_consistency_dml = false"""
-        qt_pk_writer_scaling_plan """EXPLAIN SHAPE PLAN
+        def writerPlan = sql """EXPLAIN SHAPE PLAN
             INSERT INTO t_pk_writer_scaling
             SELECT 1, number, repeat('x', 4096)
             FROM numbers("number" = "10000")"""
+        def writerPlanText = writerPlan.collect { row -> row[0].toString() }.join('\n')
+        assertTrue(writerPlanText.contains("PhysicalConnectorTableSink"))
+        assertTrue(writerPlanText.contains("PhysicalTVFRelation"))
         sql """INSERT INTO t_pk_writer_scaling
             SELECT 1, number, repeat('x', 4096)
             FROM numbers("number" = "10000")

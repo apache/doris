@@ -233,20 +233,17 @@ suite("paimon_schema_change_ddl", "p0,external,doris,external_docker,external_do
             LIMIT 1
         """
 
-        // Multiple Doris ALTER clauses cannot be committed atomically by an
-        // external catalog, so they are rejected before the first mutation.
+        // Master dispatches multiple external ALTER clauses in order. Each
+        // ADD publishes one Paimon schema version.
         beforeSchemaId = schemaId(tableName)
-        test {
-            sql """
-                ALTER TABLE `${tableName}`
-                ADD COLUMN multi_a INT NULL,
-                ADD COLUMN multi_b INT NULL
-            """
-            exception "External table does not support multiple ALTER clauses"
-        }
-        assertEquals(beforeSchemaId, schemaId(tableName))
-        assertColumnAbsent(tableName, "multi_a")
-        assertColumnAbsent(tableName, "multi_b")
+        sql """
+            ALTER TABLE `${tableName}`
+            ADD COLUMN multi_a INT NULL,
+            ADD COLUMN multi_b INT NULL
+        """
+        assertEquals(beforeSchemaId + 2, schemaId(tableName))
+        assertTrue(columnNames(tableName).any { name -> name.equalsIgnoreCase("multi_a") })
+        assertTrue(columnNames(tableName).any { name -> name.equalsIgnoreCase("multi_b") })
 
         // Paimon SDK schema validation.
         beforeSchemaId = schemaId(tableName)

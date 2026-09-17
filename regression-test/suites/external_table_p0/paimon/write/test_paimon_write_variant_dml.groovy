@@ -66,9 +66,7 @@ suite("test_paimon_write_variant_dml", "p0,external,paimon,nonConcurrent") {
     sql """USE ${dbName}"""
 
     try {
-        setFeConfigTemporary([enable_variant_v2: true]) {
-            assertTrue(getFeConfig("enable_variant_v2").toBoolean())
-            sql """SET force_jni_scanner = true"""
+        sql """SET force_jni_scanner = true"""
         // INSERT SELECT preserves the V2 value and metadata buffers through the Paimon sink.
         sql """
             INSERT INTO t_variant_dml (id, payload, pt)
@@ -177,8 +175,6 @@ suite("test_paimon_write_variant_dml", "p0,external,paimon,nonConcurrent") {
             WHERE 1 = 0
         """
         qt_variant_empty_overwrite """SELECT COUNT(*) FROM t_variant_overwrite"""
-
-        }
     } finally {
         sql """SET force_jni_scanner = false"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""

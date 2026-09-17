@@ -28,6 +28,18 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
     String catalogName = "test_pw_ao_catalog"
     String dbName = "test_pw_ao_db"
 
+    def normalizeDorisPartitions = { rows ->
+        rows.collect { row ->
+            def values = row[0].toString().split('/', -1).collect { component ->
+                int equals = component.indexOf('=')
+                assertTrue(equals >= 0, "Invalid Paimon partition path: ${row[0]}")
+                String value = java.net.URLDecoder.decode(component.substring(equals + 1), "UTF-8")
+                return value in ["__DEFAULT_PARTITION__", "__CUSTOM_DEFAULT_PARTITION__"] ? "" : value
+            }
+            return ["{${values.join(', ')}}", row[1]]
+        }.sort { left, right -> left[0].toString() <=> right[0].toString() }
+    }
+
     // Tables are created via Spark because Doris does not yet support
     // Paimon DDL (CREATE TABLE ... engine=paimon).
     spark_paimon_multi """
@@ -133,16 +145,16 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
         assertTableEquals("t_auto_partition", "ORDER BY id")
 
         def sparkPartitions = spark_paimon """
-            SELECT CONCAT('dt=', COALESCE(partition.dt, '__DEFAULT_PARTITION__')) AS `partition`,
-                   record_count
+            SELECT `partition`, record_count
             FROM paimon.${dbName}.`t_auto_partition\$partitions`
             ORDER BY `partition`
         """
-        def dorisPartitions = sql """
+        def dorisPartitions = normalizeDorisPartitions(sql """
             SELECT `partition`, record_count
             FROM t_auto_partition\$partitions
             ORDER BY `partition`
-        """
+        """)
+        sparkPartitions.sort { left, right -> left[0].toString() <=> right[0].toString() }
         assertSparkDorisResultEquals(sparkPartitions, dorisPartitions)
         order_qt_ao_auto_partition_metadata """
             SELECT `partition`, record_count
