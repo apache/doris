@@ -1,0 +1,17 @@
+--- a/src/diskann_search.rs
++++ b/src/diskann_search.rs
+@@ -3533,7 +3533,13 @@
+             invalid,
+             vceq_u16(vand_u16(bits, exponent_mask), exponent_mask),
+         );
+-        let values = vcvt_f32_f16(vreinterpret_f16_u16(bits));
++        let f16_lane = [
++            half::f16::from_bits(vget_lane_u16(bits, 0)).to_f32(),
++            half::f16::from_bits(vget_lane_u16(bits, 1)).to_f32(),
++            half::f16::from_bits(vget_lane_u16(bits, 2)).to_f32(),
++            half::f16::from_bits(vget_lane_u16(bits, 3)).to_f32(),
++        ];
++        let values = vld1q_f32(f16_lane.as_ptr());
+         let query_values = unsafe { vld1q_f32(query.as_ptr().add(index)) };
+         let delta = vsubq_f32(query_values, values);
+         sum = vmlaq_f32(sum, delta, delta);
