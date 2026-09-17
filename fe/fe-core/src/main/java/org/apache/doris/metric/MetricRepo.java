@@ -454,11 +454,13 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(connections);
+        // Arrow Flight SQL sessions are connections of the one pool: they are counted in
+        // connection_total and held to connection_max, and these two report their share of it.
         GAUGE_ARROW_FLIGHT_CONNECTIONS = new GaugeMetric<Integer>("arrow_flight_connection_total",
                 MetricUnit.CONNECTIONS, "total arrow flight connections") {
             @Override
             public Integer getValue() {
-                return ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr().getConnectionNum();
+                return ExecuteEnv.getInstance().getScheduler().getConnectPoolMgr().getFlightConnectionNum();
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_ARROW_FLIGHT_CONNECTIONS);
@@ -466,7 +468,7 @@ public final class MetricRepo {
                 MetricUnit.CONNECTIONS, "max connections") {
             @Override
             public Integer getValue() {
-                return Config.qe_max_connection + Config.arrow_flight_max_connections;
+                return ExecuteEnv.getInstance().getScheduler().getConnectPoolMgr().getMaxConnections();
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_CONNECTION_MAX);
@@ -474,7 +476,7 @@ public final class MetricRepo {
                 MetricUnit.CONNECTIONS, "max arrow flight connections") {
             @Override
             public Integer getValue() {
-                return Config.arrow_flight_max_connections;
+                return ExecuteEnv.getInstance().getScheduler().getConnectPoolMgr().getFlightMaxConnections();
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_ARROW_FLIGHT_CONNECTION_MAX);

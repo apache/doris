@@ -75,10 +75,10 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                         // TODO: broadcast this message to other FE
                         String token = notification.getKey();
                         FlightTokenDetails tokenDetails = notification.getValue();
-                        ConnectContext context = ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
-                                .getContextWithFlightToken(token);
+                        ConnectContext context = ExecuteEnv.getInstance().getScheduler()
+                                .getContextWithPeerIdentity(token);
                         if (context != null) {
-                            ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
+                            ExecuteEnv.getInstance().getScheduler().getConnectPoolMgr()
                                     .unregisterConnection(context);
                             LOG.info("evict bearer token: " + TokenMasker.tokenId(token) + " from tokenCache, "
                                     + "reason: " + notification.getCause()

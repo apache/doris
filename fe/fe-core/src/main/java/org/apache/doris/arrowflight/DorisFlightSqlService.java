@@ -24,6 +24,7 @@ import org.apache.doris.arrowflight.sessions.FlightSessionsWithTokenManager;
 import org.apache.doris.arrowflight.tokens.FlightTokenManager;
 import org.apache.doris.arrowflight.tokens.FlightTokenManagerImpl;
 import org.apache.doris.common.Config;
+import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.service.FrontendOptions;
 
 import io.grpc.ServerBuilder;
@@ -52,8 +53,10 @@ public class DorisFlightSqlService {
         BufferAllocator allocator = new RootAllocator();
         // arrow flight sql is a stateless protocol, connection is usually not actively disconnected.
         // bearer token is evict from the cache will unregister ConnectContext.
+        int flightMaxConnections = ConnectPoolMgr.effectiveFlightMaxConnections(
+                Config.qe_max_connection, Config.arrow_flight_max_connections);
         this.flightTokenManager = new FlightTokenManagerImpl(
-                Math.min(Config.arrow_flight_max_connections, Config.arrow_flight_token_cache_size),
+                Math.min(flightMaxConnections, Config.arrow_flight_token_cache_size),
                 Config.arrow_flight_token_alive_time_second);
         this.flightSessionsManager = new FlightSessionsWithTokenManager(flightTokenManager);
 
@@ -63,8 +66,9 @@ public class DorisFlightSqlService {
                 .transportHint(GRPC_BUILDER_CONSUMER, (Consumer<ServerBuilder<?>>) builder ->
                         builder.addStreamTracerFactory(new FlightRemoteIpServerStreamTracer.Factory()))
                 .headerAuthenticator(new FlightBearerTokenAuthenticator(flightTokenManager)).build();
-        LOG.info("Arrow Flight SQL service is created, port: {}, arrow_flight_max_connections: {}，"
-                        + "arrow_flight_token_alive_time_second: {}", port, Config.arrow_flight_max_connections,
+        LOG.info("Arrow Flight SQL service is created, port: {}, arrow_flight_max_connections: {} (effective: {},"
+                        + " within qe_max_connection: {}), arrow_flight_token_alive_time_second: {}", port,
+                Config.arrow_flight_max_connections, flightMaxConnections, Config.qe_max_connection,
                 Config.arrow_flight_token_alive_time_second);
     }
 

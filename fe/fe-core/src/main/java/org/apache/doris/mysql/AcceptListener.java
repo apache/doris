@@ -115,10 +115,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                 connection.setCloseListener(
                         streamConnection -> connectScheduler.getConnectPoolMgr().unregisterConnection(context));
             } else {
-                long userConnLimit = context.getEnv().getAuth().getMaxConn(context.getQualifiedUser());
-                String errMsg = String.format(
-                        "Reach limit of connections. Total: %d, User: %d, Current: %d",
-                        connectScheduler.getConnectPoolMgr().getMaxConnections(), userConnLimit, res);
+                String errMsg = connectScheduler.getConnectPoolMgr().limitReachedMessage(context, res);
                 context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, errMsg);
                 MysqlProto.sendResponsePacket(context);
                 throw new AfterConnectedException(errMsg);
