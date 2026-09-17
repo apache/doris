@@ -17,12 +17,14 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
 #include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
@@ -97,6 +99,69 @@ private:
     std::string _expr_name = "int_max_at_least_expr";
 };
 
+class BigIntEqualsExpr final : public VExpr {
+public:
+    BigIntEqualsExpr(int column_id, int64_t target, int column_unique_id, std::string column_name)
+            : _column_id(column_id), _target(target) {
+        _data_type = std::make_shared<DataTypeUInt8>();
+        set_children({std::make_shared<VSlotRef>(-1, column_id, column_unique_id,
+                                                 std::make_shared<DataTypeInt64>(),
+                                                 std::move(column_name))});
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector*, size_t count,
+                               ColumnPtr& result) const override {
+        DORIS_CHECK(block != nullptr);
+        const auto* column = block->get_by_position(_column_id).column.get();
+        const ColumnInt64* input = nullptr;
+        const ColumnUInt8::Container* null_map = nullptr;
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+            input = assert_cast<const ColumnInt64*>(&nullable->get_nested_column());
+            null_map = &nullable->get_null_map_data();
+        } else {
+            input = assert_cast<const ColumnInt64*>(column);
+        }
+        auto filter = ColumnUInt8::create();
+        auto& filter_data = filter->get_data();
+        filter_data.resize(count);
+        for (size_t i = 0; i < count; ++i) {
+            filter_data[i] =
+                    (null_map == nullptr || !(*null_map)[i]) && input->get_data()[i] == _target;
+        }
+        result = std::move(filter);
+        return Status::OK();
+    }
+
+    bool can_evaluate_zonemap_filter() const override { return true; }
+
+    bool is_constant() const override { return false; }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        auto zone_map = ctx.zone_map(_column_id);
+        if (zone_map == nullptr) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        if (!zone_map->has_not_null) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        return zone_map->min_value.get<TYPE_BIGINT>() <= _target &&
+                               zone_map->max_value.get<TYPE_BIGINT>() >= _target
+                       ? ZoneMapFilterResult::kMayMatch
+                       : ZoneMapFilterResult::kNoMatch;
+    }
+
+private:
+    int _column_id;
+    int64_t _target;
+    std::string _expr_name = "bigint_equals_expr";
+};
+
 TabletSchemaSPtr make_tablet_schema() {
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->append_column(*create_int_key(0, false));
@@ -113,6 +178,41 @@ TabletSchemaSPtr make_commit_tso_tablet_schema() {
     return tablet_schema;
 }
 
+TabletSchemaSPtr make_version_tablet_schema() {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->append_column(*create_int_key(0, false));
+    TabletColumn version_column;
+    version_column.set_unique_id(1);
+    version_column.set_name(VERSION_COL);
+    version_column.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    version_column.set_is_key(false);
+    version_column.set_is_nullable(false);
+    version_column.set_is_bf_column(true);
+    version_column.set_length(8);
+    version_column.set_index_length(8);
+    version_column.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+    tablet_schema->append_column(version_column);
+    tablet_schema->set_storage_page_size(4096);
+    return tablet_schema;
+}
+
+TabletSchemaSPtr make_binlog_tso_tablet_schema() {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->append_column(*create_int_key(0, false));
+    TabletColumn tso_column;
+    tso_column.set_unique_id(1);
+    tso_column.set_name(BINLOG_TSO_COL);
+    tso_column.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    tso_column.set_is_key(false);
+    tso_column.set_is_nullable(true);
+    tso_column.set_length(8);
+    tso_column.set_index_length(8);
+    tso_column.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+    tablet_schema->append_column(tso_column);
+    tablet_schema->set_storage_page_size(4096);
+    return tablet_schema;
+}
+
 std::shared_ptr<AndBlockColumnPredicate> make_commit_tso_gt_predicate(int32_t column_id,
                                                                       int64_t value) {
     auto predicates = AndBlockColumnPredicate::create_shared();
@@ -123,9 +223,27 @@ std::shared_ptr<AndBlockColumnPredicate> make_commit_tso_gt_predicate(int32_t co
     return predicates;
 }
 
+std::shared_ptr<AndBlockColumnPredicate> make_version_eq_predicate(int32_t column_id,
+                                                                   int64_t value) {
+    auto predicates = AndBlockColumnPredicate::create_shared();
+    std::shared_ptr<ColumnPredicate> pred(
+            new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ>(
+                    column_id, VERSION_COL, Field::create_field<TYPE_BIGINT>(value)));
+    predicates->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
+    return predicates;
+}
+
 // Read schema covers all tablet columns in order, so ordinal == tablet cid.
 ReadSchemaSPtr make_read_schema(const TabletSchemaSPtr& tablet_schema) {
     return std::make_shared<ReadSchema>(tablet_schema->columns());
+}
+
+Block make_hidden_column_read_block(const ReadSchemaSPtr& read_schema) {
+    Block block;
+    block.insert({ColumnInt32::create(), std::make_shared<DataTypeInt32>(), "0"});
+    const auto hidden_type = read_schema->data_type(1);
+    block.insert({hidden_type->create_column(), hidden_type, read_schema->column(1)->name()});
+    return block;
 }
 
 } // namespace
@@ -185,14 +303,34 @@ protected:
     }
 
     void build_commit_tso_segment(std::shared_ptr<Segment>* segment) {
-        const auto path = std::string(kTestDir) + "/commit_tso_segment.dat";
+        ASSERT_NO_FATAL_FAILURE(
+                build_hidden_bigint_segment("commit_tso_segment.dat", kCommitTsoRows, 4,
+                                            Field::create_field<TYPE_BIGINT>(0), segment));
+    }
+
+    void build_version_segment(std::shared_ptr<Segment>* segment) {
+        ASSERT_NO_FATAL_FAILURE(build_hidden_bigint_segment("version_segment.dat", kNumRows, 1024,
+                                                            Field::create_field<TYPE_BIGINT>(0),
+                                                            segment));
+    }
+
+    void build_binlog_tso_segment(std::shared_ptr<Segment>* segment) {
+        ASSERT_NO_FATAL_FAILURE(build_hidden_bigint_segment("binlog_tso_segment.dat", kNumRows,
+                                                            1024, Field(PrimitiveType::TYPE_NULL),
+                                                            segment));
+    }
+
+    void build_hidden_bigint_segment(const std::string& file_name, int num_rows,
+                                     uint32_t num_rows_per_block, const Field& hidden_value,
+                                     std::shared_ptr<Segment>* segment) {
+        const auto path = std::string(kTestDir) + "/" + file_name;
         auto fs = io::global_local_filesystem();
         io::FileWriterPtr file_writer;
         auto st = fs->create_file(path, &file_writer);
         ASSERT_TRUE(st.ok()) << st;
 
         VerticalSegmentWriterOptions opts;
-        opts.num_rows_per_block = 4;
+        opts.num_rows_per_block = num_rows_per_block;
         TestVerticalSegmentWriter writer(file_writer.get(), 0, _tablet_schema, nullptr, nullptr,
                                          opts, nullptr);
         st = writer.init();
@@ -202,9 +340,9 @@ protected:
         std::vector<Field> fields(_tablet_schema->num_columns(), Field(PrimitiveType::TYPE_NULL));
         st = row.init_scan_key(_tablet_schema, std::move(fields));
         ASSERT_TRUE(st.ok()) << st;
-        for (int rid = 0; rid < kCommitTsoRows; ++rid) {
+        for (int rid = 0; rid < num_rows; ++rid) {
             row.mutable_field(0) = int_field(rid);
-            row.mutable_field(1) = Field::create_field<TYPE_BIGINT>(0);
+            row.mutable_field(1) = hidden_value;
             st = writer.append_row(row);
             ASSERT_TRUE(st.ok()) << st;
         }
@@ -221,7 +359,7 @@ protected:
         st = Segment::open(fs, path, 100, 0, kRowsetId, _tablet_schema, io::FileReaderOptions {},
                            segment);
         ASSERT_TRUE(st.ok()) << st;
-        ASSERT_EQ(kCommitTsoRows, (*segment)->num_rows());
+        ASSERT_EQ(num_rows, (*segment)->num_rows());
     }
 
     void prepare_expr_context(const VExprContextSPtr& expr_ctx) {
@@ -230,6 +368,38 @@ protected:
         ASSERT_TRUE(st.ok()) << st;
         st = expr_ctx->open(&_runtime_state);
         ASSERT_TRUE(st.ok()) << st;
+    }
+
+    void assert_hidden_column_values(RowwiseIterator* iter, const StorageReadOptions& read_options,
+                                     const ReadSchemaSPtr& read_schema, size_t expected_rows,
+                                     int64_t expected_value) {
+        auto st = iter->init(read_options);
+        ASSERT_TRUE(st.ok()) << st;
+
+        size_t total_rows = 0;
+        auto block = make_hidden_column_read_block(read_schema);
+        while (true) {
+            st = iter->next_batch(&block);
+            if (st.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+            ASSERT_TRUE(st.ok()) << st;
+            total_rows += block.rows();
+            const auto* hidden_column = block.get_by_position(1).column.get();
+            const ColumnInt64* hidden_values = nullptr;
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(hidden_column)) {
+                EXPECT_TRUE(std::ranges::all_of(nullable->get_null_map_data(),
+                                                [](uint8_t is_null) { return is_null == 0; }));
+                hidden_values = assert_cast<const ColumnInt64*>(&nullable->get_nested_column());
+            } else {
+                hidden_values = assert_cast<const ColumnInt64*>(hidden_column);
+            }
+            EXPECT_TRUE(std::ranges::all_of(
+                    hidden_values->get_data(),
+                    [expected_value](int64_t value) { return value == expected_value; }));
+            block.clear_column_data();
+        }
+        EXPECT_EQ(expected_rows, total_rows);
     }
 
     TabletSchemaSPtr _tablet_schema;
@@ -302,6 +472,161 @@ TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     EXPECT_GT(row_ranges.from(), 0);
     EXPECT_LT(row_ranges.count(), kNumRows);
     EXPECT_EQ(kNumRows, row_ranges.to());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, VersionPredicateSkipsPhysicalPageIndexes) {
+    constexpr int64_t kVersion = 7;
+    _tablet_schema = make_version_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_version_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    std::shared_ptr<ColumnReader> physical_reader;
+    auto st = segment->get_column_reader(_tablet_schema->column(1), &physical_reader, &_stats);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, physical_reader);
+    ASSERT_TRUE(physical_reader->has_bloom_filter_index(false));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(kVersion, kVersion);
+    read_options.block_row_max = 1024;
+    read_options.col_id_to_predicates.emplace(1, make_version_eq_predicate(1, kVersion));
+
+    std::unique_ptr<RowwiseIterator> iter;
+    st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    ASSERT_FALSE(iter->empty());
+    ASSERT_NO_FATAL_FAILURE(
+            assert_hidden_column_values(iter.get(), read_options, read_schema, kNumRows, kVersion));
+    EXPECT_EQ(0, _stats.rows_bf_filtered);
+    EXPECT_EQ(0, _stats.rows_stats_filtered);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, ExprZonemapUsesReadTimeVersion) {
+    constexpr int64_t kVersion = 7;
+    _tablet_schema = make_version_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_version_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    auto expr_ctx = std::make_shared<VExprContext>(
+            std::make_shared<BigIntEqualsExpr>(1, kVersion, 1, VERSION_COL));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr_ctx));
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(kVersion, kVersion);
+    read_options.block_row_max = 1024;
+    read_options.common_expr_ctxs_push_down = {expr_ctx};
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    ASSERT_FALSE(iter->empty());
+    ASSERT_NO_FATAL_FAILURE(
+            assert_hidden_column_values(iter.get(), read_options, read_schema, kNumRows, kVersion));
+    EXPECT_EQ(0, _stats.expr_zonemap_filtered_segments);
+    EXPECT_EQ(0, _stats.expr_zonemap_filtered_pages);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, ExprZonemapRejectsPhysicalVersionPlaceholder) {
+    constexpr int64_t kVersion = 7;
+    _tablet_schema = make_version_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_version_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    auto expr_ctx = std::make_shared<VExprContext>(
+            std::make_shared<BigIntEqualsExpr>(1, 0, 1, VERSION_COL));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr_ctx));
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(kVersion, kVersion);
+    read_options.common_expr_ctxs_push_down = {expr_ctx};
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    EXPECT_TRUE(iter->empty());
+    EXPECT_EQ(1, _stats.filtered_segment_number);
+    EXPECT_EQ(1, _stats.expr_zonemap_filtered_segments);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, ExprZonemapUsesReadTimeCommitTso) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    _tablet_schema = make_commit_tso_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_commit_tso_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    auto expr_ctx = std::make_shared<VExprContext>(
+            std::make_shared<BigIntEqualsExpr>(1, kCommitTso, 1, COMMIT_TSO_COL));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr_ctx));
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(7, 7);
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.block_row_max = 1024;
+    read_options.common_expr_ctxs_push_down = {expr_ctx};
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    ASSERT_FALSE(iter->empty());
+    ASSERT_NO_FATAL_FAILURE(assert_hidden_column_values(iter.get(), read_options, read_schema,
+                                                        kCommitTsoRows, kCommitTso));
+    EXPECT_EQ(0, _stats.expr_zonemap_filtered_segments);
+    EXPECT_EQ(0, _stats.expr_zonemap_filtered_pages);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, ExprZonemapUsesReadTimeBinlogTso) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    _tablet_schema = make_binlog_tso_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_binlog_tso_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    auto expr_ctx = std::make_shared<VExprContext>(
+            std::make_shared<BigIntEqualsExpr>(1, kCommitTso, 1, BINLOG_TSO_COL));
+    ASSERT_NO_FATAL_FAILURE(prepare_expr_context(expr_ctx));
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(7, 7);
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.read_row_binlog = true;
+    read_options.block_row_max = 1024;
+    read_options.common_expr_ctxs_push_down = {expr_ctx};
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    ASSERT_FALSE(iter->empty());
+    ASSERT_NO_FATAL_FAILURE(assert_hidden_column_values(iter.get(), read_options, read_schema,
+                                                        kNumRows, kCommitTso));
+    EXPECT_EQ(0, _stats.expr_zonemap_filtered_segments);
+    EXPECT_EQ(0, _stats.expr_zonemap_filtered_pages);
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, NewColumnIteratorReadsCommitTsoFromReadOptions) {
