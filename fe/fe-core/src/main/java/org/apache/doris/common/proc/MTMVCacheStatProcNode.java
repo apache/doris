@@ -38,9 +38,6 @@ public class MTMVCacheStatProcNode implements ProcNodeInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        if (manager == null) {
-            return result;
-        }
         Snapshot s = manager.snapshot();
         result.addRow(Lists.newArrayList("size", String.valueOf(s.size)));
         result.addRow(Lists.newArrayList("hitCount", String.valueOf(s.hitCount)));
