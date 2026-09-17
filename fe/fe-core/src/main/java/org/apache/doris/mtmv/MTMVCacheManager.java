@@ -96,10 +96,15 @@ public class MTMVCacheManager {
         }
         Cache<Key, MTMVCache> current = caches;
         return current.policy().expireAfterAccess()
-                .map(exp -> exp.youngest(limit).keySet().stream()
-                        .map(k -> new HotEntry(k.mtmvId, k.guarded,
-                                exp.ageOf(k, TimeUnit.MILLISECONDS).orElse(-1L)))
-                        .collect(Collectors.toList()))
+                .map(exp -> exp.youngest(stream -> stream
+                        .limit(limit)
+                        .map(entry -> {
+                            Key k = entry.getKey();
+                            long expireMs = exp.getExpiresAfter(TimeUnit.MILLISECONDS);
+                            long idleMs = Math.max(expireMs - entry.expiresAfter().toMillis(), 0L);
+                            return new HotEntry(k.mtmvId, k.guarded, idleMs);
+                        })
+                        .collect(Collectors.toList())))
                 .orElseGet(() -> current.asMap().keySet().stream()
                         .limit(limit)
                         .map(k -> new HotEntry(k.mtmvId, k.guarded, -1L))
