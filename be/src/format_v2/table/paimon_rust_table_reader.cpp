@@ -31,7 +31,7 @@
 #include "core/column/column_const.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
-#include "format/table/paimon_rust_predicate_converter.h"
+#include "format_v2/table/paimon_rust_predicate_converter.h"
 #include "format_v2/column_mapper.h"
 #include "runtime/descriptors.h"
 #include "runtime/file_scan_profile.h"
