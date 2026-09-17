@@ -137,16 +137,18 @@ public class ConnectPoolMgr {
     /**
      * The refusal a client is told when {@link #registerConnection} returned a count instead of -1:
      * the same sentence for every protocol, naming the limits a connection is held to. The Flight
-     * sub-quota is named only when it is tighter than the pool's limit, since only then can it be
-     * the one that was reached.
+     * sub-quota and its usage are named whenever Flight sessions hold part of the pool - a MySQL
+     * client refused by a pool that Flight sessions filled is told where the connections went -
+     * and to a Flight client also when the sub-quota is tighter than the pool's limit, since then
+     * it can be the one that was reached.
      */
     public String limitReachedMessage(ConnectContext ctx, int current) {
         long userLimit = ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser());
         String message = String.format("Reach limit of connections. Total: %d, User: %d, Current: %d",
                 maxConnections, userLimit, current);
-        if (isFlight(ctx) && flightMaxConnections < maxConnections) {
-            message += String.format(", Arrow Flight SQL: %d (current: %d)", flightMaxConnections,
-                    numberFlightConnection.get());
+        int flightCurrent = numberFlightConnection.get();
+        if (flightCurrent > 0 || (isFlight(ctx) && flightMaxConnections < maxConnections)) {
+            message += String.format(", Arrow Flight SQL: %d (current: %d)", flightMaxConnections, flightCurrent);
         }
         return message;
     }

@@ -116,6 +116,10 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         streamConnection -> connectScheduler.getConnectPoolMgr().unregisterConnection(context));
             } else {
                 String errMsg = connectScheduler.getConnectPoolMgr().limitReachedMessage(context, res);
+                // The refused client sees the message; the operator finds it here, since the login
+                // that would have shown the pool's state in SHOW PROCESSLIST is the one refused.
+                LOG.warn("refused MySQL connection of user {} from {}: {}", context.getQualifiedUser(),
+                        context.getRemoteHostPortString(), errMsg);
                 context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, errMsg);
                 MysqlProto.sendResponsePacket(context);
                 throw new AfterConnectedException(errMsg);

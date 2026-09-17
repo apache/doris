@@ -25,6 +25,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.service.ExecuteEnv;
 
 import com.google.common.base.Preconditions;
@@ -158,12 +159,14 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
         if (value.getToken().equals("")) {
             throw new IllegalArgumentException("invalid bearer token, token id: " + TokenMasker.tokenId(token)
                     + ", try reconnect, bearer token may not be created, or may have been evict, search for this "
-                    + "token id in fe.log to see the evict reason. currently the token cache holds "
-                    + this.cacheSize + " tokens (the Arrow Flight SQL sub-quota of the connection pool: fe.conf"
-                    + " `arrow_flight_max_connections`=" + Config.arrow_flight_max_connections
-                    + " within `qe_max_connection`=" + Config.qe_max_connection
-                    + ", capped by `arrow_flight_token_cache_size`=" + Config.arrow_flight_token_cache_size
-                    + "), `arrow_flight_token_alive_time_second`=" + this.cacheExpiration);
+                    + "token id in fe.log to see the evict reason. the token cache is sized to " + this.cacheSize
+                    + " tokens = min(effective Arrow Flight SQL sub-quota of the connection pool "
+                    + ConnectPoolMgr.effectiveFlightMaxConnections(Config.qe_max_connection,
+                            Config.arrow_flight_max_connections)
+                    + " [fe.conf `arrow_flight_max_connections`=" + Config.arrow_flight_max_connections
+                    + " within `qe_max_connection`=" + Config.qe_max_connection + "], `arrow_flight_token_cache_size`="
+                    + Config.arrow_flight_token_cache_size + "), `arrow_flight_token_alive_time_second`="
+                    + this.cacheExpiration);
         }
         if (System.currentTimeMillis() >= value.getExpiresAt()) {
             tokenCache.invalidate(token);

@@ -44,6 +44,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.collect.Lists;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
+import org.apache.arrow.memory.ArrowBuf;
 import org.apache.thrift.TException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -187,6 +188,35 @@ public class FlightProtocolAdapterTest {
         // Idempotent: the second release finds nothing to do, throws nothing, and finalizes nothing twice.
         Assertions.assertDoesNotThrow(ctx::releaseProtocolSession);
         Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
+    }
+
+    // The channel close can fail - the allocator refuses to close over a buffer still referenced
+    // elsewhere - and the session is torn down all the same: the deferred query is finalized and
+    // the session takes no further command.
+    @Test
+    public void testReleaseSessionTearsTheSessionDownEvenWhenTheChannelCloseFails() {
+        ConnectContext ctx = flightSession();
+        FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        ctx.addFlightSqlDeferredExecutor(deferred);
+        adapter.getChannel().addOKResult("query-1", "SELECT 1");
+        // A buffer of the cached result held by someone else, as a DoGet still streaming it would:
+        // closing the result does not free it, and the allocator's close throws over it. The
+        // reference is never given back - the failure is the point of the test.
+        ArrowBuf held = adapter.getChannel().getResult("query-1").getVectorSchemaRoot().getVector(0)
+                .getDataBuffer();
+        held.getReferenceManager().retain();
+
+        Assertions.assertDoesNotThrow(ctx::releaseProtocolSession);
+
+        // The close did fail: the held buffer is still accounted for...
+        Assertions.assertTrue(adapter.getChannel().getAllocatedMemory() > 0);
+        // ...and the session is down regardless.
+        Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
+        Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+        FlightRuntimeException closed = Assertions.assertThrows(FlightRuntimeException.class,
+                () -> adapter.runCommand(ctx, () -> { }));
+        Assertions.assertEquals(FlightStatusCode.UNAUTHENTICATED, closed.status().code());
     }
 
     @Test

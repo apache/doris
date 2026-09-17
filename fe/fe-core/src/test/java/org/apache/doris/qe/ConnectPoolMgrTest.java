@@ -65,9 +65,13 @@ public class ConnectPoolMgrTest {
         Assertions.assertNull(pool.getContextWithPeerIdentity("token-3"));
         Assertions.assertSame(mysql, pool.getContext(1));
 
+        // Unregistering the MySQL connection frees its slot and touches nothing of the Flight share.
         pool.unregisterConnection(mysql);
+        Assertions.assertEquals(1, pool.getConnectionNum());
+        Assertions.assertEquals(1, pool.getFlightConnectionNum());
         Assertions.assertEquals(-1,
                 pool.registerConnection(ConnectPoolTestSupport.flightSession(env, ALICE, "token-3")));
+        Assertions.assertEquals(2, pool.getFlightConnectionNum());
     }
 
     @Test
@@ -119,19 +123,39 @@ public class ConnectPoolMgrTest {
         Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 10",
                 pool.limitReachedMessage(ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 10));
 
-        // The Flight sub-quota is named only when it is tighter than the pool's limit.
+        // Once Flight sessions hold part of the pool, both protocols are told the sub-quota and its
+        // usage - a MySQL client refused by a pool that Flight sessions filled reads where they went.
+        // One connection of each protocol, so that the Flight usage cannot pass for the pool's count.
         ConnectPoolMgr quota = new ConnectPoolMgr(10, 2);
         registered(quota, ConnectPoolTestSupport.flightSession(env, BOB, "b"), 1);
+        registered(quota, ConnectPoolTestSupport.mysqlConnection(env, BOB), 2);
         Assertions.assertEquals(
                 "Reach limit of connections. Total: 10, User: 5, Current: 2, Arrow Flight SQL: 2 (current: 1)",
                 quota.limitReachedMessage(ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 2));
-        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 2",
+        Assertions.assertEquals(
+                "Reach limit of connections. Total: 10, User: 5, Current: 2, Arrow Flight SQL: 2 (current: 1)",
                 quota.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 2));
+        ConnectPoolMgr following = new ConnectPoolMgr(10);
+        registered(following, ConnectPoolTestSupport.flightSession(env, BOB, "b"), 1);
+        registered(following, ConnectPoolTestSupport.mysqlConnection(env, BOB), 2);
+        Assertions.assertEquals(
+                "Reach limit of connections. Total: 10, User: 5, Current: 10, Arrow Flight SQL: 10 (current: 1)",
+                following.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 10));
+
+        // A sub-quota tighter than the pool's limit is named to a Flight client even while no
+        // Flight session is in the pool: it is the limit that refused it.
+        ConnectPoolMgr none = new ConnectPoolMgr(10, 0);
+        Assertions.assertEquals(
+                "Reach limit of connections. Total: 10, User: 5, Current: 0, Arrow Flight SQL: 0 (current: 0)",
+                none.limitReachedMessage(ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 0));
+        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 0",
+                none.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 0));
     }
 
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259).
-    // unregisterConnection() is the catch-all teardown path: idle/query timeout, bearer token expiry
-    // and explicit CloseSession all reach here. The protocol must release what it holds for the
+    // unregisterConnection() is the catch-all teardown path: the idle timeout (wait_timeout), bearer
+    // token expiry or eviction, CloseSession and a KILL CONNECTION from another connection all reach
+    // here (a query timeout only cancels the query). The protocol must release what it holds for the
     // session -- for Flight the channel-cached results and the deferred coordinators -- even for a
     // connection that was never registered (an abandoned connection is cleaned up, not leaked), and
     // before the bookkeeping, so that a failure there cannot strand the coordinators.
@@ -166,5 +190,27 @@ public class ConnectPoolMgrTest {
         // Unregistering twice is harmless.
         pool.unregisterConnection(ctx);
         Assertions.assertEquals(1, pool.getConnectionNum());
+    }
+
+    // Two sessions under one bearer token, as two concurrent first requests of a token can open:
+    // the index names the later one, and the earlier one's teardown must not take that entry away.
+    @Test
+    public void testUnregisterRemovesOnlyTheConnectionsOwnPeerIdentityEntry() {
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectPoolMgr pool = new ConnectPoolMgr(100, 2);
+        ConnectContext earlier = registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-x"), 1);
+        ConnectContext later = registered(pool, ConnectPoolTestSupport.flightSession(env, ALICE, "token-x"), 2);
+        Assertions.assertSame(later, pool.getContextWithPeerIdentity("token-x"));
+
+        pool.unregisterConnection(earlier);
+
+        Assertions.assertNull(pool.getContext(1));
+        Assertions.assertSame(later, pool.getContextWithPeerIdentity("token-x"));
+        Assertions.assertEquals(1, pool.getConnectionNum());
+        Assertions.assertEquals(1, pool.getFlightConnectionNum());
+
+        pool.unregisterConnection(later);
+        Assertions.assertNull(pool.getContextWithPeerIdentity("token-x"));
+        Assertions.assertEquals(0, pool.getFlightConnectionNum());
     }
 }
