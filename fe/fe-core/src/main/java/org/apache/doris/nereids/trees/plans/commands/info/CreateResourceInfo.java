@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
@@ -75,6 +77,13 @@ public class CreateResourceInfo {
         }
 
         analyzeResourceType();
+
+        if (resourceType == ResourceType.AI && !"*".equals(Config.ai_resource_allowed_user)) {
+            UserIdentity allowedUser = UserIdentity.fromString(Config.ai_resource_allowed_user);
+            if (!ConnectContext.get().getCurrentUserIdentity().equals(allowedUser)) {
+                throw new AnalysisException("Current user does not have permission to create AI resources");
+            }
+        }
     }
 
     /**

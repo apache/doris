@@ -2713,6 +2713,10 @@ public class Config extends ConfigBase {
             + "this configuration to prevent command injection attacks.")
     public static boolean enable_python_udf = true;
 
+    @ConfField(description = "The user identity allowed to create AI resources, in the form 'user'@'host'. "
+            + "The default value '*' allows any user that satisfies the existing privilege checks.")
+    public static String ai_resource_allowed_user = "*";
+
     @ConfField(description = "Whether to ignore unknown modules in Image file. If true, metadata modules not in "
             + "PersistMetaModules.MODULE_NAMES will be ignored and skipped. Default is false, if Image "
             + "file contains unknown modules, Doris will throw exception. This parameter is mainly "
