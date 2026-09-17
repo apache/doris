@@ -177,7 +177,7 @@ public class ConnectionExceedTest {
                     () -> manager.getConnectContext("test_token"));
             Assertions.assertEquals(FlightStatusCode.RESOURCE_EXHAUSTED, refused.status().code());
             Assertions.assertEquals(
-                    "Reach limit of connections. Total: 1000, User: 100, Current: 2, Arrow Flight SQL: 2",
+                    "Reach limit of connections. Total: 1000, User: 100, Current: 2, Arrow Flight SQL: 2 (current: 2)",
                     refused.status().description());
             Mockito.verify(mockTokenManager).invalidateToken("test_token");
             Assertions.assertEquals(2, scheduler.getConnectionNum());

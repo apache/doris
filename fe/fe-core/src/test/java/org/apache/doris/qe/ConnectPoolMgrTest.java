@@ -51,11 +51,15 @@ public class ConnectPoolMgrTest {
         Assertions.assertEquals(2, pool.getConnectionNum());
         Assertions.assertEquals(1, pool.getFlightConnectionNum());
 
-        // The third connection is refused whichever protocol it speaks, with the count it was refused at.
+        // The third connection is refused whichever protocol it speaks, with the count it was refused at,
+        // and a refused registration changes no count: not the pool's, not the Flight share, not the user's.
         Assertions.assertEquals(2, pool.registerConnection(ConnectPoolTestSupport.mysqlConnection(env, ALICE)));
         Assertions.assertEquals(2,
                 pool.registerConnection(ConnectPoolTestSupport.flightSession(env, ALICE, "token-3")));
         Assertions.assertEquals(2, pool.getConnectionNum());
+        Assertions.assertEquals(1, pool.getFlightConnectionNum());
+        Assertions.assertEquals(1, pool.getUserConnectionMap().get(ALICE.getQualifiedUser()).get());
+        Assertions.assertEquals(1, pool.getUserConnectionMap().get(BOB.getQualifiedUser()).get());
 
         Assertions.assertSame(flight, pool.getContextWithPeerIdentity("token-2"));
         Assertions.assertNull(pool.getContextWithPeerIdentity("token-3"));
@@ -117,7 +121,9 @@ public class ConnectPoolMgrTest {
 
         // The Flight sub-quota is named only when it is tighter than the pool's limit.
         ConnectPoolMgr quota = new ConnectPoolMgr(10, 2);
-        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 2, Arrow Flight SQL: 2",
+        registered(quota, ConnectPoolTestSupport.flightSession(env, BOB, "b"), 1);
+        Assertions.assertEquals(
+                "Reach limit of connections. Total: 10, User: 5, Current: 2, Arrow Flight SQL: 2 (current: 1)",
                 quota.limitReachedMessage(ConnectPoolTestSupport.flightSession(env, ALICE, "a"), 2));
         Assertions.assertEquals("Reach limit of connections. Total: 10, User: 5, Current: 2",
                 quota.limitReachedMessage(ConnectPoolTestSupport.mysqlConnection(env, ALICE), 2));

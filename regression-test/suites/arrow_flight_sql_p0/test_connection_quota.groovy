@@ -18,6 +18,9 @@
 import java.sql.DriverManager
 import java.sql.SQLException
 import java.util.regex.Pattern
+import java.util.concurrent.TimeUnit
+
+import org.awaitility.Awaitility
 
 // The Flight SQL JDBC driver on the classpath shades Arrow Flight; its FlightSqlClient is the
 // one a test can drive directly (see test_session_options).
@@ -60,12 +63,35 @@ suite("test_connection_quota") {
     def allocator = new RootAllocator()
     def client = FlightClient.builder(allocator, Location.forGrpcInsecure(host, port)).build()
     def mysqlConnections = []
+    def openTokens = []
     try {
         def flight = new FlightSqlClient(client)
+        // The user's connections as the pool sees them: MySQL connections and Flight sessions alike.
+        def connectionsOf = {
+            (sql "SELECT COUNT(*) FROM information_schema.processlist WHERE User = '${user}'")[0][0] as int
+        }
+        // A closed MySQL connection leaves the pool on the frontend's nio thread after the client's
+        // COM_QUIT, and Connector/J does not wait for that; so wait here before the next connection
+        // is opened against the count.
+        def awaitConnections = { int expected ->
+            Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(200, TimeUnit.MILLISECONDS)
+                    .until { connectionsOf() == expected }
+        }
+        // Closes a session the way the drivers do, once; a token whose session is already gone is
+        // UNAUTHENTICATED and needs nothing.
+        def closeSession = { cred ->
+            try {
+                flight.closeSession(new CloseSessionRequest(), cred)
+            } catch (FlightRuntimeException e) {
+                assertEquals(FlightStatusCode.UNAUTHENTICATED, e.status().code())
+            }
+            openTokens.remove(cred)
+        }
         // A request over a token whose session cannot open: the refusal, or null when it opened.
         def refusalOf = { cred ->
             try {
                 flight.execute("SELECT 1", cred).getEndpoints()
+                openTokens << cred
                 return null
             } catch (FlightRuntimeException e) {
                 assertEquals(FlightStatusCode.RESOURCE_EXHAUSTED, e.status().code())
@@ -90,8 +116,10 @@ suite("test_connection_quota") {
 
         // 1. Three MySQL connections, then the first Flight session: the user's four.
         (1..limit - 1).each { assertNull(mysqlRefusal(), "MySQL connection ${it} of ${limit - 1} was refused") }
+        awaitConnections(limit - 1)
         def first = client.authenticateBasicToken(user, password).get()
         assertNull(refusalOf(first), "the Flight session should open as the user's last connection")
+        assertEquals(limit, connectionsOf(), "the Flight session is a connection of the user's like the others")
 
         // 2. The second Flight session is refused, in MySQL's words...
         def second = client.authenticateBasicToken(user, password).get()
@@ -107,12 +135,19 @@ suite("test_connection_quota") {
         // 4. CloseSession releases the Flight session's connection: a MySQL connection opens now, and
         //    once it is closed again a Flight session does.
         assertEquals("CLOSED", flight.closeSession(new CloseSessionRequest(), first).getStatus().name())
+        openTokens.remove(first)
+        awaitConnections(limit - 1)
         assertNull(mysqlRefusal(), "the MySQL connection should open once the Flight session is closed")
         mysqlConnections.remove(mysqlConnections.size() - 1).close()
+        awaitConnections(limit - 1)
         def third = client.authenticateBasicToken(user, password).get()
         assertNull(refusalOf(third), "the Flight session should open once the MySQL connection is closed")
-        assertEquals("CLOSED", flight.closeSession(new CloseSessionRequest(), third).getStatus().name())
+        closeSession(third)
+        awaitConnections(limit - 1)
     } finally {
+        // Sessions outlive the client: close the ones still open, or a rerun on the same frontend
+        // starts against a user whose slots they hold until wait_timeout (DROP USER does not end them).
+        new ArrayList(openTokens).each { closeSession(it) }
         mysqlConnections.each { it.close() }
         client.close()
         allocator.close()

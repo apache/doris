@@ -266,8 +266,9 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     /**
-     * Every Flight SQL session teardown path - idle and query timeout, bearer token expiry or
-     * eviction, CloseSession, KILL - reaches here through the pool's unregisterConnection. The
+     * Every Flight SQL session teardown path - the idle timeout (wait_timeout), bearer token expiry
+     * or eviction, CloseSession, a KILL CONNECTION from another connection - reaches here through
+     * the pool's unregisterConnection. The
      * channel-cached Arrow results go first, then the session is closed for good: teardown does not
      * wait for a command that may still be running, and what that command defers afterwards is
      * finalized on the spot ({@link #tearDown}).

@@ -55,8 +55,16 @@ public class DorisFlightSqlService {
         // bearer token is evict from the cache will unregister ConnectContext.
         int flightMaxConnections = ConnectPoolMgr.effectiveFlightMaxConnections(
                 Config.qe_max_connection, Config.arrow_flight_max_connections);
-        this.flightTokenManager = new FlightTokenManagerImpl(
-                Math.min(flightMaxConnections, Config.arrow_flight_token_cache_size),
+        if (Config.arrow_flight_max_connections > Config.qe_max_connection) {
+            LOG.warn("arrow_flight_max_connections={} exceeds qe_max_connection={}: Arrow Flight SQL sessions are"
+                            + " connections of the one pool, so the sub-quota is capped at {}",
+                    Config.arrow_flight_max_connections, Config.qe_max_connection, flightMaxConnections);
+        }
+        // The token cache holds as many tokens as the sub-quota allows, capped by
+        // arrow_flight_token_cache_size: a session opens on a token, so this is what bounds Flight
+        // sessions in practice (the oldest token, and its session, is evicted first).
+        int tokenCacheSize = Math.min(flightMaxConnections, Config.arrow_flight_token_cache_size);
+        this.flightTokenManager = new FlightTokenManagerImpl(tokenCacheSize,
                 Config.arrow_flight_token_alive_time_second);
         this.flightSessionsManager = new FlightSessionsWithTokenManager(flightTokenManager);
 
@@ -67,9 +75,10 @@ public class DorisFlightSqlService {
                         builder.addStreamTracerFactory(new FlightRemoteIpServerStreamTracer.Factory()))
                 .headerAuthenticator(new FlightBearerTokenAuthenticator(flightTokenManager)).build();
         LOG.info("Arrow Flight SQL service is created, port: {}, arrow_flight_max_connections: {} (effective: {},"
-                        + " within qe_max_connection: {}), arrow_flight_token_alive_time_second: {}", port,
+                        + " within qe_max_connection: {}), token cache size: {} (arrow_flight_token_cache_size: {}),"
+                        + " arrow_flight_token_alive_time_second: {}", port,
                 Config.arrow_flight_max_connections, flightMaxConnections, Config.qe_max_connection,
-                Config.arrow_flight_token_alive_time_second);
+                tokenCacheSize, Config.arrow_flight_token_cache_size, Config.arrow_flight_token_alive_time_second);
     }
 
     // start Arrow Flight SQL service, return true if success, otherwise false
