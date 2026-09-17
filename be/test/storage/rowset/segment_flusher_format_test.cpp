@@ -3356,7 +3356,7 @@ protected:
                         context.tablet_schema->column(before_cid).unique_id());
             }
         }
-        auto mappings = segment_v2::resolve_row_binlog_column_mappings(
+        auto mappings = binlog::resolve_row_binlog_column_mappings(
                 *options.source.tablet_schema, *context.tablet_schema, uid_mappings);
         ASSERT_TRUE(mappings.has_value()) << mappings.error();
         options.need_historical_value = need_before;

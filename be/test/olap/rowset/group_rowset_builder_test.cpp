@@ -173,8 +173,8 @@ TEST_F(GroupRowsetBuilderTest, buildWithRowBinlogMeta) {
                                    .write_binlog_config()
                                    .column_mappings;
     ASSERT_EQ(mappings.size(), 2U);
-    EXPECT_EQ(mappings[0], (segment_v2::RowBinlogColumnCidMapping {0, 0, std::nullopt}));
-    EXPECT_EQ(mappings[1], (segment_v2::RowBinlogColumnCidMapping {1, 1, std::nullopt}));
+    EXPECT_EQ(mappings[0], (binlog::RowBinlogColumnCidMapping {0, 0, std::nullopt}));
+    EXPECT_EQ(mappings[1], (binlog::RowBinlogColumnCidMapping {1, 1, std::nullopt}));
     ASSERT_TRUE(builder.rowset_writer()->flush().ok());
     ASSERT_TRUE(builder.build_rowset().ok());
 

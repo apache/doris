@@ -184,7 +184,7 @@ protected:
             mapping->set_current_column_unique_id(
                     context->tablet_schema->column(current_cid).unique_id());
         }
-        auto mappings = segment_v2::resolve_row_binlog_column_mappings(
+        auto mappings = binlog::resolve_row_binlog_column_mappings(
                 *cfg.source.tablet_schema, *context->tablet_schema, uid_mappings);
         if (!mappings.has_value()) {
             return mappings.error();

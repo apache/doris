@@ -27,11 +27,15 @@ namespace doris {
 class PRowBinlogWriteColumnMappings;
 struct RowsetWriterContext;
 
-namespace segment_v2 {
+namespace binlog {
 
 Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mappings(
         const TabletSchema& source_schema, const TabletSchema& row_binlog_schema,
         const PRowBinlogWriteColumnMappings& snapshot);
+
+} // namespace binlog
+
+namespace segment_v2 {
 
 // The binlog<Row> derive stages rebuild the load block into a full-width block
 // over the binlog schema -- key + AFTER values, optional __BEFORE__* values, and
@@ -54,7 +58,7 @@ struct BinlogDeriveContext {
     uint32_t binlog_tso_cid = 0;
     uint32_t binlog_lsn_cid = 0;
     uint32_t binlog_op_cid = 0;
-    std::span<const RowBinlogColumnCidMapping> column_mappings;
+    std::span<const binlog::RowBinlogColumnCidMapping> column_mappings;
 };
 
 // Base for the derive stages: apply() runs the setup steps (schema layout + LSN

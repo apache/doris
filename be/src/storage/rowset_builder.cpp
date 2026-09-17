@@ -596,7 +596,7 @@ Status GroupRowsetBuilder::init() {
         DORIS_CHECK_EQ(source_index_schema->row_binlog_id, binlog_ctx.index_id);
         const auto& mappings = source_index_schema->row_binlog_column_mappings;
         cfg.need_historical_value = mappings.need_historical_value();
-        cfg.column_mappings = DORIS_TRY(segment_v2::resolve_row_binlog_column_mappings(
+        cfg.column_mappings = DORIS_TRY(binlog::resolve_row_binlog_column_mappings(
                 *data_ctx.tablet_schema, *binlog_ctx.tablet_schema, mappings));
     }
 
