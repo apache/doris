@@ -757,19 +757,27 @@ std::map<std::string, std::string> PaimonRustTableReader::_build_options() const
         }
     };
 
-    // Map common OSS/S3 Hadoop configs to Doris/paimon-native S3 property keys
-    // that the paimon-rust FileIO recognizes.
-    copy_if_missing("fs.oss.accessKeyId", "AWS_ACCESS_KEY");
-    copy_if_missing("fs.oss.accessKeySecret", "AWS_SECRET_KEY");
-    copy_if_missing("fs.oss.sessionToken", "AWS_TOKEN");
-    copy_if_missing("fs.oss.endpoint", "AWS_ENDPOINT");
-    copy_if_missing("fs.oss.region", "AWS_REGION");
-    copy_if_missing("fs.s3a.access.key", "AWS_ACCESS_KEY");
-    copy_if_missing("fs.s3a.secret.key", "AWS_SECRET_KEY");
-    copy_if_missing("fs.s3a.session.token", "AWS_TOKEN");
-    copy_if_missing("fs.s3a.endpoint", "AWS_ENDPOINT");
-    copy_if_missing("fs.s3a.region", "AWS_REGION");
-    copy_if_missing("fs.s3a.path.style.access", "use_path_style");
+    // The pinned paimon-rust FileIO reads paimon-java's `s3.*` option family
+    // (io/storage_s3.rs normalizes the `fs.s3a.`/`s3a.`/`s3.` prefixes and the
+    // `s3.access.key`/`s3.path.style.access` aliases): s3.access-key,
+    // s3.secret-key, s3.session.token, s3.endpoint, s3.region and
+    // s3.path-style-access. `fs.s3a.*` keys therefore pass through natively,
+    // but the FE's storage-properties channel delivers the vended S3 config
+    // under the AWS_* / use_path_style aliases, which the crate does not read,
+    // and the OSS configs use their own fs.oss.* names — so remap both to the
+    // s3.* family. Without this the rust S3 FileIO builds with an empty region
+    // ("ConfigInvalid ... region is missing") and never connects.
+    copy_if_missing("AWS_ACCESS_KEY", "s3.access-key");
+    copy_if_missing("AWS_SECRET_KEY", "s3.secret-key");
+    copy_if_missing("AWS_TOKEN", "s3.session.token");
+    copy_if_missing("AWS_ENDPOINT", "s3.endpoint");
+    copy_if_missing("AWS_REGION", "s3.region");
+    copy_if_missing("use_path_style", "s3.path-style-access");
+    copy_if_missing("fs.oss.accessKeyId", "s3.access-key");
+    copy_if_missing("fs.oss.accessKeySecret", "s3.secret-key");
+    copy_if_missing("fs.oss.sessionToken", "s3.session.token");
+    copy_if_missing("fs.oss.endpoint", "s3.endpoint");
+    copy_if_missing("fs.oss.region", "s3.region");
 
     return options;
 }

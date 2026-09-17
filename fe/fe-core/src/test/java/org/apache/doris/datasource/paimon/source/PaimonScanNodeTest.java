@@ -1758,8 +1758,6 @@ public class PaimonScanNodeTest {
                     new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
             PaimonSource source = Mockito.mock(PaimonSource.class);
             FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
-            Mockito.when(source.getPaimonTable()).thenReturn(paimonTable);
-            Mockito.when(paimonTable.partitionKeys()).thenReturn(Collections.emptyList());
             Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
                     0, Collections.singletonList(new DataField(0, "id", new IntType())),
                     0, Collections.emptyList(), Collections.emptyList(),
@@ -1769,6 +1767,9 @@ public class PaimonScanNodeTest {
             Mockito.when(externalTable.getDbName()).thenReturn("db");
             Mockito.when(externalTable.getName()).thenReturn("t");
             node.setSource(source);
+            // The rust gate and schema serialization use doInitialize's cached
+            // getProcessedTable() result, not the raw source table.
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
             setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
 
             TFileRangeDesc rangeDesc = new TFileRangeDesc();
@@ -1779,6 +1780,51 @@ public class PaimonScanNodeTest {
             Assert.assertEquals(scannerV2 ? TPaimonReaderType.PAIMON_RUST : TPaimonReaderType.PAIMON_JNI,
                     rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
         }
+    }
+
+    @Test
+    public void testRustSchemaJsonShipsProcessedTableRelationOptions() throws Exception {
+        // Relation options such as t@options('read.batch-size'='1') are applied by
+        // getProcessedTable(); the JNI reader serializes that effective table, and the
+        // rust reader rebuilds its table from the shipped schema JSON, deriving its
+        // read batch size from the schema options. Only the processed table's schema
+        // carries the override here, and source.getPaimonTable() is deliberately left
+        // unstubbed (it returns null): if the serialization ever regresses to the raw
+        // cached table, the rust gate falls back to JNI and this test fails.
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+
+        // The processed table: the relation override is merged into its schema.
+        FileStoreTable processed = Mockito.mock(FileStoreTable.class);
+        Mockito.when(processed.schema()).thenReturn(new TableSchema(
+                0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                0, Collections.emptyList(), Collections.emptyList(),
+                ImmutableMap.of("read.batch-size", "1"), null));
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(externalTable.getDbName()).thenReturn("db");
+        Mockito.when(externalTable.getName()).thenReturn("t");
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "processedTable", processed);
+        setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(createDataSplit("relation_options.parquet")));
+
+        org.apache.doris.thrift.TPaimonFileDesc fileDesc =
+                rangeDesc.getTableFormatParams().getPaimonParams();
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST, fileDesc.getReaderType());
+        TableSchema shipped = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                fileDesc.getPaimonTableSchemaJson(), TableSchema.class);
+        Assert.assertEquals("1", shipped.options().get("read.batch-size"));
     }
 
     @Test
