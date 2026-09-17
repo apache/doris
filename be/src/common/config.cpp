@@ -1355,10 +1355,6 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
-// Norms of a variant subcolumn index are dense even when the path is sparse, so a segment with
-// thousands of indexed paths pays rows * paths bytes. Off by default; enable it only when BM25 on
-// variant subcolumns needs document-length normalization.
-DEFINE_mBool(inverted_index_write_norms_for_variant_subcolumn, "false");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");

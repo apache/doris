@@ -104,6 +104,14 @@ std::string get_parser_phrase_support_string_from_properties(
     return INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
 }
 
+bool get_index_norms_from_properties(const std::map<std::string, std::string>& properties,
+                                     bool default_value) {
+    if (auto it = properties.find(INVERTED_INDEX_NORMS_KEY); it != properties.end()) {
+        return it->second == INVERTED_INDEX_PARSER_TRUE;
+    }
+    return default_value;
+}
+
 CharFilterMap get_parser_char_filter_map_from_properties(
         const std::map<std::string, std::string>& properties) {
     if (!properties.contains(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE)) {

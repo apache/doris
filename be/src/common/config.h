@@ -1375,8 +1375,6 @@ DECLARE_Int16(condition_cache_limit);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
-// Whether analyzed inverted indexes on variant subcolumns write BM25 norms (one byte per row).
-DECLARE_mBool(inverted_index_write_norms_for_variant_subcolumn);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);

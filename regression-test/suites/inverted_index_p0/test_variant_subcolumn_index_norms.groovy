@@ -34,6 +34,7 @@ suite("test_variant_subcolumn_index_norms", "p0") {
             content TEXT,
             v variant<
                 's_*' : text,
+                't_*' : text,
                 PROPERTIES("variant_max_subcolumns_count"="0")
             >,
             INDEX idx_content (content) USING INVERTED PROPERTIES(
@@ -44,6 +45,12 @@ suite("test_variant_subcolumn_index_norms", "p0") {
                 "parser"="english",
                 "support_phrase"="true",
                 "field_pattern"="s_*"
+            ),
+            INDEX idx_v_t (v) USING INVERTED PROPERTIES(
+                "parser"="english",
+                "support_phrase"="true",
+                "field_pattern"="t_*",
+                "norms"="true"
             )
         ) ENGINE=OLAP DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -55,8 +62,8 @@ suite("test_variant_subcolumn_index_norms", "p0") {
     """
     sql """ insert into test_variant_subcolumn_index_norms values
             (1, 'alpha database server', parse_to_variant('{"s_host":"alpha database server"}')),
-            (2, 'beta server cluster', parse_to_variant('{"s_host":"beta server cluster", "s_note":"alpha"}')),
-            (3, 'alpha', parse_to_variant('{"s_note":"alpha alpha beta"}')),
+            (2, 'beta server cluster', parse_to_variant('{"s_host":"beta server cluster", "s_note":"alpha", "t_note":"alpha"}')),
+            (3, 'alpha', parse_to_variant('{"s_note":"alpha alpha beta", "t_note":"alpha beta"}')),
             (4, 'gamma', parse_to_variant('{"other":"alpha"}'))
     """
     sql " sync "
@@ -88,22 +95,24 @@ suite("test_variant_subcolumn_index_norms", "p0") {
     logger.info("show_nested_index_file code=${code}, out=${out}, err=${err}")
     assertEquals(0, code)
 
-    def subcolumnIndexes = []
-    def plainIndexes = []
+    def normsBySuffix = [:]
     for (def rowset in parseJson(out.trim()).rowsets) {
         for (def segment in rowset.segments) {
             for (def index in segment.indices) {
-                def hasNorms = index.files.any { file -> file.name.endsWith(".nrm") }
-                if (index.index_suffix.isEmpty()) {
-                    plainIndexes.add(hasNorms)
-                } else {
-                    subcolumnIndexes.add(hasNorms)
-                }
+                normsBySuffix[index.index_suffix] = index.files.any { file -> file.name.endsWith(".nrm") }
             }
         }
     }
-    logger.info("norms of plain indexes: ${plainIndexes}, subcolumn indexes: ${subcolumnIndexes}")
-    // idx_content on the single segment writes norms; idx_v_s on s_host and s_note does not
-    assertEquals([true], plainIndexes)
-    assertEquals([false, false], subcolumnIndexes)
+    logger.info("norms by index suffix: ${normsBySuffix}")
+    // the suffix is the escaped variant path, e.g. v%2Es%5Fhost for v.s_host
+    def normsOf = { path ->
+        normsBySuffix.find { suffix, hasNorms ->
+            suffix.replace("%2E", ".").replace("%5F", "_").contains(path)
+        }?.value
+    }
+    // idx_content on an ordinary column keeps norms, idx_v_s drops them, idx_v_t asks for them back
+    assertEquals(true, normsBySuffix[""])
+    assertEquals(false, normsOf("s_host"))
+    assertEquals(false, normsOf("s_note"))
+    assertEquals(true, normsOf("t_note"))
 }

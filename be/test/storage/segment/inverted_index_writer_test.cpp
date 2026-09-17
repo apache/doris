@@ -362,8 +362,10 @@ public:
     }
 
     // Helper method to create an inverted index with tokenization enabled
-    void create_tokenized_index(std::string_view rowset_id, int seg_id, bool enable_analyzer,
-                                const std::string& index_suffix = "") {
+    void create_tokenized_index(
+            std::string_view rowset_id, int seg_id, bool enable_analyzer,
+            const std::string& index_suffix = "",
+            const std::map<std::string, std::string>& extra_properties = {}) {
         auto tablet_schema = create_schema();
 
         // Create index meta with tokenization setting
@@ -383,6 +385,9 @@ public:
             // Enable tokenization by setting parser to standard
             // This will make should_analyzer() return true
             (*properties)["parser"] = "standard";
+        }
+        for (const auto& [key, value] : extra_properties) {
+            (*properties)[key] = value;
         }
 
         TabletIndex idx_meta;
@@ -1482,38 +1487,57 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
     // but it should not crash
 }
 
-// A variant subcolumn index carries a non-empty index suffix. Its norms take one byte per segment
-// row even when the path is sparse, so they are written only when
-// inverted_index_write_norms_for_variant_subcolumn is enabled.
-TEST_F(InvertedIndexWriterTest, NormsFileSkippedForVariantSubcolumn) {
-    const bool original_config_value = config::inverted_index_write_norms_for_variant_subcolumn;
-    Defer restore_config {[&]() {
-        config::inverted_index_write_norms_for_variant_subcolumn = original_config_value;
-    }};
+// Norms take one byte per segment row for every indexed path, so an index on a variant path (a
+// field_pattern index, or the copy inherited by one extracted subcolumn, which carries the path as
+// its index suffix) writes none by default. The "norms" property overrides that per index.
+TEST_F(InvertedIndexWriterTest, NormsFollowIndexNormsProperty) {
+    auto make_index_meta = [](const std::string& index_suffix,
+                              const std::map<std::string, std::string>& extra_properties) {
+        TabletIndexPB index_meta_pb;
+        index_meta_pb.set_index_type(IndexType::INVERTED);
+        index_meta_pb.set_index_id(1);
+        index_meta_pb.set_index_name("test");
+        index_meta_pb.add_col_unique_id(1); // c2 column id
+        (*index_meta_pb.mutable_properties())["parser"] = "standard";
+        for (const auto& [key, value] : extra_properties) {
+            (*index_meta_pb.mutable_properties())[key] = value;
+        }
+        TabletIndex index_meta;
+        index_meta.init_from_pb(index_meta_pb);
+        if (!index_suffix.empty()) {
+            index_meta.set_escaped_escaped_index_suffix_path(index_suffix);
+        }
+        return index_meta;
+    };
+    auto path_prefix = [this](const std::string& rowset_id, int seg_id) {
+        return std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id))};
+    };
 
-    TabletIndexPB index_meta_pb;
-    index_meta_pb.set_index_type(IndexType::INVERTED);
-    index_meta_pb.set_index_id(1);
-    index_meta_pb.set_index_name("test");
-    index_meta_pb.add_col_unique_id(1); // c2 column id
-    (*index_meta_pb.mutable_properties())["parser"] = "standard";
-    TabletIndex subcolumn_index_meta;
-    subcolumn_index_meta.init_from_pb(index_meta_pb);
-    subcolumn_index_meta.set_escaped_escaped_index_suffix_path("v.s_host");
+    create_tokenized_index("variant_subcolumn_default", 0, true, "v.s_host");
+    TabletIndex subcolumn_default = make_index_meta("v.s_host", {});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_default", 0),
+                                         &subcolumn_default))
+            << "a variant subcolumn index must not write .nrm by default";
 
-    config::inverted_index_write_norms_for_variant_subcolumn = false;
-    create_tokenized_index("test_variant_subcolumn_without_norms", 0, true, "v.s_host");
-    std::string prefix_without_norms {InvertedIndexDescriptor::get_index_file_path_prefix(
-            local_segment_path(kTestDir, "test_variant_subcolumn_without_norms", 0))};
-    EXPECT_FALSE(check_norms_file_exists(prefix_without_norms, &subcolumn_index_meta))
-            << "a tokenized variant subcolumn index must not write .nrm by default";
+    create_tokenized_index("variant_subcolumn_norms_on", 1, true, "v.s_host",
+                           {{"norms", "true"}});
+    TabletIndex subcolumn_norms_on = make_index_meta("v.s_host", {{"norms", "true"}});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("variant_subcolumn_norms_on", 1),
+                                        &subcolumn_norms_on))
+            << "norms = true must restore .nrm for a variant subcolumn index";
 
-    config::inverted_index_write_norms_for_variant_subcolumn = true;
-    create_tokenized_index("test_variant_subcolumn_with_norms", 1, true, "v.s_host");
-    std::string prefix_with_norms {InvertedIndexDescriptor::get_index_file_path_prefix(
-            local_segment_path(kTestDir, "test_variant_subcolumn_with_norms", 1))};
-    EXPECT_TRUE(check_norms_file_exists(prefix_with_norms, &subcolumn_index_meta))
-            << "inverted_index_write_norms_for_variant_subcolumn=true must restore .nrm";
+    create_tokenized_index("field_pattern_default", 2, true, "", {{"field_pattern", "s_*"}});
+    TabletIndex field_pattern_default = make_index_meta("", {{"field_pattern", "s_*"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("field_pattern_default", 2),
+                                         &field_pattern_default))
+            << "a field_pattern index must not write .nrm by default";
+
+    create_tokenized_index("plain_column_norms_off", 3, true, "", {{"norms", "false"}});
+    TabletIndex plain_norms_off = make_index_meta("", {{"norms", "false"}});
+    EXPECT_FALSE(
+            check_norms_file_exists(path_prefix("plain_column_norms_off", 3), &plain_norms_off))
+            << "norms = false must drop .nrm for an ordinary column index";
 }
 
 } // namespace doris::segment_v2
