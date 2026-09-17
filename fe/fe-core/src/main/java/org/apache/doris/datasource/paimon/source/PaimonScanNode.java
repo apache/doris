@@ -426,7 +426,15 @@ public class PaimonScanNode extends FileQueryScanNode {
             // is not a FileStoreTable (e.g. a sys table backed by DataSplit), we cannot
             // ship a schema JSON, so fall back to CPP / JNI rather than sending an
             // incomplete PAIMON_RUST request that BE would reject.
-            Table paimonTable = source.getPaimonTable();
+            //
+            // Serialize the same effective table that planning and the JNI reader use.
+            // Relation options such as t@options('read.batch-size'='1') are applied by
+            // getProcessedTable() (doInitialize caches it in processedTable), and the
+            // rust reader derives its read batch size from the schema options — the raw
+            // cached table would silently drop the override. Copies, delegates and
+            // fallback wrappers of getProcessedTable() are still FileStoreTable, so the
+            // instanceof gate keeps its semantics.
+            Table paimonTable = processedTable;
             boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
                     && sessionVariable.enableFileScannerV2 && nativeSplit
                     && paimonTable instanceof FileStoreTable;
