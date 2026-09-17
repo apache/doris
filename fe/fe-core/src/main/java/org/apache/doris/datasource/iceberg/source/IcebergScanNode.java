@@ -414,6 +414,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 String deleteFilePath = filter.getDeleteFilePath();
                 LocationPath locationPath = LocationPath.of(deleteFilePath, icebergSplit.getConfig());
                 deleteFileDesc.setPath(locationPath.toStorageLocation().toString());
+                deleteFileDesc.setFileSize(filter.getFilesize());
                 setDeleteFileFormat(deleteFileDesc, filter.getFileformat());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
@@ -549,6 +550,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         deleteFileDesc.setOriginalPath(icebergSplit.getPositionDeleteOriginalPath());
         deleteFileDesc.setFileFormat(icebergSplit.getPositionDeleteFileFormat());
         deleteFileDesc.setContent(icebergSplit.getPositionDeleteContent());
+        if (rangeDesc.isSetFileSize()) {
+            deleteFileDesc.setFileSize(rangeDesc.getFileSize());
+        }
         if (icebergSplit.getPositionDeleteContentOffset() != null) {
             deleteFileDesc.setContentOffset(icebergSplit.getPositionDeleteContentOffset());
         }
