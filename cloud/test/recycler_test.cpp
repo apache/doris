@@ -7563,6 +7563,62 @@ TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_caches_partition_mow_state
     check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0);
 }
 
+TEST(RecyclerTest, delete_delete_bitmap_kvs_caches_partition_mow_state) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr int64_t table_id = 30011;
+    constexpr int64_t index_id = 30012;
+    constexpr int64_t partition_id = 30013;
+    constexpr int64_t tablet_id = 30014;
+    InstanceRecycler recycler(txn_kv, create_recycler_test_instance("delete_bitmap_mow_cache"),
+                              thread_group, std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true), 0);
+
+    ASSERT_EQ(create_delete_bitmaps_v1(txn_kv.get(), tablet_id, "cache_rowset_1"), 0);
+    const int64_t get_count_before_first_delete = txn_kv->get_count_;
+    ASSERT_EQ(recycler.delete_delete_bitmap_kvs(partition_id, tablet_id, "cache_rowset_1"), 0);
+    EXPECT_EQ(txn_kv->get_count_, get_count_before_first_delete + 3);
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0, 1);
+
+    ASSERT_EQ(create_delete_bitmaps_v1(txn_kv.get(), tablet_id, "cache_rowset_2"), 0);
+    const int64_t get_count_before_cached_delete = txn_kv->get_count_;
+    ASSERT_EQ(recycler.delete_delete_bitmap_kvs(partition_id, tablet_id, "cache_rowset_2"), 0);
+    EXPECT_EQ(txn_kv->get_count_, get_count_before_cached_delete + 1);
+    check_delete_bitmap_keys_size(txn_kv.get(), tablet_id, 0, 1);
+}
+
+TEST(RecyclerTest, delete_delete_bitmap_kvs_only_deletes_mow_tablet) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr int64_t table_id = 30021;
+    constexpr int64_t index_id = 30022;
+    constexpr int64_t mow_partition_id = 30023;
+    constexpr int64_t mow_tablet_id = 30024;
+    constexpr int64_t non_mow_partition_id = 30025;
+    constexpr int64_t non_mow_tablet_id = 30026;
+    InstanceRecycler recycler(txn_kv, create_recycler_test_instance("delete_bitmap_mow"),
+                              thread_group, std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, mow_partition_id, mow_tablet_id, true),
+              0);
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, non_mow_partition_id,
+                            non_mow_tablet_id, false),
+              0);
+    ASSERT_EQ(create_delete_bitmaps_v1(txn_kv.get(), mow_tablet_id, "mow_rowset"), 0);
+    ASSERT_EQ(create_delete_bitmaps_v1(txn_kv.get(), non_mow_tablet_id, "non_mow_rowset"), 0);
+
+    ASSERT_EQ(recycler.delete_delete_bitmap_kvs(mow_partition_id, mow_tablet_id, "mow_rowset"), 0);
+    ASSERT_EQ(recycler.delete_delete_bitmap_kvs(non_mow_partition_id, non_mow_tablet_id,
+                                                "non_mow_rowset"),
+              0);
+
+    check_delete_bitmap_keys_size(txn_kv.get(), mow_tablet_id, 0, 1);
+    check_delete_bitmap_keys_size(txn_kv.get(), non_mow_tablet_id, 1, 1);
+}
+
 TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_only_deletes_mow_tablet) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
