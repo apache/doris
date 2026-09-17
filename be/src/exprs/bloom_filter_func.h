@@ -41,6 +41,7 @@ public:
         _runtime_bloom_filter_min_size = params->runtime_bloom_filter_min_size;
         _runtime_bloom_filter_max_size = params->runtime_bloom_filter_max_size;
         _bloom_filter_size_calculated_by_ndv = params->bloom_filter_size_calculated_by_ndv;
+        _normalize_float_keys = params->normalize_float_keys;
         _limit_length();
     }
     Status init_with_fixed_length(size_t runtime_size) {
@@ -130,6 +131,9 @@ public:
         auto* other_func = bloomfilter_func;
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
+        // The storage predicate probes the shared filter, so it must use the hash convention
+        // the producer inserted with.
+        _normalize_float_keys = other_func->_normalize_float_keys;
     }
 
     virtual void insert_set(std::shared_ptr<HybridSetBase> set) = 0;
@@ -173,6 +177,8 @@ protected:
     int64_t _runtime_bloom_filter_max_size;
     bool _build_bf_by_runtime_size = false;
     bool _bloom_filter_size_calculated_by_ndv = false;
+    // See RuntimeFilterParams::normalize_float_keys; only FLOAT / DOUBLE filters look at it.
+    bool _normalize_float_keys = false;
 };
 
 template <PrimitiveType type>
@@ -180,18 +186,20 @@ class BloomFilterFunc final : public BloomFilterFuncBase {
 public:
     BloomFilterFunc(bool null_aware) : BloomFilterFuncBase(null_aware) {}
     void insert_set(std::shared_ptr<HybridSetBase> set) override {
-        OpV2::insert_set(*_bloom_filter, set);
+        _with_op([&](auto op) { decltype(op)::insert_set(*_bloom_filter, set); });
         _bloom_filter->set_contain_null(set->contain_null());
     }
 
     void insert_fixed_len(const ColumnPtr& column, size_t start) override {
         DCHECK(_bloom_filter != nullptr);
-        OpV2::insert_batch(*_bloom_filter, column, start);
+        _with_op([&](auto op) { decltype(op)::insert_batch(*_bloom_filter, column, start); });
     }
 
     void find_fixed_len(const ColumnPtr& column, uint8_t* results,
                         const uint8_t* __restrict filter = nullptr) override {
-        OpV2::find_batch(*_bloom_filter, column, results, filter);
+        _with_op([&](auto op) {
+            decltype(op)::find_batch(*_bloom_filter, column, results, filter);
+        });
     }
 
     PrimitiveType primitive_type() const override { return type; }
@@ -224,7 +232,7 @@ public:
             for (size_t row = 0; row < rows; ++row) {
                 ValueType value;
                 std::memcpy(&value, values + row * sizeof(ValueType), sizeof(ValueType));
-                matches[row] &= _bloom_filter->test_element<fixed_len_to_uint32_v2>(value) ? 1 : 0;
+                matches[row] &= _test_element(value) ? 1 : 0;
             }
             return Status::OK();
         }
@@ -260,7 +268,7 @@ public:
             return _bloom_filter->test_element<fixed_len_to_uint32_v2>(
                     StringRef(value.data(), value.size()));
         } else {
-            return _bloom_filter->test_element<fixed_len_to_uint32_v2>(field.get<type>());
+            return _test_element(field.get<type>());
         }
     }
 
@@ -284,11 +292,36 @@ public:
     uint16_t find_fixed_len_olap_engine(const IColumn& column, const uint8_t* nullmap,
                                         uint16_t* offsets, int number,
                                         bool is_parse_column) override {
-        return OpV2::find_batch_olap_engine(*_bloom_filter, column, nullmap, offsets, number,
-                                            is_parse_column);
+        return _with_op([&](auto op) {
+            return decltype(op)::find_batch_olap_engine(*_bloom_filter, column, nullmap, offsets,
+                                                        number, is_parse_column);
+        });
     }
 
 private:
     using OpV2 = typename BloomFilterTypeTraits<fixed_len_to_uint32_v2, type>::FindOp;
+    using OpV3 = typename BloomFilterTypeTraits<fixed_len_to_uint32_v3, type>::FindOp;
+
+    // FLOAT / DOUBLE filters hash canonical values once the whole query runs on
+    // NORMALIZE_FLOAT_HASH_KEY_VERSION; every other type has a single convention.
+    template <typename Func>
+    auto _with_op(Func&& func) const {
+        if constexpr (is_float_or_double(type)) {
+            if (_normalize_float_keys) {
+                return func(OpV3 {});
+            }
+        }
+        return func(OpV2 {});
+    }
+
+    template <typename T>
+    bool _test_element(const T& value) const {
+        if constexpr (is_float_or_double(type)) {
+            if (_normalize_float_keys) {
+                return _bloom_filter->test_element<fixed_len_to_uint32_v3>(value);
+            }
+        }
+        return _bloom_filter->test_element<fixed_len_to_uint32_v2>(value);
+    }
 };
 } // namespace doris

@@ -17,6 +17,7 @@
 
 #include "exec/runtime_filter/runtime_filter.h"
 
+#include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -103,6 +104,8 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         params.bloom_filter_size = desc->bloom_filter_size_bytes;
     }
     params.null_aware = desc->__isset.null_aware && desc->null_aware;
+    params.normalize_float_keys = options->__isset.be_exec_version &&
+                                  options->be_exec_version >= NORMALIZE_FLOAT_HASH_KEY_VERSION;
     _wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
     return Status::OK();
 }

@@ -2009,8 +2009,15 @@ public class Config extends ConfigBase {
      */
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
 
+    /**
+     * From this version on, BE shuffle partitioners and bloom runtime filters hash canonical
+     * float values (-0.0 as +0.0, every NaN as quiet NaN), so equal float keys always reach the
+     * same instance and pass the same filter.
+     */
+    public static final int NORMALIZE_FLOAT_HASH_KEY_MIN_BE_EXEC_VERSION = 15;
+
     @ConfField(mutable = false)
-    public static int max_be_exec_version = TIMESTAMP_NS_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = NORMALIZE_FLOAT_HASH_KEY_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

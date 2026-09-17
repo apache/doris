@@ -645,6 +645,10 @@ struct HashJoinSharedState : public JoinSharedState {
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
     std::shared_ptr<Block> build_block;
+    // Normalized copies of the float build keys (-0.0 -> +0.0, NaN -> quiet NaN). The hash
+    // table keeps raw pointers into them for the whole probe phase, while `build_block` still
+    // holds the stored values for the join output.
+    std::vector<ColumnPtr> normalized_build_key_columns;
     std::shared_ptr<std::vector<uint32_t>> build_indexes_null;
 
     // Used by shared hash table
