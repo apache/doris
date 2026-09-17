@@ -71,23 +71,15 @@ suite("test_fluss_lake_only", "p0,external") {
     // quietly fell back to the fluss read would return all six.
     order_qt_lake_rows """select id, name, price from lake_log\$lake"""
 
-    // --- the three columns fluss adds to every lake table --------------------
-    // They belong to the lake table and not to the fluss one, which is the whole
-    // reason the two are exposed as separate tables rather than one.
-    //
-    // Their VALUES are deliberately not recorded: which bucket a log row lands in
-    // is the writer's choice and __timestamp is a wall clock, so a baseline holding
-    // them would be rewritten every time the environment is rebuilt. What is
-    // recorded is that every row has all three within the range they must be in.
-    order_qt_system_columns """
-        select count(*) from lake_log\$lake
-            where __bucket >= 0 and __bucket < 3
-              and __offset >= 0
-              and __timestamp is not null
-    """
-
+    // --- the lake table is this table's columns and no others ----------------
+    // Fluss 1.0.0 tiers into a paimon table that carries no fluss system columns:
+    // where earlier releases appended __bucket / __offset / __timestamp to every lake
+    // table, 1.0.0 only refuses a fluss column of those names and marks the table with
+    // paimon 2.0's `lakestream.enabled` option instead. The paimon connector's own
+    // metadata columns (__paimon_file_path, __paimon_row_index) are invisible, and
+    // DESC hides them here the way it hides them on any paimon table. Both DESCs are
+    // recorded so that a column appearing on one side only is a visible change.
     qt_desc_lake_log_lake """desc lake_log\$lake"""
-    // The fluss table itself has none of them.
     qt_desc_lake_log """desc lake_log"""
 
     // --- type parity between the two doors ----------------------------------
@@ -109,7 +101,10 @@ suite("test_fluss_lake_only", "p0,external") {
         assertEquals(type, lakeTypes.get(column),
                 "column ${column} is ${type} on the fluss table but ${lakeTypes.get(column)} on its lake")
     }
-    assertEquals(flussTypes.size() + 3, lakeTypes.size())
+    // The count is the other half of the parity: a column present on the lake side
+    // only would satisfy the loop.
+    assertEquals(flussTypes.size(), lakeTypes.size(),
+            "the lake table should list exactly the fluss table's columns, but has ${lakeTypes.keySet()}")
 
     // Parity of the values, not just of the declared types: the row is recorded
     // here read through paimon, and the same row read through fluss is recorded in

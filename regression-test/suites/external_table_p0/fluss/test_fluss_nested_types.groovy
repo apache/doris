@@ -158,11 +158,14 @@ suite("test_fluss_nested_types", "p0,external") {
         assertEquals(type, lakeTypes.get(column),
                 "column ${column} is ${type} on the fluss table but ${lakeTypes.get(column)} on its lake")
     }
-    // The lake table carries three system columns fluss adds to every one it creates
-    // (__bucket, __offset, __timestamp) and nothing else, so the count is the other
-    // half of the parity: a column present on one side only would satisfy the loop.
-    assertEquals(flussTypes.size() + 3, lakeTypes.size(),
-            "the lake table should differ by exactly the three system columns")
+    // The count is the other half of the parity: a column present on one side only
+    // would satisfy the loop. Fluss 1.0.0 tiers into a paimon table that carries no
+    // fluss system columns (paimon 2.0's `lakestream.enabled` option took the place of
+    // the __bucket / __offset / __timestamp columns earlier releases appended), and the
+    // paimon connector's own metadata columns are invisible and hidden by DESC, so the
+    // two sides list exactly the same columns.
+    assertEquals(flussTypes.size(), lakeTypes.size(),
+            "the lake table should list exactly the fluss table's columns, but has ${lakeTypes.keySet()}")
 
     // The tiered row read through paimon's own reader.
     order_qt_lake_side """
