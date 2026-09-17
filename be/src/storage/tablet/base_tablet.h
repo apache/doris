@@ -103,6 +103,11 @@ public:
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() const { return _tablet_meta; }
 
+    BinlogConfig binlog_config() const {
+        std::shared_lock rlock(_meta_lock);
+        return _tablet_meta->binlog_config();
+    }
+
     int32_t max_version_config();
 
     // FIXME(plat1ko): It is not appropriate to expose this lock
