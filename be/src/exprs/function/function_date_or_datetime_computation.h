@@ -1516,12 +1516,13 @@ struct TimestampToDateTime : IFunction {
                 continue;
             }
             Int64 value = column_data.get_element(i);
-            if (value < 0) [[unlikely]] {
+            const Int64 seconds = value / Impl::ratio;
+            if (value < 0 || seconds > MAX_UNIX_TIMESTAMP_WITH_TIMEZONE) [[unlikely]] {
                 throw_out_of_bound_int(name, value);
             }
 
             auto& dt = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(res_data[i]);
-            dt.from_unixtime(value / Impl::ratio, time_zone);
+            dt.from_unixtime(seconds, time_zone);
 
             if (!dt.is_valid_date()) [[unlikely]] {
                 throw_out_of_bound_int(name, value);
