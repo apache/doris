@@ -1514,30 +1514,71 @@ TEST_F(InvertedIndexWriterTest, NormsFollowIndexNormsProperty) {
                 local_segment_path(kTestDir, rowset_id, seg_id))};
     };
 
-    create_tokenized_index("variant_subcolumn_default", 0, true, "v.s_host");
-    TabletIndex subcolumn_default = make_index_meta("v.s_host", {});
-    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_default", 0),
-                                         &subcolumn_default))
-            << "a variant subcolumn index must not write .nrm by default";
+    bool original_skip_norms_for_variant = config::inverted_index_skip_norms_for_variant;
 
-    create_tokenized_index("variant_subcolumn_norms_on", 1, true, "v.s_host",
-                           {{"norms", "true"}});
-    TabletIndex subcolumn_norms_on = make_index_meta("v.s_host", {{"norms", "true"}});
-    EXPECT_TRUE(check_norms_file_exists(path_prefix("variant_subcolumn_norms_on", 1),
-                                        &subcolumn_norms_on))
-            << "norms = true must restore .nrm for a variant subcolumn index";
+    // an analyzed index writes norms wherever it sits, and only "norms" = "false" drops them
+    config::inverted_index_skip_norms_for_variant = false;
 
-    create_tokenized_index("field_pattern_default", 2, true, "", {{"field_pattern", "s_*"}});
-    TabletIndex field_pattern_default = make_index_meta("", {{"field_pattern", "s_*"}});
-    EXPECT_FALSE(check_norms_file_exists(path_prefix("field_pattern_default", 2),
-                                         &field_pattern_default))
-            << "a field_pattern index must not write .nrm by default";
+    create_tokenized_index("plain_column_default", 0, true, "");
+    TabletIndex plain_default = make_index_meta("", {});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("plain_column_default", 0), &plain_default))
+            << "an analyzed index must write .nrm by default";
 
-    create_tokenized_index("plain_column_norms_off", 3, true, "", {{"norms", "false"}});
+    create_tokenized_index("plain_column_norms_off", 1, true, "", {{"norms", "false"}});
     TabletIndex plain_norms_off = make_index_meta("", {{"norms", "false"}});
     EXPECT_FALSE(
-            check_norms_file_exists(path_prefix("plain_column_norms_off", 3), &plain_norms_off))
+            check_norms_file_exists(path_prefix("plain_column_norms_off", 1), &plain_norms_off))
             << "norms = false must drop .nrm for an ordinary column index";
+
+    create_tokenized_index("variant_subcolumn_default", 2, true, "v.s_host");
+    TabletIndex subcolumn_default = make_index_meta("v.s_host", {});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("variant_subcolumn_default", 2),
+                                        &subcolumn_default))
+            << "a variant subcolumn index must write .nrm by default too";
+
+    create_tokenized_index("variant_subcolumn_norms_off", 3, true, "v.s_host",
+                           {{"norms", "false"}});
+    TabletIndex subcolumn_norms_off = make_index_meta("v.s_host", {{"norms", "false"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_norms_off", 3),
+                                         &subcolumn_norms_off))
+            << "norms = false must drop .nrm for a variant subcolumn index";
+
+    create_tokenized_index("field_pattern_default", 4, true, "", {{"field_pattern", "s_*"}});
+    TabletIndex field_pattern_default = make_index_meta("", {{"field_pattern", "s_*"}});
+    EXPECT_TRUE(check_norms_file_exists(path_prefix("field_pattern_default", 4),
+                                        &field_pattern_default))
+            << "a field_pattern index must write .nrm by default too";
+
+    // the config drops norms for a variant path index whatever its property says, and leaves every
+    // other index alone
+    config::inverted_index_skip_norms_for_variant = true;
+
+    create_tokenized_index("variant_subcolumn_skipped", 5, true, "v.s_host");
+    TabletIndex subcolumn_skipped = make_index_meta("v.s_host", {});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_skipped", 5),
+                                         &subcolumn_skipped))
+            << "the config must drop .nrm for a variant subcolumn index";
+
+    create_tokenized_index("variant_subcolumn_norms_on_skipped", 6, true, "v.s_host",
+                           {{"norms", "true"}});
+    TabletIndex subcolumn_norms_on_skipped = make_index_meta("v.s_host", {{"norms", "true"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("variant_subcolumn_norms_on_skipped", 6),
+                                         &subcolumn_norms_on_skipped))
+            << "the config must win over norms = true on a variant subcolumn index";
+
+    create_tokenized_index("field_pattern_skipped", 7, true, "", {{"field_pattern", "s_*"}});
+    TabletIndex field_pattern_skipped = make_index_meta("", {{"field_pattern", "s_*"}});
+    EXPECT_FALSE(check_norms_file_exists(path_prefix("field_pattern_skipped", 7),
+                                         &field_pattern_skipped))
+            << "the config must drop .nrm for a field_pattern index";
+
+    create_tokenized_index("plain_column_not_skipped", 8, true, "");
+    TabletIndex plain_not_skipped = make_index_meta("", {});
+    EXPECT_TRUE(
+            check_norms_file_exists(path_prefix("plain_column_not_skipped", 8), &plain_not_skipped))
+            << "the config must leave an ordinary column index alone";
+
+    config::inverted_index_skip_norms_for_variant = original_skip_norms_for_variant;
 }
 
 } // namespace doris::segment_v2
