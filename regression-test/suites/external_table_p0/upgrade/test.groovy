@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_catalog_upgrade_test", "p0,external,hive,external_docker,external_docker_hive,restart_fe,upgrade_case") {
-    // Iceberg instant columns retain their timezone after catalog refresh or upgrade.
+    // Iceberg and JDBC MySQL instants retain their timezone after catalog refresh or upgrade.
     sql """set time_zone = 'Asia/Shanghai'"""
 
     // Hive
