@@ -294,8 +294,8 @@ public class FlussConnectorMetadataTest {
         // columns — and it does that silently, so a wrong order mis-assigns values rather than failing.
         RecordingFlussAdminOps adminOps = withDataLakePkTable();
         adminOps.partitionsByTable.put(PK_TABLE, Arrays.asList(
-                partition(1L, "region", "eu", "dt", "2026_08_02"),
-                partition(2L, "dt", "2026_08_03", "region", "us")));
+                partition(1L, 2, "region", "eu", "dt", "2026_08_02"),
+                partition(2L, 2, "dt", "2026_08_03", "region", "us")));
 
         FlussConnectorMetadata metadata = metadata(adminOps);
         ConnectorTableHandle handle = metadata.getTableHandle(null, "db", "pk_table")
@@ -353,7 +353,7 @@ public class FlussConnectorMetadataTest {
                 .buckets(1)
                 .build());
         adminOps.partitionsByTable.put(PART_TABLE, Collections.singletonList(
-                partition(1L, "p_str", "cn", "p_char", "c1", "p_bool", "true", "p_tiny", "1",
+                partition(1L, 1, "p_str", "cn", "p_char", "c1", "p_bool", "true", "p_tiny", "1",
                         "p_small", "10", "p_int", "100", "p_big", "1000", "p_date", "2026-01-01",
                         "p_bin", "0102")));
         return adminOps;
@@ -370,7 +370,7 @@ public class FlussConnectorMetadataTest {
                 .buckets(1)
                 .build());
         adminOps.partitionsByTable.put(PART_TABLE,
-                Collections.singletonList(partition(1L, "p", "2026-01-01-01-02-03")));
+                Collections.singletonList(partition(1L, 1, "p", "2026-01-01-01-02-03")));
         return adminOps;
     }
 
@@ -554,8 +554,11 @@ public class FlussConnectorMetadataTest {
         return names;
     }
 
-    /** A fluss partition whose spec is given as key/value pairs, in the caller's order. */
-    private static PartitionInfo partition(long partitionId, String... keyValues) {
+    /**
+     * A fluss partition whose spec is given as key/value pairs, in the caller's order. Since fluss
+     * 1.0.0 a partition carries a bucket count of its own; the tests give it the table's.
+     */
+    private static PartitionInfo partition(long partitionId, int buckets, String... keyValues) {
         Map<String, String> spec = new LinkedHashMap<>();
         for (int i = 0; i < keyValues.length; i += 2) {
             spec.put(keyValues[i], keyValues[i + 1]);
@@ -563,6 +566,6 @@ public class FlussConnectorMetadataTest {
         return new PartitionInfo(partitionId,
                 ResolvedPartitionSpec.fromPartitionSpec(
                         new ArrayList<>(spec.keySet()), new PartitionSpec(spec)),
-                null);
+                null, buckets);
     }
 }
