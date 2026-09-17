@@ -4,12 +4,12 @@
 2	200	bob	20	2.20	old-b	2026-07-02
 
 -- !sc_add_after_before_insert --
-1	100	alice	10	\N	1.10	old-a	2026-07-01
-2	200	bob	20	\N	2.20	old-b	2026-07-02
+1	100	alice	10	unknown	1.10	old-a	2026-07-01
+2	200	bob	20	unknown	2.20	old-b	2026-07-02
 
 -- !sc_add_after_after_insert --
-1	100	alice	10	\N	1.10	old-a	2026-07-01
-2	200	bob	20	\N	2.20	old-b	2026-07-02
+1	100	alice	10	unknown	1.10	old-a	2026-07-01
+2	200	bob	20	unknown	2.20	old-b	2026-07-02
 3	300	carol	30	added-3	3.30	old-c	2026-07-03
 4	400	dave	40	unknown	4.40	old-d	2026-07-01
 
@@ -17,32 +17,32 @@
 100	unknown
 
 -- !sc_add_first_before_insert --
-1	\N	100	alice	10	\N	1.10	old-a	2026-07-01
+1	\N	100	alice	10	unknown	1.10	old-a	2026-07-01
 100	\N	10000	default-value	100	unknown	100.00	old-default	2026-07-10
-2	\N	200	bob	20	\N	2.20	old-b	2026-07-02
+2	\N	200	bob	20	unknown	2.20	old-b	2026-07-02
 3	\N	300	carol	30	added-3	3.30	old-c	2026-07-03
 4	\N	400	dave	40	unknown	4.40	old-d	2026-07-01
 
 -- !sc_add_first_after_insert --
-1	\N	100	alice	10	\N	1.10	old-a	2026-07-01
+1	\N	100	alice	10	unknown	1.10	old-a	2026-07-01
 100	\N	10000	default-value	100	unknown	100.00	old-default	2026-07-10
-2	\N	200	bob	20	\N	2.20	old-b	2026-07-02
+2	\N	200	bob	20	unknown	2.20	old-b	2026-07-02
 3	\N	300	carol	30	added-3	3.30	old-c	2026-07-03
 4	\N	400	dave	40	unknown	4.40	old-d	2026-07-01
 5	5000	500	erin	50	added-first	5.50	old-e	2026-07-04
 
 -- !sc_add_columns_before_insert --
-1	\N	100	alice	10	\N	1.10	old-a	\N	\N	2026-07-01
+1	\N	100	alice	10	unknown	1.10	old-a	\N	\N	2026-07-01
 100	\N	10000	default-value	100	unknown	100.00	old-default	\N	\N	2026-07-10
-2	\N	200	bob	20	\N	2.20	old-b	\N	\N	2026-07-02
+2	\N	200	bob	20	unknown	2.20	old-b	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	old-c	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	old-d	\N	\N	2026-07-01
 5	5000	500	erin	50	added-first	5.50	old-e	\N	\N	2026-07-04
 
 -- !sc_add_columns_after_insert --
-1	\N	100	alice	10	\N	1.10	old-a	\N	\N	2026-07-01
+1	\N	100	alice	10	unknown	1.10	old-a	\N	\N	2026-07-01
 100	\N	10000	default-value	100	unknown	100.00	old-default	\N	\N	2026-07-10
-2	\N	200	bob	20	\N	2.20	old-b	\N	\N	2026-07-02
+2	\N	200	bob	20	unknown	2.20	old-b	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	old-c	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	old-d	\N	\N	2026-07-01
 5	5000	500	erin	50	added-first	5.50	old-e	\N	\N	2026-07-04
@@ -50,9 +50,9 @@
 60	\N	6000	partial-columns	600	explicit-default-column	60.60	old-partial	\N	\N	2026-07-05
 
 -- !sc_drop_before_insert --
-1	\N	100	alice	10	\N	1.10	\N	\N	2026-07-01
+1	\N	100	alice	10	unknown	1.10	\N	\N	2026-07-01
 100	\N	10000	default-value	100	unknown	100.00	\N	\N	2026-07-10
-2	\N	200	bob	20	\N	2.20	\N	\N	2026-07-02
+2	\N	200	bob	20	unknown	2.20	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	\N	\N	2026-07-01
 5	5000	500	erin	50	added-first	5.50	\N	\N	2026-07-04
@@ -60,9 +60,9 @@
 60	\N	6000	partial-columns	600	explicit-default-column	60.60	\N	\N	2026-07-05
 
 -- !sc_drop_after_insert --
-1	\N	100	alice	10	\N	1.10	\N	\N	2026-07-01
+1	\N	100	alice	10	unknown	1.10	\N	\N	2026-07-01
 100	\N	10000	default-value	100	unknown	100.00	\N	\N	2026-07-10
-2	\N	200	bob	20	\N	2.20	\N	\N	2026-07-02
+2	\N	200	bob	20	unknown	2.20	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	\N	\N	2026-07-01
 5	5000	500	erin	50	added-first	5.50	\N	\N	2026-07-04
@@ -71,9 +71,9 @@
 7	7000	700	grace	70	after-drop	7.70	7	700	2026-07-06
 
 -- !sc_rename_before_insert --
-1	\N	100	alice	10	\N	1.10	\N	\N	2026-07-01
+1	\N	100	alice	10	unknown	1.10	\N	\N	2026-07-01
 100	\N	10000	default-value	100	unknown	100.00	\N	\N	2026-07-10
-2	\N	200	bob	20	\N	2.20	\N	\N	2026-07-02
+2	\N	200	bob	20	unknown	2.20	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	\N	\N	2026-07-01
 5	5000	500	erin	50	added-first	5.50	\N	\N	2026-07-04
@@ -82,9 +82,9 @@
 7	7000	700	grace	70	after-drop	7.70	7	700	2026-07-06
 
 -- !sc_rename_after_insert --
-1	\N	100	alice	10	\N	1.10	\N	\N	2026-07-01
+1	\N	100	alice	10	unknown	1.10	\N	\N	2026-07-01
 100	\N	10000	default-value	100	unknown	100.00	\N	\N	2026-07-10
-2	\N	200	bob	20	\N	2.20	\N	\N	2026-07-02
+2	\N	200	bob	20	unknown	2.20	\N	\N	2026-07-02
 3	\N	300	carol	30	added-3	3.30	\N	\N	2026-07-03
 4	\N	400	dave	40	unknown	4.40	\N	\N	2026-07-01
 5	5000	500	erin	50	added-first	5.50	\N	\N	2026-07-04
@@ -175,7 +175,7 @@
 9	ivan	900	2026-07-07
 
 -- !sc_modify_metadata_desc --
-added_after	text	Yes	true	\N		changed comment
+added_after	text	Yes	true	changed-default		changed comment
 first_col	bigint	Yes	true	\N		
 id	int	Yes	true	\N		
 required_value	bigint	Yes	true	\N		
@@ -187,11 +187,11 @@ tiny_col	tinyint	Yes	true	\N
 small_col	smallint	Yes	true	\N		small integer
 
 -- !sc_modify_metadata_before_insert --
-1	alice	\N	10	2026-07-01
+1	alice	changed-default	10	2026-07-01
 10	judy	after-decimal	100	2026-07-08
 100	default-value	unknown	100	2026-07-10
 11	kate	after-nullable	110	2026-07-09
-2	bob	\N	20	2026-07-02
+2	bob	changed-default	20	2026-07-02
 3	carol	added-3	30	2026-07-03
 4	dave	unknown	40	2026-07-01
 5	erin	added-first	50	2026-07-04
@@ -205,13 +205,13 @@ small_col	smallint	Yes	true	\N		small integer
 120	changed-default
 
 -- !sc_modify_metadata_after_insert --
-1	alice	\N	10	2026-07-01
+1	alice	changed-default	10	2026-07-01
 10	judy	after-decimal	100	2026-07-08
 100	default-value	unknown	100	2026-07-10
 11	kate	after-nullable	110	2026-07-09
 12	leo	after-metadata	120	2026-07-10
 120	modified-default	changed-default	1200	2026-07-10
-2	bob	\N	20	2026-07-02
+2	bob	changed-default	20	2026-07-02
 3	carol	added-3	30	2026-07-03
 4	dave	unknown	40	2026-07-01
 5	erin	added-first	50	2026-07-04
@@ -466,17 +466,17 @@ dt=2026-07-14	1
 2	2026-08-01	20	pk-b
 
 -- !sc_pk_add_before_insert --
-1	2026-08-01	10	\N	pk-a
-2	2026-08-01	20	\N	pk-b
+1	2026-08-01	10	default-note	pk-a
+2	2026-08-01	20	default-note	pk-b
 
 -- !sc_pk_add_after_insert --
 1	2026-08-01	11	updated-after-add	pk-a2
-2	2026-08-01	20	\N	pk-b
+2	2026-08-01	20	default-note	pk-b
 3	2026-08-02	30	new-after-add	pk-c
 
 -- !sc_pk_rename_before_insert --
 1	2026-08-01	11	updated-after-add	pk-a2
-2	2026-08-01	20	\N	pk-b
+2	2026-08-01	20	default-note	pk-b
 3	2026-08-02	30	new-after-add	pk-c
 
 -- !sc_pk_rename_after_insert --
@@ -529,4 +529,3 @@ dt=2026-07-14	1
 7	2026-08-04	70	after-key-failures
 8	2026-08-05	81	default-note
 9	2026-08-05	\N	default-note
-

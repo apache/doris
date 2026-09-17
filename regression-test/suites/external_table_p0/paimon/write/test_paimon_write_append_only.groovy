@@ -133,7 +133,8 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
         assertTableEquals("t_auto_partition", "ORDER BY id")
 
         def sparkPartitions = spark_paimon """
-            SELECT `partition`, record_count
+            SELECT CONCAT('dt=', COALESCE(partition.dt, '__DEFAULT_PARTITION__')) AS `partition`,
+                   record_count
             FROM paimon.${dbName}.`t_auto_partition\$partitions`
             ORDER BY `partition`
         """

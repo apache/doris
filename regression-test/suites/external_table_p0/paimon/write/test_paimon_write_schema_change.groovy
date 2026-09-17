@@ -102,8 +102,8 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
                 "id, required_value, name, score, amount, obsolete, dt",
                 "ORDER BY id")
 
-        // ADD COLUMN with DEFAULT, COMMENT and AFTER. Historical rows remain
-        // readable and explicit values can immediately be written.
+        // ADD COLUMN with DEFAULT, COMMENT and AFTER. Historical rows expose
+        // the declared default and explicit values can immediately be written.
         sql """
             ALTER TABLE `${appendTable}`
             ADD COLUMN added_after STRING NULL DEFAULT 'unknown'
