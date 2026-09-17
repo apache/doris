@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/table/paimon_rust_predicate_converter.h"
+#include "format_v2/table/paimon_rust_predicate_converter.h"
 
 #include <gtest/gtest.h>
 
