@@ -16,10 +16,31 @@
 
 #pragma once
 
+#include <map>
+#include <string>
+#include <vector>
+
 #include "exec/partitioner/partitioner.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+namespace paimon_native {
+
+// Shared by the exchange partitioner and the Paimon table writer. Keep route calculation here so
+// JNI writer ownership and paimon-cpp RecordBatch routing cannot drift apart.
+bool supports_routing_type(PrimitiveType type);
+Status hash_fields(const std::vector<int32_t>& indexes,
+                   const std::vector<ColumnWithTypeAndName>& fields, std::vector<int32_t>& hashes);
+Status fixed_bucket_ids(const std::vector<int32_t>& indexes,
+                        const std::vector<ColumnWithTypeAndName>& fields, int32_t num_buckets,
+                        std::vector<int32_t>& buckets);
+Status partition_values(const std::vector<std::string>& names, const std::vector<int32_t>& indexes,
+                        const std::vector<ColumnWithTypeAndName>& fields,
+                        const std::string& default_value,
+                        std::vector<std::map<std::string, std::string>>& partitions);
+
+} // namespace paimon_native
 
 // Shared expression lifecycle and BinaryRow hashing for Paimon routing functions.
 class PaimonRowHashPartitionFunction : public PartitionFunction {

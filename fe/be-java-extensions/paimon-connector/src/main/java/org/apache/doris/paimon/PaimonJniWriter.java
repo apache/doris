@@ -20,6 +20,7 @@ package org.apache.doris.paimon;
 import org.apache.doris.common.classloader.ThreadClassLoaderContext;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
+import org.apache.doris.thrift.TPaimonTableDescriptor;
 
 import org.apache.arrow.c.ArrowArray;
 import org.apache.arrow.c.ArrowSchema;
@@ -45,6 +46,8 @@ import org.apache.paimon.table.sink.RowPartitionKeyExtractor;
 import org.apache.paimon.table.sink.SinkRecord;
 import org.apache.paimon.table.sink.TableWriteImpl;
 import org.apache.paimon.utils.ExecutorThreadFactory;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.protocol.TCompactProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,7 +59,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -133,14 +135,13 @@ public class PaimonJniWriter {
      *
      * <p>This method:
      * <ol>
-     *   <li>Deserializes the target Paimon {@link FileStoreTable} selected by FE.</li>
+     *   <li>Constructs the target Paimon {@link FileStoreTable} from the FE-selected definition.</li>
      *   <li>Creates a {@link PaimonWriteSchema} which normalizes Doris input
      *       columns to the table-schema row layout.</li>
      *   <li>Opens one Paimon SDK writer session.</li>
      * </ol>
      *
-     * @param serializedTable serialized Paimon table selected by FE
-     * @param hadoopConfig   filesystem and authentication configuration
+     * @param tableDescriptor compact-Thrift table definition and access configuration selected by FE
      * @param columnNames    output column names in the order produced by BE
      * @param transactionId  Doris external transaction identifier
      * @param commitUser     Paimon commit user shared with the FE committer
@@ -151,11 +152,9 @@ public class PaimonJniWriter {
      * @param nativeMemoryManager opaque BE manager used to allocate tracked native pages
      * @param nativeSpillSession opaque managed spill session used for capacity and I/O accounting
      */
-    public void open(String serializedTable, Map<String, String> hadoopConfig,
-                     String[] columnNames, long transactionId, String commitUser,
-                     boolean overwrite, boolean changelogWrite, String timeZone,
-                     long nativePageMemoryLimitBytes, long nativeMemoryManager,
-                     long nativeSpillSession) throws Exception {
+    public void open(byte[] tableDescriptor, String[] columnNames, long transactionId,
+            String commitUser, boolean overwrite, boolean changelogWrite, String timeZone,
+            long nativePageMemoryLimitBytes, long nativeMemoryManager, long nativeSpillSession) throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             if (nativePageMemoryLimitBytes <= 0) {
                 throw new IllegalArgumentException(
@@ -165,10 +164,13 @@ public class PaimonJniWriter {
                 throw new IllegalArgumentException(
                         "PaimonJniWriter requires a native memory manager");
             }
-            this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopConfig);
+            TPaimonTableDescriptor descriptor = new TPaimonTableDescriptor();
+            new TDeserializer(new TCompactProtocol.Factory()).deserialize(descriptor, tableDescriptor);
+            this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(
+                    descriptor.getHadoopConfig());
             preExecutionAuthenticator.execute(() -> {
                 try {
-                    FileStoreTable table = PaimonUtils.deserialize(serializedTable);
+                    FileStoreTable table = PaimonWriterTable.create(descriptor);
                     LOG.info("PaimonJniWriter opening: table={}, columns={}",
                             table.fullName(), columnNames != null ? columnNames.length : 0);
                     this.commitIdentifier = transactionId;

@@ -28,14 +28,27 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
     String catalogName = "test_pw_ao_catalog"
     String dbName = "test_pw_ao_db"
 
-    // Tables are created via Spark because Doris does not yet support
-    // Paimon DDL (CREATE TABLE ... engine=paimon).
+    def writeOnlyTables = [t_append_write_only: "parquet",
+                           t_append_write_only_orc: "orc", t_append_write_only_avro: "avro"]
+    String writeOnlyDdls = writeOnlyTables.collect { tableName, format ->
+        """
+        DROP TABLE IF EXISTS paimon.${dbName}.${tableName};
+        CREATE TABLE paimon.${dbName}.${tableName} (
+            id INT, name STRING, score DOUBLE
+        ) USING paimon
+        TBLPROPERTIES ('bucket'='-1', 'file.format'='${format}', 'write-only'='true');
+        """
+    }.join("\n")
+
+    // Create fixtures through Spark and verify Doris writes against the same tables.
     spark_paimon_multi """
         CREATE DATABASE IF NOT EXISTS paimon.${dbName};
         DROP TABLE IF EXISTS paimon.${dbName}.t_append;
         CREATE TABLE paimon.${dbName}.t_append (
             id INT, name STRING, score DOUBLE
         ) USING paimon;
+
+        ${writeOnlyDdls}
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_append_part;
         CREATE TABLE paimon.${dbName}.t_append_part (
@@ -94,16 +107,50 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             assertSparkDorisResultEquals(sparkRows, dorisRows)
         }
 
-        // FT-001: Append-only table — basic INSERT
-        sql """INSERT INTO t_append VALUES (1, 'alice', 95.5)"""
-        sql """INSERT INTO t_append VALUES (2, 'bob', 87.0), (3, 'charlie', 92.3)"""
-        order_qt_ao_basic """SELECT * FROM t_append ORDER BY id"""
-
-        sql """INSERT INTO t_append VALUES (4, 'diana', 88.0), (5, 'eve', 91.0)"""
-        // Full-column and partial-column writes with columns in non-schema order
-        sql """INSERT INTO t_append (score, name, id) VALUES (93.0, 'frank', 6)"""
-        sql """INSERT INTO t_append (name, id) VALUES ('grace', 7)"""
-        assertTableEquals("t_append", "ORDER BY id")
+        // FT-001: Reuse the same writes for default and paimon-cpp-compatible tables.
+        // Honor the session setting, including external fuzzy testing.
+        String appendBackend = sql("SELECT UPPER(@@paimon_write_backend)")[0][0]
+        def assertPaimonNotNullFailure = { String statement, String columnName ->
+            test {
+                sql statement
+                check { result, exception, startTime, endTime ->
+                    assertNotNull(exception)
+                    String message = exception.toString()
+                    assertTrue(message.contains("Cannot write null to non-null column(${columnName})")
+                            || message.contains("field ${columnName} not nullable while data have null value"))
+                }
+            }
+        }
+        def appendTables = [t_append: appendBackend]
+        writeOnlyTables.keySet().each { tableName -> appendTables[tableName] = appendBackend }
+        appendTables.each { tableName, expectedBackend ->
+            explain {
+                sql "INSERT INTO ${tableName} VALUES (1, 'alice', 95.5)"
+                contains "backend: ${expectedBackend}"
+            }
+            sql "INSERT INTO ${tableName} VALUES (1, 'alice', 95.5)"
+            sql "INSERT INTO ${tableName} VALUES (2, 'bob', 87.0), (3, 'charlie', 92.3)"
+            if (tableName == "t_append") {
+                order_qt_ao_basic "SELECT * FROM ${tableName} ORDER BY id"
+            }
+            sql "INSERT INTO ${tableName} VALUES (4, 'diana', 88.0), (5, 'eve', 91.0)"
+            // Full-column and partial-column writes with columns in non-schema order.
+            sql "INSERT INTO ${tableName} (score, name, id) VALUES (93.0, 'frank', 6)"
+            sql "INSERT INTO ${tableName} (name, id) VALUES ('grace', 7)"
+            assertTableEquals(tableName, "ORDER BY id")
+        }
+        writeOnlyTables.keySet().each { tableName ->
+            assertEquals(sql("SELECT * FROM t_append ORDER BY id"),
+                    sql("SELECT * FROM ${tableName} ORDER BY id"))
+        }
+        // Native writes are not tied to write-only tables. OVERWRITE reuses the
+        // same data writer and the FE committer applies the replacement semantics.
+        explain {
+            sql "INSERT OVERWRITE TABLE t_append_write_only VALUES (8, 'overwrite', 80.0)"
+            contains "backend: ${appendBackend}"
+        }
+        sql "INSERT OVERWRITE TABLE t_append_write_only VALUES (8, 'overwrite', 80.0)"
+        assertTableEquals("t_append_write_only", "ORDER BY id")
 
         // FT-002: Partitioned append-only
         sql """INSERT INTO t_append_part VALUES (1, 'alice', 95.5, 'east'), (2, 'bob', 87.0, 'west')"""
@@ -163,10 +210,8 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
 
         // Explicit NULL remains an input value. Paimon checks the real NOT NULL
         // schema before applying its writer-side default wrapper.
-        test {
-            sql """INSERT INTO t_append_default (name, id) VALUES (NULL, 2)"""
-            exception "Cannot write null to non-null column(name)"
-        }
+        assertPaimonNotNullFailure(
+                "INSERT INTO t_append_default (name, id) VALUES (NULL, 2)", "name")
         order_qt_ao_default_after_explicit_null """
             SELECT id, name FROM t_append_default ORDER BY id
         """
@@ -174,10 +219,7 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
         // Doris does not duplicate Paimon's nullability validation. An omitted
         // NOT NULL field without a default remains NULL and is rejected by the
         // writer against the real Paimon schema.
-        test {
-            sql """INSERT INTO t_append_required (id) VALUES (1)"""
-            exception "Cannot write null to non-null column(name)"
-        }
+        assertPaimonNotNullFailure("INSERT INTO t_append_required (id) VALUES (1)", "name")
 
         // A defaulted partition field uses the schema default as its logical and
         // physical partition value instead of the configured null-partition name.
@@ -202,11 +244,9 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             FROM t_partition_default\$partitions
             ORDER BY `partition`
         """
-        test {
-            sql """INSERT INTO t_partition_default (id, name, dt)
-                VALUES (2, 'explicit-null-partition', NULL)"""
-            exception "Cannot write null to non-null column(dt)"
-        }
+        assertPaimonNotNullFailure(
+                """INSERT INTO t_partition_default (id, name, dt)
+                    VALUES (2, 'explicit-null-partition', NULL)""", "dt")
 
         // FT-044: Duplicate target columns are rejected case-insensitively.
         test {

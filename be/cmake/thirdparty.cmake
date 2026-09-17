@@ -20,6 +20,72 @@
 # define COMMON_THIRDPARTY list variable
 set(COMMON_THIRDPARTY)
 
+# Do not import Paimon's exported Arrow C++ targets into the Doris link graph.
+set(DORIS_PAIMON_PREFIX "${THIRDPARTY_DIR}/paimon-cpp")
+find_path(DORIS_PAIMON_INCLUDE NAMES paimon/file_store_write.h
+    PATHS "${DORIS_PAIMON_PREFIX}/doris-include" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+find_library(DORIS_PAIMON_LIBRARY NAMES paimon
+    PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+add_library(doris_paimon_cpp SHARED IMPORTED)
+set_target_properties(doris_paimon_cpp PROPERTIES
+    IMPORTED_LOCATION "${DORIS_PAIMON_LIBRARY}"
+    INTERFACE_INCLUDE_DIRECTORIES "${DORIS_PAIMON_INCLUDE}")
+list(APPEND COMMON_THIRDPARTY doris_paimon_cpp)
+set(DORIS_PAIMON_RUNTIME_LIBRARIES "${DORIS_PAIMON_LIBRARY}")
+# Exec is an independently compiled static target, not a consumer of the final BE
+# executable's transitive include directories.
+include_directories(SYSTEM "${DORIS_PAIMON_INCLUDE}")
+# Format factories register when their shared libraries are loaded. Keep these fixed
+# dependencies at link time instead of loading plugins from each writer.
+set(DORIS_PAIMON_FORMAT_LIBRARIES)
+foreach(plugin paimon_parquet_file_format paimon_orc_file_format paimon_avro_file_format)
+    find_library(DORIS_PAIMON_${plugin} NAMES ${plugin}
+        PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+    add_library(doris_${plugin} SHARED IMPORTED)
+    set_target_properties(doris_${plugin} PROPERTIES
+        IMPORTED_LOCATION "${DORIS_PAIMON_${plugin}}")
+    list(APPEND DORIS_PAIMON_FORMAT_LIBRARIES doris_${plugin})
+    list(APPEND DORIS_PAIMON_RUNTIME_LIBRARIES "${DORIS_PAIMON_${plugin}}")
+endforeach()
+if(APPLE)
+    foreach(plugin IN LISTS DORIS_PAIMON_FORMAT_LIBRARIES)
+        target_link_libraries(doris_paimon_cpp INTERFACE
+            "-Wl,-needed_library,$<TARGET_FILE:${plugin}>")
+    endforeach()
+else()
+    # Scope --no-as-needed to registration libraries; do not change other Doris links.
+    target_link_libraries(doris_paimon_cpp INTERFACE
+        "-Wl,--push-state,--no-as-needed"
+        ${DORIS_PAIMON_FORMAT_LIBRARIES}
+        "-Wl,--pop-state")
+endif()
+
+# Unlike regular Doris third-party libraries, Paimon must remain a shared-library
+# boundary because it embeds its own patched Arrow. Keep the runtime closure isolated
+# from Doris' statically linked dependencies and make every consumer locate it without
+# relying on a process-wide library path.
+if(NOT APPLE)
+    find_file(DORIS_PAIMON_LIBSTDCXX NAMES libstdc++.so.6
+        PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+    find_file(DORIS_PAIMON_LIBGCC NAMES libgcc_s.so.1
+        PATHS "${DORIS_PAIMON_PREFIX}/lib" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+    list(APPEND DORIS_PAIMON_RUNTIME_LIBRARIES
+        "${DORIS_PAIMON_LIBSTDCXX}"
+        "${DORIS_PAIMON_LIBGCC}")
+endif()
+install(FILES ${DORIS_PAIMON_RUNTIME_LIBRARIES}
+    DESTINATION "${OUTPUT_DIR}/lib/paimon")
+
+if(MAKE_TEST)
+    set(DORIS_PAIMON_RUNTIME_RPATH "${DORIS_PAIMON_PREFIX}/lib")
+elseif(APPLE)
+    set(DORIS_PAIMON_RUNTIME_RPATH "@loader_path/paimon")
+else()
+    set(DORIS_PAIMON_RUNTIME_RPATH "\$ORIGIN/paimon")
+endif()
+target_link_options(doris_paimon_cpp INTERFACE
+    "LINKER:-rpath,${DORIS_PAIMON_RUNTIME_RPATH}")
+
 # define add_thirdparty function, append thirdparty libraries to COMMON_THIRDPARTY variable, and pass arg too add_library
 # if arg exist lib64, use lib64, else use lib
 # if arg exist noadd, not append to COMMON_THIRDPARTY variable

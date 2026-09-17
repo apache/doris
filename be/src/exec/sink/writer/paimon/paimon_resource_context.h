@@ -15,20 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/sink/writer/paimon/ffi_paimon_write_backend.h"
+#pragma once
+
+#include <memory>
+#include <utility>
+
+#include "runtime/thread_context.h"
 
 namespace doris {
 
-Status FfiPaimonWriteBackend::open(const TPaimonTableSink&, RuntimeState*, RuntimeProfile*) {
-    return Status::NotSupported("Paimon Rust FFI writer is not implemented");
-}
-
-Status FfiPaimonWriteBackend::create_writer(std::unique_ptr<IPaimonWriter>*) {
-    return Status::NotSupported("Paimon Rust FFI writer is not implemented");
-}
-
-Status FfiPaimonWriteBackend::close() {
-    return Status::OK();
+// Keep the same resource attribution on SDK/IO threads and during final buffer release.
+// A null context is only used by isolated filesystem adapter tests.
+template <typename F>
+auto with_paimon_resource_context(const std::shared_ptr<ResourceContext>& context, F&& f)
+        -> decltype(f()) {
+    if (!context) return f();
+    if (!pthread_context_ptr_init && bthread_self() == 0) {
+        SCOPED_ATTACH_TASK(context);
+        return f();
+    }
+    if (thread_context()->is_attach_task()) {
+        SCOPED_SWITCH_RESOURCE_CONTEXT(context);
+        return f();
+    }
+    SCOPED_ATTACH_TASK(context);
+    return f();
 }
 
 } // namespace doris

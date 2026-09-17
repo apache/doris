@@ -141,6 +141,10 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon,nonConcurrent
             INSERT INTO t_variant_schema (id, name, payload) VALUES
                 (3, 'after-normal-column', parse_to_variant('{"schema":"continued"}'))
         """
+        sql """
+            INSERT INTO t_variant_schema (id, name, payload, note) VALUES
+                (4, 'explicit-null-default', parse_to_variant('{"schema":"explicit-null"}'), NULL)
+        """
         sql """REFRESH TABLE t_variant_schema"""
         order_qt_variant_schema_evolution """
             SELECT id, name,
@@ -157,7 +161,12 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon,nonConcurrent
         // Paimon's real NOT NULL schema is enforced by the SDK.
         test {
             sql """INSERT INTO t_variant_required VALUES (1, CAST(NULL AS VARIANT))"""
-            exception "Cannot write null to non-null column(payload)"
+            check { result, exception, startTime, endTime ->
+                assertNotNull(exception)
+                String message = exception.toString()
+                assertTrue(message.contains("Cannot write null to non-null column(payload)")
+                        || message.contains("field payload not nullable while data have null value"))
+            }
         }
         }
     } finally {

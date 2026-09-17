@@ -42,6 +42,27 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
             'bucket-key' = 'id'
         );
 
+        DROP TABLE IF EXISTS paimon.${dbName}.t_fixed_date_partition;
+        CREATE TABLE paimon.${dbName}.t_fixed_date_partition (
+            pt DATE, id INT, name STRING
+        ) USING paimon
+        PARTITIONED BY (pt)
+        TBLPROPERTIES (
+            'primary-key' = 'pt,id',
+            'bucket' = '4',
+            'bucket-key' = 'id'
+        );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_fixed_float_partition;
+        CREATE TABLE paimon.${dbName}.t_fixed_float_partition (
+            pt FLOAT, id INT, name STRING
+        ) USING paimon
+        PARTITIONED BY (pt)
+        TBLPROPERTIES (
+            'bucket' = '4',
+            'bucket-key' = 'id'
+        );
+
         DROP TABLE IF EXISTS paimon.${dbName}.t_rescale;
         CREATE TABLE paimon.${dbName}.t_rescale (
             pt STRING, id INT, name STRING
@@ -186,7 +207,9 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
     sql """switch ${catalogName}"""
     sql """use ${dbName}"""
 
+    String originalWriteBackend = sql("SELECT @@paimon_write_backend")[0][0]
     try {
+        sql """SET paimon_write_backend = 'CPP'"""
         def assertTableEquals = { String tableName, String orderBy ->
             def sparkRows = spark_paimon """
                 SELECT * FROM paimon.${dbName}.${tableName} ${orderBy}
@@ -212,6 +235,34 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
             })
             return buckets
         }
+
+        explain {
+            sql "INSERT INTO t_hash_fixed VALUES ('plan_only', 1, 'unused')"
+            contains "backend: CPP"
+        }
+        explain {
+            sql "INSERT INTO t_bucket_unaware VALUES ('plan_only', 1, 'unused')"
+            contains "backend: CPP"
+        }
+        explain {
+            sql "INSERT INTO t_fixed_float_partition VALUES (1.5, 1, 'unused')"
+            contains "backend: CPP"
+        }
+        explain {
+            sql "INSERT INTO t_hash_dynamic VALUES ('plan_only', 1, 'unused')"
+            contains "backend: JNI"
+        }
+        explain {
+            sql "INSERT INTO t_fixed_date_partition VALUES ('2026-09-16', 1, 'unused')"
+            contains "backend: JNI"
+        }
+        def unsupportedRoutePlan = sql """
+            EXPLAIN SHAPE PLAN
+            INSERT INTO t_fixed_date_partition
+            SELECT CAST('2026-09-16' AS DATE), CAST(number AS INT), 'unused'
+            FROM numbers("number" = "8")
+        """
+        assertTrue(unsupportedRoutePlan.flatten().join("\n").contains("DistributionSpecGather"))
 
         // Dynamic bucket modes must gather into one fragment instance and one JNI writer.
         def hashDynamicPlan = sql """
@@ -245,6 +296,26 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
         assertTableEquals("t_hash_fixed", "ORDER BY pt, id")
         def fixedBuckets = assertBucketsInRange("t_hash_fixed", 0, 3)
         assertTrue(fixedBuckets.size() > 1)
+
+        // DATE is outside the current native row router. Planner selects a single JNI writer,
+        // while the SDK keeps responsibility for the same partition/bucket assignment.
+        sql """INSERT INTO t_fixed_date_partition VALUES
+            ('2026-09-16', 1, 'date_1'),
+            ('2026-09-17', 2, 'date_2')
+        """
+        assertEquals(2L,
+                (sql "SELECT COUNT(*) FROM t_fixed_date_partition")[0][0] as long)
+        assertTableEquals("t_fixed_date_partition", "ORDER BY pt, id")
+
+        // FLOAT is supported by the shared Doris router. The paimon-cpp patch extends its
+        // partition converter to the same primitive type set, so this remains a parallel CPP write.
+        sql """INSERT INTO t_fixed_float_partition VALUES
+            (1.5, 1, 'float_1'),
+            (2.5, 2, 'float_2')
+        """
+        assertEquals(2L,
+                (sql "SELECT COUNT(*) FROM t_fixed_float_partition")[0][0] as long)
+        assertTableEquals("t_fixed_float_partition", "ORDER BY pt, id")
 
         // P04: ALTER only changes the configured bucket count. Existing
         // partitions must be rewritten before a new writer can use bucket=4.
@@ -562,6 +633,7 @@ suite("test_paimon_write_bucket_modes", "p0,external,paimon") {
         qt_bucket_postpone """SELECT COUNT(*) FROM t_postpone"""
     } finally {
         sql """SET parallel_pipeline_task_num = 0"""
+        sql """SET paimon_write_backend = '${originalWriteBackend}'"""
         sql """drop catalog if exists ${catalogName}"""
     }
 }

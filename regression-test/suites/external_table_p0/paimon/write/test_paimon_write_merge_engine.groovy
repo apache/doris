@@ -107,7 +107,7 @@ suite("test_paimon_write_merge_engine", "p0,external,paimon") {
         // Let Paimon's real NOT NULL schema enforce the primary-key requirement.
         test {
             sql """INSERT INTO t_partial_update (name, score) VALUES ('missing_pk', 1.0)"""
-            exception "Cannot write null to non-null column(id)"
+            exception "CheckNullabilityMatch failed, field id not nullable"
         }
 
         // First-row keeps the first value observed for each primary key across writes.

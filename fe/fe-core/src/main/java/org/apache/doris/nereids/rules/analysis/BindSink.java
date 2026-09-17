@@ -47,6 +47,7 @@ import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.paimon.PaimonDefaultValue;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonVariantWriteAnalyzer;
@@ -82,6 +83,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -130,6 +132,8 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
+import org.apache.paimon.types.DataField;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -963,7 +967,7 @@ public class BindSink implements AnalysisRuleFactory {
                     rowChange.getOutput().stream()
                             .map(NamedExpression.class::cast)
                             .collect(ImmutableList.toImmutableList()),
-                    sink.getDMLCommandType(),
+                    sink.getDMLCommandType(), sink.getWriteMode(),
                     Optional.empty(), Optional.empty(), rowChange);
         }
 
@@ -1020,7 +1024,7 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
         Map<String, NamedExpression> columnToOutput = getPaimonColumnToOutput(bindColumns, child);
-        List<Column> writeColumns = new ArrayList<>(bindColumns);
+        List<Column> suppliedColumns = new ArrayList<>(bindColumns);
         if (!staticPartitionColNames.isEmpty()) {
             for (Column column : writeTarget.getSchema()) {
                 Expression staticValue = staticPartitions.get(column.getName());
@@ -1028,24 +1032,61 @@ public class BindSink implements AnalysisRuleFactory {
                     Expression castExpr = TypeCoercionUtils.castIfNotSameType(
                             staticValue, DataType.fromCatalogType(column.getType()));
                     columnToOutput.put(column.getName(), new Alias(castExpr, column.getName()));
-                    writeColumns.add(column);
+                    suppliedColumns.add(column);
                 }
             }
         }
 
+        PaimonVariantWriteAnalyzer.validate(
+                writeTarget, suppliedColumns, columnToOutput);
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Paimon", bindColumns, child, ctx.cascadesContext.getCteContext());
+        validatePaimonPartialWrite(writeTarget, suppliedColumns.size());
+        fillPaimonWriteDefaults(writeTarget, columnToOutput);
+
+        List<Column> writeColumns = writeTarget.getSchema();
         LogicalPaimonTableSink<?> boundSink = new LogicalPaimonTableSink<>(
                 database, writeTarget, writeColumns,
                 child.getOutput().stream()
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
-                sink.getDMLCommandType(), Optional.empty(), Optional.empty(), child);
-        PaimonVariantWriteAnalyzer.validate(
-                writeTarget, writeColumns, columnToOutput);
-        VariantWritePlanValidator.validateNoLossyCoercion(
-                "Paimon", bindColumns, child, ctx.cascadesContext.getCteContext());
+                sink.getDMLCommandType(), sink.getWriteMode(), Optional.empty(), Optional.empty(), child);
         LogicalProject<?> outputProject = getOutputProjectByCoercion(
                 writeColumns, child, columnToOutput, writeTarget.getColumnTypes());
         return boundSink.withChildAndUpdateOutput(outputProject);
+    }
+
+    private static void validatePaimonPartialWrite(PaimonWriteTarget target, int suppliedColumnCount) {
+        if (suppliedColumnCount == target.getSchema().size()
+                || target.getTable().primaryKeys().isEmpty()) {
+            return;
+        }
+        CoreOptions.MergeEngine mergeEngine = CoreOptions.fromMap(target.getTable().options()).mergeEngine();
+        if (mergeEngine != CoreOptions.MergeEngine.PARTIAL_UPDATE) {
+            throw new AnalysisException(
+                    "Paimon primary-key partial-column write requires "
+                            + "merge-engine=partial-update, but table uses merge-engine=" + mergeEngine);
+        }
+    }
+
+    private static void fillPaimonWriteDefaults(
+            PaimonWriteTarget target, Map<String, NamedExpression> columnToOutput) {
+        for (Column column : target.getSchema()) {
+            DataField field = target.getField(column.getName());
+            DataType targetType = DataType.fromCatalogType(column.getType());
+            NamedExpression supplied = columnToOutput.get(column.getName());
+            if (supplied == null) {
+                Expression value = field.defaultValue() == null
+                        ? new NullLiteral(targetType)
+                        : PaimonDefaultValue.toDorisExpression(field, targetType);
+                columnToOutput.put(column.getName(), new Alias(value, column.getName()));
+            } else if (field.type().isNullable()
+                    && field.defaultValue() != null && supplied.nullable()) {
+                Expression defaultValue = PaimonDefaultValue.toDorisExpression(field, targetType);
+                columnToOutput.put(column.getName(), new Alias(
+                        new Coalesce(supplied.child(0), defaultValue), column.getName()));
+            }
+        }
     }
 
     private Plan bindMaxComputeTableSink(MatchingContext<UnboundMaxComputeTableSink<Plan>> ctx) {

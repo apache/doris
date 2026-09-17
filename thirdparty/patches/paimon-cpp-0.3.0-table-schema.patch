@@ -1,0 +1,141 @@
+Based on official paimon-cpp v0.3.0. Allow callers to supply a complete TableSchema
+and obtain its Arrow C Data schema without loading schema metadata. Callers that
+do not supply a schema retain the SDK's default latest-schema behavior.
+
+diff --git a/include/paimon/schema/schema.h b/include/paimon/schema/schema.h
+--- a/include/paimon/schema/schema.h
++++ b/include/paimon/schema/schema.h
+@@ -70,6 +70,9 @@
+  public:
+     ~DataSchema() override = default;
+ 
++    /// Parse a complete table schema without loading catalog or filesystem metadata.
++    static Result<std::shared_ptr<DataSchema>> FromJson(const std::string& json);
++
+     /// Get the unique identifier of this table schema.
+     /// @return The schema id
+     virtual int64_t Id() const = 0;
+diff --git a/include/paimon/write_context.h b/include/paimon/write_context.h
+--- a/include/paimon/write_context.h
++++ b/include/paimon/write_context.h
+@@ -30,6 +30,7 @@
+ #include "paimon/visibility.h"
+ 
+ namespace paimon {
++class DataSchema;
+ class Executor;
+ class MemoryPool;
+ 
+@@ -108,11 +109,17 @@
+         return specific_file_system_;
+     }
+ 
++    std::shared_ptr<DataSchema> GetTableSchema() const {
++        return table_schema_;
++    }
++
+     bool EnableMultiThreadSpill() const {
+         return enable_multi_thread_spill_;
+     }
+ 
+  private:
++    friend class WriteContextBuilder;
++    std::shared_ptr<DataSchema> table_schema_;
+     std::string root_path_;
+     std::string commit_user_;
+     std::string branch_;
+@@ -202,6 +209,10 @@
+     /// @return Reference to this builder for method chaining.
+     WriteContextBuilder& WithWriteSchema(const std::vector<std::string>& write_schema);
+ 
++    /// Use a schema returned by DataSchema::FromJson instead of loading the latest schema.
++    /// @note Write options may still override the supplied schema's options.
++    WriteContextBuilder& WithTableSchema(const std::shared_ptr<DataSchema>& table_schema);
++
+     /// Sets a custom file system instance to be used for all file operations in this write context.
+     /// This bypasses the global file system registry and uses the provided implementation directly.
+     ///
+diff --git a/src/paimon/core/operation/write_context.cpp b/src/paimon/core/operation/write_context.cpp
+--- a/src/paimon/core/operation/write_context.cpp
++++ b/src/paimon/core/operation/write_context.cpp
+@@ -75,6 +75,7 @@
+         temp_directory_.clear();
+         branch_ = BranchManager::DEFAULT_MAIN_BRANCH;
+         write_schema_.clear();
++        table_schema_.reset();
+         fs_scheme_to_identifier_map_.clear();
+         specific_file_system_.reset();
+         options_.clear();
+@@ -90,6 +91,7 @@
+     bool ignore_previous_files_ = false;
+     int32_t spill_thread_number_ = 0;
+     std::vector<std::string> write_schema_;
++    std::shared_ptr<DataSchema> table_schema_;
+     std::shared_ptr<MemoryPool> memory_pool_ = GetDefaultPool();
+     std::shared_ptr<Executor> executor_ = CreateDefaultExecutor();
+     std::string temp_directory_;
+@@ -166,6 +168,12 @@
+     return *this;
+ }
+ 
++WriteContextBuilder& WriteContextBuilder::WithTableSchema(
++    const std::shared_ptr<DataSchema>& table_schema) {
++    impl_->table_schema_ = table_schema;
++    return *this;
++}
++
+ WriteContextBuilder& WriteContextBuilder::WithFileSystemSchemeToIdentifierMap(
+     const std::map<std::string, std::string>& fs_scheme_to_identifier_map) {
+     impl_->fs_scheme_to_identifier_map_ = fs_scheme_to_identifier_map;
+@@ -199,6 +207,7 @@
+         impl_->write_id_, impl_->branch_, impl_->write_schema_, impl_->memory_pool_,
+         impl_->executor_, impl_->temp_directory_, impl_->specific_file_system_,
+         impl_->fs_scheme_to_identifier_map_, impl_->options_);
++    ctx->table_schema_ = impl_->table_schema_;
+     impl_->Reset();
+     return ctx;
+ }
+diff --git a/src/paimon/core/operation/file_store_write.cpp b/src/paimon/core/operation/file_store_write.cpp
+--- a/src/paimon/core/operation/file_store_write.cpp
++++ b/src/paimon/core/operation/file_store_write.cpp
+@@ -72,12 +72,20 @@
+     std::string branch = ctx->GetBranch();
+     auto schema_manager =
+         std::make_shared<SchemaManager>(tmp_options.GetFileSystem(), ctx->GetRootPath(), branch);
+-    PAIMON_ASSIGN_OR_RAISE(std::optional<std::shared_ptr<TableSchema>> table_schema,
+-                           schema_manager->Latest());
+-    if (table_schema == std::nullopt) {
+-        return Status::Invalid(fmt::format("cannot found latest schema in branch {}", branch));
++    std::shared_ptr<TableSchema> schema;
++    if (ctx->GetTableSchema()) {
++        schema = std::dynamic_pointer_cast<TableSchema>(ctx->GetTableSchema());
++        if (!schema) {
++            return Status::Invalid("write table schema must be created by DataSchema::FromJson");
++        }
++    } else {
++        PAIMON_ASSIGN_OR_RAISE(std::optional<std::shared_ptr<TableSchema>> table_schema,
++                               schema_manager->Latest());
++        if (table_schema == std::nullopt) {
++            return Status::Invalid(fmt::format("cannot found latest schema in branch {}", branch));
++        }
++        schema = table_schema.value();
+     }
+-    const auto& schema = table_schema.value();
+     auto opts = schema->Options();
+     for (const auto& [key, value] : ctx->GetOptions()) {
+         opts[key] = value;
+diff --git a/src/paimon/core/schema/table_schema.cpp b/src/paimon/core/schema/table_schema.cpp
+--- a/src/paimon/core/schema/table_schema.cpp
++++ b/src/paimon/core/schema/table_schema.cpp
+@@ -45,6 +45,11 @@
+ 
+ namespace paimon {
+ 
++Result<std::shared_ptr<DataSchema>> DataSchema::FromJson(const std::string& json) {
++    PAIMON_ASSIGN_OR_RAISE(std::unique_ptr<TableSchema> schema, TableSchema::CreateFromJson(json));
++    return std::shared_ptr<DataSchema>(std::move(schema));
++}
++
+ Result<std::unique_ptr<TableSchema>> TableSchema::Create(
+     int64_t schema_id, const std::shared_ptr<arrow::Schema>& schema,
+     const std::vector<std::string>& partition_keys, const std::vector<std::string>& primary_keys,

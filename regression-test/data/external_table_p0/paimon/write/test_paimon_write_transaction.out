@@ -114,17 +114,19 @@
 -- !txn_spill --
 2048	0	2047	2096128
 
--- !txn_failed_write_before --
-1	committed_before_failure
+-- !txn_large_row_before --
+1	22
 
--- !txn_failed_snapshot_before --
+-- !txn_large_row_snapshot_before --
 1
 
--- !txn_failed_write_after --
-1	committed_before_failure
+-- !txn_large_row_after --
+1	22
+2	21
+3	1048576
 
--- !txn_failed_snapshot_after --
-1
+-- !txn_large_row_snapshot_after --
+2
 
 -- !txn_multi --
 1	a	10
@@ -147,4 +149,3 @@
 7	g	70
 8	h	80
 9	i	90
-

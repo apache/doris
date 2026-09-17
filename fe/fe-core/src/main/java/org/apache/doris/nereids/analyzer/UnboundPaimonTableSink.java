@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.info.PaimonRowChangeSpec;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.thrift.TPaimonWriteMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -42,12 +43,14 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
         extends UnboundBaseExternalTableSink<CHILD_TYPE> {
     private final Map<String, Expression> staticPartitionKeyValues;
     private final Optional<PaimonRowChangeSpec> rowChangeSpec;
+    private final TPaimonWriteMode writeMode;
 
     public UnboundPaimonTableSink(List<String> nameParts, List<String> colNames,
                                    List<String> hints, List<String> partitions,
                                    CHILD_TYPE child) {
         this(nameParts, colNames, hints, partitions, DMLCommandType.NONE,
-                Optional.empty(), Optional.empty(), child, null, Optional.empty());
+                Optional.empty(), Optional.empty(), child, null, Optional.empty(),
+                TPaimonWriteMode.APPEND);
     }
 
     public UnboundPaimonTableSink(List<String> nameParts,
@@ -59,7 +62,8 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
         this(nameParts, colNames, hints, partitions, dmlCommandType,
-                groupExpression, logicalProperties, child, null, Optional.empty());
+                groupExpression, logicalProperties, child, null, Optional.empty(),
+                writeModeFor(dmlCommandType));
     }
 
     public UnboundPaimonTableSink(List<String> nameParts,
@@ -72,7 +76,8 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
                                    CHILD_TYPE child,
                                    Map<String, Expression> staticPartitionKeyValues) {
         this(nameParts, colNames, hints, partitions, dmlCommandType, groupExpression,
-                logicalProperties, child, staticPartitionKeyValues, Optional.empty());
+                logicalProperties, child, staticPartitionKeyValues, Optional.empty(),
+                writeModeFor(dmlCommandType));
     }
 
     /** Create an unbound Paimon row-change sink. */
@@ -80,7 +85,7 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
             CHILD_TYPE child, PaimonRowChangeSpec rowChangeSpec) {
         this(nameParts, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 rowChangeSpec.getDmlCommandType(), Optional.empty(), Optional.empty(), child, null,
-                Optional.of(rowChangeSpec));
+                Optional.of(rowChangeSpec), TPaimonWriteMode.CHANGELOG);
     }
 
     private UnboundPaimonTableSink(List<String> nameParts,
@@ -92,13 +97,15 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child,
                                    Map<String, Expression> staticPartitionKeyValues,
-                                   Optional<PaimonRowChangeSpec> rowChangeSpec) {
+                                   Optional<PaimonRowChangeSpec> rowChangeSpec,
+                                   TPaimonWriteMode writeMode) {
         super(nameParts, PlanType.LOGICAL_UNBOUND_PAIMON_TABLE_SINK, ImmutableList.of(),
                 groupExpression, logicalProperties, colNames, dmlCommandType, child,
                 hints, partitions);
         this.staticPartitionKeyValues = staticPartitionKeyValues == null
                 ? ImmutableMap.of() : ImmutableMap.copyOf(staticPartitionKeyValues);
         this.rowChangeSpec = rowChangeSpec;
+        this.writeMode = Objects.requireNonNull(writeMode, "writeMode != null");
     }
 
     public Map<String, Expression> getStaticPartitionKeyValues() {
@@ -113,6 +120,16 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
         return rowChangeSpec;
     }
 
+    public TPaimonWriteMode getWriteMode() {
+        return writeMode;
+    }
+
+    public UnboundPaimonTableSink<CHILD_TYPE> withWriteMode(TPaimonWriteMode writeMode) {
+        return new UnboundPaimonTableSink<>(nameParts, colNames, hints, partitions,
+                dmlCommandType, groupExpression, Optional.empty(), child(),
+                staticPartitionKeyValues, rowChangeSpec, writeMode);
+    }
+
     @Override
     public List<? extends Expression> getExpressions() {
         return rowChangeSpec.isPresent()
@@ -122,12 +139,13 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
     @Override
     public boolean equals(Object other) {
         return super.equals(other)
-                && Objects.equals(rowChangeSpec, ((UnboundPaimonTableSink<?>) other).rowChangeSpec);
+                && Objects.equals(rowChangeSpec, ((UnboundPaimonTableSink<?>) other).rowChangeSpec)
+                && writeMode == ((UnboundPaimonTableSink<?>) other).writeMode;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), rowChangeSpec);
+        return Objects.hash(super.hashCode(), rowChangeSpec, writeMode);
     }
 
     @Override
@@ -136,7 +154,7 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
                 "UnboundPaimonTableSink only accepts one child");
         return new UnboundPaimonTableSink<>(nameParts, colNames, hints, partitions,
                 dmlCommandType, groupExpression, Optional.empty(), children.get(0),
-                staticPartitionKeyValues, rowChangeSpec);
+                staticPartitionKeyValues, rowChangeSpec, writeMode);
     }
 
     @Override
@@ -148,7 +166,7 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundPaimonTableSink<>(nameParts, colNames, hints, partitions,
                 dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child(),
-                staticPartitionKeyValues, rowChangeSpec);
+                staticPartitionKeyValues, rowChangeSpec, writeMode);
     }
 
     @Override
@@ -156,6 +174,13 @@ public class UnboundPaimonTableSink<CHILD_TYPE extends Plan>
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundPaimonTableSink<>(nameParts, colNames, hints, partitions,
                 dmlCommandType, groupExpression, logicalProperties, children.get(0),
-                staticPartitionKeyValues, rowChangeSpec);
+                staticPartitionKeyValues, rowChangeSpec, writeMode);
+    }
+
+    private static TPaimonWriteMode writeModeFor(DMLCommandType dmlCommandType) {
+        return dmlCommandType == DMLCommandType.UPDATE
+                || dmlCommandType == DMLCommandType.DELETE
+                || dmlCommandType == DMLCommandType.MERGE
+                ? TPaimonWriteMode.CHANGELOG : TPaimonWriteMode.APPEND;
     }
 }

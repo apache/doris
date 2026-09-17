@@ -96,6 +96,7 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
 import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TPaimonWriteMode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.transaction.TransactionEntry;
@@ -328,6 +329,15 @@ public class InsertUtils {
                                      Optional<CascadesContext> analyzeContext,
                                      Optional<InsertCommandContext> insertCtx) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
+        if (unboundLogicalSink instanceof UnboundPaimonTableSink
+                && insertCtx.filter(PaimonInsertCommandContext.class::isInstance)
+                        .map(PaimonInsertCommandContext.class::cast)
+                        .map(PaimonInsertCommandContext::isOverwrite)
+                        .orElse(false)) {
+            unboundLogicalSink = ((UnboundPaimonTableSink<?>) unboundLogicalSink)
+                    .withWriteMode(TPaimonWriteMode.OVERWRITE);
+            plan = (LogicalPlan) unboundLogicalSink;
+        }
         ConnectContext connectContext = ConnectContext.get();
         StatementContext statementContext = analyzeContext.map(CascadesContext::getStatementContext)
                 .orElseGet(() -> connectContext == null ? null : connectContext.getStatementContext());
