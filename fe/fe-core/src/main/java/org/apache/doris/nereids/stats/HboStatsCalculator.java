@@ -17,9 +17,9 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -42,6 +42,12 @@ import java.util.Optional;
  * StatsCalculator by using hbo plan stats. to do estimation.
  */
 public class HboStatsCalculator extends StatsCalculator {
+    /** Pinned lookup order for filter roots: exact form first, then the constant agnostic form. */
+    private static final GroupStructInfo.LiteralMode[] FILTER_LOOKUP_MODES = {
+            GroupStructInfo.LiteralMode.WITH_LITERAL,
+            GroupStructInfo.LiteralMode.NO_LITERAL,
+    };
+
     private final HboPlanStatisticsProvider hboPlanStatisticsProvider;
 
     public HboStatsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
@@ -205,12 +211,6 @@ public class HboStatsCalculator extends StatsCalculator {
         return getStatsFromHboPlanStats((AbstractPlan) aggregate, legacyStats,
                 GroupStructInfo.LiteralMode.NO_LITERAL, null);
     }
-
-    /** Pinned lookup order for filter roots: exact form first, then the constant agnostic form. */
-    private static final GroupStructInfo.LiteralMode[] FILTER_LOOKUP_MODES = {
-            GroupStructInfo.LiteralMode.WITH_LITERAL,
-            GroupStructInfo.LiteralMode.NO_LITERAL,
-    };
 
     /**
      * Apply a pinned entry for the given plan node: exact filter form, then constant agnostic form

@@ -29,8 +29,6 @@ import org.apache.doris.nereids.trees.plans.TreeStringPlan.TreeStringNode;
 import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
-import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;

@@ -673,23 +673,21 @@ public class NereidsPlanner extends Planner {
                 planToIdMap.put(root, planId.asInt());
                 // snapshot the hbo fingerprint (simplified group struct info) per plan node id;
                 // consumed by the profile publish path after the memo has been released
-                {
-                    // publish keys are constant agnostic: join / aggregation fingerprints never
-                    // carry literals, and scan tokens contain none by construction
-                    Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(
-                            (AbstractPlan) root, groupsById, GroupStructInfo.LiteralMode.NO_LITERAL);
-                    if (fingerprint.isPresent()) {
-                        HboPlanInfoProvider planInfoProvider = Env.getCurrentEnv()
-                                .getHboPlanStatisticsManager().getHboPlanInfoProvider();
-                        Map<Integer, String> nodeFingerprints = planInfoProvider
-                                .getNodeIdToFingerprintMap(queryId);
-                        if (nodeFingerprints.isEmpty()) {
-                            planInfoProvider.putNodeIdToFingerprintMap(queryId, nodeFingerprints);
-                        }
-                        // keyed by the real PlanNodeId (the same id used by the profile publish
-                        // path via runtime stats item.node_id), not by the nereids plan id
-                        nodeFingerprints.put(planId.asInt(), fingerprint.get());
+                // publish keys are constant agnostic: join / aggregation fingerprints never
+                // carry literals, and scan tokens contain none by construction
+                Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(
+                        (AbstractPlan) root, groupsById, GroupStructInfo.LiteralMode.NO_LITERAL);
+                if (fingerprint.isPresent()) {
+                    HboPlanInfoProvider planInfoProvider = Env.getCurrentEnv()
+                            .getHboPlanStatisticsManager().getHboPlanInfoProvider();
+                    Map<Integer, String> nodeFingerprints = planInfoProvider
+                            .getNodeIdToFingerprintMap(queryId);
+                    if (nodeFingerprints.isEmpty()) {
+                        planInfoProvider.putNodeIdToFingerprintMap(queryId, nodeFingerprints);
                     }
+                    // keyed by the real PlanNodeId (the same id used by the profile publish
+                    // path via runtime stats item.node_id), not by the nereids plan id
+                    nodeFingerprints.put(planId.asInt(), fingerprint.get());
                 }
             }
         }

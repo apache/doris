@@ -774,10 +774,10 @@ import org.apache.doris.nereids.trees.plans.commands.GrantResourcePrivilegeComma
 import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.GrantTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.HboDeleteStaleStatisticsCommand;
-import org.apache.doris.nereids.trees.plans.commands.HboStatisticsCommand;
 import org.apache.doris.nereids.trees.plans.commands.HboExpansionCommand;
 import org.apache.doris.nereids.trees.plans.commands.HboShowExpansionCommand;
 import org.apache.doris.nereids.trees.plans.commands.HboShowStatisticsCommand;
+import org.apache.doris.nereids.trees.plans.commands.HboStatisticsCommand;
 import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.InstallPluginCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
