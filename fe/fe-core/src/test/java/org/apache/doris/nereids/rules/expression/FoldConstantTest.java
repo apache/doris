@@ -143,6 +143,26 @@ import java.time.LocalDateTime;
 class FoldConstantTest extends ExpressionRewriteTestHelper {
 
     @Test
+    void testSignedZeroComparisonFold() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+        for (String type : ImmutableList.of("float", "double")) {
+            for (String zero : ImmutableList.of("0.0", "-0.0")) {
+                String left = "cast('" + zero + "' as " + type + ")";
+                String right = "cast('" + (zero.equals("0.0") ? "-0.0" : "0.0") + "' as " + type + ")";
+                assertRewriteAfterTypeCoercion(left + " = " + right, "true");
+                assertRewriteAfterTypeCoercion(left + " <=> " + right, "true");
+                assertRewriteAfterTypeCoercion(left + " != " + right, "false");
+                assertRewriteAfterTypeCoercion(left + " < " + right, "false");
+                assertRewriteAfterTypeCoercion(left + " > " + right, "false");
+                assertRewriteAfterTypeCoercion(left + " <= " + right, "true");
+                assertRewriteAfterTypeCoercion(left + " >= " + right, "true");
+            }
+        }
+    }
+
+    @Test
     void testCaseWhenFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
