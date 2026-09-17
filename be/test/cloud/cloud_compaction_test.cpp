@@ -1026,6 +1026,7 @@ TEST_F(CloudCompactionTest, test_set_storage_resource_from_input_rowsets) {
                             .ak = "ak",
                             .sk = "sk",
                             .token = "",
+                            .azure_credentials = {},
                             .bucket = "",
                             .role_arn = "",
                             .external_id = "",

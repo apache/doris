@@ -533,6 +533,13 @@ std::string RuntimeState::get_error_log_file_path() {
     auto presigned_url =
             s3_error_fs->generate_presigned_url(remote_error_log_file_path, EXPIRATION_SECONDS,
                                                 config::use_public_endpoint_for_error_log);
+    if (presigned_url.empty()) {
+        // Upload success does not imply that this credential can sign a user-facing URL. Keep
+        // the local error log available when the object store cannot provide a signed URL.
+        LOG(WARNING) << "Fail to generate a presigned URL for the uploaded error log; "
+                        "keeping the local error log file path";
+        return local_error_log_file_path;
+    }
     std::lock_guard<std::mutex> load_lock(_load_error_log_lock);
     _error_log_file_path = std::move(presigned_url);
     return _error_log_file_path;
