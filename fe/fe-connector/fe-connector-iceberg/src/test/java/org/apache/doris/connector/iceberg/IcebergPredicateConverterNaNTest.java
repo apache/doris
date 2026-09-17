@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 
@@ -276,15 +277,35 @@ public class IcebergPredicateConverterNaNTest {
         Assertions.assertTrue(converter().convert(cmp(ConnectorComparison.Operator.LE, "c_double", nan)).isEmpty());
     }
 
-    /** An IN list holding NaN must not blow up planning either. */
+    /**
+     * {@code d IN (1.0, NaN)} must not throw (Expressions.in rejects a NaN literal) AND must keep the NaN rows:
+     * Doris compares NaN = NaN as true, so the NaN element matches exactly the NaN rows. The pruning of a file
+     * that holds neither 1.0 nor a NaN has to survive.
+     */
     @Test
-    public void inWithNaNElementDoesNotThrow() {
-        ConnectorIn in = new ConnectorIn(col("c_double"),
-                Arrays.asList(doubleLit(1.0d), doubleLit(Double.NaN)), false);
-        Assertions.assertDoesNotThrow(() -> converter().convert(in));
-        ConnectorIn notIn = new ConnectorIn(col("c_double"),
-                Arrays.asList(doubleLit(1.0d), doubleLit(Double.NaN)), true);
-        Assertions.assertDoesNotThrow(() -> converter().convert(notIn));
+    public void inWithNaNElementKeepsNaNFilesAndStillPrunes() {
+        Expression expr = pushed(new ConnectorIn(col("c_double"),
+                Arrays.asList(doubleLit(1.0d), doubleLit(Double.NaN)), false));
+        Assertions.assertEquals(Expression.Operation.OR, expr.op(), expr.toString());
+        Assertions.assertTrue(mightMatch(expr, allNaNDouble()), "all-NaN file matches the NaN element: " + expr);
+        Assertions.assertTrue(mightMatch(expr, mixedNaNDouble()), "{1.0, NaN} file matches both: " + expr);
+        Assertions.assertTrue(mightMatch(expr, nanFreeDouble()), "{1.0} file matches the 1.0 element: " + expr);
+        Assertions.assertFalse(mightMatch(expr, file(DOUBLE_ID, Types.DoubleType.get(), 1L, 0L, 8.0d, 8.0d)),
+                "a file with neither 1.0 nor NaN must still be pruned: " + expr);
+    }
+
+    /**
+     * {@code d NOT IN (1.0, NaN)} is false for a NaN row in Doris, so an all-NaN file can be pruned — via the
+     * notNaN arm. The {1.0, NaN} file must still be read: iceberg cannot rule it out from bounds that both
+     * omit the NaN and carry the excluded value.
+     */
+    @Test
+    public void notInWithNaNElementPrunesOnlyTheAllNaNFile() {
+        Expression expr = pushed(new ConnectorIn(col("c_double"),
+                Arrays.asList(doubleLit(1.0d), doubleLit(Double.NaN)), true));
+        Assertions.assertEquals(Expression.Operation.AND, expr.op(), expr.toString());
+        Assertions.assertFalse(mightMatch(expr, allNaNDouble()), "an all-NaN file cannot match NOT IN: " + expr);
+        Assertions.assertTrue(mightMatch(expr, mixedNaNDouble()), "{1.0, NaN} file must be read: " + expr);
     }
 
     private static IcebergPredicateConverter converter(IcebergPredicateConverter.Mode mode) {
@@ -319,10 +340,41 @@ public class IcebergPredicateConverterNaNTest {
                 pushed(conflict, cmp(ConnectorComparison.Operator.EQ, "c_double", nan)).op());
         Assertions.assertDoesNotThrow(() ->
                 converter(conflict).convert(cmp(ConnectorComparison.Operator.GT, "c_double", nan)));
-        Assertions.assertDoesNotThrow(() -> converter(conflict).convert(
-                new ConnectorIn(col("c_double"), Arrays.asList(doubleLit(1.0d), nan), false)));
         Assertions.assertDoesNotThrow(() -> converter(conflict).convert(new ConnectorBetween(col("c_double"),
                 doubleLit(1.0d), nan)));
+
+        // A conflict filter that cannot match a concurrently written NaN file misses a real conflict, so the
+        // NaN element has to widen the filter here too -- not silently vanish with the whole IN.
+        Expression in = pushed(conflict,
+                new ConnectorIn(col("c_double"), Arrays.asList(doubleLit(1.0d), nan), false));
+        Assertions.assertEquals(Expression.Operation.OR, in.op(), in.toString());
+        Assertions.assertTrue(mightMatch(in, allNaNDouble()), "conflict IN must keep an all-NaN file: " + in);
+    }
+
+    /**
+     * The NOT bailout must not swallow negations iceberg can represent exactly. {@code d IS NOT NULL} reaches
+     * the converter as {@code Not(IsNull)}, and REWRITE mode is all-or-nothing with no BE residual, so dropping
+     * it makes {@code RewriteDataFilePlanner} reject the whole {@code rewrite_data_files} WHERE — a regression
+     * against the pre-fix behaviour, where the form lowered to an exact {@code not(isNull)}.
+     */
+    @Test
+    public void rewriteModeNotIsNullOnFloatColumnIsStillPushed() {
+        Expression expr = pushed(IcebergPredicateConverter.Mode.REWRITE,
+                new ConnectorNot(new ConnectorIsNull(col("c_double"), false)));
+        Assertions.assertEquals(Expression.Operation.NOT, expr.op(), expr.toString());
+    }
+
+    /**
+     * Only a negated LT/LE (or BETWEEN) on a float column loses the is_nan arm. A NOT over a compound node whose
+     * float comparison is GT/GE is exact — iceberg's De Morgan rewrite negates the whole {@code (range or
+     * is_nan)} arm into {@code (ltEq and notNaN)} — so it must keep being pushed.
+     */
+    @Test
+    public void notOverCompoundWithoutNegatedFloatRangeIsPushed() {
+        ConnectorExpression expr = new ConnectorNot(new ConnectorAnd(Arrays.asList(
+                cmp(ConnectorComparison.Operator.GT, "c_double", doubleLit(5.0d)),
+                cmp(ConnectorComparison.Operator.EQ, "c_int", new ConnectorLiteral(ConnectorType.of("INT"), 1L)))));
+        Assertions.assertEquals(Expression.Operation.NOT, pushed(expr).op());
     }
 
     /** rewrite_data_files scopes which files get compacted; NaN rows match {@code d > 5} in Doris, so keep them. */

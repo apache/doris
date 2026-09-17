@@ -234,9 +234,13 @@ public class IcebergPredicateConverter {
                 // routes the result back through buildComparison and its isNaN arm.
                 return convertSingle(new ConnectorComparison(negated, cmp.getLeft(), cmp.getRight()));
             }
-        } else if (referencesFloatingPointColumn(operand)) {
-            // NOT over a compound node touching a float column: iceberg's De Morgan rewrite would turn an inner
-            // `col < v` into `col >= v` with no isNaN arm. Drop the whole subtree; BE still residual-filters it.
+        } else if (containsNegatableFloatRange(operand)) {
+            // NOT over a compound node holding a float `col < v` / `col <= v` / BETWEEN: iceberg's De Morgan
+            // rewrite would negate it into `col >= v` / `col > v` / `col < lo or col > hi` with no isNaN arm,
+            // pruning the NaN files again. Drop the whole subtree; BE still residual-filters it. Negations that
+            // iceberg can represent exactly (IS NOT NULL, NOT IN, a negated GT/GE whose isNaN arm is negated
+            // along with it) keep being pushed -- REWRITE mode is all-or-nothing, so an over-broad bailout
+            // there rejects the user's whole rewrite_data_files WHERE.
             return null;
         }
         Expression child = convertSingle(operand);
@@ -396,12 +400,27 @@ public class IcebergPredicateConverter {
         return field != null && isFloatingPoint(field.type());
     }
 
-    private boolean referencesFloatingPointColumn(ConnectorExpression expr) {
-        Set<String> columns = new LinkedHashSet<>();
-        collectColumnNames(expr, columns);
-        for (String column : columns) {
-            Types.NestedField field = getPushdownField(column);
-            if (field != null && isFloatingPoint(field.type())) {
+    /**
+     * Whether negating {@code expr} would put a float/double range predicate into iceberg's IEEE-flavoured
+     * negation, i.e. whether the subtree holds a {@code col < v} / {@code col <= v} / {@code col BETWEEN lo AND
+     * hi} on a floating-point column. Those are exactly the forms whose negation must carry an isNaN arm and
+     * cannot get one from {@code Expressions.not}. GT/GE are not listed: this converter already emits them as
+     * {@code (range or isNaN)}, which iceberg negates correctly into {@code (ltEq and notNaN)}.
+     */
+    private boolean containsNegatableFloatRange(ConnectorExpression expr) {
+        if (expr instanceof ConnectorComparison) {
+            ConnectorComparison cmp = (ConnectorComparison) expr;
+            ConnectorComparison.Operator op = cmp.getOperator();
+            if ((op == ConnectorComparison.Operator.LT || op == ConnectorComparison.Operator.LE)
+                    && isFloatingPointColumn(cmp.getLeft())) {
+                return true;
+            }
+        } else if (expr instanceof ConnectorBetween
+                && isFloatingPointColumn(((ConnectorBetween) expr).getValue())) {
+            return true;
+        }
+        for (ConnectorExpression child : expr.getChildren()) {
+            if (containsNegatableFloatRange(child)) {
                 return true;
             }
         }
