@@ -73,12 +73,8 @@ public:
         params.is_strict = (CastMode == CastModeType::StrictMode);
         for (size_t i = 0; i < input_rows_count; ++i) {
             // The source value of a row marked as null by the input null map is a hidden
-            // payload and has no SQL semantics, so it must not be checked. The destination slot
-            // still gets the default value of the type: a consumer that does not look at the NULL
-            // map (for example a function that is given the nested column of a nullable argument)
-            // must not read uninitialized memory.
+            // payload and has no SQL semantics, so it must not be checked.
             if (null_map && null_map[i]) {
-                vec_to[i] = typename ToDataType::FieldType {};
                 continue;
             }
             if constexpr (IsDataTypeInt<FromDataType>) {
@@ -187,10 +183,8 @@ public:
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
         for (size_t i = 0; i < size; i++) {
-            // Skip hidden payload of rows marked as null by the input null map, but keep the
-            // destination slot at the default value of the type instead of leaving it uninitialized.
+            // Skip hidden payload of rows marked as null by the input null map.
             if (null_map && null_map[i]) {
-                vec_to_data[i] = typename ToDataType::FieldType {};
                 continue;
             }
             if (!CastToInt::from_decimal<typename FromDataType::FieldType,
