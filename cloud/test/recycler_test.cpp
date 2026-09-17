@@ -11659,3 +11659,715 @@ TEST(RecyclerTest, delete_versioned_delete_bitmap_by_rowset) {
 }
 
 } // namespace doris::cloud
+
+namespace doris::cloud {
+
+class PackedFileCheckerTest : public testing::Test {
+protected:
+    void SetUp() override {
+        config::force_immediate_recycle = false;
+        config::enable_mark_delete_rowset_before_recycle = false;
+        config::retention_seconds = 3600;
+        config::compacted_rowset_retention_seconds = 3600;
+        kv = std::make_shared<MemTxnKv>();
+        ASSERT_EQ(0, kv->init());
+        InstanceInfoPB instance;
+        instance.set_instance_id(instance_id);
+        instance.add_obj_info()->set_id("resource");
+        checker = std::make_unique<InstanceChecker>(kv, instance_id);
+        ASSERT_EQ(0, checker->init(instance));
+        accessor = checker->get_accessor("resource");
+        ASSERT_NE(nullptr, accessor);
+        info.set_resource_id("resource");
+        info.set_created_at_sec(1);
+        info.set_state(PackedFileInfoPB::NORMAL);
+    }
+
+    void TearDown() override {
+        SyncPoint::get_instance()->disable_processing();
+        SyncPoint::get_instance()->clear_all_call_backs();
+        config::force_immediate_recycle = old_force_recycle;
+        config::enable_mark_delete_rowset_before_recycle = old_mark_recycled;
+        config::retention_seconds = old_retention;
+        config::compacted_rowset_retention_seconds = old_compacted_retention;
+    }
+
+    RowsetMetaCloudPB make_rowset(int64_t tablet_id, const std::string& rowset_id) {
+        RowsetMetaCloudPB rowset;
+        rowset.set_rowset_id(0);
+        rowset.set_rowset_id_v2(rowset_id);
+        rowset.set_tablet_id(tablet_id);
+        rowset.set_txn_id(tablet_id + 100);
+        rowset.set_start_version(2);
+        rowset.set_end_version(2);
+        rowset.set_num_segments(1);
+        rowset.set_creation_time(time(nullptr));
+        rowset.set_resource_id("resource");
+        return rowset;
+    }
+
+    RowsetMetaCloudPB add_reference(int64_t tablet_id, const std::string& rowset_id) {
+        auto rowset = make_rowset(tablet_id, rowset_id);
+        auto small_path = segment_path(tablet_id, rowset_id, 0);
+        auto& location = (*rowset.mutable_packed_slice_locations())[small_path];
+        location.set_packed_file_path(packed_path);
+        location.set_offset(info.slices_size() * 10);
+        location.set_size(10);
+        auto* slice = info.add_slices();
+        slice->set_path(small_path);
+        slice->set_tablet_id(tablet_id);
+        slice->set_rowset_id(rowset_id);
+        slice->set_txn_id(rowset.txn_id());
+        slice->set_offset(location.offset());
+        slice->set_size(location.size());
+        info.set_ref_cnt(info.slices_size());
+        info.set_total_slice_num(info.slices_size());
+        info.set_total_slice_bytes(info.total_slice_bytes() + location.size());
+        info.set_remaining_slice_bytes(info.remaining_slice_bytes() + location.size());
+        return rowset;
+    }
+
+    PackedSliceLocationPB add_delete_bitmap_slice(const RowsetMetaCloudPB& rowset) {
+        PackedSliceLocationPB location;
+        location.set_packed_file_path(packed_path);
+        location.set_offset(info.total_slice_bytes());
+        location.set_size(10);
+        auto* slice = info.add_slices();
+        slice->set_path(delete_bitmap_path(rowset.tablet_id(), rowset.rowset_id_v2()));
+        slice->set_tablet_id(rowset.tablet_id());
+        slice->set_rowset_id(rowset.rowset_id_v2());
+        slice->set_txn_id(rowset.txn_id());
+        slice->set_offset(location.offset());
+        slice->set_size(location.size());
+        info.set_ref_cnt(info.slices_size());
+        info.set_total_slice_num(info.slices_size());
+        info.set_total_slice_bytes(info.total_slice_bytes() + location.size());
+        info.set_remaining_slice_bytes(info.remaining_slice_bytes() + location.size());
+        return location;
+    }
+
+    void put_delete_bitmap(const RowsetMetaCloudPB& rowset, const PackedSliceLocationPB& location) {
+        DeleteBitmapStoragePB storage;
+        storage.set_store_in_fdb(false);
+        *storage.mutable_packed_slice_location() = location;
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, kv->create_txn(&txn));
+        blob_put(txn.get(),
+                 versioned::meta_delete_bitmap_key(
+                         {instance_id, rowset.tablet_id(), rowset.rowset_id_v2()}),
+                 storage, 0);
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    }
+
+    void put(const std::string& key, const google::protobuf::Message& value) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, kv->create_txn(&txn));
+        txn->put(key, value.SerializeAsString());
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    }
+
+    void put_visible(const RowsetMetaCloudPB& rowset) {
+        put(meta_rowset_key({instance_id, rowset.tablet_id(), rowset.end_version()}), rowset);
+    }
+
+    void put_tmp(const RowsetMetaCloudPB& rowset) {
+        put(meta_rowset_tmp_key({instance_id, rowset.txn_id(), rowset.tablet_id()}), rowset);
+    }
+
+    void put_recycle(const RowsetMetaCloudPB& rowset, int64_t creation_time) {
+        RecycleRowsetPB recycle;
+        recycle.set_type(RecycleRowsetPB::COMPACT);
+        recycle.set_creation_time(creation_time);
+        *recycle.mutable_rowset_meta() = rowset;
+        put(recycle_rowset_key({instance_id, rowset.tablet_id(), rowset.rowset_id_v2()}), recycle);
+    }
+
+    void put_packed() { put(packed_file_key({instance_id, packed_path}), info); }
+
+    const std::string instance_id = "packed_file_checker";
+    const std::string packed_path = "data/packed_file/shared.dat";
+    const bool old_force_recycle = config::force_immediate_recycle;
+    const bool old_mark_recycled = config::enable_mark_delete_rowset_before_recycle;
+    const int64_t old_retention = config::retention_seconds;
+    const int64_t old_compacted_retention = config::compacted_rowset_retention_seconds;
+    std::shared_ptr<MemTxnKv> kv;
+    std::unique_ptr<InstanceChecker> checker;
+    StorageVaultAccessor* accessor = nullptr;
+    PackedFileInfoPB info;
+};
+
+TEST_F(PackedFileCheckerTest, SharedVisibleTmpAndRecycleReferences) {
+    put_visible(add_reference(1001, "visible"));
+    put_tmp(add_reference(1002, "tmp"));
+    put_recycle(add_reference(1003, "recycle"), time(nullptr));
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, DuplicateRowsetMetadataCountsEachSmallFileOnce) {
+    auto rowset = add_reference(1001, "visible");
+    put_visible(rowset);
+    put_tmp(rowset);
+    put_recycle(rowset, time(nullptr));
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, OrphanObject) {
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, UnreferencedSliceFailsEvenWhenRefCountMatchesRowsets) {
+    put_visible(add_reference(1001, "visible"));
+    add_reference(1002, "orphan");
+    info.set_ref_cnt(1);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, ExistingRowsetWithoutMatchingLocationIsNotAReference) {
+    auto rowset = add_reference(1001, "visible");
+    rowset.clear_packed_slice_locations();
+    put_visible(rowset);
+    info.set_ref_cnt(0);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, RecentPackedFileStillRequiresMatchingLocation) {
+    auto rowset = add_reference(1001, "visible");
+    rowset.clear_packed_slice_locations();
+    put_visible(rowset);
+    info.set_created_at_sec(time(nullptr));
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, SliceOwnerMustMatchRowset) {
+    put_visible(add_reference(1001, "visible"));
+    info.mutable_slices(0)->set_rowset_id("wrong_owner");
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, MissingSlice) {
+    put_visible(add_reference(1001, "visible"));
+    info.clear_slices();
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, IncorrectReferenceCount) {
+    put_visible(add_reference(1001, "visible"));
+    info.set_ref_cnt(2);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedMetadataAndObjectBothMissing) {
+    put_visible(add_reference(1001, "visible"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, TmpPackedMetadataAndObjectBothMissing) {
+    put_tmp(add_reference(1001, "tmp"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, UnexpiredRecyclePackedMetadataAndObjectBothMissing) {
+    put_recycle(add_reference(1001, "recycle"), time(nullptr));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, ReferencedObjectMissing) {
+    put_visible(add_reference(1001, "visible"));
+    put_packed();
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, RecycleReferenceAlreadyReleasedFromSharedFile) {
+    put_visible(add_reference(1001, "visible"));
+    put_recycle(add_reference(1002, "recycle"), 1);
+    info.mutable_slices(1)->set_deleted(true);
+    info.set_ref_cnt(1);
+    info.set_remaining_slice_bytes(10);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, MarkedTmpReferenceAlreadyReleased) {
+    auto rowset = add_reference(1001, "tmp");
+    rowset.set_is_recycled(true);
+    put_tmp(rowset);
+    info.mutable_slices(0)->set_deleted(true);
+    info.set_ref_cnt(0);
+    info.set_remaining_slice_bytes(0);
+    info.set_state(PackedFileInfoPB::RECYCLING);
+    put_packed();
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, RecycleMetadataRemainsAfterPackedFileDeletion) {
+    put_recycle(add_reference(1001, "recycle"), 1);
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, RecentPackedFileStillRequiresRowsetReference) {
+    add_reference(1001, "orphan");
+    info.set_created_at_sec(time(nullptr));
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, RecentNormalPackedFileStillRequiresObject) {
+    info.set_created_at_sec(time(nullptr));
+    put_packed();
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, FreshVisibleReferenceCannotHideMissingObject) {
+    put_visible(add_reference(1001, "visible"));
+    info.set_created_at_sec(time(nullptr));
+    put_packed();
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, UnexpiredRecycleReferenceCannotBeReleased) {
+    put_recycle(add_reference(1001, "recycle"), time(nullptr));
+    info.mutable_slices(0)->set_deleted(true);
+    info.set_ref_cnt(0);
+    info.set_state(PackedFileInfoPB::RECYCLING);
+    put_packed();
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, MarkedTmpStillHoldsUndeletedSlice) {
+    auto rowset = add_reference(1001, "tmp");
+    rowset.set_is_recycled(true);
+    put_tmp(rowset);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, WrongTmpRowsetIsNotAReference) {
+    auto rowset = add_reference(1001, "tmp");
+    rowset.set_rowset_id_v2("another_rowset");
+    rowset.clear_packed_slice_locations();
+    put_tmp(rowset);
+    info.set_ref_cnt(0);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, SharedDeleteBitmapReference) {
+    auto rowset = add_reference(1001, "visible");
+    put_visible(rowset);
+    put_delete_bitmap(rowset, add_delete_bitmap_slice(rowset));
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(0, checker->do_packed_file_check());
+
+    info.mutable_slices(1)->set_path("data/7/1001/visible_delete_bitmap.db");
+    put_packed();
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, BitmapOnlyReference) {
+    auto rowset = make_rowset(1001, "bitmap_only");
+    put_visible(rowset);
+    put_delete_bitmap(rowset, add_delete_bitmap_slice(rowset));
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+
+    int fallback_scans = 0;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("InstanceChecker::do_packed_file_check:visible_rowset_fallback_scan",
+                      [&](auto&&) { ++fallback_scans; });
+    sp->enable_processing();
+    EXPECT_EQ(0, checker->do_packed_file_check());
+    EXPECT_EQ(0, fallback_scans);
+}
+
+TEST_F(PackedFileCheckerTest, BitmapPackedMetadataAndObjectBothMissing) {
+    auto rowset = make_rowset(1001, "bitmap_only");
+    put_visible(rowset);
+    PackedSliceLocationPB location;
+    location.set_packed_file_path(packed_path);
+    location.set_offset(0);
+    location.set_size(10);
+    put_delete_bitmap(rowset, location);
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedMetadataMissingDeleteBitmapSlice) {
+    put_visible(add_reference(1001, "segment"));
+    auto bitmap_rowset = make_rowset(1002, "bitmap_only");
+    put_visible(bitmap_rowset);
+    PackedSliceLocationPB location;
+    location.set_packed_file_path(packed_path);
+    location.set_offset(10);
+    location.set_size(10);
+    put_delete_bitmap(bitmap_rowset, location);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, TmpSliceTxnMismatch) {
+    auto rowset = add_reference(1001, "tmp");
+    put_tmp(rowset);
+    info.mutable_slices(0)->set_txn_id(rowset.txn_id() + 1);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, SliceOffsetMismatch) {
+    auto rowset = add_reference(1001, "visible");
+    rowset.mutable_packed_slice_locations()->begin()->second.set_offset(1);
+    put_visible(rowset);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, SliceSizeMismatch) {
+    auto rowset = add_reference(1001, "visible");
+    rowset.mutable_packed_slice_locations()->begin()->second.set_size(11);
+    put_visible(rowset);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedFileSizeMismatch) {
+    auto rowset = add_reference(1001, "visible");
+    rowset.mutable_packed_slice_locations()->begin()->second.set_packed_file_size(11);
+    put_visible(rowset);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, DeleteBitmapLocationMismatch) {
+    auto rowset = make_rowset(1001, "bitmap_only");
+    put_visible(rowset);
+    auto location = add_delete_bitmap_slice(rowset);
+    location.set_offset(location.offset() + 1);
+    put_delete_bitmap(rowset, location);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, DeleteBitmapSliceTxnMayDifferFromRowsetTxn) {
+    auto rowset = make_rowset(1001, "bitmap_txn");
+    put_visible(rowset);
+    put_delete_bitmap(rowset, add_delete_bitmap_slice(rowset));
+    info.mutable_slices(0)->set_txn_id(rowset.txn_id() + 1);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, SamePathOwnerMismatch) {
+    auto first = add_reference(1001, "first");
+    auto second = make_rowset(1002, "second");
+    *second.mutable_packed_slice_locations() = first.packed_slice_locations();
+    put_visible(first);
+    put_visible(second);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, SameSmallPathCannotReferenceTwoPackedFiles) {
+    auto first = add_reference(1001, "first");
+    const std::string small_path = segment_path(1001, "first", 0);
+    const std::string second_packed_path = "data/packed_file/second.dat";
+    auto second = make_rowset(1002, "second");
+    auto& second_location = (*second.mutable_packed_slice_locations())[small_path];
+    second_location.set_packed_file_path(second_packed_path);
+    second_location.set_offset(0);
+    second_location.set_size(10);
+
+    PackedFileInfoPB second_info;
+    second_info.set_resource_id("resource");
+    second_info.set_created_at_sec(1);
+    second_info.set_state(PackedFileInfoPB::NORMAL);
+    second_info.set_ref_cnt(1);
+    second_info.set_total_slice_num(1);
+    second_info.set_total_slice_bytes(10);
+    second_info.set_remaining_slice_bytes(10);
+    auto* second_slice = second_info.add_slices();
+    second_slice->set_path(small_path);
+    second_slice->set_tablet_id(second.tablet_id());
+    second_slice->set_rowset_id(second.rowset_id_v2());
+    second_slice->set_txn_id(second.txn_id());
+    second_slice->set_offset(second_location.offset());
+    second_slice->set_size(second_location.size());
+
+    put_visible(first);
+    put_visible(second);
+    put_packed();
+    put(packed_file_key({instance_id, second_packed_path}), second_info);
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    ASSERT_EQ(0, accessor->put_file(second_packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, VisibleDiscoveryAvoidsRepeatedTabletScans) {
+    auto rowset = add_reference(1001, "visible");
+    const std::string second_packed_path = "data/packed_file/second.dat";
+    auto second_small_path = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), 1);
+    auto& location = (*rowset.mutable_packed_slice_locations())[second_small_path];
+    location.set_packed_file_path(second_packed_path);
+    location.set_offset(0);
+    location.set_size(10);
+
+    PackedFileInfoPB second_info;
+    second_info.set_resource_id("resource");
+    second_info.set_created_at_sec(1);
+    second_info.set_state(PackedFileInfoPB::NORMAL);
+    second_info.set_ref_cnt(1);
+    second_info.set_total_slice_num(1);
+    second_info.set_total_slice_bytes(10);
+    second_info.set_remaining_slice_bytes(10);
+    auto* second_slice = second_info.add_slices();
+    second_slice->set_path(second_small_path);
+    second_slice->set_tablet_id(rowset.tablet_id());
+    second_slice->set_rowset_id(rowset.rowset_id_v2());
+    second_slice->set_txn_id(rowset.txn_id());
+    second_slice->set_offset(location.offset());
+    second_slice->set_size(location.size());
+
+    put_visible(rowset);
+    put_packed();
+    put(packed_file_key({instance_id, second_packed_path}), second_info);
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    ASSERT_EQ(0, accessor->put_file(second_packed_path, "payload"));
+
+    int fallback_scans = 0;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("InstanceChecker::do_packed_file_check:visible_rowset_fallback_scan",
+                      [&](auto&&) { ++fallback_scans; });
+    sp->enable_processing();
+    EXPECT_EQ(0, checker->do_packed_file_check());
+    EXPECT_EQ(0, fallback_scans);
+}
+
+TEST_F(PackedFileCheckerTest, TmpCommittedAfterDiscoveryFallsBackToVisibleScan) {
+    auto rowset = add_reference(1001, "committed");
+    put_tmp(rowset);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+
+    int fallback_scans = 0;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("InstanceChecker::do_packed_file_check:packed_scanned", [&](auto&&) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, kv->create_txn(&txn));
+        txn->remove(meta_rowset_tmp_key({instance_id, rowset.txn_id(), rowset.tablet_id()}));
+        txn->put(meta_rowset_key({instance_id, rowset.tablet_id(), rowset.end_version()}),
+                 rowset.SerializeAsString());
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    });
+    sp->set_call_back("InstanceChecker::do_packed_file_check:visible_rowset_fallback_scan",
+                      [&](auto&&) { ++fallback_scans; });
+    sp->enable_processing();
+
+    EXPECT_EQ(0, checker->do_packed_file_check());
+    EXPECT_EQ(1, fallback_scans);
+}
+
+TEST_F(PackedFileCheckerTest, PackedInfoInvariantNormalCannotHaveZeroReferences) {
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedInfoInvariantRecyclingCannotHaveReferences) {
+    put_visible(add_reference(1001, "visible"));
+    info.set_state(PackedFileInfoPB::RECYCLING);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedInfoInvariantTotalSliceCount) {
+    put_visible(add_reference(1001, "visible"));
+    info.set_total_slice_num(2);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedInfoInvariantTotalSliceBytes) {
+    put_visible(add_reference(1001, "visible"));
+    info.set_total_slice_bytes(9);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedInfoInvariantRemainingSliceBytes) {
+    put_visible(add_reference(1001, "visible"));
+    info.set_remaining_slice_bytes(9);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedInfoCorrectedRequiresExactRemainingSliceBytes) {
+    put_visible(add_reference(1001, "visible"));
+    info.set_total_slice_bytes(11);
+    info.set_remaining_slice_bytes(11);
+    info.set_corrected(true);
+    info.mutable_slices(0)->set_corrected(true);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedInfoAllowsShadowedBytesBeforeCorrection) {
+    auto rowset = add_reference(1001, "shadowed");
+    auto& location = rowset.mutable_packed_slice_locations()->begin()->second;
+    location.set_offset(3);
+    location.set_size(3);
+    info.mutable_slices(0)->set_offset(3);
+    info.mutable_slices(0)->set_size(3);
+    info.set_total_slice_bytes(6);
+    info.set_remaining_slice_bytes(6);
+    info.set_corrected(false);
+    put_visible(rowset);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "abcdef"));
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedInfoAllowsShadowedBytesAfterCorrection) {
+    auto rowset = add_reference(1001, "shadowed");
+    auto& location = rowset.mutable_packed_slice_locations()->begin()->second;
+    location.set_offset(3);
+    location.set_size(3);
+    info.mutable_slices(0)->set_offset(3);
+    info.mutable_slices(0)->set_size(3);
+    info.set_total_slice_bytes(6);
+    info.set_remaining_slice_bytes(3);
+    info.set_corrected(true);
+    info.mutable_slices(0)->set_corrected(true);
+    put_visible(rowset);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "abcdef"));
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedInfoInvariantOverlappingSlices) {
+    auto first = add_reference(1001, "first");
+    auto second = add_reference(1002, "second");
+    auto& second_location = second.mutable_packed_slice_locations()->begin()->second;
+    second_location.set_offset(5);
+    info.mutable_slices(1)->set_offset(5);
+    put_visible(first);
+    put_visible(second);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PackedInfoInvariantSliceOutOfBounds) {
+    auto first = add_reference(1001, "first");
+    auto second = add_reference(1002, "second");
+    auto& second_location = second.mutable_packed_slice_locations()->begin()->second;
+    second_location.set_offset(15);
+    info.mutable_slices(1)->set_offset(15);
+    put_visible(first);
+    put_visible(second);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, ObjectDiscoveryChecksExistingReferences) {
+    auto rowset = add_reference(1001, "tmp");
+    auto* sp = SyncPoint::get_instance();
+    // Populate metadata after its scans to isolate discovery through the object listing.
+    sp->set_call_back("InstanceChecker::do_packed_file_check:packed_scanned", [&](auto&&) {
+        put_tmp(rowset);
+        put_packed();
+        ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    });
+    sp->enable_processing();
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, ObjectDiscoveryChecksBitmapOnlyTmpReference) {
+    auto rowset = make_rowset(1001, "bitmap_only_tmp");
+    put_tmp(rowset);
+    auto location = add_delete_bitmap_slice(rowset);
+    auto* sp = SyncPoint::get_instance();
+    // Populate packed metadata after its scans to isolate discovery through the object listing.
+    sp->set_call_back("InstanceChecker::do_packed_file_check:packed_scanned", [&](auto&&) {
+        put_delete_bitmap(rowset, location);
+        put_packed();
+        ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    });
+    sp->enable_processing();
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, ObjectFindsOrphanSliceAfterMetadataScans) {
+    add_reference(1001, "orphan");
+    info.set_ref_cnt(0);
+    auto* sp = SyncPoint::get_instance();
+    // Populate metadata after its scans to isolate discovery through the object listing.
+    sp->set_call_back("InstanceChecker::do_packed_file_check:packed_scanned", [&](auto&&) {
+        put_packed();
+        ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    });
+    sp->enable_processing();
+    EXPECT_EQ(1, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, RecycleBetweenPackedReadAndObjectCheck) {
+    auto rowset = add_reference(1001, "visible");
+    put_visible(rowset);
+    put_packed();
+    ASSERT_EQ(0, accessor->put_file(packed_path, "payload"));
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("InstanceChecker::do_packed_file_check:packed_read", [&](auto&&) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, kv->create_txn(&txn));
+        txn->remove(meta_rowset_key({instance_id, rowset.tablet_id(), rowset.end_version()}));
+        txn->remove(packed_file_key({instance_id, packed_path}));
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+        ASSERT_EQ(0, accessor->delete_file(packed_path));
+    });
+    sp->enable_processing();
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+TEST_F(PackedFileCheckerTest, PartitionRecyclingMayReleaseVisibleReference) {
+    auto rowset = add_reference(1001, "visible");
+    rowset.set_partition_id(2001);
+    put_visible(rowset);
+    RecyclePartitionPB partition;
+    partition.set_state(RecyclePartitionPB::RECYCLING);
+    put(recycle_partition_key({instance_id, rowset.partition_id()}), partition);
+    EXPECT_EQ(0, checker->do_packed_file_check());
+}
+
+} // namespace doris::cloud

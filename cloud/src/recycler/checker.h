@@ -26,9 +26,13 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <map>
 #include <memory>
+#include <set>
+#include <string>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -185,6 +189,7 @@ public:
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
 
 private:
+    class PackedFileChecker;
     struct RowsetIndexesFormatV1 {
         std::string rowset_id;
         std::unordered_set<int64_t> segment_ids;
@@ -280,6 +285,226 @@ private:
     std::shared_ptr<SnapshotManager> snapshot_manager_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     bool table_stream_versioned_write_ {false};
+};
+
+class InstanceChecker::PackedFileChecker {
+public:
+    /**
+         * Creates a checker for the enclosing instance.
+         *
+         * @param checker Instance whose packed files and metadata are checked.
+         */
+    explicit PackedFileChecker(InstanceChecker& checker);
+
+    /**
+         * Discovers every packed-file candidate and checks its metadata, references, and object.
+         *
+         * @return 0 if all candidates are consistent, 1 if a mismatch is found, and -1 if the
+         *         check is interrupted or encounters a temporary error.
+         */
+    int run();
+
+private:
+    // (tablet_id, rowset_id, txn_id): identifies an owner across visible/tmp/recycle
+    // metadata; txn_id is needed to locate the tmp rowset key.
+    using RowsetIdentity = std::tuple<int64_t, std::string, int64_t>;
+    using BitmapIdentity = std::pair<int64_t, std::string>;
+    using BitmapPaths = std::map<BitmapIdentity, std::set<std::string>>;
+
+    // A packed-file path discovered from any independent source. Rowsets seed owner lookup,
+    // while object resources ensure orphan objects are checked even without a packed KV.
+    struct Candidate {
+        std::set<RowsetIdentity> rowsets;
+        std::map<RowsetIdentity, std::set<std::string>> visible_rowset_keys;
+        std::set<BitmapIdentity> bitmap_owners;
+        std::unordered_set<std::string> object_resources;
+        std::set<std::string> conflicting_small_paths;
+    };
+
+    struct PackedFileMetadata {
+        int packed_ret = 1;
+        PackedFileInfoPB info;
+        std::unordered_set<std::string> resources;
+    };
+
+    struct Reference {
+        RowsetIdentity owner;
+        PackedSliceLocationPB location;
+        bool is_delete_bitmap = false;
+    };
+
+    struct FileCheckContext {
+        /**
+             * Creates the state shared by all metadata checks for one packed-file path.
+             *
+             * @param path Packed-file object path being checked.
+             * @param candidate Owners and object resources found during candidate discovery.
+             * @param report_mismatches Whether confirmed mismatches update counters and warnings.
+             */
+        FileCheckContext(const std::string& path, const Candidate& candidate,
+                         bool report_mismatches);
+
+        // Packed-file object path checked by this context.
+        const std::string& path;
+        // False on the initial pass and true on the confirmation pass after a mismatch.
+        bool report_mismatches;
+        std::unique_ptr<Transaction> txn;
+        // Packed-file KV lookup result and resource IDs collected from matching rowsets.
+        PackedFileMetadata packed_file_metadata;
+        // Rowset identities to resolve from visible, tmp, or recycle metadata.
+        std::set<RowsetIdentity> owners;
+        // Exact visible-rowset keys found during discovery, grouped by owner identity.
+        std::map<RowsetIdentity, std::set<std::string>> visible_rowset_keys;
+        // Delete-bitmap owners found by the independent versioned metadata scan.
+        std::set<BitmapIdentity> bitmap_owners;
+        // Small-file paths whose discovery references require a current-snapshot conflict check.
+        std::set<std::string> conflicting_small_paths;
+        // Packed KV slices indexed by path; pointers refer into packed_file_metadata.info.
+        std::unordered_map<std::string, const PackedSlicePB*> slices;
+        // Delete-bitmap slice paths in the packed KV, indexed by tablet and rowset.
+        std::map<std::pair<int64_t, std::string>, std::string> bitmap_paths;
+        // Current-snapshot references for every observed small-file path.
+        std::unordered_map<std::string, Reference> observed_references;
+        // Current-snapshot references whose locations point to this packed-file path.
+        std::unordered_map<std::string, Reference> references;
+        // Cached partition or index recycling state, keyed by its recycle metadata key.
+        std::unordered_map<std::string, bool> recycling_states;
+        // Number of non-deleted slices in the packed KV.
+        int64_t live_slices = 0;
+        int result = 0;
+    };
+
+    struct Stats {
+        long num_scanned_rowsets = 0;
+        long num_scanned_packed_files = 0;
+        long num_packed_file_loss = 0;
+        long num_packed_file_leak = 0;
+        long num_packed_file_meta_mismatch = 0;
+        long num_ref_count_mismatch = 0;
+        long num_small_file_ref_mismatch = 0;
+
+        /**
+             * Reports whether any confirmed mismatch counter is nonzero.
+             *
+             * @return true if the check found a mismatch, otherwise false.
+             */
+        bool has_mismatch() const;
+    };
+
+    /**
+     * Collects the union of packed-file paths from rowsets, delete bitmaps, packed KVs, and
+     * object listings.
+         *
+         * @return 0 on success and -1 if a scan fails or is interrupted.
+         */
+    int collect_candidates();
+
+    int collect_delete_bitmap_candidates(BitmapPaths* bitmap_paths);
+    int collect_rowset_candidates(const BitmapPaths& bitmap_paths);
+
+    /**
+         * Checks one packed file and coordinates its KV-snapshot and object-store checks.
+         *
+         * @param path Packed-file object path to check.
+         * @param discovered Candidate owners and object resources found by the initial scans.
+         * @param report_mismatches Whether confirmed mismatches update counters and warnings.
+         * @return 0 if consistent, 1 if a mismatch is found, and -1 on a temporary error.
+         */
+    int check_file(const std::string& path, const Candidate& discovered, bool report_mismatches);
+
+    /**
+         * Reads the packed KV and validates its live slices against rowsets in one KV snapshot.
+         *
+         * @param context Shared state for the packed file; populated with metadata and references.
+         * @return 0 if consistent, 1 if a mismatch is found, and -1 on a temporary error.
+         */
+    int check_metadata_and_references(FileCheckContext* context);
+
+    /**
+         * Reads visible, tmp, and recycle metadata for every known packed-file owner.
+         *
+         * @param context Shared state containing owners and receiving valid small-file references.
+         * @return 0 on success and -1 if a metadata read fails or is interrupted.
+         */
+    int collect_owner_references(FileCheckContext* context);
+
+    int collect_visible_references(const RowsetIdentity& owner, FileCheckContext* context,
+                                   std::unordered_set<std::string>* visible_keys,
+                                   bool* owner_found);
+
+    int scan_visible_references(int64_t tablet_id, FileCheckContext* context);
+
+    /**
+         * Adds references from one rowset unless its packed data is in a legal recycle transition.
+         *
+         * @param rowset Rowset metadata whose packed slice locations are inspected.
+         * @param recyclable Whether the rowset itself may already be reclaimed.
+         * @param context Shared state receiving references, resources, and mismatches.
+         * @return 0 on success and -1 if dependent metadata cannot be read.
+         */
+    int collect_rowset_references(const RowsetMetaCloudPB& rowset, bool recyclable,
+                                  FileCheckContext* context);
+
+    void record_reference(const RowsetMetaCloudPB& rowset, const std::string& small_path,
+                          const PackedSliceLocationPB& location, bool is_delete_bitmap,
+                          FileCheckContext* context);
+
+    /**
+         * Compares live slices, valid rowset references, and the packed-file reference count.
+         *
+         * @param context Shared state containing the sets and counters to compare.
+         */
+    void check_reference_consistency(FileCheckContext* context);
+
+    /**
+         * Checks object existence in every resource inferred from metadata or object listing.
+         *
+         * @param discovered Candidate object resources found by the initial listing.
+         * @param context Shared state containing the path, packed metadata, and reporting mode.
+         * @return 0 if consistent, 1 if a mismatch is found, and -1 on an accessor error.
+         */
+    int check_objects(const Candidate& discovered, FileCheckContext* context);
+
+    /**
+         * Reads and parses one protobuf value in the current packed-file KV snapshot.
+         *
+         * @param context Shared state containing the active transaction.
+         * @param key Metadata key to read.
+         * @param pb Output protobuf populated when the key exists.
+         * @return 0 if read and parsed, 1 if the key is absent, and -1 on a read or parse error.
+         */
+    template <typename PB>
+    int get_and_parse_metadata(FileCheckContext* context, const std::string& key, PB* pb);
+
+    /**
+         * Reads and caches whether recycle metadata is in the RECYCLING state.
+         *
+         * @param context Shared state containing the active transaction and state cache.
+         * @param key Recycle metadata key to inspect.
+         * @param pb Scratch protobuf used to parse the metadata value.
+         * @return 1 if the key exists in RECYCLING state, 0 otherwise, and -1 on an error.
+         */
+    template <typename PB>
+    int is_recycling(FileCheckContext* context, const std::string& key, PB* pb);
+
+    /**
+         * Marks the current file inconsistent and records the mismatch when reporting is enabled.
+         *
+         * @param context Shared state for the current packed file.
+         * @param count Counter associated with the mismatch type.
+         * @param reason Diagnostic text describing the mismatch.
+         */
+    void mark_mismatch(FileCheckContext* context, long* count, const std::string& reason);
+
+    InstanceChecker& checker_;
+    Stats stats_;
+    // Packed-file candidates keyed by object path, unioned from rowsets, delete bitmaps,
+    // packed-file KVs, and object listings.
+    std::unordered_map<std::string, Candidate> candidates_;
+    // References observed across independent discovery scans, grouped by small-file path.
+    // They only expand candidates and trigger conflict rechecks; consistency is decided from
+    // metadata reread in the FileCheckContext transaction.
+    std::unordered_map<std::string, std::vector<Reference>> discovered_references_;
 };
 
 } // namespace doris::cloud
