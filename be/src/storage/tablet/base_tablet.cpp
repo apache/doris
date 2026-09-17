@@ -1673,7 +1673,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
 
         const auto& snapshot = *txn_info->attach_row_binlog.column_mapping_snapshot;
         cfg.need_historical_value = snapshot.need_historical_value();
-        cfg.column_mappings = DORIS_TRY(segment_v2::resolve_row_binlog_column_mappings(
+        cfg.column_mappings = DORIS_TRY(binlog::resolve_row_binlog_column_mappings(
                 *rowset->tablet_schema(), *row_binlog_rowset->tablet_schema(), snapshot));
 
         // Wrap two transient writers into a group writer for dual flush/build.

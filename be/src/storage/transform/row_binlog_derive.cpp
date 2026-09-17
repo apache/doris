@@ -41,7 +41,7 @@
 #include "storage/transform/transform_util.h"
 #include "util/time.h"
 
-namespace doris::segment_v2 {
+namespace doris::binlog {
 
 namespace {
 
@@ -147,6 +147,10 @@ Result<std::vector<RowBinlogColumnCidMapping>> resolve_row_binlog_column_mapping
     return cid_mappings;
 }
 
+} // namespace doris::binlog
+
+namespace doris::segment_v2 {
+
 namespace {
 
 // Runs the primary-key historical lookup over `block`'s source key (+seq)
@@ -193,7 +197,7 @@ Status setup_retriever_and_lookup(TransformExecContext& ctx, const SegmentWriteB
 // not const: reading BEFORE also loads the old delete signs it keeps.
 Status fill_before_columns(Block& out, const TabletSchema& binlog_schema,
                            PrimaryKeyModelRowRetriever* retriever,
-                           std::span<const RowBinlogColumnCidMapping> column_mappings,
+                           std::span<const binlog::RowBinlogColumnCidMapping> column_mappings,
                            size_t num_rows) {
     std::vector<uint32_t> source_cids;
     std::vector<uint32_t> before_cids;

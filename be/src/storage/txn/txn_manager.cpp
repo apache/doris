@@ -603,7 +603,7 @@ Status TxnManager::publish_txn(
                     tablet_id, transaction_id);
         }
         auto& binlog_info = tablet_txn_info->attach_row_binlog;
-        auto resolved = segment_v2::resolve_row_binlog_column_mappings(
+        auto resolved = binlog::resolve_row_binlog_column_mappings(
                 *rowset->tablet_schema(), *binlog_info.rowset->tablet_schema(),
                 *row_binlog_column_mappings);
         if (!resolved.has_value()) {

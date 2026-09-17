@@ -338,7 +338,7 @@ protected:
             mapping->set_current_column_unique_id(
                     row_binlog_context.tablet_schema->column(current_cid).unique_id());
         }
-        cfg.column_mappings = DORIS_TRY(segment_v2::resolve_row_binlog_column_mappings(
+        cfg.column_mappings = DORIS_TRY(binlog::resolve_row_binlog_column_mappings(
                 *cfg.source.tablet_schema, *row_binlog_context.tablet_schema, uid_mappings));
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
@@ -444,11 +444,11 @@ protected:
             EXPECT_EQ(snapshot->entries(0).source_column_unique_id(), 0);
             EXPECT_EQ(snapshot->entries(0).current_column_unique_id(), 0);
             EXPECT_FALSE(snapshot->entries(0).has_before_column_unique_id());
-            auto resolved = segment_v2::resolve_row_binlog_column_mappings(
+            auto resolved = binlog::resolve_row_binlog_column_mappings(
                     *txn_info.rowset->tablet_schema(), *attached.rowset->tablet_schema(),
                     *snapshot);
             ASSERT_TRUE(resolved.has_value()) << resolved.error();
-            EXPECT_EQ((*resolved)[0], (segment_v2::RowBinlogColumnCidMapping {0, 0, std::nullopt}));
+            EXPECT_EQ((*resolved)[0], (binlog::RowBinlogColumnCidMapping {0, 0, std::nullopt}));
             if (!key_only) {
                 EXPECT_EQ(snapshot->entries(1).source_column_unique_id(), 1);
                 EXPECT_EQ(snapshot->entries(1).current_column_unique_id(), 1);
@@ -457,7 +457,7 @@ protected:
                     EXPECT_EQ(snapshot->entries(1).before_column_unique_id(), 5);
                 }
                 EXPECT_EQ((*resolved)[1],
-                          (segment_v2::RowBinlogColumnCidMapping {
+                          (binlog::RowBinlogColumnCidMapping {
                                   1, 1, historical ? std::optional<ColumnId>(5) : std::nullopt}));
             }
         }
@@ -530,8 +530,8 @@ TEST_F(CloudGroupRowsetBuilderWriterTest, builderBuildsRowBinlogMeta) {
                                    .write_binlog_config()
                                    .column_mappings;
     ASSERT_EQ(mappings.size(), 2U);
-    EXPECT_EQ(mappings[0], (segment_v2::RowBinlogColumnCidMapping {0, 0, std::nullopt}));
-    EXPECT_EQ(mappings[1], (segment_v2::RowBinlogColumnCidMapping {1, 1, std::nullopt}));
+    EXPECT_EQ(mappings[0], (binlog::RowBinlogColumnCidMapping {0, 0, std::nullopt}));
+    EXPECT_EQ(mappings[1], (binlog::RowBinlogColumnCidMapping {1, 1, std::nullopt}));
 
     ASSERT_TRUE(builder.rowset_writer()->flush().ok());
     ASSERT_TRUE(builder.build_rowset().ok());

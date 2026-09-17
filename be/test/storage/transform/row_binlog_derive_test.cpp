@@ -404,8 +404,8 @@ protected:
                         rwc.tablet_schema->column(before_cid).unique_id());
             }
         }
-        auto result = segment_v2::resolve_row_binlog_column_mappings(
-                *cfg.source.tablet_schema, *rwc.tablet_schema, uid_mappings);
+        auto result = binlog::resolve_row_binlog_column_mappings(*cfg.source.tablet_schema,
+                                                                 *rwc.tablet_schema, uid_mappings);
         ASSERT_TRUE(result.has_value()) << result.error();
         cfg.column_mappings = std::move(*result);
     }
@@ -432,10 +432,10 @@ TEST_F(RowBinlogDeriveTest, ResolvesExplicitUidMappings) {
     const auto uid_mappings = make_mapping_snapshot(
             true, {{10, 100, std::nullopt}, {11, 101, 103}, {13, 102, std::nullopt}});
 
-    auto result = segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema,
-                                                                 uid_mappings);
+    auto result = binlog::resolve_row_binlog_column_mappings(*source_schema, *target_schema,
+                                                             uid_mappings);
     ASSERT_TRUE(result.has_value()) << result.error();
-    EXPECT_EQ(*result, (std::vector<segment_v2::RowBinlogColumnCidMapping> {
+    EXPECT_EQ(*result, (std::vector<binlog::RowBinlogColumnCidMapping> {
                                {0, 1, std::nullopt}, {1, 3, 0}, {3, 5, std::nullopt}}));
 }
 
@@ -458,25 +458,25 @@ TEST_F(RowBinlogDeriveTest, ResolvesAndValidatesMappingSnapshot) {
     value->set_current_column_unique_id(101);
     value->set_before_column_unique_id(103);
 
-    auto result = segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema,
-                                                                 snapshot);
+    auto result =
+            binlog::resolve_row_binlog_column_mappings(*source_schema, *target_schema, snapshot);
     ASSERT_TRUE(result.has_value()) << result.error();
-    EXPECT_EQ(*result, (std::vector<segment_v2::RowBinlogColumnCidMapping> {{0, 1, std::nullopt},
-                                                                            {1, 3, 0}}));
+    EXPECT_EQ(*result,
+              (std::vector<binlog::RowBinlogColumnCidMapping> {{0, 1, std::nullopt}, {1, 3, 0}}));
 
     snapshot.clear_need_historical_value();
     EXPECT_FALSE(
-            segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema, snapshot)
+            binlog::resolve_row_binlog_column_mappings(*source_schema, *target_schema, snapshot)
                     .has_value());
     snapshot.set_need_historical_value(true);
     value->clear_current_column_unique_id();
     EXPECT_FALSE(
-            segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema, snapshot)
+            binlog::resolve_row_binlog_column_mappings(*source_schema, *target_schema, snapshot)
                     .has_value());
     value->set_current_column_unique_id(101);
     value->set_before_column_unique_id(999);
     EXPECT_FALSE(
-            segment_v2::resolve_row_binlog_column_mappings(*source_schema, *target_schema, snapshot)
+            binlog::resolve_row_binlog_column_mappings(*source_schema, *target_schema, snapshot)
                     .has_value());
 }
 
@@ -513,7 +513,7 @@ TEST_F(RowBinlogDeriveTest, RejectsInvalidUidMappings) {
             };
 
     for (const auto& mappings : invalid_mappings) {
-        auto result = segment_v2::resolve_row_binlog_column_mappings(
+        auto result = binlog::resolve_row_binlog_column_mappings(
                 *source_schema, *target_schema, make_mapping_snapshot(true, mappings));
         EXPECT_FALSE(result.has_value());
     }
@@ -530,7 +530,7 @@ TEST_F(RowBinlogDeriveTest, RejectsInvalidUidMappings) {
                     {202, "op", "BIGINT"},
             },
             2, 4, 7);
-    EXPECT_FALSE(segment_v2::resolve_row_binlog_column_mappings(
+    EXPECT_FALSE(binlog::resolve_row_binlog_column_mappings(
                          *source_schema, *target_with_extra,
                          make_mapping_snapshot(true, {{10, 100, std::nullopt},
                                                       {11, 101, 103},
@@ -548,7 +548,7 @@ TEST_F(RowBinlogDeriveTest, RejectsInvalidUidMappings) {
                     {202, "op", "BIGINT"},
             },
             2, 4, 6);
-    EXPECT_FALSE(segment_v2::resolve_row_binlog_column_mappings(
+    EXPECT_FALSE(binlog::resolve_row_binlog_column_mappings(
                          *source_schema, *target_with_bad_type,
                          make_mapping_snapshot(true, {{10, 100, std::nullopt},
                                                       {11, 101, 103},
@@ -577,7 +577,7 @@ TEST_F(RowBinlogDeriveTest, PlainUsesExplicitInterleavedTargetCids) {
     auto& cfg = rwc.write_binlog_opt().write_binlog_config();
     cfg.source.tablet_schema = source_schema;
     cfg.source.source_write_type = DataWriteType::TYPE_DIRECT;
-    cfg.column_mappings = *segment_v2::resolve_row_binlog_column_mappings(
+    cfg.column_mappings = *binlog::resolve_row_binlog_column_mappings(
             *source_schema, *target_schema,
             make_mapping_snapshot(
                     false,
