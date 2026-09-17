@@ -155,6 +155,8 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         } else {
             List<ExprId> exprIds = rfContext.getTargetExprIdByFilterJoin(join);
             if (exprIds != null && !exprIds.isEmpty()) {
+                // Check the row-level filtering effectiveness of runtime filters, not partition/bucket pruning.
+                // A filter may still prune whole scan ranges even when this check returns false.
                 boolean hasEffectiveRowFilter = false;
                 for (Expression expr : join.getEqualToConjuncts()) {
                     if (isEffectiveRuntimeFilter((EqualTo) expr, join)) {
