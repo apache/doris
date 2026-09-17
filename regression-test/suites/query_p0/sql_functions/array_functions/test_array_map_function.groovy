@@ -196,4 +196,14 @@ suite("test_array_map_function") {
             FROM array_map_null_container
             ORDER BY id
         """
+        order_qt_array_zip_null_container """
+            SELECT id,
+                   array_zip(
+                       array_map((x, y) -> cast(x AS INT) + y + id,
+                                 if(id = 1, cast(NULL AS ARRAY<STRING>), string_values),
+                                 int_values),
+                       int_values)
+            FROM array_map_null_container
+            ORDER BY id
+        """
 }

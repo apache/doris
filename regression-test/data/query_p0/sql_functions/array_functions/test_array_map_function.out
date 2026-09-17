@@ -139,3 +139,7 @@
 -- !array_sort_null_container --
 1	\N
 2	["10", "20"]
+
+-- !array_zip_null_container --
+1	\N
+2	[{"col1":42, "col2":20}, {"col1":33, "col2":21}]
