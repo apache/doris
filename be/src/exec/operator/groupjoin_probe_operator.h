@@ -67,7 +67,8 @@ private:
     std::vector<AggregateDataPtr> _places;
     std::vector<AggregateDataPtr> _values;
     std::vector<GroupJoinEntry*> _entries;
-    std::vector<uint64_t> _repeats;
+    std::vector<uint64_t> _build_counts;
+    std::vector<uint64_t> _probe_counts;
     Arena _output_arena;
     ColumnUInt8::MutablePtr _null_map_column;
 };

@@ -57,16 +57,22 @@ Status register_agg_state_layout(GroupJoinSharedState* shared_state,
                                  const std::vector<int>& aggregate_indices,
                                  const std::vector<AggFnEvaluator*>& aggregate_evaluators);
 
+void init_data_container(GroupJoinSharedState* shared_state);
+
 Status add_build_counts_by_key(GroupJoinSharedState* shared_state, Arena& arena,
                                ColumnRawPtrs& key_not_nullable_columns, uint32_t num_rows,
                                const uint8_t* null_map, const std::vector<int>& aggregate_indices,
                                AggregateDataPtr* places);
 
-Status update_probe_counts(GroupJoinSharedState* shared_state, Arena& arena,
+Status update_probe_counts(GroupJoinSharedState* shared_state,
                            ColumnRawPtrs& key_not_nullable_columns, uint32_t num_rows,
                            const uint8_t* null_map, const std::vector<int>& aggregate_indices,
                            AggregateDataPtr* places, int64_t& matched_rows,
                            uint32_t& matched_probe_rows);
+
+void build_repeat_vectors(const std::vector<GroupJoinEntry*>& entries, uint32_t num_rows,
+                          bool needs_build_counts, bool needs_probe_counts,
+                          std::vector<uint64_t>& build_counts, std::vector<uint64_t>& probe_counts);
 
 void create_all_agg_states(GroupJoinSharedState* shared_state, AggregateDataPtr data);
 
