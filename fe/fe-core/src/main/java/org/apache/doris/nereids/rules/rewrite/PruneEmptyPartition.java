@@ -30,12 +30,14 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.transaction.TransactionEntry;
 
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -80,27 +82,41 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
                 && ((OlapTableWrapper) table).hasFixedVisibleVersions();
         if (Config.isCloudMode() && !hasFixedVisibleVersions && scan.getScanParams().isPresent()
                 && scan.getScanParams().get().incrementalRead()) {
-            // The incremental read may have just waited for a transaction to become visible. Bypass the FE cache
-            // so the newly non-empty partition is not pruned before scan-node version collection.
             List<CloudPartition> partitions = partitionIds.stream()
                     .map(table::getPartition)
                     .filter(Objects::nonNull)
                     .map(partition -> (CloudPartition) partition)
                     .collect(Collectors.toList());
+            List<CloudPartition> partitionsToRefresh = new ArrayList<>();
+            Set<Long> nonEmptyPartitionIds = new HashSet<>();
+            for (CloudPartition partition : partitions) {
+                if (partition.hasDataCached()) {
+                    nonEmptyPartitionIds.add(partition.getId());
+                } else {
+                    // The incremental read may have just waited for a transaction to become visible. Refresh a
+                    // cached-empty or unknown partition so newly visible data is not pruned before scan planning.
+                    partitionsToRefresh.add(partition);
+                }
+            }
+            if (partitionsToRefresh.isEmpty()) {
+                return partitions.stream().map(CloudPartition::getId).collect(Collectors.toList());
+            }
             try {
-                List<Long> versions = CloudPartition.getSnapshotVisibleVersionFromMs(partitions, false);
-                assert versions.size() == partitions.size()
+                List<Long> versions = CloudPartition.getSnapshotVisibleVersionFromMs(partitionsToRefresh, false);
+                assert versions.size() == partitionsToRefresh.size()
                         : "the got num versions is not equals to acquired num versions";
-                List<Long> nonEmptyPartitionIds = Lists.newArrayListWithCapacity(partitions.size());
                 for (int i = 0; i < versions.size(); i++) {
                     if (versions.get(i) > Partition.PARTITION_INIT_VERSION) {
-                        nonEmptyPartitionIds.add(partitions.get(i).getId());
+                        nonEmptyPartitionIds.add(partitionsToRefresh.get(i).getId());
                     }
                 }
-                return nonEmptyPartitionIds;
             } catch (RpcException e) {
                 throw new RuntimeException("get version from meta service failed", e);
             }
+            return partitions.stream()
+                    .filter(partition -> nonEmptyPartitionIds.contains(partition.getId()))
+                    .map(CloudPartition::getId)
+                    .collect(Collectors.toList());
         }
         return table.selectNonEmptyPartitionIds(partitionIds, scan.getStreamReadMode());
     }

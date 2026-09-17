@@ -52,6 +52,7 @@ class PruneEmptyPartitionTest implements MemoPatternMatchSupported {
         Mockito.when(stalePartition.getId()).thenReturn(stalePartitionId);
         CloudPartition nonEmptyPartition = Mockito.mock(CloudPartition.class);
         Mockito.when(nonEmptyPartition.getId()).thenReturn(nonEmptyPartitionId);
+        Mockito.when(nonEmptyPartition.hasDataCached()).thenReturn(true);
 
         OlapTable table = Mockito.spy(PlanConstructor.newOlapTable(10L, "incr_tbl", 0));
         Mockito.doReturn(partitionIds).when(table).getPartitionIds();
@@ -73,7 +74,10 @@ class PruneEmptyPartitionTest implements MemoPatternMatchSupported {
                 MockedStatic<CloudPartition> mockedPartition = Mockito.mockStatic(CloudPartition.class)) {
             mockedConfig.when(Config::isCloudMode).thenReturn(true);
             mockedPartition.when(() -> CloudPartition.getSnapshotVisibleVersionFromMs(
-                    Mockito.anyList(), Mockito.eq(false))).thenReturn(ImmutableList.of(2L, 2L));
+                    Mockito.anyList(), Mockito.eq(false))).thenAnswer(invocation -> {
+                        List<?> partitions = invocation.getArgument(0);
+                        return Collections.nCopies(partitions.size(), 2L);
+                    });
 
             LogicalOlapScan rewritten = (LogicalOlapScan) PlanChecker.from(connectContext, scan)
                     .applyTopDown(new PruneEmptyPartition())
@@ -81,7 +85,7 @@ class PruneEmptyPartitionTest implements MemoPatternMatchSupported {
 
             Assertions.assertEquals(partitionIds, rewritten.getSelectedPartitionIds());
             mockedPartition.verify(() -> CloudPartition.getSnapshotVisibleVersionFromMs(
-                    Mockito.anyList(), Mockito.eq(false)));
+                    Mockito.eq(ImmutableList.of(stalePartition)), Mockito.eq(false)));
             Mockito.verify(table, Mockito.never()).selectNonEmptyPartitionIds(
                     Mockito.anyCollection(), Mockito.any());
         }
