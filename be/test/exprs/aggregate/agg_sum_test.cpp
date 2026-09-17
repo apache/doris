@@ -22,23 +22,23 @@
 
 namespace doris {
 
-struct AggregateFunctionAvgTest : public AggregateFunctiontest {};
+struct AggregateFunctionSumTest : public AggregateFunctiontest {};
 
-TEST_F(AggregateFunctionAvgTest, test_int64) {
-    create_agg("avg", false, {std::make_shared<DataTypeInt64>()},
+TEST_F(AggregateFunctionSumTest, test_int64) {
+    create_agg("sum", false, {std::make_shared<DataTypeInt64>()},
                std::make_shared<DataTypeInt64>());
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
-            ColumnHelper::create_column_with_name<DataTypeFloat64>({2}));
+            ColumnHelper::create_column_with_name<DataTypeInt64>({6}));
 }
 
-TEST_F(AggregateFunctionAvgTest, test_incremental_mode_only_for_exact_sum) {
-    create_agg("avg", false, {std::make_shared<DataTypeInt64>()},
-               std::make_shared<DataTypeFloat64>());
+TEST_F(AggregateFunctionSumTest, test_incremental_mode_only_for_exact_sum) {
+    create_agg("sum", false, {std::make_shared<DataTypeInt64>()},
+               std::make_shared<DataTypeInt64>());
     EXPECT_TRUE(agg_fn->supported_incremental_mode());
 
     // Floating-point sums are not exactly invertible, so sliding frames must be recomputed.
-    create_agg("avg", false, {std::make_shared<DataTypeFloat64>()},
+    create_agg("sum", false, {std::make_shared<DataTypeFloat64>()},
                std::make_shared<DataTypeFloat64>());
     EXPECT_FALSE(agg_fn->supported_incremental_mode());
 }
