@@ -1255,6 +1255,9 @@ TEST_F(SpillFileS3Test, EmptyObjectRefusedByGateIsNotCreated) {
 // same backend_id left behind), an unchanged value is skipped until the heartbeat interval
 // elapsed, a failed report keeps the value pending, and every attempt carries a new report_seq.
 TEST_F(SpillFileS3Test, RemoteSpillStatsReportDecisions) {
+    // Only this test drives the reporter: keep the GC thread (which reports too) out of the way.
+    const auto saved_gc_interval = config::spill_gc_interval_ms;
+    config::spill_gc_interval_ms = 3600 * 1000;
     config::deploy_mode = "cloud";
     _create_manager();
     struct Report {
@@ -1263,26 +1266,49 @@ TEST_F(SpillFileS3Test, RemoteSpillStatsReportDecisions) {
         int64_t seq;
         int64_t bytes;
     };
-    std::vector<Report> reports;
-    std::atomic<bool> fail {false};
-    _manager->set_remote_spill_report_fn_for_test(
-            [&](int64_t backend_id, int64_t boot_id, int64_t seq, int64_t bytes) -> Status {
-                reports.push_back({backend_id, boot_id, seq, bytes});
-                return fail ? Status::InternalError("meta-service down") : Status::OK();
-            },
-            /*heartbeat_ms=*/3600LL * 1000);
+    // Owned by the hook as well: the final report of TearDown (stop()) must find it alive.
+    struct Recorder {
+        std::mutex mutex;
+        std::vector<Report> reports;
+        std::atomic<bool> fail {false};
+        size_t size() {
+            std::lock_guard lock(mutex);
+            return reports.size();
+        }
+        Report at(size_t i) {
+            std::lock_guard lock(mutex);
+            return reports.at(i);
+        }
+    };
+    auto rec = std::make_shared<Recorder>();
+    auto install = [&](int64_t heartbeat_ms) {
+        _manager->set_remote_spill_report_fn_for_test(
+                [rec](int64_t backend_id, int64_t boot_id, int64_t seq, int64_t bytes) -> Status {
+                    std::lock_guard lock(rec->mutex);
+                    rec->reports.push_back({backend_id, boot_id, seq, bytes});
+                    return rec->fail ? Status::InternalError("meta-service down") : Status::OK();
+                },
+                heartbeat_ms);
+    };
+    Defer restore {[&]() {
+        install(3600LL * 1000);
+        config::deploy_mode = "";
+        config::spill_gc_interval_ms = saved_gc_interval;
+    }};
+    install(/*heartbeat_ms=*/3600LL * 1000);
+    auto& fail = rec->fail;
 
     // First decision: nothing held, still reported.
     _manager->report_remote_spill_stats_for_test(false);
-    ASSERT_EQ(reports.size(), 1);
-    EXPECT_EQ(reports[0].backend_id, kBackendId);
-    EXPECT_EQ(reports[0].boot_id, kBootId);
-    EXPECT_EQ(reports[0].seq, 1);
-    EXPECT_EQ(reports[0].bytes, 0);
+    ASSERT_EQ(rec->size(), 1);
+    EXPECT_EQ(rec->at(0).backend_id, kBackendId);
+    EXPECT_EQ(rec->at(0).boot_id, kBootId);
+    EXPECT_EQ(rec->at(0).seq, 1);
+    EXPECT_EQ(rec->at(0).bytes, 0);
     // Unchanged: skipped.
     _manager->report_remote_spill_stats_for_test(false);
     _manager->report_remote_spill_stats_for_test(true);
-    ASSERT_EQ(reports.size(), 1);
+    ASSERT_EQ(rec->size(), 1);
 
     // Spill something: the held size is reported with the next seq.
     std::mt19937 rng(41);
@@ -1296,9 +1322,9 @@ TEST_F(SpillFileS3Test, RemoteSpillStatsReportDecisions) {
     const int64_t held = _data_dir->get_spill_data_bytes();
     ASSERT_GT(held, 0);
     _manager->report_remote_spill_stats_for_test(false);
-    ASSERT_EQ(reports.size(), 2);
-    EXPECT_EQ(reports[1].seq, 2);
-    EXPECT_EQ(reports[1].bytes, held);
+    ASSERT_EQ(rec->size(), 2);
+    EXPECT_EQ(rec->at(1).seq, 2);
+    EXPECT_EQ(rec->at(1).bytes, held);
 
     // The query ends (0 held) but meta-service is down: the attempt is made and the value
     // stays pending, so the next decision reports again with a new seq.
@@ -1306,34 +1332,48 @@ TEST_F(SpillFileS3Test, RemoteSpillStatsReportDecisions) {
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
     fail = true;
     _manager->report_remote_spill_stats_for_test(false);
-    ASSERT_EQ(reports.size(), 3);
-    EXPECT_EQ(reports[2].seq, 3);
-    EXPECT_EQ(reports[2].bytes, 0);
+    ASSERT_EQ(rec->size(), 3);
+    EXPECT_EQ(rec->at(2).seq, 3);
+    EXPECT_EQ(rec->at(2).bytes, 0);
     fail = false;
     _manager->report_remote_spill_stats_for_test(false);
-    ASSERT_EQ(reports.size(), 4);
-    EXPECT_EQ(reports[3].seq, 4);
-    EXPECT_EQ(reports[3].bytes, 0);
+    ASSERT_EQ(rec->size(), 4);
+    EXPECT_EQ(rec->at(3).seq, 4);
+    EXPECT_EQ(rec->at(3).bytes, 0);
     _manager->report_remote_spill_stats_for_test(false);
-    ASSERT_EQ(reports.size(), 4);
+    ASSERT_EQ(rec->size(), 4);
 
     // Heartbeat: an unchanged value is re-sent once the interval elapsed.
-    _manager->set_remote_spill_report_fn_for_test(
-            [&](int64_t backend_id, int64_t boot_id, int64_t seq, int64_t bytes) -> Status {
-                reports.push_back({backend_id, boot_id, seq, bytes});
-                return Status::OK();
-            },
-            /*heartbeat_ms=*/0);
+    install(/*heartbeat_ms=*/0);
     _manager->report_remote_spill_stats_for_test(false);
-    ASSERT_EQ(reports.size(), 5);
-    EXPECT_EQ(reports[4].seq, 5);
-    EXPECT_EQ(reports[4].bytes, 0);
+    ASSERT_EQ(rec->size(), 5);
+    EXPECT_EQ(rec->at(4).seq, 5);
+    EXPECT_EQ(rec->at(4).bytes, 0);
+}
 
-    // The final report of TearDown (stop()) must not reach the recorder above once it is gone.
-    _manager->set_remote_spill_report_fn_for_test(
-            [](int64_t, int64_t, int64_t, int64_t) -> Status { return Status::OK(); },
-            /*heartbeat_ms=*/3600LL * 1000);
-    config::deploy_mode = "";
+// A writer whose first append failed before any byte was counted (CreateMultipartUpload
+// refused) creates no object when closed, and close() reports the failure.
+TEST_F(SpillFileS3Test, FailedAppendThenCloseCreatesNoObject) {
+    _create_manager();
+    std::atomic<int> gate_calls {0};
+    io::FileWriterOptions opts;
+    opts.write_file_cache = false;
+    opts.upload_submit_gate = [&](size_t) -> Status {
+        ++gate_calls;
+        return Status::OK();
+    };
+    io::FileWriterPtr writer;
+    ASSERT_TRUE(_s3_fs->create_file("hooks/failed_append", &writer, &opts).ok());
+    mock_store().fail_create_multipart = true;
+    Defer restore {[&]() { mock_store().fail_create_multipart = false; }};
+    std::string payload(static_cast<size_t>(config::s3_write_buffer_size), 'x');
+    ASSERT_FALSE(writer->append(Slice(payload)).ok());
+    ASSERT_EQ(gate_calls, 1);
+    const int64_t puts_before = mock_store().put_requests;
+    ASSERT_FALSE(writer->close().ok());
+    ASSERT_EQ(mock_store().put_requests, puts_before);
+    ASSERT_TRUE(
+            mock_store().keys_with_prefix(kBucket, kVaultPrefix + std::string("/hooks/")).empty());
 }
 
 // A query cancelled while a multipart upload is open: the last buffer is refused by the gate,
