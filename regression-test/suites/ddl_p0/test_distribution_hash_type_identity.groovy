@@ -15,6 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.suite.client.FrontendClientImpl
+import org.apache.doris.thrift.TGetOlapTableMetaRequest
+import org.apache.doris.thrift.TNetworkAddress
+import org.apache.doris.thrift.TStatusCode
+
 suite("test_distribution_hash_type_identity") {
 
     // ---------------------------------------------------------------------
@@ -54,6 +59,40 @@ suite("test_distribution_hash_type_identity") {
     """
     def defaultStmt = sql "SHOW CREATE TABLE test_dist_hash_default"
     assertFalse(defaultStmt[0][1].toString().toLowerCase().contains("distribution_hash_type"))
+
+    // Metadata version 141 introduced IDENTITY. Old remote-Doris FEs (including clients
+    // omitting the version) would ignore hashType and prune these physical buckets with CRC32.
+    // Exercise the actual RPC; CRC32 metadata must remain readable by those same clients.
+    def metadataClient = new FrontendClientImpl(new TNetworkAddress(getMasterIp(), getMasterPort("rpc")))
+    try {
+        [null, 140, 141].each { version ->
+            ["test_dist_hash_default", "test_dist_hash_identity"].each { table ->
+                def request = new TGetOlapTableMetaRequest()
+                request.setDb(context.dbName)
+                request.setTable(table)
+                request.setTableId(-1L)
+                request.setUser(context.config.jdbcUser)
+                request.setPasswd(context.config.jdbcPassword)
+                if (version != null) {
+                    request.setVersion(version)
+                }
+                def response = metadataClient.client.getOlapTableMeta(request)
+                if (table == "test_dist_hash_identity" && (version == null || version < 141)) {
+                    assertEquals(TStatusCode.ANALYSIS_ERROR, response.status.statusCode)
+                    assertTrue(response.status.errorMsgs[0].contains(
+                            "IDENTITY distribution requires client metadata version 141 or newer"))
+                    assertEquals(0, response.getTableMeta().length)
+                    assertFalse(response.isSetUpdatedPartitions())
+                } else {
+                    assertEquals(TStatusCode.OK, response.status.statusCode)
+                    assertTrue(response.isSetTableMeta())
+                    assertTrue(response.isSetUpdatedPartitions())
+                }
+            }
+        }
+    } finally {
+        metadataClient.close()
+    }
 
     // ---------------------------------------------------------------------
     // 2. identity accepts multiple distribution columns and all valid types
