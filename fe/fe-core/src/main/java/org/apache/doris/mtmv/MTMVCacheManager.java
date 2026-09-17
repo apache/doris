@@ -125,11 +125,7 @@ public class MTMVCacheManager {
         if (env == null) {
             return;
         }
-        MTMVCacheManager manager = env.getMtmvCacheManager();
-        if (manager == null) {
-            return;
-        }
-        manager.updateConfig();
+        env.getMtmvCacheManager().updateConfig();
     }
 
     private static Cache<Key, MTMVCache> build(int maxSize, long expireAfterAccessSeconds) {

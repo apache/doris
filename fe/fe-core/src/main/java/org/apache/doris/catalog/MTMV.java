@@ -275,8 +275,7 @@ public class MTMV extends OlapTable {
             try {
                 // The replay thread may not have initialized the catalog yet to avoid getting stuck due
                 // to connection issues such as S3, so it is directly set to null.
-                MTMVCacheManager cacheManager = Env.getCurrentEnv().getMtmvCacheManager();
-                if (!isReplay && cacheManager != null && cacheManager.isEnabled()) {
+                if (!isReplay && Env.getCurrentEnv().getMtmvCacheManager().isEnabled()) {
                     ConnectContext currentContext = ConnectContext.get();
                     // shouldn't do this while holding mvWriteLock
                     // TODO: these two cache compute share something same, can be simplified in future
@@ -327,15 +326,13 @@ public class MTMV extends OlapTable {
                 rewriteCacheGeneration++;
                 if (needUpdateCache) {
                     MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
-                    if (manager != null) {
-                        if (publishCache && mtmvCacheWithGuard != null) {
-                            manager.put(this.id, true, mtmvCacheWithGuard);
-                        } else {
-                            manager.invalidate(this.id);
-                        }
-                        if (publishCache && mtmvCacheWithoutGuard != null) {
-                            manager.put(this.id, false, mtmvCacheWithoutGuard);
-                        }
+                    if (publishCache && mtmvCacheWithGuard != null) {
+                        manager.put(this.id, true, mtmvCacheWithGuard);
+                    } else {
+                        manager.invalidate(this.id);
+                    }
+                    if (publishCache && mtmvCacheWithoutGuard != null) {
+                        manager.put(this.id, false, mtmvCacheWithoutGuard);
                     }
                 }
             } else {
@@ -820,10 +817,7 @@ public class MTMV extends OlapTable {
         writeMvLock();
         try {
             rewriteCacheGeneration++;
-            MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
-            if (manager != null) {
-                manager.invalidate(this.id);
-            }
+            Env.getCurrentEnv().getMtmvCacheManager().invalidate(this.id);
         } finally {
             writeMvUnlock();
         }
@@ -1073,10 +1067,7 @@ public class MTMV extends OlapTable {
         writeMvLock();
         try {
             rewriteCacheGeneration++;
-            MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
-            if (manager != null) {
-                manager.invalidate(this.id);
-            }
+            Env.getCurrentEnv().getMtmvCacheManager().invalidate(this.id);
         } finally {
             writeMvUnlock();
         }

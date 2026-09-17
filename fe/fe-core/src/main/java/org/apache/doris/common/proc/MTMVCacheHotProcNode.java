@@ -52,9 +52,6 @@ public class MTMVCacheHotProcNode implements ProcNodeInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        if (manager == null) {
-            return result;
-        }
         List<HotEntry> entries = manager.hotEntries(Config.mtmv_cache_hot_show_num);
         if (entries.isEmpty()) {
             return result;

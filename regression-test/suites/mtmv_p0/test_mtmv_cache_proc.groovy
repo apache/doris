@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_mtmv_cache_proc", "mtmv") {
+suite("test_mtmv_cache_proc", "mtmv,nonConcurrent") {
     def dbName = "regression_test_mtmv_p0"
     def mvName = "mtmv_cache_proc_mv"
 
