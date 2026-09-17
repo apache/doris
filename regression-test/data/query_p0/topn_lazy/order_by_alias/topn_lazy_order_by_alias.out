@@ -20,3 +20,29 @@
 -- !using_index_bare_column_and_alias --
 10	10
 
+-- !nested_topn_plan --
+PhysicalResultSink
+--PhysicalProject[s.y]
+----PhysicalTopN[GATHER_SORT]
+------PhysicalProject[s.y, s.z]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalDistribute[DistributionSpecGather]
+------------PhysicalTopN[LOCAL_SORT]
+--------------PhysicalProject[topn_lazy_order_by_alias_tbl.lazy_col AS `x`, topn_lazy_order_by_alias_tbl.lazy_col AS `y`, topn_lazy_order_by_alias_tbl.other_col AS `z`]
+----------------PhysicalOlapScan[topn_lazy_order_by_alias_tbl]
+
+-- !nested_topn_result --
+10
+
+-- !nested_topn_still_lazy_plan --
+PhysicalResultSink
+--PhysicalProject[s.w]
+----PhysicalLazyMaterialize[materializedSlots:(s.sort_col) lazySlots:(s.w)]
+------PhysicalTopN[GATHER_SORT]
+--------PhysicalProject[regression_test_query_p0_topn_lazy_order_by_alias.__DORIS_GLOBAL_ROWID_COL__topn_lazy_order_by_alias_tbl, s.sort_col]
+----------PhysicalTopN[MERGE_SORT]
+------------PhysicalDistribute[DistributionSpecGather]
+--------------PhysicalTopN[LOCAL_SORT]
+----------------PhysicalProject[regression_test_query_p0_topn_lazy_order_by_alias.__DORIS_GLOBAL_ROWID_COL__topn_lazy_order_by_alias_tbl, topn_lazy_order_by_alias_tbl.lazy_col AS `x`, topn_lazy_order_by_alias_tbl.sort_col]
+------------------PhysicalLazyMaterializeOlapScan[topn_lazy_order_by_alias_tbl lazySlots:(topn_lazy_order_by_alias_tbl.other_col)]
+

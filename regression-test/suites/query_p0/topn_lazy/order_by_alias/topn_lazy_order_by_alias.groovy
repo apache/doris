@@ -79,4 +79,36 @@ suite("topn_lazy_order_by_alias") {
     """
 
     sql """ set topn_lazy_materialization_using_index = false; """
+
+    // Only the outer TopN is rewritten. Probing its output `y` resolves to lazy_col, which the inner TopN
+    // still reads through `lazy_col AS x`, so lazy_col has to stay materialized. Plain execution hides the
+    // invalid plan behind StmtExecutor.queryRetry, so the plan shape is asserted as well.
+    sql """ set detail_shape_nodes = 'PhysicalProject'; """
+
+    qt_nested_topn_plan """
+        explain shape plan
+        select y from (
+            select lazy_col as x, lazy_col as y, other_col as z
+            from topn_lazy_order_by_alias_tbl
+            order by x limit 2) s
+        order by z limit 1;
+    """
+
+    order_qt_nested_topn_result """
+        select y from (
+            select lazy_col as x, lazy_col as y, other_col as z
+            from topn_lazy_order_by_alias_tbl
+            order by x limit 2) s
+        order by z limit 1;
+    """
+
+    // Column `w` is read by nothing below the TopN, so it can still be fetched lazily through both TopNs.
+    qt_nested_topn_still_lazy_plan """
+        explain shape plan
+        select w from (
+            select lazy_col as x, other_col as w, lazy_col as y, sort_col
+            from topn_lazy_order_by_alias_tbl
+            order by x limit 2) s
+        order by sort_col limit 1;
+    """
 }

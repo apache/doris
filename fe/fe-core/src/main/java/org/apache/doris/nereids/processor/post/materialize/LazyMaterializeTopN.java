@@ -109,7 +109,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
         List<Slot> materializedSlots = new ArrayList<>();
         Set<Slot> requiredMaterializedSlots = new HashSet<>();
         collectProjectExprInputSlots(topN.child(), requiredMaterializedSlots);
-        collectOrderKeyColumns(topN, requiredMaterializedSlots);
+        collectRequiredAliasSources(topN, requiredMaterializedSlots);
 
         /*
          * requiredMaterializedSlots only records slots consumed by Project/final-projection expressions inside the
@@ -123,8 +123,8 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
          * Therefore an empty requiredMaterializedSlots set does not mean every scan column can be delayed; it only
          * means no extra Project/final-projection input must be forced materialized by this local safety check.
          *
-         * The probe only protects the slots the operators reference directly, so the columns an order key reads
-         * through identity aliases are protected by collectOrderKeyColumns above.
+         * The probe only protects the slots the operators reference directly, so the columns those slots read
+         * through identity aliases are protected by collectRequiredAliasSources above.
          */
         for (Slot slot : effectiveOutput) {
             Optional<MaterializeSource> source = computeMaterializeSource(topN, (SlotReference) slot,
@@ -299,36 +299,65 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
     }
 
     /**
-     * Keep the columns read by the TopN order keys materialized during the scan.
+     * Keep the columns consumed below the TopN materialized during the scan, resolved through identity
+     * aliases.
      *
-     * <p>{@link MaterializeProbeVisitor} only protects the order key slot itself, because an order key
-     * slot is in {@code TopN.getInputSlots()}; it never resolves an identity alias down to the column
-     * that the alias reads. For
+     * <p>{@link MaterializeProbeVisitor} only protects the slot it is tracing: a slot consumed by an
+     * operator on the way from the TopN down to the relation stops the probe, but the columns an
+     * identity alias reads are never resolved. For
      *
      * <pre>
-     *   TopN(order by x)
-     *     Project(lazy_col AS x, lazy_col AS y)
-     *       OlapScan
+     *   OuterTopN(order by z)
+     *     InnerTopN(order by x)
+     *       Project(lazy_col AS x, lazy_col AS y, other_col AS z)
+     *         OlapScan
      * </pre>
      *
-     * probing the output {@code y} resolves to the base column {@code lazy_col}, so {@code lazy_col} is
-     * classified lazy and {@link LazySlotPruning} removes it from the scan, while {@code lazy_col AS x}
-     * below the TopN still reads it. The plan then references a slot its child no longer produces and
-     * the final {@link Validator} rejects it. Resolving the order keys through the alias chain lets the
-     * probe reject every output backed by those columns, keeping the plan valid.
+     * probing the outer output {@code y} resolves to the base column {@code lazy_col}, so {@code lazy_col}
+     * is classified lazy and {@link LazySlotPruning} removes it from the scan, while {@code lazy_col AS x}
+     * below the outer TopN is still read by the inner TopN. The plan then references a slot its child no
+     * longer produces and the final {@link Validator} rejects it. The same happens when an identity alias
+     * is consumed by a filter, a join condition or any other operator that stays below the TopN.
+     *
+     * <p>Therefore every slot consumed below this TopN (its own order keys, the expressions of every
+     * descendant operator and the slots that are required materialized already) is resolved through its
+     * identity alias chain. Project expressions are handled by {@link #collectProjectExprInputSlots},
+     * which knows that a transparent {@code Alias(Slot)} output may still be fetched lazily.
      *
      * <p>A set operation is a boundary: {@link MaterializeProbeVisitor} never reports a lazy source for a
      * slot produced by a set operation, and {@link #collectIdentityAliasMap} stops at it, so the aliases
      * below a set operation are neither resolved nor reachable. If lazy materialization is ever extended
-     * through set operations, the order keys have to be resolved per set operation branch instead.
+     * through set operations, the consumed slots have to be resolved per set operation branch instead.
      */
-    private void collectOrderKeyColumns(PhysicalTopN<? extends Plan> topN, Set<Slot> requiredMaterializedSlots) {
+    private void collectRequiredAliasSources(PhysicalTopN<? extends Plan> topN,
+            Set<Slot> requiredMaterializedSlots) {
         Map<Slot, Slot> aliasToChild = new HashMap<>();
         collectIdentityAliasMap(topN.child(), aliasToChild);
+
+        Set<Slot> consumedSlots = new HashSet<>();
         for (OrderKey orderKey : topN.getOrderKeys()) {
-            for (Slot inputSlot : orderKey.getExpr().getInputSlots()) {
-                collectAliasChain(inputSlot, aliasToChild, requiredMaterializedSlots);
-            }
+            consumedSlots.addAll(orderKey.getExpr().getInputSlots());
+        }
+        collectConsumedSlots(topN.child(), consumedSlots);
+        consumedSlots.addAll(requiredMaterializedSlots);
+        for (Slot slot : consumedSlots) {
+            collectAliasChain(slot, aliasToChild, requiredMaterializedSlots);
+        }
+    }
+
+    /** Collect the slots consumed by the expressions of the operators that stay below the TopN. */
+    private void collectConsumedSlots(Plan plan, Set<Slot> consumedSlots) {
+        if (plan instanceof PhysicalSetOperation) {
+            // Set operations are not materialized lazily, so nothing below them can be lazy either.
+            return;
+        }
+        if (!(plan instanceof PhysicalProject)) {
+            // Project expressions are covered by collectProjectExprInputSlots, which keeps the input of a
+            // transparent Alias(Slot) lazy because that alias output may still be fetched later.
+            consumedSlots.addAll(plan.getInputSlots());
+        }
+        for (Plan child : plan.children()) {
+            collectConsumedSlots(child, consumedSlots);
         }
     }
 

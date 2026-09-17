@@ -192,6 +192,36 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
         }
     }
 
+    @Test
+    public void testNestedTopNKeepsAliasSourceMaterialized() throws Exception {
+        this.createTable("create table lazy_materialize_nested_topn_tbl("
+                + "sort_col int, lazy_col int, other_col int) "
+                + "duplicate key(sort_col) distributed by hash(sort_col) buckets 1 "
+                + "properties('replication_num' = '1')");
+        boolean feDebug = connectContext.getSessionVariable().feDebug;
+        connectContext.getSessionVariable().feDebug = false;
+        try {
+            // Only the outer TopN is rewritten. Probing its output `y` resolves to lazy_col, which the
+            // inner TopN still reads through `lazy_col AS x`, so lazy_col must stay materialized.
+            PhysicalPlan plan = postProcess("select y from (select lazy_col as x, lazy_col as y, other_col as z "
+                    + "from lazy_materialize_nested_topn_tbl order by x limit 2) s order by z limit 1");
+            Assertions.assertTrue(
+                    plan.collectToList(node -> node instanceof PhysicalLazyMaterialize).isEmpty(),
+                    plan.treeString());
+
+            // A column that nothing below the TopN reads may still be fetched lazily through the TopNs.
+            plan = postProcess("select w from (select lazy_col as x, other_col as w, lazy_col as y, sort_col "
+                    + "from lazy_materialize_nested_topn_tbl order by x limit 2) s order by sort_col limit 1");
+            List<PhysicalLazyMaterialize<? extends Plan>> materializeNodes = plan.collectToList(
+                    node -> node instanceof PhysicalLazyMaterialize);
+            Assertions.assertEquals(1, materializeNodes.size(), plan.treeString());
+            Assertions.assertEquals(ImmutableList.of(ImmutableList.of(2)),
+                    materializeNodes.get(0).getLazyBaseColumnIndices());
+        } finally {
+            connectContext.getSessionVariable().feDebug = feDebug;
+        }
+    }
+
     private PhysicalPlan postProcess(String sql) {
         PlanChecker checker = PlanChecker.from(connectContext)
                 .analyze(sql)
