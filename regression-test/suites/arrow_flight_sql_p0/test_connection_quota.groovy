@@ -60,15 +60,37 @@ suite("test_connection_quota") {
     sql "GRANT SELECT_PRIV ON *.* TO '${user}'"
     sql "SET PROPERTY FOR '${user}' 'max_user_connections' = '${limit}'"
 
+    // The connection quota is enforced per-FE, and information_schema.processlist is a cluster-wide
+    // view when fetch_all_fe_for_system_table is on (the default): on a multi-FE cluster the count then
+    // depends on which FE answers and can include connections on another FE, so a per-FE quota test
+    // cannot rely on it. Anchor everything to the one FE that serves the configured Flight endpoint --
+    // open the MySQL connections on that FE (its Flight host, the query port and options from jdbcUrl)
+    // and count only that FE's own connections (fetch_all_fe_for_system_table = false). Without this the
+    // MySQL connections, the Flight sessions and the counting query need not land on the same FE and the
+    // count never settles (build 1049514).
+    def feMysqlUrl = (context.config.jdbcUrl =~ /^(jdbc:mysql:\/\/)[^\/:@]+(:\d+.*)$/).replaceFirst("\$1${host}\$2")
     def allocator = new RootAllocator()
     def client = FlightClient.builder(allocator, Location.forGrpcInsecure(host, port)).build()
     def flight = new FlightSqlClient(client)
     def mysqlConnections = []
     def openTokens = []
+    def countConn = null
     try {
-        // The user's connections as the pool sees them: MySQL connections and Flight sessions alike.
+        // A dedicated connection on the Flight FE that reports only that FE's connections, so the count
+        // is exactly the MySQL connections and Flight sessions this suite opened there.
+        countConn = DriverManager.getConnection(feMysqlUrl, context.config.jdbcUser, context.config.jdbcPassword)
+        countConn.createStatement().withCloseable { it.execute("SET fetch_all_fe_for_system_table = false") }
+        // The user's connections as that FE's pool sees them: MySQL connections and Flight sessions alike.
         def connectionsOf = {
-            (sql "SELECT COUNT(*) FROM information_schema.processlist WHERE User = '${user}'")[0][0] as int
+            def st = countConn.createStatement()
+            try {
+                def rs = st.executeQuery(
+                        "SELECT COUNT(*) FROM information_schema.processlist WHERE User = '${user}'")
+                rs.next()
+                return rs.getInt(1)
+            } finally {
+                st.close()
+            }
         }
         // A closed MySQL connection leaves the pool on the frontend's nio thread after the client's
         // COM_QUIT, and Connector/J does not wait for that; so wait here before the next connection
@@ -111,7 +133,7 @@ suite("test_connection_quota") {
         // A MySQL connection of the user that could not open: the refusal, or null when it opened.
         def mysqlRefusal = {
             try {
-                mysqlConnections << DriverManager.getConnection(context.config.jdbcUrl, user, password)
+                mysqlConnections << DriverManager.getConnection(feMysqlUrl, user, password)
                 return null
             } catch (SQLException e) {
                 return e.getMessage()
@@ -173,6 +195,7 @@ suite("test_connection_quota") {
             }
         }
         mysqlConnections.each { conn -> quietly("closing a MySQL connection") { conn.close() } }
+        quietly("closing the count connection") { if (countConn != null) countConn.close() }
         quietly("closing the Flight client") { client.close() }
         quietly("closing the allocator") { allocator.close() }
         sql "DROP USER IF EXISTS '${user}'"
