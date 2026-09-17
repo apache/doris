@@ -2305,6 +2305,23 @@ public class Config extends ConfigBase {
                     + "pruning.")
     public static int cache_partition_meta_table_manage_num = 100;
 
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
+            description = "Max mtmv plan cache entries kept by MTMVCacheManager. Default 3000.")
+    public static int mtmv_cache_manage_num = 3000;
+
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
+            description = "Idle expiration in seconds for entries in MTMVCacheManager. Default 86400.")
+    public static long expire_mtmv_cache_in_fe_second = 86400;
+
+    @ConfField(
+            mutable = true,
+            description = "Row cap for SHOW PROC '/mtmv_cache/hot'. Default 500.")
+    public static int mtmv_cache_hot_show_num = 500;
+
     /**
      * HBO plan stats. cache number which can be reused for the next query.
      */
