@@ -162,7 +162,13 @@ public class ConnectionExceedTest {
             );
             Mockito.when(mockTokenManager.validateToken("test_token")).thenReturn(tokenDetails);
 
-            // Two Flight sessions fill the sub-quota
+            // Two Flight sessions fill the sub-quota, next to a MySQL connection of the same user: the
+            // refusal has to tell the Flight usage from the pool's count.
+            ConnectContext mysql = new ConnectContext();
+            mysql.setEnv(mockEnv);
+            mysql.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%"));
+            Assertions.assertTrue(scheduler.submit(mysql));
+            Assertions.assertEquals(-1, scheduler.getConnectPoolMgr().registerConnection(mysql));
             for (String token : new String[] {"token-1", "token-2"}) {
                 ConnectContext session = ConnectContext.forFlight(token);
                 session.setEnv(mockEnv);
@@ -177,10 +183,11 @@ public class ConnectionExceedTest {
                     () -> manager.getConnectContext("test_token"));
             Assertions.assertEquals(FlightStatusCode.RESOURCE_EXHAUSTED, refused.status().code());
             Assertions.assertEquals(
-                    "Reach limit of connections. Total: 1000, User: 100, Current: 2, Arrow Flight SQL: 2 (current: 2)",
+                    "Reach limit of connections. Total: 1000, User: 100, Current: 3, Arrow Flight SQL: 2 (current: 2)",
                     refused.status().description());
             Mockito.verify(mockTokenManager).invalidateToken("test_token");
-            Assertions.assertEquals(2, scheduler.getConnectionNum());
+            Assertions.assertEquals(3, scheduler.getConnectionNum());
+            Assertions.assertEquals(2, scheduler.getConnectPoolMgr().getFlightConnectionNum());
         }
     }
 }

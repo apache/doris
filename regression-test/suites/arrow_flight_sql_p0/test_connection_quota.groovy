@@ -62,10 +62,10 @@ suite("test_connection_quota") {
 
     def allocator = new RootAllocator()
     def client = FlightClient.builder(allocator, Location.forGrpcInsecure(host, port)).build()
+    def flight = new FlightSqlClient(client)
     def mysqlConnections = []
     def openTokens = []
     try {
-        def flight = new FlightSqlClient(client)
         // The user's connections as the pool sees them: MySQL connections and Flight sessions alike.
         def connectionsOf = {
             (sql "SELECT COUNT(*) FROM information_schema.processlist WHERE User = '${user}'")[0][0] as int
@@ -88,13 +88,17 @@ suite("test_connection_quota") {
             openTokens.remove(cred)
         }
         // A request over a token whose session cannot open: the refusal, or null when it opened.
+        // The token is tracked before the request, so that a session which opened but whose first
+        // request failed for some other reason is still closed at the end.
         def refusalOf = { cred ->
+            openTokens << cred
             try {
                 flight.execute("SELECT 1", cred).getEndpoints()
-                openTokens << cred
                 return null
             } catch (FlightRuntimeException e) {
                 assertEquals(FlightStatusCode.RESOURCE_EXHAUSTED, e.status().code())
+                // Refused: no session opened, and the frontend invalidated the token with the refusal.
+                openTokens.remove(cred)
                 return e.status().description()
             }
         }
@@ -147,10 +151,30 @@ suite("test_connection_quota") {
     } finally {
         // Sessions outlive the client: close the ones still open, or a rerun on the same frontend
         // starts against a user whose slots they hold until wait_timeout (DROP USER does not end them).
-        new ArrayList(openTokens).each { closeSession(it) }
-        mysqlConnections.each { it.close() }
-        client.close()
-        allocator.close()
+        // Nothing here asserts or throws: the failure that brought the suite here, if any, is the one
+        // reported, and every step of the cleanup runs.
+        def quietly = { String what, Closure step ->
+            try {
+                step()
+            } catch (Exception e) {
+                logger.warn("cleanup of test_connection_quota: ${what} failed: ${e.message}")
+            }
+        }
+        openTokens.each { cred ->
+            quietly("closing a session left open") {
+                try {
+                    flight.closeSession(new CloseSessionRequest(), cred)
+                } catch (FlightRuntimeException e) {
+                    // A token whose session is already gone is UNAUTHENTICATED and needs nothing.
+                    if (e.status().code() != FlightStatusCode.UNAUTHENTICATED) {
+                        throw e
+                    }
+                }
+            }
+        }
+        mysqlConnections.each { conn -> quietly("closing a MySQL connection") { conn.close() } }
+        quietly("closing the Flight client") { client.close() }
+        quietly("closing the allocator") { allocator.close() }
         sql "DROP USER IF EXISTS '${user}'"
     }
 }
