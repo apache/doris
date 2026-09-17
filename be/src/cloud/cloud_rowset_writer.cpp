@@ -21,7 +21,6 @@
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/packed_file_manager.h"
-#include "io/fs/packed_file_writer.h"
 #include "storage/rowset/rowset_factory.h"
 
 namespace doris {
@@ -226,8 +225,7 @@ Status CloudRowsetWriter::_collect_packed_slice_location(io::FileWriter* file_wr
     // Ask the writer, which holds a reference to its own slice location. Looking it up by
     // path in PackedFileManager would race with the retention based cleanup of the index.
     io::PackedSliceLocation index;
-    RETURN_IF_ERROR(
-            static_cast<io::PackedFileWriter*>(file_writer)->get_packed_slice_location(&index));
+    RETURN_IF_ERROR(file_writer->get_packed_slice_location(&index));
     if (index.packed_file_path.empty()) {
         return Status::OK(); // File not in packed file, skip
     }

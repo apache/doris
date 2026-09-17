@@ -32,6 +32,7 @@ namespace doris::io {
 class FileSystem;
 struct FileCacheAllocatorBuilder;
 struct EncryptionInfo;
+struct PackedSliceLocation;
 
 // Only affects remote file writers
 struct FileWriterOptions {
@@ -96,6 +97,13 @@ public:
     // Returns true if this file's data was written to a packed file.
     // Used to determine whether to collect packed slice location from PackedFileManager.
     virtual bool is_in_packed_file() const { return false; }
+
+    // Gets the location of this file's slice in the packed file. Must be called after the writer
+    // is closed. Writers that wrap another writer must forward this call together with
+    // is_in_packed_file(), so callers never need to downcast to PackedFileWriter.
+    virtual Status get_packed_slice_location(PackedSliceLocation* location) const {
+        return Status::NotSupported("get_packed_slice_location is not supported");
+    }
 
     FileCacheAllocatorBuilder* cache_builder() const {
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();
