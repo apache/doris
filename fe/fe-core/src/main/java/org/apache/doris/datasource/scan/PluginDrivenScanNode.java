@@ -2589,9 +2589,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return Optional.of(ExprToConnectorExpressionConverter.convertConjuncts(pushableConjuncts));
     }
 
-    private static boolean containsCastExpr(Expr expr) {
-        List<CastExpr> castExprs = new ArrayList<>();
-        expr.collect(CastExpr.class, castExprs);
+    static boolean containsCastExpr(Expr expr) {
+        List<Expr> castExprs = new ArrayList<>();
+        expr.collect(node -> node instanceof CastExpr, castExprs);
         return !castExprs.isEmpty();
     }
 }
