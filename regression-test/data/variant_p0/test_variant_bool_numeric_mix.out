@@ -22,3 +22,41 @@
 1	7
 1	8
 
+-- !sql_rowsets_values_before_compaction --
+1	true
+2	1
+3	false
+4	0
+
+-- !sql_rowsets_group_before_compaction --
+1	1
+1	2
+1	3
+1	4
+
+-- !sql_rowsets_values_after_compaction --
+1	1
+2	1
+3	0
+4	0
+
+-- !sql_rowsets_group_after_compaction --
+2	1
+2	3
+
+-- !sql_buckets_values --
+1	1
+2	1
+3	false
+4	0
+5	true
+6	0
+7	1
+8	true
+
+-- !sql_buckets_group --
+3	1
+1	3
+2	4
+2	5
+
