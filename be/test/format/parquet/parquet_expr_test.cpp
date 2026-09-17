@@ -53,6 +53,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "core/column/column.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "core/value/decimalv2_value.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -2386,6 +2387,92 @@ TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
 
     EXPECT_TRUE(eq_pred.evaluate_and(&stat));
     EXPECT_EQ(2, loader_calls);
+}
+
+namespace {
+
+std::string encode_i64(int64_t v) {
+    return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+}
+
+// #pragma pack(1) ParquetInt96 is {int64 lo (nanos in day); int32 hi (days from julian epoch)}.
+std::string encode_int96(int64_t nanos_in_day, int32_t julian_day) {
+    std::string out;
+    out.append(reinterpret_cast<const char*>(&nanos_in_day), sizeof(nanos_in_day));
+    out.append(reinterpret_cast<const char*>(&julian_day), sizeof(julian_day));
+    return out;
+}
+
+FieldSchema make_int64_utc_timestamp_schema(bool adjusted_to_utc) {
+    FieldSchema fs;
+    fs.parquet_schema.__set_type(tparquet::Type::INT64);
+    tparquet::MicroSeconds micros;
+    tparquet::TimeUnit unit;
+    unit.__set_MICROS(micros);
+    tparquet::TimestampType ts;
+    ts.__set_isAdjustedToUTC(adjusted_to_utc);
+    ts.__set_unit(unit);
+    tparquet::LogicalType lt;
+    lt.__set_TIMESTAMP(ts);
+    fs.parquet_schema.__set_logicalType(lt);
+    fs.data_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+    return fs;
+}
+
+} // namespace
+
+// An adjusted-to-UTC timestamp whose min/max straddle a backward clock transition is not a usable
+// bound: an interior instant can map outside the converted civil range. New York falls back at
+// 2021-11-07 06:00 UTC.
+TEST_F(ParquetExprTest, ParseMinMaxRejectsTimestampRangeCrossingClockRollback) {
+    cctz::time_zone ny;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &ny));
+    auto schema = make_int64_utc_timestamp_schema(/*adjusted_to_utc=*/true);
+    constexpr int64_t kUsPerSec = 1000000;
+
+    auto parse = [&](int64_t min_sec, int64_t max_sec, const cctz::time_zone& tz) {
+        Field min_field;
+        Field max_field;
+        return ParquetPredicate::parse_min_max_value(&schema, encode_i64(min_sec * kUsPerSec),
+                                                     encode_i64(max_sec * kUsPerSec), tz,
+                                                     &min_field, &max_field);
+    };
+
+    // 05:30 .. 06:30 UTC crosses the 06:00 UTC rollback.
+    EXPECT_FALSE(parse(1636263000, 1636266600, ny).ok());
+    // Noon that day, no transition in range.
+    EXPECT_TRUE(parse(1636286400, 1636290000, ny).ok());
+    // Spring-forward on 2021-03-14 07:00 UTC must not be rejected for crossing the gap.
+    EXPECT_TRUE(parse(1615703400, 1615707000, ny).ok());
+    // The same rollback range is fine when the timestamp is displayed in UTC (not adjusted).
+    auto utc_schema = make_int64_utc_timestamp_schema(/*adjusted_to_utc=*/false);
+    Field lo;
+    Field hi;
+    EXPECT_TRUE(
+            ParquetPredicate::parse_min_max_value(&utc_schema, encode_i64(1636263000 * kUsPerSec),
+                                                  encode_i64(1636266600 * kUsPerSec), ny, &lo, &hi)
+                    .ok());
+}
+
+// INT96 stats are only trustworthy when min == max (PARQUET-1065). This is the page-index path,
+// which does not go through read_column_stats.
+TEST_F(ParquetExprTest, ParseMinMaxAppliesInt96SingletonRule) {
+    FieldSchema fs;
+    fs.parquet_schema.__set_type(tparquet::Type::INT96);
+    fs.data_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+
+    const int32_t julian_2021_11_07 = ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS + 18938;
+    auto a = encode_int96(12L * 3600 * 1000000000, julian_2021_11_07);
+    auto b = encode_int96(13L * 3600 * 1000000000, julian_2021_11_07);
+
+    Field min_field;
+    Field max_field;
+    EXPECT_TRUE(ParquetPredicate::parse_min_max_value(&fs, a, a, cctz::utc_time_zone(), &min_field,
+                                                      &max_field)
+                        .ok());
+    EXPECT_FALSE(ParquetPredicate::parse_min_max_value(&fs, a, b, cctz::utc_time_zone(), &min_field,
+                                                       &max_field)
+                         .ok());
 }
 
 } // namespace doris
