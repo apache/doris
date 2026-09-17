@@ -130,8 +130,7 @@ public class BackendServiceProxy {
 
         BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
         if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
-                && serviceClientExtIp.client.isNormalState()
-                && serviceClientExtIp.client.isUsingLatestChannelConfig()) {
+                && serviceClientExtIp.client.isNormalState()) {
             return serviceClientExtIp.client;
         }
 
@@ -142,12 +141,6 @@ public class BackendServiceProxy {
             serviceClientExtIp = serviceMap.get(address);
             if (serviceClientExtIp != null && !serviceClientExtIp.realIp.equals(realIp)) {
                 LOG.warn("Cached ip changed, before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
-                serviceMap.remove(address);
-                removedClient = serviceClientExtIp.client;
-                serviceClientExtIp = null;
-            }
-            if (serviceClientExtIp != null && !serviceClientExtIp.client.isUsingLatestChannelConfig()) {
-                LOG.info("BackendServiceClient channel config changed, recreate client for {}", address);
                 serviceMap.remove(address);
                 removedClient = serviceClientExtIp.client;
                 serviceClientExtIp = null;
