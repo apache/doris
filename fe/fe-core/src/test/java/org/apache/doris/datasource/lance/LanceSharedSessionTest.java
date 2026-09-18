@@ -38,6 +38,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.lance.Dataset;
@@ -60,6 +61,7 @@ import java.util.UUID;
 
 public class LanceSharedSessionTest {
     @Test
+    @Disabled("Re-enable after fixing Arrow C Data JNI compatibility: CI libstdc++ lacks CXXABI_1.3.9")
     public void testCatalogMetadataProfileIncludesAnalyzeReadsAndTimeTravel(@TempDir Path directory) throws Exception {
         ConnectContext previous = ConnectContext.get();
         ConnectContext context = new ConnectContext();
@@ -104,6 +106,7 @@ public class LanceSharedSessionTest {
     }
 
     @Test
+    @Disabled("Re-enable after fixing Arrow C Data JNI compatibility: CI libstdc++ lacks CXXABI_1.3.9")
     public void testCatalogQueryAndInspectionReadSameLocalTable(@TempDir Path directory) throws Exception {
         String uri = directory.resolve("table.lance").toString();
         Schema schema = new Schema(Collections.singletonList(Field.nullable("id", new ArrowType.Int(64, true))));
@@ -143,6 +146,7 @@ public class LanceSharedSessionTest {
     }
 
     @Test
+    @Disabled("Re-enable after fixing Arrow C Data JNI compatibility: CI libstdc++ lacks CXXABI_1.3.9")
     public void testCatalogRefreshReplacesCachedIndexesAfterSameUriRecreation(@TempDir Path directory)
             throws Exception {
         Path datasetPath = directory.resolve("table.lance");
@@ -198,6 +202,7 @@ public class LanceSharedSessionTest {
     }
 
     @Test
+    @Disabled("Re-enable after fixing Arrow C Data JNI compatibility: CI libstdc++ lacks CXXABI_1.3.9")
     public void testSharedCacheSurvivesReadCloseAndLatestStillAdvances(@TempDir Path directory) {
         String uri = directory.resolve("table.lance").toString();
         Schema schema = new Schema(Collections.singletonList(Field.nullable("id", new ArrowType.Int(64, true))));

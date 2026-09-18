@@ -17,10 +17,12 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.ExternalCatalog;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.lance.Session;
 import org.lance.namespace.LanceNamespace;
@@ -37,6 +39,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class LanceCatalogLifecycleTest {
+    @BeforeAll
+    public static void initializeEnvironment() {
+        // onRefreshCache(true) invalidates the global metadata cache. Initialize Env before
+        // timed concurrency checks so first-use FE startup is not mistaken for a blocked refresh.
+        Env.getCurrentEnv().getExtMetaCacheMgr();
+    }
+
     @Test
     public void testCatalogRefreshPreservesAdmittedReadAndSwitchesNewReads() throws Exception {
         Session oldSession = Mockito.mock(Session.class);
@@ -80,7 +89,7 @@ public class LanceCatalogLifecycleTest {
             Future<?> refresh = executor.submit(catalog::refreshSessionCache);
             Assertions.assertTrue(building.await(10, TimeUnit.SECONDS));
             Future<Boolean> read = executor.submit(() -> catalog.tableExist(null, "default", "table"));
-            Assertions.assertTrue(read.get(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(read.get(10, TimeUnit.SECONDS));
             catalog.onClose();
             finish.countDown();
             refresh.get(10, TimeUnit.SECONDS);
@@ -115,7 +124,7 @@ public class LanceCatalogLifecycleTest {
             Future<Boolean> read = executor.submit(() -> catalog.tableExist(null, "default", "table"));
             Assertions.assertTrue(entered.await(10, TimeUnit.SECONDS));
             Future<?> refresh = executor.submit(() -> catalog.onRefreshCache(true));
-            refresh.get(5, TimeUnit.SECONDS);
+            refresh.get(10, TimeUnit.SECONDS);
             Mockito.verify(oldSession, Mockito.never()).close();
             Assertions.assertTrue(catalog.tableExist(null, "default", "table"));
             finish.countDown();
