@@ -29,19 +29,20 @@ namespace doris {
 class IColumn;
 class TabletSchema;
 
-enum class ReadTimeHiddenColumn { NONE, VERSION, COMMIT_TSO, BINLOG_TSO };
+enum class ReadTimeHiddenColumnType { NONE, VERSION, COMMIT_TSO, BINLOG_TSO };
 
-ReadTimeHiddenColumn get_read_time_hidden_column(const TabletSchema& schema,
-                                                 int32_t column_unique_id);
+ReadTimeHiddenColumnType get_read_time_hidden_column_type(const TabletSchema& schema,
+                                                          int32_t column_unique_id);
 
-std::optional<Field> get_read_time_hidden_column_value(ReadTimeHiddenColumn column,
+std::optional<Field> get_read_time_hidden_column_value(ReadTimeHiddenColumnType column_type,
                                                        const Version& version,
                                                        const TsoRange& commit_tso,
                                                        bool read_row_binlog);
 
-void replace_suffix_with_read_time_hidden_column(ReadTimeHiddenColumn hidden_column,
+// Point-query and row-ID direct reads are not row-binlog reads, so BINLOG_TSO has no replacement
+// here. SegmentIterator materializes it when StorageReadOptions::read_row_binlog is set.
+void replace_suffix_with_read_time_hidden_column(ReadTimeHiddenColumnType column_type,
                                                  const Version& version, const TsoRange& commit_tso,
-                                                 bool read_row_binlog, size_t num_rows,
-                                                 IColumn& column);
+                                                 size_t num_rows, IColumn& column);
 
 } // namespace doris
