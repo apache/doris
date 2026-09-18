@@ -37,6 +37,8 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 
@@ -401,6 +403,44 @@ public class AlterMTMVTest extends TestWithFeService {
         Assertions.assertEquals("sig-1", updatedInfo.getPlanSignature());
         Assertions.assertTrue(updatedInfo.isBaselineRebuildRequired());
         Assertions.assertEquals(schemaChangeVersion, mtmv.getSchemaChangeVersion());
+    }
+
+    @Test
+    public void testReplayAlterPartitionStates() throws Exception {
+        Config.enable_table_stream = true;
+        createDatabaseAndUse("alter_partition_states_test");
+        createTable("CREATE TABLE alter_partition_states_test.states_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW states_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM states_base");
+
+        MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog()
+                .getDb("alter_partition_states_test").get()
+                .getTableOrMetaException("states_mv");
+        String partitionName = mtmv.getPartitionNames().iterator().next();
+
+        MTMVPartitionState state = new MTMVPartitionState(0, 1);
+        Map<String, MTMVPartitionState> states = new LinkedHashMap<>();
+        states.put(partitionName, state);
+        TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
+        AlterMTMV replayAlter = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_PARTITION_STATES);
+        replayAlter.setPartitionStates(states);
+        // The live map keeps moving after the payload was taken; the payload must not follow it.
+        state.setLatestEpoch(7);
+        // The MV starts without any state, so only the replayed payload can put it there.
+        mtmv.alterPartitionStates(Map.of());
+
+        Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayAlter, true);
+
+        Map<String, MTMVPartitionState> replayed = mtmv.getPartitionStates();
+        Assertions.assertEquals(Set.of(partitionName), replayed.keySet());
+        Assertions.assertEquals(0, replayed.get(partitionName).getRefreshEpoch());
+        Assertions.assertEquals(1, replayed.get(partitionName).getLatestEpoch());
     }
 
     @Test
