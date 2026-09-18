@@ -1295,7 +1295,9 @@ Status SegmentIterator::_apply_index_expr() {
     // spuriously trigger them and mis-type candidate rows (NOT(A AND B) with
     // nullable A: FALSE becomes NULL and the row is dropped). Compound roots
     // are therefore evaluated without the candidate; the top-level
-    // single-predicate consumption stays exact within the candidate.
+    // single-predicate consumption stays exact within the candidate. SEARCH
+    // combines its own leaf bitmaps the same way, so it gets full-segment
+    // leaves too.
     auto evaluate_without_candidate_for_compound = [&](const VExprContextSPtr& expr_ctx) {
         // Earlier expression conjuncts may have crossed the engage threshold.
         // Refresh for both subsequent conjuncts and virtual-column projections.
@@ -1311,7 +1313,8 @@ Status SegmentIterator::_apply_index_expr() {
         }
         const bool suppress = _index_query_context != nullptr &&
                               _index_query_context->candidate_rows != nullptr &&
-                              effective_root->node_type() == TExprNodeType::COMPOUND_PRED;
+                              (effective_root->node_type() == TExprNodeType::COMPOUND_PRED ||
+                               effective_root->node_type() == TExprNodeType::SEARCH_EXPR);
         const roaring::Roaring* saved = suppress ? _index_query_context->candidate_rows : nullptr;
         if (suppress) {
             _index_query_context->candidate_rows = nullptr;

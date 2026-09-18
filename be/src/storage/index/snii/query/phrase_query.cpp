@@ -218,18 +218,34 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
 Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
                            std::vector<uint32_t>* const docids, QueryProfile* profile,
                            int32_t max_expansions) {
+    return phrase_prefix_query(idx, terms, docids, profile, {.max_expansions = max_expansions});
+}
+
+Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
+                           std::vector<uint32_t>* const docids, QueryProfile* profile,
+                           const PhrasePrefixQueryOptions& options) {
     QueryProfileScope profile_scope(idx.reader(), profile);
     format::PrxDecodeContext decode_context {
             .stats = profile == nullptr ? nullptr : &profile->prx_decode_stats,
             .query_stats = profile == nullptr ? nullptr : &profile->phrase_query_stats};
-    return phrase_prefix_query_impl(idx, terms, docids, max_expansions,
-                                    profile == nullptr ? nullptr : &decode_context, nullptr);
+    return phrase_prefix_query_impl(idx, terms, docids, options.max_expansions,
+                                    profile == nullptr ? nullptr : &decode_context, nullptr,
+                                    options.candidates);
 }
 
 Status phrase_prefix_query_with_frequencies(const LogicalIndexReader& idx,
                                             const std::vector<std::string>& terms,
                                             std::vector<PhraseMatch>* matches,
                                             QueryProfile* profile, int32_t max_expansions) {
+    return phrase_prefix_query_with_frequencies(idx, terms, matches, profile,
+                                                {.max_expansions = max_expansions});
+}
+
+Status phrase_prefix_query_with_frequencies(const LogicalIndexReader& idx,
+                                            const std::vector<std::string>& terms,
+                                            std::vector<PhraseMatch>* matches,
+                                            QueryProfile* profile,
+                                            const PhrasePrefixQueryOptions& options) {
     if (matches == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "phrase_prefix_query_with_frequencies: null out");
@@ -243,8 +259,9 @@ Status phrase_prefix_query_with_frequencies(const LogicalIndexReader& idx,
     format::PrxDecodeContext decode_context {
             .stats = profile == nullptr ? nullptr : &profile->prx_decode_stats,
             .query_stats = profile == nullptr ? nullptr : &profile->phrase_query_stats};
-    return phrase_prefix_query_impl(idx, terms, nullptr, max_expansions,
-                                    profile == nullptr ? nullptr : &decode_context, matches);
+    return phrase_prefix_query_impl(idx, terms, nullptr, options.max_expansions,
+                                    profile == nullptr ? nullptr : &decode_context, matches,
+                                    options.candidates);
 }
 
 } // namespace doris::snii::query
