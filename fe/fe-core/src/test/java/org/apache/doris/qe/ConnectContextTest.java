@@ -40,6 +40,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -822,5 +823,49 @@ public class ConnectContextTest {
         ctx.closeFlightSqlDeferredExecutors();
         Mockito.verify(failing, Mockito.times(1)).finalizeArrowFlightQuery();
         Mockito.verify(healthy, Mockito.times(1)).finalizeArrowFlightQuery();
+    }
+
+    @Test
+    public void testKillConnectionCancelsRunningQuery() {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ConnectContext ctx = new ConnectContext();
+            StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+            ctx.setExecutor(executor);
+
+            ctx.killConnection();
+
+            Mockito.verify(executor, Mockito.times(1)).cancel(Mockito.argThat(status ->
+                    status.getErrorCode() == TStatusCode.CANCELLED
+                            && status.getErrorMsg().contains("connection killed")), Mockito.eq(true));
+        }
+    }
+
+    @Test
+    public void testCleanupCancelsRunningQuery() {
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ConnectContext ctx = new ConnectContext();
+            StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+            ctx.setExecutor(executor);
+
+            ctx.cleanup();
+
+            Mockito.verify(executor, Mockito.times(1)).cancel(Mockito.argThat(status ->
+                    status.getErrorCode() == TStatusCode.CANCELLED
+                            && status.getErrorMsg().contains("connection cleanup")), Mockito.eq(true));
+        }
+    }
+
+    @Test
+    public void testCancelQueryWithNeedWaitCancelComplete() {
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        ctx.setExecutor(executor);
+
+        Status status = new Status(TStatusCode.CANCELLED, "async cancel");
+        ctx.cancelQuery(status, false);
+
+        Mockito.verify(executor, Mockito.times(1)).cancel(status, false);
     }
 }

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.thrift.TStatusCode;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -114,6 +115,24 @@ public class ConnectSchedulerTest {
 
         Assertions.assertEquals(1, throwingContext.checkCount.get());
         Assertions.assertEquals(1, countingContext.checkCount.get());
+    }
+
+    @Test
+    public void testUnregisterConnectionCancelsRunningQuery() {
+        ConnectPoolMgr pool = new ConnectPoolMgr(10);
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        Mockito.when(ctx.getConnectionId()).thenReturn(1001);
+        Mockito.when(ctx.getQualifiedUser()).thenReturn("test_user");
+        Mockito.when(ctx.getRemoteHostPortString()).thenReturn("127.0.0.1:54321");
+
+        pool.getConnectionMap().put(ctx.getConnectionId(), ctx);
+        pool.unregisterConnection(ctx);
+
+        Mockito.verify(ctx, Mockito.times(1)).cancelQuery(Mockito.argThat(status ->
+                status.getErrorCode() == TStatusCode.CANCELLED
+                        && status.getErrorMsg().contains("connection closed by client")), Mockito.eq(false));
+        Mockito.verify(ctx, Mockito.times(1)).closeTxn();
+        Assertions.assertNull(pool.getContext(1001));
     }
 
     private static class ThrowingConnectContext extends ConnectContext {

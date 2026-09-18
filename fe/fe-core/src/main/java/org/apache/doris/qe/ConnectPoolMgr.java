@@ -23,6 +23,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext.ThreadInfo;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -83,6 +84,9 @@ public class ConnectPoolMgr {
     }
 
     public void unregisterConnection(ConnectContext ctx) {
+        // Asynchronously cancel running query without blocking the XNIO close-listener thread
+        ctx.cancelQuery(new Status(TStatusCode.CANCELLED,
+                "connection closed by client, remote: " + ctx.getRemoteHostPortString()), false);
         ctx.closeTxn();
         if (connectionMap.remove(ctx.getConnectionId()) != null) {
             AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
