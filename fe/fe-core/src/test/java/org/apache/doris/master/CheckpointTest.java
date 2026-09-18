@@ -17,6 +17,7 @@
 
 package org.apache.doris.master;
 
+import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -28,10 +29,10 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
+import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.system.Backend;
 
 import org.junit.jupiter.api.AfterEach;
@@ -61,6 +62,7 @@ public class CheckpointTest {
     private Partition partition;
     private MaterializedIndex materializedIndex;
     private Backend liveBackend;
+    private CatalogRecycleBin recycleBin;
 
     @BeforeEach
     public void setUp() {
@@ -76,13 +78,16 @@ public class CheckpointTest {
         Mockito.when(systemInfoService.getBackend(LIVE_BE_ID)).thenReturn(liveBackend);
 
         env = Mockito.mock(Env.class);
-        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        CloudInternalCatalog catalog = Mockito.spy(new CloudInternalCatalog());
         database = Mockito.mock(Database.class);
         table = Mockito.mock(OlapTable.class);
         partition = Mockito.mock(Partition.class);
         materializedIndex = Mockito.mock(MaterializedIndex.class);
         envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        recycleBin = new CatalogRecycleBin();
+        envMockedStatic.when(Env::getCurrentRecycleBin).thenReturn(recycleBin);
         Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(env.getClusterInfo()).thenReturn(systemInfoService);
         Mockito.when(catalog.getDbIds()).thenReturn(Collections.singletonList(DB_ID));
         Mockito.when(catalog.getDbNullable(DB_ID)).thenReturn(database);
         Mockito.when(database.getTables()).thenReturn(Collections.singletonList(table));
@@ -98,16 +103,43 @@ public class CheckpointTest {
     }
 
     @Test
+    public void testDoesNotSweepRecycledTableAndPartition() {
+        withRouteCleanup(() -> {
+            CloudReplica tableReplica = addReplica(materializedIndex, 60001L);
+            tableReplica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
+            Mockito.when(database.getTables()).thenReturn(Collections.emptyList());
+            Mockito.when(table.getId()).thenReturn(TABLE_ID);
+            Mockito.when(table.getName()).thenReturn("recycled_table");
+            Assertions.assertTrue(recycleBin.recycleTable(DB_ID, table, true, false, 1L));
+            Partition recycledPartition = Mockito.mock(Partition.class);
+            Mockito.when(recycledPartition.getId()).thenReturn(PARTITION_ID + 1);
+            Mockito.when(recycledPartition.getName()).thenReturn("recycled_partition");
+            MaterializedIndex recycledIndex = Mockito.mock(MaterializedIndex.class);
+            Mockito.when(recycledPartition.getMaterializedIndices(IndexExtState.ALL, true))
+                    .thenReturn(Collections.singletonList(recycledIndex));
+            CloudReplica partitionReplica = addReplica(recycledIndex, 60002L);
+            partitionReplica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
+            Assertions.assertTrue(recycleBin.recyclePartition(DB_ID, TABLE_ID, "table", recycledPartition,
+                    null, null, null, null, false, true));
+
+            Assertions.assertEquals(0L, Checkpoint.removeInvalidCloudReplicaRoutes(env));
+            Assertions.assertTrue(tableReplica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
+            Assertions.assertTrue(partitionReplica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
+            envMockedStatic.verify(Env::getCurrentRecycleBin, Mockito.never());
+        });
+    }
+
+    @Test
     public void testRemovesStaleRouteAndKeepsLiveRoute() {
         withRouteCleanup(() -> {
             CloudReplica replica = addReplica(materializedIndex, 60001L);
             replica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
             replica.updateClusterToPrimaryBe(LIVE_CLUSTER_ID, LIVE_BE_ID);
 
-            Assertions.assertEquals(1L, Checkpoint.removeInvalidCloudReplicaRoutes());
+            Assertions.assertEquals(1L, Checkpoint.removeInvalidCloudReplicaRoutes(env));
             Assertions.assertFalse(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
             Assertions.assertEquals(LIVE_BE_ID, replica.getClusterPrimaryBackendId(LIVE_CLUSTER_ID));
-            Assertions.assertEquals(0L, Checkpoint.removeInvalidCloudReplicaRoutes());
+            Assertions.assertEquals(0L, Checkpoint.removeInvalidCloudReplicaRoutes(env));
         });
     }
 
@@ -118,7 +150,7 @@ public class CheckpointTest {
             replica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
             replica.updateClusterToSecondaryBe(STALE_CLUSTER_ID, LIVE_BE_ID);
 
-            Assertions.assertEquals(0L, Checkpoint.removeInvalidCloudReplicaRoutes());
+            Assertions.assertEquals(0L, Checkpoint.removeInvalidCloudReplicaRoutes(env));
             Assertions.assertEquals(DEAD_BE_ID, replica.getClusterPrimaryBackendId(STALE_CLUSTER_ID));
             Assertions.assertSame(liveBackend, replica.getSecondaryBackend(STALE_CLUSTER_ID));
         });
@@ -132,7 +164,7 @@ public class CheckpointTest {
             CloudReplica replica = addReplica(materializedIndex, 60001L);
             replica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
 
-            Assertions.assertEquals(0L, Checkpoint.removeInvalidCloudReplicaRoutes());
+            Assertions.assertEquals(0L, Checkpoint.removeInvalidCloudReplicaRoutes(env));
             Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
             Mockito.verify(env, Mockito.never()).getInternalCatalog();
         });
@@ -147,7 +179,7 @@ public class CheckpointTest {
             CloudReplica replica = addReplica(materializedIndex, 60001L);
             replica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
 
-            Assertions.assertEquals(1L, Checkpoint.removeInvalidCloudReplicaRoutes());
+            Assertions.assertEquals(1L, Checkpoint.removeInvalidCloudReplicaRoutes(env));
             Assertions.assertFalse(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
         });
     }
@@ -166,9 +198,29 @@ public class CheckpointTest {
             visibleReplica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
             shadowReplica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
 
-            Assertions.assertEquals(2L, Checkpoint.removeInvalidCloudReplicaRoutes());
+            Assertions.assertEquals(2L, Checkpoint.removeInvalidCloudReplicaRoutes(env));
             Assertions.assertFalse(visibleReplica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
             Assertions.assertFalse(shadowReplica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
+        });
+    }
+
+    @Test
+    public void testSweepsAgainstCheckpointEnvBackendsNotServingEnvBackends() {
+        withRouteCleanup(() -> {
+            // The serving Env (reached via the static Env.getCurrentSystemInfo()) still thinks DEAD_BE_ID
+            // is alive -- only the checkpoint's own private Env (env.getClusterInfo()) has it removed. If
+            // the sweep ever regresses to resolving backends ambiently instead of from `env`, this route
+            // would wrongly survive.
+            CloudSystemInfoService servingSystemInfo = Mockito.mock(CloudSystemInfoService.class);
+            Backend stillAliveOnServingEnv = Mockito.mock(Backend.class);
+            Mockito.when(servingSystemInfo.getBackendByIdWithBoxedId(DEAD_BE_ID)).thenReturn(stillAliveOnServingEnv);
+            envMockedStatic.when(Env::getCurrentSystemInfo).thenReturn(servingSystemInfo);
+
+            CloudReplica replica = addReplica(materializedIndex, 60001L);
+            replica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
+
+            Assertions.assertEquals(1L, Checkpoint.removeInvalidCloudReplicaRoutes(env));
+            Assertions.assertFalse(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
         });
     }
 
@@ -179,7 +231,7 @@ public class CheckpointTest {
             tablet.addReplica(Mockito.mock(Replica.class), true);
             Mockito.when(materializedIndex.getTablets()).thenReturn(Collections.singletonList(tablet));
 
-            Assertions.assertEquals(0L, Checkpoint.removeInvalidCloudReplicaRoutes());
+            Assertions.assertEquals(0L, Checkpoint.removeInvalidCloudReplicaRoutes(env));
         });
     }
 
@@ -190,7 +242,7 @@ public class CheckpointTest {
             CloudReplica replica = addReplica(materializedIndex, 60001L);
             replica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
 
-            Assertions.assertEquals(0L, Checkpoint.removeInvalidCloudReplicaRoutes());
+            Assertions.assertEquals(0L, Checkpoint.removeInvalidCloudReplicaRoutes(env));
             Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
         });
     }
