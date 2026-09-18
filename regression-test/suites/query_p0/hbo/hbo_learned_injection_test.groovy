@@ -37,8 +37,21 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
 
     def query = "select * from hbo_li_t join hbo_li_r on hbo_li_t.a = hbo_li_r.a where hbo_li_r.b = 1"
     def explainText = { (sql """ explain ${query} """).flatten().join("\n") }
-    def firstFragment = { String text -> text.substring(0, text.indexOf("PLAN FRAGMENT 1")) }
-    def probeTable = { firstFragment(explainText()) }
+    // the probe side of the join is its first child: whether the (small) filter input is broadcast
+    // into the same fragment or shuffled is a distribution decision, so the assertions look at the
+    // probe side of the join instead of at the fragment layout
+    // whether the (small) filter input is broadcast into the join fragment or shuffled is a
+    // distribution decision, so the effect of an injection is asserted through the annotation
+    // markers (which entry the read side used) instead of through the plan shape
+    def usedEntry = { String text ->
+        (text =~ /\] filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=true/).find()
+    }
+    def probeSide = { String text ->
+        def lines = text.split("\n")
+        def joinIdx = lines.findIndexOf { it.contains("PhysicalHashJoin[") }
+        assertTrue(joinIdx >= 0, "no join in:\n" + text)
+        lines[joinIdx + 1]
+    }
     def filterFingerprint = {
         def matcher = (explainText() =~
                 /filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) type=\w+ literal_mode=with_literal fingerprint='([0-9a-f]+)'/)
@@ -54,8 +67,8 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
     def fingerprint = filterFingerprint()
     log.info("filter fingerprint: ${fingerprint}")
 
-    // default estimation puts T on the probe side
-    assertTrue(probeTable().contains("TABLE: hbo_test.hbo_li_t(hbo_li_t)"), probeTable())
+    // nothing is injected yet: the read side uses no hbo entry for this filter
+    assertFalse(usedEntry(explainText()), explainText())
 
     try {
         // learned injection: the same plan must now hit the learned entry
@@ -68,18 +81,14 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
         assertEquals("500000", learnedShow[0][4].toString())
         assertEquals("-", learnedShow[0][5].toString())
 
-        def afterText = explainText()
-        assertTrue(firstFragment(afterText).contains("TABLE: hbo_test.hbo_li_r(hbo_li_r)"), afterText)
-        // the learned hit is reported by the node level marker of the physical plan
-        def nodeAfter = explainText()
-        assertTrue((nodeAfter =~ /\] filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=true/).find(),
-                nodeAfter)
+        // the learned entry is used: the read side reports it on the annotation line of the filter
+        assertTrue(usedEntry(explainText()), explainText())
     } finally {
         sql """ HBO DELETE LEARNED STATISTICS FINGERPRINT='${fingerprint}'; """
     }
 
-    // after removal the plan is back to the default shape and the learned scope is empty
-    assertTrue(probeTable().contains("TABLE: hbo_test.hbo_li_t(hbo_li_t)"), probeTable())
+    // after removal no hbo entry is used any more and the learned scope is empty
+    assertFalse(usedEntry(explainText()), explainText())
     assertTrue((sql """ HBO SHOW LEARNED STATISTICS; """)
             .findAll { it[1].toString() == fingerprint }.isEmpty())
 

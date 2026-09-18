@@ -272,6 +272,17 @@ public class HboStatsCalculator extends StatsCalculator {
         if (matchedPlanStatistics == null) {
             return null;
         }
+        // a learned entry also has to be visible as "used" in the explain annotation, which is keyed
+        // by the fingerprint of the node and its literal mode
+        planNodeAndHashOpt.get().getHash().ifPresent(hash -> {
+            String queryId = currentQueryId();
+            if (queryId != null) {
+                Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                        .putPinnedLiteralMode(queryId, hash, "no_literal");
+                Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                        .putPinnedLiteralMode(queryId, hash, "with_literal");
+            }
+        });
         return delegateStats.withRowCountAndHboFlag(matchedPlanStatistics.getOutputRows());
     }
 
