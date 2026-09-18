@@ -352,7 +352,7 @@ suite("topn_lazy_nested_column_pruning") {
             limit 3
         """
         contains("VMaterializeNode")
-        contains("final projections: id[#0], struct_col[#2], substring(struct_element(struct_col[#2]")
+        contains("final projections: id[#0], struct_col[#2], substring(element_at(struct_col[#2]")
         contains("row_ids: [__DORIS_GLOBAL_ROWID_COL__tlncp_tbl]")
     }
     qt_project_under_topn_consumed_slot """
