@@ -39,6 +39,86 @@ TEST(FunctionIpTest, IPAddressVariantTypeTest) {
     EXPECT_TRUE(ipv6_zero.is_v6());
 }
 
+TEST(FunctionIpTest, StringToNumRejectsEmbeddedNullTail) {
+    std::string invalid_ipv4 = "192.168.0.1";
+    invalid_ipv4.push_back('\0');
+    invalid_ipv4.append("tail");
+
+    std::string invalid_ipv6 = "2001:db8::1";
+    invalid_ipv6.push_back('\0');
+    invalid_ipv6.append("tail");
+
+    const DataSet ipv4_error_data = {{{invalid_ipv4}, int64_t {0}}};
+    const DataSet ipv4_default_data = {{{invalid_ipv4}, int64_t {0}}};
+    const DataSet ipv4_null_data = {{{invalid_ipv4}, Null()}};
+    const DataSet ipv6_error_data = {{{invalid_ipv6}, std::string {}}};
+    const DataSet ipv6_default_data = {{{invalid_ipv6}, std::string(IPV6_BINARY_LENGTH, '\0')},
+                                       {{invalid_ipv4}, std::string(IPV6_BINARY_LENGTH, '\0')}};
+    const DataSet ipv6_null_data = {{{invalid_ipv6}, Null()}, {{invalid_ipv4}, Null()}};
+
+    for (const auto& input_types : {InputTypeSet {PrimitiveType::TYPE_VARCHAR},
+                                    InputTypeSet {Consted {PrimitiveType::TYPE_VARCHAR}}}) {
+        auto status = check_function<DataTypeInt64>("ipv4_string_to_num", input_types,
+                                                    ipv4_error_data, -1, -1, true);
+        EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+
+        status = check_function<DataTypeString>("ipv6_string_to_num", input_types, ipv6_error_data,
+                                                -1, -1, true);
+        EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+    }
+
+    const InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    check_function_all_arg_comb<DataTypeInt64>("ipv4_string_to_num_or_default", input_types,
+                                               ipv4_default_data);
+    check_function_all_arg_comb<DataTypeInt64, true>("ipv4_string_to_num_or_null", input_types,
+                                                     ipv4_null_data);
+    check_function_all_arg_comb<DataTypeInt64, true>("inet_aton", input_types, ipv4_null_data);
+    check_function_all_arg_comb<DataTypeString>("ipv6_string_to_num_or_default", input_types,
+                                                ipv6_default_data);
+    check_function_all_arg_comb<DataTypeString, true>("ipv6_string_to_num_or_null", input_types,
+                                                      ipv6_null_data);
+    check_function_all_arg_comb<DataTypeString, true>("inet6_aton", input_types, ipv6_null_data);
+}
+
+TEST(FunctionIpTest, StringToIPv6AcceptsLongIPv4Spellings) {
+    std::string mapped_ipv4_zero(IPV6_BINARY_LENGTH, '\0');
+    mapped_ipv4_zero[10] = static_cast<char>(0xff);
+    mapped_ipv4_zero[11] = static_cast<char>(0xff);
+
+    for (const auto& [input, input_type] :
+         {std::pair {std::string("0000.0000.0000.0"), InputTypeSet {PrimitiveType::TYPE_VARCHAR}},
+          std::pair {std::string("0000.0000.0000.0000"),
+                     InputTypeSet {Consted {PrimitiveType::TYPE_VARCHAR}}}}) {
+        const DataSet data = {{{input}, mapped_ipv4_zero}};
+        static_cast<void>(check_function<DataTypeString>("ipv6_string_to_num", input_type, data));
+    }
+}
+
+TEST(FunctionIpTest, IPv4CompatAndMappedRequireIPv6BinaryLength) {
+    const std::string ipv4_address = {static_cast<char>(0xc0), static_cast<char>(0xa8), '\0',
+                                      static_cast<char>(0x01)};
+
+    const std::string compat_prefix(IPV6_BINARY_LENGTH - IPV4_BINARY_LENGTH, '\0');
+    const std::string compat_address = compat_prefix + ipv4_address;
+    const DataSet compat_data = {{{compat_prefix}, uint8_t {0}},
+                                 {{ipv4_address}, uint8_t {0}},
+                                 {{compat_address}, uint8_t {1}},
+                                 {{compat_address + '\0'}, uint8_t {0}}};
+
+    const std::string mapped_marker = {static_cast<char>(0xff), static_cast<char>(0xff)};
+    const std::string mapped_prefix(IPV6_BINARY_LENGTH - IPV4_BINARY_LENGTH - mapped_marker.size(),
+                                    '\0');
+    const std::string mapped_address = mapped_prefix + mapped_marker + ipv4_address;
+    const DataSet mapped_data = {{{mapped_prefix}, uint8_t {0}},
+                                 {{mapped_marker}, uint8_t {0}},
+                                 {{mapped_address}, uint8_t {1}},
+                                 {{mapped_address + '\0'}, uint8_t {0}}};
+
+    const InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    check_function_all_arg_comb<DataTypeUInt8, true>("is_ipv4_compat", input_types, compat_data);
+    check_function_all_arg_comb<DataTypeUInt8, true>("is_ipv4_mapped", input_types, mapped_data);
+}
+
 TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
     std::string func_name = "is_ip_address_in_range";
 
