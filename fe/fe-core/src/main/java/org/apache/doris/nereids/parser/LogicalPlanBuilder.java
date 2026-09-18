@@ -7187,58 +7187,68 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitHboSetStatistics(DorisParser.HboSetStatisticsContext ctx) {
-        return visitHboSetStatisticsWords(ctx.hbo, ctx.scope, ctx.statistics, ctx.value, null,
-                ctx.fingerprintWord, ctx.fingerprint, ctx.structCanonical, ctx.literalModeWord,
-                ctx.literalMode, ctx.trailingLiteralModeWord, ctx.trailingLiteralMode);
-    }
-
-    @Override
-    public LogicalPlan visitHboSetStatisticsTyped(DorisParser.HboSetStatisticsTypedContext ctx) {
-        return visitHboSetStatisticsWords(ctx.hbo, ctx.scope, ctx.statistics, ctx.value, ctx.typeName,
-                ctx.fingerprintWord, ctx.fingerprint, ctx.structCanonical, ctx.literalModeWord,
-                ctx.literalMode, ctx.trailingLiteralModeWord, ctx.trailingLiteralMode);
-    }
-
-    /** Shared handling of the two HBO SET [scope] STATISTICS alternatives (with / without TYPE). */
-    private LogicalPlan visitHboSetStatisticsWords(
-            org.antlr.v4.runtime.ParserRuleContext hboWord,
-            org.antlr.v4.runtime.ParserRuleContext scopeWord,
-            org.antlr.v4.runtime.ParserRuleContext statisticsWord,
-            org.antlr.v4.runtime.Token value,
-            org.antlr.v4.runtime.ParserRuleContext typeWord,
-            org.antlr.v4.runtime.ParserRuleContext fingerprintWord,
-            org.antlr.v4.runtime.Token fingerprint,
-            org.antlr.v4.runtime.Token structCanonical,
-            org.antlr.v4.runtime.ParserRuleContext literalModeWord,
-            org.antlr.v4.runtime.ParserRuleContext literalMode,
-            org.antlr.v4.runtime.ParserRuleContext trailingLiteralModeWord,
-            org.antlr.v4.runtime.ParserRuleContext trailingLiteralMode) {
-        checkHboStatementWords(hboWord, statisticsWord);
-        checkHboWord(fingerprintWord, "FINGERPRINT");
-        // LITERAL_MODE may be written before FINGERPRINT or after STRUCT, but only once
-        if (literalModeWord != null && trailingLiteralModeWord != null) {
-            throw new ParseException("LITERAL_MODE is given twice in hbo set statistics statement");
+        checkHboStatementWords(ctx.hbo, ctx.statistics);
+        Double value = null;
+        String typeName = null;
+        String fingerprint = null;
+        String structCanonical = null;
+        String literalModeName = null;
+        for (DorisParser.HboSetParamContext param : ctx.hboSetParam()) {
+            if (param instanceof DorisParser.HboSetValueContext) {
+                if (value != null) {
+                    throw new ParseException("VALUE is given twice in hbo set statistics statement");
+                }
+                try {
+                    value = Double.parseDouble(((DorisParser.HboSetValueContext) param).value.getText());
+                } catch (NumberFormatException e) {
+                    throw new ParseException("hbo statistics VALUE out of range: "
+                            + ((DorisParser.HboSetValueContext) param).value.getText());
+                }
+            } else if (param instanceof DorisParser.HboSetTypeContext) {
+                if (typeName != null) {
+                    throw new ParseException("TYPE is given twice in hbo set statistics statement");
+                }
+                typeName = ((DorisParser.HboSetTypeContext) param).typeName.getText();
+            } else if (param instanceof DorisParser.HboSetStructContext) {
+                if (structCanonical != null) {
+                    throw new ParseException("STRUCT is given twice in hbo set statistics statement");
+                }
+                structCanonical = stripQuotes(((DorisParser.HboSetStructContext) param).structCanonical.getText());
+            } else if (param instanceof DorisParser.HboSetFingerprintContext) {
+                DorisParser.HboSetFingerprintContext fingerprintParam =
+                        (DorisParser.HboSetFingerprintContext) param;
+                if (fingerprint != null) {
+                    throw new ParseException("FINGERPRINT is given twice in hbo set statistics statement");
+                }
+                checkHboWord(fingerprintParam.fingerprintWord, "FINGERPRINT");
+                fingerprint = stripQuotes(fingerprintParam.fingerprint.getText());
+            } else if (param instanceof DorisParser.HboSetWordContext) {
+                DorisParser.HboSetWordContext wordParam = (DorisParser.HboSetWordContext) param;
+                if ("fingerprint".equalsIgnoreCase(wordParam.valueWord.getText())) {
+                    // a bare FINGERPRINT value can not be lexed reliably (a hex fingerprint may start
+                    // with a digit), so it has to be quoted
+                    throw new ParseException("the FINGERPRINT value must be quoted: FINGERPRINT='<64 hex>'");
+                }
+                checkHboWord(wordParam.valueWord, "LITERAL_MODE");
+                if (literalModeName != null) {
+                    throw new ParseException("LITERAL_MODE is given twice in hbo set statistics statement");
+                }
+                literalModeName = wordParam.valueName.getText();
+            }
         }
-        org.antlr.v4.runtime.ParserRuleContext modeWord =
-                literalModeWord == null ? trailingLiteralModeWord : literalModeWord;
-        org.antlr.v4.runtime.ParserRuleContext mode =
-                literalModeWord == null ? trailingLiteralMode : literalMode;
-        if (modeWord != null) {
-            checkHboWord(modeWord, "LITERAL_MODE");
+        if (value == null) {
+            throw new ParseException("expect 'VALUE=<number>' in hbo set statistics statement");
         }
-        double parsedValue;
-        try {
-            parsedValue = Double.parseDouble(value.getText());
-        } catch (NumberFormatException e) {
-            throw new ParseException("hbo statistics VALUE out of range: " + value.getText());
+        if (fingerprint == null) {
+            throw new ParseException("expect \"FINGERPRINT='<fingerprint>'\" in hbo set statistics statement");
         }
         return new HboStatisticsCommand(HboStatisticsCommand.Op.SET,
-                scopeWord == null ? null : scopeWord.getText(),
-                stripQuotes(fingerprint.getText()),
-                parsedValue,
-                typeWord == null ? null : typeWord.getText(),
-                structCanonical == null ? "" : stripQuotes(structCanonical.getText()),
-                mode == null ? null : mode.getText());
+                ctx.scope == null ? null : ctx.scope.getText(),
+                fingerprint,
+                value,
+                typeName,
+                structCanonical == null ? "" : structCanonical,
+                literalModeName);
     }
 
     @Override

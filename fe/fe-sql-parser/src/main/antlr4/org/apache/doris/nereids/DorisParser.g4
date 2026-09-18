@@ -145,24 +145,23 @@ hboStatement
     // the parameter names are matched with hboWord (plain identifiers only) to keep
     // 'SET STATISTICS VALUE=1 TYPE=EXACT' distinguishable from 'SET STATISTICS VALUE=1 FINGERPRINT=..'
     : hbo=identifier SET scope=identifier? statistics=identifier
-          VALUE EQ value=(INTEGER_VALUE | DECIMAL_VALUE)
-          TYPE EQ typeName=identifier
-          (literalModeWord=hboWord EQ literalMode=identifier)?
-          fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL
-          (STRUCT EQ structCanonical=STRING_LITERAL)?
-          (trailingLiteralModeWord=hboWord EQ trailingLiteralMode=identifier)?   #hboSetStatisticsTyped
-    | hbo=identifier SET scope=identifier? statistics=identifier
-          VALUE EQ value=(INTEGER_VALUE | DECIMAL_VALUE)
-          (literalModeWord=hboWord EQ literalMode=identifier)?
-          fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL
-          (STRUCT EQ structCanonical=STRING_LITERAL)?
-          (trailingLiteralModeWord=hboWord EQ trailingLiteralMode=identifier)?   #hboSetStatistics
+          hboSetParam+                                                 #hboSetStatistics
     | hbo=identifier DELETE staleWord=identifier statistics=identifier
           (olderWord=identifier olderThan=INTEGER_VALUE)?               #hboDeleteStaleStatistics
     | hbo=identifier DELETE scope=identifier? statistics=identifier
           fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL      #hboDeleteStatistics
     | hbo=identifier SHOW scope=identifier? statistics=identifier (FULL)?
           (LIKE likePattern=STRING_LITERAL)?                           #hboShowStatistics
+    ;
+
+// one named parameter of HBO SET STATISTICS: they are collected in any order and validated in the
+// logical plan builder, so a wrong, repeated or unknown parameter gives a readable error
+hboSetParam
+    : VALUE EQ value=(INTEGER_VALUE | DECIMAL_VALUE)                   #hboSetValue
+    | TYPE EQ typeName=identifier                                      #hboSetType
+    | STRUCT EQ structCanonical=STRING_LITERAL                         #hboSetStruct
+    | fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL            #hboSetFingerprint
+    | valueWord=hboWord EQ valueName=identifier                        #hboSetWord
     ;
 
 // hbo parameter name: deliberately not 'identifier' (which includes the non reserved keywords)
