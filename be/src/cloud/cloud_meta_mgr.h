@@ -184,11 +184,6 @@ public:
                                    int64_t& max_reserved_snapshots,
                                    int64_t& snapshot_interval_seconds);
 
-    /// The id of the instance this BE belongs to, as recorded by meta-service. Used to
-    /// namespace objects a BE writes into a storage vault that may be shared with other
-    /// instances (spill). Bounded to 2 attempts; the caller retries.
-    Status get_instance_id(std::string* instance_id);
-
     // Get all cluster status for the instance
     // Returns cluster_id -> (status, mtime_ms)
     // If my_cluster_id is not null, also returns the requesting node's cluster_id
@@ -204,9 +199,6 @@ public:
     }
 
 private:
-    /// GetInstance RPC; max_retry_times < 0 keeps the default retry_rpc bound.
-    Status _get_instance(InstanceInfoPB* instance, int32_t max_retry_times);
-
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, std::ranges::range auto&& rs_metas,
                                             DeleteBitmap* delete_bitmap);
 

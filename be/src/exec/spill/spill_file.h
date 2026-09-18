@@ -102,6 +102,8 @@ private:
     void add_part(int64_t part_bytes);
 
     SpillDataDir* _data_dir = nullptr;
+    // First component of relative_path: the query directory under the spill root.
+    std::string _query_dir;
     // Path of this spill file: data_dir->get_spill_data_path() + "/" + relative_path.
     // Absolute for local stores, relative to the vault prefix for remote stores.
     std::string _spill_dir;
