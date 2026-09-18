@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_analyzer_identity_semantics", "p0") {
+// Run separately from concurrent analyzer tests that share the global policy quota.
+suite("test_analyzer_identity_semantics", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_identity_modes_create"
     sql "DROP TABLE IF EXISTS test_identity_modes_alter"
     sql "DROP TABLE IF EXISTS test_identity_max_word_create"
@@ -24,12 +25,18 @@ suite("test_analyzer_identity_semantics", "p0") {
     sql "DROP TABLE IF EXISTS test_identity_char_replace_alter"
     sql "DROP TABLE IF EXISTS test_identity_noop_create"
     sql "DROP TABLE IF EXISTS test_identity_noop_alter"
+    for (String mode : ["ik_smart", "ik_max_word"]) {
+        sql "DROP TABLE IF EXISTS test_identity_ik_lowercase_create_${mode}"
+        sql "DROP TABLE IF EXISTS test_identity_ik_lowercase_alter_${mode}"
+    }
     for (String analyzer : ["test_identity_ab", "test_identity_ba", "test_identity_duplicates",
-                            "test_identity_noop", "test_identity_plain"]) {
+                            "test_identity_noop", "test_identity_plain",
+                            "test_identity_plain_ik_smart", "test_identity_filtered_ik_smart",
+                            "test_identity_plain_ik_max_word", "test_identity_filtered_ik_max_word"]) {
         try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${analyzer}"
     }
     for (String filter : ["test_identity_cf_ab", "test_identity_cf_ba",
-                         "test_identity_cf_duplicates", "test_identity_cf_noop"]) {
+                         "test_identity_cf_duplicates", "test_identity_cf_noop", "test_identity_cf_lower_a"]) {
         try_sql "DROP INVERTED INDEX CHAR_FILTER IF EXISTS ${filter}"
     }
 
@@ -171,9 +178,71 @@ suite("test_analyzer_identity_semantics", "p0") {
         exception "already exists"
     }
 
-    sql "INSERT INTO test_identity_modes_create VALUES (1, 'abc def'), (2, 'zzz')"
+    sql """
+        CREATE INVERTED INDEX CHAR_FILTER test_identity_cf_lower_a
+        PROPERTIES("type"="char_replace", "pattern"="A", "replacement"="a")
+    """
+    for (String mode : ["ik_smart", "ik_max_word"]) {
+        sql """
+            CREATE INVERTED INDEX ANALYZER test_identity_plain_${mode}
+            PROPERTIES("tokenizer"="${mode}")
+        """
+        sql """
+            CREATE INVERTED INDEX ANALYZER test_identity_filtered_${mode}
+            PROPERTIES("tokenizer"="${mode}", "char_filter"="test_identity_cf_lower_a")
+        """
+        test {
+            sql """
+                CREATE TABLE test_identity_ik_lowercase_create_${mode} (
+                    id INT, content STRING,
+                    INDEX idx_plain (content) USING INVERTED
+                        PROPERTIES("analyzer"="test_identity_plain_${mode}"),
+                    INDEX idx_filtered (content) USING INVERTED
+                        PROPERTIES("analyzer"="test_identity_filtered_${mode}")
+                ) DUPLICATE KEY(id)
+                DISTRIBUTED BY HASH(id) BUCKETS 1
+                PROPERTIES("replication_allocation"="tag.location.default: 1")
+            """
+            exception "cannot have multiple inverted indexes"
+        }
+        sql """
+            CREATE TABLE test_identity_ik_lowercase_alter_${mode} (
+                id INT, content STRING,
+                INDEX idx_plain (content) USING INVERTED
+                    PROPERTIES("analyzer"="test_identity_plain_${mode}")
+            ) DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES("replication_allocation"="tag.location.default: 1")
+        """
+        test {
+            sql """
+                ALTER TABLE test_identity_ik_lowercase_alter_${mode}
+                ADD INDEX idx_filtered (content) USING INVERTED
+                PROPERTIES("analyzer"="test_identity_filtered_${mode}")
+            """
+            exception "already exists"
+        }
+    }
+
+    sql "INSERT INTO test_identity_modes_create VALUES (1, 'abc def'), (2, 'zzz'), (3, '清华大学'), (4, 'ABC')"
     qt_match_builtin_ik """
         SELECT id FROM test_identity_modes_create WHERE content MATCH 'abc' USING ANALYZER IK
+        ORDER BY id
+    """
+    qt_match_builtin_ik_mode """
+        SELECT id FROM test_identity_modes_create WHERE content MATCH '清华' USING ANALYZER ik
+        ORDER BY id
+    """
+    qt_match_builtin_ik_lowercase """
+        SELECT id FROM test_identity_modes_create WHERE content MATCH 'ABC' USING ANALYZER ik
+        ORDER BY id
+    """
+    qt_match_implicit_ik_smart_mode """
+        SELECT id FROM test_identity_modes_create WHERE content MATCH '清华'
+        ORDER BY id
+    """
+    qt_match_implicit_ik_smart_uppercase """
+        SELECT id FROM test_identity_modes_create WHERE content MATCH 'ABC'
         ORDER BY id
     """
     sql "INSERT INTO test_identity_noop_alter VALUES (1, 'abc def'), (2, 'zzz')"

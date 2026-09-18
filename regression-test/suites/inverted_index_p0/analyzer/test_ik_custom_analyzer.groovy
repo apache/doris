@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_ik_custom_analyzer", "p0") {
+// Run separately from concurrent analyzer tests that share the global policy quota.
+suite("test_ik_custom_analyzer", "nonConcurrent") {
     def pinyinFilter = "test_ik_pinyin_filter"
     def smartAnalyzer = "test_ik_smart_pinyin_analyzer"
     def maxWordAnalyzer = "test_ik_max_word_pinyin_analyzer"

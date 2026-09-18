@@ -20,16 +20,21 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/exception.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/primitive_type.h"
+#include "exprs/vmatch_predicate.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 
 namespace doris::segment_v2 {
 
@@ -191,10 +196,129 @@ TEST_F(InvertedIndexIteratorTest, SelectBestReaderPreservesCaseDistinctLegacyAna
             EXPECT_EQ(*legacy, legacy_reader);
 
             const auto lowercase = iterator.select_best_reader(
-                    column_type, InvertedIndexQueryType::MATCH_ANY_QUERY, lowercase_name);
+                    column_type, InvertedIndexQueryType::MATCH_ANY_QUERY,
+                    AnalyzerConfigParser::parse(lowercase_name, "").analyzer_key);
             ASSERT_TRUE(lowercase.has_value()) << lowercase.error();
             EXPECT_EQ(*lowercase, lowercase_reader);
         }
+    }
+}
+
+TEST_F(InvertedIndexIteratorTest, MatchBindsDistinctIkModesAndLowercaseStates) {
+    const auto original_dict_path = config::inverted_index_dict_path;
+    Defer restore_dict_path([&] { config::inverted_index_dict_path = original_dict_path; });
+    const char* doris_home = std::getenv("DORIS_HOME");
+    ASSERT_NE(doris_home, nullptr);
+    config::inverted_index_dict_path = std::string(doris_home) + "../../dict";
+    const std::vector<std::map<std::string, std::string>> properties {
+            {{"parser", "ik"}, {"lower_case", "false"}},
+            {{"analyzer", "ik"}, {"lower_case", "false"}},
+            {{"analyzer", "ik"}},
+            {{"parser", "ik"}}};
+    InvertedIndexIterator iterator;
+    std::vector<std::shared_ptr<MockInvertedIndexReader>> readers;
+    std::set<std::string> keys;
+    for (size_t i = 0; i < properties.size(); ++i) {
+        auto reader = MockInvertedIndexReader::create(properties[i], i + 1);
+        iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader);
+        readers.push_back(reader);
+        keys.insert(build_analyzer_key_from_properties(properties[i]));
+    }
+    EXPECT_EQ(keys.size(), properties.size());
+
+    for (size_t i = 0; i < properties.size(); ++i) {
+        SCOPED_TRACE(i);
+        TMatchPredicate match;
+        match.__set_analyzer_name("ik");
+        match.__set_parser_type("ik");
+        match.__set_parser_mode(get_parser_mode_string_from_properties(properties[i]));
+        match.__set_parser_lowercase(get_parser_lowercase_from_properties<true>(properties[i]) ==
+                                     "true");
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::MATCH_PRED);
+        node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+        node.__set_num_children(2);
+        node.__set_match_predicate(match);
+        const auto predicate = VMatchPredicate::create_shared(node);
+        const auto selected = iterator.select_best_reader(std::make_shared<DataTypeString>(),
+                                                          InvertedIndexQueryType::MATCH_ANY_QUERY,
+                                                          predicate->get_analyzer_key());
+        ASSERT_TRUE(selected.has_value()) << selected.error();
+        EXPECT_EQ(*selected, readers[i]);
+    }
+}
+
+TEST_F(InvertedIndexIteratorTest, MatchBindsEffectiveOuterCharacterFilters) {
+    const std::vector<std::map<std::string, std::string>> properties {
+            {{"analyzer", "standard"}},
+            {{"analyzer", "standard"},
+             {"char_filter_type", "char_replace"},
+             {"char_filter_pattern", "_-"},
+             {"char_filter_replacement", " "}},
+            {{"analyzer", "standard"},
+             {"char_filter_type", "char_replace"},
+             {"char_filter_pattern", "_-"},
+             {"char_filter_replacement", "a"}}};
+    InvertedIndexIterator iterator;
+    std::vector<std::shared_ptr<MockInvertedIndexReader>> readers;
+    for (size_t i = 0; i < properties.size(); ++i) {
+        auto reader = MockInvertedIndexReader::create(properties[i], i + 1);
+        iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader);
+        readers.push_back(reader);
+    }
+
+    for (size_t i = 0; i < properties.size(); ++i) {
+        SCOPED_TRACE(i);
+        auto query_properties = properties[i];
+        query_properties["char_filter_type"] = "char_replace";
+        query_properties["char_filter_pattern"] = i == 0 ? "a" : "-__-";
+        query_properties["char_filter_replacement"] = i == 1 ? " " : "a";
+        TMatchPredicate match;
+        match.__set_analyzer_name("standard");
+        match.__set_parser_type("standard");
+        match.__set_parser_lowercase(true);
+        match.__set_char_filter_map(get_parser_char_filter_map_from_properties(query_properties));
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::MATCH_PRED);
+        node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+        node.__set_num_children(2);
+        node.__set_match_predicate(match);
+        const auto predicate = VMatchPredicate::create_shared(node);
+        const auto selected = iterator.select_best_reader(std::make_shared<DataTypeString>(),
+                                                          InvertedIndexQueryType::MATCH_ANY_QUERY,
+                                                          predicate->get_analyzer_key());
+        ASSERT_TRUE(selected.has_value()) << selected.error();
+        EXPECT_EQ(*selected, readers[i]);
+    }
+}
+
+TEST_F(InvertedIndexIteratorTest, EncodedSelectionKeysDoNotCollideWithPolicyNames) {
+    for (const std::map<std::string, std::string>& properties :
+         {std::map<std::string, std::string> {{"analyzer", "ik"}},
+          {{"analyzer", "standard"},
+           {"char_filter_type", "char_replace"},
+           {"char_filter_pattern", "_"}}}) {
+        const auto policy_name = build_analyzer_key_from_properties(properties);
+        SCOPED_TRACE(policy_name);
+        auto policy_reader = MockInvertedIndexReader::create({{"analyzer", policy_name}}, 1);
+        auto configured_reader = MockInvertedIndexReader::create(properties, 2);
+        InvertedIndexIterator iterator;
+        iterator.add_reader(InvertedIndexReaderType::FULLTEXT, policy_reader);
+        iterator.add_reader(InvertedIndexReaderType::FULLTEXT, configured_reader);
+
+        const auto configured = AnalyzerConfigParser::parse(
+                properties.at("analyzer"), "", get_parser_mode_string_from_properties(properties),
+                true, get_parser_char_filter_map_from_properties(properties));
+        const auto selected = iterator.select_best_reader(configured.analyzer_key);
+        ASSERT_TRUE(selected.has_value());
+        EXPECT_EQ(*selected, configured_reader);
+
+        const auto named = AnalyzerConfigParser::parse(policy_name, "");
+        EXPECT_EQ(named.provider_name, policy_name);
+        EXPECT_NE(named.analyzer_key, configured.analyzer_key);
+        const auto selected_policy = iterator.select_best_reader(named.analyzer_key);
+        ASSERT_TRUE(selected_policy.has_value());
+        EXPECT_EQ(*selected_policy, policy_reader);
     }
 }
 

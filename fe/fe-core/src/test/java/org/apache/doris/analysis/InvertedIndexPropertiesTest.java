@@ -17,9 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.IndexType;
@@ -42,6 +44,35 @@ import java.util.List;
 import java.util.Map;
 
 public class InvertedIndexPropertiesTest {
+
+    @Test
+    public void testExplicitBuiltinIkSelectsMatchingModeAndLowercase() {
+        Column column = new Column("content", PrimitiveType.STRING);
+        Index smartNoLowercase = new Index(10, "idx_smart_no_lowercase", List.of("content"),
+                IndexType.INVERTED, Map.of("parser", "ik", "parser_mode", "ik_smart", "lower_case", "false"), "");
+        Index smart = new Index(11, "idx_smart", List.of("content"), IndexType.INVERTED,
+                Map.of("parser", "ik", "parser_mode", "ik_smart"), "");
+        Index maxWordNoLowercase = new Index(12, "idx_max_word_no_lowercase", List.of("content"),
+                IndexType.INVERTED, Map.of("parser", "ik", "parser_mode", "ik_max_word", "lower_case", "false"), "");
+        Index maxWord = new Index(13, "idx_max_word", List.of("content"), IndexType.INVERTED,
+                Map.of("parser", "ik", "parser_mode", "ik_max_word"), "");
+        OlapTable table = new OlapTable();
+        table.setIndexes(List.of(smartNoLowercase, smart, maxWordNoLowercase, maxWord));
+
+        Index selected = table.getInvertedIndex(column, List.of(), "ik");
+        Assertions.assertSame(maxWord, selected);
+        MatchPredicate predicate = new MatchPredicate(MatchPredicate.Operator.MATCH_ANY,
+                new StringLiteral("清华大学"), new StringLiteral("清华"), Type.BOOLEAN,
+                NullableMode.DEPEND_ON_ARGUMENT, selected, false, "ik");
+        TExprNode node = new TExprNode();
+        ExprToThriftVisitor.INSTANCE.visitMatchPredicate(predicate, node);
+        Assertions.assertEquals("ik", node.getMatchPredicate().getAnalyzerName());
+        Assertions.assertEquals("ik_max_word", node.getMatchPredicate().getParserMode());
+        Assertions.assertTrue(node.getMatchPredicate().isParserLowercase());
+        Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(Map.of("parser", "ik"), "ik"));
+        Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(
+                Map.of("analyzer", "ik", "lower_case", "false"), "ik"));
+    }
 
     @Test
     public void testMatchSelectionPreservesExactAnalyzerSpelling() {
@@ -107,7 +138,7 @@ public class InvertedIndexPropertiesTest {
             Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(Map.of("analyzer", "IK"), "ik"));
             Assertions.assertTrue(InvertedIndexUtil.isAnalyzerMatched(Map.of("analyzer", "ik"), "ik"));
             Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(Map.of("analyzer", "ik"), "IK"));
-            Assertions.assertTrue(InvertedIndexUtil.isAnalyzerMatched(Map.of("parser", "ik"), "ik"));
+            Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(Map.of("parser", "ik"), "ik"));
             Assertions.assertFalse(InvertedIndexUtil.isAnalyzerMatched(Map.of("parser", "ik"), "IK"));
         }
     }

@@ -33,6 +33,12 @@ public:
         return source == nullptr ? std::span<const int32_t> {} : source->get_source_byte_offsets();
     }
 
+    std::span<const int32_t> get_source_byte_end_offsets() const override {
+        const auto* source = dynamic_cast<const DorisTokenStream*>(_in.get());
+        return source == nullptr ? std::span<const int32_t> {}
+                                 : source->get_source_byte_end_offsets();
+    }
+
     void set_source_byte_offsets_enabled(bool enabled) override {
         auto* source = dynamic_cast<DorisTokenStream*>(_in.get());
         if (source != nullptr) {

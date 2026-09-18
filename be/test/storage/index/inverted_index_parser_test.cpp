@@ -506,7 +506,7 @@ TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_BothAnalyzerAndParser) {
     auto config = AnalyzerConfigParser::parse("ik", "chinese");
     EXPECT_TRUE(config.provider_name.empty());
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_IK);
-    EXPECT_EQ(config.analyzer_key, "ik");
+    EXPECT_EQ(config.analyzer_key, build_analyzer_key_from_properties({{"analyzer", "ik"}}));
 }
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_AnalyzerNameOverridesParserFallback) {
@@ -518,7 +518,7 @@ TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_AnalyzerNameOverridesParser
     config = AnalyzerConfigParser::parse("ik", "chinese");
     EXPECT_TRUE(config.provider_name.empty());
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_IK);
-    EXPECT_EQ(config.analyzer_key, "ik");
+    EXPECT_EQ(config.analyzer_key, build_analyzer_key_from_properties({{"analyzer", "ik"}}));
 
     config = AnalyzerConfigParser::parse("customer_analyzer", "english");
     EXPECT_EQ(config.provider_name, "customer_analyzer");
@@ -559,7 +559,8 @@ TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_AllBuiltinTypes) {
     for (const auto& [name, expected_type] : builtin_types) {
         auto config = AnalyzerConfigParser::parse(name, "");
         EXPECT_EQ(config.parser_type, expected_type) << "Failed for: " << name;
-        EXPECT_EQ(config.analyzer_key, name) << "Failed for: " << name;
+        EXPECT_EQ(config.analyzer_key, build_analyzer_key_from_properties({{"analyzer", name}}))
+                << "Failed for: " << name;
         EXPECT_TRUE(config.provider_name.empty()) << "Failed for: " << name;
         EXPECT_FALSE(config.uses_provider()) << "Failed for: " << name;
     }

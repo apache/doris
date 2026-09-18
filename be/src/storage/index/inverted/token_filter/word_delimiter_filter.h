@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <utility>
 #include <vector>
 
 #include "storage/index/inverted/token_filter/token_filter.h"
@@ -37,6 +38,9 @@ public:
     void reset() override;
     std::span<const int32_t> get_source_byte_offsets() const override {
         return _current_source_byte_offsets;
+    }
+    std::span<const int32_t> get_source_byte_end_offsets() const override {
+        return _current_source_byte_end_offsets;
     }
 
     static bool is_alpha(int32_t type) { return (type & ALPHA) != 0; }
@@ -72,14 +76,17 @@ private:
     int32_t position(bool inject);
     void concatenate(const WordDelimiterConcatenationPtr& concatenation);
     void save_source_state(std::string_view term);
-    std::vector<int32_t> slice_source_byte_offsets(int32_t start, int32_t end) const;
-    void set_attribute_source_byte_offsets(std::vector<int32_t> source_byte_offsets);
+    std::pair<std::vector<int32_t>, std::vector<int32_t>> slice_source_byte_offsets(
+            int32_t start, int32_t end) const;
+    void set_attribute_source_byte_offsets(std::vector<int32_t> source_byte_offsets,
+                                           std::vector<int32_t> source_byte_end_offsets);
 
     struct Attribute {
         std::string buffered;
         int32_t start_off = 0;
         int32_t pos_inc = 0;
         std::vector<int32_t> source_byte_offsets;
+        std::vector<int32_t> source_byte_end_offsets;
         int32_t token_start_offset = 0;
         int32_t token_end_offset = 0;
     };
@@ -97,8 +104,10 @@ private:
 
     std::string_view _saved_buffer;
     std::vector<int32_t> _saved_source_byte_offsets;
+    std::vector<int32_t> _saved_source_byte_end_offsets;
     std::vector<int32_t> _saved_token_byte_offsets;
     std::vector<int32_t> _current_source_byte_offsets;
+    std::vector<int32_t> _current_source_byte_end_offsets;
     int32_t _saved_start_offset = 0;
     int32_t _saved_end_offset = 0;
     bool _has_saved_state = false;
@@ -120,13 +129,18 @@ public:
 
     void append(const char* text, int32_t offset, int32_t length) {
         _buffer.append(text, offset, length);
-        auto source_byte_offsets = _filter.slice_source_byte_offsets(offset, offset + length);
+        auto [source_byte_offsets, source_byte_end_offsets] =
+                _filter.slice_source_byte_offsets(offset, offset + length);
         if (!_source_byte_offsets.empty() && !source_byte_offsets.empty()) {
-            _source_byte_offsets.insert(_source_byte_offsets.end(), source_byte_offsets.begin() + 1,
+            _source_byte_offsets.pop_back();
+            _source_byte_offsets.insert(_source_byte_offsets.end(), source_byte_offsets.begin(),
                                         source_byte_offsets.end());
         } else if (!source_byte_offsets.empty()) {
             _source_byte_offsets = std::move(source_byte_offsets);
         }
+        _source_byte_end_offsets.insert(_source_byte_end_offsets.end(),
+                                        source_byte_end_offsets.begin(),
+                                        source_byte_end_offsets.end());
         _subword_count++;
     }
 
@@ -134,7 +148,7 @@ public:
         _filter._attribute.buffered = _buffer;
         _filter._attribute.start_off = _start_offset;
         _filter._attribute.pos_inc = _filter.position(true);
-        _filter.set_attribute_source_byte_offsets(_source_byte_offsets);
+        _filter.set_attribute_source_byte_offsets(_source_byte_offsets, _source_byte_end_offsets);
         _filter._accum_pos_inc = 0;
     }
 
@@ -143,6 +157,7 @@ public:
     void clear() {
         _buffer.clear();
         _source_byte_offsets.clear();
+        _source_byte_end_offsets.clear();
         _start_offset = 0;
         _type = 0;
         _subword_count = 0;
@@ -162,6 +177,7 @@ private:
 
     std::string _buffer;
     std::vector<int32_t> _source_byte_offsets;
+    std::vector<int32_t> _source_byte_end_offsets;
 };
 
 } // namespace doris::segment_v2::inverted_index

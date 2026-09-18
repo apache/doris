@@ -312,25 +312,20 @@ TEST_F(PinyinFilterTest, TestKeywordAndStandardOffsetsComposeWithICUNormalizerAn
         filter_factory.initialize(settings);
         auto filter = filter_factory.create(tokenizer);
 
-        auto assert_offsets =
-                [&filter](const std::vector<std::tuple<std::string, int32_t, int32_t>>& expected) {
-                    Token token;
-                    for (const auto& [term, start, end] : expected) {
-                        ASSERT_NE(filter->next(&token), nullptr);
-                        EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()),
-                                  term);
-                        EXPECT_EQ(token.startOffset(), start);
-                        EXPECT_EQ(token.endOffset(), end);
-                    }
-                    EXPECT_EQ(filter->next(&token), nullptr);
-                };
-        assert_offsets({{"liu", 0, 9}, {"de", 9, 15}});
+        Token token;
+        assertToken(filter, &token, "liu", 0, 9);
+        assertToken(filter, &token, "de", 9, 15);
+        assertEndOfTokens(filter, &token);
 
         const std::string reset_text = "ＡＢＣＤ";
         reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
         tokenizer->set_reader(reader);
         filter->reset();
-        assert_offsets({{"a", 0, 3}, {"b", 3, 6}, {"c", 6, 9}, {"d", 9, 12}});
+        assertToken(filter, &token, "a", 0, 3);
+        assertToken(filter, &token, "b", 3, 6);
+        assertToken(filter, &token, "c", 6, 9);
+        assertToken(filter, &token, "d", 9, 12);
+        assertEndOfTokens(filter, &token);
     }
 }
 
@@ -638,6 +633,46 @@ TEST_F(PinyinFilterTest, TestWordDelimiterPreservesIKSourceOffsets) {
         EXPECT_EQ(token.endOffset(), end);
     }
     EXPECT_EQ(filter->next(&token), nullptr);
+}
+
+TEST_F(PinyinFilterTest, TestWordDelimiterConcatenationPreservesSourceGapsAndReset) {
+    for (const std::string option : {"catenate_words", "catenate_all"}) {
+        SCOPED_TRACE(option);
+        const std::string text = "liu-de";
+        auto tokenizer = createTokenizer("keyword", text);
+        Settings delimiter_settings;
+        delimiter_settings.set("generate_word_parts", "false");
+        delimiter_settings.set("generate_number_parts", "false");
+        delimiter_settings.set(option, "true");
+        WordDelimiterFilterFactory delimiter_factory;
+        delimiter_factory.initialize(delimiter_settings);
+        auto delimiter = delimiter_factory.create(tokenizer);
+
+        Settings pinyin_settings;
+        pinyin_settings.set("keep_first_letter", "false");
+        pinyin_settings.set("keep_full_pinyin", "false");
+        pinyin_settings.set("keep_original", "false");
+        pinyin_settings.set("keep_none_chinese", "true");
+        pinyin_settings.set("none_chinese_pinyin_tokenize", "true");
+        pinyin_settings.set("ignore_pinyin_offset", "false");
+        PinyinFilterFactory pinyin_factory;
+        pinyin_factory.initialize(pinyin_settings);
+        auto filter = pinyin_factory.create(delimiter);
+
+        Token token;
+        assertToken(filter, &token, "liu", 0, 3);
+        assertToken(filter, &token, "de", 4, 6);
+        assertEndOfTokens(filter, &token);
+
+        const std::string reset_text = "de--liu";
+        auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+        reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
+        tokenizer->set_reader(reader);
+        filter->reset();
+        assertToken(filter, &token, "de", 0, 2);
+        assertToken(filter, &token, "liu", 4, 7);
+        assertEndOfTokens(filter, &token);
+    }
 }
 
 TEST_F(PinyinFilterTest, TestWordDelimiterPreservesPlainTokenizerOffsetsAfterReset) {

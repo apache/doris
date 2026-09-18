@@ -196,7 +196,7 @@ std::string get_parser_dict_compression_from_properties(
 std::string get_analyzer_name_from_properties(const std::map<std::string, std::string>& properties);
 
 // Build an exact analyzer key from index properties.
-// Precedence is analyzer, normalizer, then parser type. A raw index uses "none".
+// Include IK mode/lowercase and effective outer character filters to distinguish physical readers.
 std::string build_analyzer_key_from_properties(
         const std::map<std::string, std::string>& properties);
 
@@ -204,7 +204,7 @@ std::string build_analyzer_key_from_properties(
 struct AnalyzerConfig {
     std::string provider_name;
     InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_NONE;
-    // Physical reader selection key from the Thrift analyzer name.
+    // Physical reader selection key from the Thrift analyzer configuration.
     // Empty allows fallback selection; non-empty requires an exact match.
     std::string analyzer_key;
 
@@ -219,7 +219,10 @@ public:
     // @param analyzer_name: Analyzer selection name from Thrift (custom, builtin, or empty).
     // @param parser_type_str: Parser type string like "chinese", "standard", etc.
     [[nodiscard]] static AnalyzerConfig parse(const std::string& analyzer_name,
-                                              const std::string& parser_type_str);
+                                              const std::string& parser_type_str,
+                                              const std::string& parser_mode = "",
+                                              bool lowercase = true,
+                                              const CharFilterMap& char_filter_map = {});
 
     // Use the writer's case-sensitive built-in dispatch.
     [[nodiscard]] static bool is_builtin_analyzer(const std::string& analyzer_name);
