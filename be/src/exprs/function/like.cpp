@@ -341,13 +341,44 @@ Status FunctionLikeBase::vector_equals_fn(const ColumnString& vals,
 Status FunctionLikeBase::constant_substring_fn(const LikeSearchState* state,
                                                const ColumnString& val, const StringRef& pattern,
                                                ColumnUInt8::Container& result) {
-    auto sz = val.size();
-    for (size_t i = 0; i < sz; i++) {
-        if (state->search_string_sv.size == 0) {
-            result[i] = true;
-            continue;
+    size_t needle_size = state->search_string_sv.size;
+    if (needle_size == 0) {
+        memset(result.data(), 1, result.size());
+        return Status::OK();
+    }
+
+    const auto& values = val.get_chars();
+    const auto& value_offsets = val.get_offsets();
+    // treat continuous multi string data as a long string data
+    const UInt8* begin = values.data();
+    const UInt8* end = begin + values.size();
+    const UInt8* pos = begin;
+
+    /// Current index in the array of strings.
+    size_t i = 0;
+
+    /// We will search for the next occurrence in all strings at once.
+    while (pos < end) {
+        // search return matched substring start offset
+        pos = (UInt8*)state->substring_pattern.search((char*)pos, end - pos);
+        if (pos >= end) {
+            break;
         }
-        result[i] = state->substring_pattern.search(val.get_data_at(i)) != -1;
+
+        /// Determine which index it refers to.
+        /// begin + value_offsets[i] is the start offset of string at i+1
+        while (i < value_offsets.size() && begin + value_offsets[i] < pos) {
+            ++i;
+        }
+
+        /// We check that the entry does not pass through the boundaries of strings.
+        if (pos + needle_size <= begin + value_offsets[i]) {
+            result[i] = 1;
+        }
+
+        // move to next string offset
+        pos = begin + value_offsets[i];
+        ++i;
     }
     return Status::OK();
 }
@@ -547,68 +578,17 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     vec_res.resize_fill(input_rows_count);
     auto* state = reinterpret_cast<LikeState*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
-    // for constant_substring_fn, use long run length search for performance
-    if (constant_substring_fn ==
-        *(state->function
-                  .target<doris::Status (*)(const LikeSearchState* state, const ColumnString&,
-                                            const StringRef&, ColumnUInt8::Container&)>())) {
-        RETURN_IF_ERROR(execute_substring(values->get_chars(), values->get_offsets(), vec_res,
-                                          &state->search_state));
+    const auto pattern_col = block.get_by_position(arguments[1]).column;
+    if (const auto* str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
+        RETURN_IF_ERROR(vector_non_const(*values, *str_patterns, vec_res, state, input_rows_count));
+    } else if (const auto* const_patterns = check_and_get_column<ColumnConst>(pattern_col.get())) {
+        const auto& pattern_val = const_patterns->get_data_at(0);
+        RETURN_IF_ERROR(vector_const(*values, &pattern_val, vec_res, state->function,
+                                     &state->search_state));
     } else {
-        const auto pattern_col = block.get_by_position(arguments[1]).column;
-        if (const auto* str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
-            RETURN_IF_ERROR(
-                    vector_non_const(*values, *str_patterns, vec_res, state, input_rows_count));
-        } else if (const auto* const_patterns =
-                           check_and_get_column<ColumnConst>(pattern_col.get())) {
-            const auto& pattern_val = const_patterns->get_data_at(0);
-            RETURN_IF_ERROR(vector_const(*values, &pattern_val, vec_res, state->function,
-                                         &state->search_state));
-        } else {
-            return Status::InternalError("Not supported input arguments types");
-        }
+        return Status::InternalError("Not supported input arguments types");
     }
     block.replace_by_position(result, std::move(res));
-    return Status::OK();
-}
-
-Status FunctionLikeBase::execute_substring(const ColumnString::Chars& values,
-                                           const ColumnString::Offsets& value_offsets,
-                                           ColumnUInt8::Container& result,
-                                           LikeSearchState* search_state) const {
-    // treat continuous multi string data as a long string data
-    const UInt8* begin = values.data();
-    const UInt8* end = begin + values.size();
-    const UInt8* pos = begin;
-
-    /// Current index in the array of strings.
-    size_t i = 0;
-    size_t needle_size = search_state->substring_pattern.get_pattern_length();
-
-    /// We will search for the next occurrence in all strings at once.
-    while (pos < end) {
-        // search return matched substring start offset
-        pos = (UInt8*)search_state->substring_pattern.search((char*)pos, end - pos);
-        if (pos >= end) {
-            break;
-        }
-
-        /// Determine which index it refers to.
-        /// begin + value_offsets[i] is the start offset of string at i+1
-        while (i < value_offsets.size() && begin + value_offsets[i] < pos) {
-            ++i;
-        }
-
-        /// We check that the entry does not pass through the boundaries of strings.
-        if (pos + needle_size <= begin + value_offsets[i]) {
-            result[i] = 1;
-        }
-
-        // move to next string offset
-        pos = begin + value_offsets[i];
-        ++i;
-    }
-
     return Status::OK();
 }
 
