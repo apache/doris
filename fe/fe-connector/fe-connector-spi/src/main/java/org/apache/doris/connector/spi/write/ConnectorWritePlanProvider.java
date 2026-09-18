@@ -43,6 +43,17 @@ import java.util.Set;
 public interface ConnectorWritePlanProvider {
 
     /**
+     * Validates connector-specific INSERT partition syntax before the unbound sink drops parser-only details.
+     *
+     * <p>The table-independent hook is intentionally invoked while creating the unbound sink: syntax such as
+     * {@code TEMPORARY PARTITION (...)} carries a flag that generic connector sinks do not otherwise need to
+     * retain. The default accepts every form.</p>
+     */
+    default void validateWritePartitionSyntax(boolean temporaryPartition, List<String> partitionNames) {
+        // default: no connector-specific syntax constraint
+    }
+
+    /**
      * Returns the statement-pinned data columns for a write target.
      *
      * <p>A connector whose remote schema can evolve concurrently may override this method to resolve the
