@@ -207,7 +207,9 @@ public class HboStructFreshness {
                     HboScanDescriptor.UNKNOWN);
         }
         String state = STATE_LIVE;
-        List<String> liveTexts = new ArrayList<>();
+        // the current state of every table, de duplicated like the recorded side (a self join reads
+        // the same table twice, which would only repeat the same numbers)
+        Set<String> liveTexts = new LinkedHashSet<>();
         long recordedRows = HboScanDescriptor.UNKNOWN;
         long liveRows = HboScanDescriptor.UNKNOWN;
         for (HboScanDescriptor recorded : recordedScans) {
