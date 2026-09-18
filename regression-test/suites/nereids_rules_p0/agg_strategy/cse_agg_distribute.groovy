@@ -52,7 +52,7 @@ suite("cse_agg_distribute") {
     // occurrences: SUM/MAX of each side).
     // ---------------------------------------------------------------------
     sql "set agg_phase=1"
-    sql "set enable_bucketed_hash_agg=false"
+    // branch-4.2 has no bucketed hash aggregate, so enable_bucketed_hash_agg does not exist here
     String joinQuery = """
         SELECT t1.grp, t1.s, t1.m, t2.s2, t2.m2 FROM
          (SELECT grp, SUM(a+b) s, MAX(a+b) m FROM cse_agg_distribute_tbl GROUP BY grp) t1
