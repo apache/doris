@@ -18,7 +18,6 @@
 
 #pragma once
 #include <atomic>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -92,18 +91,10 @@ public:
     /// Number of query spill directories whose deletion failed and is being retried.
     size_t pending_delete_dir_count();
 
-    /// Report the spill data currently held in object storage to meta-service now, with bounded
-    /// retries. Called on the shutdown path (doris_main after all tasks are done, and stop()) so
-    /// that meta-service sees the final size (normally 0) instead of the last periodic value;
-    /// safe to call more than once and from any thread.
-    void flush_remote_spill_stats() { _report_remote_spill_stats(true); }
-
-    using RemoteSpillReportFn = std::function<Status(int64_t backend_id, int64_t boot_id,
-                                                     int64_t report_seq, int64_t spill_bytes)>;
-    /// Test hooks: replace the meta-service RPC of the spill stats report and the heartbeat
-    /// interval, and run one reporting decision (what the GC thread does about once a minute).
-    void set_remote_spill_report_fn_for_test(RemoteSpillReportFn fn, int64_t heartbeat_ms);
-    void report_remote_spill_stats_for_test(bool final_report);
+    /// Bytes of spill data this process currently holds in object storage (bytes reserved for
+    /// parts still being uploaded included); 0 without a remote store. Served to the FEs through
+    /// get_be_resource, which every FE polls for SHOW DATA.
+    int64_t remote_spill_data_bytes();
 
 private:
     struct PendingQuerySpillDirectory {
@@ -124,9 +115,6 @@ private:
     /// Delete the data of one other boot generation; `done` is set when none is left. Bounded
     /// work per GC round: one listing of the boots directory and one generation.
     Status _remote_startup_cleanup(bool* done);
-    /// Send the current spill size to meta-service when it changed since the last successful
-    /// report, or when the heartbeat interval elapsed. `final_report` only affects logging.
-    void _report_remote_spill_stats(bool final_report);
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
     // Views of _spill_store_map by kind: a BE has either local stores or one remote store.
@@ -138,17 +126,6 @@ private:
     std::atomic<bool> _remote_boot_marker_pending {false};
     int64_t _remote_boot_marker_rounds = 0;
     int64_t _remote_not_ready_rounds = 0;
-    int64_t _remote_report_rounds = 0; // GC thread only
-
-    // Serialises reports between the GC thread and flush_remote_spill_stats(); guards the
-    // fields below. -1: nothing reported yet, so the first report always goes out and replaces
-    // whatever the previous process of this backend_id left behind.
-    std::mutex _remote_report_mutex;
-    int64_t _reported_remote_spill_bytes = -1;
-    int64_t _remote_last_report_ms = 0;
-    int64_t _remote_report_seq = 0;
-    int64_t _remote_report_heartbeat_ms = 3600LL * 1000;
-    RemoteSpillReportFn _remote_report_fn;
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;

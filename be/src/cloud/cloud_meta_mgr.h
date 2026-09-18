@@ -142,13 +142,6 @@ public:
     Status get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode,
                                   std::string* default_vault_id = nullptr);
 
-    /// Report the spill data this BE currently holds in object storage (SHOW DATA).
-    /// `report_seq` orders the reports of one boot on the meta-service side. Retries are bounded
-    /// (2 attempts): the caller re-reports periodically, and the final report on the shutdown
-    /// path must not stall the exit.
-    Status report_spill_stats(int64_t backend_id, int64_t boot_id, int64_t report_seq,
-                              int64_t remote_spill_bytes);
-
     Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res);
 
     Status commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJobResponse* res);

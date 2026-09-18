@@ -1131,11 +1131,6 @@ int InstanceRecycler::recycle_deleted_instance_metadata() {
     std::string start_stats_tablet_key = stats_tablet_key({instance_id_, 0, 0, 0, 0});
     std::string end_stats_tablet_key = stats_tablet_key({instance_id_, INT64_MAX, 0, 0, 0});
     txn->remove(start_stats_tablet_key, end_stats_tablet_key);
-    // Spill traffic records (SHOW DATA billing input) live under their own infix.
-    std::string start_stats_spill_key = stats_spill_key_prefix(instance_id_);
-    std::string end_stats_spill_key = start_stats_spill_key;
-    end_stats_spill_key.push_back('\xff');
-    txn->remove(start_stats_spill_key, end_stats_spill_key);
     std::string start_copy_key = copy_key_prefix(instance_id_);
     std::string end_copy_key = copy_key_prefix(instance_id_ + '\x00');
     txn->remove(start_copy_key, end_copy_key);
