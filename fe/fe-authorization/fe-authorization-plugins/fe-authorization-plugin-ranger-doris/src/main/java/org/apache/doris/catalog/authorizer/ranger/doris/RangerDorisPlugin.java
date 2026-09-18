@@ -17,10 +17,14 @@
 
 package org.apache.doris.catalog.authorizer.ranger.doris;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 public class RangerDorisPlugin extends RangerBasePlugin {
+    private static final Logger LOG = LogManager.getLogger(RangerDorisPlugin.class);
+
     public RangerDorisPlugin(String serviceName) {
         this(serviceName, null);
     }
@@ -28,6 +32,11 @@ public class RangerDorisPlugin extends RangerBasePlugin {
     public RangerDorisPlugin(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
         super(serviceName, null, null);
         super.init();
+        if (getConfig() != null && !getConfig().isUseRangerGroups()) {
+            LOG.info("Ranger UserStore groups are downloaded but not evaluated. Set "
+                    + "ranger.plugin.doris.use.rangerGroups=true in ranger-doris-security.xml to "
+                    + "enable group-based policies, row filters, and column masks.");
+        }
         super.registerAuthContextEventListener(rangerAuthContextListener);
     }
 }
