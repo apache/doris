@@ -62,7 +62,7 @@ echo "Script iceberg total: {} executed in $EXECUTION_TIME1 seconds"
 START_TIME2=$(date +%s)
 find /mnt/scripts/create_preinstalled_scripts/paimon -name '*.sql' | sort | sed 's|^|source |' | sed 's|$|;|'> paimon_total.sql
 spark-sql --master  "${SPARK_MASTER_URL}" \
-          --conf spark.default.parallelism=2 \
+          --conf spark.default.parallelism=8 \
           --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions \
           -f paimon_total.sql
 END_TIME2=$(date +%s)
