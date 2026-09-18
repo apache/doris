@@ -1086,6 +1086,9 @@ message CommitTxnRequest {
     optional string request_ip = 12;
     optional int64 commit_tso = 13;
     repeated TableStreamUpdatePB table_stream_updates = 14;
+    // Distinct partitions reported by BE, across all sub-transactions. Omit if unknown.
+    // MS omits version results on mismatch so FE invalidates its version caches.
+    optional int64 num_partitions = 16;
 }
 
 message SubTxnInfo {

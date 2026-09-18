@@ -795,10 +795,26 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
 
+        List<Long> tabletIds = tabletCommitInfos == null ? Collections.emptyList()
+                : tabletCommitInfos.stream().map(TabletCommitInfo::getTabletId).distinct().collect(Collectors.toList());
+        if (tabletCommitInfos != null) {
+            setCommitPartitionCount(builder, tabletIds);
+        }
         final CommitTxnRequest commitTxnRequest = builder.build();
-        executeCommitTxnRequest(commitTxnRequest, transactionId, is2PC, txnCommitAttachment, tabletCommitInfos,
-                tabletCommitInfos == null ? Collections.emptyList()
-                        : tabletCommitInfos.stream().map(t -> t.getTabletId()).collect(Collectors.toList()));
+        executeCommitTxnRequest(commitTxnRequest, transactionId, is2PC, txnCommitAttachment,
+                tabletCommitInfos, tabletIds);
+    }
+
+    private void setCommitPartitionCount(CommitTxnRequest.Builder builder, List<Long> tabletIds) {
+        Set<Long> partitionIds = new HashSet<>();
+        for (TabletMeta tabletMeta : Env.getCurrentEnv().getTabletInvertedIndex().getTabletMetaList(tabletIds)) {
+            if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
+                // Dropped tablets make the partition count unknown.
+                return;
+            }
+            partitionIds.add(tabletMeta.getPartitionId());
+        }
+        builder.setNumPartitions(partitionIds.size());
     }
 
     private void executeCommitTxnRequest(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC,
@@ -1732,8 +1748,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
 
+        List<Long> distinctTabletIds = new ArrayList<>(tabletIds);
+        setCommitPartitionCount(builder, distinctTabletIds);
         final CommitTxnRequest commitTxnRequest = builder.build();
-        executeCommitTxnRequest(commitTxnRequest, transactionId, false, null, null, new ArrayList<>(tabletIds));
+        executeCommitTxnRequest(commitTxnRequest, transactionId, false, null, null, distinctTabletIds);
     }
 
     private List<Table> getTablesNeedCommitLock(List<Table> tableList) {
