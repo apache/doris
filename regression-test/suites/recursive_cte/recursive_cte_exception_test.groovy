@@ -212,5 +212,69 @@ suite("exception_test", "rec_cte") {
         exception "does not exist"
     }
 
+    test {
+        sql """WITH RECURSIVE
+                u AS (SELECT uuid() AS v),
+                r(n) AS (
+                    SELECT CAST(1 AS INT)
+                    UNION ALL
+                    SELECT CAST(n + 1 AS INT)
+                    FROM r
+                    JOIN u u1 ON TRUE
+                    JOIN u u2 ON TRUE
+                    WHERE n < 2 AND u1.v = u2.v
+                )
+                SELECT n FROM r ORDER BY n;"""
+        exception "inline is blocked"
+    }
 
+    // the volatile CTE is only a transitive dependency of the CTE used by the recursive child:
+    // v is inlined into the recursive side, so u has to be inlined as well
+    test {
+        sql """WITH RECURSIVE
+                u AS (SELECT random() AS x),
+                v AS (SELECT x FROM u),
+                r(n) AS (
+                    SELECT CAST(1 AS INT)
+                    UNION ALL
+                    SELECT CAST(n + 1 AS INT)
+                    FROM r
+                    JOIN v ON TRUE
+                    WHERE n < 2
+                )
+                SELECT n FROM r ORDER BY n;"""
+        exception "inline is blocked"
+    }
+
+    // the volatile CTE is consumed inside a subquery of the recursive child, unnesting keeps the
+    // consumer below the recursive side, so the CTE has to be inlined as well
+    test {
+        sql """WITH RECURSIVE
+                u AS (SELECT uuid() AS v),
+                r(n) AS (
+                    SELECT CAST(1 AS INT)
+                    UNION ALL
+                    SELECT CAST(n + 1 AS INT)
+                    FROM r
+                    WHERE n < 2 AND EXISTS (SELECT 1 FROM u WHERE u.v IS NOT NULL)
+                )
+                SELECT n FROM r ORDER BY n;"""
+        exception "inline is blocked"
+    }
+
+    // the volatile CTE is consumed by a nested CTE inside the recursive child
+    test {
+        sql """WITH RECURSIVE
+                u AS (SELECT uuid() AS v),
+                r(n) AS (
+                    SELECT CAST(1 AS INT)
+                    UNION ALL
+                    SELECT CAST(n + 1 AS INT)
+                    FROM r
+                    JOIN (WITH w AS (SELECT v FROM u) SELECT COUNT(*) AS c FROM w) t ON t.c = 1
+                    WHERE n < 2
+                )
+                SELECT n FROM r ORDER BY n;"""
+        exception "inline is blocked"
+    }
 }

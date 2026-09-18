@@ -357,6 +357,11 @@ public class StatementContext implements Closeable {
     private boolean queryStatsRecorded = false;
 
     private final Set<CTEId> mustInlineCTE = new HashSet<>();
+    // CTEs referenced by a recursive child which contain volatile expressions: they can neither stay
+    // materialized (the recursive child is reset and re-executed on every iteration) nor be inlined
+    // (the volatile expression would be evaluated once per iteration and once per reference). The
+    // decision is deferred until the recursive child is simplified, see CheckMustInlineVolatileCTE.
+    private final Set<CTEId> deferredInlineVolatileCTEs = new HashSet<>();
     private final Set<String> usedAIResourceNames = new LinkedHashSet<>();
     private final Set<TableNameInfo> excludedTriggerTables = new HashSet<>();
 
@@ -1638,12 +1643,16 @@ public class StatementContext implements Closeable {
         this.hasNestedColumns = hasNestedColumns;
     }
 
-    public void addToMustLineCTEs(CTEId cteId) {
-        mustInlineCTE.add(cteId);
-    }
-
     public Set<CTEId> getMustInlineCTEs() {
         return mustInlineCTE;
+    }
+
+    public void addDeferredInlineVolatileCTE(CTEId cteId) {
+        deferredInlineVolatileCTEs.add(cteId);
+    }
+
+    public Set<CTEId> getDeferredInlineVolatileCTEs() {
+        return deferredInlineVolatileCTEs;
     }
 
     public void addForceMaterializeCTE(CTEId cteId) {

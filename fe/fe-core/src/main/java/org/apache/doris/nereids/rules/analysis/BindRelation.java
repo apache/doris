@@ -195,10 +195,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     leading.putRelationIdAndTableName(Pair.of(consumer.getRelationId(), tableName));
                     leading.getRelationIdToScanMap().put(consumer.getRelationId(), consumer);
                 }
-                if (cascadesContext.getRecursiveCteContext().isPresent()) {
-                    // we are analyzing recursive CTE's recursive child, must inline all used CTEs
-                    cascadesContext.getStatementContext().addToMustLineCTEs(cteContext.getCteId());
-                }
                 return consumer;
             }
         }
