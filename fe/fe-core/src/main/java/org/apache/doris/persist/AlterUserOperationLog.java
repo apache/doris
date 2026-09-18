@@ -72,7 +72,11 @@ public class AlterUserOperationLog implements Writable {
      * policy update returns early and no password is journaled), whereas an
      * unknown AlterUserOpType name would deserialize as null and fail replay,
      * and an OP_SET_PASSWORD carrier would append the primary to the password
-     * history and refresh the password creation time.
+     * history and refresh the password creation time. The one side effect a
+     * pre-feature binary keeps is PasswordPolicyManager.getOrCreatePolicy
+     * inserting a default PasswordPolicy for a user that had none - the same
+     * row its next login check would create - so the carrier is a no-op for
+     * the policy values, not strictly for the policy table.
      */
     public static AlterUserOperationLog discardOldPassword(UserIdentity userIdent) {
         AlterUserOperationLog log = new AlterUserOperationLog(AlterUserOpType.SET_PASSWORD_POLICY, userIdent,

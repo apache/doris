@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.proc.AuthProcDir;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
@@ -158,15 +159,13 @@ public class DualPasswordTest {
         auth.setPasswordInternal(user, MysqlPassword.makeScrambledPassword("p5"), null,
                 true, false, true /* retain */, false);
         Assertions.assertTrue(canLogin("rot", "p4"));
-        auth.replayAlterUser(new AlterUserOperationLog(AlterUserOpType.DISCARD_OLD_PASSWORD,
-                user, null, null, PasswordOptions.UNSET_OPTION, null));
+        auth.replayAlterUser(AlterUserOperationLog.discardOldPassword(user));
         Assertions.assertTrue(canLogin("rot", "p5"));
         Assertions.assertFalse(canLogin("rot", "p4"));
 
         // DISCARD with no secondary present: silent no-op (MySQL: discards
         // the secondary password, "if one exists")
-        auth.replayAlterUser(new AlterUserOperationLog(AlterUserOpType.DISCARD_OLD_PASSWORD,
-                user, null, null, PasswordOptions.UNSET_OPTION, null));
+        auth.replayAlterUser(AlterUserOperationLog.discardOldPassword(user));
         Assertions.assertTrue(canLogin("rot", "p5"));
     }
 
@@ -573,5 +572,32 @@ public class DualPasswordTest {
         // the retained password survives the refresh
         Assertions.assertTrue(canLogin("domuser", "p1"));
         Assertions.assertFalse(canLogin("domuser", "p0"));
+    }
+
+    @Test
+    public void testShowGrantsPasswordColumnTellsRetainedApart() throws DdlException {
+        // the auditing half of the privilege gate on the clauses: an
+        // administrator can list the accounts whose previous password still
+        // authenticates, instead of reading the audit log for RETAIN clauses
+        UserIdentity user = createUser("col");
+        ctxFor(user);
+        Assertions.assertEquals("No", passwordColumnOf(user));
+        auth.setPassword(user, MysqlPassword.makeScrambledPassword("p1"));
+        Assertions.assertEquals("Yes", passwordColumnOf(user));
+        auth.setPasswordInternal(user, MysqlPassword.makeScrambledPassword("p2"), null,
+                true, false, true /* retain */, false);
+        Assertions.assertEquals("Yes (dual)", passwordColumnOf(user));
+        // a plain change keeps the secondary, and with it the marker
+        auth.setPasswordInternal(user, MysqlPassword.makeScrambledPassword("p3"), null,
+                true, false, false /* no retain */, false);
+        Assertions.assertEquals("Yes (dual)", passwordColumnOf(user));
+        auth.replayAlterUser(AlterUserOperationLog.discardOldPassword(user));
+        Assertions.assertEquals("Yes", passwordColumnOf(user));
+    }
+
+    private String passwordColumnOf(UserIdentity user) {
+        List<List<String>> rows = auth.getAuthInfo(user);
+        Assertions.assertEquals(1, rows.size());
+        return rows.get(0).get(AuthProcDir.TITLE_NAMES.indexOf("Password"));
     }
 }

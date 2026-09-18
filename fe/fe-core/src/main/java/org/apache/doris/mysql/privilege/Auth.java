@@ -1463,6 +1463,18 @@ public class Auth implements Writable {
         return userAuthInfos;
     }
 
+    /**
+     * The Password column of SHOW ALL GRANTS and SHOW PROC '/auth': "Yes (dual)" while the account also holds
+     * a retained secondary password (RETAIN CURRENT PASSWORD), so an administrator can list every account whose
+     * previous password still authenticates without reading the audit log for RETAIN clauses.
+     */
+    private static String passwordColumnOf(User user) {
+        if (!user.hasPassword()) {
+            return "No";
+        }
+        return user.hasSecondaryPassword() ? "Yes (dual)" : "Yes";
+    }
+
     private void getUserAuthInfo(List<List<String>> userAuthInfos, UserIdentity userIdent) {
         // AuthProcDir.TITLE_NAMES
         List<String> userAuthInfo = Lists.newArrayList();
@@ -1493,7 +1505,7 @@ public class Auth implements Writable {
                 // ============== Comment ==============
                 userAuthInfo.add(user.getComment());
                 // ============== Password ==============
-                userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
+                userAuthInfo.add(passwordColumnOf(user));
                 // ============== RequireSan ==============
                 userAuthInfo.add(requireSan);
                 // ============== Roles ==============
@@ -2028,8 +2040,11 @@ public class Auth implements Writable {
                     break;
                 case DISCARD_OLD_PASSWORD:
                     // MySQL-compatible "ALTER USER ... DISCARD OLD PASSWORD":
-                    // evict the retained secondary password early. Journals
-                    // its own OP_ALTER_USER entry (see discardOldPasswordInternal).
+                    // drop the retained secondary password now rather than at
+                    // the next password change (a domain account's resolved-IP
+                    // entries follow at the next resolver refresh, see
+                    // UserManager.discardOldPassword). Journals its own
+                    // OP_ALTER_USER entry (see discardOldPasswordInternal).
                     discardOldPasswordInternal(userIdent, isReplay);
                     break;
                 case SET_ROLE:

@@ -143,17 +143,17 @@ suite("test_dual_password", "account,nonConcurrent") {
 
     // 10. password expiration: a retaining change restarts the expiry
     //     clock (it is a password change); DISCARD does not touch it
-    sql "ALTER USER '${user}'@'%' PASSWORD_EXPIRE INTERVAL 8 SECOND"
+    sql "ALTER USER '${user}'@'%' PASSWORD_EXPIRE INTERVAL 16 SECOND"
     sql "ALTER USER '${user}'@'%' IDENTIFIED BY 'e1' RETAIN CURRENT PASSWORD"
     assertTrue(canLogin("e1"))
     assertTrue(canLogin("h3"))
-    sleep(5000)
+    sleep(10000)
     sql "ALTER USER '${user}'@'%' DISCARD OLD PASSWORD"
     assertTrue(canLogin("e1"))
     assertFalse(canLogin("h3"))
-    sleep(4000)
-    // >8s since the last password change: expired, although the discard
-    // happened only 4s ago
+    sleep(8000)
+    // >16s since the last password change: expired, although the discard
+    // happened only 8s ago
     assertFalse(canLogin("e1"))
     sql "ALTER USER '${user}'@'%' IDENTIFIED BY 'e2' RETAIN CURRENT PASSWORD"
     assertTrue(canLogin("e2"))
@@ -167,7 +167,24 @@ suite("test_dual_password", "account,nonConcurrent") {
     assertFalse(createStmt.contains("RETAIN"))
     assertFalse(createStmt.contains("DISCARD"))
 
-    // 12. DISCARD and OLD stay usable as identifiers
+    // 12. the Password column of SHOW GRANTS tells an account that holds a
+    //     retained secondary apart ("Yes (dual)"), so an administrator can
+    //     find every account whose previous password still authenticates
+    def passwordColumn = {
+        def grants = sql "SHOW GRANTS FOR '${user}'@'%'"
+        assertEquals(1, grants.size())
+        return grants[0][2] // UserIdentity, Comment, Password, ...
+    }
+    sql "ALTER USER '${user}'@'%' DISCARD OLD PASSWORD"
+    assertEquals("Yes", passwordColumn())
+    sql "ALTER USER '${user}'@'%' IDENTIFIED BY 'c1' RETAIN CURRENT PASSWORD"
+    assertEquals("Yes (dual)", passwordColumn())
+    sql "ALTER USER '${user}'@'%' IDENTIFIED BY 'c2'"
+    assertEquals("Yes (dual)", passwordColumn())
+    sql "ALTER USER '${user}'@'%' DISCARD OLD PASSWORD"
+    assertEquals("Yes", passwordColumn())
+
+    // 13. DISCARD and OLD stay usable as identifiers
     sql "DROP TABLE IF EXISTS test_dual_password_tbl"
     sql """CREATE TABLE test_dual_password_tbl (old INT, discard INT) DISTRIBUTED BY HASH(old) BUCKETS 1
             PROPERTIES ("replication_num" = "1")"""

@@ -247,15 +247,19 @@ public class UserManager implements Writable {
 
     /**
      * Report an authentication that succeeded via the retained secondary
-     * password (log + metric), so operators can tell when all consumers have
-     * converged on the new password. Call only after the account passed
-     * lock/expiration policy.
+     * password, so operators can tell when all consumers have converged on
+     * the new password: the metric carries the count, and a DEBUG line names
+     * the account (at INFO this would be one line per reconnect of every
+     * consumer still on the old password). Call only after the account
+     * passed lock/expiration policy.
      */
     private void reportSecondaryPasswordAuth(int matchedSlot, String userDescription) {
         if (matchedSlot != MATCH_SECONDARY) {
             return;
         }
-        LOG.info("user {} authenticated with retained secondary password", userDescription);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("user {} authenticated with retained secondary password", userDescription);
+        }
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_SECONDARY_PASSWORD_AUTH.increase(1L);
         }
@@ -462,6 +466,17 @@ public class UserManager implements Writable {
      * MySQL-compatible "ALTER USER ... DISCARD OLD PASSWORD": drop the
      * retained secondary password. A user without one is a silent no-op
      * (MySQL behavior).
+     *
+     * <p>Swaps in a new {@link Password} holding the primary alone instead of
+     * clearing the slot in place, so that, like a password change, it never
+     * mutates a Password object authentication may be reading:
+     * matchUserPassword compares against one snapshot per generation.
+     *
+     * <p>A domain account ({@code u@['example.com']}) is cleared here in its
+     * domain entry only; the resolved-IP entries the DomainResolver derives
+     * from it keep their copy until its next refresh (10 s) rebuilds them, so
+     * the discarded password stays valid for up to that long - the same lag a
+     * plain password change on a domain account has.
      */
     public void discardOldPassword(UserIdentity userIdentity, boolean errOnNonExist) throws DdlException {
         User user = getUserByUserIdentity(userIdentity);
@@ -471,8 +486,9 @@ public class UserManager implements Writable {
             }
             return;
         }
-        if (user.getPassword() != null) {
-            user.getPassword().setSecondaryPassword(null);
+        Password current = user.getPassword();
+        if (current != null && current.hasSecondaryPassword()) {
+            user.setPassword(new Password(current.getPassword()));
         }
     }
 
