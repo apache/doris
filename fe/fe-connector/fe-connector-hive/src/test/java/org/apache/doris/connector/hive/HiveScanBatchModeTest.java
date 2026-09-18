@@ -116,14 +116,51 @@ public class HiveScanBatchModeTest {
         Assertions.assertFalse(provider.supportsBatchScan(new FakeSession(), handle));
     }
 
+    @Test
+    public void supportsBatchScanIsTrueForConnectorFilteredTable() {
+        HiveScanPlanProvider provider = provider(null, new CountingLister());
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .build();
+
+        Assertions.assertTrue(provider.supportsBatchScan(new FakeSession(), handle));
+    }
+
     // ==================== planScanForPartitionBatch: scoped to the batch, no duplication ====================
+
+    @Test
+    public void planScanForPartitionBatchFallsBackWhenTheRetainedMapCoversFewerNames() {
+        // The retained native map holds what THIS scan's physical predicate admitted, which can be narrower than
+        // the logical selection a batch carries: the connector converter declines CAST(p AS INT) = 1 while the
+        // physical converter strips it to p = '1', so the typed logical prune may select p=1 AND p=01. The batch
+        // must fall back to resolving its names (one consistent generation) instead of rejecting p=01.
+        CountingLister lister = new CountingLister();
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .prunedPartitionsByName(Collections.singletonMap(
+                        "year=2024/month=01", part("year=2024/month=01")))
+                .build();
+
+        List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(new FakeSession(),
+                ConnectorScanRequest.builder(handle, Collections.<ConnectorColumnHandle>emptyList()).build(),
+                Arrays.asList("year=2024/month=01", "year=2024/month=02"));
+
+        Assertions.assertEquals(2, ranges.size(), "both logically selected partitions must be read");
+        Assertions.assertEquals(1, (int) lister.callsPerLocation.get("year=2024/month=01"));
+        Assertions.assertEquals(1, (int) lister.callsPerLocation.get("year=2024/month=02"));
+    }
 
     @Test
     public void planScanForPartitionBatchResolvesOnlyTheBatch() {
         CountingLister lister = new CountingLister();
         // getPartitions echoes each requested name back as a partition whose location IS the name, so the counting
         // lister's keys are the partition names actually resolved for this batch.
-        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveScanPlanProvider provider = provider(null, lister);
 
         // The handle carries the FULL pruned set (all three partitions). If the batch hook were NOT scoped to the
         // batch (SPI default -> whole-pruned-set planScan), all three would be listed -> 3 ranges.
@@ -135,6 +172,10 @@ public class HiveScanBatchModeTest {
                         part("year=2023/month=12"),
                         part("year=2024/month=01"),
                         part("year=2024/month=02")))
+                .prunedPartitionsByName(Map.of(
+                        "year=2023/month=12", part("year=2023/month=12"),
+                        "year=2024/month=01", part("year=2024/month=01"),
+                        "year=2024/month=02", part("year=2024/month=02")))
                 .build();
 
         List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(new FakeSession(),

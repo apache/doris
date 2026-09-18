@@ -434,6 +434,11 @@ public class NereidsPlanner extends Planner {
                         preloadResult.getCandidateTableCount());
             }
         }
+        // A deferred (connector-pruning) file scan is enumerated by the MV partition collector, which runs from
+        // afterRewrite - i.e. after lock(). Warm that view here so it is resolved before the internal read locks
+        // are taken. The preload rule above warms it too when its session variable is enabled; this call is the
+        // unconditional one, so the default configuration gets the same lock scope.
+        statementContext.preloadDeferredScanPartitionViewsBeforeLock();
         if (waitForChangeVisible) {
             waitForTimeBasedChangeVisibleBeforeLock();
         }

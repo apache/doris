@@ -21,7 +21,6 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
@@ -58,13 +57,13 @@ import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -107,6 +106,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     public PluginDrivenMvccExternalTable(long id, String name, String remoteName,
             ExternalCatalog catalog, ExternalDatabase db) {
         super(id, name, remoteName, catalog, db);
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
+        return supportsConnectorPartitionPruning();
     }
 
     // ──────────────────── snapshot materialization ────────────────────
@@ -165,6 +169,16 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         // An empty (no-snapshot) connector still pins: fall back to a snapshot id of -1.
         ConnectorMvccSnapshot connectorSnapshot = existingFence.orElseGet(
                 () -> metadata.beginQuerySnapshot(session, handle).orElseGet(this::emptySnapshot));
+
+        // A connector that can materialize a partition predicate remotely must not populate the latest
+        // snapshot with every partition before Nereids has supplied that predicate. Plain Hive reaches this
+        // MVCC table class because the catalog also serves snapshot-capable sibling formats, but its latest
+        // pin is deliberately not a data snapshot and applySnapshot is a no-op. Keep only that lightweight
+        // query-begin pin here; PruneFileScanPartition will request the selected partition view later.
+        if (supportsConnectorPartitionPruning()) {
+            return new PluginDrivenMvccSnapshot(connectorSnapshot,
+                    Collections.emptyMap(), Collections.emptyMap());
+        }
 
         // Range-view path (e.g. iceberg): thread the query's pin onto the handle FIRST (applySnapshot), so
         // the partition/freshness enumeration stays consistent with the data-scan pin, then ask the connector
@@ -343,44 +357,6 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     private ConnectorMvccSnapshot emptySnapshot() {
         return ConnectorMvccSnapshot.builder().snapshotId(-1L).build();
-    }
-
-    /**
-     * Builds a {@link ListPartitionItem} from a RENDERED partition name (e.g. {@code "dt=2024-01-01"}) and the
-     * connector-supplied per-value SQL-NULL flags. Source-agnostic: the connector — not fe-core — decides which
-     * values are genuine NULL.
-     *
-     * <p>Each parsed value {@code i} builds {@code new PartitionValue(value, nullFlags.get(i))}. A connector that
-     * renders a genuine-NULL partition value (hive's {@code __HIVE_DEFAULT_PARTITION__}, paimon's
-     * {@code partition.default-name}) supplies {@code true} for that position, so
-     * {@link PartitionKey#createListPartitionKeyWithTypes} emits a typed {@code NullLiteral} instead of parsing
-     * the sentinel string into the column type — which for a non-string column (INT/DATE/...) would throw and
-     * silently drop the partition (table then mis-reported UNPARTITIONED, {@code partition=0/0}). The genuine-null
-     * partition then prunes on {@code col IS NULL} and an MTMV refresh materializes its null rows. A connector
-     * that supplies no flags ({@code nullFlags} empty) treats every value as non-null — unchanged behavior for
-     * connectors that do not opt in. {@code fe-core} never string-compares a sentinel (iron rule): hive and paimon
-     * render the identical {@code __HIVE_DEFAULT_PARTITION__} string with connector-specific NULL semantics, so
-     * nullness must be connector-supplied.
-     */
-    private static ListPartitionItem toListPartitionItem(String partitionName, List<Type> types,
-            List<String> connectorValues, List<Boolean> nullFlags) throws AnalysisException {
-        // The connector supplies the already-parsed values in name-segment order (hive/paimon/iceberg/hudi).
-        // There is no name-parsing fallback anymore. This size check is LOAD-BEARING, not defensive: it is
-        // what turns a heterogeneous-arity partition (legitimate under iceberg partition spec evolution)
-        // into the skip -> UNPARTITIONED degrade. The caller relies on it throwing INSIDE its try/catch.
-        List<String> partitionValues = connectorValues;
-        Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
-        // Fail loud: a connector that opts in MUST supply one flag per value; a short list would silently
-        // default the tail to isNull=false and re-introduce the drop bug. Empty = not opted in = OK.
-        Preconditions.checkState(nullFlags.isEmpty() || nullFlags.size() == types.size(),
-                "nullFlags " + nullFlags + " vs. " + types);
-        List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
-        for (int i = 0; i < partitionValues.size(); i++) {
-            boolean isNull = i < nullFlags.size() && nullFlags.get(i);
-            values.add(new PartitionValue(partitionValues.get(i), isNull));
-        }
-        PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
-        return new ListPartitionItem(Lists.newArrayList(key));
     }
 
     // ──────────────────── MvccTable ────────────────────
@@ -714,7 +690,67 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+        if (supportsConnectorPartitionPruning()) {
+            PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+            if (!pin.getNameToPartitionItem().isEmpty()) {
+                return pin.getNameToPartitionItem();
+            }
+            // The latest Hive query pin intentionally carries no partition map so selective scans can send a
+            // predicate to HMS first. Consumers that explicitly ask for a partition map (MTMV alignment,
+            // no-filter scan finalization, and a connector-declined pruning fallback) require the real full
+            // view instead of treating that query-only pin as an empty table.
+            return super.getNameToPartitionItems(snapshot);
+        }
         return getOrMaterialize(snapshot).getNameToPartitionItem();
+    }
+
+    @Override
+    public Optional<Map<String, PartitionItem>> getNameToPartitionItemsForScan(Optional<MvccSnapshot> snapshot) {
+        if (supportsConnectorPartitionPruning()) {
+            PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+            if (!pin.getNameToPartitionItem().isEmpty()) {
+                // This statement's pin already carries a materialized view: reuse it instead of paying another
+                // connector round-trip that could observe a different remote generation.
+                return Optional.of(pin.getNameToPartitionItem());
+            }
+        }
+        return super.getNameToPartitionItemsForScan(snapshot);
+    }
+
+    /**
+     * Threads this statement's MVCC pin onto the handle the partition view is enumerated from, so a
+     * time-travel / {@code @options} query never prunes against the latest generation: the data scan reads the
+     * pinned snapshot, and a latest view can be missing (or contain) partitions it will never read.
+     */
+    @Override
+    protected ConnectorTableHandle pinPartitionViewHandle(ConnectorTableHandle handle,
+            ConnectorMetadata metadata, ConnectorSession session, Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
+            return metadata.applySnapshot(session, handle,
+                    ((PluginDrivenMvccSnapshot) snapshot.get()).getConnectorSnapshot());
+        }
+        return handle;
+    }
+
+    /**
+     * Materializes the complete partition view for an MTMV refresh before it acquires base-table locks.
+     * The lightweight Hive query pin keeps the connector snapshot/freshness kind but deliberately omits the
+     * partition map; MTMV alignment needs that map and must not load it while holding internal table locks.
+     */
+    public MvccSnapshot materializePartitionViewForMtmv(MvccSnapshot snapshot) {
+        if (!supportsConnectorPartitionPruning() || !(snapshot instanceof PluginDrivenMvccSnapshot)) {
+            return snapshot;
+        }
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) snapshot;
+        if (!pin.getNameToPartitionItem().isEmpty()) {
+            return pin;
+        }
+        Map<String, PartitionItem> partitionItems = super.getNameToPartitionItems(Optional.of(pin));
+        Map<String, Long> partitionLastModified = new HashMap<>();
+        for (String partitionName : partitionItems.keySet()) {
+            partitionLastModified.put(partitionName, ConnectorPartitionInfo.UNKNOWN);
+        }
+        return new PluginDrivenMvccSnapshot(pin.getConnectorSnapshot(), partitionItems, partitionLastModified);
     }
 
     @Override
@@ -812,6 +848,13 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot) throws AnalysisException {
         PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        if (supportsConnectorPartitionPruning() && pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+            OptionalLong onDemand = queryPartitionFreshnessMillis(partitionName);
+            if (!onDemand.isPresent()) {
+                throw new AnalysisException("can not find partition: " + partitionName);
+            }
+            return new MTMVTimestampSnapshot(onDemand.getAsLong());
+        }
         Long value = pin.getNameToLastModifiedMillis().get(partitionName);
         if (value == null) {
             throw new AnalysisException("can not find partition: " + partitionName);
@@ -847,9 +890,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
         Map<String, MTMVSnapshotIf> snapshots = new LinkedHashMap<>();
         if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
-            List<String> existingPartitionNames = partitionNames.stream()
-                    .filter(pin.getNameToLastModifiedMillis()::containsKey)
-                    .collect(Collectors.toList());
+            List<String> existingPartitionNames = supportsConnectorPartitionPruning()
+                    ? new ArrayList<>(partitionNames)
+                    : partitionNames.stream().filter(pin.getNameToLastModifiedMillis()::containsKey)
+                            .collect(Collectors.toList());
             Map<String, Long> freshness = queryPartitionFreshnessMillis(existingPartitionNames);
             for (String partitionName : partitionNames) {
                 Long value = freshness.get(partitionName);
