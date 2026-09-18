@@ -54,10 +54,15 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
 
     public VectorSearchTableValuedFunction(Map<String, String> properties)
             throws AnalysisException {
-        super(prepare(properties));
+        this(properties, false);
     }
 
-    private static PreparedSearch prepare(Map<String, String> properties)
+    public VectorSearchTableValuedFunction(Map<String, String> properties, boolean deferQueryVector)
+            throws AnalysisException {
+        super(prepare(properties, deferQueryVector));
+    }
+
+    private static PreparedSearch prepare(Map<String, String> properties, boolean deferQueryVector)
             throws AnalysisException {
         Map<String, String> params = normalizeProperties(properties, PROPERTIES, NAME);
         boolean useIndex = !params.containsKey(USE_INDEX)
@@ -69,8 +74,14 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
                 common.metadata().getSchema(), required(params, COLUMN, NAME));
         int vectorFieldId = useIndex
                 ? requireLanceFieldId(common.metadata(), vectorField) : -1;
-        TSearchVector queryVector = LanceVectorQuery.parseAndEncodeQueryVector(
-                vectorField, required(params, QUERY_VECTOR, NAME));
+        // PREPARE needs the table schema, but the vector is supplied only at EXECUTE.
+        TSearchVector queryVector = null;
+        if (deferQueryVector) {
+            LanceVectorQuery.validateVectorField(vectorField);
+        } else {
+            queryVector = LanceVectorQuery.parseAndEncodeQueryVector(
+                    vectorField, required(params, QUERY_VECTOR, NAME));
+        }
 
         TVectorSearchParams vectorParams = new TVectorSearchParams()
                 .setColumn(vectorField.getName())

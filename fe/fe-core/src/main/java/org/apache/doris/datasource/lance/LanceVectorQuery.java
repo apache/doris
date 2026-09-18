@@ -76,6 +76,10 @@ public final class LanceVectorQuery {
                 .setValues(encodedValues);
     }
 
+    public static void validateVectorField(Field field) throws AnalysisException {
+        analyzeVectorField(field);
+    }
+
     private static VectorEncodingSpec analyzeVectorField(Field field) throws AnalysisException {
         if (hasExtension(field) || field.getDictionary() != null
                 || field.getType().getTypeID() != ArrowType.ArrowTypeID.FixedSizeList
