@@ -22,7 +22,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -31,8 +30,6 @@
 #include "exec/spill/spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_remote_upload_budget.h"
-#include "io/fs/file_system.h"
-#include "storage/options.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -99,7 +96,7 @@ public:
     /// retries. Called on the shutdown path (doris_main after all tasks are done, and stop()) so
     /// that meta-service sees the final size (normally 0) instead of the last periodic value;
     /// safe to call more than once and from any thread.
-    void flush_remote_spill_stats();
+    void flush_remote_spill_stats() { _report_remote_spill_stats(true); }
 
     using RemoteSpillReportFn = std::function<Status(int64_t backend_id, int64_t boot_id,
                                                      int64_t report_seq, int64_t spill_bytes)>;
@@ -121,15 +118,15 @@ private:
     Status _try_delete_query_spill_directory(const PendingQuerySpillDirectory& pending_directory);
     void _retry_pending_query_spill_directories();
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
-    void _remote_gc(RemoteSpillDataDir* store);
+    void _remote_gc();
     /// Write the boot marker of the current generation (see get_remote_boot_marker_path).
-    Status _remote_write_boot_marker(RemoteSpillDataDir* store);
+    Status _remote_write_boot_marker();
     /// Delete the data of one other boot generation; `done` is set when none is left. Bounded
     /// work per GC round: one listing of the boots directory and one generation.
-    Status _remote_startup_cleanup(RemoteSpillDataDir* store, bool* done);
+    Status _remote_startup_cleanup(bool* done);
     /// Send the current spill size to meta-service when it changed since the last successful
     /// report, or when the heartbeat interval elapsed. `final_report` only affects logging.
-    void _report_remote_spill_stats(RemoteSpillDataDir* store, bool final_report = false);
+    void _report_remote_spill_stats(bool final_report);
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
     // Views of _spill_store_map by kind: a BE has either local stores or one remote store.
@@ -142,6 +139,7 @@ private:
     int64_t _remote_boot_marker_rounds = 0;
     int64_t _remote_not_ready_rounds = 0;
     int64_t _remote_report_rounds = 0; // GC thread only
+
     // Serialises reports between the GC thread and flush_remote_spill_stats(); guards the
     // fields below. -1: nothing reported yet, so the first report always goes out and replaces
     // whatever the previous process of this backend_id left behind.
