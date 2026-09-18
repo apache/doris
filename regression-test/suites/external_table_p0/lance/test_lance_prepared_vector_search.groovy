@@ -88,8 +88,9 @@ suite("test_lance_prepared_vector_search", "p0,external") {
         }
     }
 
-    String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, context.dbName)
-            + "&emulateUnsupportedPstmts=false"
+    // Keep '+' on the preceding line so Groovy continues the expression instead of applying unary plus.
+    String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, context.dbName) +
+            "&emulateUnsupportedPstmts=false"
     connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
         checkPreparedSearch(false)
     }
@@ -102,8 +103,8 @@ suite("test_lance_prepared_vector_search", "p0,external") {
     }
     followers.each { fe ->
         String followerUrl = getServerPrepareJdbcUrl(
-                "jdbc:mysql://${fe.Host}:${fe.QueryPort}/", context.dbName, false)
-                + "&emulateUnsupportedPstmts=false"
+                "jdbc:mysql://${fe.Host}:${fe.QueryPort}/", context.dbName, false) +
+                "&emulateUnsupportedPstmts=false"
         connect(context.config.jdbcUser, context.config.jdbcPassword, followerUrl) {
             checkPreparedSearch(true)
         }
