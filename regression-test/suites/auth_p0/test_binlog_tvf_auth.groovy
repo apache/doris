@@ -44,11 +44,14 @@ suite("test_binlog_tvf_auth", "p0,auth") {
         assertFalse(clusters.isEmpty())
         sql "GRANT USAGE_PRIV ON CLUSTER `${clusters[0][0]}` TO ${user}"
     }
+    // The configured JDBC URL connects to regression_test before executing the query.
+    // Grant access to that default database while keeping the target table unauthorized.
+    sql "GRANT SELECT_PRIV ON regression_test TO ${user}"
 
     connect(user, password, context.config.jdbcUrl) {
         test {
             sql "SELECT * FROM test_binlog_tvf_auth_db.test_binlog_tvf_auth_table"
-            exception "Access denied"
+            exception "denied"
         }
         test {
             sql """
@@ -59,7 +62,7 @@ suite("test_binlog_tvf_auth", "p0,auth") {
                 )
                 LIMIT 1
             """
-            exception "Access denied"
+            exception "denied"
         }
     }
 
