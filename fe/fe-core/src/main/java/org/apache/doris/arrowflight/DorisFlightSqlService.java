@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectPoolMgr;
 import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.annotations.VisibleForTesting;
 import io.grpc.ServerBuilder;
 import org.apache.arrow.flight.FlightServer;
 import org.apache.arrow.flight.Location;
@@ -49,6 +50,21 @@ public class DorisFlightSqlService {
     private final FlightSessionsManager flightSessionsManager;
     private volatile boolean running;
 
+    /**
+     * The bearer token cache size: the effective Flight sub-quota (a session opens on a token, so the
+     * sub-quota is what bounds live sessions), capped by {@code arrow_flight_token_cache_size}. The
+     * sub-quota is floored at 1 -- a legal sub-quota of 0 ({@code qe_max_connection = 1}) still needs
+     * one token so the first request reaches the pool and is refused with RESOURCE_EXHAUSTED, instead
+     * of a {@code maximumSize(0)} cache evicting the freshly issued token and answering UNAUTHENTICATED.
+     * The floor is NOT applied to {@code arrow_flight_token_cache_size}: an illegal value there
+     * ({@literal <= 0}) stays the loud failure it is on the base (Guava rejects a negative maximumSize;
+     * 0 evicts every token) rather than the FE silently running on a one-token cache.
+     */
+    @VisibleForTesting
+    static int effectiveTokenCacheSize(int flightMaxConnections, int tokenCacheConfig) {
+        return Math.min(Math.max(1, flightMaxConnections), tokenCacheConfig);
+    }
+
     public DorisFlightSqlService(int port) {
         BufferAllocator allocator = new RootAllocator();
         // arrow flight sql is a stateless protocol, connection is usually not actively disconnected.
@@ -66,10 +82,7 @@ public class DorisFlightSqlService {
                             + " the default before the pools were merged) or set it below qe_max_connection",
                     Config.arrow_flight_max_connections, Config.qe_max_connection, flightMaxConnections);
         }
-        // The token cache holds as many tokens as the sub-quota allows, capped by
-        // arrow_flight_token_cache_size: a session opens on a token, so this is what bounds Flight
-        // sessions in practice (the oldest token, and its session, is evicted first).
-        int tokenCacheSize = Math.min(flightMaxConnections, Config.arrow_flight_token_cache_size);
+        int tokenCacheSize = effectiveTokenCacheSize(flightMaxConnections, Config.arrow_flight_token_cache_size);
         this.flightTokenManager = new FlightTokenManagerImpl(tokenCacheSize,
                 Config.arrow_flight_token_alive_time_second);
         this.flightSessionsManager = new FlightSessionsWithTokenManager(flightTokenManager);

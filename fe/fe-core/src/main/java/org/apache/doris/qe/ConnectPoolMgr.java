@@ -60,6 +60,9 @@ public class ConnectPoolMgr {
     protected final Map<String, AtomicInteger> connByUser = Maps.newConcurrentMap();
     // Arrow Flight SQL: peer identity (bearer token) -> connection id
     private final Map<String, Integer> peerIdentity2ConnectionId = Maps.newConcurrentMap();
+    // Serializes the check-and-reserve of the pool/Flight/user quotas in registerConnection, so a
+    // doomed attempt cannot hold one counter's reservation across another attempt's checks.
+    private final Object admissionLock = new Object();
 
     // valid trace id -> query id
     protected final Map<String, TUniqueId> traceId2QueryId = Maps.newConcurrentMap();
@@ -110,29 +113,34 @@ public class ConnectPoolMgr {
     // Return >=0 means register failed, and return value is current connection num.
     public int registerConnection(ConnectContext ctx) {
         boolean flight = isFlight(ctx);
-        if (numberConnection.incrementAndGet() > maxConnections) {
-            numberConnection.decrementAndGet();
-            return numberConnection.get();
-        }
-        if (flight && numberFlightConnection.incrementAndGet() > flightMaxConnections) {
-            numberFlightConnection.decrementAndGet();
-            numberConnection.decrementAndGet();
-            return numberConnection.get();
-        }
-        // Check user
-        connByUser.putIfAbsent(ctx.getQualifiedUser(), new AtomicInteger(0));
-        AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
-        if (conns.incrementAndGet() > ctx.getEnv().getAuth().getMaxConn(ctx.getQualifiedUser())) {
-            conns.decrementAndGet();
-            if (flight) {
-                numberFlightConnection.decrementAndGet();
+        String qualifiedUser = ctx.getQualifiedUser();
+        long userLimit = ctx.getEnv().getAuth().getMaxConn(qualifiedUser);
+        // Check and reserve the pool, Flight sub-quota and per-user quotas as one transition. Doing it
+        // under a lock (rather than the earlier increment-check-rollback per counter) keeps a doomed
+        // attempt from reserving one counter across another attempt's checks: a second Flight attempt
+        // that will fail its sub-quota could otherwise briefly hold the last pool slot and make a
+        // concurrent MySQL connection - which fits in every serial ordering - be refused. Registration
+        // is once per connection, not per query, so this is not a hot path.
+        synchronized (admissionLock) {
+            if (numberConnection.get() >= maxConnections) {
+                return numberConnection.get();
             }
-            numberConnection.decrementAndGet();
-            return numberConnection.get();
-        }
-        connectionMap.put(ctx.getConnectionId(), ctx);
-        if (flight) {
-            peerIdentity2ConnectionId.put(ctx.getPeerIdentity(), ctx.getConnectionId());
+            if (flight && numberFlightConnection.get() >= flightMaxConnections) {
+                return numberConnection.get();
+            }
+            AtomicInteger conns = connByUser.computeIfAbsent(qualifiedUser, u -> new AtomicInteger(0));
+            if (conns.get() >= userLimit) {
+                return numberConnection.get();
+            }
+            numberConnection.incrementAndGet();
+            if (flight) {
+                numberFlightConnection.incrementAndGet();
+            }
+            conns.incrementAndGet();
+            connectionMap.put(ctx.getConnectionId(), ctx);
+            if (flight) {
+                peerIdentity2ConnectionId.put(ctx.getPeerIdentity(), ctx.getConnectionId());
+            }
         }
         return -1;
     }

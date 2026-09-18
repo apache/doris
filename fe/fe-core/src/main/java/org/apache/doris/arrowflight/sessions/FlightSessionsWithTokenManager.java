@@ -36,6 +36,8 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
     private static final Logger LOG = LogManager.getLogger(FlightSessionsWithTokenManager.class);
 
     private final FlightTokenManager flightTokenManager;
+    // Serializes session creation so exactly one ConnectContext is published per bearer token.
+    private final Object sessionCreationLock = new Object();
 
     public FlightSessionsWithTokenManager(FlightTokenManager flightTokenManager) {
         this.flightTokenManager = flightTokenManager;
@@ -46,11 +48,22 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
         try {
             ConnectContext connectContext = ExecuteEnv.getInstance().getScheduler()
                     .getContextWithPeerIdentity(peerIdentity);
-            if (null == connectContext) {
-                connectContext = createConnectContext(peerIdentity);
+            if (null != connectContext) {
                 return connectContext;
             }
-            return connectContext;
+            // Publish exactly one context per bearer token. Two concurrent first requests would both
+            // find none above and, without this, both build and register one: two pool slots and quota
+            // counters for one token, with the peer-identity index naming only the last, so evicting
+            // that one leaves the other orphaned in the pool until wait_timeout. Serialize creation and
+            // re-check the index inside, so the loser returns the winner's published context.
+            synchronized (sessionCreationLock) {
+                connectContext = ExecuteEnv.getInstance().getScheduler()
+                        .getContextWithPeerIdentity(peerIdentity);
+                if (null != connectContext) {
+                    return connectContext;
+                }
+                return createConnectContext(peerIdentity);
+            }
         } catch (FlightRuntimeException e) {
             // Already the status the client is meant to see (a connection refused for its limit).
             throw e;
@@ -92,6 +105,18 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
             LOG.warn("refuse arrow flight sql session, bearer token id: {}, user: {}: {}",
                     TokenMasker.tokenId(peerIdentity), connectContext.getQualifiedUser(), errMsg);
             throw CallStatus.RESOURCE_EXHAUSTED.withDescription(errMsg).toRuntimeException();
+        }
+        // Called under sessionCreationLock (see getConnectContext). The token can be invalidated between
+        // the validateToken above and publishing the session here -- a concurrent CloseSession, or the
+        // same-segment LRU evicting it -- which would leave a session in the pool whose token no longer
+        // exists, holding its pool/user/Flight slots until wait_timeout. Re-check the token and, if it is
+        // gone, unregister the session so no orphan lingers. (The token lifecycle moves under one owner
+        // in the next PR, which closes the residual window after this re-check.)
+        try {
+            flightTokenManager.validateToken(peerIdentity);
+        } catch (IllegalArgumentException e) {
+            connectScheduler.getConnectPoolMgr().unregisterConnection(connectContext);
+            throw e;
         }
         return connectContext;
     }

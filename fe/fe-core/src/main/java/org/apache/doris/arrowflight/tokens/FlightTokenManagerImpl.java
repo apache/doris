@@ -160,11 +160,11 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
             throw new IllegalArgumentException("invalid bearer token, token id: " + TokenMasker.tokenId(token)
                     + ", try reconnect, bearer token may not be created, or may have been evict, search for this "
                     + "token id in fe.log to see the evict reason. the token cache is sized to " + this.cacheSize
-                    + " tokens = min(effective Arrow Flight SQL sub-quota of the connection pool "
+                    + " tokens = min(max(1, effective Arrow Flight SQL sub-quota of the connection pool "
                     + ConnectPoolMgr.effectiveFlightMaxConnections(Config.qe_max_connection,
                             Config.arrow_flight_max_connections)
                     + " [fe.conf `arrow_flight_max_connections`=" + Config.arrow_flight_max_connections
-                    + " within `qe_max_connection`=" + Config.qe_max_connection + "], `arrow_flight_token_cache_size`="
+                    + " within `qe_max_connection`=" + Config.qe_max_connection + "]), `arrow_flight_token_cache_size`="
                     + Config.arrow_flight_token_cache_size + "), `arrow_flight_token_alive_time_second`="
                     + this.cacheExpiration);
         }

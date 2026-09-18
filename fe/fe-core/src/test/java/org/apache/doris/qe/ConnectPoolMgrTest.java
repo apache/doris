@@ -19,11 +19,18 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.Auth;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.mockito.InOrder;
 import org.mockito.Mockito;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * One pool for every protocol: MySQL connections and Arrow Flight SQL sessions share the pool's
@@ -34,6 +41,7 @@ public class ConnectPoolMgrTest {
 
     private static final UserIdentity ALICE = UserIdentity.createAnalyzedUserIdentWithIp("alice", "%");
     private static final UserIdentity BOB = UserIdentity.createAnalyzedUserIdentWithIp("bob", "%");
+    private static final UserIdentity CAROL = UserIdentity.createAnalyzedUserIdentWithIp("carol", "%");
 
     private static ConnectContext registered(ConnectPoolMgr pool, ConnectContext ctx, int connectionId) {
         ctx.setConnectionId(connectionId);
@@ -231,5 +239,76 @@ public class ConnectPoolMgrTest {
         pool.unregisterConnection(later);
         Assertions.assertNull(pool.getContextWithPeerIdentity("token-x"));
         Assertions.assertEquals(0, pool.getFlightConnectionNum());
+    }
+
+    // qe_max_connection = 1 makes the default Flight sub-quota 0 (half, floored). No Flight session may
+    // open: the first one is refused at the pool (returns the count, not -1) while a MySQL connection
+    // still fits. The service floors the token cache at 1 so this refusal is what the client meets as
+    // RESOURCE_EXHAUSTED, instead of the freshly issued token being evicted first (see
+    // DorisFlightSqlService); here we cover the pool half of that boundary.
+    @Test
+    public void testAZeroFlightSubQuotaRefusesEveryFlightSessionButNotMysql() {
+        Assertions.assertEquals(0, ConnectPoolMgr.effectiveFlightMaxConnections(1, -1));
+        Env env = ConnectPoolTestSupport.envAllowing(100);
+        ConnectPoolMgr pool = new ConnectPoolMgr(1);
+        Assertions.assertEquals(0, pool.getFlightMaxConnections());
+
+        Assertions.assertTrue(pool.registerConnection(ConnectPoolTestSupport.flightSession(env, ALICE, "t")) >= 0,
+                "a Flight session must be refused when the sub-quota is 0");
+        Assertions.assertEquals(0, pool.getFlightConnectionNum());
+        Assertions.assertNull(pool.getContextWithPeerIdentity("t"));
+
+        // The one pool slot is still open to a MySQL connection.
+        Assertions.assertEquals(-1, pool.registerConnection(ConnectPoolTestSupport.mysqlConnection(env, BOB)));
+        Assertions.assertEquals(1, pool.getConnectionNum());
+    }
+
+    // One attempt must not hold the last pool slot across another attempt's checks. Freeze one
+    // registration inside getMaxConn (the user check) -- where the earlier increment-check-rollback code
+    // was already holding the pool increment -- and register a connection that fits on another thread:
+    // it must be admitted. The staged code refused it (the frozen attempt's pool increment made the pool
+    // look full); the single admission critical section admits it, because the pool is reserved only
+    // inside the lock and getMaxConn is read before the lock. Without the synchronized block this fails.
+    @Test
+    @Timeout(30)
+    public void testConcurrentAdmissionDoesNotRefuseAFittingConnectionWhileAnotherIsInFlight() throws Exception {
+        CountDownLatch frozenInGetMaxConn = new CountDownLatch(1);
+        CountDownLatch releaseFrozen = new CountDownLatch(1);
+        Auth auth = Mockito.mock(Auth.class);
+        Mockito.when(auth.getMaxConn(Mockito.anyString())).thenAnswer(inv -> {
+            if (ALICE.getQualifiedUser().equals(inv.getArgument(0))) {
+                frozenInGetMaxConn.countDown();
+                releaseFrozen.await();
+            }
+            return 100L;
+        });
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        InternalCatalog internalCatalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(internalCatalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);
+
+        ConnectPoolMgr pool = new ConnectPoolMgr(2);
+        registered(pool, ConnectPoolTestSupport.mysqlConnection(env, CAROL), 1); // one slot left
+
+        ConnectContext frozen = ConnectPoolTestSupport.mysqlConnection(env, ALICE);
+        frozen.setConnectionId(2);
+        ConnectContext fitting = ConnectPoolTestSupport.mysqlConnection(env, BOB);
+        fitting.setConnectionId(3);
+
+        Thread frozenThread = new Thread(() -> pool.registerConnection(frozen));
+        frozenThread.start();
+        Assertions.assertTrue(frozenInGetMaxConn.await(10, TimeUnit.SECONDS),
+                "the frozen attempt never reached getMaxConn");
+
+        AtomicInteger fittingResult = new AtomicInteger(Integer.MIN_VALUE);
+        Thread fittingThread = new Thread(() -> fittingResult.set(pool.registerConnection(fitting)));
+        fittingThread.start();
+        fittingThread.join();
+        Assertions.assertEquals(-1, fittingResult.get(),
+                "a connection that fits the pool was refused while another attempt's admission was in flight");
+
+        releaseFrozen.countDown();
+        frozenThread.join();
     }
 }
