@@ -103,11 +103,10 @@ suite("test_paimon_write_merge_engine", "p0,external,paimon") {
             FROM t_partial_update ORDER BY id"""
         assertTableEquals("t_partial_update", "ORDER BY id")
 
-        // An omitted primary key reaches the SDK as NULL in the complete table row.
-        // Let Paimon's real NOT NULL schema enforce the primary-key requirement.
+        // Master rejects an omitted primary key during sink binding, before a writer is created.
         test {
             sql """INSERT INTO t_partial_update (name, score) VALUES ('missing_pk', 1.0)"""
-            exception "Cannot write null to non-null column(id)"
+            exception "Column has no default value, column=id"
         }
 
         // First-row keeps the first value observed for each primary key across writes.

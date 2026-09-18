@@ -103,11 +103,10 @@ suite("test_paimon_write_failures", "p0,external,paimon") {
             SELECT COUNT(*) FROM t_atomic_append\$snapshots
         """
 
-        // An omitted field without a Paimon default remains NULL and is validated
-        // against the real Paimon schema by the Paimon writer.
+        // Master rejects an omitted required field during sink binding, before a writer is created.
         test {
             sql """INSERT INTO t_atomic_append (id, dt) VALUES (4, 'p4')"""
-            exception "Cannot write null to non-null column(payload)"
+            exception "Column has no default value, column=payload"
         }
 
         // Partition columns follow the same Paimon nullability contract.

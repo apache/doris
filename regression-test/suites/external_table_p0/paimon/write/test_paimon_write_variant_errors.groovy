@@ -76,8 +76,9 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
                 (2, parse_to_variant('["array-source",2]'))
         """
 
-        // Master uses the Variant V2 carrier as the common type, so mixed scalar expressions preserve
-        // both the existing Variant value and the scalar arm instead of coercing the Variant to a scalar.
+        // Keep master's common-type semantics: mixed Variant and numeric expressions resolve to DECIMAL.
+        // Object and array Variant values therefore become SQL NULL before the connector sink converts
+        // the scalar result back to Paimon's Variant type.
         sql """
             INSERT INTO t_variant_error
             SELECT 100, payload FROM t_variant_coercion_source WHERE id = 1
@@ -116,7 +117,7 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
                 SELECT CAST(0 AS INT), IF(TRUE, payload, 1)
                 FROM t_variant_coercion_source WHERE id = 1
                 UNION ALL
-                SELECT CAST(iter + 1 AS INT), CAST(CAST(1 AS DECIMAL(38, 9)) AS VARIANT)
+                SELECT CAST(iter + 1 AS INT), CAST(1 AS DECIMAL(38, 9))
                 FROM source WHERE iter < 1
             )
             SELECT 108 + iter, payload FROM source
@@ -174,17 +175,17 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
             ORDER BY id
         """
         assertEquals([
-                ["100", '{"kind":"object-source"}'],
+                ["100", null],
                 ["101", "1"],
-                ["102", '["array-source",2]'],
+                ["102", null],
                 ["103", "1"],
-                ["104", '{"kind":"object-source"}'],
-                ["105", '["array-source",2]'],
-                ["106", '{"kind":"object-source"}'],
-                ["107", '["array-source",2]'],
-                ["108", '{"kind":"object-source"}'],
+                ["104", null],
+                ["105", null],
+                ["106", null],
+                ["107", null],
+                ["108", null],
                 ["109", "1"],
-                ["110", '{"kind":"object-source"}']
+                ["110", null]
         ], sparkCoercionRows.collect { row ->
             row.collect { value -> value == null ? null : value.toString() }
         })
