@@ -20,7 +20,6 @@
 #include <atomic>
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "core/block/block.h"
 #include "io/fs/file_writer.h"
@@ -79,36 +78,15 @@ private:
         std::atomic<int64_t> wait_ns {0};
     };
 
-    /// A part whose FileWriter::close(true) has been issued but not yet confirmed.
-    struct ClosingPart {
-        std::unique_ptr<doris::io::FileWriter> writer;
-        std::string path;
-        size_t part_index = 0;
-        int64_t part_bytes = 0;
-        // Error of close(true) itself, if it failed synchronously, or of the footer write.
-        Status close_status;
-        // Remote only: upload budget accounting and request statistics of this part.
-        std::shared_ptr<PartBudgetLedger> ledger;
-        std::shared_ptr<doris::io::RemoteWriteStats> stats;
-    };
-
     /// Open the next part file (spill_dir/{_current_part_index}).
     Status _open_next_part(const std::shared_ptr<SpillFile>& spill_file);
 
-    /// Close the current part: write footer, issue non-blocking close, move it to
-    /// _closing_parts and advance to the next part index.
+    /// Close the current part: write the footer, close the file writer synchronously
+    /// (draining in-flight uploads on failure), reconcile budget and statistics, register
+    /// the part with the SpillFile (or abort its multipart upload on failure), and advance
+    /// to the next part index. Budget and statistics are reconciled whether it succeeds
+    /// or not.
     Status _close_current_part(const std::shared_ptr<SpillFile>& spill_file);
-
-    /// Confirm closes of finished parts in part order. With block=true waits for all of
-    /// them. Every confirmed part is removed from _closing_parts whether it succeeded or
-    /// not, so budget and statistics are always reconciled. Returns the first error.
-    Status _reap_closing_parts(bool block, const std::shared_ptr<SpillFile>& spill_file);
-
-    /// Bring a part to its final state (draining in-flight uploads on failure), reconcile
-    /// budget and statistics, register it with the SpillFile, and on failure abort the
-    /// multipart upload of the part if there is one.
-    Status _finish_part(ClosingPart& part, const std::shared_ptr<SpillFile>& spill_file,
-                        Status close_status);
 
     /// If current part size >= _max_part_size, close it.
     Status _rotate_if_needed(const std::shared_ptr<SpillFile>& spill_file);
@@ -146,9 +124,6 @@ private:
     std::string _part_meta;
     std::shared_ptr<PartBudgetLedger> _part_ledger;
     std::shared_ptr<doris::io::RemoteWriteStats> _part_stats;
-
-    // Parts closed with close(true) and not yet confirmed, in part order.
-    std::vector<ClosingPart> _closing_parts;
 
     bool _closed = false;
 
