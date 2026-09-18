@@ -87,6 +87,14 @@ public:
     }
     // The session timezone the reader materializes TIMESTAMP_LTZ with.
     const cctz::time_zone& TEST_ctz() const { return _ctz; }
+    // Exposed for unit tests so the keys-only option-logging contract can be
+    // checked without a live table open.
+    static std::string TEST_format_options(const std::map<std::string, std::string>& options);
+    // Storage options the reader would build for the given FE-planned scan
+    // params and split (S3 key remapping, provider modes, scheme dispatch);
+    // both must outlive the call. Exposed for unit tests.
+    std::map<std::string, std::string> TEST_build_options(TFileScanRangeParams* scan_params,
+                                                          const TFileRangeDesc& range);
 #endif
 
 private:

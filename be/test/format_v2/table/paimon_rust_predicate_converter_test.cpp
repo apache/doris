@@ -31,11 +31,13 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 
@@ -110,6 +112,33 @@ private:
     const std::string _name = "test_cast";
 };
 
+// An error-preserving conjunct like assert_true(...): executing it only on
+// rows selected by other predicates could discard the error it must raise, so
+// VExpr::is_safe_to_execute_on_selected_rows reports it unsafe (a failing
+// VCastExpr behaves the same way).
+class UnsafeExpr final : public VExpr {
+public:
+    explicit UnsafeExpr(VExprSPtr child)
+            : VExpr(make_nullable(std::make_shared<DataTypeInt32>()), false) {
+        _node_type = TExprNodeType::BINARY_PRED;
+        add_child(std::move(child));
+    }
+
+    bool is_safe_to_execute_on_selected_rows() const override { return false; }
+
+    const std::string& expr_name() const override { return _name; }
+
+    Status execute_column_impl(VExprContext* /*context*/, const Block* /*block*/,
+                               const Selector* /*selector*/, size_t /*count*/,
+                               ColumnPtr& result_column) const override {
+        result_column = ColumnUInt8::create();
+        return Status::OK();
+    }
+
+private:
+    const std::string _name = "unsafe_expr";
+};
+
 // A slot ref resolved by column name, like FileScannerV2's rewritten conjuncts.
 VExprSPtr slot_ref(const std::string& column_name, const DataTypePtr& type) {
     return std::make_shared<VSlotRef>(0, 0, -1, type, column_name);
@@ -122,6 +151,24 @@ VExprSPtr slot_ref(const std::string& column_name) {
 VExprSPtr int_literal(int32_t value) {
     return VLiteral::create_shared(std::make_shared<DataTypeInt32>(),
                                    Field::create_field<TYPE_INT>(value));
+}
+
+// An IN / NOT IN predicate over the given children (built through the
+// TExprNode path like VDirectInPredicate::get_slot_in_expr does, so
+// is_not_in() is initialized). The converter only inspects node_type(),
+// op() and the children.
+VExprSPtr in_predicate(bool is_not, std::vector<VExprSPtr> children) {
+    TExprNode node;
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.in_predicate.__set_is_not_in(is_not);
+    node.__set_opcode(is_not ? TExprOpcode::FILTER_NOT_IN : TExprOpcode::FILTER_IN);
+    node.__set_is_nullable(false);
+    auto predicate = VInPredicate::create_shared(node);
+    for (auto& child : children) {
+        predicate->add_child(std::move(child));
+    }
+    return predicate;
 }
 
 // 2024-01-01 00:00:00.<microsecond> as a DATETIMEV2(6) literal.
@@ -150,6 +197,12 @@ VExprSPtr decimal_literal(int64_t integer, int64_t fraction) {
                                            Decimal64::from_int_frac(integer, fraction, 2)));
 }
 
+// A DOUBLE column type.
+const DataTypePtr& double_type() {
+    static const auto type = make_nullable(std::make_shared<DataTypeFloat64>());
+    return type;
+}
+
 } // namespace
 
 // Pins the EQ_FOR_NULL (<=>) decision matrix of the converter. Semantics are
@@ -170,7 +223,8 @@ protected:
                 R"json({"version":3,"id":0,"fields":[{"id":0,"name":"a","type":"INT"},)json"
                 R"json({"id":1,"name":"b","type":"INT"},{"id":2,"name":"ts",)json"
                 R"json("type":"TIMESTAMP(6)"},{"id":3,"name":"amount",)json"
-                R"json("type":"DECIMAL(10, 2)"}],"highestFieldId":3,)json"
+                R"json("type":"DECIMAL(10, 2)"},{"id":4,"name":"d",)json"
+                R"json("type":"DOUBLE"}],"highestFieldId":4,)json"
                 R"json("partitionKeys":[],"primaryKeys":[],"options":{},"timeMillis":0})json";
         auto result = paimon_table_from_schema_json("/tmp/paimon_rust_predicate_converter_test",
                                                     kSchemaJson, "db", "t", "main", nullptr, 0);
@@ -186,10 +240,10 @@ protected:
         }
         _table.reset(result.table);
 
-        _column_names = {"a", "b", "ts", "amount"};
+        _column_names = {"a", "b", "ts", "amount", "d"};
         _column_types = {make_nullable(std::make_shared<DataTypeInt32>()),
                          make_nullable(std::make_shared<DataTypeInt32>()), datetimev2_type(),
-                         decimal_type()};
+                         decimal_type(), double_type()};
     }
 
     // Runs one conjunct through a fresh converter; a null return means the
@@ -199,6 +253,14 @@ protected:
         VExprSPtr root = std::make_shared<TestBinaryPredicate>(opcode, std::move(left),
                                                                std::move(right));
         VExprContextSPtrs conjuncts {VExprContext::create_shared(std::move(root))};
+        return predicate_ptr(converter.build(conjuncts));
+    }
+
+    // Runs one pre-built expr (e.g. an IN predicate) through a fresh
+    // converter; a null return means the conjunct was rejected.
+    predicate_ptr push_expr(VExprSPtr expr) {
+        PaimonRustPredicateConverter converter(_column_names, _column_types, _table.get());
+        VExprContextSPtrs conjuncts {VExprContext::create_shared(std::move(expr))};
         return predicate_ptr(converter.build(conjuncts));
     }
 
@@ -241,6 +303,96 @@ TEST_F(PaimonRustPredicateConverterTest, EqLiteralIsPushed) {
 TEST_F(PaimonRustPredicateConverterTest, UnknownColumnIsNotPushed) {
     // A slot outside the reader's projected columns cannot be resolved.
     EXPECT_EQ(push(TExprOpcode::EQ, slot_ref("nope"), int_literal(1)).get(), nullptr);
+}
+
+// ---- pushdown stops at unsafe conjuncts (safe-prefix rule) ----
+
+TEST_F(PaimonRustPredicateConverterTest, UnsafeConjunctStopsLaterPredicatesFromBeingPushed) {
+    // The review's P1 case: an error-preserving conjunct (assert_true(...),
+    // a failing cast) that precedes a convertible predicate — in practice an
+    // arrived IN runtime filter, modeled here by a plain equality — must stop
+    // the pushdown. Pushing the later predicate would let rust prune the row
+    // on which the unsafe conjunct must still raise.
+    PaimonRustPredicateConverter converter(_column_names, _column_types, _table.get());
+    VExprContextSPtrs conjuncts;
+    conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<UnsafeExpr>(slot_ref("a"))));
+    conjuncts.push_back(VExprContext::create_shared(
+            std::make_shared<TestBinaryPredicate>(TExprOpcode::EQ, slot_ref("b"),
+                                                  int_literal(1))));
+
+    predicate_ptr predicate(converter.build(conjuncts));
+    EXPECT_EQ(predicate.get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, SafePrefixBeforeUnsafeConjunctIsStillPushed) {
+    // The prefix itself stays pushable: the convertible conjunct before the
+    // unsafe one is pushed, and the unsafe one only blocks everything after
+    // it (the later equality must not be pushed).
+    PaimonRustPredicateConverter converter(_column_names, _column_types, _table.get());
+    VExprContextSPtrs conjuncts;
+    conjuncts.push_back(VExprContext::create_shared(std::make_shared<TestBinaryPredicate>(
+            TExprOpcode::EQ, slot_ref("a"), int_literal(1))));
+    conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<UnsafeExpr>(slot_ref("b"))));
+    conjuncts.push_back(VExprContext::create_shared(std::make_shared<TestBinaryPredicate>(
+            TExprOpcode::EQ, slot_ref("b"), int_literal(2))));
+
+    predicate_ptr predicate(converter.build(conjuncts));
+    EXPECT_NE(predicate.get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, DoubleColumnPredicatesAreNotPushed) {
+    // Doris defines NaN as equal to itself and greater than every finite
+    // value, but the pinned rust evaluator compares doubles with
+    // f64::partial_cmp (IEEE partial ordering: NaN unordered, NaN != NaN), so
+    // a pushed `d > 1.0` would drop a stored NaN row Doris retains and a
+    // pushed IN (NaN) would reject it — rows pruned by the rust filter cannot
+    // be recovered by the residual. DOUBLE pushdown is skipped entirely
+    // (paimon-java's JNI path is unaffected: its CompareUtils goes through
+    // Double.compareTo, which is Doris's total ordering).
+    EXPECT_EQ(push(TExprOpcode::EQ, slot_ref("d", double_type()), int_literal(1)).get(),
+              nullptr);
+    EXPECT_EQ(push(TExprOpcode::GT, slot_ref("d", double_type()), int_literal(1)).get(),
+              nullptr);
+}
+
+// ---- IN list values must be bare literals (FE doInPredicate parity) ----
+
+TEST_F(PaimonRustPredicateConverterTest, InListIsPushed) {
+    // Sanity: an IN over bare literals still converts, so the rejections
+    // below come from the casted children, not from IN handling.
+    auto predicate = push_expr(in_predicate(
+            false, {slot_ref("a"), int_literal(1), int_literal(2)}));
+    EXPECT_NE(predicate.get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, CastedInListValueIsNotPushed) {
+    // The review's P1 case: with debug_skip_fold_constant=true, a cast in
+    // the IN list reaches the BE un-folded. Unwrapping it (the one-level
+    // cast rule from _convert_literal) would push the pre-cast value, but
+    // Doris compares against the cast result — `amount IN
+    // (CAST(1.24 AS DECIMAL(10,1)))` must compare against 1.2, and the
+    // unwrapped 1.24 push would permanently remove the 1.2 rows. FE's
+    // doInPredicate only accepts bare LiteralExpr children, so the whole
+    // predicate is rejected here as well.
+    auto casted = std::make_shared<TestCastExpr>(
+            make_nullable(std::make_shared<DataTypeInt64>()), int_literal(1));
+    EXPECT_EQ(push_expr(in_predicate(
+                      false, {slot_ref("a"), int_literal(1), std::move(casted)}))
+                      .get(),
+              nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, CastedNotInListValueIsNotPushed) {
+    // Same rule for NOT IN: rejecting the push keeps both readers on the
+    // Doris residual, where the cast is evaluated correctly.
+    auto casted = std::make_shared<TestCastExpr>(
+            make_nullable(std::make_shared<DataTypeInt64>()), int_literal(1));
+    EXPECT_EQ(push_expr(in_predicate(
+                      true, {slot_ref("a"), std::move(casted)}))
+                      .get(),
+              nullptr);
 }
 
 // The sub-millisecond remainder must land in int_val2 (nanos) instead of being

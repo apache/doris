@@ -128,6 +128,19 @@ paimon_predicate* PaimonRustPredicateConverter::build(const VExprContextSPtrs& c
                 root = impl;
             }
         }
+        // Preserve a safe prefix of the conjunct order: a later pushed
+        // predicate (e.g. an arrived IN runtime filter) could otherwise prune
+        // rows on which an earlier error-preserving conjunct —
+        // assert_true(...), a failing cast, ... — must still raise. The v1
+        // partition-pruning path (FileScanner::_init_runtime_filter_partition_
+        // prune_ctxs) stops at is_safe_to_execute_on_selected_rows() for the
+        // same reason, so a convertible predicate after an unsafe conjunct
+        // must not be pushed. Safe conjuncts that cannot be converted keep
+        // the old skip: they cannot raise, so pruning rows before they are
+        // evaluated as the residual never loses an error.
+        if (!root->is_safe_to_execute_on_selected_rows()) {
+            break;
+        }
         predicate_ptr pred(_convert_expr(root));
         if (!pred) {
             continue;
@@ -236,6 +249,17 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_in(const VExprSPtr& exp
     storages.reserve(num_values);
     datums.reserve(num_values);
     for (uint16_t i = 1; i < expr->get_num_children(); ++i) {
+        // Mirror FE's doInPredicate, which only accepts bare LiteralExpr
+        // children: a casted child would be unwrapped to its pre-cast value
+        // (debug_skip_fold_constant keeps such casts un-folded in the plan),
+        // so Doris would compare against the cast result while rust filters
+        // on the raw value — e.g. in `amount IN (CAST(1.24 AS DECIMAL(10,1)))`
+        // Doris keeps the 1.2 rows and the unwrapped 1.24 push would remove
+        // them permanently. Reject the whole predicate; the residual applies
+        // the cast correctly.
+        if (expr->get_child(i)->node_type() == TExprNodeType::CAST_EXPR) {
+            return nullptr;
+        }
         auto holder = _convert_literal(expr->get_child(i), field_meta->type);
         if (!holder) {
             return nullptr;
@@ -734,7 +758,6 @@ bool PaimonRustPredicateConverter::_is_supported_slot_type(PrimitiveType type, u
     case TYPE_SMALLINT:
     case TYPE_INT:
     case TYPE_BIGINT:
-    case TYPE_DOUBLE:
     case TYPE_VARCHAR:
     case TYPE_STRING:
     case TYPE_DATE:
@@ -750,6 +773,16 @@ bool PaimonRustPredicateConverter::_is_supported_slot_type(PrimitiveType type, u
         // precision == 0 means "unset"; only a positive precision above the
         // paimon ceiling is unrepresentable.
         return precision <= static_cast<uint32_t>(kPaimonDecimalMaxPrecision);
+    case TYPE_DOUBLE:
+        // Doris defines NaN as equal to itself and greater than every finite
+        // value, but the pinned rust evaluator compares doubles with
+        // f64::partial_cmp (IEEE partial ordering: NaN unordered, NaN != NaN).
+        // A pushed `d > 1.0` would drop a stored NaN row Doris retains, and a
+        // pushed IN (NaN) runtime filter would reject it, and rows pruned by
+        // the rust filter cannot be recovered by the residual. Skip DOUBLE
+        // pushdown entirely until the rust evaluator matches Doris total
+        // ordering; TYPE_FLOAT is rejected below for the same reason.
+        return false;
     case TYPE_FLOAT:
     case TYPE_CHAR:
     default:

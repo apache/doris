@@ -269,4 +269,145 @@ TEST_F(PaimonRustTableReaderTest, MaterializesInSessionTimezone) {
     EXPECT_EQ(hour_of_epoch_zero(utc_reader.TEST_ctz()), 0);
 }
 
+TEST_F(PaimonRustTableReaderTest, OptionLogRendersKeysOnly) {
+    // Storage-option values must never reach the log: credential keys arrive
+    // under many spellings and cases (AWS_SECRET_KEY, AWS_TOKEN,
+    // fs.oss.accessKeySecret, s3.secret-key, ...), and a key-name blocklist
+    // that misses one alias leaks the value, so the diagnostics rendering
+    // prints key names only.
+    const std::map<std::string, std::string> options {
+            {"AWS_ACCESS_KEY", "admin"},
+            {"AWS_SECRET_KEY", "leak-if-logged-1"},
+            {"AWS_TOKEN", "leak-if-logged-2"},
+            {"fs.oss.accessKeySecret", "leak-if-logged-3"},
+            {"s3.access-key", "leak-if-logged-4"},
+            {"s3.secret-key", "leak-if-logged-5"},
+            {"s3.endpoint", "http://leak-if-logged-6:19001"},
+    };
+    const std::string rendered = PaimonRustTableReader::TEST_format_options(options);
+
+    // Every key is rendered, no value and no '=' separator ever is.
+    EXPECT_NE(rendered.find("AWS_SECRET_KEY"), std::string::npos);
+    EXPECT_NE(rendered.find("fs.oss.accessKeySecret"), std::string::npos);
+    EXPECT_NE(rendered.find("s3.secret-key"), std::string::npos);
+    EXPECT_EQ(rendered.find('='), std::string::npos);
+    for (int i = 1; i <= 6; ++i) {
+        EXPECT_EQ(rendered.find("leak-if-logged-" + std::to_string(i)), std::string::npos)
+                << rendered;
+    }
+    EXPECT_EQ(rendered.find("admin"), std::string::npos) << rendered;
+}
+
+TEST_F(PaimonRustTableReaderTest, MapsAnonymousAndAssumeRoleProviderModes) {
+    // The FE storage-properties channel marks anonymous access with
+    // AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS and assume-role with
+    // AWS_ROLE_ARN / AWS_EXTERNAL_ID; the pinned rust S3 parser reads
+    // s3.anonymous (skip_signature) and the s3.assumed.role.* family, so the
+    // bridge must map both — without the mapping, anonymous catalogs would
+    // consult the ambient credential chain and role-only catalogs would
+    // never assume the requested role. The ambient JVM provider modes (ENV,
+    // SYSTEM_PROPERTIES, WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) have no
+    // rust equivalent and are gated away from the rust reader on the FE.
+    TFileScanRangeParams params;
+    params.properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = "ANONYMOUS";
+    params.properties["AWS_ROLE_ARN"] = "arn:aws:iam::123:role/reader";
+    params.properties["AWS_EXTERNAL_ID"] = "external-123";
+    params.properties["AWS_ACCESS_KEY"] = "admin";
+    params.properties["AWS_SECRET_KEY"] = "password";
+    params.properties["AWS_ENDPOINT"] = "http://127.0.0.1:19001";
+    params.properties["AWS_REGION"] = "us-east-1";
+    params.properties["use_path_style"] = "true";
+    params.__isset.properties = true;
+
+    PaimonRustTableReader reader;
+    const auto options = reader.TEST_build_options(&params, TFileRangeDesc {});
+    EXPECT_EQ(options.at("s3.anonymous"), "true");
+    EXPECT_EQ(options.at("s3.assumed.role.arn"), "arn:aws:iam::123:role/reader");
+    EXPECT_EQ(options.at("s3.assumed.role.externalId"), "external-123");
+    // Static credentials and connection settings keep mapping (regression
+    // for the base remap).
+    EXPECT_EQ(options.at("s3.access-key"), "admin");
+    EXPECT_EQ(options.at("s3.secret-key"), "password");
+    EXPECT_EQ(options.at("s3.endpoint"), "http://127.0.0.1:19001");
+    EXPECT_EQ(options.at("s3.region"), "us-east-1");
+    EXPECT_EQ(options.at("s3.path-style-access"), "true");
+}
+
+TEST_F(PaimonRustTableReaderTest, StaticCredentialsMapWithoutProviderMode) {
+    // Default shape: no provider-mode marker, plain static credentials.
+    TFileScanRangeParams params;
+    params.properties["AWS_ACCESS_KEY"] = "admin";
+    params.properties["AWS_SECRET_KEY"] = "password";
+    params.__isset.properties = true;
+
+    PaimonRustTableReader reader;
+    const auto options = reader.TEST_build_options(&params, TFileRangeDesc {});
+    EXPECT_EQ(options.at("s3.access-key"), "admin");
+    EXPECT_EQ(options.at("s3.secret-key"), "password");
+    EXPECT_EQ(options.count("s3.anonymous"), 0);
+}
+
+TEST_F(PaimonRustTableReaderTest, OssSchemeMapsToOssFileIOKeys) {
+    // The pinned storage dispatcher selects the parser from the table path's
+    // URI scheme: oss:// tables read the OSS parser, which requires
+    // fs.oss.endpoint / fs.oss.accessKeyId / fs.oss.accessKeySecret (plus
+    // optional fs.oss.securityToken for STS). A production-shaped FE map
+    // (OSSProperties emits the AWS_* aliases plus the connection settings)
+    // must therefore map to the fs.oss.* family — mapping everything to
+    // s3.* leaves OSS catalogs failing to open ("Missing required OSS
+    // config: fs.oss.endpoint").
+    TFileRangeDesc range;
+    TTableFormatFileDesc table_format_params;
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_paimon_table("oss://bucket/wh/db.db/t");
+    table_format_params.__set_paimon_params(paimon_params);
+    range.__set_table_format_params(table_format_params);
+
+    TFileScanRangeParams params;
+    params.properties["AWS_ENDPOINT"] = "http://oss.internal:8080";
+    params.properties["AWS_ACCESS_KEY"] = "oss-admin";
+    params.properties["AWS_SECRET_KEY"] = "oss-password";
+    params.properties["AWS_TOKEN"] = "oss-sts-token";
+    params.properties["AWS_REGION"] = "cn-beijing";
+    params.properties["use_path_style"] = "true";
+    params.__isset.properties = true;
+
+    PaimonRustTableReader reader;
+    const auto options = reader.TEST_build_options(&params, range);
+    EXPECT_EQ(options.at("fs.oss.endpoint"), "http://oss.internal:8080");
+    EXPECT_EQ(options.at("fs.oss.accessKeyId"), "oss-admin");
+    EXPECT_EQ(options.at("fs.oss.accessKeySecret"), "oss-password");
+    EXPECT_EQ(options.at("fs.oss.securityToken"), "oss-sts-token");
+    // The OSS parser reads no s3.* keys; nothing but the fs.oss.* family may
+    // be synthesized for this scheme.
+    EXPECT_EQ(options.count("s3.access-key"), 0);
+    EXPECT_EQ(options.count("s3.endpoint"), 0);
+    EXPECT_EQ(options.count("s3.path-style-access"), 0);
+}
+
+TEST_F(PaimonRustTableReaderTest, OssSchemeKeepsNativeFsOssKeysUnmapped) {
+    // Native fs.oss.* options (delivered by configs that already speak the
+    // paimon-java OSS dialect) must pass through untouched instead of being
+    // remapped into the s3.* family.
+    TFileRangeDesc range;
+    TTableFormatFileDesc table_format_params;
+    TPaimonFileDesc paimon_params;
+    paimon_params.__set_paimon_table("oss://bucket/wh/db.db/t");
+    table_format_params.__set_paimon_params(paimon_params);
+    range.__set_table_format_params(table_format_params);
+
+    TFileScanRangeParams params;
+    params.properties["fs.oss.endpoint"] = "http://oss.internal:8080";
+    params.properties["fs.oss.accessKeyId"] = "oss-admin";
+    params.properties["fs.oss.accessKeySecret"] = "oss-password";
+    params.__isset.properties = true;
+
+    PaimonRustTableReader reader;
+    const auto options = reader.TEST_build_options(&params, range);
+    EXPECT_EQ(options.at("fs.oss.endpoint"), "http://oss.internal:8080");
+    EXPECT_EQ(options.at("fs.oss.accessKeyId"), "oss-admin");
+    EXPECT_EQ(options.at("fs.oss.accessKeySecret"), "oss-password");
+    EXPECT_EQ(options.count("s3.access-key"), 0);
+}
+
 } // namespace doris::format::paimon
