@@ -641,10 +641,10 @@ TEST_F(SegmentIteratorExprZonemapTest, ReplacesReadTimeVersionSuffix) {
     column->insert_value(0);
     column->insert_value(0);
 
-    const auto hidden_column =
-            get_read_time_hidden_column(*_tablet_schema, _tablet_schema->column(1).unique_id());
-    replace_suffix_with_read_time_hidden_column(hidden_column, Version(kVersion, kVersion),
-                                                TsoRange(), false, 2, *column);
+    const auto column_type = get_read_time_hidden_column_type(
+            *_tablet_schema, _tablet_schema->column(1).unique_id());
+    replace_suffix_with_read_time_hidden_column(column_type, Version(kVersion, kVersion),
+                                                TsoRange(), 2, *column);
 
     ASSERT_EQ(3, column->size());
     EXPECT_EQ(123, column->get_element(0));

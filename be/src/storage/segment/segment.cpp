@@ -425,15 +425,15 @@ bool Segment::is_tso_placeholder_col(int cid, const ReadSchema& schema,
 
 std::optional<Field> Segment::get_read_time_constant_value(
         int cid, const ReadSchema& schema, const StorageReadOptions& read_options) const {
-    ReadTimeHiddenColumn hidden_column = ReadTimeHiddenColumn::NONE;
+    ReadTimeHiddenColumnType column_type = ReadTimeHiddenColumnType::NONE;
     if (cid == schema.version_ordinal()) {
-        hidden_column = ReadTimeHiddenColumn::VERSION;
+        column_type = ReadTimeHiddenColumnType::VERSION;
     } else if (cid == schema.commit_tso_ordinal()) {
-        hidden_column = ReadTimeHiddenColumn::COMMIT_TSO;
+        column_type = ReadTimeHiddenColumnType::COMMIT_TSO;
     } else if (cid == schema.tso_ordinal()) {
-        hidden_column = ReadTimeHiddenColumn::BINLOG_TSO;
+        column_type = ReadTimeHiddenColumnType::BINLOG_TSO;
     }
-    return get_read_time_hidden_column_value(hidden_column, read_options.version,
+    return get_read_time_hidden_column_value(column_type, read_options.version,
                                              read_options.commit_tso, read_options.read_row_binlog);
 }
 

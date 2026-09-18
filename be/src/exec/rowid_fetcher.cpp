@@ -88,12 +88,12 @@ void replace_rowid_read_time_hidden_columns(const TabletSchema& schema,
     auto& columns = columns_guard.mutable_columns();
     DORIS_CHECK_EQ(columns.size(), slots.size());
     for (size_t i = 0; i < slots.size(); ++i) {
-        const auto hidden_column = get_read_time_hidden_column(schema, slots[i].col_unique_id());
-        if (hidden_column == ReadTimeHiddenColumn::NONE) {
+        const auto column_type = get_read_time_hidden_column_type(schema, slots[i].col_unique_id());
+        if (column_type == ReadTimeHiddenColumnType::NONE) {
             continue;
         }
-        replace_suffix_with_read_time_hidden_column(
-                hidden_column, rowset.version(), rowset.commit_tso(), false, num_rows, *columns[i]);
+        replace_suffix_with_read_time_hidden_column(column_type, rowset.version(),
+                                                    rowset.commit_tso(), num_rows, *columns[i]);
     }
 }
 

@@ -75,9 +75,9 @@ static void replace_point_query_read_time_hidden_columns(
         const std::vector<std::pair<int32_t, uint32_t>>& hidden_columns, const TabletSchema& schema,
         const BetaRowset& rowset, MutableColumns& result_columns) {
     for (const auto& [column_uid, position] : hidden_columns) {
-        replace_suffix_with_read_time_hidden_column(get_read_time_hidden_column(schema, column_uid),
-                                                    rowset.version(), rowset.commit_tso(), false, 1,
-                                                    *result_columns[position]);
+        replace_suffix_with_read_time_hidden_column(
+                get_read_time_hidden_column_type(schema, column_uid), rowset.version(),
+                rowset.commit_tso(), 1, *result_columns[position]);
     }
 }
 
@@ -196,7 +196,8 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     std::unordered_set<int32_t> read_time_hidden_column_uids;
     for (const auto* slot : output_slot_descs) {
         const int32_t column_uid = slot->col_unique_id();
-        if (get_read_time_hidden_column(schema, column_uid) != ReadTimeHiddenColumn::NONE &&
+        if (get_read_time_hidden_column_type(schema, column_uid) !=
+                    ReadTimeHiddenColumnType::NONE &&
             read_time_hidden_column_uids.insert(column_uid).second) {
             _read_time_hidden_columns.emplace_back(column_uid, _col_uid_to_idx.at(column_uid));
         }
