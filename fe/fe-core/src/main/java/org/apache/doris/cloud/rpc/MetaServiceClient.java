@@ -551,17 +551,6 @@ public class MetaServiceClient {
                 .getInstance(request);
     }
 
-    public Cloud.GetSpillStatsResponse getSpillStats(Cloud.GetSpillStatsRequest request) {
-        if (!request.hasCloudUniqueId()) {
-            Cloud.GetSpillStatsRequest.Builder builder = Cloud.GetSpillStatsRequest.newBuilder();
-            builder.mergeFrom(request);
-            return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
-                .getSpillStats(builder.setCloudUniqueId(Config.cloud_unique_id).build());
-        }
-        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
-                .getSpillStats(request);
-    }
-
     public Cloud.GetRLTaskCommitAttachResponse
             getRLTaskCommitAttach(Cloud.GetRLTaskCommitAttachRequest request) {
         if (!request.hasCloudUniqueId()) {

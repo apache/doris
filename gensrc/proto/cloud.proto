@@ -1731,51 +1731,6 @@ message GetTabletStatsResponse {
     repeated TabletStatsPB tablet_stats = 2;
 }
 
-// Spill data (spill_storage_type=s3) that one BE currently keeps in object storage.
-// A BE reports the current size about once a minute when it changed, and about once an hour
-// otherwise (heartbeat). Meta-service keeps exactly one record per backend_id: a report of a
-// newer boot_id replaces the previous one (a restarted BE starts from 0 and deletes the objects
-// of its previous process itself); within one boot, report_seq orders the reports so that a
-// report delayed on the way (a client-side timeout does not cancel it) can never overwrite a
-// newer one; a report of an older boot_id or an older report_seq is rejected. A record whose
-// update_time_ms is older than spill_objects_expire_time_second belongs to a BE that is gone
-// for good; the recycler has deleted its objects, so get_spill_stats no longer counts it.
-message SpillStatsPB {
-    optional string cloud_unique_id = 1;     // informational; several BEs may share one
-    optional int64 boot_id = 2;
-    // Bytes of spill objects held by the process now, as accounted by the BE: bytes reserved
-    // for parts still being uploaded are included, so the value can briefly exceed what is
-    // already in object storage.
-    optional int64 remote_spill_bytes = 3;
-    optional int64 update_time_ms = 4;       // set by meta-service
-    optional int64 backend_id = 5;           // FE-assigned backend id, stable across restarts
-    // Per boot, increases with every report; the retried attempt of one report shares it.
-    optional int64 report_seq = 6;
-}
-
-message ReportSpillStatsRequest {
-    optional string cloud_unique_id = 1;
-    optional SpillStatsPB stats = 2;
-    optional string request_ip = 3;
-}
-
-message ReportSpillStatsResponse {
-    optional MetaServiceResponseStatus status = 1;
-}
-
-message GetSpillStatsRequest {
-    optional string cloud_unique_id = 1;
-    optional string request_ip = 2;
-}
-
-message GetSpillStatsResponse {
-    optional MetaServiceResponseStatus status = 1;
-    // Sum of remote_spill_bytes over the unexpired BE records of the instance: the spill data
-    // currently held in object storage.
-    optional int64 total_remote_spill_bytes = 2;
-    repeated SpillStatsPB stats = 3;
-}
-
 message CreateStageRequest {
     optional string cloud_unique_id = 1;
     optional StagePB stage = 2;
@@ -2543,8 +2498,6 @@ service MetaService {
     rpc get_cluster_status(GetClusterStatusRequest) returns(GetClusterStatusResponse);
 
     rpc get_tablet_stats(GetTabletStatsRequest) returns (GetTabletStatsResponse);
-    rpc report_spill_stats(ReportSpillStatsRequest) returns (ReportSpillStatsResponse);
-    rpc get_spill_stats(GetSpillStatsRequest) returns (GetSpillStatsResponse);
 
     // stage
     rpc create_stage(CreateStageRequest) returns (CreateStageResponse);
