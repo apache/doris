@@ -17,9 +17,8 @@
 
 suite("lazy_materialize_view") {
     sql """
-        set enable_two_phase_read_opt = true;
         set topn_opt_limit_threshold = 1000;
-        set topn_lazy_materialization_threshold = -1;
+        set topn_lazy_materialization_threshold = 1024;
     """
 
     sql "drop table if exists lazy_mat_view_t"
@@ -55,7 +54,7 @@ suite("lazy_materialize_view") {
     // lazy materialization through a single-level view
     explain {
         sql "select v1 from lazy_mat_view_v1 order by k1 limit 2"
-        contains "OPT TWO PHASE"
+        contains "VMaterializeNode"
     }
 
     order_qt_view_lazy """
@@ -65,7 +64,7 @@ suite("lazy_materialize_view") {
     // lazy materialization through a chained view (v2 -> v1 -> t)
     explain {
         sql "select v1 from lazy_mat_view_v2 order by k1 limit 2"
-        contains "OPT TWO PHASE"
+        contains "VMaterializeNode"
     }
 
     order_qt_chain_view_lazy """
@@ -75,7 +74,7 @@ suite("lazy_materialize_view") {
     // lazy materialization through view with filter
     explain {
         sql "select v1, v2 from lazy_mat_view_v1 where k2 > 10 order by k1 limit 2"
-        contains "OPT TWO PHASE"
+        contains "VMaterializeNode"
     }
 
     order_qt_view_lazy_filter """

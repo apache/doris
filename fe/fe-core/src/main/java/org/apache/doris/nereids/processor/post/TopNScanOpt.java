@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 
 /**
@@ -50,17 +49,11 @@ public class TopNScanOpt extends PlanPostProcessor {
     }
 
     boolean checkTopN(TopN topN) {
-        if (!(topN instanceof PhysicalTopN) && !(topN instanceof PhysicalDeferMaterializeTopN)) {
+        if (!(topN instanceof PhysicalTopN)) {
             return false;
         }
-        if (topN instanceof PhysicalTopN
-                && ((PhysicalTopN) topN).getSortPhase() != SortPhase.LOCAL_SORT) {
+        if (((PhysicalTopN) topN).getSortPhase() != SortPhase.LOCAL_SORT) {
             return false;
-        } else {
-            if (topN instanceof PhysicalDeferMaterializeTopN
-                    && ((PhysicalDeferMaterializeTopN) topN).getSortPhase() != SortPhase.LOCAL_SORT) {
-                return false;
-            }
         }
 
         if (topN.getOrderKeys().isEmpty()) {
@@ -76,17 +69,4 @@ public class TopNScanOpt extends PlanPostProcessor {
         return true;
     }
 
-    @Override
-    public Plan visitPhysicalDeferMaterializeTopN(PhysicalDeferMaterializeTopN<? extends Plan> topN,
-            CascadesContext ctx) {
-        topN.child().accept(this, ctx);
-        if (checkTopN(topN)) {
-            TopnFilterPushDownVisitor pusher = new TopnFilterPushDownVisitor(ctx.getTopnFilterContext());
-            TopnFilterPushDownVisitor.PushDownContext pushdownContext = new PushDownContext(topN,
-                    topN.getOrderKeys().get(0).getExpr(),
-                    topN.getOrderKeys().get(0).isNullFirst());
-            topN.accept(pusher, pushdownContext);
-        }
-        return topN;
-    }
 }
