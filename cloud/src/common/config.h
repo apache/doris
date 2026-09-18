@@ -226,9 +226,9 @@ CONF_String(arn_id, "");
 CONF_String(arn_ak, "");
 CONF_String(arn_sk, "");
 CONF_Int64(internal_stage_objects_expire_time_second, "259200"); // 3 * 24 * 3600 seconds
-// Spill objects written by BEs (spill_storage_type=s3) live under "spill/{instance_id}/" of
-// every storage vault. BEs delete them when the query ends and at startup; this is the bottom
-// line for BEs that never come back. Must be larger than the longest query the cluster allows;
+// Spill objects written by BEs (spill_storage_type=s3) live under "spill/" of every storage
+// vault. BEs delete them when the query ends and at startup; this is the bottom line for BEs
+// that never come back. Must be larger than the longest query the cluster allows;
 // a value <= 0 disables the task. Incomplete multipart uploads of a crashed BE are invisible to
 // this sweep: configure an AbortIncompleteMultipartUpload lifecycle rule on the bucket for those.
 CONF_mInt64(spill_objects_expire_time_second, "604800"); // 7 * 24 * 3600 seconds

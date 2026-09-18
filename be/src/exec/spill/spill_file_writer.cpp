@@ -297,6 +297,11 @@ Status SpillFileWriter::write_block(RuntimeState* state, const Block& block) {
     if (!_file_writer) {
         if (_current_part_index == 0) {
             state->get_query_ctx()->record_spill_data_dir(_data_dir);
+            if (_data_dir->is_remote()) {
+                // Before the first object: the startup cleanup must see the directory as live.
+                ExecEnv::GetInstance()->spill_file_mgr()->register_remote_query_dir(
+                        spill_file->_query_dir);
+            }
         }
         RETURN_IF_ERROR(_open_next_part(spill_file));
     }

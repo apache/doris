@@ -131,7 +131,6 @@
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
-#include "util/time.h"
 #include "util/timezone_utils.h"
 
 // clang-format off
@@ -235,10 +234,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     }
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
     if (config::spill_storage_type == "s3") {
-        // One remote store; boot_id separates the objects of this process from residue of
-        // previous boots (see RemoteSpillDataDir).
-        spill_store_map.emplace("s3", std::make_unique<RemoteSpillDataDir>(
-                                              config::spill_s3_storage_vault, UnixMillis()));
+        // One remote store, see RemoteSpillDataDir for the object layout.
+        spill_store_map.emplace(
+                "s3", std::make_unique<RemoteSpillDataDir>(config::spill_s3_storage_vault));
     } else {
         for (const auto& spill_path : spill_store_paths) {
             spill_store_map.emplace(

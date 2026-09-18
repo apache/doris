@@ -494,9 +494,6 @@ struct RpcRateLimitCtx {
     HostLevelMSRpcRateLimiters* host_limiters {nullptr};
     MSBackpressureHandler* backpressure_handler {nullptr};
     int64_t table_id {-1}; // For table-level backpressure, passed from caller
-    // Caps the retries of this call regardless of the retry configs (-1: configs apply). For
-    // best-effort RPCs on the shutdown path, where a dead meta-service must not stall exit.
-    int32_t max_retry_times {-1};
 };
 
 void apply_table_level_rate_limit(MetaServiceRPC rpc, const RpcRateLimitCtx& ctx) {
@@ -630,7 +627,6 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
 
         ++retry_times;
         if (retry_times > config::meta_service_rpc_retry_times ||
-            (rate_limit_ctx.max_retry_times >= 0 && retry_times > rate_limit_ctx.max_retry_times) ||
             (retry_times > config::meta_service_rpc_timeout_retry_times &&
              error_code == brpc::ERPCTIMEDOUT) ||
             (retry_times > config::meta_service_conflict_error_retry_times &&
@@ -2700,7 +2696,9 @@ Status CloudMetaMgr::list_snapshot(std::vector<SnapshotInfoPB>& snapshots) {
     return Status::OK();
 }
 
-Status CloudMetaMgr::_get_instance(InstanceInfoPB* instance, int32_t max_retry_times) {
+Status CloudMetaMgr::get_snapshot_properties(SnapshotSwitchStatus& switch_status,
+                                             int64_t& max_reserved_snapshots,
+                                             int64_t& snapshot_interval_seconds) {
     GetInstanceRequest req;
     GetInstanceResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -2709,36 +2707,15 @@ Status CloudMetaMgr::_get_instance(InstanceInfoPB* instance, int32_t max_retry_t
                               {
                                       .host_limiters = host_level_ms_rpc_rate_limiters_,
                                       .backpressure_handler = ms_backpressure_handler_,
-                                      .max_retry_times = max_retry_times,
                               }));
-    *instance = std::move(*res.mutable_instance());
-    return Status::OK();
-}
-
-Status CloudMetaMgr::get_instance_id(std::string* instance_id) {
-    InstanceInfoPB instance;
-    // At most 2 attempts: the caller (RemoteSpillDataDir::ensure_ready) runs on query threads
-    // and retries itself.
-    RETURN_IF_ERROR(_get_instance(&instance, /*max_retry_times=*/1));
-    if (instance.instance_id().empty()) {
-        return Status::InternalError("meta-service returned an instance without an id");
-    }
-    *instance_id = instance.instance_id();
-    return Status::OK();
-}
-
-Status CloudMetaMgr::get_snapshot_properties(SnapshotSwitchStatus& switch_status,
-                                             int64_t& max_reserved_snapshots,
-                                             int64_t& snapshot_interval_seconds) {
-    InstanceInfoPB instance;
-    RETURN_IF_ERROR(_get_instance(&instance, /*max_retry_times=*/-1));
-    switch_status = instance.has_snapshot_switch_status()
-                            ? instance.snapshot_switch_status()
+    switch_status = res.instance().has_snapshot_switch_status()
+                            ? res.instance().snapshot_switch_status()
                             : SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED;
     max_reserved_snapshots =
-            instance.has_max_reserved_snapshot() ? instance.max_reserved_snapshot() : 0;
-    snapshot_interval_seconds =
-            instance.has_snapshot_interval_seconds() ? instance.snapshot_interval_seconds() : 3600;
+            res.instance().has_max_reserved_snapshot() ? res.instance().max_reserved_snapshot() : 0;
+    snapshot_interval_seconds = res.instance().has_snapshot_interval_seconds()
+                                        ? res.instance().snapshot_interval_seconds()
+                                        : 3600;
     return Status::OK();
 }
 
