@@ -64,8 +64,9 @@ public:
 
     Status open(const TPaimonTableSink& sink, RuntimeState* state,
                 RuntimeProfile* profile) override;
-    Status create_writer(std::unique_ptr<IPaimonWriter>* writer) const override;
+    Status create_writer(std::unique_ptr<IPaimonWriter>* writer) override;
     Status close() override;
+    PaimonBackendType type() const override { return PaimonBackendType::JNI; }
 
 private:
     Status _check_jni_exception(JNIEnv* env, const std::string& method_name);
