@@ -223,7 +223,27 @@ public class IcebergPredicateConverter {
     }
 
     private Expression buildNot(ConnectorNot not) {
-        Expression child = convertSingle(not.getOperand());
+        ConnectorExpression operand = not.getOperand();
+        if (operand instanceof ConnectorComparison) {
+            ConnectorComparison cmp = (ConnectorComparison) operand;
+            ConnectorComparison.Operator negated = negateRange(cmp.getOperator());
+            if (negated != null && isFloatingPointColumn(cmp.getLeft())) {
+                // Iceberg's RewriteNot negates `col < v` into `col >= v` under IEEE semantics, where NaN
+                // satisfies neither -- so the NaN files this converter's GT/GE arm keeps would be pruned again.
+                // Negate in Doris semantics instead (non-null floats are totally ordered there, NaN last), which
+                // routes the result back through buildComparison and its isNaN arm.
+                return convertSingle(new ConnectorComparison(negated, cmp.getLeft(), cmp.getRight()));
+            }
+        } else if (containsNegatableFloatRange(operand)) {
+            // NOT over a compound node holding a float `col < v` / `col <= v` / BETWEEN: iceberg's De Morgan
+            // rewrite would negate it into `col >= v` / `col > v` / `col < lo or col > hi` with no isNaN arm,
+            // pruning the NaN files again. Drop the whole subtree; BE still residual-filters it. Negations that
+            // iceberg can represent exactly (IS NOT NULL, NOT IN, a negated GT/GE whose isNaN arm is negated
+            // along with it) keep being pushed -- REWRITE mode is all-or-nothing, so an over-broad bailout
+            // there rejects the user's whole rewrite_data_files WHERE.
+            return null;
+        }
+        Expression child = convertSingle(operand);
         return child == null ? null : Expressions.not(child);
     }
 
@@ -249,6 +269,11 @@ public class IcebergPredicateConverter {
             }
             return null;
         }
+        if (isNaNValue(value)) {
+            // Iceberg refuses to build a literal from NaN (Literals.from), and the scan planner does not catch
+            // that, so a NaN literal must never reach Expressions.*; map the forms iceberg can express exactly.
+            return isFloatingPoint(field.type()) ? buildNaNComparison(cmp.getOperator(), colName) : null;
+        }
         switch (cmp.getOperator()) {
             case EQ:
             case EQ_FOR_NULL:
@@ -256,9 +281,9 @@ public class IcebergPredicateConverter {
             case NE:
                 return Expressions.not(Expressions.equal(colName, value));
             case GE:
-                return Expressions.greaterThanOrEqual(colName, value);
+                return withNaN(field, Expressions.greaterThanOrEqual(colName, value));
             case GT:
-                return Expressions.greaterThan(colName, value);
+                return withNaN(field, Expressions.greaterThan(colName, value));
             case LE:
                 return Expressions.lessThanOrEqual(colName, value);
             case LT:
@@ -278,6 +303,7 @@ public class IcebergPredicateConverter {
         }
         String colName = field.name();
         List<Object> values = new ArrayList<>();
+        boolean hasNaN = false;
         for (ConnectorExpression item : in.getInList()) {
             if (!(item instanceof ConnectorLiteral)) {
                 return null;
@@ -287,9 +313,118 @@ public class IcebergPredicateConverter {
                 // A single unconvertible element drops the whole IN/NOT-IN (legacy parity).
                 return null;
             }
+            if (isNaNValue(value)) {
+                // Expressions.in would throw on a NaN literal. Doris compares NaN = NaN as true, so the element
+                // matches exactly the NaN rows -- iceberg spells that isNaN / notNaN.
+                if (!isFloatingPoint(field.type())) {
+                    return null;
+                }
+                hasNaN = true;
+                continue;
+            }
             values.add(value);
         }
-        return in.isNegated() ? Expressions.notIn(colName, values) : Expressions.in(colName, values);
+        if (!hasNaN) {
+            return in.isNegated() ? Expressions.notIn(colName, values) : Expressions.in(colName, values);
+        }
+        Expression nan = in.isNegated() ? Expressions.notNaN(colName) : Expressions.isNaN(colName);
+        if (values.isEmpty()) {
+            return nan;
+        }
+        return in.isNegated()
+                ? Expressions.and(Expressions.notIn(colName, values), nan)
+                : Expressions.or(Expressions.in(colName, values), nan);
+    }
+
+    private static boolean isFloatingPoint(Type type) {
+        return type.typeId() == TypeID.FLOAT || type.typeId() == TypeID.DOUBLE;
+    }
+
+    private static boolean isNaNValue(Object value) {
+        return (value instanceof Double && ((Double) value).isNaN())
+                || (value instanceof Float && ((Float) value).isNaN());
+    }
+
+    /**
+     * Doris orders NaN above every other floating-point value (be/src/common/compare.h GreaterThanFloat), so a
+     * NaN row satisfies {@code col > v} and {@code col >= v}. Iceberg's metrics/manifest evaluators assume the
+     * opposite -- NaN is excluded from the lower/upper bounds and an all-NaN file is pruned for any range
+     * predicate -- which silently drops those rows before BE ever sees the split (DORIS-29047). OR in isNaN so
+     * a file that may hold a NaN survives; a file whose nan_value_count is 0 is still pruned by the range arm.
+     * LT/LE need no such arm: Doris evaluates {@code NaN < v} / {@code NaN <= v} as false, matching iceberg.
+     */
+    private static Expression withNaN(Types.NestedField field, Expression range) {
+        return isFloatingPoint(field.type())
+                ? Expressions.or(range, Expressions.isNaN(field.name()))
+                : range;
+    }
+
+    /** The Doris NaN-literal comparisons iceberg can express exactly; the rest are left to BE. */
+    private static Expression buildNaNComparison(ConnectorComparison.Operator op, String colName) {
+        switch (op) {
+            case EQ:
+            case EQ_FOR_NULL:
+            case GE:
+                // NaN = NaN and NaN >= NaN hold in Doris, and nothing else reaches NaN from below.
+                return Expressions.isNaN(colName);
+            case NE:
+            case LT:
+                return Expressions.notNaN(colName);
+            default:
+                // col > NaN is never true and col <= NaN is always true for a non-null row: no narrowing form.
+                return null;
+        }
+    }
+
+    /** Doris negation of a range comparison; exact because non-null floats are totally ordered there. */
+    private static ConnectorComparison.Operator negateRange(ConnectorComparison.Operator op) {
+        switch (op) {
+            case LT:
+                return ConnectorComparison.Operator.GE;
+            case LE:
+                return ConnectorComparison.Operator.GT;
+            case GT:
+                return ConnectorComparison.Operator.LE;
+            case GE:
+                return ConnectorComparison.Operator.LT;
+            default:
+                return null;
+        }
+    }
+
+    private boolean isFloatingPointColumn(ConnectorExpression expr) {
+        if (!(expr instanceof ConnectorColumnRef)) {
+            return false;
+        }
+        Types.NestedField field = getPushdownField(((ConnectorColumnRef) expr).getColumnName());
+        return field != null && isFloatingPoint(field.type());
+    }
+
+    /**
+     * Whether negating {@code expr} would put a float/double range predicate into iceberg's IEEE-flavoured
+     * negation, i.e. whether the subtree holds a {@code col < v} / {@code col <= v} / {@code col BETWEEN lo AND
+     * hi} on a floating-point column. Those are exactly the forms whose negation must carry an isNaN arm and
+     * cannot get one from {@code Expressions.not}. GT/GE are not listed: this converter already emits them as
+     * {@code (range or isNaN)}, which iceberg negates correctly into {@code (ltEq and notNaN)}.
+     */
+    private boolean containsNegatableFloatRange(ConnectorExpression expr) {
+        if (expr instanceof ConnectorComparison) {
+            ConnectorComparison cmp = (ConnectorComparison) expr;
+            ConnectorComparison.Operator op = cmp.getOperator();
+            if ((op == ConnectorComparison.Operator.LT || op == ConnectorComparison.Operator.LE)
+                    && isFloatingPointColumn(cmp.getLeft())) {
+                return true;
+            }
+        } else if (expr instanceof ConnectorBetween
+                && isFloatingPointColumn(((ConnectorBetween) expr).getValue())) {
+            return true;
+        }
+        for (ConnectorExpression child : expr.getChildren()) {
+            if (containsNegatableFloatRange(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Types.NestedField getPushdownField(String colName) {
@@ -684,6 +819,7 @@ public class IcebergPredicateConverter {
             return null;
         }
         boolean hasNull = false;
+        boolean hasNaN = false;
         List<Object> values = new ArrayList<>();
         for (ConnectorExpression item : in.getInList()) {
             if (!(item instanceof ConnectorLiteral)) {
@@ -699,6 +835,14 @@ public class IcebergPredicateConverter {
                 // a single unconvertible element drops the whole IN (legacy parity)
                 return null;
             }
+            if (isNaNValue(value)) {
+                // Expressions.in would throw on a NaN literal; Doris matches NaN = NaN, i.e. iceberg's isNaN.
+                if (!isFloatingPoint(type)) {
+                    return null;
+                }
+                hasNaN = true;
+                continue;
+            }
             values.add(value);
         }
         if (isUuid(type) && !values.isEmpty()) {
@@ -706,7 +850,8 @@ public class IcebergPredicateConverter {
         }
         Expression valuesExpr = values.isEmpty() ? null : Expressions.in(field.name(), values);
         Expression nullExpr = hasNull ? Expressions.isNull(field.name()) : null;
-        return combineOr(nullExpr, valuesExpr);
+        Expression nanExpr = hasNaN ? Expressions.isNaN(field.name()) : null;
+        return combineOr(nullExpr, combineOr(nanExpr, valuesExpr));
     }
 
     private Expression buildConflictBetween(ConnectorBetween between) {
@@ -727,7 +872,9 @@ public class IcebergPredicateConverter {
         }
         Object lo = extractIcebergLiteral(type, (ConnectorLiteral) between.getLower());
         Object hi = extractIcebergLiteral(type, (ConnectorLiteral) between.getUpper());
-        if (lo == null || hi == null) {
+        if (lo == null || hi == null || isNaNValue(lo) || isNaNValue(hi)) {
+            // A NaN bound would throw in Expressions.*; Doris' `col BETWEEN lo AND NaN` also has no narrowing
+            // iceberg form (every non-null value is <= NaN there), so drop it.
             return null;
         }
         String colName = field.name();
@@ -772,13 +919,17 @@ public class IcebergPredicateConverter {
         if (value == null) {
             return null;
         }
+        if (isNaNValue(value)) {
+            return isFloatingPoint(type) ? buildNaNComparison(cmp.getOperator(), colName) : null;
+        }
         switch (cmp.getOperator()) {
             case EQ:
                 return Expressions.equal(colName, value);
             case GT:
-                return Expressions.greaterThan(colName, value);
+                // Missing a NaN-holding file here means missing a real write conflict; see withNaN.
+                return withNaN(field, Expressions.greaterThan(colName, value));
             case GE:
-                return Expressions.greaterThanOrEqual(colName, value);
+                return withNaN(field, Expressions.greaterThanOrEqual(colName, value));
             case LT:
                 return Expressions.lessThan(colName, value);
             case LE:
@@ -872,7 +1023,9 @@ public class IcebergPredicateConverter {
         }
         Object lo = extractIcebergLiteral(field.type(), (ConnectorLiteral) between.getLower());
         Object hi = extractIcebergLiteral(field.type(), (ConnectorLiteral) between.getUpper());
-        if (lo == null || hi == null) {
+        if (lo == null || hi == null || isNaNValue(lo) || isNaNValue(hi)) {
+            // A NaN bound would throw in Expressions.*; Doris' `col BETWEEN lo AND NaN` also has no narrowing
+            // iceberg form (every non-null value is <= NaN there), so drop it.
             return null;
         }
         String colName = field.name();
