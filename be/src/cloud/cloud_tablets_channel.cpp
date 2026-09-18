@@ -332,12 +332,14 @@ Status CloudTabletsChannel::_close_writers(PTabletWriterAddBlockResult* res) {
         tablet_info->set_schema_hash(0);
         tablet_info->set_received_rows(writer->total_received_rows());
         tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
+        tablet_info->set_rowset_meta_written(writer->rowset_meta_written());
         if (writer->binlog_tablet_id() > 0) {
             PTabletInfo* binlog_tablet_info = tablet_vec->Add();
             binlog_tablet_info->set_tablet_id(writer->binlog_tablet_id());
             binlog_tablet_info->set_schema_hash(0);
             binlog_tablet_info->set_received_rows(writer->total_received_rows());
             binlog_tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
+            binlog_tablet_info->set_rowset_meta_written(writer->rowset_meta_written());
         }
         // These stats may be larger than the actual value if the txn is aborted
         writer->update_tablet_stats();

@@ -55,6 +55,8 @@ public:
 
     Status commit_rowset();
 
+    bool rowset_meta_written() const { return _rowset_meta_written; }
+
     Status set_txn_related_info();
     std::shared_ptr<ResourceContext> resource_context() { return _resource_ctx; }
 
@@ -65,6 +67,7 @@ private:
     // Handle commit for empty rowset (when no data is written)
     Status _commit_empty_rowset();
 
+    bool _rowset_meta_written = false;
     bthread::Mutex _mtx;
     std::shared_ptr<ResourceContext> _resource_ctx;
 };

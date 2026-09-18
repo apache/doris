@@ -28,6 +28,7 @@ public class TabletCommitInfo {
 
     private long tabletId;
     private long backendId;
+    private Boolean rowsetMetaWritten;
 
     public TabletCommitInfo(long tabletId, long backendId) {
         super();
@@ -43,10 +44,19 @@ public class TabletCommitInfo {
         return backendId;
     }
 
+    public Boolean getRowsetMetaWritten() {
+        return rowsetMetaWritten;
+    }
+
     public static List<TabletCommitInfo> fromThrift(List<TTabletCommitInfo> tTabletCommitInfos) {
         List<TabletCommitInfo> commitInfos = Lists.newArrayList();
         for (TTabletCommitInfo tTabletCommitInfo : tTabletCommitInfos) {
-            commitInfos.add(new TabletCommitInfo(tTabletCommitInfo.getTabletId(), tTabletCommitInfo.getBackendId()));
+            TabletCommitInfo info = new TabletCommitInfo(tTabletCommitInfo.getTabletId(),
+                    tTabletCommitInfo.getBackendId());
+            if (tTabletCommitInfo.isSetRowsetMetaWritten()) {
+                info.rowsetMetaWritten = tTabletCommitInfo.isRowsetMetaWritten();
+            }
+            commitInfos.add(info);
         }
         return commitInfos;
     }
