@@ -172,6 +172,15 @@ public class BindConnectorSinkStaticPartitionTest {
     }
 
     @Test
+    public void explicitColumnListRejectsCaseInsensitiveDuplicate() {
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () ->
+                BindSink.selectConnectorSinkBindColumns(
+                        partitionedTable(), ImmutableList.of("id", "ID"), Collections.emptySet(), false));
+        Assertions.assertEquals(
+                "Duplicate column 'ID' in connector insert column list", ex.getMessage());
+    }
+
+    @Test
     public void explicitColumnListUsesLatestTargetSchemaInsteadOfAmbientSourceSnapshot() {
         Column oldName = new Column("old_name", PrimitiveType.INT);
         Column newName = new Column("new_name", PrimitiveType.INT);

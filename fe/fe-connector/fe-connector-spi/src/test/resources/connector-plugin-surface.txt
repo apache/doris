@@ -166,6 +166,7 @@ org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#requiresPartitio
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#supportedOperations():java.util.Set
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#supportsWriteBranch():boolean
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#validateRowLevelDml(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest):void
+org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#validateWritePartitionSyntax(boolean,java.util.List):void
 org.apache.doris.extension.spi.Plugin#close():void
 org.apache.doris.extension.spi.Plugin#initialize(org.apache.doris.extension.spi.PluginContext):void
 org.apache.doris.extension.spi.PluginContext#getProperties():java.util.Map

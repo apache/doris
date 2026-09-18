@@ -1016,6 +1016,13 @@ public class BindSink implements AnalysisRuleFactory {
                     .filter(col -> isConnectorSinkWriteColumn(col, isRewrite))
                     .collect(ImmutableList.toImmutableList());
         }
+        Set<String> specifiedColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (String columnName : colNames) {
+            if (!specifiedColumnNames.add(columnName)) {
+                throw new AnalysisException(
+                        "Duplicate column '" + columnName + "' in connector insert column list");
+            }
+        }
         return colNames.stream().map(cn -> {
             Column column = findColumn(targetSchema, cn);
             if (column == null) {

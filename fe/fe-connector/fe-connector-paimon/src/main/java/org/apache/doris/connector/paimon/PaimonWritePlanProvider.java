@@ -77,6 +77,18 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     @Override
+    public void validateWritePartitionSyntax(boolean temporaryPartition, List<String> partitionNames) {
+        if (temporaryPartition) {
+            throw new DorisConnectorException("Paimon tables do not support temporary partitions");
+        }
+        if (!partitionNames.isEmpty()) {
+            throw new DorisConnectorException("Paimon tables do not support PARTITION name lists; "
+                    + "use PARTITION (key = value) for static partitions or omit PARTITION "
+                    + "for dynamic partition overwrite");
+        }
+    }
+
+    @Override
     public Optional<List<ConnectorColumn>> getWriteColumns(ConnectorSession session,
             ConnectorTableHandle tableHandle, Optional<String> branchName) {
         FileStoreTable table = resolveTable((PaimonTableHandle) tableHandle);
