@@ -407,10 +407,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     return st;
 }
 
-// Writer creation stays non-const because the backend interface also supports future stateful FFI
-// implementations.
-Status JniPaimonWriteBackend::create_writer( // NOLINT(readability-make-member-function-const)
-        std::unique_ptr<IPaimonWriter>* writer) {
+Status JniPaimonWriteBackend::create_writer(std::unique_ptr<IPaimonWriter>* writer) const {
     DORIS_CHECK(_opened);
     DORIS_CHECK(_arrow_schema != nullptr);
     *writer = std::make_unique<JniPaimonWriter>(_jni_writer_obj.get(), _write_id,
