@@ -158,7 +158,7 @@ cloud/src/gen-cpp                                                           @lia
 cloud/src/meta-service                                                      @liaoxin01 @luwei16 @gavinchou
 cloud/src/meta-store                                                        @luwei16 @gavinchou
 cloud/src/rate-limiter                                                      @luwei16 @gavinchou
-cloud/src/recycler                                                          @liaoxin01 @gavinchou
+cloud/src/recycler                                                          @liaoxin01 @wyxxxcat @gavinchou
 cloud/src/resource-manager                                                  @deardeng @gavinchou
 cloud/src/snapshot                                                          @luwei16 @gavinchou
 cloud/test                                                                  @liaoxin01 @luwei16 @gavinchou
