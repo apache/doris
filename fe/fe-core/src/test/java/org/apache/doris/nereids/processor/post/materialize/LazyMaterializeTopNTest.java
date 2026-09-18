@@ -38,6 +38,7 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 
@@ -162,6 +163,10 @@ public class LazyMaterializeTopNTest {
     @Test
     void testFetchBackendsSurvivePlanCopy() {
         Plan child = Mockito.mock(Plan.class);
+        // AbstractTreeNode's constructor folds each child's getAllChildrenTypes() into its
+        // containsTypes BitSet; the mock must answer with a real BitSet instead of the
+        // default null, otherwise containsTypes.or(null) throws an NPE.
+        Mockito.when(child.getAllChildrenTypes()).thenReturn(new BitSet());
         List<Slot> slots = ImmutableList.of(new SlotReference("a", IntegerType.INSTANCE));
         List<Backend> fetchBackends = ImmutableList.of(newBackend(200, "192.168.0.200"));
         PhysicalLazyMaterialize<Plan> node = new PhysicalLazyMaterialize<>(child, slots, slots,

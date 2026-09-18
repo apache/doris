@@ -331,13 +331,17 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
                 .setRequireAliveBe()
                 .build();
         List<Backend> fetchBackends = new ArrayList<>(policy.getCandidateBackends(localBackends));
+        // ids are unique within one cluster, so the selected local ids directly seed the
+        // claimed-id set and each remote backend must claim an id none of them uses.
+        Set<Long> claimedIds = new HashSet<>();
+        for (Backend backend : fetchBackends) {
+            claimedIds.add(backend.getId());
+        }
         for (Backend backend : remoteBackends) {
             if (!backend.isQueryAvailable()) {
                 continue;
             }
-            boolean idTaken = fetchBackends.stream()
-                    .anyMatch(existing -> existing.getId() == backend.getId());
-            if (idTaken) {
+            if (!claimedIds.add(backend.getId())) {
                 return null;
             }
             fetchBackends.add(backend);
