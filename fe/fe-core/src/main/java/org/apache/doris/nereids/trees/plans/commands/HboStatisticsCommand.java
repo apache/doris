@@ -38,16 +38,22 @@ import java.util.regex.Pattern;
 /**
  * Manual HBO statistics management statements:
  * <pre>
- *   HBO SET [PINNED|LEARNED] STATISTICS '&lt;fingerprint&gt;' = &lt;rows&gt; [TYPE EXACT|FILTER_SMALL]
- *       [STRUCT '&lt;canonical&gt;']
- *   HBO DELETE [PINNED|LEARNED] STATISTICS '&lt;fingerprint&gt;'
+ *   HBO SET [PINNED|LEARNED] STATISTICS VALUE=&lt;rows&gt; [TYPE=&lt;type&gt;] [STRUCT='&lt;canonical&gt;']
+ *       FINGERPRINT='&lt;fingerprint&gt;' [LITERAL_MODE=&lt;mode&gt;]
+ *   HBO DELETE [PINNED|LEARNED] STATISTICS FINGERPRINT='&lt;fingerprint&gt;'
  * </pre>
  * The optional scope selects which cache is written: {@code PINNED} (default) injects an entry that
  * is authoritative over the learned entries, {@code LEARNED} injects into the learned cache so the
- * learned lookup path can be exercised without a real profile publish. The injected row count is
- * bound to the fingerprint the user copied from EXPLAIN; whether that fingerprint carries literals
- * (filter exact form) or not (filter shape form and all join / aggregation keys) is derived
- * automatically on first use and reported by {@code HBO SHOW STATISTICS}.
+ * learned lookup path can be exercised without a real profile publish. The injected value is bound
+ * to the fingerprint the user copied from EXPLAIN; which struct info that fingerprint belongs to is
+ * decided here (an explicit {@code LITERAL_MODE} wins, the default is the constant agnostic form
+ * every join / aggregation key uses) and persisted with the entry.
+ *
+ * <p>The struct info is not just a label: it carries the data state of every scan it reads
+ * ({@code S{db.t,v3,r1000,p1/5}}, see {@link org.apache.doris.nereids.stats.HboScanDescriptor}), which the read side compares with
+ * the data state of the query before applying the entry (see {@link org.apache.doris.nereids.stats.HboStructFreshness}). Copying
+ * the {@code struct=} value of EXPLAIN therefore also records what the injected value was measured
+ * on.
  */
 public class HboStatisticsCommand extends Command {
 
