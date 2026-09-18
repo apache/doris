@@ -58,7 +58,6 @@ enum class FileFormat {
     JSON,
     TEXT,
     JNI,
-    NATIVE,
     ARROW,
     WAL,
     LANCE,

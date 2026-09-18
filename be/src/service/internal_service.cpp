@@ -76,7 +76,6 @@
 #include "format/csv/csv_reader.h"
 #include "format/generic_reader.h"
 #include "format/json/new_json_reader.h"
-#include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/text/text_reader.h"
@@ -883,11 +882,6 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         }
         case TFileFormatType::FORMAT_ORC: {
             reader = OrcReader::create_unique(params, range, fetch_schema_batch_size, "", io_ctx);
-            break;
-        }
-        case TFileFormatType::FORMAT_NATIVE: {
-            reader = NativeReader::create_unique(profile.get(), params, range, io_ctx.get(),
-                                                 nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
