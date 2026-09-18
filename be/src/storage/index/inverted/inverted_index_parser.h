@@ -34,6 +34,8 @@ class Analyzer;
 
 namespace doris {
 
+class TabletIndex;
+
 enum class InvertedIndexParserType {
     PARSER_UNKNOWN = 0,
     PARSER_NONE = 1,
@@ -88,6 +90,9 @@ const std::string INVERTED_INDEX_PARSER_KUROMOJI_EXTENDED = "extended";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY = "support_phrase";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES = "true";
 const std::string INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO = "false";
+
+// Whether an analyzed index stores BM25 norms, which take one byte per row of the segment.
+const std::string INVERTED_INDEX_NORMS_KEY = "norms";
 
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE = "char_filter_type";
 const std::string INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN = "char_filter_pattern";
@@ -151,6 +156,13 @@ std::string get_parser_mode_string_from_properties(
         const std::map<std::string, std::string>& properties);
 std::string get_parser_phrase_support_string_from_properties(
         const std::map<std::string, std::string>& properties);
+
+// Whether an analyzed index writes BM25 norms: the one policy shared by every index storage format
+// and by index compaction. Norms cost one byte per row of the segment, including rows that have no
+// value for the field. An index writes them unless its "norms" property is "false", or unless it
+// is on a variant path while inverted_index_skip_norms_for_variant is on, which wins over the
+// property.
+bool should_write_index_norms(const TabletIndex& index_meta);
 
 CharFilterMap get_parser_char_filter_map_from_properties(
         const std::map<std::string, std::string>& properties);

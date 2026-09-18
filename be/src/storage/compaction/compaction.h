@@ -109,7 +109,18 @@ protected:
         std::vector<int32_t> output_segment_group_sizes;
     };
 
+    struct MergeInputRowsetsContext {
+        MergeInputRowsetsResult result;
+        std::vector<RowsetReaderSharedPtr> input_rs_readers;
+    };
+
     Status merge_input_rowsets();
+
+    Status prepare_merge_input_rowsets_execution(MergeInputRowsetsContext* context);
+
+    Status execute_merge_input_rowsets(MergeInputRowsetsContext* context);
+
+    Status finish_merge_input_rowsets_execution(MergeInputRowsetsContext* context);
 
     virtual Status prepare_merge_input_rowsets(MergeInputRowsetsResult* /*result*/) {
         return Status::OK();
@@ -292,6 +303,12 @@ protected:
     // Caller must hold the tablet header lock.
     bool should_apply_cumulative_compaction_result(int64_t response_cumulative_compaction_cnt);
 
+    Status prepare_execute_compact(int64_t permits);
+
+    Status finish_execute_compact(int64_t execution_start_time_us);
+
+    int64_t get_compaction_permits();
+
     CloudStorageEngine& _engine;
 
     std::string _uuid;
@@ -308,8 +325,6 @@ private:
     Status build_basic_info();
 
     virtual Status modify_rowsets();
-
-    int64_t get_compaction_permits();
 
     void update_compaction_level();
 

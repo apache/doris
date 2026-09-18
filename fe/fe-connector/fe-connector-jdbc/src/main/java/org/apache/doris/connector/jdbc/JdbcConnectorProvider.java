@@ -41,12 +41,11 @@ public class JdbcConnectorProvider implements ConnectorProvider {
     /**
      * Validates catalog properties at CREATE/ALTER time. Building the holder covers what a stored
      * catalog must satisfy; checkCreateTimeOnlyRules covers the rest, which has only ever applied to a
-     * statement (see {@link JdbcCatalogProperties}). The driver_url security rule stays a separate call
-     * because it is enforced here and in preCreateValidation, and lives with the connector that owns it.
+     * statement (see {@link JdbcCatalogProperties}) — including the mandatory driver_url security rule
+     * ({@code JdbcDriverUrlSecurity}), shared with the iceberg-jdbc / paimon-jdbc catalogs.
      */
     @Override
     public void validateProperties(Map<String, String> properties) {
-        JdbcCatalogProperties props = JdbcCatalogProperties.of(properties).checkCreateTimeOnlyRules();
-        JdbcDorisConnector.checkDriverUrlSecurityRule(props.getDriverUrl());
+        JdbcCatalogProperties.of(properties).checkCreateTimeOnlyRules();
     }
 }

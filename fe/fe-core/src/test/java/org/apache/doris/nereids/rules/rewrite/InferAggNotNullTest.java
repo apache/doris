@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.DataSketchesHllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullIgnoringAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -54,6 +56,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -79,6 +82,28 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                                         .allMatch(e -> ((Not) e).isGeneratedIsNotNull()))
                         )
                 );
+    }
+
+    @Test
+    void testInferDataSketchesHllWithOptionalLgMaxK() {
+        Expression sketch = scan1.getOutput().get(1);
+        Not isNotNull = new Not(new IsNull(sketch), true);
+        for (DataSketchesHllUnionAgg function : ImmutableList.of(
+                new DataSketchesHllUnionAgg(sketch),
+                new DataSketchesHllUnionAgg(sketch, new IntegerLiteral(8)))) {
+            LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                    .aggGroupUsingIndex(ImmutableList.of(), ImmutableList.of(new Alias(function, "estimate")))
+                    .build();
+
+            PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                    .applyTopDown(new InferAggNotNull())
+                    .matches(
+                            logicalAggregate(
+                                    logicalFilter(logicalOlapScan()).when(filter ->
+                                            filter.getConjuncts().equals(ImmutableSet.of(isNotNull)))
+                            ).when(agg -> agg.getAggregateFunctions().equals(ImmutableSet.of(function)))
+                    );
+        }
     }
 
     @Test

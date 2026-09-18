@@ -72,7 +72,18 @@ public:
     // Note that if the resource id cannot be found for the corresponding remote file system, nullptr will be returned.
     MOCK_FUNCTION io::FileSystemSPtr fs();
 
+    // The bare file system holding this rowset's files. It resolves neither packed files nor
+    // encryption, so it cannot open a segment whose bytes live inside a packed object. Prefer
+    // `fs()`, or `packed_physical_fs()` when the raw bytes are what you are after.
     io::FileSystemSPtr physical_fs();
+
+    // Same as `physical_fs()`, but additionally wrapped with `PackedFileSystem` when this
+    // rowset's files are packed into shared objects, so that segment/index paths still
+    // resolve. Unlike `fs()`, no encryption layer is applied, i.e. reads return the raw
+    // on-disk bytes. Callers that inspect the physical layout of a file (encryption footer,
+    // magic code, ...) must use this instead of `physical_fs()`, otherwise packed files
+    // cannot be opened at all.
+    io::FileSystemSPtr packed_physical_fs();
 
     Result<const StorageResource*> remote_storage_resource();
 
@@ -572,6 +583,10 @@ public:
     }
 
 private:
+    // Wraps `fs` with `PackedFileSystem` if this rowset has packed slice locations,
+    // otherwise returns `fs` unchanged.
+    io::FileSystemSPtr _wrap_packed_fs(io::FileSystemSPtr fs);
+
     bool _deserialize_from_pb(std::string_view value);
 
     bool _serialize_to_pb(std::string* value);

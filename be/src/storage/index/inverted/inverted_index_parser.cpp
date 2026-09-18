@@ -17,7 +17,9 @@
 
 #include "storage/index/inverted/inverted_index_parser.h"
 
+#include "common/config.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/tablet/tablet_schema.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -116,6 +118,23 @@ std::string get_parser_phrase_support_string_from_properties(
         return it->second;
     }
     return INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO;
+}
+
+bool should_write_index_norms(const TabletIndex& index_meta) {
+    // A variant path index (a field_pattern index, or the copy inherited by one extracted
+    // subcolumn, which carries the path as its index suffix) is one of possibly thousands in a
+    // segment, so its norms can dwarf the data. The config drops them whatever the property says,
+    // so that a cluster can reclaim that space without rewriting its index definitions.
+    const bool variant_path_index =
+            !index_meta.get_index_suffix().empty() || !index_meta.field_pattern().empty();
+    if (variant_path_index && config::inverted_index_skip_norms_for_variant) {
+        return false;
+    }
+    const auto& properties = index_meta.properties();
+    if (auto it = properties.find(INVERTED_INDEX_NORMS_KEY); it != properties.end()) {
+        return it->second == INVERTED_INDEX_PARSER_TRUE;
+    }
+    return true;
 }
 
 CharFilterMap get_parser_char_filter_map_from_properties(
