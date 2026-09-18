@@ -17,6 +17,8 @@
 
 import java.util.concurrent.atomic.AtomicReference
 
+import org.apache.doris.regression.util.Http
+
 suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
     if (!isCloudMode()) {
         return
@@ -66,7 +68,7 @@ suite("test_cloud_mow_partial_update_retry", "nonConcurrent") {
             def getActiveCalcTasks = {
                 long activeTasks = 0
                 backends.each { be ->
-                    def metrics = new URL("http://${be.ip}:${be.brpcPort}/brpc_metrics").text
+                    def metrics = Http.GET("http://${be.ip}:${be.brpcPort}/brpc_metrics", false, false)
                     def matcher = metrics =~ /(?m)^task_calculate_delete_bitmap\s+(\d+)$/
                     assert matcher.find() : "task_calculate_delete_bitmap not found on ${be.ip}:${be.brpcPort}"
                     activeTasks += matcher.group(1).toLong()

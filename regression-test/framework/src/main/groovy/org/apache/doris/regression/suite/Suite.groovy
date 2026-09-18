@@ -138,6 +138,30 @@ class Suite implements GroovyInterceptable {
         return getConf("suites." + name + "." + key, defaultValue)
     }
 
+    boolean isDorisTlsEnabled() {
+        return Boolean.parseBoolean(getConf("enableTLS", "false"))
+    }
+
+    String getDorisHttpScheme() {
+        return isDorisTlsEnabled() ? "https" : "http"
+    }
+
+    String getDorisCurlTlsOptions() {
+        if (!isDorisTlsEnabled()) {
+            return ""
+        }
+        return " --cert ${quoteShellArgument(getConf('trustCert'))}" +
+                " --key ${quoteShellArgument(getConf('trustCAKey'))}" +
+                " --cacert ${quoteShellArgument(getConf('trustCACert'))}"
+    }
+
+    private static String quoteShellArgument(String value) {
+        if (!value) {
+            throw new IllegalArgumentException("Missing TLS certificate path for curl")
+        }
+        return "'" + value.replace("'", "'\"'\"'") + "'"
+    }
+
     List<String> getDorisConnectorTlsArgs() {
         if (!Boolean.parseBoolean(getConf("enableTLS", "false"))) {
             return Collections.emptyList()

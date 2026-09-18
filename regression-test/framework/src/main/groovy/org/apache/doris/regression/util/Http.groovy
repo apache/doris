@@ -118,15 +118,19 @@ class Http {
         return 'Basic ' + credentials.getBytes('UTF-8').encodeBase64().toString()
     }
 
+    static URLConnection openConnection(String url) {
+        if (enableTls && url.startsWith('http://')) {
+            url = 'https://' + url.substring('http://'.length())
+        }
+        return new URL(url).openConnection()
+    }
+
     static Object GET(url, isJson = false, printText = true) {
         return GET(url, isJson, printText, 'root', '')
     }
 
     static Object GET(url, isJson, printText, String user, String password) {
-        if (enableTls) {
-            url = url.replace("http://", "https://")
-        }
-        def conn = new URL(url).openConnection()
+        def conn = openConnection(url)
         conn.setRequestMethod('GET')
         conn.setRequestProperty('Authorization', basicAuthorization(user, password))
         def code = conn.responseCode

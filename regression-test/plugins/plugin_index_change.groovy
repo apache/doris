@@ -16,6 +16,7 @@
 // under the License.
 
 import org.apache.doris.regression.suite.Suite
+import org.apache.doris.regression.util.Http
 
 import groovy.json.JsonSlurper
 import java.util.regex.Matcher;
@@ -75,7 +76,7 @@ Suite.metaClass.wait_for_last_schema_change_finish = {table_name, OpTimeout ->
 
 Suite.metaClass.http_get = { url ->
     def dst = 'http://' + context.config.feHttpAddress
-    def conn = new URL(dst + url).openConnection()
+    def conn = Http.openConnection(dst + url)
     conn.setRequestMethod("GET")
     def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
             (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))

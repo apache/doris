@@ -18,6 +18,7 @@
 import groovy.io.FileType
 import java.nio.file.Files
 import java.nio.file.Paths
+import java.time.LocalDate
 
 suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resource fully```
     // get doris-db from s3
@@ -26,7 +27,8 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
     def fileName = "doris-dbgen"
     def fileUrl = "${getS3Url()}/regression/doris-dbgen-23-10-18/doris-dbgen-23-10-20/doris-dbgen"
     def filePath = Paths.get(dirPath, fileName)
-    if (!Files.exists(filePath)) {
+    boolean enableTls = context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true") ?: false
+    if (!enableTls && !Files.exists(filePath)) {
         new URL(fileUrl).withInputStream { inputStream ->
             Files.copy(inputStream, filePath)
         }
@@ -76,12 +78,22 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
         String password = context.config.jdbcPassword
 
         for (int i = 0; i < data_count; i++) {
-            def cm
-            if (password) {
-                cm = """${dirPath}/doris-dbgen gen --host ${sql_ip} --sql-port ${sql_port} --user ${user} --pass ${password} --database ${realDb} --table ${tableName} --rows ${rows} --bulk-size ${bulkSize} --http-port ${http_port} --config ${fatherPath}/doris_dbgen_conf/two_stream_load_conflict.yaml --save-to-dir ${dirPath}/${part_type}/${part_type}_${i}/"""
-            } else {
-                cm = """${dirPath}/doris-dbgen gen --host ${sql_ip} --sql-port ${sql_port} --user ${user} --database ${realDb} --table ${tableName} --rows ${rows} --bulk-size ${bulkSize} --http-port ${http_port} --config ${fatherPath}/doris_dbgen_conf/two_stream_load_conflict.yaml --save-to-dir ${dirPath}/${part_type}/${part_type}_${i}/"""
+            if (enableTls) {
+                // The archived doris-dbgen has no TLS options. Generate the same number of rows
+                // locally, with overlapping dates so concurrent loads still race to create partitions.
+                File outputDir = new File("${dirPath}/${part_type}/${part_type}_${i}")
+                assertTrue(outputDir.mkdirs() || outputDir.isDirectory())
+                new File(outputDir, "data.csv").withWriter("UTF-8") { writer ->
+                    for (int j = 0; j < rows; j++) {
+                        LocalDate date = LocalDate.of(2020, 1, 1).plusDays((i * rows + j) % 31)
+                        writer.write("${date} 00:00:00|true|1|${date}|1.0|1.0|value_${i}_${j}|value_${i}_${j}|1.000|x\n")
+                    }
+                }
+                continue
             }
+            def cm = password
+                    ? """${dirPath}/doris-dbgen gen --host ${sql_ip} --sql-port ${sql_port} --user ${user} --pass ${password} --database ${realDb} --table ${tableName} --rows ${rows} --bulk-size ${bulkSize} --http-port ${http_port} --config ${fatherPath}/doris_dbgen_conf/two_stream_load_conflict.yaml --save-to-dir ${dirPath}/${part_type}/${part_type}_${i}/"""
+                    : """${dirPath}/doris-dbgen gen --host ${sql_ip} --sql-port ${sql_port} --user ${user} --database ${realDb} --table ${tableName} --rows ${rows} --bulk-size ${bulkSize} --http-port ${http_port} --config ${fatherPath}/doris_dbgen_conf/two_stream_load_conflict.yaml --save-to-dir ${dirPath}/${part_type}/${part_type}_${i}/"""
             logger.info("datagen: " + cm)
             def proc = cm.execute()
             def sout = new StringBuilder(), serr = new StringBuilder()
@@ -115,6 +127,11 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
     def cm_list = []
     def doris_dbgen_load_data = { db_name, tb_name, part_type ->
         def tableName = tb_name
+        String protocol = enableTls ? "https" : "http"
+        String tlsOptions = ""
+        if (enableTls) {
+            tlsOptions = " --cert ${context.config.otherConfigs.get('trustCert')} --key ${context.config.otherConfigs.get('trustCAKey')} --cacert ${context.config.otherConfigs.get('trustCACert')}"
+        }
 
         def jdbcUrl = context.config.jdbcUrl
         def urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
@@ -143,9 +160,9 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
             }
 
             if (password) {
-                cm = """curl --location-trusted -u ${user}:${password} -H "column_separator:|" -T ${list[0]} http://${sql_ip}:${http_port}/api/${realDb}/${tableName}/_stream_load"""
+                cm = """curl --fail --location-trusted -u ${user}:${password} -H "column_separator:|" -T ${list[0]} ${protocol}://${sql_ip}:${http_port}/api/${realDb}/${tableName}/_stream_load${tlsOptions}"""
             } else {
-                cm = """curl --location-trusted -u root: -H "column_separator:|" -T ${list[0]} http://${sql_ip}:${http_port}/api/${realDb}/${tableName}/_stream_load"""
+                cm = """curl --fail --location-trusted -u root: -H "column_separator:|" -T ${list[0]} ${protocol}://${sql_ip}:${http_port}/api/${realDb}/${tableName}/_stream_load${tlsOptions}"""
             }
             logger.info("load data: " + cm)
 

@@ -18,6 +18,8 @@
 import java.util.concurrent.TimeUnit
 import org.awaitility.Awaitility
 
+import org.apache.doris.regression.util.Http
+
 suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
     if (!isCloudMode()) {
         return
@@ -705,7 +707,7 @@ suite("test_cloud_mow_delete_bitmap_lock_case", "nonConcurrent") {
                     }
                 }
                 def readMetrics = { be ->
-                    def conn = new URL("http://${be.Host}:${be.BrpcPort}/brpc_metrics").openConnection()
+                    def conn = Http.openConnection("http://${be.Host}:${be.BrpcPort}/brpc_metrics")
                     conn.connectTimeout = 5000
                     conn.readTimeout = 5000
                     try {

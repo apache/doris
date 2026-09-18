@@ -17,6 +17,8 @@
 
 import java.util.concurrent.atomic.AtomicReference
 
+import org.apache.doris.regression.util.Http
+
 suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
     if (!isCloudMode()) {
         return
@@ -69,7 +71,7 @@ suite("test_cloud_mow_stale_resp_load_load_conflict", "nonConcurrent") {
             def getActiveCalcTasks = {
                 long activeTasks = 0
                 backends.each { be ->
-                    def conn = new URL("http://${be.Host}:${be.BrpcPort}/brpc_metrics").openConnection()
+                    def conn = Http.openConnection("http://${be.Host}:${be.BrpcPort}/brpc_metrics")
                     conn.connectTimeout = 5000
                     conn.readTimeout = 5000
                     def metrics = conn.inputStream.getText('UTF-8')

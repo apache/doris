@@ -17,20 +17,45 @@
 
 import groovy.json.JsonSlurper
 import org.apache.doris.regression.action.ProfileAction
+import org.apache.doris.regression.util.Http
 
 def fetchProfile = { masterHTTPAddr, id ->
-    def dst = 'http://' + masterHTTPAddr
-    def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
+    def user = context.config.isCloudMode() ? context.config.feCloudHttpUser : context.config.feHttpUser
+    def password = context.config.isCloudMode() ? context.config.feCloudHttpPassword : context.config.feHttpPassword
+    return Http.GET("http://${masterHTTPAddr}/api/profile/text/?query_id=$id", false, false, user, password)
+}
+
+def fetchProfileList = { masterHTTPAddr ->
+    def user = context.config.isCloudMode() ? context.config.feCloudHttpUser : context.config.feHttpUser
+    def password = context.config.isCloudMode() ? context.config.feCloudHttpPassword : context.config.feHttpPassword
+    return new JsonSlurper().parseText(Http.GET("http://${masterHTTPAddr}/rest/v1/query_profile",
+            false, false, user, password)).data.rows
+}
+
+def getProfileField = { row, name, index ->
+    if (row instanceof Map) {
+        def entry = row.find { it.key.toString().equalsIgnoreCase(name) }
+        return entry == null ? null : entry.value
+    }
+    return row.size() > index ? row[index] : null
+}
+
+def findProfileId = { profileRows, label ->
+    for (def row : profileRows) {
+        if (row.toString().contains(label)) {
+            def profileId = getProfileField.call(row, "Profile ID", 0)
+            if (profileId != null) {
+                return profileId.toString()
+            }
+        }
+    }
+    return ""
 }
 
 // ref https://github.com/apache/doris/blob/3525a03815814f66ec78aa2ad6bbd9225b0e7a6b/regression-test/suites/load_p0/broker_load/test_s3_load.groovy
 suite('s3_load_profile_test', 'nonConcurrent') {
     setFeConfigTemporary(["profile_waiting_time_for_spill_seconds": 60]) {
+        def profileAction = new ProfileAction(context)
         sql "set enable_profile=true;"
         sql "set profile_level=2;"
         def s3Endpoint = getS3Endpoint()
@@ -198,11 +223,24 @@ PROPERTIES (
         def masterAddress = masterIP + ":" + masterHTTPPort
         logger.info("masterIP:masterHTTPPort is:${masterAddress}")
 
-        def profileAction = new ProfileAction(context)
+        def profileId = ""
+        max_try_milli_secs = 30000
+        while (max_try_milli_secs > 0) {
+            List profileRows = fetchProfileList(masterAddress)
+            logger.info("profileListRows:" + profileRows)
+            profileId = findProfileId.call(profileRows, label)
+            if (profileId != "") {
+                break
+            }
+            Thread.sleep(1000)
+            max_try_milli_secs -= 1000
+        }
+        assertTrue(profileId != "", "No load profile found for label: ${label}, jobId: ${jobId}")
+        logger.info("profileId: " + profileId)
         def profileString = profileAction.waitProfile(
-                { fetchProfile(masterAddress, jobId.toString()) },
+                { fetchProfile(masterAddress, profileId) },
                 ["NumScanners", "RowsProduced", "RowsRead"],
-                "Load profile ${jobId}")
+                "Load profile ${profileId}")
         logger.info("profileDataString:" + profileString)
         assertTrue(profileString.contains("NumScanners"))
         assertTrue(profileString.contains("RowsProduced"))

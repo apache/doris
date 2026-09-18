@@ -18,10 +18,11 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.json.StringEscapeUtils
+import org.apache.doris.regression.util.Http
 
 def getProfileList = { masterHTTPAddr ->
     def dst = 'http://' + masterHTTPAddr
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
+    def conn = Http.openConnection(dst + "/rest/v1/query_profile")
     conn.setRequestMethod("GET")
     def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" + 
             (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))

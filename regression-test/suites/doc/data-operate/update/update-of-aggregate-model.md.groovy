@@ -36,7 +36,13 @@ suite("docs/data-operate/update/update-of-aggregate-model.md", "p0,nonConcurrent
                                  (1       , 100         , 'Pending'   );
         """
 
-        cmd """curl  --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "column_separator:," -H "columns:order_id,order_status" -T ${context.file.parent}/update.csv http://${context.config.feHttpAddress}/api/${curDbName}/order_tbl/_stream_load"""
+        boolean enableTls = context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true") ?: false
+        String protocol = enableTls ? "https" : "http"
+        String tlsOptions = ""
+        if (enableTls) {
+            tlsOptions = " --cert ${context.config.otherConfigs.get('trustCert')} --key ${context.config.otherConfigs.get('trustCAKey')} --cacert ${context.config.otherConfigs.get('trustCACert')}"
+        }
+        cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "column_separator:," -H "columns:order_id,order_status" -T ${context.file.parent}/update.csv ${protocol}://${context.config.feHttpAddress}/api/${curDbName}/order_tbl/_stream_load${tlsOptions}"""
         sql """INSERT INTO order_tbl (order_id, order_status) values (1,'Delivery Pending');"""
     } catch (Throwable t) {
         Assertions.fail("examples in docs/data-operate/update/update-of-aggregate-model.md failed to exec, please fix it", t)
