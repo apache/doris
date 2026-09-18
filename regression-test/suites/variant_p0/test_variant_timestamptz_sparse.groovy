@@ -74,10 +74,22 @@ suite("test_variant_timestamptz_sparse", "p0"){
         (1, ${variantV2Function}('{"c1":1699516324,"c2":1690122421,"d1":"2024-02-25","d2":"2024-11-27","dt0":"2002-12-25 12:42:19","dt0n":"2015-02-05 02:36:13","dt3":"2015-02-22 02:09:01","dt3n":"2015-09-16 02:55:07","dt6":"2001-09-19 09:53:52","dt6n":"2003-12-21 02:29:00","ts0":"2003-12-21 02:29:00 +00:00","ts0n":"2003-12-21 02:29:00 +00:00","ts3":"2003-12-21 02:29:00 +00:00","ts3n":"2003-12-21 02:29:00 -05:00","ts6":"2003-12-21 02:29:00 -05:00","ts6n":"2003-12-21 02:29:00 +03:00","v1":"2024-12-10 10:16:19","v2":"2023-12-31 23:59:59"}'));
     """
 
+    // Sub-second input: each ts* path keeps only what its declared scale can hold, so
+    // ts0 truncates to whole seconds, ts3 to milliseconds and ts6 keeps all six digits.
+    sql """
+        INSERT INTO test_variant_timestamptz_sparse_repro VALUES
+        (2, ${variantV2Function}('{"c1":1699516324,"c2":1690122421,"d1":"2024-02-25","d2":"2024-11-27","dt0":"2002-12-25 12:42:19","dt0n":"2015-02-05 02:36:13","dt3":"2015-02-22 02:09:01","dt3n":"2015-09-16 02:55:07","dt6":"2001-09-19 09:53:52","dt6n":"2003-12-21 02:29:00","ts0":"2003-12-21 02:29:00.123456 +00:00","ts0n":"2003-12-21 02:29:00.123456 +00:00","ts3":"2003-12-21 02:29:00.123456 +00:00","ts3n":"2003-12-21 02:29:00.123456 -05:00","ts6":"2003-12-21 02:29:00.123456 -05:00","ts6n":"2003-12-21 02:29:00.123456 +03:00","v1":"2024-12-10 10:16:19","v2":"2023-12-31 23:59:59"}'));
+    """
+
     sql "SYNC"
 
     // Pre-fix: every column that fell to sparse returned just the timezone
     // suffix ("+08:00"). Post-fix: each ts* path round-trips as a full timestamp.
+    // CAST(var['ts*'] AS string) renders the Variant value itself, which holds
+    // microseconds, so it always prints six fractional digits whatever scale the
+    // schema template declares. That scale is a storage attribute: row 2 below shows
+    // it truncating the stored value, and casting explicitly to the declared type
+    // formats by it again.
     qt_select_all """
         SELECT
           pk,
