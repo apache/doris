@@ -34,7 +34,6 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TPaimonTableSink;
-import org.apache.doris.thrift.TPaimonWriteBackendType;
 import org.apache.doris.thrift.TPaimonWriteMode;
 
 import org.apache.paimon.CoreOptions;
@@ -151,7 +150,6 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         sink.setSerializedTable(binding.getSerializedTable());
         sink.setHadoopConfig(binding.getHadoopConfig());
         sink.setColumnNames(outputColumnNames(handle));
-        sink.setBackendType(TPaimonWriteBackendType.JNI);
         sink.setWriteMode(writeMode(handle));
         sink.setTransactionId(transaction.getTransactionId());
         sink.setCommitUser(transaction.getCommitUser());

@@ -634,11 +634,6 @@ struct TMaxComputeTableSink {
     18: optional i64 txn_id                       // FE external transaction ID for runtime block_id allocation
 }
 
-enum TPaimonWriteBackendType {
-    JNI = 0,
-    FFI = 1,
-}
-
 enum TPaimonWriteMode {
     APPEND = 0,
     OVERWRITE = 1,
@@ -653,7 +648,6 @@ struct TPaimonTableSink {
     1: optional string serialized_table           // required at runtime; serialized Paimon Table object (base64)
     2: optional map<string, string> hadoop_config
     3: optional list<string> column_names
-    4: optional TPaimonWriteBackendType backend_type
     5: optional TPaimonWriteMode write_mode
     6: optional i64 transaction_id
     7: optional string commit_user
