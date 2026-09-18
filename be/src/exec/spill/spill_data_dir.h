@@ -64,7 +64,7 @@ public:
 
     /// Root of spill data of this store, optionally for one query:
     ///   local:  {path}/spill[/query_id]
-    ///   remote: spill/{host}[/query_id]   (relative to the vault prefix)
+    ///   remote: spill/{ip}_{port}[/query_id]   (relative to the vault prefix)
     std::string get_spill_data_path(const std::string& query_id = "") const;
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
@@ -102,7 +102,7 @@ protected:
     virtual bool _reach_limit_unlocked(int64_t incoming_data_size) = 0;
 
     std::string _path;
-    // Root of spill data: local "{path}/spill", remote "spill/{host}".
+    // Root of spill data: local "{path}/spill", remote "spill/{ip}_{port}".
     std::string _spill_root;
 
     // protect _disk_capacity_bytes, _available_bytes, _spill_data_limit_bytes, _spill_data_bytes

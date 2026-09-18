@@ -99,7 +99,7 @@ struct MockS3Store {
     std::atomic<bool> fail_deletes {false};
     std::atomic<bool> block_uploads {false};
     std::atomic<int64_t> put_requests {0};
-    // LIST of a whole spill root ("{vault}/spill/{host}/"), issued by the startup cleanup only.
+    // LIST of a whole spill root ("{vault}/spill/{ip}_{port}/"), issued by the startup cleanup only.
     std::atomic<int64_t> root_list_requests {0};
     std::atomic<int64_t> get_requests {0};
     std::atomic<int64_t> head_requests {0};
@@ -301,7 +301,7 @@ public:
         return io::ObjStorageResponse::OK();
     }
 
-    // "{vault}/spill/{host}/": nothing after the host component.
+    // "{vault}/spill/{ip}_{port}/": nothing after the host component.
     static bool is_spill_root(const std::string& prefix) {
         auto pos = prefix.find("/spill/");
         if (pos == std::string::npos) {
@@ -396,7 +396,7 @@ private:
 
 constexpr const char* kBucket = "spill-mock-bucket";
 constexpr const char* kVaultPrefix = "spill_s3_test";
-constexpr const char* kHost = "10.0.0.1";
+constexpr const char* kEndpoint = "10.0.0.1_9050";
 
 } // namespace
 
@@ -518,7 +518,7 @@ protected:
     void _create_manager(bool bind_fs = true) {
         auto store = std::make_unique<RemoteSpillDataDir>("vault-1");
         if (bind_fs) {
-            store->init_remote_fs(_s3_fs, kHost);
+            store->init_remote_fs(_s3_fs, kEndpoint);
         }
         _data_dir = store.get();
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
@@ -539,8 +539,8 @@ protected:
         _data_dir = nullptr;
     }
 
-    // Vault-prefixed keys of the mock store: {vault}/spill/{host}/{query_id}/...
-    static std::string spill_root() { return fmt::format("{}/spill/{}", kVaultPrefix, kHost); }
+    // Vault-prefixed keys of the mock store: {vault}/spill/{ip}_{port}/{query_id}/...
+    static std::string spill_root() { return fmt::format("{}/spill/{}", kVaultPrefix, kEndpoint); }
 
     static Block _random_string_block(std::mt19937& rng, size_t rows, size_t len) {
         std::vector<std::string> values;
@@ -620,9 +620,9 @@ TEST_F(SpillFileS3Test, RemoteStoreLayout) {
     ASSERT_TRUE(_data_dir->is_remote());
     ASSERT_TRUE(_data_dir->ready());
     ASSERT_EQ(_data_dir->storage_medium(), TStorageMedium::S3);
-    ASSERT_EQ(_data_dir->host(), kHost);
-    ASSERT_EQ(_data_dir->get_spill_data_path(), fmt::format("spill/{}", kHost));
-    ASSERT_EQ(_data_dir->get_spill_data_path("q1"), fmt::format("spill/{}/q1", kHost));
+    ASSERT_EQ(_data_dir->endpoint(), kEndpoint);
+    ASSERT_EQ(_data_dir->get_spill_data_path(), fmt::format("spill/{}", kEndpoint));
+    ASSERT_EQ(_data_dir->get_spill_data_path("q1"), fmt::format("spill/{}/q1", kEndpoint));
     ASSERT_EQ(_data_dir->fs().get(), _s3_fs.get());
     ASSERT_FALSE(_data_dir->reach_capacity_limit(1LL << 40)); // unlimited by default
 }
@@ -668,7 +668,7 @@ TEST_F(SpillFileS3Test, RoundtripAcrossParts) {
     ASSERT_TRUE(spill_file->ready_for_reading());
 
     // Objects live under
-    // {vault prefix}/spill/{host}/{relative_path}/{part}.
+    // {vault prefix}/spill/{ip}_{port}/{relative_path}/{part}.
     auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_1/sort-1-0-1/");
     ASSERT_GT(keys.size(), 1) << "expected several parts";
     int64_t object_bytes = 0;
@@ -818,9 +818,10 @@ TEST_F(SpillFileS3Test, QueryDirectoryDeletionRetriesUntilSuccess) {
     ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_4/").empty());
 }
 
-// Query directories under spill/{host}/ that no query of this process uses are residue of the
-// previous process and go; a directory of a running query of this process, the data of another
-// host, and directories created after the first listing stay.
+// Query directories under spill/{ip}_{port}/ that no query of this process uses are residue of the
+// previous process and go; a directory of a running query of this process, the data of other BEs
+// (another host, or another port on this host), and directories created after the first listing
+// stay.
 TEST_F(SpillFileS3Test, StartupCleanupDeletesResidueOfPreviousProcess) {
     // The test drives the GC rounds itself.
     const auto saved_gc_interval = config::spill_gc_interval_ms;
@@ -831,8 +832,13 @@ TEST_F(SpillFileS3Test, StartupCleanupDeletesResidueOfPreviousProcess) {
     mock_store().put_raw(kBucket, spill_root() + "/query_old/sort-1-0-1/1", "old");
     mock_store().put_raw(kBucket, spill_root() + "/query_old2/agg-1-0-1/0", "old");
     mock_store().put_raw(kBucket, spill_root() + "/query_live/sort-1-0-1/0", "live");
-    mock_store().put_raw(kBucket, fmt::format("{}/spill/10.0.0.2/q/sort-1-0-1/0", kVaultPrefix),
+    mock_store().put_raw(kBucket,
+                         fmt::format("{}/spill/10.0.0.2_9050/q/sort-1-0-1/0", kVaultPrefix),
                          "other host");
+    // Another BE on the same host: different heartbeat port, different directory.
+    mock_store().put_raw(kBucket,
+                         fmt::format("{}/spill/10.0.0.1_9051/q/sort-1-0-1/0", kVaultPrefix),
+                         "other BE on this host");
 
     _create_manager();
     // A query of this process registered its directory before writing it.
@@ -855,10 +861,16 @@ TEST_F(SpillFileS3Test, StartupCleanupDeletesResidueOfPreviousProcess) {
     ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_old2/").empty());
     ASSERT_EQ(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_live/").size(), 1);
     ASSERT_EQ(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_new/").size(), 1);
-    ASSERT_EQ(mock_store()
-                      .keys_with_prefix(kBucket, fmt::format("{}/spill/10.0.0.2/", kVaultPrefix))
-                      .size(),
-              1);
+    ASSERT_EQ(
+            mock_store()
+                    .keys_with_prefix(kBucket, fmt::format("{}/spill/10.0.0.2_9050/", kVaultPrefix))
+                    .size(),
+            1);
+    ASSERT_EQ(
+            mock_store()
+                    .keys_with_prefix(kBucket, fmt::format("{}/spill/10.0.0.1_9051/", kVaultPrefix))
+                    .size(),
+            1);
     ASSERT_EQ(mock_store().put_requests, 0);
 
     // Further rounds do nothing.

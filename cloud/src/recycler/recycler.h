@@ -394,7 +394,7 @@ public:
     // returns 0 for success otherwise error
     int recycle_expired_spill_objects();
 
-    // "spill/": the vault prefix under which BEs write spill ("spill/{host}/{query_id}/...").
+    // "spill/": the vault prefix under which BEs write spill ("spill/{ip}_{port}/{query_id}/...").
     std::string spill_object_prefix() const;
 
     // scan and recycle operation logs
