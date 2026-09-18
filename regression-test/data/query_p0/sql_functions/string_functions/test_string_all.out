@@ -1258,7 +1258,7 @@ Hello   World
 \N	\N
 
 -- !split_by_string_351 --
-[]	["hello"]
+[""]	["hello"]
 
 -- !split_by_string_352 --
 ["a", "", "b", "c"]
@@ -1274,6 +1274,9 @@ Hello   World
 
 -- !split_by_string_356 --
 ["hello world"]
+
+-- !issue_64803_split_by_string --
+[""]	[""]	[]
 
 -- !split_part_357 --
 hello
