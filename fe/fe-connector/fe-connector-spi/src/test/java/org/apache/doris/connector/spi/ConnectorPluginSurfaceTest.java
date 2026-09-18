@@ -20,8 +20,11 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -85,22 +88,28 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // OpenCSV scan properties require major 9: inlined keys cannot fail JVM linkage on an older FE.
-        Assertions.assertEquals("9.0", version.getProperty("api.version"));
+        // Combine the native Azure storage contract with the OpenCSV scan-property contract.
+        Assertions.assertEquals("12.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorProvider.class,
             ConnectorContext.class,
+            ConnectorStorageContext.class,
+            ConnectorStorageAccess.class,
+            ConnectorStorageAccessResolver.class,
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorTableSchema.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
+            ConnectorScanRange.class,
             ConnectorWriteHandle.class,
             ConnectorWritePlanProvider.class,
+            FileSystemProperties.class,
+            StorageProperties.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
             org.apache.doris.extension.spi.PluginContext.class);

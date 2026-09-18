@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.stream.Collectors;
@@ -41,6 +42,8 @@ import java.util.stream.Collectors;
 public class IcebergSysTableJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(IcebergSysTableJniScanner.class);
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
+    private final Clock clock;
+    private final String fileIoExpiryMs;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
     private final FileScanTask scanTask;
     private final int requiredFieldCount;
@@ -48,6 +51,12 @@ public class IcebergSysTableJniScanner extends JniScanner {
     private CloseableIterator<StructLike> reader;
 
     public IcebergSysTableJniScanner(int batchSize, Map<String, String> params) {
+        this(batchSize, params, Clock.systemUTC());
+    }
+
+    IcebergSysTableJniScanner(int batchSize, Map<String, String> params, Clock clock) {
+        this.clock = clock;
+        this.fileIoExpiryMs = params.get("file_io_expiry_ms");
         String serializedSplitParams = params.get("serialized_split");
         Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
                 "serialized_split should not be empty");
@@ -73,6 +82,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
 
     @Override
     protected void openInternal() throws IOException {
+        validateFileIoExpiry();
         try {
             preExecutionAuthenticator.execute(() -> {
                 // execute FileScanTask to get rows
@@ -84,6 +94,22 @@ public class IcebergSysTableJniScanner extends JniScanner {
             String msg = String.format("Failed to open scan task: %s", scanTask);
             LOG.error(msg, e);
             throw new IOException(msg, e);
+        }
+    }
+
+    private void validateFileIoExpiry() throws IOException {
+        if (fileIoExpiryMs == null) {
+            return;
+        }
+        final long expiry;
+        try {
+            expiry = Long.parseLong(fileIoExpiryMs);
+        } catch (NumberFormatException ignored) {
+            // Do not expose the credential metadata value through the parsing exception.
+            throw new IOException("Invalid Iceberg FileIO expiry timestamp");
+        }
+        if (expiry <= clock.millis()) {
+            throw new IOException("Iceberg FileIO credential is expired; replan the query to obtain fresh credentials");
         }
     }
 

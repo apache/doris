@@ -153,6 +153,14 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         }
     }
 
+    private static boolean isAzureAdlsSecretKey(Object key) {
+        if (!(key instanceof String)) {
+            return false;
+        }
+        String lower = ((String) key).toLowerCase(java.util.Locale.ROOT);
+        return lower.startsWith("adls.sas-token.");
+    }
+
     @Override
     protected boolean shouldIncludeEntry(Map.Entry<K, V> entry) {
         return !HIDDEN_KEY.contains(entry.getKey()) && !additionalHiddenKeys.contains(entry.getKey());
@@ -160,7 +168,7 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
 
     @Override
     protected String formatValue(Map.Entry<K, V> entry) {
-        if (hidePassword && SENSITIVE_KEY.contains(entry.getKey())) {
+        if (hidePassword && (SENSITIVE_KEY.contains(entry.getKey()) || isAzureAdlsSecretKey(entry.getKey()))) {
             return PASSWORD_MASK;
         }
         return super.formatValue(entry);

@@ -51,6 +51,10 @@ public:
     // Update s3 conf and reset client if `conf` is different. This method is threadsafe.
     Status reset(const S3ClientConf& conf);
 
+    // Validate the current generation while holding the same lock that protects
+    // credential/client replacement. Existing readers still follow holder refreshes.
+    Status validate_for_access() const;
+
     std::shared_ptr<ObjStorageClient> get() const {
         std::shared_lock lock(_mtx);
         return _client;
@@ -61,7 +65,12 @@ public:
     // For error msg
     std::string full_s3_path(std::string_view bucket, std::string_view key) const;
 
-    const S3ClientConf& s3_client_conf() { return _conf; }
+    // Credential refresh replaces _conf concurrently with file-system access.
+    // Return an owned snapshot so readers never retain a reference past the lock.
+    S3ClientConf s3_client_conf() const {
+        std::shared_lock lock(_mtx);
+        return _conf;
+    }
 
 private:
     mutable std::shared_mutex _mtx;

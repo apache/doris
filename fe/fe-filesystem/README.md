@@ -105,7 +105,7 @@ request. For example:
 | S3 | `AWS_ACCESS_KEY` + (`AWS_ENDPOINT` or `AWS_REGION`) |
 | OSS | Endpoint contains `aliyuncs.com` or `_STORAGE_TYPE_` = `"OSS"` |
 | HDFS | `_STORAGE_TYPE_` = `"HDFS"` or URI scheme is `hdfs`/`viewfs`/`ofs`/`jfs`/`oss` |
-| Azure | `AZURE_ACCOUNT_NAME` or endpoint contains `blob.core.windows.net` |
+| Azure | Azure account/SAS properties, or a parsed host matching an Azure Blob/DFS suffix (case-insensitive) |
 | Local | URI starts with `file://` or `local://` |
 | Broker | `_STORAGE_TYPE_` = `"BROKER"` and `BROKER_HOST` present |
 

@@ -67,6 +67,37 @@ under the License.
             <artifactId>iceberg-aws</artifactId>
             <version>${iceberg.version}</version>
         </dependency>
+        <!-- Metadata tasks can deserialize an Iceberg ADLSFileIO. Keep its Azure closure inside
+             the isolated plugin; use the JDK transport to avoid Netty version conflicts. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-azure</artifactId>
+            <version>${iceberg.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-file-datalake</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-core-http-jdk-httpclient</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <!--
           iceberg-aws declares no AWS SDK dependency of its own (they are compileOnly upstream), so
           every client a deserialized FileIO reaches has to be named here.

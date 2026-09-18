@@ -62,10 +62,14 @@ constexpr int LEN_OF_OSS_PRIVATE_SUFFIX = 9; // length of "-internal"
     }
 #endif
 
-Result<std::string> get_key(const Path& full_path) {
-    // FIXME(plat1ko): Check bucket in full path and support relative path
+Result<std::string> get_key(const Path& full_path, const S3ClientConf& conf) {
+    // Preserve the raw-object-key contract for internal callers. Full Azure
+    // URIs must belong to this holder even when a FileSystem is reused.
     S3URI uri(full_path.native());
-    RETURN_IF_ERROR_RESULT(uri.parse());
+    RETURN_IF_ERROR_RESULT(uri.parse(conf.provider == ObjStorageProvider::AZURE));
+    if (conf.provider == ObjStorageProvider::AZURE) {
+        RETURN_IF_ERROR_RESULT(S3ClientFactory::validate_azure_uri(uri, conf));
+    }
     return uri.get_key();
 }
 
@@ -88,6 +92,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.ak = conf.ak;
         reset_conf.sk = conf.sk;
         reset_conf.token = conf.token;
+        reset_conf.azure_credentials = conf.azure_credentials;
         reset_conf.bucket = conf.bucket;
         reset_conf.connect_timeout_ms = conf.connect_timeout_ms;
         reset_conf.max_connections = conf.max_connections;
@@ -120,6 +125,12 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
     return Status::OK();
 }
 
+Status ObjClientHolder::validate_for_access() const {
+    TEST_SYNC_POINT("ObjClientHolder::validate_for_access:before_lock");
+    std::shared_lock lock(_mtx);
+    return S3ClientFactory::validate_credentials_for_access(_conf);
+}
+
 Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
                                                   const std::string& key) const {
     auto client = get();
@@ -142,6 +153,7 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
 }
 
 std::string ObjClientHolder::full_s3_path(std::string_view bucket, std::string_view key) const {
+    std::shared_lock lock(_mtx);
     return fmt::format("{}/{}/{}", _conf.endpoint, bucket, key);
 }
 
@@ -183,18 +195,30 @@ S3FileSystem::~S3FileSystem() = default;
 
 Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                       const FileWriterOptions* opts) {
+    RETURN_IF_ERROR(_client->validate_for_access());
+    const auto conf = _client->s3_client_conf();
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
-    auto key = DORIS_TRY(get_key(file));
-    *writer = std::make_unique<S3FileWriter>(_client, _bucket, std::move(key), opts);
+    auto key = DORIS_TRY(get_key(file, conf));
+    std::string display_path;
+    if (file.native().find("://") != std::string::npos) {
+        display_path = file.native();
+    }
+    *writer = std::make_unique<S3FileWriter>(_client, _bucket, std::move(key), opts,
+                                             std::move(display_path));
     return Status::OK();
 }
 
 Status S3FileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
                                         const FileReaderOptions& opts) {
     TEST_SYNC_POINT_CALLBACK("S3FileSystem::open_file_internal", &file, &opts);
-    auto key = DORIS_TRY(get_key(file));
-    *reader = DORIS_TRY(S3FileReader::create(_client, _bucket, key, opts.file_size, nullptr));
+    auto key = DORIS_TRY(get_key(file, _client->s3_client_conf()));
+    std::string display_path;
+    if (file.native().find("://") != std::string::npos) {
+        display_path = file.native();
+    }
+    *reader = DORIS_TRY(S3FileReader::create(_client, _bucket, key, opts.file_size, nullptr,
+                                             std::move(display_path)));
     return Status::OK();
 }
 
@@ -206,7 +230,7 @@ Status S3FileSystem::delete_file_impl(const Path& file) {
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
 
-    auto key = DORIS_TRY(get_key(file));
+    auto key = DORIS_TRY(get_key(file, _client->s3_client_conf()));
 
     auto resp = client->delete_object({.bucket = _bucket, .key = key});
 
@@ -221,7 +245,7 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
 
-    auto prefix = DORIS_TRY(get_key(dir));
+    auto prefix = DORIS_TRY(get_key(dir, _client->s3_client_conf()));
     if (!prefix.empty() && prefix.back() != '/') {
         prefix.push_back('/');
     }
@@ -248,7 +272,7 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
         auto path_begin = path_iter;
         for (; path_iter != remote_files.end() && (path_iter - path_begin < max_delete_batch);
              ++path_iter) {
-            auto key = DORIS_TRY(get_key(*path_iter));
+            auto key = DORIS_TRY(get_key(*path_iter, _client->s3_client_conf()));
             objects.emplace_back(std::move(key));
         }
         if (objects.empty()) {
@@ -267,7 +291,7 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
 Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
-    auto key = DORIS_TRY(get_key(path));
+    auto key = DORIS_TRY(get_key(path, _client->s3_client_conf()));
 
     VLOG_DEBUG << "key:" << key << " path:" << path;
 
@@ -286,7 +310,7 @@ Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
 }
 
 Status S3FileSystem::file_size_impl(const Path& file, int64_t* file_size) const {
-    auto key = DORIS_TRY(get_key(file));
+    auto key = DORIS_TRY(get_key(file, _client->s3_client_conf()));
     *file_size = DORIS_TRY(_client->object_file_size(_bucket, key));
     return Status::OK();
 }
@@ -298,7 +322,7 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
     *exists = true;
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
-    auto prefix = DORIS_TRY(get_key(dir));
+    auto prefix = DORIS_TRY(get_key(dir, _client->s3_client_conf()));
     if (!prefix.empty() && prefix.back() != '/') {
         prefix.push_back('/');
     }
@@ -328,10 +352,10 @@ Status S3FileSystem::upload_impl(const Path& local_file, const Path& remote_file
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
 
-    auto key = DORIS_TRY(get_key(remote_file));
+    auto key = DORIS_TRY(get_key(remote_file, _client->s3_client_conf()));
     auto start = std::chrono::steady_clock::now();
     FileWriterPtr obj_writer;
-    RETURN_IF_ERROR(create_file_impl(key, &obj_writer, nullptr));
+    RETURN_IF_ERROR(create_file_impl(remote_file, &obj_writer, nullptr));
     FileReaderSPtr local_reader;
     RETURN_IF_ERROR(io::global_local_filesystem()->open_file(local_file, &local_reader));
     size_t local_buffer_size = config::s3_file_system_local_upload_buffer_size;
@@ -372,9 +396,9 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
         const auto& local_file = local_files[idx];
         const auto& remote_file = remote_files[idx];
         auto& obj_writer = obj_writers[idx];
-        auto key = DORIS_TRY(get_key(remote_file));
+        auto key = DORIS_TRY(get_key(remote_file, _client->s3_client_conf()));
         LOG(INFO) << "Start to upload " << local_file.native() << " to " << full_s3_path(key);
-        RETURN_IF_ERROR(create_file_impl(key, &obj_writer, nullptr));
+        RETURN_IF_ERROR(create_file_impl(remote_file, &obj_writer, nullptr));
         FileReaderSPtr local_reader;
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(local_file, &local_reader));
         size_t local_buffer_size = config::s3_file_system_local_upload_buffer_size;
@@ -417,7 +441,7 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
 Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_file) {
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
-    auto key = DORIS_TRY(get_key(remote_file));
+    auto key = DORIS_TRY(get_key(remote_file, _client->s3_client_conf()));
     int64_t size;
     RETURN_IF_ERROR(file_size(remote_file, &size));
     std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);
@@ -446,13 +470,11 @@ std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expir
                                                  bool is_public_endpoint) const {
     std::string key = fmt::format("{}/{}", _prefix, path.native());
     std::shared_ptr<ObjStorageClient> client;
-    if (is_public_endpoint &&
-        _client->s3_client_conf().endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
-        auto new_s3_conf = _client->s3_client_conf();
-        new_s3_conf.endpoint.erase(
-                _client->s3_client_conf().endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
-                LEN_OF_OSS_PRIVATE_SUFFIX);
-        auto client_result = S3ClientFactory::instance().create(new_s3_conf);
+    auto conf = _client->s3_client_conf();
+    if (is_public_endpoint && conf.endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
+        conf.endpoint.erase(conf.endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
+                            LEN_OF_OSS_PRIVATE_SUFFIX);
+        auto client_result = S3ClientFactory::instance().create(conf);
         if (!client_result) {
             LOG(WARNING) << "failed to create S3 client for presigned URL: "
                          << client_result.error();

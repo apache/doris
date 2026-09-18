@@ -147,6 +147,44 @@ under the License.
             <version>${iceberg.version}</version>
         </dependency>
 
+        <!-- ResolvingFileIO selects ADLSFileIO for abfs[s]/wasb[s] metadata and manifest paths.
+             Keep that Iceberg-owned FE path available inside the child-first connector plugin;
+             BE data-file reads still use Doris's native Azure object client. iceberg-azure's
+             published Maven metadata does not declare the Azure SDK modules it was compiled
+             against, so list those runtime requirements explicitly. -->
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-azure</artifactId>
+            <version>${iceberg.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-storage-file-datalake</artifactId>
+            <exclusions>
+                <!-- Doris currently uses Netty 4.2, while Azure's Netty transport is compiled
+                     against Netty 4.1. Use the JDK transport below to keep ADLSFileIO isolated
+                     from that incompatible process-wide Netty API. -->
+                <exclusion>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-core-http-jdk-httpclient</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-identity</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.azure</groupId>
+                    <artifactId>azure-core-http-netty</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
         <!-- The hms-flavor org.apache.iceberg.hive.HiveCatalog is NOT a direct dependency here: it is
              bundled (with the shared relocated thrift shade.doris.hive.org.apache.thrift) inside
              fe-connector-hms-hive-shade and reaches this plugin transitively via fe-connector-hms above —

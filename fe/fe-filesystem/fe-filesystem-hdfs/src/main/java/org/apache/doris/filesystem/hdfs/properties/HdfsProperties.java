@@ -54,8 +54,21 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     private String dfsNameServices = "";
 
+    private final boolean syntheticDefault;
+
     public HdfsProperties(Map<String, String> origProps) {
+        this(origProps, false);
+    }
+
+    /** The provider sets the origin only when the registry explicitly requests its default binding. */
+    public HdfsProperties(Map<String, String> origProps, boolean syntheticDefault) {
         super(origProps);
+        this.syntheticDefault = syntheticDefault;
+    }
+
+    @Override
+    public boolean isSyntheticDefault() {
+        return syntheticDefault;
     }
 
     @Override

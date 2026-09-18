@@ -93,6 +93,19 @@ public class CredentialUtilsTest {
     }
 
     @Test
+    public void testAdlsCredentialsAreLeftToFilesystemProviders() {
+        String accountHost = "account.dfs.core.windows.net";
+        Map<String, String> rawCredentials = new HashMap<>();
+        rawCredentials.put("adls.sas-token." + accountHost, "?sv=2024-01-01&sig=temporary");
+        rawCredentials.put("adls.sas-token-expires-at-ms." + accountHost, "4102444800000");
+        rawCredentials.put("table.name", "ignored");
+
+        Assertions.assertTrue(CredentialUtils.filterCloudStorageProperties(rawCredentials).isEmpty());
+        Assertions.assertEquals("?sv=2024-01-01&sig=temporary",
+                rawCredentials.get("adls.sas-token." + accountHost));
+    }
+
+    @Test
     public void testFilterCloudStoragePropertiesWithEmptyInput() {
         Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(new HashMap<>());
         Assertions.assertTrue(filtered.isEmpty());
