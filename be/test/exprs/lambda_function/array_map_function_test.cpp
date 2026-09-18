@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "exprs/function/simple_function_factory.h"
 #include "exprs/vcolumn_ref.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vlambda_function_call_expr.h"
@@ -44,6 +45,7 @@
 #include "exprs/vslot_ref.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "testutil/function_utils.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -786,6 +788,63 @@ TEST(ArrayFilterFunctionTest, NullableSecondaryLambdaArrayPropagatesToResult) {
     const auto& values = assert_cast<const ColumnInt32&>(
             assert_cast<const ColumnNullable&>(*result_array.get_data_ptr()).get_nested_column());
     EXPECT_EQ(values.get_data(), ColumnInt32::Container({3}));
+}
+
+TEST(ArrayEnumerateUniqFunctionTest, MappedAndOriginalNullableArraysUseLogicalRowOffsets) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int_type = make_nullable(int_type);
+    auto array_int_type = std::make_shared<DataTypeArray>(nullable_int_type);
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto source = make_nullable_int_array_column({{1, 2}, {3, 4}}, {1, 0});
+
+    auto map = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, 2));
+    auto lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(nullable_int_type, {"x"}));
+    lambda->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", nullable_int_type)));
+    map->add_child(lambda);
+    map->add_child(std::make_shared<MockColumnExpr>(source, nullable_array_int_type, "source"));
+
+    VExprContext map_context(map);
+    open_expr(map, &map_context);
+
+    Block input_block;
+    ColumnPtr mapped;
+    auto status = map->execute_column(&map_context, &input_block, nullptr, 2, mapped);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& mapped_nullable = assert_cast<const ColumnNullable&>(*mapped);
+    EXPECT_EQ(mapped_nullable.get_null_map_data(), ColumnUInt8::Container({1, 0}));
+    EXPECT_EQ(assert_cast<const ColumnArray&>(mapped_nullable.get_nested_column()).get_offsets(),
+              ColumnArray::Offsets64({0, 2}));
+
+    auto result_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt64>())));
+    Block block;
+    block.insert({std::move(mapped), nullable_array_int_type, "mapped"});
+    block.insert({std::move(source), nullable_array_int_type, "source"});
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "array_enumerate_uniq", block.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+
+    FunctionUtils function_utils(result_type, {nullable_array_int_type, nullable_array_int_type},
+                                 false);
+    auto* function_context = function_utils.get_fn_ctx();
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    block.insert({nullptr, result_type, "result"});
+    status = function->execute(function_context, block, {0, 1}, 2, 2);
+    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    EXPECT_EQ(result.get_null_map_data(), ColumnUInt8::Container({1, 0}));
+    const auto& result_array = assert_cast<const ColumnArray&>(result.get_nested_column());
+    EXPECT_EQ(result_array.get_offsets(), ColumnArray::Offsets64({0, 2}));
+    const auto& values = assert_cast<const ColumnInt64&>(
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+    EXPECT_EQ(values.get_data(), ColumnInt64::Container({1, 1}));
 }
 
 TEST(ArrayMapFunctionTest, LambdaWithConstantCaptureUsesNestedColumnDirectly) {
