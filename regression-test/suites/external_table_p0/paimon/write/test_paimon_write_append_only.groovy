@@ -34,7 +34,7 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
                 int equals = component.indexOf('=')
                 assertTrue(equals >= 0, "Invalid Paimon partition path: ${row[0]}")
                 String value = java.net.URLDecoder.decode(component.substring(equals + 1), "UTF-8")
-                return value in ["__DEFAULT_PARTITION__", "__CUSTOM_DEFAULT_PARTITION__"] ? "" : value
+                return value in ["__DEFAULT_PARTITION__", "__CUSTOM_DEFAULT_PARTITION__"] ? "null" : value
             }
             return ["{${values.join(', ')}}", row[1]]
         }.sort { left, right -> left[0].toString() <=> right[0].toString() }

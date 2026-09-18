@@ -118,21 +118,18 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testVariantWiderTypeKeepsTimestampNsPrecision() {
-        Assertions.assertEquals(Optional.of(TimeStampNsType.INSTANCE),
+    public void testVariantWiderTypePreservesVariantValues() {
+        Assertions.assertEquals(Optional.of(VariantType.INSTANCE),
                 TypeCoercionUtils.findWiderTypeForTwo(
                         VariantType.INSTANCE, TimeStampNsType.INSTANCE, false, false));
-        Assertions.assertEquals(Optional.of(ArrayType.of(TimeStampNsType.INSTANCE)),
+        Assertions.assertEquals(Optional.of(VariantType.INSTANCE),
                 TypeCoercionUtils.findWiderTypeForTwo(
                         VariantType.INSTANCE, ArrayType.of(TimeStampNsType.INSTANCE), false, false));
 
         StructType mixedDateLikeType = new StructType(ImmutableList.of(
                 new StructField("ts", TimeStampNsType.INSTANCE, false, ""),
                 new StructField("date", DateV2Type.INSTANCE, true, "")));
-        StructType normalizedMixedDateLikeType = new StructType(ImmutableList.of(
-                new StructField("ts", TimeStampNsType.INSTANCE, false, ""),
-                new StructField("date", DateTimeV2Type.MAX, true, "")));
-        Assertions.assertEquals(Optional.of(normalizedMixedDateLikeType),
+        Assertions.assertEquals(Optional.empty(),
                 TypeCoercionUtils.findWiderTypeForTwo(
                         VariantType.INSTANCE, mixedDateLikeType, false, false));
     }
@@ -664,9 +661,7 @@ public class TypeCoercionUtilsTest {
         Assertions.assertEquals(nestedTimestamp,
                 TypeCoercionUtils.replaceTimesWithTargetPrecision(nestedTimestamp, 3));
 
-        MapType normalizedNestedTimestamp = MapType.of(DecimalV3Type.SYSTEM_DEFAULT,
-                ArrayType.of(TimeStampNsType.INSTANCE));
-        Assertions.assertEquals(Optional.of(normalizedNestedTimestamp),
+        Assertions.assertEquals(Optional.empty(),
                 TypeCoercionUtils.findWiderTypeForTwo(
                         nestedTimestamp, VariantType.INSTANCE, false, false));
         Optional<Expression> dateTargetWithTime = TypeCoercionUtils.characterLiteralTypeCoercion(
@@ -807,6 +802,13 @@ public class TypeCoercionUtilsTest {
         Assertions.assertEquals(ArrayType.of(VariantType.INSTANCE),
                 TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
                         ImmutableList.of(ArrayType.of(v1), ArrayType.of(anotherV1))).get());
+        Assertions.assertEquals(VariantType.INSTANCE,
+                TypeCoercionUtils.findWiderTypeForTwo(v1, IntegerType.INSTANCE, false, true).get());
+        Assertions.assertEquals(VariantType.INSTANCE,
+                TypeCoercionUtils.findCommonPrimitiveTypeForCaseWhen(v1, IntegerType.INSTANCE).get());
+        Assertions.assertEquals(VariantType.INSTANCE,
+                TypeCoercionUtils.findWiderCommonTypeForCaseWhen(
+                        ImmutableList.of(v1, IntegerType.INSTANCE)).get());
 
         Assertions.assertEquals(v1,
                 TypeCoercionUtils.findWiderTypeForTwo(v1, new VariantType(100), false, true).get());
@@ -1073,13 +1075,9 @@ public class TypeCoercionUtilsTest {
         Assertions.assertThrows(AnalysisException.class,
                 () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, integer)));
 
-        Expression subpathComparison = TypeCoercionUtils.processComparisonPredicate(
-                new EqualTo(variantSubpath, integer));
-        Assertions.assertTrue(subpathComparison instanceof EqualTo);
-        Assertions.assertTrue(subpathComparison.child(0) instanceof Cast);
-        Assertions.assertFalse(subpathComparison.child(0).getDataType().isVariantType());
-        Assertions.assertEquals(subpathComparison.child(0).getDataType(),
-                subpathComparison.child(1).getDataType());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processComparisonPredicate(
+                        new EqualTo(variantSubpath, integer)));
 
         Assertions.assertThrows(AnalysisException.class,
                 () -> TypeCoercionUtils.processComparisonPredicate(
