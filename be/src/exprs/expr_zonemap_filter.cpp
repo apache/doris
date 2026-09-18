@@ -250,6 +250,21 @@ std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args) {
     return std::nullopt;
 }
 
+std::optional<SlotSlot> extract_slot_and_slot(const VExprSPtrs& args) {
+    if (args.size() != 2) {
+        return std::nullopt;
+    }
+    auto left = std::dynamic_pointer_cast<VSlotRef>(args[0]);
+    auto right = std::dynamic_pointer_cast<VSlotRef>(args[1]);
+    if (left == nullptr || right == nullptr) {
+        return std::nullopt;
+    }
+    return SlotSlot {.left_slot_index = left->column_id(),
+                     .left_type = left->data_type(),
+                     .right_slot_index = right->column_id(),
+                     .right_type = right->data_type()};
+}
+
 std::optional<SlotLiteral> extract_array_contains_slot_and_literal(const VExprSPtrs& args) {
     if (args.size() != 2) {
         return std::nullopt;

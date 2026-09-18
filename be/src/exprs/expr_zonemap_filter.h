@@ -97,6 +97,21 @@ struct SlotLiteral {
     bool literal_on_left;
 };
 
+// A comparison whose both operands are plain slot references, e.g. `WHERE a != b`. Unlike
+// SlotLiteral there is no flag to flip the operator: with two slots the argument order already is
+// the expression order, so evaluators use the comparison operator as written.
+struct SlotSlot {
+    // Slot ordinals of the left and right operand. Both are keys used to look up the corresponding
+    // reader-schema type and zone map from ZoneMapEvalContext, same as SlotLiteral::slot_index.
+    int left_slot_index;
+    // Type carried by the left slot expression. Kept separately for the same reason as
+    // SlotLiteral::slot_type: evaluation first has to verify the expression binding is compatible
+    // with the reader-schema type held by the context.
+    DataTypePtr left_type;
+    int right_slot_index;
+    DataTypePtr right_type;
+};
+
 enum class MetadataPathKind {
     STRUCT_FIELD,
     LIST_ELEMENT,
@@ -119,6 +134,10 @@ struct MetadataProbe {
 };
 
 std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args);
+
+// Both operands must be bare VSlotRef. A cast around a slot is deliberately rejected: the zone map
+// holds raw stored values, so comparing across a cast would need the cast applied to the bounds.
+std::optional<SlotSlot> extract_slot_and_slot(const VExprSPtrs& args);
 
 std::optional<SlotLiteral> extract_array_contains_slot_and_literal(const VExprSPtrs& args);
 
