@@ -100,6 +100,7 @@ org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#schemaId(long)
 org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#snapshotId(long):org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#adjustFileCompressType(org.apache.doris.thrift.TFileCompressType):org.apache.doris.thrift.TFileCompressType
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#appendExplainInfo(java.lang.StringBuilder,java.lang.String,java.util.Map):void
+org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#applyColumnDefaultsOnRead():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#canServeMetadataOnlyCount(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Optional):boolean
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#classifyColumn(java.lang.String):org.apache.doris.connector.spi.scan.ConnectorColumnCategory
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#collectScanProfiles(org.apache.doris.connector.spi.ConnectorSession):java.util.List

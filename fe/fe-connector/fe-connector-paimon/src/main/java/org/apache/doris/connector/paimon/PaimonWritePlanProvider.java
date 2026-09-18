@@ -51,6 +51,7 @@ import org.apache.paimon.types.DataTypeRoot;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -73,6 +74,60 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         this.catalogProperties = catalogProperties;
         this.catalogOps = catalogOps;
         this.context = context;
+    }
+
+    @Override
+    public Optional<List<ConnectorColumn>> getWriteColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle, Optional<String> branchName) {
+        FileStoreTable table = resolveTable((PaimonTableHandle) tableHandle);
+        PaimonTypeMapping.Options options = new PaimonTypeMapping.Options(
+                catalogProperties.isEnableMappingVarbinary(),
+                catalogProperties.isEnableMappingTimestampTz());
+        return Optional.of(mapWriteColumns(table.schema().fields(), table.primaryKeys(), options));
+    }
+
+    static List<ConnectorColumn> mapWriteColumns(List<DataField> fields, List<String> primaryKeys,
+            PaimonTypeMapping.Options options) {
+        Set<String> keyNames = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        keyNames.addAll(primaryKeys);
+        List<ConnectorColumn> columns = new ArrayList<>(fields.size());
+        for (DataField field : fields) {
+            ConnectorColumn column = new ConnectorColumn(
+                    field.name(), PaimonTypeMapping.toConnectorType(field.type(), options),
+                    field.description(), field.type().isNullable(), field.defaultValue(),
+                    keyNames.contains(field.name())).withUniqueId(field.id());
+            if (field.defaultValue() != null) {
+                column = column.withDefaultValueSql(toDorisDefaultValueSql(field));
+            }
+            if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
+                column = column.withTimeZone();
+            }
+            columns.add(column);
+        }
+        return Collections.unmodifiableList(columns);
+    }
+
+    private static String toDorisDefaultValueSql(DataField field) {
+        String value = field.defaultValue();
+        switch (field.type().getTypeRoot()) {
+            case CHAR:
+            case VARCHAR:
+            case BINARY:
+            case VARBINARY:
+            case DATE:
+            case TIME_WITHOUT_TIME_ZONE:
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+            case VARIANT:
+            case BLOB:
+                if ((value.startsWith("'") && value.endsWith("'"))
+                        || (value.startsWith("\"") && value.endsWith("\""))) {
+                    return value;
+                }
+                return "'" + value.replace("'", "''") + "'";
+            default:
+                return value;
+        }
     }
 
     @Override

@@ -25,6 +25,8 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -76,6 +78,25 @@ public class PaimonWritePlanProviderTest {
                 3, 3, true, CoreOptions.MergeEngine.FIRST_ROW));
         Assertions.assertDoesNotThrow(() -> PaimonWritePlanProvider.validateWriteColumnsForMergeEngine(
                 2, 3, false, CoreOptions.MergeEngine.FIRST_ROW));
+    }
+
+    @Test
+    public void writeColumnsConvertPaimonDefaultsToDorisSqlAndPreserveSchemaProperties() {
+        List<ConnectorColumn> columns = PaimonWritePlanProvider.mapWriteColumns(
+                Arrays.asList(
+                        new DataField(7, "id", DataTypes.INT().notNull(), "identifier"),
+                        new DataField(9, "note", DataTypes.STRING(), null, "default-note"),
+                        new DataField(11, "ts", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6))),
+                Collections.singletonList("ID"), PaimonTypeMapping.Options.DEFAULT);
+
+        Assertions.assertFalse(columns.get(0).isNullable());
+        Assertions.assertTrue(columns.get(0).isKey());
+        Assertions.assertEquals(7, columns.get(0).getUniqueId());
+        Assertions.assertEquals("default-note", columns.get(1).getDefaultValue());
+        Assertions.assertEquals("'default-note'", columns.get(1).getDefaultValueSql());
+        Assertions.assertTrue(columns.get(2).isWithTimeZone());
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> columns.add(columns.get(0)));
     }
 
     private static List<ConnectorColumn> columns(String... names) {

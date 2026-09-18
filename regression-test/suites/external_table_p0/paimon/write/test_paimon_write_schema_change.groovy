@@ -648,18 +648,18 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
                 ALTER TABLE `${appendTable}`
                 ADD PARTITION KEY bucket(4, id) AS id_bucket
             """
-            exception "ADD PARTITION KEY is only supported for Iceberg tables"
+            exception "ADD PARTITION FIELD not supported"
         }
         test {
             sql """ALTER TABLE `${appendTable}` DROP PARTITION KEY dt"""
-            exception "DROP PARTITION KEY is only supported for Iceberg tables"
+            exception "DROP PARTITION FIELD not supported"
         }
         test {
             sql """
                 ALTER TABLE `${appendTable}`
                 REPLACE PARTITION KEY dt WITH bucket(4, id) AS id_bucket
             """
-            exception "REPLACE PARTITION KEY is only supported for Iceberg tables"
+            exception "REPLACE PARTITION FIELD not supported"
         }
 
         // Rejected partition evolution must not mutate the current schema or

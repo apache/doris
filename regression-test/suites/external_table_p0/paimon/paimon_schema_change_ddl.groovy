@@ -304,7 +304,7 @@ suite("paimon_schema_change_ddl", "p0,external,doris,external_docker,external_do
 
         test {
             sql """ALTER TABLE `${tableName}` ADD COLUMN generated_col INT AS (score + 1)"""
-            exception "cannot be a generated column in a Paimon table"
+            exception "Generated columns are not supported for external ADD/MODIFY COLUMN"
         }
         assertEquals(beforeSchemaId, schemaId(tableName))
 

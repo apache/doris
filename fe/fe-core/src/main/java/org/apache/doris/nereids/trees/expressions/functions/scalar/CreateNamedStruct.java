@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.VariantType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
@@ -81,7 +80,7 @@ public class CreateNamedStruct extends ScalarFunction implements CustomSignature
                 }
             }
             DataType valueType = getArgument(i + 1).getDataType();
-            if (valueType.isJsonType() || VariantType.isLegacyVariant(valueType)) {
+            if (valueType.isJsonType()) {
                 throw new AnalysisException("named_struct does not support jsonb/variant type");
             }
         }
