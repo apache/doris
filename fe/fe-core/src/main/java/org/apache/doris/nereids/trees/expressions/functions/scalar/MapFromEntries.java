@@ -21,8 +21,9 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
-import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
+import org.apache.doris.nereids.trees.expressions.functions.ChildDerivedSignature;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PreserveChildTypePrecision;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -42,7 +43,9 @@ import java.util.List;
 
 /** Construct a Map from an Array of two-field Struct entries. */
 public class MapFromEntries extends ScalarFunction
-        implements UnaryExpression, ComputePrecision, CustomSignature, PropagateNullable, PreferPushDownProject {
+        implements UnaryExpression, PreserveChildTypePrecision, CustomSignature, PropagateNullable,
+        PreferPushDownProject,
+        ChildDerivedSignature {
 
     public MapFromEntries(Expression entries) {
         super("map_from_entries", entries);
@@ -101,8 +104,25 @@ public class MapFromEntries extends ScalarFunction
     // Prevent STRUCT<DECIMAL(38,0), DECIMAL(38,38)> from being resolved as
     // STRUCT<DECIMAL(38,6), DECIMAL(38,6)>, and nested DATETIMEV2(6) as DATETIMEV2(0).
     @Override
-    public FunctionSignature computePrecision(FunctionSignature signature) {
-        return signature;
+    public FunctionSignature deriveSignatureFromChildren(
+            FunctionSignature resolvedSignature, List<Expression> immediateOriginArguments,
+            List<Expression> currentArguments) {
+        DataType inputType = ChildDerivedSignature.refreshNestedTypeMetadata(
+                resolvedSignature.getArgType(0), currentArguments.get(0).getDataType(),
+                immediateOriginArguments.get(0).getDataType());
+        if (!(inputType instanceof ArrayType)
+                || !(((ArrayType) inputType).getItemType() instanceof StructType)) {
+            throw new AnalysisException(
+                    "Cannot safely reuse map_from_entries signature with incompatible entry metadata");
+        }
+        List<StructField> fields = ((StructType) ((ArrayType) inputType).getItemType()).getFields();
+        if (fields.size() != 2) {
+            throw new AnalysisException(
+                    "Cannot safely reuse map_from_entries signature with a non-pair entry");
+        }
+        MapType resultType = MapType.of(fields.get(0).getDataType(), fields.get(1).getDataType());
+        resultType.validateDataType();
+        return resolvedSignature.withArgumentType(0, inputType).withReturnType(resultType);
     }
 
     @Override
