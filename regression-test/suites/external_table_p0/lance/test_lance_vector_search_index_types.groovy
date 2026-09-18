@@ -138,20 +138,24 @@ suite("test_lance_vector_search_index_types", "p0,external") {
         ORDER BY _distance, row_id
     """
 
-    // Cover both ef values without requiring different answers: on this frozen fixture,
-    // Lance v11 returns the same five candidates for ef=5 and ef=50. The goldens below
-    // record their unrefined SQ distances, not exact squared L2 distances. The ef lower-bound
-    // error case below separately checks that the supplied ef reaches HNSW search.
-    qt_ivf_hnsw_sq_ef_5 """
-        SELECT row_id, label, _distance
-        FROM ${search("vs_ivf_hnsw_sq_f32", midQuery, "5", "4", ', "ef"="5"')}
-        ORDER BY _distance, row_id
-    """
-    qt_ivf_hnsw_sq_ef_50 """
-        SELECT row_id, label, _distance
-        FROM ${search("vs_ivf_hnsw_sq_f32", midQuery, "5", "4", ', "ef"="50"')}
-        ORDER BY _distance, row_id
-    """
+    // ANN results may coincide at different ef values, and quantized scores can vary
+    // across Lance versions. Validate the result contract; the rejection below proves
+    // that ef reaches Lance's graph-search candidate-width validation.
+    for (int ef : [5, 50]) {
+        def rows = sql """
+            SELECT row_id, _distance
+            FROM ${search("vs_ivf_hnsw_sq_f32", midQuery, "5", "4", ', "ef"="' + ef + '"')}
+            ORDER BY _distance, row_id
+        """
+        assertEquals(5, rows.size())
+        assertEquals(5, rows.collect { it[0] }.unique().size())
+        assertEquals(518L, rows[0][0] as long)
+        assertEquals(0d, rows[0][1] as double)
+        rows.each { row ->
+            assertTrue((row[0] as long) >= 1 && (row[0] as long) <= 1024)
+            assertTrue(Double.isFinite(row[1] as double) && (row[1] as double) >= 0)
+        }
+    }
 
     // Lance reranks a refined query over top_k * refine_factor candidates, so ef has to be
     // at least that wide. Too small an ef is a diagnosable error rather than a quietly

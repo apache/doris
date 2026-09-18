@@ -180,13 +180,65 @@ public class LancePreparedSearchTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testMultiVectorPrepareDefersValueValidation(boolean useIndex) {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        LanceExternalTable table = mockTable(new AtomicLong(42), true);
+        try (MockedStatic<LanceExternalSearchTableValuedFunction> lookup = Mockito.mockStatic(
+                LanceExternalSearchTableValuedFunction.class, Mockito.CALLS_REAL_METHODS)) {
+            lookup.when(() -> LanceExternalSearchTableValuedFunction.findLanceExternalTable(
+                    Mockito.any(TableName.class))).thenReturn(table);
+            Pair<LogicalPlan, StatementContext> parsed = new NereidsParser().parseMultiple(
+                    "select id, _distance from vector_search('table'='catalog.db.items', "
+                            + "'column'='embedding', 'use_index'='" + useIndex + "', "
+                            + "'query_vector'=?, 'top_k'=?)").get(0);
+            StatementContext prepare = MemoTestUtils.createStatementContext(context, "");
+            prepare.setPrepareStage(true);
+            Assertions.assertFalse(analyze(parsed.first, prepare).getSearchRequest()
+                    .getSearchQuery().getVectorSearch().isSetQueryVector());
+            StatementContext execute = MemoTestUtils.createStatementContext(context, "");
+            List<Placeholder> parameters = parsed.second.getPlaceholders();
+            execute.getIdToPlaceholderRealExpr().put(parameters.get(0).getPlaceholderId(),
+                    new StringLiteral("[[1,2],[3,4]]"));
+            execute.getIdToPlaceholderRealExpr().put(parameters.get(1).getPlaceholderId(), new IntegerLiteral(3));
+            Assertions.assertEquals(2, analyze(parsed.first, execute).getSearchRequest()
+                    .getSearchQuery().getVectorSearch().getQueryVector().getNumVectors());
+            execute.getIdToPlaceholderRealExpr().put(parameters.get(1).getPlaceholderId(), new IntegerLiteral(100001));
+            Exception budget = Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> analyze(parsed.first, execute));
+            Assertions.assertTrue(budget.getMessage().contains("candidate budget"));
+            execute.getIdToPlaceholderRealExpr().put(parameters.get(1).getPlaceholderId(), new IntegerLiteral(3));
+            execute.getIdToPlaceholderRealExpr().put(parameters.get(0).getPlaceholderId(),
+                    new StringLiteral("[[1],[3,4]]"));
+            Exception dimension = Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> analyze(parsed.first, execute));
+            Assertions.assertTrue(dimension.getMessage().contains("dimension"));
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
     private LanceExternalTable mockTable(AtomicLong version) {
+        return mockTable(version, false);
+    }
+
+    private LanceExternalTable mockTable(AtomicLong version, boolean multiVector) {
         LanceExternalTable table = Mockito.mock(LanceExternalTable.class);
-        Schema schema = new Schema(Arrays.asList(
-                Field.nullable("id", new ArrowType.Int(64, true)),
-                new Field("embedding", org.apache.arrow.vector.types.pojo.FieldType.nullable(
-                        new ArrowType.FixedSizeList(2)), Collections.singletonList(
-                                Field.nullable("item", new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE))))));
+        Field vector = new Field("embedding", org.apache.arrow.vector.types.pojo.FieldType.nullable(
+                new ArrowType.FixedSizeList(2)), Collections.singletonList(
+                        Field.nullable("item", new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE))));
+        if (multiVector) {
+            vector = new Field("embedding", org.apache.arrow.vector.types.pojo.FieldType.nullable(ArrowType.List.INSTANCE),
+                    Collections.singletonList(new Field("item",
+                            org.apache.arrow.vector.types.pojo.FieldType.notNullable(new ArrowType.FixedSizeList(2)),
+                            vector.getChildren())));
+        }
+        Schema schema = new Schema(Arrays.asList(Field.nullable("id", new ArrowType.Int(64, true)), vector));
         Mockito.when(table.loadMetadataForSearch()).thenAnswer(invocation -> LanceTableMetadata.withIndexSegments(
                 "s3://bucket/items.lance", version.get(), schema, Collections.emptyList(),
                 ImmutableMap.of("id", 0, "embedding", 1), Collections.emptyList(), Collections.emptyMap()));
