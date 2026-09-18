@@ -180,7 +180,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     if (_should_push_down_value_predicates()) {
         // sequence mapping currently only support merge on read, so can not push down value predicates
         if (_read_context->value_predicates != nullptr &&
-            !read_context->tablet_schema->has_seq_map()) {
+            !_read_context->read_schema->tablet_has_sequence_map()) {
             _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                    _read_context->value_predicates->begin(),
                                                    _read_context->value_predicates->end());
@@ -195,7 +195,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
     _read_options.use_page_cache = _read_context->use_page_cache;
-    _read_options.tablet_schema = _read_context->tablet_schema;
+    _read_options.tablet_has_extracted_variant_columns =
+            _read_context->read_schema->tablet_has_extracted_variant_columns();
+    _read_options.variant_compaction_paths = _read_context->variant_compaction_paths;
     _read_options.enable_unique_key_merge_on_write =
             _read_context->enable_unique_key_merge_on_write;
     _read_options.record_rowids = _read_context->record_rowids;

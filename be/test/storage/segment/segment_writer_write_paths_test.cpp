@@ -231,7 +231,6 @@ protected:
         OlapReaderStatistics stats;
         StorageReadOptions read_options;
         read_options.stats = &stats;
-        read_options.tablet_schema = schema;
         std::unique_ptr<RowwiseIterator> iterator;
         ASSERT_TRUE(segment->new_iterator(read_schema, read_options, &iterator).ok());
         MutableBlock contents(schema->create_storage_block());

@@ -265,6 +265,9 @@ private:
     void _output_index_result_column(const VExprContextSPtrs& expr_ctxs, uint16_t* sel_rowid_idx,
                                      uint16_t select_size);
 
+    // False for MoR and AGG keys: the merge above this iterator needs the real values.
+    bool _keys_type_allows_skipping_data() const;
+
     bool _need_read_data(ColumnId cid);
     bool _prune_column(ColumnId cid, MutableColumnPtr& column, size_t num_of_defaults);
 

@@ -1399,10 +1399,9 @@ TEST_F(CollectionStatisticsTest, CollectWithDoubleCastWrappedSlotRef) {
     EXPECT_TRUE(status.ok()) << status.msg();
 }
 
-// Regression for AIR-36: match score collection must resolve indexes for
-// variant sub-columns whose indexes live in _path_set_info_map (typed paths or
-// inherited sub-column indexes). The previous simple lookup using
-// inverted_indexs(col_unique_id, suffix_path) missed those indexes.
+// Regression for AIR-36: match score collection must resolve the index of a variant sub-column,
+// which is registered on the parent column's unique id under the sub-column's suffix path rather
+// than on a unique id of its own.
 TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 
@@ -1433,15 +1432,8 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantSubcolumnIndex) {
     (*props)["parser"] = "standard";
     (*props)["support_phrase"] = "true";
     sub_index->init_from_pb(index_pb);
-
-    TabletSchema::PathsSetInfo path_set_info;
-    TabletIndexes sub_indexes = {sub_index};
-    path_set_info.subcolumn_indexes["host"] = sub_indexes;
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> path_set_info_map;
-    path_set_info_map[kVariantUid] = std::move(path_set_info);
-    tablet_schema->set_path_set_info(std::move(path_set_info_map));
-
-    EXPECT_TRUE(tablet_schema->inverted_indexs(kVariantUid, "host").empty());
+    sub_index->set_escaped_escaped_index_suffix_path(sub_col.suffix_path());
+    tablet_schema->append_index(std::move(*sub_index));
 
     auto found = tablet_schema->inverted_indexs(tablet_schema->column(/*ordinal=*/1));
     ASSERT_EQ(found.size(), 1u);
@@ -2317,9 +2309,6 @@ TEST_F(CollectionStatisticsTest, SearchTypedVariantBindingSelectsItsAnalyzerInde
     subcolumn.set_path_info(PathInData("v.host", true));
     tablet_schema->append_column(subcolumn);
 
-    TabletSchema::PathsSetInfo path_set_info;
-    TabletSchema::SubColumnInfo typed_path_info;
-    typed_path_info.column = subcolumn;
     for (const auto& [index_id, parser] : {std::pair<int64_t, std::string> {3010, "standard"},
                                            std::pair<int64_t, std::string> {3020, "english"}}) {
         auto index = std::make_shared<TabletIndex>();
@@ -2331,12 +2320,9 @@ TEST_F(CollectionStatisticsTest, SearchTypedVariantBindingSelectsItsAnalyzerInde
         (*index_pb.mutable_properties())["parser"] = parser;
         (*index_pb.mutable_properties())["support_phrase"] = "true";
         index->init_from_pb(index_pb);
-        typed_path_info.indexes.push_back(std::move(index));
+        index->set_escaped_escaped_index_suffix_path(subcolumn.suffix_path());
+        tablet_schema->append_index(std::move(*index));
     }
-    path_set_info.typed_path_set.emplace("host", std::move(typed_path_info));
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> path_set_info_map;
-    path_set_info_map.emplace(kVariantUid, std::move(path_set_info));
-    tablet_schema->set_path_set_info(std::move(path_set_info_map));
 
     TSearchClause clause;
     clause.clause_type = "TERM";
