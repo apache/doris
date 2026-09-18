@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -33,6 +34,8 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.statistics.model.ColumnStatistic;
+import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.Sets;
 
@@ -257,7 +260,57 @@ public final class GroupJoinFusionUtils {
             conjunctUsed[matched] = true;
             alignedConjuncts.add(equalConjuncts.get(matched));
         }
+        if (!doesNotWasteBuildAggregation(aggregate, join, alignedConjuncts)) {
+            return null;
+        }
         return alignedConjuncts;
+    }
+
+    private static boolean doesNotWasteBuildAggregation(
+            Aggregate<?> aggregate, PhysicalHashJoin<?, ?> join, List<Expression> alignedConjuncts) {
+        Set<Slot> buildOutput = join.right().getOutputSet();
+        boolean hasBuildSideAggregate = aggregate.getOutputExpressions().stream()
+                .flatMap(output -> output.collect(AggregateExpression.class::isInstance).stream())
+                .map(AggregateExpression.class::cast)
+                .anyMatch(agg -> agg.getInputSlots().stream().anyMatch(buildOutput::contains));
+        if (!hasBuildSideAggregate) {
+            return true;
+        }
+
+        Statistics aggregateStats = aggregate.getStats();
+        Statistics joinStats = join.getStats();
+        Statistics buildStats = join.right().getStats();
+        if (aggregateStats == null || joinStats == null || buildStats == null) {
+            return true;
+        }
+
+        List<Expression> buildKeys = new ArrayList<>(alignedConjuncts.size());
+        for (Expression conjunct : alignedConjuncts) {
+            EqualPredicate equal = (EqualPredicate) conjunct;
+            Expression buildKey = buildOutput.containsAll(equal.left().getInputSlots())
+                    ? equal.left() : equal.right();
+            ColumnStatistic buildKeyStats = buildStats.findColumnStatistics(buildKey);
+            if (buildKeyStats == null || buildKeyStats.isUnKnown()) {
+                return true;
+            }
+            buildKeys.add(buildKey);
+        }
+
+        double buildRowCount = buildStats.getRowCount();
+        double joinRowCount = joinStats.getRowCount();
+        double groupRowCount = aggregateStats.getRowCount();
+        double buildKeyNdv = StatsCalculator.estimateGroupByRowCount(buildKeys, buildStats);
+        return doesNotWasteBuildAggregation(
+                buildRowCount, joinRowCount, groupRowCount, buildKeyNdv);
+    }
+
+    static boolean doesNotWasteBuildAggregation(double buildRowCount, double joinRowCount,
+            double groupRowCount, double buildKeyNdv) {
+        // The current BE Group Join creates aggregate states for every build key and updates them
+        // with every build row before probing. Avoid fusion when the regular plan would aggregate
+        // fewer joined rows, or when some build-key states cannot contribute to the final groups.
+        // Strict comparisons preserve equal-cardinality cases.
+        return joinRowCount >= buildRowCount && groupRowCount >= buildKeyNdv;
     }
 
     /** Whether two conjunct lists contain the same conjunct instances in the same order. */
