@@ -50,6 +50,7 @@
 #include "exprs/vexpr.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/olap_define.h"
 
 namespace doris {
 /** Comparison functions: ==, !=, <, >, <=, >=.
@@ -384,6 +385,23 @@ inline ZoneMapFilterResult evaluate_slot_slot(const ZoneMapEvalContext& ctx,
         !expr_zonemap::range_stats_usable_for_zonemap(*right_zone_map, right_type)) {
         return unsupported_zonemap_filter(ctx);
     }
+    // A native string zone-map max is truncated to MAX_ZONE_MAP_INDEX_SIZE, then its last byte is
+    // incremented (which wraps on 0xff), so a bound of exactly that length is not a reliable fence
+    // for a two-sided proof. A shorter bound is the untruncated value and is safe; the increment
+    // never changes the length, so this also rejects an already-wrapped bound without a truncation
+    // flag. data_types_compatible pairs strings only with strings, so checking one side's type is
+    // enough to know all four bounds are strings.
+    if (is_string_type(remove_nullable(left_type)->get_primitive_type())) {
+        auto is_untruncated = [](const Field& f) {
+            return f.get<TYPE_STRING>().size() < MAX_ZONE_MAP_INDEX_SIZE;
+        };
+        if (!is_untruncated(left_zone_map->min_value) ||
+            !is_untruncated(left_zone_map->max_value) ||
+            !is_untruncated(right_zone_map->min_value) ||
+            !is_untruncated(right_zone_map->max_value)) {
+            return unsupported_zonemap_filter(ctx);
+        }
+    }
     // Parquet bounds omit NaN without recording how many were skipped, so a zone map that looks
     // like a single point may still hide one, which would flip the NE rule from false to true. The
     // slot-vs-literal path can reason per operator because it knows whether the literal is NaN;
@@ -447,15 +465,13 @@ inline bool can_evaluate_slot_slot(const VExprSPtrs& arguments) {
     }
     DORIS_CHECK(slot_slot->left_type != nullptr);
     DORIS_CHECK(slot_slot->right_type != nullptr);
-    // A string/char/varchar zone-map max is truncated to MAX_ZONE_MAP_INDEX_SIZE and then bumped by
-    // one on its last byte (modify_index_before_flush), which wraps when that byte is 0xff; a STRING
-    // can hold 0xff via unhex, and truncation leaves no provenance to detect. The truncated max is
-    // then no longer a reliable upper bound, which a two-sided slot-vs-slot proof relies on. Reject
-    // string pairs here; column-vs-column string comparison is narrow enough to leave unpruned. The
-    // slot-vs-literal path is unaffected: the literal is compared against a single bound, not paired
-    // with another truncated bound.
-    if (is_string_type(remove_nullable(slot_slot->left_type)->get_primitive_type()) ||
-        is_string_type(remove_nullable(slot_slot->right_type)->get_primitive_type())) {
+    // VARBINARY must stay out. The v1 Parquet path keeps a raw BYTE_ARRAY's statistics in a
+    // ColumnString and produces a TYPE_STRING bound Field, so a VARBINARY slot's context type and
+    // its bound disagree and fetch_compatible_slot_type's DORIS_CHECK would abort the query instead
+    // of falling back. String/char/varchar pairs are allowed through; evaluate_slot_slot rejects a
+    // truncated string bound by its length, which the gate cannot see (it has no zone map).
+    if (is_varbinary(remove_nullable(slot_slot->left_type)->get_primitive_type()) ||
+        is_varbinary(remove_nullable(slot_slot->right_type)->get_primitive_type())) {
         return false;
     }
     // The two zone maps' Fields are compared directly and Field comparison throws on mismatched

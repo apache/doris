@@ -40,6 +40,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/value/vdatetime_value.h"
@@ -2153,26 +2154,56 @@ TEST(ExprZonemapFilterTest, SlotSlotWidensOnlyTheZonemapGateNotDictionaryOrBloom
     EXPECT_FALSE(not_equals.can_evaluate_zonemap_filter({left, make_slot(1, bigint)}));
 }
 
-TEST(ExprZonemapFilterTest, SlotSlotRejectsStringPairs) {
-    // A string zone-map max is truncated and bumped by one on its last byte, which wraps on 0xff,
-    // so it is not a reliable upper bound for a two-sided slot-vs-slot proof. String pairs must be
-    // left unpruned even though the two types are "compatible". The slot-vs-literal path is
-    // unaffected and keeps working (a literal is checked against a single bound).
+TEST(ExprZonemapFilterTest, SlotSlotGateRejectsVarbinaryButAllowsStrings) {
+    // VARBINARY is rejected at the gate: the v1 Parquet path produces a TYPE_STRING bound for a
+    // VARBINARY slot, so evaluating it would abort in fetch_compatible_slot_type instead of falling
+    // back. String and int pairs are admitted; the string bound-length safety is in evaluation.
     auto string_type = std::make_shared<DataTypeString>();
+    auto varbinary_type = std::make_shared<DataTypeVarbinary>();
     FunctionComparison<GreaterOp, NameGreater> greater;
 
     EXPECT_FALSE(greater.can_evaluate_zonemap_filter(
+            {make_slot(0, varbinary_type), make_slot(1, varbinary_type)}));
+
+    EXPECT_TRUE(greater.can_evaluate_zonemap_filter(
             {make_slot(0, string_type), make_slot(1, string_type)}));
-
-    auto nullable_string = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-    EXPECT_FALSE(greater.can_evaluate_zonemap_filter(
-            {make_slot(0, string_type), make_slot(1, nullable_string)}));
-
-    // A non-string pair is still accepted, and the string slot-vs-literal path still is too.
     auto type = int_type();
     EXPECT_TRUE(greater.can_evaluate_zonemap_filter({make_slot(0, type), make_slot(1, type)}));
-    EXPECT_TRUE(greater.can_evaluate_zonemap_filter(
-            {make_slot(0, string_type), make_string_literal("z")}));
+}
+
+TEST(ExprZonemapFilterTest, SlotSlotStringPrunesUntruncatedBoundsOnly) {
+    // A native string zone-map max is truncated to 512 bytes and its last byte is then bumped, so a
+    // bound of exactly 512 bytes may not be a real upper bound. A shorter bound is the untruncated
+    // value. left in ["a","c"], right pinned above "c", so `left > right` cannot hold when the
+    // bounds are trusted.
+    auto string_type = std::make_shared<DataTypeString>();
+    auto left = make_slot(0, string_type);
+    auto right = make_slot(1, string_type);
+    FunctionComparison<GreaterOp, NameGreater> greater;
+
+    auto eval = [&](const std::string& r) {
+        auto ctx = make_two_slot_context(make_string_zonemap("a", "c"), make_string_zonemap(r, r),
+                                         string_type, string_type);
+        return greater.evaluate_zonemap_filter(ctx, {left, right});
+    };
+
+    // Short and 511-byte bounds are untruncated, so pruning stands.
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, eval("m"));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch, eval(std::string(511, 'x')));
+    // A 512-byte bound may be truncated/bumped, and a longer one is out of spec: fall back.
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported, eval(std::string(512, 'x')));
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported, eval(std::string(513, 'x')));
+    // The wrap case is a 512-byte bound ending in 0xff; still length 512, still unusable.
+    std::string wrapped(511, 'x');
+    wrapped.push_back('\xff');
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported, eval(wrapped));
+
+    // An embedded NUL counts toward .size(); a short bound with one stays usable.
+    std::string with_nul("a\0b", 3);
+    auto ctx_nul = make_two_slot_context(make_string_zonemap(with_nul, with_nul),
+                                         make_string_zonemap("m", "z"), string_type, string_type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              greater.evaluate_zonemap_filter(ctx_nul, {left, right}));
 }
 
 TEST(ExprZonemapFilterTest, SlotSlotBailsOutWhenAFloatingNanCountIsUnknown) {
