@@ -499,6 +499,9 @@ struct TQueryOptions {
   // Candidate row ratio threshold against segment rows. Existing default is 0.3.
   220: optional double ann_index_candidate_rows_percent_threshold = 0.3
 
+  // enable plan local exchange node in fe
+  223: optional bool enable_local_shuffle_planner;
+
   // Controls expression-based ZoneMap pruning for readers that honor this option.
   // FileScannerV2 always enables safe expression ZoneMap pruning.
   224: optional bool enable_expr_zonemap_filter = true

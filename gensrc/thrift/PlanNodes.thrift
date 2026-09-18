@@ -62,7 +62,9 @@ enum TPlanNodeType {
   GROUP_COMMIT_SCAN_NODE = 33,
   MATERIALIZATION_NODE = 34,
   REC_CTE_NODE = 35,
-  REC_CTE_SCAN_NODE = 36
+  REC_CTE_SCAN_NODE = 36,
+  BUCKETED_AGGREGATION_NODE = 37,
+  LOCAL_EXCHANGE_NODE = 38
 }
 
 struct TKeyRange {
@@ -1534,6 +1536,24 @@ struct TExchangeNode {
   4: optional Partitions.TPartitionType partition_type
 }
 
+struct TLocalExchangeNode {
+  1: optional Partitions.TLocalPartitionType partition_type
+  // when partition_type in (GLOBAL_EXECUTION_HASH_SHUFFLE, LOCAL_EXECUTION_HASH_SHUFFLE, BUCKET_HASH_SHUFFLE),
+  // the distribute_expr_lists is not null, and the legacy `TPlanNode.distribute_expr_lists` is deprecated
+  //
+  // the hash computation:
+  // 1. for BUCKET_HASH_SHUFFLE, use distribution_exprs to compute hash value and mod by
+  //    `TPipelineFragmentParams.num_buckets`, and mapping bucket index to local instance id by
+  //    `TPipelineFragmentParams.bucket_seq_to_instance_idx`
+  // 2. for LOCAL_EXECUTION_HASH_SHUFFLE, use distribution_exprs to compute hash value and mod by
+  //    `TPipelineFragmentParams.local_params.size`, and backend will mapping instance index to local instance
+  //    by `i -> i`, for example: 1 -> 1, 2 -> 2, ...
+  // 3. for GLOBAL_EXECUTION_HASH_SHUFFLE, use distribution_exprs to compute hash value and mod by
+  //    `TPipelineFragmentParams.total_instances`, and mapping global instance index to local instance by
+  //    `TPipelineFragmentParams.shuffle_idx_to_instance_idx`
+  2: optional list<Exprs.TExpr> distribute_expr_lists
+}
+
 struct TOlapRewriteNode {
     1: required list<Exprs.TExpr> columns
     2: required list<Types.TColumnType> column_types
@@ -1669,6 +1689,12 @@ struct TRuntimeFilterDesc {
   16: optional bool sync_filter_size; // Deprecated
   
   17: optional bool build_bf_by_runtime_size;
+
+  // True when a local exchange sits between the filter builder (join) and a same-fragment
+  // target scan: per-instance partial filters are then NOT aligned with the scan's data
+  // slice and must be merged before being applied. Computed truthfully by FE after local
+  // exchange planning; replaces inferring this from the target scan's is_serial_operator.
+  21: optional bool force_local_merge;
 }
 
 
@@ -1751,6 +1777,8 @@ struct TPlanNode {
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   51: optional bool is_serial_operator
   52: optional TRecCTEScanNode rec_cte_scan_node
+  54: optional TLocalExchangeNode local_exchange_node
+
   // COUNT(*) and COUNT(col) share push_down_agg_type_opt=COUNT, but file readers need to know
   // whether a projected scan slot is the aggregate argument or merely the placeholder retained by
   // column pruning. Empty means row-count semantics; non-empty identifies explicit COUNT columns.

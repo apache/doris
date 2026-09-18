@@ -193,7 +193,6 @@ public:
     }
 
 protected:
-    [[nodiscard]] static bool is_hash_shuffle(ExchangeType exchange_type);
     [[nodiscard]] bool child_breaks_local_key_distribution(RuntimeState* state) const;
 
     OperatorPtr _child = nullptr;
@@ -620,8 +619,8 @@ public:
     virtual bool reset_to_rerun(RuntimeState* state, OperatorXBase* root) const { return false; }
 
     Status init(const TDataSink& tsink) override;
-    [[nodiscard]] virtual Status init(RuntimeState* state, ExchangeType type, const int num_buckets,
-                                      const bool use_global_hash_shuffle,
+    [[nodiscard]] virtual Status init(RuntimeState* state, TLocalPartitionType::type type,
+                                      const int num_buckets,
                                       const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
@@ -868,7 +867,7 @@ public:
     Status init(const TDataSink& tsink) override {
         throw Exception(Status::FatalError("should not reach here!"));
     }
-    virtual Status init(ExchangeType type) {
+    virtual Status init(TLocalPartitionType::type type) {
         throw Exception(Status::FatalError("should not reach here!"));
     }
     [[noreturn]] virtual const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() {

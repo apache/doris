@@ -31,11 +31,14 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -164,7 +167,9 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         // so we should fill up this instance
         List<HashJoinNode> hashJoinNodes = fragment.getPlanRoot()
                 .collectInCurrentFragment(HashJoinNode.class::isInstance);
-        if (shouldFillUpInstances(hashJoinNodes)) {
+        List<SetOperationNode> setOperationNodes = fragment.getPlanRoot()
+                .collectInCurrentFragment(SetOperationNode.class::isInstance);
+        if (shouldFillUpInstances(hashJoinNodes, setOperationNodes)) {
             return fillUpInstances(assignedJobs);
         }
 
@@ -264,7 +269,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         Map<Integer, Map<ScanNode, ScanRanges>> serialScanRanges = Maps.newLinkedHashMap();
         Map<Integer, Map<ScanNode, ScanRanges>> nonSerialScanRanges = Maps.newLinkedHashMap();
         for (ScanNode scanNode : scanNodes) {
-            if (scanNode.isSerialOperator()) {
+            if (scanNode.isSerialNode()) {
                 collectScanRanges(totalScanSource, scanNode, serialScanRanges);
             } else {
                 collectScanRanges(totalScanSource, scanNode, nonSerialScanRanges);
@@ -294,7 +299,8 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         }
     }
 
-    private boolean shouldFillUpInstances(List<HashJoinNode> hashJoinNodes) {
+    @VisibleForTesting
+    static boolean shouldFillUpInstances(List<HashJoinNode> hashJoinNodes, List<SetOperationNode> setOperationNodes) {
         for (HashJoinNode hashJoinNode : hashJoinNodes) {
             if (!hashJoinNode.isBucketShuffle()) {
                 continue;
@@ -308,6 +314,20 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
                     return true;
             }
         }
+
+        for (SetOperationNode setOperationNode : setOperationNodes) {
+            // INTERSECT does not need missing-bucket receiver fill-up: a bucket the basic child
+            // does not scan is empty in the anchor, so the intersect result for that bucket is
+            // empty and the other children's rows shuffled there produce nothing. Note the node
+            // here is the legacy planner IntersectNode, not the Nereids algebra Intersect.
+            if (setOperationNode instanceof IntersectNode) {
+                continue;
+            }
+            if (setOperationNode.isBucketShuffle()) {
+                return true;
+            }
+        }
+
         return false;
     }
 
