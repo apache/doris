@@ -491,7 +491,12 @@ Status cast_scalar_to_variant(const ColumnPtr& source, const DataTypePtr& source
     }
     ColumnPtr null_map = std::move(nulls);
     ColumnPtr nullable = ColumnNullable::create(source, null_map);
-    *output = ColumnVariantV2::create_typed(std::move(nullable), source_type);
+    auto typed = ColumnVariantV2::create_typed(std::move(nullable), source_type);
+    // A scalar column can hold values Variant cannot, such as a string that is not UTF-8. Reject
+    // them here, as encoding would, so the typed state never compares or hashes a value that its
+    // encoded form could not hold. The CAST wrapper turns the exception into the statement error.
+    typed->validate_typed_rows();
+    *output = std::move(typed);
     return Status::OK();
 }
 

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -1054,13 +1055,26 @@ public class TypeCoercionUtilsTest {
         ElementAt variantSubpath = new ElementAt(variant, new StringLiteral("c"));
         ElementAt anotherVariantSubpath = new ElementAt(anotherVariant, new StringLiteral("c"));
 
-        AnalysisException equality = Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(variant, anotherVariant)));
-        Assertions.assertTrue(equality.getMessage().contains("CAST to a concrete type first"));
+        // Variant equality uses canonical comparison, so it is accepted without a cast.
+        EqualTo equality = new EqualTo(variant, anotherVariant);
+        Assertions.assertSame(equality, TypeCoercionUtils.processComparisonPredicate(equality));
 
-        AnalysisException nullSafeEquality = Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(new NullSafeEqual(variant, anotherVariant)));
-        Assertions.assertTrue(nullSafeEquality.getMessage().contains("CAST to a concrete type first"));
+        NullSafeEqual nullSafeEquality = new NullSafeEqual(variant, anotherVariant);
+        Assertions.assertSame(nullSafeEquality, TypeCoercionUtils.processComparisonPredicate(nullSafeEquality));
+
+        // A bare NULL takes the Variant type on either side; an ordering comparison stays rejected.
+        for (ComparisonPredicate bareNull : ImmutableList.of(
+                new EqualTo(variant, NullLiteral.INSTANCE), new EqualTo(NullLiteral.INSTANCE, variant),
+                new NullSafeEqual(variant, NullLiteral.INSTANCE),
+                new NullSafeEqual(NullLiteral.INSTANCE, variant))) {
+            Expression coerced = TypeCoercionUtils.processComparisonPredicate(bareNull);
+            Assertions.assertEquals(bareNull.getClass(), coerced.getClass());
+            Assertions.assertEquals(VariantType.INSTANCE, coerced.child(0).getDataType());
+            Assertions.assertEquals(VariantType.INSTANCE, coerced.child(1).getDataType());
+        }
+        Assertions.assertThrows(AnalysisException.class,
+                () -> TypeCoercionUtils.processComparisonPredicate(
+                        new GreaterThan(variant, NullLiteral.INSTANCE)));
 
         AnalysisException mixedType = Assertions.assertThrows(AnalysisException.class,
                 () -> TypeCoercionUtils.processComparisonPredicate(new GreaterThan(variant, integer)));
@@ -1081,9 +1095,8 @@ public class TypeCoercionUtilsTest {
         Assertions.assertEquals(subpathComparison.child(0).getDataType(),
                 subpathComparison.child(1).getDataType());
 
-        Assertions.assertThrows(AnalysisException.class,
-                () -> TypeCoercionUtils.processComparisonPredicate(
-                        new EqualTo(variantSubpath, anotherVariantSubpath)));
+        EqualTo subpathEquality = new EqualTo(variantSubpath, anotherVariantSubpath);
+        Assertions.assertSame(subpathEquality, TypeCoercionUtils.processComparisonPredicate(subpathEquality));
 
         Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processComparisonPredicate(
                 new GreaterThan(new Cast(variant, IntegerType.INSTANCE), integer)));

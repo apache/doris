@@ -48,10 +48,10 @@ MutableColumnPtr DataTypeVariantV2::create_column() const {
 }
 
 bool DataTypeVariantV2::equals(const IDataType& rhs) const {
-    const auto* rhs_type = typeid_cast<const DataTypeVariantV2*>(&rhs);
-    return rhs_type != nullptr &&
-           _max_subcolumns_count == rhs_type->variant_max_subcolumns_count() &&
-           _enable_doc_mode == rhs_type->enable_doc_mode();
+    // The max subcolumns count and doc mode only guide how storage shreds a Variant column.
+    // Execution compares, hashes and serializes Variant values canonically without them, so two
+    // Variant types with different properties are the same execution type (e.g. hash join keys).
+    return typeid_cast<const DataTypeVariantV2*>(&rhs) != nullptr;
 }
 
 int64_t DataTypeVariantV2::get_uncompressed_serialized_bytes(const IColumn& column,
