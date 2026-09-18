@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -28,8 +29,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -49,7 +48,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.rpc.RpcException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ComparisonChain;
@@ -594,26 +592,15 @@ public class ShowDataCommand extends ShowCommand {
     }
 
     /**
-     * Bytes of query spill currently held in object storage, summed over the BEs of the instance
-     * as last reported to meta-service. This is a billing input, so a failure to fetch it is
-     * reported instead of being shown as zero.
+     * Bytes of query spill currently held in object storage, summed over the BEs of the instance,
+     * as periodically fetched from meta-service by CloudTabletStatMgr on every FE. This is a
+     * billing input, so a missing or stale value is reported instead of being shown as zero.
      */
     private long getRemoteSpillSize() throws AnalysisException {
         if (!Config.isCloudMode()) {
             return 0L;
         }
-        try {
-            Cloud.GetSpillStatsRequest request = Cloud.GetSpillStatsRequest.newBuilder()
-                    .setCloudUniqueId(Config.cloud_unique_id).build();
-            Cloud.GetSpillStatsResponse response = MetaServiceProxy.getInstance().getSpillStats(request);
-            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                throw new AnalysisException("failed to get spill stats from meta service: "
-                        + response.getStatus().getMsg());
-            }
-            return response.getTotalRemoteSpillBytes();
-        } catch (RpcException e) {
-            throw new AnalysisException("failed to get spill stats from meta service: " + e.getMessage(), e);
-        }
+        return ((CloudTabletStatMgr) Env.getCurrentEnv().getTabletStatMgr()).getRemoteSpillBytes();
     }
 
     // |DBName|DataSize|RecycleSize|BinlogSize|RemoteSpillSize|

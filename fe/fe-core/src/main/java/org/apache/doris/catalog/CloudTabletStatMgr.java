@@ -20,12 +20,15 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
+import org.apache.doris.cloud.proto.Cloud.GetSpillStatsRequest;
+import org.apache.doris.cloud.proto.Cloud.GetSpillStatsResponse;
 import org.apache.doris.cloud.proto.Cloud.GetTabletStatsRequest;
 import org.apache.doris.cloud.proto.Cloud.GetTabletStatsResponse;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TabletStatsPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -42,6 +45,7 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TSyncCloudTabletStatsRequest;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -78,6 +82,22 @@ public class CloudTabletStatMgr extends MasterDaemon {
     // keep Config.prom_output_table_metrics_limit tables with the largest data size, used for prometheus output
     private volatile List<OlapTable.Statistics> cloudTableStatsList = new ArrayList<>();
 
+    /** One successful fetch of the remote spill stats: the value and when it was fetched. */
+    private static final class RemoteSpillStats {
+        private final long bytes;
+        private final long fetchTimeMs;
+
+        private RemoteSpillStats(long bytes, long fetchTimeMs) {
+            this.bytes = bytes;
+            this.fetchTimeMs = fetchTimeMs;
+        }
+    }
+
+    // Bytes of query spill currently held in object storage, summed over the BEs of the instance
+    // as reported to meta-service (spill_storage_type=s3). Fetched once per cycle on every FE, so
+    // SHOW DATA reads it from memory like the tablet sizes. Null until the first successful fetch.
+    private volatile RemoteSpillStats remoteSpillStats = null;
+
     private static final ExecutorService GET_TABLET_STATS_THREAD_POOL = Executors.newFixedThreadPool(
             Config.max_get_tablet_stat_task_threads_num,
             new ThreadFactoryBuilder().setNameFormat("get-tablet-stats-%d").setDaemon(true).build());
@@ -110,6 +130,9 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
+        // Independent of the tablet stats below: a failure there must not skip this refresh.
+        refreshRemoteSpillStats();
+
         if (cloudTableStatsList.isEmpty()) {
             // use tablet stats loaded from image to update table stats when fe start
             // avoid that the table stats is empty for a long time since getAllTabletStats may consume a long time
@@ -290,6 +313,46 @@ public class CloudTabletStatMgr extends MasterDaemon {
             updateTabletStat(resp, activeUpdate);
             return null;
         });
+    }
+
+    private void refreshRemoteSpillStats() {
+        try {
+            GetSpillStatsRequest request = GetSpillStatsRequest.newBuilder()
+                    .setCloudUniqueId(Config.cloud_unique_id).build();
+            GetSpillStatsResponse response = MetaServiceProxy.getInstance().getSpillStats(request);
+            if (response.getStatus().getCode() != MetaServiceCode.OK) {
+                LOG.warn("failed to get spill stats from meta service: {}", response.getStatus().getMsg());
+                return;
+            }
+            remoteSpillStats = new RemoteSpillStats(response.getTotalRemoteSpillBytes(),
+                    System.currentTimeMillis());
+        } catch (RpcException e) {
+            LOG.warn("failed to get spill stats from meta service", e);
+        }
+    }
+
+    @VisibleForTesting
+    void setRemoteSpillStatsForTest(long bytes, long fetchTimeMs) {
+        remoteSpillStats = new RemoteSpillStats(bytes, fetchTimeMs);
+    }
+
+    /**
+     * Bytes of query spill currently held in object storage, as last fetched from meta-service.
+     * This is a billing input, so a value that is missing or older than
+     * cloud_spill_stats_max_age_second is reported as an error instead of being shown as current.
+     */
+    public long getRemoteSpillBytes() throws AnalysisException {
+        RemoteSpillStats stats = remoteSpillStats;
+        if (stats == null) {
+            throw new AnalysisException("spill stats have not been fetched from meta service yet");
+        }
+        long ageSecond = (System.currentTimeMillis() - stats.fetchTimeMs) / 1000;
+        if (ageSecond > Config.cloud_spill_stats_max_age_second) {
+            throw new AnalysisException(String.format("spill stats from meta service are stale: "
+                    + "last fetched %d seconds ago, limit %d seconds (cloud_spill_stats_max_age_second)",
+                    ageSecond, Config.cloud_spill_stats_max_age_second));
+        }
+        return stats.bytes;
     }
 
     private void updateStatInfo(List<Long> dbIds) {
