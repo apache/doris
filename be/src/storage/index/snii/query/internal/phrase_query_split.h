@@ -355,15 +355,16 @@ struct CandidateRestriction {
     const roaring::Roaring* filter = nullptr;
 };
 
-// A candidate set within kCandidateFilterDfRatio of the rarest term (`min_df`) drives the
-// intersection and is materialized into `storage`, so windows and positions are read for
-// candidates only. A far larger one filters the intersection result instead, so a rare phrase
-// never pays for every candidate.
-constexpr uint64_t kCandidateFilterDfRatio = 8;
+// A candidate set within 8x of the rarest term (`min_df`) drives the intersection and is
+// materialized into `storage`, so windows and positions are read for candidates only. A far
+// larger one filters the intersection result instead, so a rare phrase never pays for every
+// candidate.
 CandidateRestriction restrict_to_candidates(const roaring::Roaring* candidates, uint32_t min_df,
                                             std::vector<uint32_t>* storage);
 
-uint32_t min_plan_df(const std::vector<TermPlan>& plans);
+// Drops every docid of `docids` that is not a candidate; ascending docids keep the bulk
+// probe fast.
+void retain_candidates(const roaring::Roaring& candidates, std::vector<uint32_t>* docids);
 
 enum class PhraseCandidateMetric : uint8_t {
     kExact,

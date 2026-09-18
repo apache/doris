@@ -532,7 +532,7 @@ Status restrict_prefix_leading_phrase(const LogicalIndexReader& idx,
     }
     RETURN_IF_ERROR(internal::build_docid_union(idx, tail_postings, storage));
     if (candidates != nullptr) {
-        std::erase_if(*storage, [&](uint32_t docid) { return !candidates->contains(docid); });
+        retain_candidates(*candidates, storage);
     }
     *restriction = {.prefilter = storage};
     return Status::OK();
@@ -556,8 +556,7 @@ Status execute_resolved_phrase_prefix_terms(
             RETURN_IF_ERROR(internal::read_docid_posting(idx, tail.entry, tail.frq_base,
                                                          tail.prx_base, docids));
             if (candidates != nullptr) {
-                std::erase_if(*docids,
-                              [&](uint32_t docid) { return !candidates->contains(docid); });
+                retain_candidates(*candidates, docids);
             }
             return Status::OK();
         }
@@ -568,7 +567,7 @@ Status execute_resolved_phrase_prefix_terms(
         }
         RETURN_IF_ERROR(internal::build_docid_union(idx, tail_postings, docids));
         if (candidates != nullptr) {
-            std::erase_if(*docids, [&](uint32_t docid) { return !candidates->contains(docid); });
+            retain_candidates(*candidates, docids);
         }
         return Status::OK();
     }

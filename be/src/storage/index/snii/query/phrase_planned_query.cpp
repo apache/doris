@@ -82,8 +82,7 @@ Status phrase_query_impl(const LogicalIndexReader& idx, const std::vector<std::s
         DORIS_CHECK(matches == nullptr);
         RETURN_IF_ERROR(term_query(idx, terms.front(), docids));
         if (options.candidates != nullptr) {
-            std::erase_if(*docids,
-                          [&](uint32_t docid) { return !options.candidates->contains(docid); });
+            retain_candidates(*options.candidates, docids);
         }
         return Status::OK();
     }
@@ -126,7 +125,7 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
         DORIS_CHECK(matches == nullptr);
         RETURN_IF_ERROR(prefix_query(idx, terms.front(), docids, max_expansions));
         if (candidates != nullptr) {
-            std::erase_if(*docids, [&](uint32_t docid) { return !candidates->contains(docid); });
+            retain_candidates(*candidates, docids);
         }
         return Status::OK();
     }

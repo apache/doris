@@ -53,7 +53,7 @@ struct IndexQueryContext {
     // small enough (config::inverted_index_candidate_pushdown_ratio), reset
     // right after. When set, an index query MAY restrict doc-list intersection
     // and verification to this candidate set (a CLucene PhraseQuery joins it
-    // into its leapfrog; an SNII phrase starts its docid intersection from
+    // into its leapfrog; an SNII phrase restricts its docid intersection to
     // it). A bitmap produced under a non-null candidate is PARTIAL and must
     // never be inserted into the query cache or shared with other scanners;
     // cache lookups stay valid (a cached full-segment bitmap intersected later

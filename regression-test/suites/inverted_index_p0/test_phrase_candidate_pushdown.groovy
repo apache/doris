@@ -89,6 +89,13 @@ suite("test_phrase_candidate_pushdown", "p0,nonConcurrent") {
             order_qt_sloppy "SELECT k FROM ${table} WHERE k < 5 AND a MATCH_PHRASE 'big red ~2'"
             order_qt_nullable """SELECT k FROM ${table}
                     WHERE k = 0 AND NOT (a MATCH_PHRASE 'big red' AND b MATCH_PHRASE 'big red')"""
+            order_qt_any_and_phrase """SELECT k FROM ${table}
+                    WHERE c MATCH_ANY 'narrow' AND a MATCH_PHRASE 'big red'"""
+            order_qt_ordered_sloppy "SELECT k FROM ${table} WHERE k < 5 AND a MATCH_PHRASE 'big red ~2+'"
+            order_qt_or """SELECT k FROM ${table}
+                    WHERE k < 5 AND (a MATCH_PHRASE 'big red' OR b MATCH_PHRASE 'big red')"""
+            order_qt_single_term "SELECT k FROM ${table} WHERE k < 5 AND a MATCH_PHRASE 'big'"
+            qt_count "SELECT count(*) FROM ${table} WHERE a MATCH_PHRASE 'big red'"
         }
 
         def mowTable = "test_phrase_candidate_pushdown_${format.toLowerCase()}_mow"

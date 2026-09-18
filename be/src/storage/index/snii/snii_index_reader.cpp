@@ -723,9 +723,7 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     // out of the result cache and single-flight, which both serve the full-segment query.
     const bool consume_candidates =
             context->candidate_rows != nullptr && consumes_candidates(query_type, terms.size());
-    if (consume_candidates) {
-        context->candidate_rows_consumed = true;
-    }
+    context->candidate_rows_consumed = consume_candidates;
     const SniiQueryBitmapRequest request {
             .query_type = query_type,
             .query_info = execution_query_info,

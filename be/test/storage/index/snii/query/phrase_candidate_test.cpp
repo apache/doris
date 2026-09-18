@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "roaring/roaring.hh"
 #include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/query/internal/phrase_query_split.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
@@ -205,6 +206,8 @@ TEST_F(SniiPhraseCandidateTest, CorpusExercisesWindowedPostings) {
 TEST_F(SniiPhraseCandidateTest, PhraseRestrictedEqualsUnrestrictedIntersection) {
     const std::vector<std::pair<std::vector<std::string>, PhraseQueryOptions>> cases = {
             {{"alpha", "beta"}, {}},
+            {{"alpha", "alpha"}, {}},
+            {{"echo", "alpha"}, {}},
             {{"alpha", "beta", "alpha"}, {}},
             {{"echo", "alpha", "beta"}, {}},
             {{"alpha", "charlie"}, {.slop = 2, .ordered = false}},
@@ -288,6 +291,37 @@ TEST_F(SniiPhraseCandidateTest, DenseCandidatesKeepPrefixTailPrefilter) {
               full_profile.phrase_query_stats.prefix_leading_candidate_docs);
 }
 
+// A two-term lead never builds the tail union without candidates here (min lead df is
+// below the fixed gate), but dense candidates bound the leading positions enough to make
+// the rare tail union pay off, so the leading phrase is restricted to it.
+TEST_F(SniiPhraseCandidateTest, CandidatesEnablePrefixTailUnion) {
+    const std::vector<std::string> terms = {"charlie", "alpha", "ec"};
+    const uint32_t tail_df = df("echo") + df("ecru");
+    std::vector<uint32_t> unrestricted;
+    assert_ok(phrase_prefix_query(_index, terms, &unrestricted, nullptr, kMaxExpansions));
+
+    const roaring::Roaring candidates = sample_candidates(0.5, 99);
+    ASSERT_LE(tail_df * 8, std::min<uint64_t>(df("charlie"), candidates.cardinality()));
+    QueryProfile restricted_profile;
+    std::vector<uint32_t> restricted;
+    assert_ok(phrase_prefix_query(_index, terms, &restricted, &restricted_profile,
+                                  {.max_expansions = kMaxExpansions, .candidates = &candidates}));
+
+    EXPECT_EQ(restricted, intersect(unrestricted, candidates));
+    EXPECT_LE(restricted_profile.phrase_query_stats.prefix_leading_candidate_docs, tail_df);
+}
+
+TEST(SniiRetainCandidatesTest, KeepsCandidatesAcrossContainers) {
+    roaring::Roaring candidates;
+    for (uint32_t docid : {1U, 65535U, 131073U, 200000U}) {
+        candidates.add(docid);
+    }
+    std::vector<uint32_t> docids = {0,      1,      65535,  65536,  70000,
+                                    131072, 131073, 199999, 200000, 300000};
+    phrase_impl::retain_candidates(candidates, &docids);
+    EXPECT_EQ(docids, (std::vector<uint32_t> {1, 65535, 131073, 200000}));
+}
+
 // A few candidates inside one window must not pull the windowed terms' other
 // windows: the restricted query reads a small fraction of the bytes the full
 // query reads. The restricted query runs first so it cannot profit from any
@@ -328,6 +362,63 @@ TEST_F(SniiPhraseCandidateTest, SelectiveCandidatesSkipWindowedPostings) {
     EXPECT_LT(restricted_prefix_bytes * 2, unrestricted_prefix_bytes)
             << "restricted=" << restricted_prefix_bytes
             << " unrestricted=" << unrestricted_prefix_bytes;
+}
+
+// High term-frequency docs route exact phrases through the streaming verifier,
+// which fails when a retained chunk still holds a non-candidate doc. Candidates
+// must satisfy it both when they drive the intersection and when they filter it.
+TEST(SniiPhraseCandidateStreamingTest, HighTermFrequencyPhrasesStreamUnderCandidates) {
+    constexpr uint32_t kDocs = 3000;
+    constexpr uint32_t kRepeats = 10;
+    std::vector<PostingDoc> alpha;
+    std::vector<PostingDoc> beta;
+    std::vector<PostingDoc> rare;
+    for (uint32_t docid = 0; docid < kDocs; ++docid) {
+        alpha.push_back({.docid = docid, .positions = {}});
+        beta.push_back({.docid = docid, .positions = {}});
+        for (uint32_t i = 0; i < kRepeats; ++i) {
+            alpha.back().positions.push_back(2 * i);
+            beta.back().positions.push_back(2 * i + 1);
+        }
+        if (docid % 15 == 0) {
+            rare.push_back({.docid = docid, .positions = {}});
+            for (uint32_t i = 0; i < kRepeats; ++i) {
+                rare.back().positions.push_back(2 * (kRepeats + i));
+                beta.back().positions.push_back(2 * (kRepeats + i) + 1);
+            }
+        }
+    }
+    MemoryFile file;
+    writer::SniiIndexInput input;
+    input.index_id = 1;
+    input.config = format::IndexConfig::kDocsPositions;
+    input.doc_count = kDocs;
+    input.terms = {make_term("alpha", std::move(alpha)), make_term("beta", std::move(beta)),
+                   make_term("rare", std::move(rare))};
+    writer::SniiCompoundWriter writer(&file);
+    assert_ok(writer.add_logical_index(input));
+    assert_ok(writer.finish());
+    reader::SniiSegmentReader segment;
+    reader::LogicalIndexReader index;
+    assert_ok(reader::SniiSegmentReader::open(&file, &segment));
+    assert_ok(segment.open_index(input.index_id, input.index_suffix, &index));
+
+    const auto streamed_phrase = [&](const std::vector<std::string>& terms,
+                                     const roaring::Roaring* candidates) {
+        internal::testing::reset_streaming_exact_phrase_execution_count();
+        std::vector<uint32_t> docids;
+        assert_ok(phrase_query(index, terms, &docids, nullptr, {.candidates = candidates}));
+        EXPECT_EQ(internal::testing::streaming_exact_phrase_execution_count(), 1U);
+        return docids;
+    };
+    // 300 candidates stay within 8x of df("alpha") and drive the intersection.
+    const roaring::Roaring driving = docid_range(100, 400);
+    EXPECT_EQ(streamed_phrase({"alpha", "beta"}, &driving),
+              intersect(streamed_phrase({"alpha", "beta"}, nullptr), driving));
+    // 2000 candidates exceed 8x of df("rare") = 200 and filter the intersection.
+    const roaring::Roaring filtering = docid_range(0, 2000);
+    EXPECT_EQ(streamed_phrase({"rare", "beta"}, &filtering),
+              intersect(streamed_phrase({"rare", "beta"}, nullptr), filtering));
 }
 
 } // namespace

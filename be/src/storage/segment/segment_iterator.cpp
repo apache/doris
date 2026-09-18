@@ -1265,6 +1265,17 @@ bool SegmentIterator::_check_apply_by_inverted_index(std::shared_ptr<ColumnPredi
     return true;
 }
 
+// Compound predicates and SEARCH combine their children's index results into
+// whole-segment three-valued answers, so they need unrestricted leaf results.
+static bool combines_index_results(const VExpr& expr) {
+    if (expr.node_type() == TExprNodeType::COMPOUND_PRED ||
+        expr.node_type() == TExprNodeType::SEARCH_EXPR) {
+        return true;
+    }
+    return std::ranges::any_of(
+            expr.children(), [](const VExprSPtr& child) { return combines_index_results(*child); });
+}
+
 // TODO: optimization when all expr can not evaluate by inverted/ann index,
 void SegmentIterator::_refresh_candidate_pushdown() {
     if (_index_query_context == nullptr || _index_query_context->candidate_rows != nullptr) {
@@ -1293,12 +1304,11 @@ Status SegmentIterator::_apply_index_expr() {
     // Three-valued compound shortcuts (VCompoundPred) treat an empty TRUE
     // bitmap as a whole-segment fact; a candidate-restricted TRUE bitmap can
     // spuriously trigger them and mis-type candidate rows (NOT(A AND B) with
-    // nullable A: FALSE becomes NULL and the row is dropped). Compound roots
-    // are therefore evaluated without the candidate; the top-level
-    // single-predicate consumption stays exact within the candidate. SEARCH
-    // combines its own leaf bitmaps the same way, so it gets full-segment
-    // leaves too.
-    auto evaluate_without_candidate_for_compound = [&](const VExprContextSPtr& expr_ctx) {
+    // nullable A: FALSE becomes NULL and the row is dropped). Roots containing
+    // a compound predicate or a SEARCH, which combines its own leaf bitmaps the
+    // same way, are therefore evaluated without the candidate; the top-level
+    // single-predicate consumption stays exact within the candidate.
+    auto evaluate_with_candidate_policy = [&](const VExprContextSPtr& expr_ctx) {
         // Earlier expression conjuncts may have crossed the engage threshold.
         // Refresh for both subsequent conjuncts and virtual-column projections.
         _refresh_candidate_pushdown();
@@ -1313,8 +1323,7 @@ Status SegmentIterator::_apply_index_expr() {
         }
         const bool suppress = _index_query_context != nullptr &&
                               _index_query_context->candidate_rows != nullptr &&
-                              (effective_root->node_type() == TExprNodeType::COMPOUND_PRED ||
-                               effective_root->node_type() == TExprNodeType::SEARCH_EXPR);
+                              combines_index_results(*effective_root);
         const roaring::Roaring* saved = suppress ? _index_query_context->candidate_rows : nullptr;
         if (suppress) {
             _index_query_context->candidate_rows = nullptr;
@@ -1343,7 +1352,7 @@ Status SegmentIterator::_apply_index_expr() {
             break;
         }
         ++considered_conjuncts;
-        if (Status st = evaluate_without_candidate_for_compound(expr_ctx); !st.ok()) {
+        if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
@@ -1376,7 +1385,7 @@ Status SegmentIterator::_apply_index_expr() {
         if (expr_ctx->get_index_context() == nullptr) {
             continue;
         }
-        if (Status st = evaluate_without_candidate_for_compound(expr_ctx); !st.ok()) {
+        if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
             } else {
