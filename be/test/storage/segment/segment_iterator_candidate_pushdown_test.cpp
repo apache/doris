@@ -51,11 +51,9 @@
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
 #define private public
-#define protected public
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
 #undef private
-#undef protected
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
