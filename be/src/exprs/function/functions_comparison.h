@@ -387,10 +387,13 @@ inline ZoneMapFilterResult evaluate_slot_slot(const ZoneMapEvalContext& ctx,
     }
     // A native string zone-map max is truncated to MAX_ZONE_MAP_INDEX_SIZE, then its last byte is
     // incremented (which wraps on 0xff), so a bound of exactly that length is not a reliable fence
-    // for a two-sided proof. A shorter bound is the untruncated value and is safe; the increment
-    // never changes the length, so this also rejects an already-wrapped bound without a truncation
-    // flag. data_types_compatible pairs strings only with strings, so checking one side's type is
-    // enough to know all four bounds are strings.
+    // for a two-sided proof. A shorter bound is the untruncated exact value; the increment never
+    // changes the length, so this also rejects an already-wrapped bound without a truncation flag.
+    // The test only decides whether to trust the bound as a fence. A Parquet-sourced string bound
+    // shorter than the cap is not necessarily exact, but it is a spec-conservative min/max, which
+    // is all a range proof needs; do not tighten this to assume exactness below the cap.
+    // data_types_compatible pairs strings only with strings, so checking one side's type is enough
+    // to know all four bounds are strings.
     if (is_string_type(remove_nullable(left_type)->get_primitive_type())) {
         auto is_untruncated = [](const Field& f) {
             return f.get<TYPE_STRING>().size() < MAX_ZONE_MAP_INDEX_SIZE;
@@ -466,10 +469,13 @@ inline bool can_evaluate_slot_slot(const VExprSPtrs& arguments) {
     DORIS_CHECK(slot_slot->left_type != nullptr);
     DORIS_CHECK(slot_slot->right_type != nullptr);
     // VARBINARY must stay out. The v1 Parquet path keeps a raw BYTE_ARRAY's statistics in a
-    // ColumnString and produces a TYPE_STRING bound Field, so a VARBINARY slot's context type and
-    // its bound disagree and fetch_compatible_slot_type's DORIS_CHECK would abort the query instead
-    // of falling back. String/char/varchar pairs are allowed through; evaluate_slot_slot rejects a
-    // truncated string bound by its length, which the gate cannot see (it has no zone map).
+    // ColumnString and produces a TYPE_STRING bound Field, so a VARBINARY slot's declared type and
+    // its bound Field type disagree. evaluate_slot_slot would then abort in
+    // range_stats_usable_for_zonemap, where field_types_compatible(TYPE_STRING, TYPE_VARBINARY) is
+    // false, instead of falling back. String/char/varchar pairs are allowed through;
+    // evaluate_slot_slot rejects a truncated string bound by its length, which the gate cannot see
+    // (it has no zone map). VARBINARY is the only such type: JSONB/VARIANT are also ColumnString-
+    // backed but never come out of the Parquet schema resolver, so they cannot build a zone map.
     if (is_varbinary(remove_nullable(slot_slot->left_type)->get_primitive_type()) ||
         is_varbinary(remove_nullable(slot_slot->right_type)->get_primitive_type())) {
         return false;
