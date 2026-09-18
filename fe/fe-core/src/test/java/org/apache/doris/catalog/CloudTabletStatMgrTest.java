@@ -43,7 +43,7 @@ public class CloudTabletStatMgrTest {
     public void testRemoteSpillBytesNotFetchedYet() {
         CloudTabletStatMgr mgr = new CloudTabletStatMgr();
         AnalysisException e = Assertions.assertThrows(AnalysisException.class, mgr::getRemoteSpillBytes);
-        Assertions.assertTrue(e.getMessage().contains("not been fetched"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("not been polled"), e.getMessage());
     }
 
     @Test

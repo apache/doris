@@ -258,7 +258,6 @@ DECLARE_mInt32(ms_rpc_qps_commit_txn);
 DECLARE_mInt32(ms_rpc_qps_abort_txn);
 DECLARE_mInt32(ms_rpc_qps_precommit_txn);
 DECLARE_mInt32(ms_rpc_qps_get_obj_store_info);
-DECLARE_mInt32(ms_rpc_qps_report_spill_stats);
 DECLARE_mInt32(ms_rpc_qps_start_tablet_job);
 DECLARE_mInt32(ms_rpc_qps_finish_tablet_job);
 DECLARE_mInt32(ms_rpc_qps_get_delete_bitmap);

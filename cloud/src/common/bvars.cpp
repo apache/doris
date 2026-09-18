@@ -67,8 +67,6 @@ BvarLatencyRecorderWithTag g_bvar_ms_prepare_restore_job("ms", "prepare_restore_
 BvarLatencyRecorderWithTag g_bvar_ms_commit_restore_job("ms", "commit_restore_job");
 BvarLatencyRecorderWithTag g_bvar_ms_finish_restore_job("ms", "finish_restore_job");
 BvarLatencyRecorderWithTag g_bvar_ms_get_tablet_stats("ms", "get_tablet_stats");
-BvarLatencyRecorderWithTag g_bvar_ms_report_spill_stats("ms", "report_spill_stats");
-BvarLatencyRecorderWithTag g_bvar_ms_get_spill_stats("ms", "get_spill_stats");
 BvarLatencyRecorderWithTag g_bvar_ms_get_obj_store_info("ms", "get_obj_store_info");
 BvarLatencyRecorderWithTag g_bvar_ms_alter_obj_store_info("ms", "alter_obj_store_info");
 BvarLatencyRecorderWithTag g_bvar_ms_alter_storage_vault("ms", "alter_storage_vault");
@@ -407,11 +405,6 @@ mBvarInt64Adder g_bvar_rpc_kv_drop_partition_put_counter("rpc_kv_drop_partition_
 mBvarInt64Adder g_bvar_rpc_kv_check_kv_get_counter("rpc_kv_check_kv_get_counter",{"instance_id"});
 // get_obj_store_info
 mBvarInt64Adder g_bvar_rpc_kv_get_obj_store_info_get_counter("rpc_kv_get_obj_store_info_get_counter",{"instance_id"});
-// report_spill_stats
-mBvarInt64Adder g_bvar_rpc_kv_report_spill_stats_get_counter("rpc_kv_report_spill_stats_get_counter",{"instance_id"});
-mBvarInt64Adder g_bvar_rpc_kv_report_spill_stats_put_counter("rpc_kv_report_spill_stats_put_counter",{"instance_id"});
-// get_spill_stats
-mBvarInt64Adder g_bvar_rpc_kv_get_spill_stats_get_counter("rpc_kv_get_spill_stats_get_counter",{"instance_id"});
 // alter_storage_vault
 mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_get_counter("rpc_kv_alter_storage_vault_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_put_counter("rpc_kv_alter_storage_vault_put_counter",{"instance_id"});
@@ -622,11 +615,6 @@ mBvarInt64Adder g_bvar_rpc_kv_drop_partition_put_bytes("rpc_kv_drop_partition_pu
 mBvarInt64Adder g_bvar_rpc_kv_check_kv_get_bytes("rpc_kv_check_kv_get_bytes",{"instance_id"});
 // get_obj_store_info
 mBvarInt64Adder g_bvar_rpc_kv_get_obj_store_info_get_bytes("rpc_kv_get_obj_store_info_get_bytes",{"instance_id"});
-// report_spill_stats
-mBvarInt64Adder g_bvar_rpc_kv_report_spill_stats_get_bytes("rpc_kv_report_spill_stats_get_bytes",{"instance_id"});
-mBvarInt64Adder g_bvar_rpc_kv_report_spill_stats_put_bytes("rpc_kv_report_spill_stats_put_bytes",{"instance_id"});
-// get_spill_stats
-mBvarInt64Adder g_bvar_rpc_kv_get_spill_stats_get_bytes("rpc_kv_get_spill_stats_get_bytes",{"instance_id"});
 // alter_storage_vault
 mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_get_bytes("rpc_kv_alter_storage_vault_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_alter_storage_vault_put_bytes("rpc_kv_alter_storage_vault_put_bytes",{"instance_id"});

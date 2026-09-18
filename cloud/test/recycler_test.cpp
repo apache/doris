@@ -4705,19 +4705,6 @@ TEST(RecyclerTest, recycle_deleted_instance) {
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     }
 
-    // create spill stats key (SHOW DATA billing input)
-    {
-        std::unique_ptr<Transaction> txn;
-        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        SpillStatsPB spill_stats;
-        spill_stats.set_backend_id(1);
-        spill_stats.set_boot_id(1);
-        spill_stats.set_report_seq(1);
-        spill_stats.set_remote_spill_bytes(100);
-        txn->put(stats_spill_key({instance_id, 1}), spill_stats.SerializeAsString());
-        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-    }
-
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
     ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
               recycler.instance_info().recycle_state());
@@ -4808,11 +4795,6 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     std::string start_stats_tablet_key = stats_tablet_key({instance_id, 0, 0, 0, 0});
     std::string end_stats_tablet_key = stats_tablet_key({instance_id, INT64_MAX, 0, 0, 0});
     ASSERT_EQ(txn->get(start_stats_tablet_key, end_stats_tablet_key, &it), TxnErrorCode::TXN_OK);
-    ASSERT_EQ(it->size(), 0);
-
-    std::string start_stats_spill_key = stats_spill_key_prefix(instance_id);
-    std::string end_stats_spill_key = start_stats_spill_key + '\xff';
-    ASSERT_EQ(txn->get(start_stats_spill_key, end_stats_spill_key, &it), TxnErrorCode::TXN_OK);
     ASSERT_EQ(it->size(), 0);
 
     std::string start_copy_key = copy_key_prefix(instance_id);

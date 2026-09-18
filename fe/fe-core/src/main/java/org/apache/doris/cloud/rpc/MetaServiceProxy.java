@@ -97,12 +97,6 @@ public class MetaServiceProxy {
         }
     }
 
-    public Cloud.GetSpillStatsResponse getSpillStats(Cloud.GetSpillStatsRequest request)
-            throws RpcException {
-        return executeWithMetrics("getSpillStats", (client) -> client.getSpillStats(request),
-                Cloud.GetSpillStatsResponse::getStatus);
-    }
-
     public Cloud.GetInstanceResponse getInstance(Cloud.GetInstanceRequest request)
             throws RpcException {
         long startTime = System.currentTimeMillis();

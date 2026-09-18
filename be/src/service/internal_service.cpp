@@ -68,6 +68,7 @@
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
+#include "exec/spill/spill_file_manager.h"
 #include "exprs/function/dictionary_factory.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/csv/csv_reader.h"
@@ -2185,6 +2186,11 @@ void PInternalService::get_be_resource(google::protobuf::RpcController* controll
         PGlobalResourceUsage* global_resource_usage = response->mutable_global_be_resource_usage();
         global_resource_usage->set_mem_limit(mem_limit);
         global_resource_usage->set_mem_usage(mem_usage);
+        if (auto* spill_file_mgr = ExecEnv::GetInstance()->spill_file_mgr();
+            spill_file_mgr != nullptr) {
+            global_resource_usage->set_remote_spill_bytes(
+                    spill_file_mgr->remote_spill_data_bytes());
+        }
 
         Status st = Status::OK();
         response->mutable_status()->set_status_code(st.code());

@@ -29,8 +29,6 @@
 #include <string>
 #include <utility>
 
-#include "cloud/cloud_meta_mgr.h"
-#include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
@@ -92,9 +90,6 @@ void SpillFileManager::stop() {
     if (_spill_gc_thread) {
         _spill_gc_thread->join();
     }
-    // doris_main flushes before deciding how to exit; this covers the graceful-exit-check path
-    // and tests, where stop() is the last chance.
-    _report_remote_spill_stats(true);
     // The GC thread may observe the stop latch before processing a recently queued failed deletion.
     // Retry the pending directories after the thread exits; later failures get one final retry in
     // the destructor.
@@ -459,10 +454,6 @@ void SpillFileManager::_remote_gc() {
             return;
         }
     }
-    // About once a minute at the default 2s GC interval, starting with the first round.
-    if (_remote_report_rounds++ % 30 == 0) {
-        _report_remote_spill_stats(false);
-    }
     if (BackendOptions::get_backend_id() != _remote_store->backend_id()) {
         // DROP + ADD BACKEND of a live node hands it a new id. The store keeps the id it was
         // bound with (objects and stats of this process stay consistent); the new id takes
@@ -510,56 +501,8 @@ Status SpillFileManager::_remote_write_boot_marker() {
     return writer->close();
 }
 
-void SpillFileManager::set_remote_spill_report_fn_for_test(RemoteSpillReportFn fn,
-                                                           int64_t heartbeat_ms) {
-    std::lock_guard<std::mutex> lock(_remote_report_mutex);
-    _remote_report_fn = std::move(fn);
-    _remote_report_heartbeat_ms = heartbeat_ms;
-}
-
-void SpillFileManager::report_remote_spill_stats_for_test(bool final_report) {
-    _report_remote_spill_stats(final_report);
-}
-
-void SpillFileManager::_report_remote_spill_stats(bool final_report) {
-    if (!config::is_cloud_mode()) {
-        return;
-    }
-
-    std::lock_guard<std::mutex> lock(_remote_report_mutex);
-    if (!_remote_store || !_remote_store->ready()) {
-        return;
-    }
-    // The spill data this process holds in object storage right now (bytes reserved for parts
-    // being uploaded included). An unchanged value is re-sent about once per heartbeat interval
-    // (wall clock, evaluated on the GC cadence) so that meta-service can tell a live BE with
-    // stable spill from one that is gone: a record that is not refreshed within
-    // spill_objects_expire_time_second no longer counts.
-    const int64_t spill_bytes = _remote_store->get_spill_data_bytes();
-    const int64_t now_ms = MonotonicMillis();
-    const bool heartbeat_due = now_ms - _remote_last_report_ms >= _remote_report_heartbeat_ms;
-    if (spill_bytes == _reported_remote_spill_bytes && !heartbeat_due) {
-        return;
-    }
-    // A new sequence number per report (the retried attempt inside retry_rpc shares it):
-    // meta-service rejects a report that arrives after a newer one of the same boot (a
-    // timed-out attempt is not cancelled on its way).
-    const int64_t report_seq = ++_remote_report_seq;
-    Status st;
-    if (_remote_report_fn != nullptr) {
-        st = _remote_report_fn(_remote_store->backend_id(), _remote_store->boot_id(), report_seq,
-                               spill_bytes);
-    } else {
-        st = ExecEnv::GetInstance()->storage_engine().to_cloud().meta_mgr().report_spill_stats(
-                _remote_store->backend_id(), _remote_store->boot_id(), report_seq, spill_bytes);
-    }
-    if (!st.ok()) {
-        LOG_EVERY_T(WARNING, 60) << "failed to report spill stats to meta-service"
-                                 << (final_report ? "" : ", will retry") << ": " << st;
-        return;
-    }
-    _reported_remote_spill_bytes = spill_bytes;
-    _remote_last_report_ms = now_ms;
+int64_t SpillFileManager::remote_spill_data_bytes() {
+    return _remote_store != nullptr ? _remote_store->get_spill_data_bytes() : 0;
 }
 
 Status SpillFileManager::_remote_startup_cleanup(bool* done) {
