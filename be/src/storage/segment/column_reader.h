@@ -195,6 +195,10 @@ public:
     const EncodingInfo* encoding_info() const { return _encoding_info; }
 
     virtual bool has_zone_map() const { return _zone_map_index != nullptr; }
+    // True for a reader that serves a value supplied by the caller instead of the one on disk.
+    // The reader cache needs to tell the two apart: a caller that asked for a constant must not be
+    // served an on-disk reader another caller cached earlier.
+    virtual bool is_constant() const { return false; }
     bool has_bloom_filter_index(bool ngram) const;
     // Check if this column could match `cond' using segment zone map.
     // Since segment zone map is stored in metadata, this function is fast without I/O.
@@ -1077,6 +1081,8 @@ public:
     explicit ConstantColumnReader(Field value) : _value(std::move(value)) {}
 
     bool has_zone_map() const override { return true; }
+
+    bool is_constant() const override { return true; }
 
     // The base ColumnReader default-constructs without initializing its _meta_type. The data-read
     // path (Segment::new_column_iterator) verifies tablet_column.type() == reader->get_meta_type()
