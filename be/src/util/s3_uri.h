@@ -41,6 +41,8 @@ namespace doris {
 // Azure Data Lake locations intentionally retain their original URI form.  The
 // object-storage factory uses the parsed endpoint/account to construct the
 // native Azure client; they are not routed through the Hadoop filesystem.
+// Like ADLSLocation and Hadoop's Path, an ABFS/WASB location has no query or
+// fragment: '?' and '#' after the authority are literal object-name characters.
 class S3URI {
 public:
     S3URI(const std::string& location) : _location(location) {}
@@ -65,6 +67,7 @@ private:
     Status _parse_authority(const std::string& scheme, const std::string& rest,
                             bool azure_provider);
     Status _parsing_error(std::string_view message, bool azure_provider) const;
+    static bool _is_adls_scheme(std::string_view scheme);
 
     static const std::string _SCHEME_S3;
     static const std::string _SCHEME_ABFS;

@@ -902,6 +902,85 @@ TEST_F(S3ClientFactoryTest, RejectsNativeAzureLocationConflicts) {
     }
 }
 
+TEST_F(S3ClientFactoryTest, OneLakeFenceIgnoresPortAndDnsRootDot) {
+    // OneLake stays on its Hadoop binding. An explicit port, a trailing DNS root
+    // dot or upper-case spelling must not route a Fabric location through the
+    // native client, whichever transport endpoint the binding names.
+    for (const auto* endpoint :
+         {"https://onelake.dfs.fabric.microsoft.com", "https://proxy.example.test:8443/base"}) {
+        auto properties = native_azure_shared_key_properties();
+        properties["AZURE_ENDPOINT"] = endpoint;
+        for (const auto* location :
+             {"abfss://workspace@onelake.dfs.fabric.microsoft.com/lakehouse/Files/file",
+              "abfss://workspace@onelake.dfs.fabric.microsoft.com:443/lakehouse/Files/file",
+              "abfss://workspace@ONELAKE.dfs.fabric.microsoft.com./lakehouse/Files/file",
+              "https://onelake.blob.fabric.microsoft.com:443/workspace/lakehouse/Files/file",
+              "https://onelake.dfs.fabric.microsoft.com:443/workspace/lakehouse/Files/file"}) {
+            S3URI uri(location);
+            ASSERT_TRUE(uri.parse().ok()) << location;
+            S3Conf conf;
+            auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf);
+            EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>())
+                    << endpoint << " " << location << " " << status;
+        }
+    }
+}
+
+TEST_F(S3ClientFactoryTest, AllowsDocumentedAzureSecondaryEndpoints) {
+    // RA-GRS/RA-GZRS secondary reads keep the primary account identity and
+    // keys; only the service host gains a "-secondary" label.
+    for (const auto* endpoint : {"https://account-secondary.blob.core.windows.net",
+                                 "https://account-secondary.dfs.core.windows.net:443",
+                                 "https://account.blob.core.windows.net"}) {
+        auto properties = native_azure_shared_key_properties();
+        properties["AZURE_ENDPOINT"] = endpoint;
+        for (const auto* location :
+             {"abfss://container@account-secondary.dfs.core.windows.net/path/file",
+              "wasbs://container@ACCOUNT-SECONDARY.blob.core.windows.net:443/path/file",
+              "abfss://container@account.dfs.core.windows.net/path/file"}) {
+            S3URI uri(location);
+            ASSERT_TRUE(uri.parse().ok()) << location;
+            S3Conf conf;
+            auto status = S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf);
+            EXPECT_TRUE(status.ok()) << endpoint << " " << location << " " << status;
+            EXPECT_EQ(conf.client_conf.azure_credentials.account_name, "account");
+        }
+    }
+    // HTTP(S) locations name their transport origin, so they still have to
+    // match the configured endpoint exactly; the account check then applies
+    // the same folding.
+    auto properties = native_azure_shared_key_properties();
+    properties["AZURE_ENDPOINT"] = "https://account-secondary.blob.core.windows.net";
+    S3URI secondary_https("https://account-secondary.blob.core.windows.net/container/path/file");
+    ASSERT_TRUE(secondary_https.parse().ok());
+    S3Conf conf;
+    auto status =
+            S3ClientFactory::convert_properties_to_s3_conf(properties, secondary_https, &conf);
+    EXPECT_TRUE(status.ok()) << status;
+    S3URI primary_https("https://account.blob.core.windows.net/container/path/file");
+    ASSERT_TRUE(primary_https.parse().ok());
+    EXPECT_FALSE(
+            S3ClientFactory::convert_properties_to_s3_conf(properties, primary_https, &conf).ok());
+}
+
+TEST_F(S3ClientFactoryTest, SecondaryFoldingKeepsOtherAccountsApart) {
+    // Folding "-secondary" must not merge distinct accounts: another account's
+    // secondary host, an account literally named "secondary" and the secondary
+    // host of the account named "account-secondary" all stay rejected.
+    auto properties = native_azure_shared_key_properties();
+    properties["AZURE_ENDPOINT"] = "https://account-secondary.blob.core.windows.net";
+    for (const auto* location :
+         {"abfss://container@other-secondary.dfs.core.windows.net/path/file",
+          "abfss://container@secondary.dfs.core.windows.net/path/file",
+          "abfss://container@account-secondary-secondary.dfs.core.windows.net/path/file"}) {
+        S3URI uri(location);
+        ASSERT_TRUE(uri.parse().ok()) << location;
+        S3Conf conf;
+        EXPECT_FALSE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok())
+                << location;
+    }
+}
+
 TEST_F(S3ClientFactoryTest, AllowsAbfsUriWithCustomAzureTransportEndpoint) {
     auto properties = native_azure_shared_key_properties();
     properties["AZURE_ENDPOINT"] = "https://proxy.example.test:8443/base";

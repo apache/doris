@@ -164,7 +164,8 @@ TEST_F(S3URITest, IcebergAdlsPathsPreserveLiteralPercentSequences) {
     for (const auto* scheme : {"abfs", "abfss", "wasb", "wasbs"}) {
         for (const auto* key :
              {"data/p=a%2Fb/file.parquet", "path/a%20b+%2520/http://example//file",
-              "path/100%/%2/%GG", "path/a b "}) {
+              "path/100%/%2/%GG", "path/a b ", "path/a?b#c.parquet", "path/a#b?c.parquet",
+              "?sv=2024-01-01&sig=fake", "#", "path/?/#/file"}) {
             const std::string service =
                     std::string_view(scheme).starts_with("wasb") ? "blob" : "dfs";
             S3URI uri(std::string(scheme) + "://container@account." + service +
@@ -256,6 +257,31 @@ TEST_F(S3URITest, QueryAndFragment) {
     EXPECT_TRUE(uri1.parse());
     EXPECT_EQ("bucket", uri1.get_bucket());
     EXPECT_EQ("path/to/file", uri1.get_key());
+}
+
+TEST_F(S3URITest, QueryAndFragmentAreLiteralOnlyInAdlsPaths) {
+    // ADLSLocation and Hadoop's Path treat everything after an ABFS/WASB
+    // authority as the object path. Every other scheme still carries a query
+    // (an HTTP(S) Azure location may carry a SAS) and a fragment.
+    for (const auto* location :
+         {"abfss://container@account.dfs.core.windows.net/path/a?b#c.parquet",
+          "WASB://container@account.blob.core.windows.net/path/a?b#c.parquet"}) {
+        S3URI uri(location);
+        ASSERT_TRUE(uri.parse().ok()) << location;
+        EXPECT_EQ(uri.get_key(), "path/a?b#c.parquet") << location;
+        ASSERT_TRUE(uri.parse(true).ok()) << location;
+        EXPECT_EQ(uri.get_key(), "path/a?b#c.parquet") << location;
+    }
+    for (const auto* location :
+         {"https://account.blob.core.windows.net/container/path/a?sv=1&sig=fake#c",
+          "https://custom.example.com/container/path/a?sv=1&sig=fake#c",
+          "s3://container/path/a?sv=1&sig=fake#c"}) {
+        S3URI uri(location);
+        ASSERT_TRUE(uri.parse().ok()) << location;
+        EXPECT_EQ(uri.get_key(), "path/a") << location;
+        ASSERT_TRUE(uri.parse(true).ok()) << location;
+        EXPECT_EQ(uri.get_key(), "path/a") << location;
+    }
 }
 
 } // end namespace doris

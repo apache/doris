@@ -323,6 +323,34 @@ std::string endpoint_authority(const std::string& endpoint) {
     return authority;
 }
 
+// The host of an authority as DNS sees it: lower-cased, without an explicit
+// port and without a trailing root dot.
+std::string authority_host(std::string_view authority) {
+    auto host = to_lower(std::string(authority.substr(0, authority.find(':'))));
+    while (host.ends_with('.')) {
+        host.pop_back();
+    }
+    return host;
+}
+
+// Azure RA-GRS/RA-GZRS secondary endpoints append "-secondary" to the account
+// label of an official service host while keeping the primary account identity
+// and keys: the SDK signs secondary reads with the primary account name. Fold
+// that suffix so both hosts name the same logical account. Custom hosts are
+// returned unchanged; their labels carry no Azure meaning.
+std::string azure_primary_authority(std::string authority) {
+    if (!S3URI::is_azure_endpoint(authority)) {
+        return authority;
+    }
+    static constexpr std::string_view secondary = "-secondary";
+    // An Azure service host always has a dotted suffix after the account label.
+    const auto label = to_lower(authority.substr(0, authority.find('.')));
+    if (label.size() > secondary.size() && label.ends_with(secondary)) {
+        authority.erase(label.size() - secondary.size(), secondary.size());
+    }
+    return authority;
+}
+
 #ifdef USE_AZURE
 // The endpoint handed to the SDK. Native endpoints were already normalized
 // while parsing the native protocol. Legacy SharedKey producers hand over an
@@ -530,7 +558,9 @@ Status S3ClientFactory::validate_azure_uri(const S3URI& uri, const S3ClientConf&
         }
         return Status::OK(); // Old SharedKey file-system paths use the S3 wire spelling.
     }
-    const auto uri_host = to_lower(uri.get_endpoint());
+    // Fence on the DNS host: an explicit port or a trailing root dot must not
+    // let a genuine Fabric location slip past this check.
+    const auto uri_host = authority_host(uri.get_endpoint());
     if (uri_host.ends_with(".dfs.fabric.microsoft.com") ||
         uri_host.ends_with(".blob.fabric.microsoft.com")) {
         return Status::NotSupported("OneLake data access requires its Hadoop storage binding");
@@ -542,20 +572,29 @@ Status S3ClientFactory::validate_azure_uri(const S3URI& uri, const S3ClientConf&
     // ABFS/WASB authorities identify the logical Azure account, while a configured custom
     // endpoint may be a proxy or emulator that intentionally has a different HTTP authority.
     // The native client uses conf.endpoint as the transport origin; retain account validation
-    // below, but do not reject this valid proxy form. HTTP(S) locations carry their transport
-    // origin directly and must still match exactly.
+    // below, but do not reject this valid proxy form. A documented "-secondary" endpoint
+    // names that same logical account. HTTP(S) locations carry their transport origin
+    // directly and must still match exactly.
     const bool custom_transport = !S3URI::is_azure_endpoint(endpoint_authority(endpoint));
-    if (endpoint_authority(endpoint) != endpoint_authority(uri_endpoint) &&
-        !(custom_transport && !http_uri)) {
+    const auto endpoint_identity = http_uri ? endpoint_authority(endpoint)
+                                            : azure_primary_authority(endpoint_authority(endpoint));
+    const auto uri_identity = http_uri ? endpoint_authority(uri_endpoint)
+                                       : azure_primary_authority(endpoint_authority(uri_endpoint));
+    if (endpoint_identity != uri_identity && !(custom_transport && !http_uri)) {
         return Status::InvalidArgument(
                 "Azure URI account host conflicts with the storage endpoint");
     }
     if (http_uri && !endpoint.starts_with(uri.get_scheme() + "://")) {
         return Status::InvalidArgument("Azure URI scheme conflicts with the storage endpoint");
     }
-    if (S3URI::is_azure_endpoint(uri.get_endpoint()) &&
-        !iequal(conf.azure_credentials.account_name, uri.get_account())) {
-        return Status::InvalidArgument("Azure URI account conflicts with the credential account");
+    if (S3URI::is_azure_endpoint(uri.get_endpoint())) {
+        // The credential always carries the primary account name, also for
+        // reads against the account's "-secondary" host.
+        const auto primary = azure_primary_authority(to_lower(uri.get_endpoint()));
+        if (!iequal(conf.azure_credentials.account_name, primary.substr(0, primary.find('.')))) {
+            return Status::InvalidArgument(
+                    "Azure URI account conflicts with the credential account");
+        }
     }
     return Status::OK();
 }

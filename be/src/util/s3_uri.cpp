@@ -57,6 +57,13 @@ bool S3URI::is_azure_endpoint(std::string_view authority) {
     });
 }
 
+bool S3URI::_is_adls_scheme(std::string_view scheme) {
+    return absl::EqualsIgnoreCase(scheme, _SCHEME_ABFS) ||
+           absl::EqualsIgnoreCase(scheme, _SCHEME_ABFSS) ||
+           absl::EqualsIgnoreCase(scheme, _SCHEME_WASB) ||
+           absl::EqualsIgnoreCase(scheme, _SCHEME_WASBS);
+}
+
 Status S3URI::_parsing_error(std::string_view message, bool azure_provider) const {
     if (azure_provider || _is_azure) {
         return Status::InvalidArgument("{}", message);
@@ -79,10 +86,7 @@ Status S3URI::_parse_authority(const std::string& scheme, const std::string& res
         _bucket = authority_split[0];
         // support s3://bucket1
         _key = authority_split.size() == 1 ? "/" : authority_split[1];
-    } else if (absl::EqualsIgnoreCase(scheme, _SCHEME_ABFS) ||
-               absl::EqualsIgnoreCase(scheme, _SCHEME_ABFSS) ||
-               absl::EqualsIgnoreCase(scheme, _SCHEME_WASB) ||
-               absl::EqualsIgnoreCase(scheme, _SCHEME_WASBS)) {
+    } else if (_is_adls_scheme(scheme)) {
         // Azure Data Lake paths use container@account-host as the
         // authority. Keep the account host so the native Azure client
         // can derive its endpoint without consulting Hadoop settings.
@@ -161,10 +165,14 @@ Status S3URI::parse(bool azure_provider) {
     if (_key.empty()) {
         return _parsing_error("Invalid S3 key", azure_provider);
     }
-    // Strip query and fragment if they exist
-    std::vector<std::string> _query_split = absl::StrSplit(_key, _QUERY_DELIM);
-    std::vector<std::string> _fragment_split = absl::StrSplit(_query_split[0], _FRAGMENT_DELIM);
-    _key = _fragment_split[0];
+    // Strip query and fragment if they exist. ABFS/WASB locations have neither:
+    // ADLSLocation and Hadoop's Path take everything after the authority as the
+    // object path, so '?' and '#' are literal object-name characters there.
+    if (!_is_adls_scheme(_scheme)) {
+        std::vector<std::string> _query_split = absl::StrSplit(_key, _QUERY_DELIM);
+        std::vector<std::string> _fragment_split = absl::StrSplit(_query_split[0], _FRAGMENT_DELIM);
+        _key = _fragment_split[0];
+    }
     // ADLSFileIO's ADLSLocation passes ABFS/WASB names literally to the SDK:
     // an object called p=a%2Fb must not become p=a/b. Only HTTP(S) locations
     // represent URL-encoded names. The SDK encodes the resulting object name.
