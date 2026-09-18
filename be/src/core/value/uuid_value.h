@@ -72,28 +72,27 @@ public:
             return false;
         }
 
-        UUIDValueType parsed = 0;
-        size_t hex_digits = 0;
-        for (size_t i = 0; i < size; ++i) {
-            if (size == TEXT_LENGTH && is_dash_position(i)) {
-                if (data[i] != '-') {
-                    return false;
-                }
-                continue;
-            }
-
-            const int digit = hex_digit(data[i]);
-            if (digit < 0) {
+        uint8_t combined_digits = 0;
+        uint64_t high;
+        uint64_t low;
+        if (size == TEXT_LENGTH) {
+            if (data[8] != '-' || data[13] != '-' || data[18] != '-' || data[23] != '-') {
                 return false;
             }
-            parsed = (parsed << 4) | static_cast<UUIDValueType>(digit);
-            ++hex_digits;
+            high = parse_hex_digits<8>(data, combined_digits);
+            high = (high << 16) | parse_hex_digits<4>(data + 9, combined_digits);
+            high = (high << 16) | parse_hex_digits<4>(data + 14, combined_digits);
+            low = parse_hex_digits<4>(data + 19, combined_digits);
+            low = (low << 48) | parse_hex_digits<12>(data + 24, combined_digits);
+        } else {
+            high = parse_hex_digits<16>(data, combined_digits);
+            low = parse_hex_digits<16>(data + 16, combined_digits);
         }
 
-        if (hex_digits != TEXT_LENGTH_WITHOUT_DASHES) {
+        if (combined_digits > 0x0f) {
             return false;
         }
-        value = parsed;
+        value = from_parts(high, low);
         return true;
     }
 
@@ -127,17 +126,28 @@ private:
         return position == 8 || position == 13 || position == 18 || position == 23;
     }
 
-    static constexpr int hex_digit(char value) {
-        if (value >= '0' && value <= '9') {
-            return value - '0';
+    static constexpr auto HEX_TO_NIBBLE = [] {
+        std::array<uint8_t, 256> digits {};
+        digits.fill(0xff);
+        for (size_t digit = 0; digit < 10; ++digit) {
+            digits['0' + digit] = static_cast<uint8_t>(digit);
         }
-        if (value >= 'a' && value <= 'f') {
-            return value - 'a' + 10;
+        for (size_t digit = 0; digit < 6; ++digit) {
+            digits['a' + digit] = static_cast<uint8_t>(digit + 10);
+            digits['A' + digit] = static_cast<uint8_t>(digit + 10);
         }
-        if (value >= 'A' && value <= 'F') {
-            return value - 'A' + 10;
+        return digits;
+    }();
+
+    template <size_t Digits>
+    static uint64_t parse_hex_digits(const char* data, uint8_t& combined_digits) {
+        uint64_t parsed = 0;
+        for (size_t offset = 0; offset < Digits; ++offset) {
+            const uint8_t digit = HEX_TO_NIBBLE[static_cast<unsigned char>(data[offset])];
+            combined_digits |= digit;
+            parsed = (parsed << 4) | digit;
         }
-        return -1;
+        return parsed;
     }
 
     UUIDValueType _value = 0;
