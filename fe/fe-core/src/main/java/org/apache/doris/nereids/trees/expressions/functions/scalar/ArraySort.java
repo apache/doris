@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -60,23 +61,24 @@ public class ArraySort extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = getArgument(0).getDataType();
+        Expression argument = getArgument(0);
+        DataType argType = argument.getDataType();
         if (argType instanceof ArrayType) {
-            // Find the innermost element type for nested arrays
             DataType itemType = ((ArrayType) argType).getItemType();
-            while (itemType.isArrayType()) {
-                itemType = ((ArrayType) itemType).getItemType();
-            }
-            if (itemType.isMapType() || itemType.isStructType()
-                    || itemType.isVariantType() || itemType.isJsonType()) {
+            if (!ArrayFunctionTypeChecker.isSupportedByArrayComparisonFunctions(itemType)) {
                 throw new AnalysisException("array_sort does not support types: " + argType.toSql());
             }
         }
-        if (getArgument(0) instanceof Lambda) {
-            Lambda lambda = (Lambda) getArgument(0);
+        if (argument instanceof Lambda) {
+            Lambda lambda = (Lambda) argument;
             if (lambda.getLambdaArgumentNames().size() != 2) {
                 throw new AnalysisException("When using lambda as the parameter of array_sort,"
                         + " the lambda must be a binary comparator lambda.");
+            }
+            ArrayType sourceType = (ArrayType) lambda.getLambdaArgument(0)
+                    .getArrayExpression().getDataType();
+            if (!ArrayFunctionTypeChecker.isSupportedByArraySortLambdaFunction(sourceType.getItemType())) {
+                throw new AnalysisException("array_sort does not support types: " + sourceType.toSql());
             }
         }
     }

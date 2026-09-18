@@ -18,12 +18,16 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 
 import com.google.common.base.Preconditions;
@@ -52,6 +56,23 @@ public class ArrayExcept extends ScalarFunction implements ExplicitlyCastableSig
     /** constructor for withChildren and reuse signature */
     private ArrayExcept(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        for (Expression child : getArguments()) {
+            DataType argType = child.getDataType();
+            if (argType == NullType.INSTANCE) {
+                continue;
+            }
+            if (!argType.isArrayType()) {
+                throw new AnalysisException("array_except requires ARRAY arguments, but got " + argType.toSql());
+            }
+            DataType itemType = ((ArrayType) argType).getItemType();
+            if (!ArrayFunctionTypeChecker.isSupportedByArraySetFunctions(itemType)) {
+                throw new AnalysisException("array_except does not support element type " + itemType.toSql());
+            }
+        }
     }
 
     /**

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -65,12 +66,23 @@ public class ArrayEnumerateUniq extends ScalarFunction
      */
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        boolean useSerializedKeys = getArguments().size() > 1;
         for (Expression arg : getArguments()) {
             DataType argType = arg.getDataType();
             if (argType.isArrayType()) {
                 DataType itemType = ((ArrayType) argType).getItemType();
                 if (itemType.isComplexType()) {
                     throw new AnalysisException("array_enumerate_uniq does not support types: " + toSql());
+                }
+                if (useSerializedKeys
+                        && !ArrayFunctionTypeChecker.isSupportedByArraySerializedKeyFunctions(itemType)) {
+                    throw new AnalysisException("array_enumerate_uniq does not support element type "
+                            + itemType.toSql());
+                }
+                if (!useSerializedKeys
+                        && !ArrayFunctionTypeChecker.isSupportedByArrayEqualityFunctions(itemType)) {
+                    throw new AnalysisException("array_enumerate_uniq does not support element type "
+                            + itemType.toSql());
                 }
             }
         }

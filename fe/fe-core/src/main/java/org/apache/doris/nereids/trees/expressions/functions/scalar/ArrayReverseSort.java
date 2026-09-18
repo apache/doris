@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -59,13 +60,8 @@ public class ArrayReverseSort extends ScalarFunction
     public void checkLegalityBeforeTypeCoercion() {
         DataType argType = getArgument(0).getDataType();
         if (argType instanceof ArrayType) {
-            // Find the innermost element type for nested arrays
             DataType itemType = ((ArrayType) argType).getItemType();
-            while (itemType.isArrayType()) {
-                itemType = ((ArrayType) itemType).getItemType();
-            }
-            if (itemType.isMapType() || itemType.isStructType()
-                    || itemType.isVariantType() || itemType.isJsonType()) {
+            if (!ArrayFunctionTypeChecker.isSupportedByArrayComparisonFunctions(itemType)) {
                 throw new AnalysisException("array_reverse_sort does not support types: " + argType.toSql());
             }
         }
