@@ -267,10 +267,12 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.config = index_config;
     input.doc_count = doc_count;
     input.null_docids = std::move(null_docids);
+    input.write_norms = options.write_norms;
     input.encoded_norms = std::move(options.encoded_norms);
+    input.null_docids_with_norms = std::move(options.null_docids_with_norms);
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
-    snii_resolve_index_write_params(options.is_direct_load, !input.encoded_norms.empty(), &input);
+    snii_resolve_index_write_params(options.is_direct_load, input.write_norms, &input);
     RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input));
     ++_snii_index_count;
     return Status::OK();

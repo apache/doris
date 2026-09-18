@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -50,7 +51,7 @@ class SniiRewriteSnapshot;
 //     [DICT blocks region]   concatenated DICT blocks, split by
 //                            target_dict_block_bytes
 //   for each logical index, in add order:
-//     [norms POD]            NormsPodWriter::finish (scoring only; else absent)
+//     [norms]                write_norms_section, dense or sparse (scoring only; else absent)
 //     [null bitmap POD]      NullBitmapWriter::finish (when nulls exist and no earlier index
 //                            with the same suffix wrote the same bitmap; such an index
 //                            references that region instead, see write_index_aux_sections)
@@ -136,9 +137,14 @@ public:
     // entered the compound output; all later calls return the first error.
     Status push_term(StreamedTermPostings&& tp);
     // Supply this destination segment's norms, rebuilt alongside postings during compaction.
-    // Sessions declaring write_norms must call this exactly once before finish, with doc_count
-    // entries.
-    Status set_encoded_norms(TrackedEncodedNorms encoded_norms);
+    // Sessions declaring write_norms must call this exactly once before finish, with one entry
+    // per document that carries a norm: the documents outside null_docids() plus
+    // null_docids_with_norms (an ascending subset of null_docids(), see SniiIndexInput).
+    Status set_encoded_norms(
+            TrackedEncodedNorms encoded_norms,
+            TrackedNullDocids null_docids_with_norms = TrackedNullDocids(std::vector<uint32_t>()));
+    // The NULL docids this session was begun with. Valid until finish().
+    std::span<const uint32_t> null_docids() const;
     // Seals this index: flushes the trailing DICT block, streams the DICT region
     // right after the posting region and records the placements. A failed finish
     // leaves the session unfinished (and the container unsealable) -- there is
@@ -156,9 +162,10 @@ private:
                              TrackedNullDocids null_docids);
 
     SniiCompoundWriter* owner_;
-    // The reservation precedes input_ so input_.encoded_norms is destroyed
-    // before its charge is released.
+    // The reservations precede input_ so input_.encoded_norms and
+    // input_.null_docids_with_norms are destroyed before their charges are released.
     MemoryReporter::Reservation encoded_norms_reservation_;
+    MemoryReporter::Reservation null_docids_with_norms_reservation_;
     // Owns the input: LogicalIndexWriter keeps references into it (terms /
     // encoded_norms), so it must live exactly as long as the writer.
     SniiIndexInput input_;

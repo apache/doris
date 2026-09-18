@@ -37,7 +37,13 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
-namespace {} // namespace
+namespace {
+
+uint8_t saturated_norm_length(uint64_t token_count) {
+    return static_cast<uint8_t>(std::min<uint64_t>(token_count, 255));
+}
+
+} // namespace
 
 SniiIndexColumnWriter::SniiIndexColumnWriter(IndexFileWriter* index_file_writer,
                                              const TabletIndex* index_meta, FieldType value_type)
@@ -217,7 +223,7 @@ Status SniiIndexColumnWriter::add_values(const std::string /*name*/, const void*
         uint32_t token_count = 0;
         RETURN_IF_ERROR(_add_value_tokens(*v, _rid, 0, &max_position, &token_count));
         if (_writes_norms) {
-            _encoded_norms.push_back(::doris::snii::query::encode_norm(token_count));
+            _norm_lengths.push_back(saturated_norm_length(token_count));
             _report_encoded_norms_capacity();
         }
         ++v;
@@ -256,8 +262,9 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
         }
         if (_writes_norms) {
             // An ARRAY row's document length is the total token count across its elements.
-            // NULL rows also pass here with length 0 and are marked by add_array_nulls.
-            _encoded_norms.push_back(::doris::snii::query::encode_norm(row_token_count));
+            // NULL rows also pass here; add_array_nulls drops the entries of those without
+            // tokens.
+            _norm_lengths.push_back(saturated_norm_length(row_token_count));
             _report_encoded_norms_capacity();
         }
         start_off += array_elem_size;
@@ -270,8 +277,10 @@ void SniiIndexColumnWriter::_report_null_docids_capacity(bool release_all) {
     if (_memory_reporter == nullptr) {
         return;
     }
-    const int64_t now =
-            release_all ? 0 : static_cast<int64_t>(_null_docids.capacity() * sizeof(uint32_t));
+    const int64_t now = release_all ? 0
+                                    : static_cast<int64_t>((_null_docids.capacity() +
+                                                            _null_docids_with_norms.capacity()) *
+                                                           sizeof(uint32_t));
     if (now != _null_docids_charged_bytes) {
         _memory_reporter->report(now - _null_docids_charged_bytes);
         _null_docids_charged_bytes = now;
@@ -282,7 +291,7 @@ void SniiIndexColumnWriter::_report_encoded_norms_capacity(bool release_all) {
     if (_memory_reporter == nullptr) {
         return;
     }
-    const int64_t now = release_all ? 0 : static_cast<int64_t>(_encoded_norms.capacity());
+    const int64_t now = release_all ? 0 : static_cast<int64_t>(_norm_lengths.capacity());
     if (now != _encoded_norms_charged_bytes) {
         _memory_reporter->report(now - _encoded_norms_charged_bytes);
         _encoded_norms_charged_bytes = now;
@@ -311,10 +320,7 @@ Status SniiIndexColumnWriter::add_nulls(uint32_t count) {
         _null_docids.push_back(_rid + i);
     }
     _rid += count;
-    if (_writes_norms) {
-        _encoded_norms.insert(_encoded_norms.end(), count, ::doris::snii::query::encode_norm(0));
-        _report_encoded_norms_capacity();
-    }
+    // A NULL scalar row produces no token, so it carries no norm.
     _report_null_docids_capacity();
     return Status::OK();
 }
@@ -328,11 +334,35 @@ Status SniiIndexColumnWriter::add_array_nulls(const uint8_t* null_map, size_t nu
         return Status::OK();
     }
     const auto first_row = _rid - num_rows;
-    for (size_t i = 0; i < num_rows; ++i) {
-        if (null_map[i] == 1) {
-            _null_docids.push_back(cast_set<uint32_t>(first_row + i));
+    if (!_writes_norms) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            if (null_map[i] == 1) {
+                _null_docids.push_back(cast_set<uint32_t>(first_row + i));
+            }
         }
+        _report_null_docids_capacity();
+        return Status::OK();
     }
+    // add_array_values appended one length for each of these rows. Drop the NULL rows that
+    // produced no token; a NULL row with tokens keeps its norm, because its tokens are in
+    // the postings and scoring reads the norm of every posting document.
+    DORIS_CHECK_EQ(_norm_lengths.size() + _null_docids.size(),
+                   _rid + _null_docids_with_norms.size());
+    const size_t batch_begin = _norm_lengths.size() - num_rows;
+    size_t kept = batch_begin;
+    for (size_t i = 0; i < num_rows; ++i) {
+        const uint8_t length = _norm_lengths[batch_begin + i];
+        if (null_map[i] == 1) {
+            const auto docid = cast_set<uint32_t>(first_row + i);
+            _null_docids.push_back(docid);
+            if (length == 0) {
+                continue;
+            }
+            _null_docids_with_norms.push_back(docid);
+        }
+        _norm_lengths[kept++] = length;
+    }
+    _norm_lengths.resize(kept);
     _report_null_docids_capacity();
     return Status::OK();
 }
@@ -353,8 +383,14 @@ Status SniiIndexColumnWriter::finish() {
     IndexFileWriter::SniiAddIndexOptions options {};
     options.is_direct_load = _is_direct_load;
     if (_writes_norms) {
-        DORIS_CHECK_EQ(_encoded_norms.size(), _rid);
-        options.encoded_norms = std::move(_encoded_norms);
+        DORIS_CHECK_EQ(_norm_lengths.size() + _null_docids.size(),
+                       _rid + _null_docids_with_norms.size());
+        for (uint8_t& length : _norm_lengths) {
+            length = ::doris::snii::query::encode_norm(length);
+        }
+        options.write_norms = true;
+        options.encoded_norms = std::move(_norm_lengths);
+        options.null_docids_with_norms = std::move(_null_docids_with_norms);
     }
     status = _index_file_writer->add_snii_index(
             _index_meta, cast_set<uint32_t>(_rid), std::move(_null_docids), _term_buffer.get(),
@@ -381,7 +417,8 @@ void SniiIndexColumnWriter::close_on_error() {
     _report_encoded_norms_capacity(/*release_all=*/true);
     _memory_reporter.reset();
     _null_docids.clear();
-    std::vector<uint8_t>().swap(_encoded_norms);
+    std::vector<uint32_t>().swap(_null_docids_with_norms);
+    std::vector<uint8_t>().swap(_norm_lengths);
 }
 
 } // namespace doris::segment_v2

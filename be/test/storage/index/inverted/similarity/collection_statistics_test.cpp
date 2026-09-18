@@ -492,9 +492,6 @@ protected:
             alpha.docids = {0, 2};
             input.doc_count = 4;
             input.null_docids = {1, 3};
-            // One norm per row: NULL rows store encode_norm(0), as the column writer does.
-            input.encoded_norms = {snii::query::encode_norm(2), snii::query::encode_norm(0),
-                                   snii::query::encode_norm(1), snii::query::encode_norm(0)};
         }
         input.terms = {std::move(alpha), std::move(beta)};
 
