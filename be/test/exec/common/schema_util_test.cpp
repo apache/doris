@@ -32,6 +32,8 @@
 #include "core/data_type/data_type_ipv4.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nothing.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_timestamp_ns.h"
@@ -975,6 +977,136 @@ TEST_F(SchemaUtilTest, TestUpdateLeastSchemaInternal) {
     int int_col_idx = schema->field_index("test_variant.a");
     EXPECT_GE(int_col_idx, 0);
     EXPECT_EQ(schema->column(int_col_idx).type(), FieldType::OLAP_FIELD_TYPE_BIGINT);
+}
+
+// Segments of the same Variant path can store BOOLEAN in one rowset and a number in another.
+// Merging those types must not choose a numeric column, or the booleans become 1/0.
+TEST_F(SchemaUtilTest, UpdateLeastSchemaKeepsBooleanDistinctFromNumbers) {
+    auto schema = std::make_shared<TabletSchema>();
+    TabletColumn base_col;
+    base_col.set_unique_id(1);
+    base_col.set_name("test_variant");
+    base_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    schema->append_column(base_col);
+
+    const DataTypePtr nullable_bool = make_nullable(std::make_shared<DataTypeBool>());
+    const DataTypePtr nullable_bigint = make_nullable(std::make_shared<DataTypeInt64>());
+    std::map<PathInData, DataTypes> subcolumns_types;
+    subcolumns_types[PathInData("test_variant.k")] = {nullable_bool, nullable_bigint};
+    subcolumns_types[PathInData("test_variant.d")] = {
+            make_nullable(std::make_shared<DataTypeFloat64>()), nullable_bool};
+    subcolumns_types[PathInData("test_variant.a")] = {
+            make_nullable(std::make_shared<DataTypeArray>(nullable_bool)),
+            make_nullable(std::make_shared<DataTypeArray>(nullable_bigint))};
+    subcolumns_types[PathInData("test_variant.n")] = {
+            make_nullable(std::make_shared<DataTypeInt32>()), nullable_bigint};
+
+    std::map<std::string, TabletColumnPtr> typed_columns;
+    ASSERT_TRUE(
+            variant_util::update_least_schema_internal(subcolumns_types, schema, 1, typed_columns)
+                    .ok());
+
+    const auto column_type = [&](const std::string& name) {
+        const int index = schema->field_index(name);
+        EXPECT_GE(index, 0) << name;
+        return schema->column(index).type();
+    };
+    EXPECT_EQ(column_type("test_variant.k"), FieldType::OLAP_FIELD_TYPE_JSONB);
+    EXPECT_EQ(column_type("test_variant.d"), FieldType::OLAP_FIELD_TYPE_JSONB);
+    ASSERT_EQ(column_type("test_variant.a"), FieldType::OLAP_FIELD_TYPE_ARRAY);
+    EXPECT_EQ(schema->column(schema->field_index("test_variant.a")).get_sub_column(0).type(),
+              FieldType::OLAP_FIELD_TYPE_JSONB);
+    // Numbers of different widths still promote to a numeric column.
+    EXPECT_EQ(column_type("test_variant.n"), FieldType::OLAP_FIELD_TYPE_BIGINT);
+}
+
+// Compaction builds subcolumns from the physical types of every input segment. Both the
+// subpath-limited branch and the all-materialized branch, and nested paths, must keep BOOLEAN
+// segments from being merged into a numeric column with numeric segments.
+TEST_F(SchemaUtilTest, CompactionSubcolumnsKeepBooleanDistinctFromNumbers) {
+    const DataTypePtr nullable_bool = make_nullable(std::make_shared<DataTypeBool>());
+    const DataTypePtr nullable_bigint = make_nullable(std::make_shared<DataTypeInt64>());
+    const DataTypePtr nullable_double = make_nullable(std::make_shared<DataTypeFloat64>());
+    doris::variant_util::PathToDataTypes path_to_data_types;
+    path_to_data_types[PathInData("k")] = {nullable_bool, nullable_bigint};
+    path_to_data_types[PathInData("a")] = {
+            make_nullable(std::make_shared<DataTypeArray>(nullable_bool)),
+            make_nullable(std::make_shared<DataTypeArray>(nullable_bigint))};
+    // A boolean merged with a floating point number takes a different branch of the numeric tower
+    // than the integer case above, so it needs its own path.
+    path_to_data_types[PathInData("d")] = {nullable_bool, nullable_double};
+    path_to_data_types[PathInData("n")] = {make_nullable(std::make_shared<DataTypeInt32>()),
+                                           nullable_bigint};
+
+    const auto expect_types = [](const TabletSchemaSPtr& output_schema) {
+        bool found_k = false, found_a = false, found_d = false, found_n = false;
+        for (const auto& column : output_schema->columns()) {
+            if (column->name().ends_with(".k")) {
+                found_k = true;
+                EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_JSONB);
+            } else if (column->name().ends_with(".a")) {
+                found_a = true;
+                ASSERT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_ARRAY);
+                EXPECT_EQ(column->get_sub_column(0).type(), FieldType::OLAP_FIELD_TYPE_JSONB);
+            } else if (column->name().ends_with(".d")) {
+                found_d = true;
+                EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_JSONB);
+            } else if (column->name().ends_with(".n")) {
+                found_n = true;
+                EXPECT_EQ(column->type(), FieldType::OLAP_FIELD_TYPE_BIGINT);
+            }
+        }
+        EXPECT_TRUE(found_k && found_a && found_d && found_n);
+    };
+
+    for (int32_t max_subcolumns_count : {10, 0}) {
+        TabletColumn variant;
+        variant.set_name("v1");
+        variant.set_unique_id(40);
+        variant.set_variant_max_subcolumns_count(max_subcolumns_count);
+        variant.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+        variant.set_variant_max_sparse_column_statistics_size(10000);
+        TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
+        schema->append_column(variant);
+        TabletColumnPtr parent_column = std::make_shared<TabletColumn>(variant);
+        TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
+        TabletSchema::PathsSetInfo paths_set_info;
+        if (max_subcolumns_count > 0) {
+            paths_set_info.sub_path_set.insert("k");
+            paths_set_info.sub_path_set.insert("a");
+            paths_set_info.sub_path_set.insert("d");
+            paths_set_info.sub_path_set.insert("n");
+            variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
+                    paths_set_info, parent_column, schema, path_to_data_types, {}, output_schema);
+        } else {
+            variant_util::VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
+                    paths_set_info, parent_column, schema, path_to_data_types, output_schema);
+        }
+        expect_types(output_schema);
+    }
+
+    TabletColumn nested_variant;
+    nested_variant.set_name("v2");
+    nested_variant.set_unique_id(41);
+    TabletColumnPtr nested_parent = std::make_shared<TabletColumn>(nested_variant);
+    TabletSchemaSPtr nested_output = std::make_shared<TabletSchema>();
+    nested_output->append_column(nested_variant);
+    TabletSchema::PathsSetInfo nested_paths_set_info;
+    const PathInData nested_path("items.flag");
+    const PathInData nested_float_path("items.ratio");
+    std::unordered_set<PathInData, PathInData::Hash> nested_paths {nested_path, nested_float_path};
+    doris::variant_util::PathToDataTypes nested_types;
+    nested_types[nested_path] = {nullable_bool, nullable_bigint};
+    nested_types[nested_float_path] = {nullable_bool, nullable_double};
+    ASSERT_TRUE(
+            variant_util::VariantCompactionUtil::get_compaction_nested_columns(
+                    nested_paths, nested_types, nested_parent, nested_output, nested_paths_set_info)
+                    .ok());
+    // The paths come from an unordered set, so check every produced subcolumn instead of one index.
+    ASSERT_EQ(nested_output->num_columns(), 3);
+    for (size_t i = 1; i < nested_output->num_columns(); ++i) {
+        EXPECT_EQ(nested_output->column(i).type(), FieldType::OLAP_FIELD_TYPE_JSONB);
+    }
 }
 
 TEST_F(SchemaUtilTest, TestUpdateLeastCommonSchema) {

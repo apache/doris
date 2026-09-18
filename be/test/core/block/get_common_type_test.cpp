@@ -52,6 +52,8 @@ static DataTypePtr typeFromString(const std::string& str) {
         return std::make_shared<DataTypeInt32>();
     } else if (str == "Int64") {
         return std::make_shared<DataTypeInt64>();
+    } else if (str == "Int128") {
+        return std::make_shared<DataTypeInt128>();
     } else if (str == "Float32") {
         return std::make_shared<DataTypeFloat32>();
     } else if (str == "Float64") {
@@ -132,8 +134,22 @@ INSTANTIATE_TEST_SUITE_P(data_type, LeastSuperTypeTest,
                                  {"UInt8", "UInt8"},
                                  {"UInt8 UInt8", "UInt8"},
                                  {"Int8 Int8", "Int8"},
-                                 {"UInt8 Int8", "Int16"},
-                                 {"UInt8 Int16", "Int16"},
+                                 // DataTypeUInt8 is TYPE_BOOLEAN, a JSON boolean: Doris has no
+                                 // unsigned 8-bit type. This function types Variant paths and the
+                                 // elements of one JSON array, where true/false must stay distinct
+                                 // from the numbers 1/0, so a boolean mixed with a number falls
+                                 // back to JSONB instead of widening into the numeric tower.
+                                 {"UInt8 Int8", "Jsonb"},
+                                 {"UInt8 Int16", "Jsonb"},
+                                 {"UInt8 Int128", "Jsonb"},
+                                 {"UInt8 Float32", "Jsonb"},
+                                 {"UInt8 Float64", "Jsonb"},
+                                 // Combinations that do not reach the numeric tower keep their
+                                 // previous result, so the rule above cannot silently widen them.
+                                 {"UInt8 String", "Jsonb"},
+                                 {"UInt8 Jsonb", "Jsonb"},
+                                 {"UInt8 Date", "Jsonb"},
+                                 {"UInt8 Nothing", "UInt8"},
                                  {"Int8 Int32 Int64", "Int64"},
                                  {"Float32 Float64", "Float64"},
                                  {"Date Date", "Date"},
