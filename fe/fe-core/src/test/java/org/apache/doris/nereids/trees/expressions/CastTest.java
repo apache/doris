@@ -426,6 +426,15 @@ public class CastTest {
             cast = new Cast(child, DecimalV3Type.createDecimalV3Type(27, 9));
             Assertions.assertFalse(cast.nullable());
             cast = new Cast(child, DecimalV3Type.createDecimalV3Type(26, 9));
+            Assertions.assertFalse(cast.nullable());
+
+            // The D2-to-D3 BE kernel decides its physical nullable wrapper from DECIMALV2's
+            // original schema precision and scale, independently of strict-cast behavior.
+            child = new SlotReference("slot", DecimalV2Type.createDecimalV2Type(27, 0), false);
+            DecimalV3Type decimalV3Target = DecimalV3Type.createDecimalV3Type(19, 0);
+            cast = new Cast(child, decimalV3Target, false, false);
+            Assertions.assertTrue(cast.nullable());
+            cast = new Cast(child, decimalV3Target, false, true);
             Assertions.assertTrue(cast.nullable());
             // To date is always nullable
             cast = new Cast(child, DateType.INSTANCE);

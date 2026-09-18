@@ -219,6 +219,20 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                 return targetType.isBigIntType() && range >= BigIntType.RANGE;
             } else if (targetType.isDecimalLikeType()) {
                 // Decimal to decimal
+                if (childDataType.isDecimalV2Type() && targetType.isDecimalV3Type()) {
+                    DecimalV2Type sourceDecimal = (DecimalV2Type) childDataType;
+                    DecimalV3Type targetDecimal = (DecimalV3Type) targetType;
+                    int sourceRange = sourceDecimal.getRange();
+                    int targetRange = targetDecimal.getRange();
+                    // DECIMALV2 values are evaluated as DECIMAL(27, 9), but BE's D2-to-D3
+                    // specialization deliberately uses the source type's original precision and
+                    // scale to decide whether its physical result is ColumnNullable. It applies
+                    // this wrapper in both strict and non-strict modes. Mirror that decision here;
+                    // otherwise VExpr rejects the nullable BE column against a non-nullable FE slot.
+                    return sourceRange > targetRange
+                            || (sourceRange == targetRange
+                                && sourceDecimal.getScale() > targetDecimal.getScale());
+                }
                 int targetRange = targetType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_RANGE
                         : ((DecimalV3Type) targetType).getRange();
                 int sourceRange = childDataType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_RANGE
