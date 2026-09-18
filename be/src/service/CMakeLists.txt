@@ -34,6 +34,10 @@ endif()
 
 add_library(Service STATIC ${SRC_FILES})
 
+if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
+    target_compile_definitions(Service PRIVATE LLVM_PROFILE)
+endif ()
+
 pch_reuse(Service)
 
 # Unity build scoped to the http glue: ~60 small handlers re-parsing the same
@@ -60,7 +64,7 @@ if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
     )
 
     if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
-        target_compile_definitions(doris_be PRIVATE -DLLVM_PROFILE)
+        target_compile_definitions(doris_be PRIVATE LLVM_PROFILE)
     endif ()
     pch_reuse(doris_be)
 
