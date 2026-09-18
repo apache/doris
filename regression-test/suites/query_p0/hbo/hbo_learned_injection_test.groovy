@@ -100,7 +100,7 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
     // a struct info which does not belong to the fingerprint is rejected for the learned scope too
     test {
         sql """ HBO SET LEARNED STATISTICS VALUE=1 FINGERPRINT='${fingerprint}' STRUCT='S{internal.hbo_test.hbo_li_r,v2}'; """
-        exception "hbo statistics STRUCT does not match the fingerprint ${fingerprint}, copy the struct= value of the target node from EXPLAIN"
+        exception "hbo statistics STRUCT does not match the fingerprint ${fingerprint} for LITERAL_MODE=with_literal, copy the struct= value of the target node from EXPLAIN"
     }
     // a learned entry may carry the struct info of the node it belongs to, so that HBO SHOW
     // STATISTICS can display it (the simplified form by default, the canonical one with FULL)
