@@ -54,7 +54,9 @@ suite("test_iceberg_missing_data_file",
     def files = sql "select file_path from missing_data_file\$files where content = 0"
     assertTrue(files.size() >= 2, "The snapshot must contain multiple data files")
     URI missingFile = new URI(files[0][0].toString())
-    assertEquals("s3", missingFile.scheme)
+    // Hadoop-backed catalogs may expose the same S3 objects through s3a or s3n URIs.
+    assertTrue(missingFile.scheme in ["s3", "s3a", "s3n"],
+            "Unexpected object storage URI: ${missingFile}")
     String key = missingFile.path.substring(1)
     def client = AmazonS3ClientBuilder.standard()
             .withEndpointConfiguration(new EndpointConfiguration(endpoint, "us-east-1"))
