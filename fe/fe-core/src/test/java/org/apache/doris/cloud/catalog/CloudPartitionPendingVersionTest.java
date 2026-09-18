@@ -18,6 +18,7 @@
 package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.rpc.VersionHelper;
@@ -37,7 +38,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class CloudPartitionPendingVersionTest {
     private ConnectContext previousContext;
@@ -245,6 +249,36 @@ public class CloudPartitionPendingVersionTest {
         } finally {
             defaults.cloudGetVersionWaitForPendingTxn = previousWait;
         }
+    }
+
+    @Test
+    public void testDaemonPreparesTableForVersionSync() throws Exception {
+        CloudPartition other = CloudPartitionTest.createPartition(4, 2, 3);
+        other.setCachedVisibleVersion(20, 1000);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getAllPartitions()).thenReturn(List.of(partition, other));
+        Map<OlapTable, Long> tablesToSync = new HashMap<>();
+        Method prepare = CloudSyncVersionDaemon.class.getDeclaredMethod(
+                "prepareTableForVersionSync", Map.class, OlapTable.class, long.class);
+        prepare.setAccessible(true);
+        prepare.invoke(new CloudSyncVersionDaemon(), tablesToSync, table, 3L);
+
+        Assertions.assertTrue(partition.isCachedVersionExpired());
+        Assertions.assertTrue(other.isCachedVersionExpired());
+        Assertions.assertEquals(Map.of(table, 3L), tablesToSync);
+        Assertions.assertEquals(12, partition.getCachedVisibleVersion());
+        Assertions.assertEquals(20, other.getCachedVisibleVersion());
+        versions.verifyNoInteractions();
+        Mockito.verify(table, Mockito.never()).setCachedTableVersion(Mockito.anyLong());
+        versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any(Cloud.GetVersionRequest.class)))
+                .thenThrow(new RpcException("get version", "injected refresh failure"));
+        Assertions.assertThrows(RuntimeException.class, () -> partition.getVisibleVersion());
+        Assertions.assertTrue(partition.isCachedVersionExpired(), "A failed refresh must leave the cache invalid");
+        Assertions.assertTrue(other.isCachedVersionExpired());
+        versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any(Cloud.GetVersionRequest.class)))
+                .thenReturn(response(13).addHasPendingTxns(false).build());
+        Assertions.assertEquals(13, partition.getVisibleVersion());
+        Assertions.assertFalse(partition.isCachedVersionExpired());
     }
 
     private long read(boolean batch) throws RpcException {
