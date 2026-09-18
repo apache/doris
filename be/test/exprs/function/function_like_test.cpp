@@ -75,6 +75,50 @@ Status execute_pattern_with_fallback_disabled(const std::string& value, const st
     return function.execute_impl(context.get(), block, {0, 1}, 2, 1);
 }
 
+template <typename Function>
+void check_constant_pattern_batch(const std::vector<std::string>& values,
+                                  const std::string& pattern,
+                                  const std::vector<uint8_t>& expected) {
+    ASSERT_EQ(values.size(), expected.size());
+
+    TQueryOptions query_options;
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto string_type = std::make_shared<DataTypeString>();
+    auto result_type = std::make_shared<DataTypeUInt8>();
+    auto context = FunctionContext::create_context(&runtime_state, result_type,
+                                                   {string_type, string_type});
+
+    auto value_column = ColumnString::create();
+    for (const auto& value : values) {
+        value_column->insert_data(value.data(), value.size());
+    }
+    auto pattern_data = ColumnString::create();
+    pattern_data->insert_data(pattern.data(), pattern.size());
+    ColumnPtr pattern_column = ColumnConst::create(std::move(pattern_data), values.size());
+
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(2);
+    constant_columns[1] = std::make_shared<ColumnPtrWrapper>(pattern_column);
+    context->set_constant_cols(constant_columns);
+
+    Function function;
+    auto status = function.open(context.get(), FunctionContext::THREAD_LOCAL);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    Block block;
+    block.insert({std::move(value_column), string_type, "value"});
+    block.insert({std::move(pattern_column), string_type, "pattern"});
+    block.insert({nullptr, result_type, "result"});
+    status = function.execute_impl(context.get(), block, {0, 1}, 2, values.size());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto* result = check_and_get_column<ColumnUInt8>(block.get_by_position(2).column.get());
+    ASSERT_NE(result, nullptr);
+    ASSERT_EQ(result->size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_EQ(result->get_element(i), expected[i]) << "row " << i;
+    }
+}
+
 TEST(FunctionLikeTest, like) {
     std::string func_name = "like";
 
@@ -178,6 +222,27 @@ TEST(FunctionLikeTest, regexp) {
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
                                                               const_pattern_dataset));
     }
+}
+
+TEST(FunctionLikeTest, regexp_empty_constant_pattern) {
+    DataSet data_set = {{{std::string("abc"), std::string("")}, uint8_t(1)},
+                        {{std::string(""), std::string("")}, uint8_t(1)}};
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, Consted {PrimitiveType::TYPE_VARCHAR}};
+
+    for (const auto& func_name : {"regexp", "rlike"}) {
+        for (const auto& line : data_set) {
+            DataSet const_pattern_dataset = {line};
+            static_cast<void>(check_function<DataTypeUInt8, true>(func_name, input_types,
+                                                                  const_pattern_dataset));
+        }
+    }
+
+    check_constant_pattern_batch<FunctionRegexpLike>({"abc", ""}, "", {1, 1});
+}
+
+TEST(FunctionLikeTest, regexp_constant_substring_boundaries) {
+    check_constant_pattern_batch<FunctionRegexpLike>({"ab", "c", "", "abc", "", "xabcx"}, "abc",
+                                                     {0, 0, 0, 1, 0, 1});
 }
 
 TEST(FunctionLikeTest, hyperscan_bounded_repeat_fallback) {
@@ -750,7 +815,7 @@ TEST(FunctionLikeTest, error_handling) {
 TEST(FunctionLikeTest, substring_optimization_performance) {
     std::string func_name = "like";
 
-    // Test cases that should trigger execute_substring optimization
+    // Test cases that should trigger the constant substring long-buffer optimization
     DataSet data_set = {// Multiple identical substrings in long text
                         {{std::string("aaabbbaaabbbaaabbb"), std::string("%bbb%")}, uint8_t(1)},
                         {{std::string("aaacccaaacccaaaccc"), std::string("%bbb%")}, uint8_t(0)},
