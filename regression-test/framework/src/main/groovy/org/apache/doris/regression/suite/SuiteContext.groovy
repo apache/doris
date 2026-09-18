@@ -223,6 +223,13 @@ class SuiteContext implements Closeable {
 
     Connection getConnectionByDbName(String dbName) {
         def jdbcUrl = getJdbcUrl()
+        if (isTlsEnabled()) {
+            jdbcUrl = Config.buildTlsJdbcUrl(jdbcUrl,
+                    config.otherConfigs.get("keyStorePath")?.toString(),
+                    config.otherConfigs.get("keyStorePassword")?.toString(),
+                    config.otherConfigs.get("trustStorePath")?.toString(),
+                    config.otherConfigs.get("trustStorePassword")?.toString())
+        }
         def jdbcConn = DriverManager.getConnection(jdbcUrl, config.jdbcUser, config.jdbcPassword)
         try {
             String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
@@ -233,7 +240,9 @@ class SuiteContext implements Closeable {
         } catch (Throwable t) {
             throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)
         }
-        def dbUrl = Config.buildUrlWithDb(jdbcUrl, dbName)
+        def dbUrl = isTlsEnabled()
+                ? Config.buildUrlWithDbImpl(jdbcUrl, dbName)
+                : Config.buildUrlWithDb(jdbcUrl, dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, config.jdbcUser, config.jdbcPassword)
     }

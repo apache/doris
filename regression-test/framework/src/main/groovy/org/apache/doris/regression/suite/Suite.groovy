@@ -2151,27 +2151,34 @@ class Suite implements GroovyInterceptable {
     }
 
     String getServerPrepareJdbcUrl(String jdbcUrl, String database, boolean useMasterIp) {
-        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        def sql_ip = useMasterIp ? getMasterIp() : urlWithoutSchema.substring(0, urlWithoutSchema.indexOf(":"))
-        def sql_port
-        if (urlWithoutSchema.indexOf("/") >= 0) {
-            // e.g: jdbc:mysql://locahost:8080/?a=b
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1, urlWithoutSchema.indexOf("/"))
-        } else {
-            // e.g: jdbc:mysql://locahost:8080
-            sql_port = urlWithoutSchema.substring(urlWithoutSchema.indexOf(":") + 1)
+        String scheme = "jdbc:mysql://"
+        if (!jdbcUrl.startsWith(scheme)) {
+            throw new IllegalArgumentException("Expected a MySQL JDBC URL")
         }
-        String tlsUrl = ""
-        // set server side prepared statement url
+        String endpointAndPath = jdbcUrl.substring(scheme.length())
+        int pathStart = endpointAndPath.indexOf("/")
+        int queryStart = endpointAndPath.indexOf("?")
+        int endpointEnd = pathStart >= 0 && (queryStart < 0 || pathStart < queryStart)
+                ? pathStart : (queryStart >= 0 ? queryStart : endpointAndPath.length())
+        String endpoint = endpointAndPath.substring(0, endpointEnd)
+        int portStart = endpoint.lastIndexOf(":")
+        if (portStart < 0) {
+            throw new IllegalArgumentException("MySQL JDBC URL has no port")
+        }
+        String host = useMasterIp ? getMasterIp() : endpoint.substring(0, portStart)
+        String suffix = endpointAndPath.substring(endpointEnd)
+        if (!suffix.startsWith("/")) {
+            suffix = "/" + suffix
+        }
+        String url = Config.buildUrlWithDbImpl(scheme + host + endpoint.substring(portStart) + suffix, database)
         if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-            String useSslconfig = "useSSL=true&requireSSL=true&verifyServerCertificate=true"
-            String clientCAKey = "clientCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("keyStorePath")
-            String clientCAPwd = "clientCertificateKeyStorePassword=" + context.config.otherConfigs.get("keyStorePassword")
-            String trustCAKey = "trustCertificateKeyStoreUrl=file:" + context.config.otherConfigs.get("trustStorePath")
-            String trustCAPwd = "trustCertificateKeyStorePassword=" + context.config.otherConfigs.get("trustStorePassword")
-            tlsUrl = "&" + useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
+            url = Config.buildTlsJdbcUrl(url,
+                    context.config.otherConfigs.get("keyStorePath")?.toString(),
+                    context.config.otherConfigs.get("keyStorePassword")?.toString(),
+                    context.config.otherConfigs.get("trustStorePath")?.toString(),
+                    context.config.otherConfigs.get("trustStorePassword")?.toString())
         }
-        return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true" + tlsUrl
+        return url + (url.contains("?") ? "&" : "?") + "useServerPrepStmts=true"
     }
 
     DebugPoint GetDebugPoint() {

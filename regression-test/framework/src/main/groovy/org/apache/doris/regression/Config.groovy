@@ -1248,19 +1248,33 @@ class Config {
         Class.forName("org.apache.arrow.driver.jdbc.ArrowFlightJdbcDriver")
         String arrowFlightSqlHost = otherConfigs.get("extArrowFlightSqlHost")
         String arrowFlightSqlPort = otherConfigs.get("extArrowFlightSqlPort")
-        String arrowFlightSqlUrl = "jdbc:arrow-flight-sql://${arrowFlightSqlHost}:${arrowFlightSqlPort}" +
-                "/?useServerPrepStmts=false&useSSL=false&useEncryption=false"
-        // Arrow 17.0.0-rc03 support jdbc:arrow-flight-sql connect db
-        // https://github.com/apache/arrow/issues/41947
-        if (dbName?.trim()) {
-            arrowFlightSqlUrl = "jdbc:arrow-flight-sql://${arrowFlightSqlHost}:${arrowFlightSqlPort}" +
-                "/catalog=" + dbName + "?useServerPrepStmts=false&useSSL=false&useEncryption=false"
-        }
+        String arrowFlightSqlUrl = getArrowFlightSqlJdbcUrl(arrowFlightSqlHost, arrowFlightSqlPort, dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${arrowFlightSqlUrl}".toString())
         String arrowFlightSqlJdbcUser = otherConfigs.get("extArrowFlightSqlUser")
         String arrowFlightSqlJdbcPassword = otherConfigs.get("extArrowFlightSqlPassword")
         return DriverManager.getConnection(arrowFlightSqlUrl, arrowFlightSqlJdbcUser, arrowFlightSqlJdbcPassword)
+    }
+
+    String getArrowFlightSqlJdbcUrl(String host, String port, String dbName = null) {
+        // Arrow 17.0.0-rc03 supports selecting the database with /catalog=<dbName>.
+        // Flight JDBC uses useEncryption and PEM paths rather than MySQL's useSSL/key stores.
+        String catalog = dbName?.trim() ? "catalog=${dbName}" : ""
+        boolean enableTls = otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true") ?: false
+        String url = "jdbc:arrow-flight-sql://${host}:${port}/${catalog}?useServerPrepStmts=false&useEncryption=${enableTls}"
+        if (enableTls) {
+            String verifyMode = otherConfigs.get("tlsVerifyMode")?.toString()?.toLowerCase() ?: "strict"
+            if (verifyMode == "none") {
+                url += "&disableCertificateVerification=true"
+            } else if (otherConfigs.get("trustCACert")) {
+                url += "&tlsRootCerts=${otherConfigs.get('trustCACert')}"
+            }
+            if (otherConfigs.get("trustCert") && otherConfigs.get("trustCAKey")) {
+                url += "&clientCertificate=${otherConfigs.get('trustCert')}" +
+                        "&clientKey=${otherConfigs.get('trustCAKey')}"
+            }
+        }
+        return url
     }
 
     Connection getDownstreamConnection() {
@@ -1329,24 +1343,17 @@ class Config {
             return jdbcUrl
         }
 
-        String urlWithDb = jdbcUrl
-        String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
-        if (urlWithoutSchema.indexOf("/") >= 0) {
-            if (jdbcUrl.contains("?")) {
-                // e.g: jdbc:mysql://locahost:8080/?a=b
-                urlWithDb = jdbcUrl.substring(0, jdbcUrl.lastIndexOf("?"))
-                urlWithDb = urlWithDb.substring(0, urlWithDb.lastIndexOf("/"))
-                urlWithDb += ("/" + dbName) + jdbcUrl.substring(jdbcUrl.lastIndexOf("?"))
-            } else {
-                // e.g: jdbc:mysql://locahost:8080/
-                urlWithDb += dbName
-            }
-        } else {
-            // e.g: jdbc:mysql://locahost:8080
-            urlWithDb += ("/" + dbName)
+        int authorityStart = jdbcUrl.indexOf("://") + 3
+        int queryStart = jdbcUrl.indexOf("?", authorityStart)
+        int pathStart = jdbcUrl.indexOf("/", authorityStart)
+        if (pathStart >= 0 && (queryStart < 0 || pathStart < queryStart)) {
+            return jdbcUrl.substring(0, pathStart + 1) + dbName +
+                    (queryStart >= 0 ? jdbcUrl.substring(queryStart) : "")
         }
-
-        return urlWithDb
+        if (queryStart >= 0) {
+            return jdbcUrl.substring(0, queryStart) + "/" + dbName + jdbcUrl.substring(queryStart)
+        }
+        return jdbcUrl + "/" + dbName
     }
 
     public static String buildUrlWithDb(String jdbcUrl, String dbName) {
@@ -1388,7 +1395,10 @@ class Config {
     }
 
     private static String addSslUrl(String url) {
-        if (url.contains("TLS")) {
+        // A configured TLS URL already has its own verification policy and key stores.
+        // Appending the optional-SSL defaults would override requireSSL and certificate verification.
+        if (url.contains("useSSL=") || url.contains("sslMode=") ||
+                url.contains("clientCertificateKeyStoreUrl=") || url.contains("trustCertificateKeyStoreUrl=")) {
             return url
         }
         // ssl-mode = PREFERRED
@@ -1410,25 +1420,33 @@ class Config {
     }
 
     private static String addTlsUrl(String url, String keyStorePath, String keyStorePassword, String trustStorePath, String trustStorePassword) {
-        // ssl-mode = PREFERRED
-        String useSsl = "true"
-        String requireSsl = "true"
-        String useSslconfig = "useSSL=" + useSsl + "&requireSSL=" + requireSsl + "&verifyServerCertificate=true"
-        String clientCAKey = "clientCertificateKeyStoreUrl=file:" + keyStorePath
-        String clientCAPwd = "clientCertificateKeyStorePassword=" + keyStorePassword
-        String trustCAKey = "trustCertificateKeyStoreUrl=file:" + trustStorePath
-        String trustCAPwd = "trustCertificateKeyStorePassword=" + trustStorePassword
-        String tlsUrl = useSslconfig + "&" + clientCAKey + "&" + clientCAPwd + "&" +  trustCAKey + "&" + trustCAPwd
-        // e.g: jdbc:mysql://locahost:8080/dbname?
-        if (url.charAt(url.length() - 1) == '?') {
-            return url + tlsUrl
-            // e.g: jdbc:mysql://locahost:8080/dbname?a=b
-        } else if (url.contains('?')) {
-            return url + '&' + tlsUrl
-            // e.g: jdbc:mysql://locahost:8080/dbname
-        } else {
-            return url + '?' + tlsUrl
+        int queryStart = url.indexOf('?')
+        String baseUrl = queryStart >= 0 ? url.substring(0, queryStart) : url
+        List<String> options = new ArrayList<>()
+        Set<String> tlsOptions = new HashSet<>(Arrays.asList(
+                "sslMode", "useSSL", "requireSSL", "verifyServerCertificate",
+                "clientCertificateKeyStoreUrl", "clientCertificateKeyStorePassword",
+                "trustCertificateKeyStoreUrl", "trustCertificateKeyStorePassword"))
+        if (queryStart >= 0) {
+            for (String option : url.substring(queryStart + 1).split('&')) {
+                if (option.isEmpty()) {
+                    continue
+                }
+                int equals = option.indexOf('=')
+                String name = equals >= 0 ? option.substring(0, equals) : option
+                if (!tlsOptions.contains(name)) {
+                    options.add(option)
+                }
+            }
         }
+        options.add("useSSL=true")
+        options.add("requireSSL=true")
+        options.add("verifyServerCertificate=true")
+        options.add("clientCertificateKeyStoreUrl=file:" + keyStorePath)
+        options.add("clientCertificateKeyStorePassword=" + keyStorePassword)
+        options.add("trustCertificateKeyStoreUrl=file:" + trustStorePath)
+        options.add("trustCertificateKeyStorePassword=" + trustStorePassword)
+        return baseUrl + "?" + String.join("&", options)
     }
 
     private static String addTimeoutUrl(String url) {
