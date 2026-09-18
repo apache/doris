@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -64,6 +65,12 @@ public class PushDownLimitDistinctThroughUnion implements RewriteRuleFactory {
                 logicalLimit(logicalAggregate(logicalUnion().when(union -> union.getQualifier() == Qualifier.ALL))
                         .when(agg -> agg.isDistinct()))
                         .then(limit -> {
+                            // limit + offset overflowing the long range means no child can hold that
+                            // many rows, so pushing the limit below the union cannot reduce anything;
+                            // skip the rewrite. The parent limit still applies the original limit/offset.
+                            if (Utils.addOverflows(limit.getLimit(), limit.getOffset())) {
+                                return null;
+                            }
                             LogicalAggregate<LogicalUnion> agg = limit.child();
                             LogicalUnion union = agg.child();
 
