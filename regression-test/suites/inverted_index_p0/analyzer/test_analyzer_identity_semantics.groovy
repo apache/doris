@@ -172,16 +172,22 @@ suite("test_analyzer_identity_semantics", "p0") {
     }
 
     sql "INSERT INTO test_identity_modes_create VALUES (1, 'abc def'), (2, 'zzz')"
-    assertEquals([[1]], sql("""
+    qt_match_builtin_ik """
         SELECT id FROM test_identity_modes_create WHERE content MATCH 'abc' USING ANALYZER IK
-    """))
+        ORDER BY id
+    """
     sql "INSERT INTO test_identity_noop_alter VALUES (1, 'abc def'), (2, 'zzz')"
-    assertEquals([[1]], sql("""
+    qt_match_keyword_implicit """
         SELECT id FROM test_identity_noop_alter WHERE content MATCH 'abc def'
-    """))
-    assertEquals([[1]], sql("""
+        ORDER BY id
+    """
+    qt_match_keyword_uppercase """
         SELECT id FROM test_identity_noop_alter
         WHERE content MATCH 'abc def' USING ANALYZER TEST_IDENTITY_PLAIN
-    """))
-    assertTrue(sql("SELECT id FROM test_identity_noop_alter WHERE content MATCH 'abc'").isEmpty())
+        ORDER BY id
+    """
+    qt_match_keyword_fragment """
+        SELECT id FROM test_identity_noop_alter WHERE content MATCH 'abc'
+        ORDER BY id
+    """
 }
