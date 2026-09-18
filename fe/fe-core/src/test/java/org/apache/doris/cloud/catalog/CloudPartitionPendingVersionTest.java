@@ -24,6 +24,7 @@ import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rpc.RpcException;
 
 import org.junit.jupiter.api.AfterEach;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -43,6 +45,7 @@ public class CloudPartitionPendingVersionTest {
     private MockedStatic<VersionHelper> versions;
     private CloudPartition partition;
     private Cloud.GetVersionResponse response;
+    private Cloud.GetVersionRequest lastRequest;
     private Runnable beforeResponse;
     private int requests;
 
@@ -59,10 +62,10 @@ public class CloudPartitionPendingVersionTest {
         partition.setCachedVisibleVersion(12, 1000);
         versions = Mockito.mockStatic(VersionHelper.class);
         versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any(Cloud.GetVersionRequest.class)))
-                .thenAnswer(invocation -> nextResponse());
+                .thenAnswer(invocation -> nextResponse(invocation.getArgument(0)));
         versions.when(() -> VersionHelper.getVersionFromMeta(
                 Mockito.any(Cloud.GetVersionRequest.class), Mockito.anyInt()))
-                .thenAnswer(invocation -> nextResponse());
+                .thenAnswer(invocation -> nextResponse(invocation.getArgument(0)));
     }
 
     @AfterEach
@@ -177,12 +180,80 @@ public class CloudPartitionPendingVersionTest {
         Assertions.assertFalse(partition.isCachedVersionExpired());
     }
 
+    @ParameterizedTest
+    @CsvSource({"false,false,false", "false,true,false", "true,false,false", "true,true,false",
+            "false,false,true", "false,true,true", "true,false,true", "true,true,true"})
+    public void testSessionWaitFlagPreservesCachePolicy(
+            boolean batch, boolean waitForPendingTxns, boolean cacheEnabled) throws Exception {
+        SessionVariable session = ConnectContext.get().getSessionVariable();
+        session.cloudGetVersionWaitForPendingTxn = waitForPendingTxns;
+        session.cloudPartitionVersionCacheTtlMs = cacheEnabled ? Long.MAX_VALUE : 0;
+        response = response(13).addHasPendingTxns(false).build();
+        if (cacheEnabled) {
+            Assertions.assertEquals(12, read(batch));
+            Assertions.assertEquals(0, requests, "Enabling waiting must not bypass a valid cache");
+            partition.invalidateCachedVisibleVersion();
+        }
+        Assertions.assertEquals(13, read(batch));
+        Assertions.assertEquals(1, requests);
+        Assertions.assertEquals(batch, lastRequest.getBatchMode());
+        Assertions.assertEquals(waitForPendingTxns, lastRequest.getWaitForPendingTxn());
+        Assertions.assertEquals(13, read(batch));
+        Assertions.assertEquals(cacheEnabled ? 1 : 2, requests);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testForcedReadUsesSessionWaitFlag(boolean waitForPendingTxns) throws Exception {
+        ConnectContext.get().getSessionVariable().cloudGetVersionWaitForPendingTxn = waitForPendingTxns;
+        response = response(13).addHasPendingTxns(false).build();
+        Assertions.assertEquals(List.of(13L), CloudPartition.getSnapshotVisibleVersionFromMs(List.of(partition)));
+        Assertions.assertEquals(1, requests);
+        Assertions.assertEquals(waitForPendingTxns, lastRequest.getWaitForPendingTxn());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testExplicitWaitFlagOverridesSession(boolean waitForPendingTxns) throws Exception {
+        ConnectContext.get().getSessionVariable().cloudGetVersionWaitForPendingTxn = !waitForPendingTxns;
+        response = response(13).addHasPendingTxns(false).build();
+        Assertions.assertEquals(13, partition.getVisibleVersionFromMs(waitForPendingTxns));
+        Assertions.assertEquals(waitForPendingTxns, lastRequest.getWaitForPendingTxn());
+        Assertions.assertEquals(List.of(13L),
+                CloudPartition.getSnapshotVisibleVersionFromMs(List.of(partition), waitForPendingTxns));
+        Assertions.assertEquals(waitForPendingTxns, lastRequest.getWaitForPendingTxn());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testReadWithoutSessionUsesGlobalWaitFlag(boolean waitForPendingTxns) throws Exception {
+        SessionVariable defaults = VariableMgr.getDefaultSessionVariable();
+        boolean previousWait = defaults.cloudGetVersionWaitForPendingTxn;
+        try {
+            defaults.cloudGetVersionWaitForPendingTxn = waitForPendingTxns;
+            ConnectContext.get().getSessionVariable().cloudGetVersionWaitForPendingTxn = !waitForPendingTxns;
+            response = response(13).addHasPendingTxns(false).build();
+            CloudPartition.getSnapshotVisibleVersionFromMs(List.of(partition));
+            Assertions.assertEquals(!waitForPendingTxns, lastRequest.getWaitForPendingTxn());
+
+            ConnectContext.remove();
+            Assertions.assertEquals(List.of(13L), CloudPartition.getSnapshotVisibleVersionFromMs(List.of(partition)));
+            Assertions.assertEquals(waitForPendingTxns, lastRequest.getWaitForPendingTxn());
+            partition.invalidateCachedVisibleVersion();
+            Assertions.assertEquals(13, partition.getVisibleVersion());
+            Assertions.assertEquals(waitForPendingTxns, lastRequest.getWaitForPendingTxn());
+        } finally {
+            defaults.cloudGetVersionWaitForPendingTxn = previousWait;
+        }
+    }
+
     private long read(boolean batch) throws RpcException {
         return batch ? CloudPartition.getSnapshotVisibleVersion(List.of(partition)).get(0)
                 : partition.getVisibleVersion();
     }
 
-    private Cloud.GetVersionResponse nextResponse() {
+    private Cloud.GetVersionResponse nextResponse(Cloud.GetVersionRequest request) {
+        lastRequest = request;
         requests++;
         if (beforeResponse != null) {
             beforeResponse.run();

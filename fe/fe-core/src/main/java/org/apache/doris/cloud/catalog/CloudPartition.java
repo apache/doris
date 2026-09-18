@@ -160,7 +160,13 @@ public class CloudPartition extends Partition {
             return getCachedVisibleVersion();
         }
 
-        return getVisibleVersionFromMs(false);
+        return getVisibleVersionFromMs(shouldWaitForPendingTxns());
+    }
+
+    private static boolean shouldWaitForPendingTxns() {
+        ConnectContext ctx = ConnectContext.get();
+        return ctx == null ? VariableMgr.getDefaultSessionVariable().cloudGetVersionWaitForPendingTxn
+                : ctx.getSessionVariable().cloudGetVersionWaitForPendingTxn;
     }
 
     public long getVisibleVersionFromMs(boolean waitForPendingTxns) {
@@ -271,6 +277,10 @@ public class CloudPartition extends Partition {
     // Get visible version from the specified partitions;
     //
     // Return the visible version in order of the specified partition ids
+    public static List<Long> getSnapshotVisibleVersionFromMs(List<CloudPartition> partitions) throws RpcException {
+        return getSnapshotVisibleVersionFromMs(partitions, shouldWaitForPendingTxns());
+    }
+
     public static List<Long> getSnapshotVisibleVersionFromMs(
             List<CloudPartition> partitions, boolean waitForPendingTxns) throws RpcException {
         return getSnapshotVisibleVersionFromMs(
@@ -365,7 +375,7 @@ public class CloudPartition extends Partition {
                 ? VariableMgr.getDefaultSessionVariable().cloudPartitionVersionCacheTtlMs
                 : ctx.getSessionVariable().cloudPartitionVersionCacheTtlMs;
         if (cloudPartitionVersionCacheTtlMs <= 0) { // No cached versions will be used
-            return getSnapshotVisibleVersionFromMs(partitions, false);
+            return getSnapshotVisibleVersionFromMs(partitions);
         }
 
         // partitionId -> cachedVersion
@@ -396,8 +406,7 @@ public class CloudPartition extends Partition {
 
         List<Long> versions = null;
         if (!expiredPartitions.isEmpty()) { // Not all partition versions are from cache
-            versions = getSnapshotVisibleVersionFromMs(
-                    expiredPartitions, /*waitForPendingTxns=*/false); // Get the rest versions from meta-service
+            versions = getSnapshotVisibleVersionFromMs(expiredPartitions); // Get the rest versions from meta-service
         }
         int verMsIdx = 0;
         for (Pair<Long, Long> v : allVersions) { // ATTN: keep the assigning order!!!
