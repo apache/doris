@@ -171,7 +171,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
-        st = segment->get_column_reader(_tablet_schema->column_by_uid(0), &reader, &stats);
+        st = segment->get_physical_column_reader(_tablet_schema->column_by_uid(0), &reader, &stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
@@ -194,7 +194,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
-        st = segment->get_column_reader(_tablet_schema->column_by_uid(1), &reader, &stats);
+        st = segment->get_physical_column_reader(_tablet_schema->column_by_uid(1), &reader, &stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
@@ -260,7 +260,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
     {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
-        st = segment->get_column_reader(_tablet_schema->column_by_uid(0), &reader, &stats);
+        st = segment->get_physical_column_reader(_tablet_schema->column_by_uid(0), &reader, &stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());
@@ -327,7 +327,7 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
     {
         std::shared_ptr<ColumnReader> reader;
         OlapReaderStatistics stats;
-        st = segment->get_column_reader(_tablet_schema->column_by_uid(1), &reader, &stats);
+        st = segment->get_physical_column_reader(_tablet_schema->column_by_uid(1), &reader, &stats);
         EXPECT_TRUE(st.ok());
         std::unique_ptr<BloomFilterIndexIterator> bf_iter;
         EXPECT_TRUE(reader->_bloom_filter_index->load(true, true, nullptr).ok());

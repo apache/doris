@@ -495,10 +495,6 @@ bool ColumnReader::is_compaction_reader_type(ReaderType type) {
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                             std::shared_ptr<ColumnReader>* reader) {
-    if (opts.const_value.has_value()) {
-        *reader = std::make_shared<ConstantColumnReader>(*opts.const_value);
-        return Status::OK();
-    }
     if (is_scalar_type((FieldType)meta.type())) {
         std::shared_ptr<ColumnReader> reader_local(
                 new ColumnReader(opts, meta, num_rows, file_reader));
@@ -757,12 +753,14 @@ Status ColumnReader::prune_predicates_by_zone_map(
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, const int column_id,
         bool* pruned) const {
     *pruned = false;
-    if (_zone_map_index == nullptr) {
+    if (!has_zone_map()) {
         return Status::OK();
     }
 
+    // Read-time constants expose a logical [value, value] zone map without a physical index.
+    // Use the reader interface so predicate removal agrees with the values returned by reads.
     ZoneMap zone_map;
-    RETURN_IF_ERROR(ZoneMap::from_proto(*_segment_zone_map, _data_type, zone_map));
+    RETURN_IF_ERROR(get_segment_zone_map(&zone_map));
     if (zone_map.pass_all) {
         return Status::OK();
     }
@@ -902,6 +900,7 @@ Status ColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
 Status ConstantColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
     zone_map->min_value = _value;
     zone_map->max_value = _value;
+    zone_map->has_null = _value.is_null();
     zone_map->has_not_null = !_value.is_null();
     return Status::OK();
 }

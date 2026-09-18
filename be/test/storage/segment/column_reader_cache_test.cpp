@@ -31,6 +31,7 @@
 #include "core/assert_cast.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/field.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "storage/segment/column_meta_accessor.h"
@@ -227,6 +228,41 @@ TEST_F(ColumnReaderCacheTest, BasicCacheOperations) {
     readers = _cache->get_available_readers(false);
     EXPECT_EQ(readers.size(), 1);
     EXPECT_EQ(readers[1], reader);
+}
+
+// Replacing an entry must update its node rather than push a second one for the same key.
+TEST_F(ColumnReaderCacheTest, SameKeyReplacementDoesNotLeaveAStaleLruNode) {
+    config::max_segment_partial_column_cache_size = 3;
+    ColumnMetaPB metas[4];
+    for (int uid = 1; uid <= 4; ++uid) {
+        setup_column_uid_mapping(uid, uid - 1);
+        metas[uid - 1].set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_BIGINT));
+        metas[uid - 1].set_unique_id(uid);
+        metas[uid - 1].set_encoding(
+                get_v2_default_encoding(static_cast<FieldType>(metas[uid - 1].type())));
+        metas[uid - 1].mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
+    }
+    setup_segment_footer({metas[0], metas[1], metas[2], metas[3]});
+
+    // Replace uid 1's entry, then fill the cache so that eviction has to pick a victim.
+    std::shared_ptr<ColumnReader> reader;
+    ASSERT_TRUE(_cache->get_column_reader(1, &reader, &_stats).ok());
+    // Two concurrent misses can finish construction for the same key. Exercise the second
+    // insertion directly so the eviction check does not depend on thread scheduling.
+    auto replacement = std::make_shared<MockColumnReader>(1);
+    _cache->_insert_direct({1, {}}, replacement);
+    ASSERT_TRUE(_cache->get_column_reader(1, &reader, &_stats).ok());
+    EXPECT_EQ(replacement, reader);
+    for (int uid = 2; uid <= 4; ++uid) {
+        std::shared_ptr<ColumnReader> other;
+        ASSERT_TRUE(_cache->get_column_reader(uid, &other, &_stats).ok());
+    }
+
+    // A second node for uid 1 would still be reachable through the LRU list while eviction erased
+    // uid 1's map entry, leaving the two views disagreeing about what is cached.
+    auto readers = _cache->get_available_readers(false);
+    EXPECT_EQ(readers.count(1), 0);
+    EXPECT_EQ(readers.size(), 3);
 }
 
 // Test LRU eviction

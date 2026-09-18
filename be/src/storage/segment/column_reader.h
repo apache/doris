@@ -27,7 +27,6 @@
 #include <functional>
 #include <map>
 #include <memory> // for unique_ptr
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -97,12 +96,6 @@ struct ColumnReaderOptions {
     int be_exec_version = -1;
 
     TabletSchemaSPtr tablet_schema = nullptr;
-
-    // When set, ColumnReader::create returns a ConstantColumnReader carrying this value instead
-    // of reading on-disk data. Used for read-time-filled constant columns (e.g.
-    // __DORIS_COMMIT_TSO_COL__) on a single-version segment, whose on-disk value is only a
-    // placeholder. The value is constant within a segment, so the resulting reader is cacheable.
-    std::optional<Field> const_value = std::nullopt;
 };
 
 struct ColumnIteratorOptions {
@@ -175,10 +168,10 @@ public:
     Status new_map_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_agg_state_iterator(ColumnIteratorUPtr* iterator);
 
-    Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                              const TabletIndex* index_meta, const std::string& rowset_id,
-                              uint32_t segment_id, size_t rows_of_segment,
-                              std::unique_ptr<IndexIterator>* iterator);
+    virtual Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
+                                      const TabletIndex* index_meta, const std::string& rowset_id,
+                                      uint32_t segment_id, size_t rows_of_segment,
+                                      std::unique_ptr<IndexIterator>* iterator);
 
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                              const ColumnIteratorOptions& iter_opts);
@@ -195,6 +188,8 @@ public:
     const EncodingInfo* encoding_info() const { return _encoding_info; }
 
     virtual bool has_zone_map() const { return _zone_map_index != nullptr; }
+    // Read-time constants have no applicable physical indexes or page zone maps.
+    virtual bool is_constant() const { return false; }
     bool has_bloom_filter_index(bool ngram) const;
     // Check if this column could match `cond' using segment zone map.
     // Since segment zone map is stored in metadata, this function is fast without I/O.
@@ -1078,6 +1073,8 @@ public:
 
     bool has_zone_map() const override { return true; }
 
+    bool is_constant() const override { return true; }
+
     // The base ColumnReader default-constructs without initializing its _meta_type. The data-read
     // path (Segment::new_column_iterator) verifies tablet_column.type() == reader->get_meta_type()
     // when config::enable_column_type_check is on (default true), so derive the real OLAP type from
@@ -1096,6 +1093,18 @@ public:
     }
 
     Status get_segment_zone_map(segment_v2::ZoneMap* zone_map) const override;
+
+    // This reader serves a value the caller supplied, so the on-disk index for the column describes
+    // something else: for a placeholder column it indexes the placeholder. Leaving the iterator
+    // unset makes the caller fall back to reading through this reader, the same as the path that
+    // finds no reader at all. The base implementation would also run on physical state this class
+    // never initializes.
+    Status new_index_iterator(const std::shared_ptr<IndexFileReader>& /*index_file_reader*/,
+                              const TabletIndex* /*index_meta*/, const std::string& /*rowset_id*/,
+                              uint32_t /*segment_id*/, size_t /*rows_of_segment*/,
+                              std::unique_ptr<IndexIterator>* /*iterator*/) override {
+        return Status::OK();
+    }
 
 private:
     Field _value;
