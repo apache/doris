@@ -18,21 +18,29 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.arrow.vector.types.FloatingPointPrecision;
@@ -59,17 +67,8 @@ public class LancePreparedSearchTest {
     public void testPrepareAndRepeatedBindingUseFreshVectorAndSnapshot(boolean useIndex) {
         ConnectContext previous = ConnectContext.get();
         ConnectContext context = MemoTestUtils.createConnectContext();
-        LanceExternalTable table = Mockito.mock(LanceExternalTable.class);
         AtomicLong version = new AtomicLong(42);
-        Schema schema = new Schema(Arrays.asList(
-                Field.nullable("id", new ArrowType.Int(64, true)),
-                new Field("embedding", org.apache.arrow.vector.types.pojo.FieldType.nullable(
-                        new ArrowType.FixedSizeList(2)), Collections.singletonList(
-                                Field.nullable("item", new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE))))));
-        Mockito.when(table.loadMetadataForSearch()).thenAnswer(invocation -> LanceTableMetadata.withIndexSegments(
-                "s3://bucket/items.lance", version.get(), schema, Collections.emptyList(),
-                ImmutableMap.of("id", 0, "embedding", 1), Collections.emptyList(), Collections.emptyMap()));
-        Mockito.when(table.loadMetadata()).thenAnswer(invocation -> table.loadMetadataForSearch());
+        LanceExternalTable table = mockTable(version);
         try (MockedStatic<LanceExternalSearchTableValuedFunction> lookup = Mockito.mockStatic(
                 LanceExternalSearchTableValuedFunction.class, Mockito.CALLS_REAL_METHODS)) {
             lookup.when(() -> LanceExternalSearchTableValuedFunction.findLanceExternalTable(
@@ -139,6 +138,60 @@ public class LancePreparedSearchTest {
                 previous.setThreadLocalInfo();
             }
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testProxyPrepareUsesParsedStatementContext(boolean useIndex) throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext(null, true);
+        context.setEnv(Env.getCurrentEnv());
+        context.setCurrentUserIdentity(UserIdentity.ROOT);
+        context.setThreadLocalInfo();
+        context.setCommand(MysqlCommand.COM_STMT_PREPARE);
+        LanceExternalTable table = mockTable(new AtomicLong(42));
+        try (MockedStatic<LanceExternalSearchTableValuedFunction> lookup = Mockito.mockStatic(
+                LanceExternalSearchTableValuedFunction.class, Mockito.CALLS_REAL_METHODS)) {
+            lookup.when(() -> LanceExternalSearchTableValuedFunction.findLanceExternalTable(
+                    Mockito.any(TableName.class))).thenReturn(table);
+            OriginStatement sql = new OriginStatement(
+                    "select id, _distance from vector_search('table'='catalog.db.items', "
+                            + "'column'='embedding', 'use_index'='" + useIndex + "', "
+                            + "'query_vector'=?, 'top_k'=?, 'offset'=?, 'filter'=?)", 0);
+            StmtExecutor proxy = new StmtExecutor(context, sql, true);
+            StatementContext constructorContext = context.getStatementContext();
+            // A forwarded EXECUTE reconstructs PREPARE before decoding its parameter packet.
+            Deencapsulation.invoke(proxy, "parseByNereids");
+            StatementContext parsedContext = context.getStatementContext();
+            Assertions.assertNotSame(constructorContext, parsedContext);
+            Assertions.assertTrue(parsedContext.getIdToPlaceholderRealExpr().isEmpty());
+            LogicalPlanAdapter parsed = (LogicalPlanAdapter) proxy.getParsedStmt();
+            PrepareCommand command = new PrepareCommand("1", parsed.getLogicalPlan(),
+                    parsedContext.getPlaceholders(), sql);
+            command.run(context, proxy);
+            Assertions.assertNotNull(context.getPreparedStementContext("1"));
+            Assertions.assertEquals(4, command.placeholderCount());
+            Assertions.assertEquals(2, proxy.planPrepareStatementSlots().size());
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    private LanceExternalTable mockTable(AtomicLong version) {
+        LanceExternalTable table = Mockito.mock(LanceExternalTable.class);
+        Schema schema = new Schema(Arrays.asList(
+                Field.nullable("id", new ArrowType.Int(64, true)),
+                new Field("embedding", org.apache.arrow.vector.types.pojo.FieldType.nullable(
+                        new ArrowType.FixedSizeList(2)), Collections.singletonList(
+                                Field.nullable("item", new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE))))));
+        Mockito.when(table.loadMetadataForSearch()).thenAnswer(invocation -> LanceTableMetadata.withIndexSegments(
+                "s3://bucket/items.lance", version.get(), schema, Collections.emptyList(),
+                ImmutableMap.of("id", 0, "embedding", 1), Collections.emptyList(), Collections.emptyMap()));
+        Mockito.when(table.loadMetadata()).thenAnswer(invocation -> table.loadMetadataForSearch());
+        return table;
     }
 
     private VectorSearchTableValuedFunction analyze(LogicalPlan plan, StatementContext statement) {
