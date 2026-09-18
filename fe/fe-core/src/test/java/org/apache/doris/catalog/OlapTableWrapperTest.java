@@ -18,13 +18,21 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.binlog.BinlogTestUtils;
+import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 public class OlapTableWrapperTest {
@@ -116,5 +124,60 @@ public class OlapTableWrapperTest {
         // test schema delegation
         Assertions.assertEquals(table.getSchemaByIndexId(table.getBaseIndexId()), wrapper.getSchemaByIndexId(table.getBaseIndexId()));
         Assertions.assertEquals(table.getIndexSchemaVersion(table.getBaseIndexId()), wrapper.getIndexSchemaVersion(table.getBaseIndexId()));
+    }
+
+    @Test
+    public void testCloudRowBinlogWrapperRefreshesCachedEmptyPartitions() {
+        long stalePartitionId = 100L;
+        long cachedNonEmptyPartitionId = 101L;
+        List<Long> partitionIds = ImmutableList.of(stalePartitionId, cachedNonEmptyPartitionId);
+
+        CloudPartition stalePartition = Mockito.mock(CloudPartition.class);
+        Mockito.when(stalePartition.getId()).thenReturn(stalePartitionId);
+        CloudPartition cachedNonEmptyPartition = Mockito.mock(CloudPartition.class);
+        Mockito.when(cachedNonEmptyPartition.getId()).thenReturn(cachedNonEmptyPartitionId);
+        Mockito.when(cachedNonEmptyPartition.hasDataCached()).thenReturn(true);
+
+        OlapTable table = Mockito.spy(newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, true)));
+        Mockito.doReturn(stalePartition).when(table).getPartition(stalePartitionId);
+        Mockito.doReturn(cachedNonEmptyPartition).when(table).getPartition(cachedNonEmptyPartitionId);
+        RowBinlogTableWrapper wrapper = new RowBinlogTableWrapper(table);
+
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> mockedPartition = Mockito.mockStatic(
+                        CloudPartition.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+            mockedPartition.when(() -> CloudPartition.getSnapshotVisibleVersionFromMs(
+                    ImmutableList.of(stalePartition), false)).thenReturn(ImmutableList.of(2L));
+            mockedPartition.clearInvocations();
+
+            Assertions.assertEquals(ImmutableList.of(cachedNonEmptyPartitionId, stalePartitionId),
+                    wrapper.selectNonEmptyPartitionIds(partitionIds, Optional.empty()));
+            mockedPartition.verify(() -> CloudPartition.getSnapshotVisibleVersionFromMs(
+                    ImmutableList.of(stalePartition), false));
+        }
+    }
+
+    @Test
+    public void testCloudRowBinlogWrapperWithFixedVisibleVersionsUsesOriginTable() {
+        long emptyPartitionId = 100L;
+        long nonEmptyPartitionId = 101L;
+        List<Long> partitionIds = ImmutableList.of(emptyPartitionId, nonEmptyPartitionId);
+
+        OlapTable table = Mockito.spy(newTestTable(BinlogTestUtils.newTestRowBinlogConfig(true, true)));
+        Mockito.doReturn(ImmutableList.of(nonEmptyPartitionId)).when(table)
+                .selectNonEmptyPartitionIds(partitionIds, Optional.empty());
+        RowBinlogTableWrapper wrapper = new RowBinlogTableWrapper(table, Collections.emptyMap(),
+                ImmutableMap.of(emptyPartitionId, Partition.PARTITION_INIT_VERSION, nonEmptyPartitionId, 2L));
+
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class);
+                MockedStatic<CloudPartition> mockedPartition = Mockito.mockStatic(CloudPartition.class)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+
+            Assertions.assertEquals(ImmutableList.of(nonEmptyPartitionId),
+                    wrapper.selectNonEmptyPartitionIds(partitionIds, Optional.empty()));
+            Mockito.verify(table).selectNonEmptyPartitionIds(partitionIds, Optional.empty());
+            mockedPartition.verifyNoInteractions();
+        }
     }
 }
