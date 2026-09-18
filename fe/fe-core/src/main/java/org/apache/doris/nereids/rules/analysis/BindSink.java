@@ -1019,8 +1019,7 @@ public class BindSink implements AnalysisRuleFactory {
         Set<String> specifiedColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (String columnName : colNames) {
             if (!specifiedColumnNames.add(columnName)) {
-                throw new AnalysisException(
-                        "Duplicate column '" + columnName + "' in connector insert column list");
+                throw new AnalysisException("Column '" + columnName + "' specified twice");
             }
         }
         return colNames.stream().map(cn -> {

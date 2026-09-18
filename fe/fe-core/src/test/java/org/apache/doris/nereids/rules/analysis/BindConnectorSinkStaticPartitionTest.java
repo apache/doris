@@ -177,7 +177,7 @@ public class BindConnectorSinkStaticPartitionTest {
                 BindSink.selectConnectorSinkBindColumns(
                         partitionedTable(), ImmutableList.of("id", "ID"), Collections.emptySet(), false));
         Assertions.assertEquals(
-                "Duplicate column 'ID' in connector insert column list", ex.getMessage());
+                "Column 'ID' specified twice", ex.getMessage());
     }
 
     @Test
