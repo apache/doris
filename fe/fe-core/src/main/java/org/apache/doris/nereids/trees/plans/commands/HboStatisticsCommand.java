@@ -122,7 +122,11 @@ public class HboStatisticsCommand extends Command {
             throw new AnalysisException("LITERAL_MODE is not supported for hbo learned statistics");
         }
         if (op == Op.SET) {
-            LiteralMode literalMode = resolveLiteralMode(literalModeName);
+            // a learned entry has no key of its own (it is looked up by the fingerprint the read side
+            // computes), so its struct info is a label only: it is validated as pasted instead of
+            // being folded to the constant agnostic form
+            LiteralMode literalMode = scope == Scope.LEARNED ? LiteralMode.WITH_LITERAL
+                    : resolveLiteralMode(literalModeName);
             // a pinned entry is only displayable when it carries its struct info, and a struct info
             // which does not belong to the fingerprint would make the SHOW output misleading
             String canonical = validateStructCanonical(fingerprint, structCanonical, type, literalMode,
