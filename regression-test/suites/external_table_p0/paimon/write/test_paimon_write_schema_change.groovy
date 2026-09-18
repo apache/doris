@@ -31,18 +31,6 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
     String explicitTypeTable = "t_schema_change_explicit_types"
     String primaryKeyTable = "t_schema_change_pk"
 
-    def normalizeDorisPartitions = { rows ->
-        rows.collect { row ->
-            def values = row[0].toString().split('/', -1).collect { component ->
-                int equals = component.indexOf('=')
-                assertTrue(equals >= 0, "Invalid Paimon partition path: ${row[0]}")
-                String value = java.net.URLDecoder.decode(component.substring(equals + 1), "UTF-8")
-                return value in ["__DEFAULT_PARTITION__", "__CUSTOM_DEFAULT_PARTITION__"] ? "" : value
-            }
-            return ["{${values.join(', ')}}", row[1]]
-        }.sort { left, right -> left[0].toString() <=> right[0].toString() }
-    }
-
     sql """DROP CATALOG IF EXISTS `${catalogName}`"""
     sql """
         CREATE CATALOG `${catalogName}` PROPERTIES (
@@ -690,12 +678,11 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
             FROM paimon.${dbName}.`${appendTable}\$partitions`
             ORDER BY `partition`
         """
-        def dorisPartitions = normalizeDorisPartitions(sql """
+        def dorisPartitions = sql """
             SELECT `partition`, record_count
             FROM `${appendTable}\$partitions`
             ORDER BY `partition`
-        """)
-        sparkPartitions.sort { left, right -> left[0].toString() <=> right[0].toString() }
+        """
         assertSparkDorisResultEquals(sparkPartitions, dorisPartitions)
         order_qt_sc_append_partitions """
             SELECT `partition`, record_count

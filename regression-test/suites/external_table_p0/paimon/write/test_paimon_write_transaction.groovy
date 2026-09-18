@@ -28,18 +28,6 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
     String catalogName = "test_pw_txn_catalog"
     String dbName = "test_pw_txn_db"
 
-    def normalizeDorisPartitions = { rows ->
-        rows.collect { row ->
-            def values = row[0].toString().split('/', -1).collect { component ->
-                int equals = component.indexOf('=')
-                assertTrue(equals >= 0, "Invalid Paimon partition path: ${row[0]}")
-                String value = java.net.URLDecoder.decode(component.substring(equals + 1), "UTF-8")
-                return value in ["__DEFAULT_PARTITION__", "__CUSTOM_DEFAULT_PARTITION__"] ? "null" : value
-            }
-            return ["{${values.join(', ')}}", row[1]]
-        }.sort { left, right -> left[0].toString() <=> right[0].toString() }
-    }
-
     // Create Paimon tables via Spark
     spark_paimon_multi """
         CREATE DATABASE IF NOT EXISTS paimon.${dbName};
@@ -326,12 +314,11 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             FROM paimon.${dbName}.`t_static_boundary\$partitions`
             ORDER BY `partition`
         """
-        def dorisBoundaryPartitions = normalizeDorisPartitions(sql """
+        def dorisBoundaryPartitions = sql """
             SELECT `partition`, record_count
             FROM t_static_boundary\$partitions
             ORDER BY `partition`
-        """)
-        sparkBoundaryPartitions.sort { left, right -> left[0].toString() <=> right[0].toString() }
+        """
         assertSparkDorisResultEquals(sparkBoundaryPartitions, dorisBoundaryPartitions)
 
         // Dynamic overwrite replaces all partitions present in one input batch,
@@ -356,12 +343,11 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             FROM paimon.${dbName}.`t_dynamic_multi\$partitions`
             ORDER BY `partition`
         """
-        def dorisDynamicPartitions = normalizeDorisPartitions(sql """
+        def dorisDynamicPartitions = sql """
             SELECT `partition`, record_count
             FROM t_dynamic_multi\$partitions
             ORDER BY `partition`
-        """)
-        sparkDynamicPartitions.sort { left, right -> left[0].toString() <=> right[0].toString() }
+        """
         assertSparkDorisResultEquals(sparkDynamicPartitions, dorisDynamicPartitions)
 
         // FT-016: Dynamic partition overwrite replaces the partitions present in the
