@@ -111,6 +111,7 @@ import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.lance.job.LanceIndexJobDispatcher;
 import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
@@ -573,6 +574,8 @@ public class Env {
 
     private LanceIndexJobManager lanceIndexJobManager;
 
+    private LanceIndexJobDispatcher lanceIndexJobDispatcher;
+
     private DNSCache dnsCache;
 
     private final NereidsSqlCacheManager sqlCacheManager;
@@ -859,6 +862,7 @@ public class Env {
         this.eventProcessor = new EventProcessor(mtmvService);
         this.insertOverwriteManager = new InsertOverwriteManager();
         this.lanceIndexJobManager = new LanceIndexJobManager();
+        this.lanceIndexJobDispatcher = new LanceIndexJobDispatcher(lanceIndexJobManager);
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.sortedPartitionsCacheManager = new NereidsSortedPartitionsCacheManager();
@@ -2030,6 +2034,8 @@ public class Env {
             keyManager.init();
         }
         agentTaskCleanupDaemon.start();
+        // lance index job dispatcher: dispatch sweep, deadline/possible-live sweeps, refresh driver
+        lanceIndexJobDispatcher.start();
     }
 
     // start threads that should run on all FE
