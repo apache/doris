@@ -1612,8 +1612,8 @@ DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
 DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
 DEFINE_String(spill_storage_type, "local");
 // s3: cloud mode only; spill is written to the S3 storage vault under
-// spill/{host}/{query_id}/, where host is the address of this BE. No two BEs writing to the
-// vault may share an address.
+// spill/{ip}_{port}/{query_id}/, where ip is the address of this BE and port its
+// heartbeat_service_port.
 // Objects of finished queries are deleted by the BE, those of dead BEs by the meta-service
 // recycler (spill_objects_expire_time_second). Incomplete multipart uploads of a crashed BE
 // need an AbortIncompleteMultipartUpload lifecycle rule on the bucket.

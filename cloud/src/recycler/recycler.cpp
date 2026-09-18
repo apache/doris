@@ -1003,7 +1003,7 @@ int InstanceRecycler::recycle_deleted_instance_data() {
                                     SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED;
     if (snapshot_enabled) {
         // Only referenced rowsets are recycled selectively below because the vault may be
-        // shared with other instances. Spill objects (spill/{host}/...) do not say which
+        // shared with other instances. Spill objects (spill/{ip}_{port}/...) do not say which
         // instance wrote them, so only the expired ones are removed, as for a live instance.
         if (recycle_expired_spill_objects() != 0) {
             LOG_WARNING("failed to delete spill objects of deleted instance")
@@ -7879,7 +7879,7 @@ int InstanceRecycler::recycle_expired_spill_objects() {
         if (accessor->type() != AccessorType::S3 && accessor->type() != AccessorType::MOCK) {
             continue;
         }
-        // Objects are written by BE under "{vault prefix}/spill/{host}/{query_id}/...". They do
+        // Objects are written by BE under "{vault prefix}/spill/{ip}_{port}/{query_id}/...". They do
         // not name the instance, so in a vault shared with other instances the sweep also
         // removes their expired spill objects; no query runs that long.
         int ret1 = accessor->delete_prefix(spill_object_prefix(), expiration_time);
