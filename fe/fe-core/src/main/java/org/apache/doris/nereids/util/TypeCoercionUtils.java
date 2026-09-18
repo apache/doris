@@ -1248,11 +1248,19 @@ public class TypeCoercionUtils {
         } else if (left instanceof VariantType && right instanceof VariantType) {
             return findCommonVariantType();
         } else if (left instanceof VariantType) {
-            return VariantType.isSupportedComputeV2CastSource(right)
-                    ? findCommonVariantType() : Optional.empty();
+            return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
+                            replaceDateLikeWithMaxPrecision(replaceSpecifiedType(
+                                    replaceCharacterToString(right),
+                                    IntegralType.class, DecimalV3Type.SYSTEM_DEFAULT)),
+                            DecimalV2Type.class, DecimalV3Type.SYSTEM_DEFAULT), DecimalV3Type.SYSTEM_DEFAULT),
+                    FloatType.class, DoubleType.INSTANCE));
         } else if (right instanceof VariantType) {
-            return VariantType.isSupportedComputeV2CastSource(left)
-                    ? findCommonVariantType() : Optional.empty();
+            return Optional.of(replaceSpecifiedType(replaceDecimalV3WithTarget(replaceSpecifiedType(
+                            replaceDateLikeWithMaxPrecision(replaceSpecifiedType(
+                                    replaceCharacterToString(left),
+                                    IntegralType.class, DecimalV3Type.SYSTEM_DEFAULT)),
+                            DecimalV2Type.class, DecimalV3Type.SYSTEM_DEFAULT), DecimalV3Type.SYSTEM_DEFAULT),
+                    FloatType.class, DoubleType.INSTANCE));
         } else if (left instanceof ComplexDataType || right instanceof ComplexDataType) {
             return findWiderComplexTypeForTwo(left, right, overflowToDouble, stringIsHighPriority);
         } else {
@@ -2657,14 +2665,6 @@ public class TypeCoercionUtils {
 
         if (t1 instanceof VariantType && t2 instanceof VariantType) {
             return findCommonVariantType();
-        }
-        if (t1 instanceof VariantType) {
-            return VariantType.isSupportedComputeV2CastSource(t2)
-                    ? findCommonVariantType() : Optional.empty();
-        }
-        if (t2 instanceof VariantType) {
-            return VariantType.isSupportedComputeV2CastSource(t1)
-                    ? findCommonVariantType() : Optional.empty();
         }
 
         // objectType only support compare with itself, so return empty here.
