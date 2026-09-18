@@ -126,6 +126,8 @@ public class FileFormatUtils {
                     column = new Column(name, ScalarType.createDatetimeV2Type(scale), false, null, true, null, "");
                 } else if (type.equals("string")) {
                     column = new Column(name, PrimitiveType.STRING, true);
+                } else if (type.equals("uuid")) {
+                    column = new Column(name, PrimitiveType.UUID, true);
                 } else if (type.equals("boolean")) {
                     column = new Column(name, PrimitiveType.BOOLEAN, true);
                 } else {

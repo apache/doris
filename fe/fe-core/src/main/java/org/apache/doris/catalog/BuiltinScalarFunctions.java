@@ -167,6 +167,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTimeToUuidV7;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
@@ -551,6 +552,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrDefault;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToUuidOrZero;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TransformKeys;
@@ -575,6 +579,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidV4;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidV7;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidV7ToDateTime;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidVersion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidtoInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Week;
@@ -1177,6 +1185,14 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(UtcTime.class, "utc_time"),
             scalar(UtcTimestamp.class, "utc_timestamp"),
             scalar(Uuid.class, "uuid"),
+            scalar(UuidV4.class, "uuid_v4", "generate_uuid_v4", "generateuuidv4"),
+            scalar(UuidV7.class, "uuid_v7", "generate_uuid_v7", "generateuuidv7"),
+            scalar(UuidVersion.class, "uuid_version"),
+            scalar(ToUuidOrZero.class, "to_uuid_or_zero", "touuidorzero"),
+            scalar(ToUuidOrNull.class, "to_uuid_or_null", "touuidornull"),
+            scalar(ToUuidOrDefault.class, "to_uuid_or_default", "touuidordefault"),
+            scalar(UuidV7ToDateTime.class, "uuid_v7_to_datetime", "uuidv7todatetime"),
+            scalar(DateTimeToUuidV7.class, "datetime_to_uuid_v7", "datetimetouuidv7"),
             scalar(UuidNumeric.class, "uuid_numeric"),
             scalar(UuidtoInt.class, "uuid_to_int"),
             scalar(Version.class, "version"),

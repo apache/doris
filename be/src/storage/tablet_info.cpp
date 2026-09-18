@@ -44,6 +44,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/data_type_timestamp_ns_serde.h"
 #include "core/value/large_int_value.h"
+#include "core/value/uuid_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "storage/tablet/tablet_schema.h"
@@ -723,6 +724,11 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
         size_t len = t_expr.string_literal.value.size();
         const char* str_val = t_expr.string_literal.value.c_str();
         column->insert_data(str_val, len);
+        break;
+    }
+    case TExprNodeType::UUID_LITERAL: {
+        UUIDValueType value = UUIDValue::from_parts(t_expr.uuid_literal.hi, t_expr.uuid_literal.lo);
+        column->insert_data(reinterpret_cast<const char*>(&value), 0);
         break;
     }
     case TExprNodeType::BOOL_LITERAL: {

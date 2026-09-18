@@ -194,6 +194,10 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(data, &node));
         break;
     }
+    case TYPE_UUID: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_UUID>(data, &node));
+        break;
+    }
     case TYPE_TIMEV2: {
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMEV2>(data, &node, precision, scale));
         break;
@@ -341,6 +345,11 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
     case TYPE_IPV6: {
         const auto& storage = field.get<TYPE_IPV6>();
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_IPV6>(&storage, &node));
+        break;
+    }
+    case TYPE_UUID: {
+        const auto& storage = field.get<TYPE_UUID>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_UUID>(&storage, &node));
         break;
     }
     case TYPE_TIMEV2: {
@@ -493,6 +502,7 @@ Status VExpr::create_expr(const TExprNode& expr_node, VExprSPtr& expr) {
         case TExprNodeType::LARGE_INT_LITERAL:
         case TExprNodeType::IPV4_LITERAL:
         case TExprNodeType::IPV6_LITERAL:
+        case TExprNodeType::UUID_LITERAL:
         case TExprNodeType::FLOAT_LITERAL:
         case TExprNodeType::DECIMAL_LITERAL:
         case TExprNodeType::DATE_LITERAL:

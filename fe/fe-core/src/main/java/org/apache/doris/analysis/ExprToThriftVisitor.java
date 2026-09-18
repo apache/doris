@@ -54,6 +54,7 @@ import org.apache.doris.thrift.TStringLiteral;
 import org.apache.doris.thrift.TTimeV2Literal;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
+import org.apache.doris.thrift.TUUIDLiteral;
 import org.apache.doris.thrift.TVarBinaryLiteral;
 
 import com.google.common.collect.Lists;
@@ -64,6 +65,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Visitor that converts any {@link Expr} node into its Thrift {@link TExprNode}
@@ -251,6 +253,14 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
     public Void visitIPv6Literal(IPv6Literal expr, TExprNode msg) {
         msg.node_type = TExprNodeType.IPV6_LITERAL;
         msg.ipv6_literal = new TIPv6Literal(expr.getValue());
+        return null;
+    }
+
+    @Override
+    public Void visitUuidLiteral(UuidLiteral expr, TExprNode msg) {
+        msg.node_type = TExprNodeType.UUID_LITERAL;
+        UUID value = UUID.fromString(expr.getValue());
+        msg.uuid_literal = new TUUIDLiteral(value.getMostSignificantBits(), value.getLeastSignificantBits());
         return null;
     }
 
