@@ -32,6 +32,7 @@
 #include <numeric>
 #include <random>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -1054,7 +1055,9 @@ TEST_F(SpillFileS3Test, PendingBuffersDoNotConsumeBudget) {
 
 TEST_F(SpillFileS3Test, UploadBudgetWaitIsCancellable) {
     config::spill_s3_max_inflight_upload_bytes = 16 * 1024;
-    config::spill_file_part_size_bytes = 16 * 1024;
+    // Larger than the budget: the writer must block in the gate of the third buffer, not in
+    // the synchronous close of a part that fits the budget exactly.
+    config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
     auto* budget = _manager->remote_upload_budget();
 
@@ -1395,6 +1398,12 @@ TEST_F(SpillFileS3Test, CancelledQueryCloseAbortsOpenMultipart) {
     }
     ASSERT_EQ(mock_store().create_multipart_requests, 1);
     ASSERT_GT(mock_store().put_requests, 0);
+    // Let the submitted uploads finish so that the count below is stable: only the pending
+    // partial buffer is left, and that one must not be uploaded after the cancellation.
+    for (int i = 0; i < 250 && budget->inflight_bytes() > 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    ASSERT_EQ(budget->inflight_bytes(), 0);
     const int64_t puts_before_close = mock_store().put_requests;
 
     _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test cancel"));
