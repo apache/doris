@@ -28,7 +28,6 @@ suite("test_variant_subcolumn_index_norms", "p0,nonConcurrent") {
         return
     }
 
-    sql """ set enable_segment_limit_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
