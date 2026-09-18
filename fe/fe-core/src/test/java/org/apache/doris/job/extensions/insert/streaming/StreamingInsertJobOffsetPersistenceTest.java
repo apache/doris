@@ -28,6 +28,8 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.job.manager.StreamingTaskManager;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobCommand;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
@@ -38,6 +40,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class StreamingInsertJobOffsetPersistenceTest {
@@ -133,6 +136,39 @@ public class StreamingInsertJobOffsetPersistenceTest {
         Assertions.assertTrue(job.getOffsetProviderPersist().contains("300"));
         Assertions.assertTrue(provider.getFinishedSplits().isEmpty());
         Assertions.assertTrue(provider.getChunkHighWatermarkMap().isEmpty());
+    }
+
+    @Test
+    public void testReloadSchemaWithAndWithoutOffset() throws Exception {
+        for (boolean changeOffset : new boolean[] {false, true}) {
+            JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+            provider.setTableSchemas("old schema");
+            TestStreamingInsertJob job = newJob(provider, 1016L);
+            job.setJobStatus(JobStatus.PAUSED);
+            job.runningStreamTask.cancel(true);
+            job.setNeedRebuildReader(false);
+            Map<String, String> properties = new HashMap<>();
+            properties.put(StreamingJobProperties.RELOAD_SOURCE_SCHEMA_PROPERTY, "true");
+            if (changeOffset) {
+                properties.put(StreamingJobProperties.OFFSET_PROPERTY, "{\"lsn\":\"300\"}");
+            }
+
+            job.alterJob(new AlterJobCommand("test_job", properties, null, null, null,
+                    Collections.emptyMap(), Collections.emptyMap()));
+
+            Assertions.assertNull(provider.getTableSchemas());
+            Assertions.assertTrue(job.isNeedRebuildReader());
+            Assertions.assertFalse(job.getProperties().containsKey(
+                    StreamingJobProperties.RELOAD_SOURCE_SCHEMA_PROPERTY));
+            JdbcSourceOffsetProvider persisted = GsonUtils.GSON.fromJson(
+                    job.getOffsetProviderPersist(), JdbcSourceOffsetProvider.class);
+            Assertions.assertNull(persisted.getTableSchemas());
+            if (changeOffset) {
+                Assertions.assertEquals("300", persisted.getBinlogOffsetPersist().get("lsn"));
+            } else {
+                Assertions.assertNull(provider.getCurrentOffset());
+            }
+        }
     }
 
     @Test
