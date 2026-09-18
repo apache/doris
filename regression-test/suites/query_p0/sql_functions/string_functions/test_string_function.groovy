@@ -48,6 +48,17 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select concat_ws(\"or\", [\"d\", NULL,\"is\"]);"
     qt_sql "select concat_ws(\"or\", [\"d\", \"\",\"is\"]);"
 
+    testFoldConst("SELECT CONCAT_WS(',', ['a', NULL]), CONCAT_WS(',', [NULL, 'a', NULL]), CONCAT_WS(',', [NULL]);")
+    testFoldConst("SELECT CONCAT_WS(',', 'a', NULL), CONCAT_WS(',', NULL, 'a', NULL), CONCAT_WS(',', NULL);")
+    testFoldConst("SELECT RIGHT('😀a', 1), INSTR('😀a', 'a');")
+    testFoldConst("SELECT UPPER('éßi'), LOWER('ÉİA'), INITCAP('ßETA İSTANBUL');")
+    testFoldConst("SELECT STRCMP('😀', ''), FIND_IN_SET('', 'a,');")
+    testFoldConst("""SELECT PARSE_URL('http://h/p%20x?q=a+b%20c&k=v#r', 'PATH'),
+        PARSE_URL('http://h/p%20x?q=a+b%20c&k=v#r', 'QUERY'),
+        EXTRACT_URL_PARAMETER('http://h/p%20x?q=a+b%20c&k=v#r', 'q');""")
+    testFoldConst("SELECT FIELD(CAST('-0.0' AS DOUBLE), CAST('0.0' AS DOUBLE), CAST('-0.0' AS DOUBLE));")
+    testFoldConst("SELECT MD5('doris'), MD5('ṭṛì'), MD5SUM('do', 'ris'), MD5SUM('ṭ', 'ṛ', 'ì');")
+
     qt_sql "select ends_with(\"Hello doris\", \"doris\");"
     qt_sql "select ends_with(\"Hello doris\", \"Hello\");"
 

@@ -117,6 +117,7 @@ import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.mapping.MappedField;
 import org.apache.iceberg.mapping.MappedFields;
+import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.transforms.Transforms;
@@ -145,6 +146,8 @@ import java.time.Month;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
@@ -256,6 +259,14 @@ public class IcebergUtils {
     public static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
 
     private static final Pattern SNAPSHOT_ID = Pattern.compile("\\d+");
+    // Iceberg's committed_at value may include fractional seconds, so the time-travel parser must round-trip
+    // that value while preserving compatibility with existing whole-second literals.
+    private static final DateTimeFormatter TIME_TRAVEL_DATETIME_FORMAT = new DateTimeFormatterBuilder()
+            .appendPattern("yyyy-MM-dd HH:mm:ss")
+            .optionalStart()
+            .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true)
+            .optionalEnd()
+            .toFormatter();
 
     public static boolean hasIcebergCatalogFormatVersion(Map<String, String> catalogProperties) {
         return catalogProperties.containsKey(CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.FORMAT_VERSION)
@@ -1224,6 +1235,8 @@ public class IcebergUtils {
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Decimal string: " + value, e);
                 }
+            case VARIANT:
+                throw new IllegalArgumentException("Iceberg VARIANT default values must be NULL");
             default:
                 throw new IllegalArgumentException("Cannot parse unknown type: " + type);
         }
@@ -1410,6 +1423,16 @@ public class IcebergUtils {
         return resSchema;
     }
 
+    /** Build independent display columns without changing the nullable columns used by scans. */
+    public static List<Column> parseSchemaForDisplay(Schema schema, boolean enableMappingVarbinary,
+            boolean enableMappingTimestampTz) {
+        List<Column> columns = parseSchema(schema, enableMappingVarbinary, enableMappingTimestampTz);
+        for (Column column : columns) {
+            column.setIsAllowNull(schema.findField(column.getUniqueId()).isOptional());
+        }
+        return columns;
+    }
+
     /** Convert one Iceberg field to a Doris column without using the generic Doris default-value channel. */
     public static Column parseField(Types.NestedField field, boolean enableMappingVarbinary,
             boolean enableMappingTimestampTz) {
@@ -1427,6 +1450,9 @@ public class IcebergUtils {
 
     private static String serializeInitialDefault(org.apache.iceberg.types.Type type, Object value,
             boolean enableMappingTimestampTz) {
+        if (type.typeId() == TypeID.VARIANT) {
+            throw new IllegalArgumentException("Iceberg VARIANT initial-default must be NULL");
+        }
         if (type.isNestedType()) {
             // Keep Iceberg's type-directed JSON representation for struct/list/map values. In
             // particular, struct members are keyed by field id and an empty object is the V3
@@ -1852,7 +1878,7 @@ public class IcebergUtils {
                 SnapshotUtil.schemaFor(table, value).schemaId()
             );
         } else {
-            long timestamp = TimeUtils.timeStringToLong(value, TimeUtils.getTimeZone());
+            long timestamp = timeTravelTimestampToLong(value);
             if (timestamp < 0) {
                 throw new DateTimeException("can't parse time: " + value);
             }
@@ -1862,6 +1888,15 @@ public class IcebergUtils {
                 null,
                 table.snapshot(snapshotId).schemaId()
                 );
+        }
+    }
+
+    private static long timeTravelTimestampToLong(String value) {
+        try {
+            return LocalDateTime.parse(value, TIME_TRAVEL_DATETIME_FORMAT)
+                    .atZone(TimeUtils.getTimeZone().toZoneId()).toInstant().toEpochMilli();
+        } catch (DateTimeParseException e) {
+            return -1;
         }
     }
 
@@ -2328,8 +2363,13 @@ public class IcebergUtils {
             extractMappingsFromNameMapping(mapping.asMappedFields(), result);
             return Optional.of(result);
         } catch (Exception e) {
+            // Keep ID-less files readable by current names when a malformed property cannot provide
+            // authoritative aliases; Optional.empty() must remain reserved for an absent property.
             LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
-            return Optional.empty();
+            Map<Integer, List<String>> fallback = new HashMap<>();
+            extractMappingsFromNameMapping(
+                    MappingUtil.create(icebergTable.schema()).asMappedFields(), fallback);
+            return Optional.of(fallback);
         }
     }
 

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFileExecutor;
 import org.apache.doris.datasource.iceberg.rewrite.RewriteDataFilePlanner;
@@ -75,8 +76,8 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
 
     public IcebergRewriteDataFilesAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition) {
-        super("rewrite_data_files", properties, partitionNamesInfo, whereCondition);
+            Optional<Expression> whereCondition, IcebergMetadataOps metadataOps) {
+        super("rewrite_data_files", properties, partitionNamesInfo, whereCondition, metadataOps);
     }
 
     /**

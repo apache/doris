@@ -28,7 +28,8 @@ every "indexed" query in test_lance_vector_search silently ran a flat KNN scan.
 The generated catalog contains:
   - __manifest            Directory Namespace V2 manifest table (with its scalar indexes).
   - all_types.lance       The pre-existing compatibility-mode root table, re-registered as-is.
-  - The `doris` namespace with one indexed vector table per cell of the
+  - nested_null.lance     Nullable Null leaves inside lists, structs, and maps.
+  - The `doris` namespace with two full-text-search fixtures, one indexed vector table per cell of the
     algorithm x element type x metric matrix (hash-prefixed directories), listed in
     VECTOR_TABLES below; BREADTH_TABLE, one table carrying the remaining cells at plan
     level; and NESTED_TABLE, a nested-field scalar index fixture used by the SHOW INDEX /
@@ -85,6 +86,8 @@ import lance
 import lance_namespace
 import pyarrow as pa
 import pyarrow.ipc as ipc
+from lance_build_multivector import build as build_multivector, check as check_multivector
+from lance_build_nested_null import build as build_nested_null, check as check_nested_null
 from lance_namespace_urllib3_client.models import (
     CreateNamespaceRequest,
     CreateTableRequest,
@@ -99,6 +102,7 @@ FRAGMENT_ROWS = 512
 NUM_PARTITIONS = 4
 NAMESPACE = "doris"
 ALL_TYPES_DIR = "all_types.lance"
+NESTED_NULL_DIR = "nested_null.lance"
 MANIFEST_DIR = "__manifest"
 
 # 4-bit PQ keeps codebook training comfortable on 1024 rows. This only serves fixture
@@ -116,6 +120,25 @@ HNSW_PQ_BUILD_PARAMS = {**HNSW_BUILD_PARAMS, "num_sub_vectors": 4, "num_bits": 8
 # small is a Lance error ("ef must be greater than or equal to k"), not a silent
 # degradation - the regression suite pins that error too.
 HNSW_SEARCH_PARAMS = {"ef": 100}
+
+# multi_frag.lance is the COUNT(*) metadata-pushdown fixture for test_lance_optimize_count:
+# MULTI_FRAG_NUM_FRAGMENTS fragments of MULTI_FRAG_FRAGMENT_ROWS physical rows each, with one
+# deleted row per fragment, so the dataset holds MULTI_FRAG_PHYSICAL_ROWS physical rows on disk
+# but only MULTI_FRAG_LOGICAL_ROWS logical rows after deletions. A COUNT(*) that reported the
+# physical total would be off by MULTI_FRAG_DELETED_ROWS, so this table is what proves the
+# pushdown reads Lance's post-deletion row count and that a multi-split scan applies every
+# fragment's deletion vector exactly once. It carries no index, so unlike the vector tables its
+# data and every derived count are deterministic (there is no IVF training to perturb them and
+# no golden ever shifts on regeneration), and Doris discovers it by directory listing without a
+# __manifest entry (verified against a live FE/BE/MinIO cluster).
+MULTI_FRAG_DIR = "multi_frag.lance"
+MULTI_FRAG_NUM_FRAGMENTS = 3
+MULTI_FRAG_FRAGMENT_ROWS = 10
+MULTI_FRAG_DELETED_ROW_IDS = (5, 15, 25)
+MULTI_FRAG_FILTER_ROW_ID = 15
+MULTI_FRAG_PHYSICAL_ROWS = MULTI_FRAG_NUM_FRAGMENTS * MULTI_FRAG_FRAGMENT_ROWS
+MULTI_FRAG_DELETED_ROWS = len(MULTI_FRAG_DELETED_ROW_IDS)
+MULTI_FRAG_LOGICAL_ROWS = MULTI_FRAG_PHYSICAL_ROWS - MULTI_FRAG_DELETED_ROWS
 
 # The boundary query is symmetric for the ladder profiles - rows r-d and r+d are
 # equidistant - so a top-k that lands mid-pair would pin an arbitrary choice of tie winner
@@ -366,7 +389,6 @@ VECTOR_TABLES = {
     },
 }
 
-
 # ---------------------------------------------------------------------------
 # Breadth tier
 # ---------------------------------------------------------------------------
@@ -375,16 +397,13 @@ VECTOR_TABLES = {
 # reached the index. That costs roughly 190KB per cell, so the tier deliberately covers one
 # representative cell per axis rather than the whole matrix.
 #
-# The breadth tier covers everything the depth tier leaves out, at plan level only. It is a
-# single table carrying one vector column per remaining cell, each with exactly one index -
-# one column per cell, never several indexes on one column, because only the first index
-# built on a column is reachable. Measured on Lance: with a cosine and a dot index on one
-# column, whichever was created first answers its metric from the index and the other falls
-# back to a silent brute-force scan. Doris lands in the same place by a different route -
-# LanceScanNode.selectIndexSegments keeps only the segments of the first index it finds for
-# the column's field id, so the second index is invisible to the planner and metricMatches
-# then rejects the query whose metric it does not carry. Either way a column is the unit that
-# can hold a testable index, and 64 rows is enough to train one.
+# The breadth tier covers every remaining cell at plan level only.
+# It is a single table carrying one vector column per remaining cell, each with exactly one
+# index. Keeping one index per column isolates every type x metric x algorithm cell;
+# same-column multi-index selection is covered by LanceScanNodeTest's metadata fixtures. A
+# column is not limited to one logical vector index: Doris groups physical segments by index
+# name and picks the first lexicographic group that matches the requested metric and can safely
+# plan splits. Sixty-four rows are enough to train each matrix index.
 #
 # What this tier proves is narrower than the depth tier's, and the documentation must not
 # conflate them: it shows Doris plans an indexed split and the backend answers it, NOT that
@@ -444,6 +463,41 @@ NESTED_TABLE = "nested_index"
 NESTED_INDEX_NAME = "nested_label_btree"
 NESTED_COLUMN = "attributes.`child.with.dot`"
 NESTED_ROWS = 16
+
+# Full-text-search fixtures. full_text_search indexes both fragments. The partial table
+# deliberately appends its second fragment after index creation so Doris can exercise the
+# STRICT and INDEX_ONLY coverage modes against the same committed index segment.
+FTS_TABLE = "full_text_search"
+FTS_PARTIAL_TABLE = "full_text_search_partial"
+FTS_INDEX_NAME = "body_fts"
+FTS_PARTIAL_INDEX_NAME = "body_fts_partial"
+FTS_ROWS = (
+    (1, "Lance search", "lance search engine", "tech"),
+    (2, "Lance search twice", "lance lance search engine", "tech"),
+    (3, "Lance search three times", "lance lance lance search engine", "tech"),
+    (4, "Vector search", "vector search engine", "vector"),
+    (5, "Full text search", "full text search engine", "search"),
+    (6, "Doris lakehouse", "apache doris lakehouse", "database"),
+    (7, "Lance storage", "lance columnar storage format analytics", "storage"),
+    (8, "Unrelated", "unrelated document", "other"),
+)
+FTS_PARTIAL_ROWS = (
+    (101, "lance indexed document", "indexed"),
+    (102, "another lance indexed document", "indexed"),
+    (103, "unrelated indexed document", "indexed"),
+    (104, "lance appended after indexing", "unindexed"),
+    (105, "second lance appended after indexing", "unindexed"),
+)
+FTS_INDEX_PARAMS = {
+    "base_tokenizer": "simple",
+    "language": "English",
+    "max_token_length": 40,
+    "lower_case": True,
+    "stem": False,
+    "remove_stop_words": False,
+    "ascii_folding": False,
+    "with_position": True,
+}
 
 
 def buildable_combos():
@@ -697,6 +751,77 @@ def create_vector_table(namespace, table_name: str, spec: dict) -> str:
     return location
 
 
+def make_fts_table(rows, *, include_title: bool) -> pa.Table:
+    if include_title:
+        schema = pa.schema(
+            [
+                pa.field("row_id", pa.int64(), nullable=False),
+                pa.field("title", pa.string(), nullable=False),
+                pa.field("body", pa.string(), nullable=False),
+                pa.field("category", pa.string(), nullable=False),
+            ]
+        )
+        columns = list(zip(*rows))
+        return pa.Table.from_arrays(
+            [
+                pa.array(columns[0], type=pa.int64()),
+                pa.array(columns[1], type=pa.string()),
+                pa.array(columns[2], type=pa.string()),
+                pa.array(columns[3], type=pa.string()),
+            ],
+            schema=schema,
+        )
+
+    schema = pa.schema(
+        [
+            pa.field("row_id", pa.int64(), nullable=False),
+            pa.field("body", pa.string(), nullable=False),
+            pa.field("category", pa.string(), nullable=False),
+        ]
+    )
+    columns = list(zip(*rows))
+    return pa.Table.from_arrays(
+        [
+            pa.array(columns[0], type=pa.int64()),
+            pa.array(columns[1], type=pa.string()),
+            pa.array(columns[2], type=pa.string()),
+        ],
+        schema=schema,
+    )
+
+
+def create_fts_table(namespace, table_name: str, rows, *, indexed_rows: int,
+                     index_name: str, include_title: bool) -> str:
+    first = make_fts_table(rows[:indexed_rows], include_title=include_title)
+    buffer = io.BytesIO()
+    with ipc.new_stream(buffer, first.schema) as writer:
+        writer.write_table(first)
+    response = namespace.create_table(
+        CreateTableRequest(id=[NAMESPACE, table_name]), buffer.getvalue()
+    )
+    location = response.location
+    dataset = lance.dataset(location)
+    if table_name == FTS_TABLE:
+        # Make the fully indexed fixture cover two physical fragments.
+        lance.write_dataset(
+            make_fts_table(rows[indexed_rows:], include_title=include_title),
+            location,
+            mode="append",
+        )
+        dataset = lance.dataset(location)
+    dataset.create_scalar_index(
+        "body", "INVERTED", name=index_name, **FTS_INDEX_PARAMS
+    )
+    if table_name == FTS_PARTIAL_TABLE:
+        # Keep these rows outside the committed segment for coverage-mode tests.
+        lance.write_dataset(
+            make_fts_table(rows[indexed_rows:], include_title=include_title),
+            location,
+            mode="append",
+        )
+    return location
+
+
 def make_nested_fragment_table(row_offset_start: int, row_offset_end: int) -> pa.Table:
     offsets = list(range(row_offset_start, row_offset_end))
     attributes = pa.StructArray.from_arrays(
@@ -787,13 +912,52 @@ def compact_manifest(root: Path) -> None:
     print(f"record: __manifest committed at version {manifest.version}")
 
 
+def build_multi_frag(root: Path) -> None:
+    # Reuse make_fragment_table so the row_id/category/label columns and their NOT NULL mapping
+    # stay identical to the vector tables; multi_frag just drops the embedding it does not need.
+    location = str(root / MULTI_FRAG_DIR)
+    for index in range(MULTI_FRAG_NUM_FRAGMENTS):
+        offset = index * MULTI_FRAG_FRAGMENT_ROWS
+        # The shared builder requires a vector profile even though embedding is dropped below.
+        fragment = make_fragment_table(COLLINEAR, pa.float32(), offset, offset + MULTI_FRAG_FRAGMENT_ROWS)
+        fragment = fragment.drop_columns(["embedding"])
+        # Match all_types.lance (data storage version 2.2) so every committed Lance data file
+        # shares one on-disk format and the oldest reader (lance-rs 4.0.1) can open it.
+        lance.write_dataset(
+            fragment, location, mode="create" if index == 0 else "append",
+            data_storage_version="2.2",
+        )
+    deleted = ", ".join(str(row_id) for row_id in MULTI_FRAG_DELETED_ROW_IDS)
+    lance.dataset(location).delete(f"row_id in ({deleted})")
+
+
 def build(root: Path, all_types_source: Path) -> None:
     shutil.copytree(all_types_source, root / ALL_TYPES_DIR)
+    build_multi_frag(root)
+    # Recreate this fixture in staging because promotion replaces the entire catalog tree.
+    build_nested_null(root / NESTED_NULL_DIR)
+    build_multivector(root / "multivector.lance")
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     namespace.register_table(
         RegisterTableRequest(id=["all_types"], location=ALL_TYPES_DIR)
     )
     namespace.create_namespace(CreateNamespaceRequest(id=[NAMESPACE]))
+    create_fts_table(
+        namespace,
+        FTS_TABLE,
+        FTS_ROWS,
+        indexed_rows=4,
+        index_name=FTS_INDEX_NAME,
+        include_title=True,
+    )
+    create_fts_table(
+        namespace,
+        FTS_PARTIAL_TABLE,
+        FTS_PARTIAL_ROWS,
+        indexed_rows=3,
+        index_name=FTS_PARTIAL_INDEX_NAME,
+        include_title=False,
+    )
     for table_name, spec in VECTOR_TABLES.items():
         location = create_vector_table(namespace, table_name, spec)
         # DirectoryNamespace.create_table_index exists but raises UnsupportedOperationError,
@@ -1431,11 +1595,81 @@ def check_nested_dataset(location: str):
     assert probe == [7], f"{NESTED_TABLE}: BTREE probe returned {probe}"
 
 
+def check_multi_frag(root: Path) -> None:
+    location = root / MULTI_FRAG_DIR
+    assert location.is_dir(), f"multi_frag location missing: {location}"
+    dataset = lance.dataset(str(location))
+    fragments = dataset.get_fragments()
+    assert len(fragments) == MULTI_FRAG_NUM_FRAGMENTS, (
+        f"multi_frag: expected {MULTI_FRAG_NUM_FRAGMENTS} fragments, got {len(fragments)}"
+    )
+    for fragment in fragments:
+        metadata = fragment.metadata
+        assert metadata.physical_rows == MULTI_FRAG_FRAGMENT_ROWS, (
+            f"multi_frag fragment {fragment.fragment_id}: physical_rows "
+            f"{metadata.physical_rows} != {MULTI_FRAG_FRAGMENT_ROWS}"
+        )
+        assert metadata.num_deletions == 1, (
+            f"multi_frag fragment {fragment.fragment_id}: expected exactly one deleted row, "
+            f"got {metadata.num_deletions}"
+        )
+    # The whole point of this table: logical (post-deletion) count, not the physical total.
+    assert dataset.count_rows() == MULTI_FRAG_LOGICAL_ROWS, (
+        f"multi_frag: logical row count {dataset.count_rows()} != {MULTI_FRAG_LOGICAL_ROWS}; "
+        "test_lance_optimize_count asserts COUNT(*) folds to exactly this number"
+    )
+    surviving = set(dataset.to_table(columns=["row_id"]).column("row_id").to_pylist())
+    expected = set(range(1, MULTI_FRAG_PHYSICAL_ROWS + 1)) - set(MULTI_FRAG_DELETED_ROW_IDS)
+    assert surviving == expected, (
+        "multi_frag: surviving row_ids are not the expected contiguous-minus-deleted set"
+    )
+    # The filtered count in the suite disables the pushdown; keep its golden derivable here so a
+    # data-shape change fails this self-check instead of only the opaque .out diff.
+    expected_half = sum(1 for row_id in expected if row_id > MULTI_FRAG_FILTER_ROW_ID)
+    half = dataset.count_rows(filter=f"row_id > {MULTI_FRAG_FILTER_ROW_ID}")
+    assert half == expected_half, (
+        f"multi_frag: COUNT(*) WHERE row_id > {MULTI_FRAG_FILTER_ROW_ID} is {half}, not "
+        f"{expected_half}; the filtered-count golden in test_lance_optimize_count is now stale"
+    )
+
+
+def check_fts_dataset(location: str, *, table_name: str, index_name: str,
+                      expected_rows: int, expected_indexed_fragments: int) -> None:
+    dataset = lance.dataset(location)
+    assert dataset.count_rows() == expected_rows, (
+        f"{table_name}: expected {expected_rows} rows"
+    )
+    fragments = dataset.get_fragments()
+    assert len(fragments) == 2, f"{table_name}: expected 2 fragments"
+    indices = {index["name"]: index for index in dataset.list_indices()}
+    index = indices.get(index_name)
+    assert index is not None, f"{table_name}: missing FTS index {index_name}: {indices}"
+    assert index["type"] == "Inverted", (
+        f"{table_name}: {index_name} has type {index['type']}, expected Inverted"
+    )
+    indexed_fragments = set(index["fragment_ids"])
+    assert len(indexed_fragments) == expected_indexed_fragments, (
+        f"{table_name}: {index_name} covers fragments {sorted(indexed_fragments)}, expected "
+        f"{expected_indexed_fragments} fragments"
+    )
+    if table_name == FTS_TABLE:
+        ranked = dataset.scanner(
+            columns=["row_id", "_score"],
+            full_text_query={"query": "lance", "columns": ["body"]},
+            limit=4,
+        ).to_table()
+        assert ranked["row_id"].to_pylist() == [3, 2, 1, 7], (
+            f"{table_name}: indexed BM25 probe returned {ranked.to_pydict()}"
+        )
+
+
 def check_catalog(root: Path) -> None:
     check_data_shapes()
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     tables = namespace.list_tables(ListTablesRequest(id=[NAMESPACE]))
-    expected_tables = sorted([*VECTOR_TABLES, BREADTH_TABLE, NESTED_TABLE])
+    expected_tables = sorted(
+        [*VECTOR_TABLES, BREADTH_TABLE, NESTED_TABLE, FTS_TABLE, FTS_PARTIAL_TABLE]
+    )
     assert sorted(tables.tables) == expected_tables, (
         f"unexpected {NAMESPACE} tables: {tables.tables}"
     )
@@ -1490,6 +1724,28 @@ def check_catalog(root: Path) -> None:
     nested_path = Path(nested.location.removeprefix("file://"))
     assert nested_path.is_dir(), f"{NESTED_TABLE} location missing: {nested.location}"
     check_nested_dataset(nested.location)
+    check_multi_frag(root)
+    check_nested_null(root / NESTED_NULL_DIR)
+    check_multivector(root / "multivector.lance")
+
+    full_fts = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, FTS_TABLE]))
+    check_fts_dataset(
+        full_fts.location,
+        table_name=FTS_TABLE,
+        index_name=FTS_INDEX_NAME,
+        expected_rows=len(FTS_ROWS),
+        expected_indexed_fragments=2,
+    )
+    partial_fts = namespace.describe_table(
+        DescribeTableRequest(id=[NAMESPACE, FTS_PARTIAL_TABLE])
+    )
+    check_fts_dataset(
+        partial_fts.location,
+        table_name=FTS_PARTIAL_TABLE,
+        index_name=FTS_PARTIAL_INDEX_NAME,
+        expected_rows=len(FTS_PARTIAL_ROWS),
+        expected_indexed_fragments=1,
+    )
     print(f"self-check OK: {root}")
 
 

@@ -467,6 +467,8 @@ struct TSearchVector {
     1: optional TVectorElementType element_type
     2: optional i32 dimension
     3: optional binary values
+    // Present only for one multi-vector query; values contains a row-major matrix.
+    4: optional i32 num_vectors
 }
 
 // Logical result parameters for one vector query. `top_k` is the number of rows returned after
@@ -479,13 +481,48 @@ struct TVectorSearchParams {
     5: optional TVectorMetric metric
 }
 
-// Logical parameters for one full-text query. `query` initially carries the backend query string;
-// richer structured query forms can be added as new fields without changing this basic contract.
+enum TFtsCoverageMode {
+    STRICT,
+    INDEX_ONLY
+}
+
+enum TFtsQueryType {
+    MATCH,
+    PHRASE
+}
+
+enum TFtsMatchOperator {
+    OR,
+    AND
+}
+
+// Logical parameters for one full-text query. MATCH combines analyzed terms with match_operator;
+// PHRASE searches the analyzed terms in order and permits phrase_slop intervening positions.
 struct TFullTextSearchParams {
     1: optional string column
     2: optional string query
     3: optional i64 top_k
     4: optional i64 offset
+    // STRICT requires the selected FTS index to cover the complete pinned snapshot. INDEX_ONLY
+    // searches and scores only fragments covered by committed FTS index segments.
+    5: optional TFtsCoverageMode coverage_mode
+    // Reserved for distributed FTS. Every BE may search a different index-segment subset, so
+    // statistics prepared independently on each BE would produce BM25 scores that are not
+    // comparable during the final TopK merge. The payload must be prepared once for the exact
+    // snapshot, logical FTS index, segment set, and query (including its final fuzzy vocabulary),
+    // then validated and installed unchanged on every BE scanner.
+    //
+    // Doris currently leaves this field unset and BE rejects a set value because Lance/lance-c
+    // does not yet provide the complete producer and consumer contract. Track the upstream work
+    // at https://github.com/lance-format/lance/issues/8937.
+    6: optional binary global_statistics
+    7: optional TFtsQueryType query_type
+    // MATCH-only parameters. max_fuzzy_distance is reserved as zero until the bundled Lance-C
+    // supports one canonical fuzzy vocabulary across all prepared index segments.
+    8: optional TFtsMatchOperator match_operator
+    9: optional i32 max_fuzzy_distance
+    // PHRASE-only parameter. Zero requires an exact phrase.
+    10: optional i32 phrase_slop
 }
 
 enum TSearchFilterFormat {
@@ -535,9 +572,15 @@ struct TLanceFileDesc {
     // most this many rows; the upper LIMIT operator still enforces the global bound.
     // Only set for ordinary scans whose predicates are fully pushed into Lance.
     4: optional i64 limit
-    // Physical vector-index segments assigned to this distributed search split. Each value is one
-    // UUID encoded as 16 bytes in RFC 4122 order. Unset for ordinary and unindexed-fragment scans.
+    // Physical index segments assigned to this split. Each UUID is 16 bytes in RFC 4122 order.
+    // An ordinary scan accepts exactly one scalar segment and requires a fixed version and
+    // nonempty fragment_ids. Vector/FTS scans interpret these as their own index segments.
+    // Unset for fragment scans without an assigned segment.
     5: optional list<binary> index_segment_uuids
+    // Ordinary scans only. False for uncovered-fragment tasks in a scalar segment plan,
+    // so these tasks filter their rows without repeating global scalar-index evaluation.
+    // Unset preserves Lance's default; an explicit scalar segment must not be combined with false.
+    6: optional bool use_scalar_index
 }
 
 struct TLanceScanParams {
@@ -545,8 +588,8 @@ struct TLanceScanParams {
     // ScanNode level so it is not serialized once per fragment split.
     1: optional binary lance_substrait_filter
     // Provider-independent search request. Set at ScanNode level so all ranges use the same logical
-    // query. Lance vector search uses one range per fragment and Doris merges the split-local
-    // candidates.
+    // query. Lance external search uses one range per fragment or physical index segment, and Doris
+    // merges the split-local candidates.
     2: optional TExternalSearchRequest external_search_request
     // Lance-native storage options, handed to lance-c untranslated. The namespace protocol treats
     // storage_options as opaque configuration passed directly to Lance, so any key vocabulary the
@@ -657,6 +700,9 @@ struct TFileScanRangeParams {
     35: optional string serialized_table_cache_key
     // 31-33 and 36 are used in master; do not allocate them in branch-4.1.
     37: optional TLanceScanParams lance_scan_params
+    // Non-regular columns in the pinned full schema, including columns pruned from phase one.
+    // When present, omitted names are REGULAR. Used to rebuild row-id fetch projections.
+    38: optional map<string, TColumnCategory> column_name_to_category
 }
 
 struct TFileRangeDesc {
@@ -819,6 +865,13 @@ struct TParquetMetadataParams {
   6: optional string bloom_literal
 }
 
+// Identifies a Lance table for read-only physical index entry inspection.
+struct TLanceIndexMetadataParams {
+  1: optional string catalog
+  2: optional string database
+  3: optional string table
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -839,6 +892,7 @@ struct TMetaScanRange {
   15: optional string serialized_table;
   16: optional list<string> serialized_splits;
   17: optional TParquetMetadataParams parquet_params;
+  18: optional TLanceIndexMetadataParams lance_index_params;
 }
 
 // Specification of an individual data range which is held in its entirety

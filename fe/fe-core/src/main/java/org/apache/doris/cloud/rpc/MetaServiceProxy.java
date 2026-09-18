@@ -116,7 +116,6 @@ public class MetaServiceProxy {
             }
             return response;
         } catch (MetaServiceRateLimitException e) {
-            recordRpcRateLimited(methodName);
             throw e;
         } catch (Exception e) {
             recordRpcFailed(methodName, startTime);
@@ -152,13 +151,6 @@ public class MetaServiceProxy {
             CloudMetrics.META_SERVICE_RPC_FAILED.getOrAdd(methodName).increase(1L);
             CloudMetrics.META_SERVICE_RPC_LATENCY.getOrAdd(methodName)
                     .update(System.currentTimeMillis() - startTime);
-        }
-    }
-
-    private static void recordRpcRateLimited(String methodName) {
-        if (MetricRepo.isInit && Config.isCloudMode()) {
-            CloudMetrics.META_SERVICE_RPC_ALL_RATE_LIMITED.increase(1L);
-            CloudMetrics.META_SERVICE_RPC_RATE_LIMITED.getOrAdd(methodName).increase(1L);
         }
     }
 
@@ -340,7 +332,6 @@ public class MetaServiceProxy {
             }
             return response;
         } catch (MetaServiceRateLimitException e) {
-            recordRpcRateLimited(methodName);
             throw e;
         } catch (RpcException e) {
             recordRpcFailed(methodName, startTime);
@@ -389,7 +380,6 @@ public class MetaServiceProxy {
             }
             return future;
         } catch (MetaServiceRateLimitException e) {
-            recordRpcRateLimited(methodName);
             throw e;
         } catch (Exception e) {
             recordRpcFailed(methodName, startTime);

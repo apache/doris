@@ -61,10 +61,12 @@ public class VariantPruningLogicTest extends TestWithFeService {
 
     @Test
     public void testVariantNumericIndexSubPath() throws Exception {
+        // A numeric index selects an array element, not an object key, so the storage sub-column stops at arr and
+        // [0]['x'] is applied to it at runtime; the access path still names the whole expression.
         assertVariantSubColumnSlots(
                 "select v['arr'][0]['x'] from variant_tbl",
                 ImmutableList.of(
-                        ImmutableList.of("arr", "0", "x")
+                        ImmutableList.of("arr")
                 )
         );
         assertAllAccessPathsContain(

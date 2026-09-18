@@ -185,15 +185,12 @@ public class PaimonPredicateConverter {
 
 
     public static SlotRef convertDorisExprToSlotRef(Expr expr) {
-        SlotRef slotRef = null;
+        // Stripping CAST can prune matching rows, e.g. CAST('05' AS INT) = 5 is not '05' = '5'.
+        // Keep casted columns in the original Doris conjuncts to preserve value and null semantics.
         if (expr instanceof SlotRef) {
-            slotRef = (SlotRef) expr;
-        } else if (expr instanceof CastExpr) {
-            if (expr.getChild(0) instanceof SlotRef) {
-                slotRef = (SlotRef) expr.getChild(0);
-            }
+            return (SlotRef) expr;
         }
-        return slotRef;
+        return null;
     }
 
     public LiteralExpr convertDorisExprToLiteralExpr(Expr expr) {

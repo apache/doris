@@ -26,6 +26,8 @@ import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SimpleScheduler;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
@@ -39,6 +41,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -57,12 +60,23 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
     private final Map<Long, Supplier<ImmutableMap<Long, Backend>>> allClusterBackends = Maps.newHashMap();
 
     private final Map<Long, ImmutableMap<Long, Backend>> currentClusterBackends;
+    private final ConnectContext selectionContext;
+    private final boolean useLoadBackendSelection;
 
     /**
      * Constructor
      */
     public BackendDistributedPlanWorkerManager(
             ConnectContext context, boolean notNeedBackend, boolean isLoadJob) throws UserException {
+        this(context, notNeedBackend, isLoadJob, isLoadJob);
+    }
+
+    /** Constructor with an independent load backend selection flag. */
+    public BackendDistributedPlanWorkerManager(
+            ConnectContext context, boolean notNeedBackend, boolean isLoadJob,
+            boolean useLoadBackendSelection) throws UserException {
+        this.selectionContext = context;
+        this.useLoadBackendSelection = useLoadBackendSelection;
         this.currentClusterBackends = Maps.newHashMap();
         ImmutableMap<Long, Backend> internalBackends = checkAndInitClusterBackends(context, notNeedBackend, isLoadJob);
         this.currentClusterBackends.put(Env.getCurrentInternalCatalog().getId(), internalBackends);
@@ -152,6 +166,10 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
         try {
             Reference<Long> selectedBackendId = new Reference<>();
             ImmutableMap<Long, Backend> backends = this.currentClusterBackends.get(catalogId);
+            Backend selectedBackend = chooseLoadBackend(backends.values());
+            if (selectedBackend != null) {
+                return new BackendWorker(catalogId, selectedBackend);
+            }
             SimpleScheduler.getHost(backends, selectedBackendId);
             Backend selctedBackend = backends.get(selectedBackendId.getRef());
             return new BackendWorker(catalogId, selctedBackend);
@@ -165,8 +183,44 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
 
     @Override
     public long randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID) {
+        if (useLoadBackendSelection) {
+            List<Backend> candidates = Lists.newArrayList();
+            for (Long backendId : addressToBackendID.values()) {
+                for (Supplier<ImmutableMap<Long, Backend>> backends : allClusterBackends.values()) {
+                    Backend backend = backends.get().get(backendId);
+                    if (backend != null) {
+                        candidates.add(backend);
+                        break;
+                    }
+                }
+            }
+            Backend selectedBackend = chooseLoadBackend(candidates);
+            if (selectedBackend != null) {
+                return selectedBackend.getId();
+            }
+        }
         TNetworkAddress backend = SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
         return addressToBackendID.get(backend);
+    }
+
+    private Backend chooseLoadBackend(Iterable<Backend> candidates) {
+        if (!useLoadBackendSelection) {
+            return null;
+        }
+        List<Backend> candidateList = Lists.newArrayList(candidates);
+        Collections.shuffle(candidateList);
+        Backend selectedBackend;
+        try {
+            selectedBackend = BackendSelectionManager.chooseFirstPreferredLoadBackend(
+                    selectionContext, candidateList, SimpleScheduler::isAvailable);
+        } catch (UserException e) {
+            throw new NereidsException(e, false);
+        }
+        if (selectedBackend != null) {
+            BackendSelection.SelectionHint hint = BackendSelectionManager.resolveLoadSelectionHint(selectionContext);
+            selectionContext.getBackendSelectionProfile().recordLoadCoordinator(hint, selectedBackend);
+        }
+        return selectedBackend;
     }
 
     @Override

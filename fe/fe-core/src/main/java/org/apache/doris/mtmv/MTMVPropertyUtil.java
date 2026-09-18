@@ -18,10 +18,12 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -36,6 +38,7 @@ public class MTMVPropertyUtil {
             PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES,
             PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM,
             PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP,
+            PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP,
             PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT,
@@ -59,6 +62,9 @@ public class MTMVPropertyUtil {
                 break;
             case PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP:
                 analyzeWorkloadGroup(value);
+                break;
+            case PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP:
+                analyzeComputeGroup(value);
                 break;
             case PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT:
                 analyzePartitionTimeUnit(value);
@@ -104,6 +110,17 @@ public class MTMVPropertyUtil {
                 .fromString(value);
         if (!mtmvPartitionSyncTimeUnit.isPresent()) {
             throw new AnalysisException("valid partition_sync_time_unit: " + value);
+        }
+    }
+
+    private static void analyzeComputeGroup(String value) {
+        if (StringUtils.isEmpty(value)) {
+            return;
+        }
+        try {
+            ComputeGroupBindingUtil.validateDeclaredComputeGroup(ConnectContext.get(), value);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
     }
 

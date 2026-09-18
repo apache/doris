@@ -1144,6 +1144,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         if (requiresIcebergField(column, fieldById, isTopLevel, requirement)) {
             return true;
         }
+        if (column.getType().isVariantType()) {
+            // VARIANT has no Iceberg schema children. Any remaining components are object keys or
+            // array indexes inside the encoded value, not Iceberg field IDs or access tokens.
+            return false;
+        }
         if (pathIndex == path.size()) {
             return requiresProjectedIcebergField(column, fieldById, requirement);
         }
@@ -2570,17 +2575,17 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
-        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName())) {
+    protected TColumnCategory classifyColumn(String columnName, List<String> partitionKeys) {
+        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(columnName)) {
             return TColumnCategory.SYNTHESIZED;
         }
-        if (slot.getColumn().getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+        if (columnName.startsWith(Column.GLOBAL_ROWID_COL)) {
             return TColumnCategory.SYNTHESIZED;
         }
-        if (IcebergUtils.isIcebergRowLineageColumn(slot.getColumn())) {
+        if (IcebergUtils.isIcebergRowLineageColumn(columnName)) {
             return TColumnCategory.GENERATED;
         }
-        return super.classifyColumn(slot, partitionKeys);
+        return super.classifyColumn(columnName, partitionKeys);
     }
 
     private List<Split> doGetSplits(int numBackends) throws UserException {

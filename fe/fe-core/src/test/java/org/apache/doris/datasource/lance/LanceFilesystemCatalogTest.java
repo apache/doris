@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.common.AnalysisException;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -43,6 +45,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class LanceFilesystemCatalogTest {
+
+    @Test
+    public void testLoadTableIndexEntriesRejectsRestCatalogBeforeInit() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceExternalCatalog.LANCE_CATALOG_TYPE, LanceExternalCatalog.LANCE_REST);
+        properties.put(LanceExternalCatalog.REST_URI, "http://127.0.0.1:1/");
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                5, "lance_rest_entries", null, properties, "");
+
+        Assert.assertFalse(catalog.isInitialized());
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> catalog.loadTableIndexEntries("db", "table"));
+        Assert.assertEquals("Lance index inspection is not supported for Lance REST catalogs",
+                exception.getDetailMessage());
+        Assert.assertFalse(catalog.isInitialized());
+    }
 
     @Test
     public void testNamespaceNameRoundTrip() throws Exception {
@@ -92,12 +111,44 @@ public class LanceFilesystemCatalogTest {
     }
 
     @Test
+    public void testLoadTableIndexEntriesWrapsFailureWithSanitizedMessage() {
+        String accessKey = "sentinel-access-key";
+        String secretKey = "sentinel-secret-key";
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceExternalCatalog.LANCE_CATALOG_TYPE,
+                LanceExternalCatalog.LANCE_FILESYSTEM);
+        properties.put(LanceExternalCatalog.WAREHOUSE, "/nonexistent-lance-warehouse-dir");
+        properties.put("AWS_ACCESS_KEY", accessKey);
+        properties.put("AWS_SECRET_KEY", secretKey);
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                6, "lance_filesystem_entries", null, properties, "");
+
+        RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                () -> catalog.loadTableIndexEntries("db", "table"));
+
+        Assert.assertTrue(exception.getMessage().contains(
+                "Failed to load Lance index metadata for db.table: "));
+        Assert.assertNotNull(exception.getCause());
+        StringWriter stackTrace = new StringWriter();
+        exception.printStackTrace(new PrintWriter(stackTrace));
+        for (String sentinel : Arrays.asList(accessKey, secretKey)) {
+            Assert.assertFalse(exception.getMessage().contains(sentinel));
+            Assert.assertFalse(exception.getCause().getMessage().contains(sentinel));
+            Assert.assertFalse(stackTrace.toString().contains(sentinel));
+        }
+    }
+
+    @Test
     public void testIndexMetadataErrorSanitization() {
         String bearerToken = "sentinel-bearer-token";
         String apiKey = "sentinel-api-key";
         String accessKey = "sentinel-access-key";
         String secretKey = "sentinel-secret-key";
         String sessionToken = "sentinel-session-token";
+        String ossAccessKey = "sentinel-oss-access-key";
+        String ossSecretKey = "sentinel-oss-secret-key";
+        String ossSecurityToken = "sentinel-oss-security-token";
         String datasetUri = "s3://sentinel-user:sentinel-password@bucket/private/table.lance";
 
         Map<String, String> catalogProperties = new HashMap<>();
@@ -110,9 +161,14 @@ public class LanceFilesystemCatalogTest {
         runtimeStorageOptions.put("aws_access_key_id", accessKey);
         runtimeStorageOptions.put("aws_secret_access_key", secretKey);
         runtimeStorageOptions.put("aws_session_token", sessionToken);
+        runtimeStorageOptions.put("oss_access_key_id", ossAccessKey);
+        runtimeStorageOptions.put("oss_secret_access_key", ossSecretKey);
+        runtimeStorageOptions.put("oss_security_token", ossSecurityToken);
         String providerMessage = "provider failure\nuri=" + datasetUri
                 + " bearer=" + bearerToken + " api-key=" + apiKey
-                + " access=" + accessKey + " secret=" + secretKey + " session=" + sessionToken;
+                + " access=" + accessKey + " secret=" + secretKey + " session=" + sessionToken
+                + " oss-access=" + ossAccessKey + " oss-secret=" + ossSecretKey
+                + " oss-token=" + ossSecurityToken;
 
         RuntimeException providerFailure = new RuntimeException(providerMessage);
         RuntimeException exposed = catalog.indexMetadataLoadFailure(
@@ -121,7 +177,7 @@ public class LanceFilesystemCatalogTest {
         exposed.printStackTrace(new PrintWriter(stackTrace));
 
         for (String sentinel : Arrays.asList(bearerToken, apiKey, accessKey, secretKey,
-                sessionToken, datasetUri)) {
+                sessionToken, ossAccessKey, ossSecretKey, ossSecurityToken, datasetUri)) {
             Assert.assertFalse(exposed.getMessage().contains(sentinel));
             Assert.assertFalse(exposed.getCause().getMessage().contains(sentinel));
             Assert.assertFalse(stackTrace.toString().contains(sentinel));

@@ -25,6 +25,7 @@ import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.datasource.property.metastore.AbstractLanceProperties;
 import org.apache.doris.datasource.property.metastore.LanceFileSystemMetastoreProperties;
 import org.apache.doris.datasource.property.metastore.LanceRestMetastoreProperties;
@@ -78,7 +79,11 @@ public class LanceExternalCatalog extends ExternalCatalog {
     private static final long ALLOCATOR_LIMIT = 256L * 1024 * 1024;
     private static final int MAX_PROVIDER_MESSAGE_BYTES = 1024;
     private static final String[] RUNTIME_SENSITIVE_OPTION_KEYS = {
-            "aws_access_key_id", "aws_secret_access_key", "aws_session_token"
+            "aws_access_key_id", "aws_secret_access_key", "aws_session_token",
+            // OSS credentials only reach these options because of this change, so they have to be
+            // recognized here too. The emitted spelling is the only one that occurs: the map read
+            // below is the merged one, where a vended alias has already been normalized onto it.
+            "oss_access_key_id", "oss_secret_access_key", "oss_security_token"
     };
 
     private transient LanceNamespace namespace;
@@ -88,6 +93,45 @@ public class LanceExternalCatalog extends ExternalCatalog {
     private transient String rootDatabase;
     private transient Map<String, String> namespaceStorageOptions = Collections.emptyMap();
     private transient Object namespaceLock = new Object();
+
+    // Local admission epoch; accessed only under CatalogMgr's lock. It need not survive restart,
+    // because no admission snapshot survives restart. Bump before even a tentative identity ALTER.
+    private transient long indexTargetVersion;
+
+    public long getIndexTargetVersion() {
+        return indexTargetVersion;
+    }
+
+    public void advanceIndexTargetVersion() {
+        indexTargetVersion++;
+    }
+
+    /**
+     * Resolves the dataset the given (db, table) names currently point at, through the
+     * same table-access resolution the readers use, and returns its durable locator form
+     * ({@link LanceIndexDatasetLocator#normalize}).
+     *
+     * <p>This exists for SHOW-authorization revalidation of persisted Lance index jobs:
+     * once a job reaches a terminal state and releases its guard, a legitimate catalog
+     * ALTER can repoint the same db.table names at a different dataset, and the job must
+     * stop being readable through table-level SHOW on the new target. Any failure - the
+     * catalog is not initialized, the provider is unreachable, credentials expired, or
+     * the names no longer resolve - yields {@code null}; callers must treat null as
+     * "not resolved" (the orphan, ADMIN-only visibility rule), never as an authorization
+     * grant.
+     *
+     * @return the normalized locator of the dataset the names currently point at, or
+     *         null when it cannot be resolved
+     */
+    public String resolveCurrentIndexJobLocator(String dbName, String tableName) {
+        try {
+            makeSureInitialized();
+            ResolvedTableAccess tableAccess = resolveTableAccess(dbName, tableName);
+            return LanceIndexDatasetLocator.normalize(tableAccess.datasetUri);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     public LanceExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) {
@@ -104,7 +148,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
             rootDatabase = properties.getRootDatabase();
             parentNamespace = LanceNamespaceName.parseParentNamespace(
                     properties.getNamespaceParent(), properties.getNamespaceDelimiter());
-            namespaceStorageOptions = LanceStorageOptions.forUri(
+            namespaceStorageOptions = LanceStorageOptions.fromDorisStorageProperties(
                     properties.getNamespaceStorageUri(),
                     catalogProperty.getOrderedStoragePropertiesList());
 
@@ -127,7 +171,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
 
         AbstractLanceProperties properties = getLanceProperties();
-        Map<String, String> storageOptions = LanceStorageOptions.forUri(
+        Map<String, String> storageOptions = LanceStorageOptions.fromDorisStorageProperties(
                 properties.getNamespaceStorageUri(),
                 catalogProperty.getOrderedStoragePropertiesList());
         List<String> parent = LanceNamespaceName.parseParentNamespace(
@@ -288,20 +332,23 @@ public class LanceExternalCatalog extends ExternalCatalog {
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName) {
-        return loadTableMetadata(dbName, tableName, Optional.empty(), false);
+        return loadTableMetadata(dbName, tableName, Optional.empty());
     }
 
-    public LanceTableMetadata loadTableMetadataForVectorSearch(String dbName, String tableName) {
-        return loadTableMetadata(dbName, tableName, Optional.empty(), true);
+    public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName) {
+        makeSureInitialized();
+        ResolvedTableAccess tableAccess = resolveTableAccess(dbName, tableName);
+        try {
+            return LanceMetadataLoader.loadLatestForSearch(
+                    tableAccess.datasetUri, tableAccess.storageOptions, allocator);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load Lance table metadata for " + dbName + "." + tableName
+                    + ": " + sanitizedRootCauseMessage(e), safeCause(e));
+        }
     }
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName,
             Optional<TableSnapshot> tableSnapshot) {
-        return loadTableMetadata(dbName, tableName, tableSnapshot, false);
-    }
-
-    private LanceTableMetadata loadTableMetadata(String dbName, String tableName,
-            Optional<TableSnapshot> tableSnapshot, boolean loadIndexSegments) {
         makeSureInitialized();
         ResolvedTableAccess tableAccess = resolveTableAccess(dbName, tableName);
         try {
@@ -322,11 +369,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
                 return LanceMetadataLoader.loadVersion(
                         tableAccess.datasetUri, tableAccess.storageOptions, version, allocator);
             }
-            return loadIndexSegments
-                    ? LanceMetadataLoader.loadLatestWithIndexSegments(tableAccess.datasetUri,
-                            tableAccess.storageOptions, allocator)
-                    : LanceMetadataLoader.loadLatest(
-                            tableAccess.datasetUri, tableAccess.storageOptions, allocator);
+            return LanceMetadataLoader.loadLatest(tableAccess.datasetUri, tableAccess.storageOptions, allocator);
         } catch (Exception e) {
             throw new RuntimeException("Failed to load Lance table metadata for " + dbName + "." + tableName
                     + ": " + sanitizedRootCauseMessage(e), safeCause(e));
@@ -370,6 +413,97 @@ public class LanceExternalCatalog extends ExternalCatalog {
         }
     }
 
+    public List<LancePhysicalIndexEntry> loadTableIndexEntries(
+            String dbName, String tableName) throws AnalysisException {
+        if (isRestCatalogConfigured()) {
+            throw new AnalysisException(
+                    "Lance index inspection is not supported for Lance REST catalogs");
+        }
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            throw indexMetadataLoadFailure(dbName, tableName, e, null, namespaceStorageOptions);
+        }
+
+        ResolvedTableAccess tableAccess = null;
+        try {
+            // Keep Directory namespace resolution on the caller while it owns the catalog's
+            // shared namespace and allocator. Moving that shared owner into a timed task would
+            // let catalog close release it after the caller returns but before the task ends.
+            // The deadline below covers the Dataset/JNI index metadata read itself.
+            tableAccess = resolveTableAccess(dbName, tableName);
+            String datasetUri = tableAccess.datasetUri;
+            Map<String, String> storageOptions = tableAccess.storageOptions;
+            return LanceMetadataReadExecutor.execute(() -> {
+                // The caller may return on deadline while JNI is still running. A task-owned
+                // allocator prevents catalog close from releasing native resources prematurely.
+                try (BufferAllocator readAllocator = new RootAllocator(ALLOCATOR_LIMIT)) {
+                    return LanceIndexMetadataLoader.loadPhysicalEntries(
+                            datasetUri, storageOptions, readAllocator);
+                }
+            });
+        } catch (Exception e) {
+            String datasetUri = tableAccess == null ? null : tableAccess.datasetUri;
+            Map<String, String> runtimeStorageOptions = tableAccess == null
+                    ? namespaceStorageOptions : tableAccess.storageOptions;
+            throw indexMetadataLoadFailure(
+                    dbName, tableName, e, datasetUri, runtimeStorageOptions);
+        }
+    }
+
+    /**
+     * Loads the pinned latest-snapshot admission view (version, schema fields, logical and
+     * physical indexes) for a Directory table. REST catalogs are rejected before any
+     * resolution, exactly like {@link #loadTableIndexMetadata}.
+     */
+    public LanceIndexAdmissionSnapshot loadTableIndexAdmissionSnapshot(
+            String dbName, String tableName) throws Exception {
+        if (isRestCatalogConfigured()) {
+            throw new AnalysisException(
+                    "Lance index admission is not supported for Lance REST catalogs");
+        }
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            throw indexAdmissionSnapshotLoadFailure(
+                    dbName, tableName, e, null, namespaceStorageOptions);
+        }
+
+        ResolvedTableAccess tableAccess = null;
+        try {
+            // Same ownership split as loadTableIndexMetadata: the caller resolves the table
+            // through the catalog's shared namespace, while the deadline-bound task owns the
+            // allocator backing its Dataset/JNI read.
+            tableAccess = resolveTableAccess(dbName, tableName);
+            String datasetUri = tableAccess.datasetUri;
+            Map<String, String> storageOptions = tableAccess.storageOptions;
+            return LanceMetadataReadExecutor.execute(() -> {
+                try (BufferAllocator readAllocator = new RootAllocator(ALLOCATOR_LIMIT)) {
+                    return LanceIndexMetadataLoader.loadAdmissionSnapshot(
+                            datasetUri, storageOptions, readAllocator);
+                }
+            });
+        } catch (Exception e) {
+            String datasetUri = tableAccess == null ? null : tableAccess.datasetUri;
+            Map<String, String> runtimeStorageOptions = tableAccess == null
+                    ? namespaceStorageOptions : tableAccess.storageOptions;
+            throw indexAdmissionSnapshotLoadFailure(
+                    dbName, tableName, e, datasetUri, runtimeStorageOptions);
+        }
+    }
+
+    @VisibleForTesting
+    RuntimeException indexAdmissionSnapshotLoadFailure(String dbName, String tableName,
+            Throwable throwable, String datasetUri, Map<String, String> runtimeStorageOptions) {
+        String sanitizedMessage = sanitizedRootCauseMessage(
+                throwable, datasetUri, runtimeStorageOptions);
+        Throwable sanitizedCause = throwable instanceof IllegalArgumentException
+                ? new IllegalArgumentException(sanitizedMessage)
+                : new RuntimeException(sanitizedMessage);
+        return new RuntimeException("Failed to load Lance index admission snapshot for "
+                + dbName + "." + tableName + ": " + sanitizedMessage, sanitizedCause);
+    }
+
     @VisibleForTesting
     RuntimeException indexMetadataLoadFailure(String dbName, String tableName,
             Throwable throwable, String datasetUri, Map<String, String> runtimeStorageOptions) {
@@ -396,7 +530,7 @@ public class LanceExternalCatalog extends ExternalCatalog {
         // One option map serves both readers: the FE opens the dataset through the Lance Java SDK
         // and the BE through lance-c, so neither can end up with credentials the other lacks. The
         // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
-        Map<String, String> storageOptions = LanceStorageOptions.forVendedTable(datasetUri,
+        Map<String, String> storageOptions = LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri,
                 catalogProperty.getOrderedStoragePropertiesList(), table.getStorageOptions());
         return new ResolvedTableAccess(datasetUri, storageOptions);
     }

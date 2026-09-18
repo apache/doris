@@ -19,6 +19,10 @@ name: Build Third Party Libraries
 
 on:
   pull_request:
+    paths:
+      - 'thirdparty/**'
+      - 'env.sh'
+      - '.github/workflows/build-thirdparty.yml'
   workflow_dispatch:
   issue_comment:
     types: [ created ]  
@@ -56,7 +60,6 @@ jobs:
               - 'thirdparty/**'
               - 'env.sh'
             focused_test_changes:
-              - 'regression-test/pipeline/external/conf/fe.conf'
               - 'thirdparty/test/adbc-jni-config-test.sh'
               - '.github/workflows/build-thirdparty.yml'
 
@@ -175,7 +178,7 @@ jobs:
     name: Build Third Party Libraries (macOS)
     needs: changes
     if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
-    runs-on: macos-13
+    runs-on: macos-15
     steps:
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v4

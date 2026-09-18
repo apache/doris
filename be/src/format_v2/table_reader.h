@@ -194,6 +194,9 @@ struct SplitReadOptions {
     int64_t format_split_id = -1;
     int64_t format_split_id_end = -1;
     std::optional<GlobalRowIdContext> global_rowid_context;
+    // Optional absolute file-row selection used by TopN two-phase materialization. TableReader
+    // carries it unchanged into the format-neutral FileScanRequest.
+    std::optional<std::vector<int64_t>> row_ids = std::nullopt;
 };
 
 // Base class for table-level readers.
@@ -478,6 +481,7 @@ protected:
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
                 _table_filters, _projected_columns, file_request.get(), _runtime_state));
         file_request->predicate_snapshot_digest = _predicate_snapshot_digest;
+        file_request->row_ids = _row_ids;
         _constant_pruning_safe_filter_count =
                 std::min(_constant_pruning_safe_filter_count,
                          file_request->constant_pruning_safe_table_filter_count);
@@ -487,7 +491,6 @@ protected:
             RETURN_IF_ERROR(close_current_reader());
             return Status::OK();
         }
-        RETURN_IF_ERROR(validate_file_mapping(*_data_reader.column_mapper));
         // COUNT(*) has no semantic column argument, but Nereids retains a minimum-width scan slot
         // so the scan node still has an output tuple. Record only the current non-predicate file
         // columns before table-format hooks add row-position or equality-delete dependencies. This
@@ -508,6 +511,9 @@ protected:
             }
         }
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
+        RETURN_IF_ERROR(_data_reader.column_mapper->reconcile_scan_request_after_customization(
+                file_request.get()));
+        RETURN_IF_ERROR(validate_file_mapping(*_data_reader.column_mapper));
         RETURN_IF_ERROR(_open_local_filter_exprs(*file_request));
         _data_reader.file_block_layout.clear();
         _data_reader.block_template.clear();
@@ -1070,7 +1076,7 @@ protected:
         *pushed_down = false;
         block->clear_column_data(_projected_columns.size());
         _aggregate_pushdown_tried = true;
-        if (!_supports_aggregate_pushdown(_push_down_agg_type)) {
+        if (_row_ids.has_value() || !_supports_aggregate_pushdown(_push_down_agg_type)) {
             return Status::OK();
         }
 
@@ -2058,6 +2064,7 @@ protected:
     // irreversible aggregate rows, not only the table-level row-count shortcut in prepare_split().
     bool _all_runtime_filters_applied_for_split = true;
     std::optional<GlobalRowIdContext> _global_rowid_context;
+    std::optional<std::vector<int64_t>> _row_ids;
     bool _aggregate_pushdown_tried = false;
     std::optional<FileAggregateResult> _metadata_aggregate_result;
     bool _current_split_pruned = false;

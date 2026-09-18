@@ -133,6 +133,9 @@ lru_cache_test
 
 /conf/log4j2-spring.xml
 /fe/fe-core/src/test/resources/real-help-resource.zip
+
+# Compatible Lance JNI prepared automatically by run-fe-ut.sh.
+/fe/fe-core/src/test/resources/nativelib/linux-x86-64/liblance_jni.so
 /ui/dist
 
 # docker

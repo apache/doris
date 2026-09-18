@@ -309,6 +309,10 @@ public:
 
     [[nodiscard]] bool get_async_open_success() const { return _async_open_done; }
 
+    // The manager that keeps cached blocks in the cache type their tablet's TTL asks for.
+    // Exposed so that tests can drive it deterministically rather than race its threads.
+    BlockFileCacheTtlMgr* get_ttl_mgr() { return _ttl_mgr.get(); }
+
     BlockFileCache& operator=(const BlockFileCache&) = delete;
     BlockFileCache(const BlockFileCache&) = delete;
 

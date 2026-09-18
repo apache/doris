@@ -22,7 +22,9 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.arrowflight.sessions.FlightSessionsWithTokenManager;
 import org.apache.doris.service.arrowflight.tokens.FlightTokenDetails;
@@ -32,7 +34,15 @@ import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.InOrder;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import org.xnio.StreamConnection;
+import org.xnio.XnioIoThread;
+import org.xnio.XnioWorker;
+import org.xnio.conduits.ConduitStreamSourceChannel;
+
+import java.util.concurrent.RejectedExecutionException;
 
 public class ConnectionExceedTest {
     @Mocked
@@ -103,6 +113,33 @@ public class ConnectionExceedTest {
                 scheduler.getConnectionNum());
         Assert.assertEquals(expectedMsg, context3.getState().getErrorMessage());
         Assert.assertEquals(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, context3.getState().getErrorCode());
+    }
+
+    @Test
+    public void testHandleReadEventRejectedExecution() throws Exception {
+        try (MockedStatic<XnioIoThread> mockedIoThread = Mockito.mockStatic(XnioIoThread.class)) {
+            ConnectContext context = Mockito.mock(ConnectContext.class);
+            QueryState queryState = Mockito.mock(QueryState.class);
+            ConnectProcessor processor = Mockito.mock(ConnectProcessor.class);
+            ConduitStreamSourceChannel channel = Mockito.mock(ConduitStreamSourceChannel.class);
+            XnioWorker worker = Mockito.mock(XnioWorker.class);
+
+            Mockito.when(context.getState()).thenReturn(queryState);
+            Mockito.when(channel.getWorker()).thenReturn(worker);
+            Mockito.doThrow(new RejectedExecutionException("queue full"))
+                    .when(worker).execute(Mockito.any(Runnable.class));
+
+            ReadListener listener = new ReadListener(context, processor);
+            listener.handleEvent(channel);
+
+            InOrder contextInOrder = Mockito.inOrder(context);
+            contextInOrder.verify(context).suspendAcceptQuery();
+            contextInOrder.verify(context).setThreadLocalInfo();
+            contextInOrder.verify(context).setKilled();
+            contextInOrder.verify(context).cleanup();
+            Mockito.verifyNoInteractions(queryState);
+            Mockito.verifyNoInteractions(processor);
+        }
     }
 
     @Test

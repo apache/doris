@@ -747,12 +747,20 @@ public class DateTimeExtractAndTransform {
             hourValue = hourValue > 0 ? 838 : -838;
             minuteValue = 59;
             secondValue = 59;
-        } else if (Math.abs(hourValue) == 838 && secondValue > 59) {
-            secondValue = 59;
         }
 
-        return new TimeV2Literal((int) Math.abs(hourValue), (int) minuteValue, (int) secondValue,
-                            (int) Math.round(secondValue * 1000000) % 1000000, 6, hourValue < 0);
+        long totalMicrosecond = Math.abs(hourValue) * 3600L * 1000000
+                + minuteValue * 60L * 1000000 + Math.round(secondValue * 1000000);
+        long maxMicrosecond = 838L * 3600L * 1000000 + 59L * 60L * 1000000 + 59999999L;
+        totalMicrosecond = Math.min(totalMicrosecond, maxMicrosecond);
+
+        int newHour = (int) (totalMicrosecond / 3600L / 1000000);
+        totalMicrosecond %= 3600L * 1000000;
+        int newMinute = (int) (totalMicrosecond / 60L / 1000000);
+        totalMicrosecond %= 60L * 1000000;
+        int newSecond = (int) (totalMicrosecond / 1000000);
+        int microsecond = (int) (totalMicrosecond % 1000000);
+        return new TimeV2Literal(newHour, newMinute, newSecond, microsecond, 6, hourValue < 0);
     }
 
     /**

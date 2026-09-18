@@ -25,7 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -69,8 +69,8 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
 
     public IcebergExpireSnapshotsAction(Map<String, String> properties,
             Optional<PartitionNamesInfo> partitionNamesInfo,
-            Optional<Expression> whereCondition) {
-        super("expire_snapshots", properties, partitionNamesInfo, whereCondition);
+            Optional<Expression> whereCondition, IcebergMetadataOps metadataOps) {
+        super("expire_snapshots", properties, partitionNamesInfo, whereCondition, metadataOps);
     }
 
     @Override
@@ -149,7 +149,7 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
 
     @Override
     protected List<String> executeAction(TableIf table) throws UserException {
-        Table icebergTable = ((IcebergExternalTable) table).getWritableIcebergTable();
+        Table icebergTable = getWritableIcebergTable(table);
 
         // Parse parameters
         String olderThan = namedArguments.getString(OLDER_THAN);

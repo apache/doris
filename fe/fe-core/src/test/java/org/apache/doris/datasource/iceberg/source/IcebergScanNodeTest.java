@@ -2463,6 +2463,54 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testVariantAccessPathTerminatesIcebergFieldTraversal() {
+        Types.NestedField nestedDefault = Types.NestedField.optional("added")
+                .withId(4)
+                .ofType(Types.IntegerType.get())
+                .withInitialDefault(7)
+                .build();
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(1, "message", Types.VariantType.get()));
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "message", Types.VariantType.get()),
+                Types.NestedField.optional(2, "info", Types.StructType.of(
+                        Types.NestedField.optional(3, "payload", Types.VariantType.get()),
+                        nestedDefault)),
+                Types.NestedField.optional(5, "attrs", Types.MapType.ofOptional(
+                        6, 7, Types.StringType.get(), Types.VariantType.get())),
+                Types.NestedField.required(8, "required_variant", Types.VariantType.get()));
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+        SlotDescriptor messageSlot = slotDescriptor(1);
+        messageSlot.setColumn(columns.get(0));
+        SlotDescriptor infoSlot = slotDescriptor(2);
+        infoSlot.setColumn(columns.get(1));
+        SlotDescriptor attrsSlot = slotDescriptor(5);
+        attrsSlot.setColumn(columns.get(2));
+        SlotDescriptor requiredVariantSlot = slotDescriptor(8);
+        requiredVariantSlot.setColumn(columns.get(3));
+
+        assertRequiresRecursiveInitialDefault(schema, messageSlot, false, "1", "mainDomain");
+        // Variant keys are data selectors, even when they spell an Iceberg field ID or access token.
+        assertRequiresRecursiveInitialDefault(schema, messageSlot, false, "1", "4");
+        assertRequiresRecursiveInitialDefault(schema, messageSlot, false,
+                "1", AccessPathInfo.ACCESS_ALL);
+        assertRequiresRecursiveInitialDefault(schema, infoSlot, false, "2", "3", "kind");
+        assertRequiresRecursiveInitialDefault(schema, infoSlot, true, "2", "4");
+        assertRequiresRecursiveInitialDefault(schema, attrsSlot, false,
+                "5", AccessPathInfo.ACCESS_ALL, "object", "kind");
+
+        requiredVariantSlot.setAllAccessPaths(Collections.singletonList(
+                dataAccessPath(ImmutableList.of("8", "mainDomain"))));
+        Assert.assertTrue(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                schema, Collections.singletonList(requiredVariantSlot),
+                ImmutableList.of(historicalSchema)));
+        messageSlot.setAllAccessPaths(Collections.singletonList(
+                dataAccessPath(ImmutableList.of("1", "mainDomain"))));
+        Assert.assertFalse(IcebergScanNode.requiresMissingRequiredFieldRejection(
+                schema, Collections.singletonList(messageSlot), ImmutableList.of(historicalSchema)));
+    }
+
+    @Test
     public void testPotentiallyMissingRequiredFieldsFollowProjection() {
         Types.NestedField existing = Types.NestedField.optional(
                 3, "existing", Types.IntegerType.get());
@@ -2936,6 +2984,63 @@ public class IcebergScanNodeTest {
         node.createRealTableScan();
 
         Mockito.verify(scan).filter(Mockito.argThat(expression -> expression.toString().contains("old_name")));
+    }
+
+    @Test
+    public void testHistoricalPredicatePlansAfterColumnRename() throws Exception {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false);
+    }
+
+    @Test
+    public void testHistoricalPredicatePlansAfterColumnDrop() throws Exception {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(true);
+    }
+
+    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn) throws Exception {
+        Schema historicalSchema = new Schema(
+                Types.NestedField.optional(1, "x", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "y", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "part", Types.IntegerType.get()));
+        HadoopTables tables = new HadoopTables(new Configuration());
+        String tableLocation = temporaryFolder.getRoot().toPath()
+                .resolve("historical_predicate_after_" + (dropColumn ? "drop" : "rename")).toUri().toString();
+        Table table = tables.create(
+                historicalSchema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"), tableLocation);
+        DataFile historicalDataFile = DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/historical.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(2)
+                .build();
+        table.newFastAppend().appendFile(historicalDataFile).commit();
+        long historicalSnapshotId = table.currentSnapshot().snapshotId();
+        int historicalSchemaId = table.currentSnapshot().schemaId();
+
+        if (dropColumn) {
+            table.updateSchema().deleteColumn("x").commit();
+        } else {
+            table.updateSchema().renameColumn("x", "renamed_x").commit();
+        }
+        DataFile currentDataFile = DataFiles.builder(table.spec())
+                .withPath(tableLocation + "/data/current.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(10)
+                .withRecordCount(1)
+                .build();
+        table.newFastAppend().appendFile(currentDataFile).commit();
+
+        // Historical filters must be resolved with the snapshot schema after later schema evolution.
+        TableScan scan = table.newScan()
+                .useSnapshot(historicalSnapshotId)
+                .project(table.schemas().get(historicalSchemaId));
+        BinaryPredicate conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(new TableName(), "x"), new IntLiteral(1, Type.INT));
+        org.apache.iceberg.expressions.Expression predicate =
+                IcebergUtils.convertToIcebergExpr(conjunct, scan.schema());
+        Assert.assertNotNull(predicate);
+        scan = scan.filter(predicate);
+        Assert.assertEquals(1, materializeTasks(scan).size());
     }
 
     @Test

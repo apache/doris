@@ -619,9 +619,11 @@ public class MaterializedViewUtils {
         public Boolean visitLogicalRelation(LogicalRelation relation, Void context) {
             if (relation instanceof LogicalFileScan) {
                 LogicalFileScan fileScan = (LogicalFileScan) relation;
-                // Relation scan parameters can select data different from the MV refresh input.
+                // Relation scan operators can select data different from the MV refresh input.
                 // Treat them as query operators until rewrite can prove equivalent semantics.
-                if (fileScan.getTableSample().isPresent() || fileScan.getScanParams().isPresent()) {
+                if (fileScan.getTableSample().isPresent()
+                        || fileScan.getScanParams().isPresent()
+                        || fileScan.getTableSnapshot().isPresent()) {
                     return true;
                 }
             }

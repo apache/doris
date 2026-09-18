@@ -38,6 +38,7 @@ class SegmentWriter;
 
 class RowSourcesBuffer;
 class VerticalBlockReader;
+struct VerticalCompactionContextStats;
 
 using VerticalCompactionProgressCallback =
         std::function<void(int64_t total_groups, int64_t completed_groups)>;
@@ -85,7 +86,7 @@ public:
             RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment,
             Statistics* stats_output, std::vector<uint32_t> key_group_cluster_key_idxes,
             int64_t batch_size, CompactionSampleInfo* sample_info,
-            bool enable_sparse_optimization = false);
+            VerticalCompactionContextStats* context_stats, bool enable_sparse_optimization = false);
 
     // for segcompaction
     static Status vertical_compact_one_group(

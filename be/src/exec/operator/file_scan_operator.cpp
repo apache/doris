@@ -137,13 +137,13 @@ ScannerScheduler* FileScanLocalState::scan_scheduler(RuntimeState* state) const 
 bool FileScanLocalState::TEST_should_use_file_scanner_v2(const TQueryOptions& query_options,
                                                          bool is_load,
                                                          const TFileScanRangeParams& scan_params) {
-    return _should_use_file_scanner_v2(query_options, is_load, scan_params);
+    return should_use_file_scanner_v2(query_options, is_load, scan_params);
 }
 #endif
 
-bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_options,
-                                                     bool is_load,
-                                                     const TFileScanRangeParams& scan_params) {
+bool FileScanLocalState::should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                                    bool is_load,
+                                                    const TFileScanRangeParams& scan_params) {
     const bool is_transactional_hive =
             scan_params.__isset.table_format_params &&
             scan_params.table_format_params.table_format_type == "transactional_hive";
@@ -156,7 +156,7 @@ bool FileScanLocalState::_can_generate_physical_splits(const TQueryOptions& quer
                                                        bool is_load,
                                                        const TFileScanRangeParams& scan_params,
                                                        const TFileRangeDesc& range) {
-    if (!_should_use_file_scanner_v2(query_options, is_load, scan_params)) {
+    if (!should_use_file_scanner_v2(query_options, is_load, scan_params)) {
         return false;
     }
     const auto format = range.__isset.format_type ? range.format_type : scan_params.format_type;
@@ -210,7 +210,7 @@ Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             state()->desc_tbl().get_tuple_descriptor(scan_params->src_tuple_id) != nullptr;
     // TODO: Use scanner v2 for all queries.
     const bool use_file_scanner_v2 =
-            _should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
+            should_use_file_scanner_v2(state()->query_options(), is_load, *scan_params);
     _operator_profile->add_info_string("UseScannerV2", use_file_scanner_v2 ? "true" : "false");
     const auto* output_tuple_desc = state()->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DORIS_CHECK(output_tuple_desc != nullptr);

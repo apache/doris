@@ -59,6 +59,13 @@ using TabletUid = UniqueId;
 
 enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2, FULL_COMPACTION = 3 };
 
+struct CompactionScoreStats {
+    int64_t max_score = 0;
+    int64_t size_based_max_score = 0;
+    int64_t time_series_max_score = 0;
+    bool scanned = false;
+};
+
 enum DataDirType {
     SPILL_DISK_DIR,
     OLAP_DATA_DIR,

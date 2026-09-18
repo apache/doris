@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.tvf.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -33,15 +32,14 @@ import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lance.LanceFragmentInfo;
 import org.apache.doris.datasource.lance.LanceStorageOptions;
+import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.datasource.lance.source.LanceSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
-import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -83,22 +81,22 @@ public class TVFScanNode extends FileQueryScanNode {
 
     @Override
     protected void initBackendPolicy() throws UserException {
-        List<String> preferLocations = new ArrayList<>();
-        if (tableValuedFunction instanceof LocalTableValuedFunction) {
-            // For local tvf, the backend was specified by backendId
-            Long backendId = ((LocalTableValuedFunction) tableValuedFunction).getBackendId();
-            if (backendId != -1) {
-                // User has specified the backend, only use that backend
-                // Otherwise, use all backends for shared storage.
-                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                if (backend == null) {
-                    throw new UserException("Backend " + backendId + " does not exist");
-                }
-                preferLocations.add(backend.getHost());
-            }
+        long backendId = tableValuedFunction.getBackendIdForExecution();
+        if (backendId != -1) {
+            backendPolicy.initWithBackendId(backendId);
+            numNodes = backendPolicy.numBackends();
+            return;
         }
-        backendPolicy.init(preferLocations);
+        backendPolicy.init();
         numNodes = backendPolicy.numBackends();
+        if (tableValuedFunction.isLanceFormat()) {
+            boolean requiresCurrentReader = desc.getSlots().stream()
+                    .anyMatch(slot -> slot.getColumn() != null
+                            && tableValuedFunction.requiresCurrentLanceReader(
+                                    slot.getColumn().getName()));
+            LanceScanNode.checkAdditionalTypeBackendCompatibility(
+                    requiresCurrentReader, backendPolicy.getBackends());
+        }
     }
 
     @Override
@@ -133,7 +131,7 @@ public class TVFScanNode extends FileQueryScanNode {
         if (tableValuedFunction.isLanceFormat()) {
             // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
             // Set at ScanNode level so credentials are not serialized once per fragment split.
-            Map<String, String> lanceStorageOptions = LanceStorageOptions.forUri(
+            Map<String, String> lanceStorageOptions = LanceStorageOptions.fromDorisStorageProperties(
                     tableValuedFunction.getFilePath(),
                     Collections.singletonList(tableValuedFunction.getStorageProperties()));
             if (!lanceStorageOptions.isEmpty()) {

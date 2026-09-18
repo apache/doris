@@ -17,10 +17,17 @@
 
 #include "format_v2/table/lance_reader.h"
 
+#include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_decimal.h>
+#include <arrow/array/builder_primitive.h>
 #include <arrow/array/util.h>
+#include <arrow/builder.h>
 #include <arrow/c/bridge.h>
+#include <arrow/extension/json.h>
+#include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
+#include <arrow/util/decimal.h>
 #include <arrow/util/key_value_metadata.h>
 #include <lance/lance.h>
 
@@ -28,6 +35,7 @@
 #include <array>
 #include <bit>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <lance/lance.hpp>
@@ -51,13 +59,25 @@
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/common/endian.h"
+#include "exprs/create_predicate_function.h"
+#include "exprs/hybrid_set.h"
+#include "exprs/runtime_filter_expr.h"
+#include "exprs/vdirect_in_predicate.h"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
+#include "format_v2/lance/lance_reader_helper.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/utils.h"
@@ -89,24 +109,6 @@ struct LanceFixtureInfo {
     int64_t version = 0;
     std::vector<int64_t> fragment_ids;
 };
-
-void expect_lance_profile_hierarchy(RuntimeProfile* profile,
-                                    const std::vector<std::string>& metric_names) {
-    TRuntimeProfileTree tree;
-    profile->to_thrift(&tree, 3);
-    ASSERT_FALSE(tree.nodes.empty());
-    const auto& children = tree.nodes[0].child_counters_map;
-    ASSERT_TRUE(children.contains(RuntimeProfile::ROOT_COUNTER));
-    EXPECT_TRUE(children.at(RuntimeProfile::ROOT_COUNTER).contains("FileScannerV2"));
-    ASSERT_TRUE(children.contains("FileScannerV2"));
-    EXPECT_TRUE(children.at("FileScannerV2").contains("TableReader"));
-    ASSERT_TRUE(children.contains("TableReader"));
-    EXPECT_TRUE(children.at("TableReader").contains("LanceReader"));
-    ASSERT_TRUE(children.contains("LanceReader"));
-    for (const auto& metric_name : metric_names) {
-        EXPECT_TRUE(children.at("LanceReader").contains(metric_name)) << metric_name;
-    }
-}
 
 Status get_fixture_info(const std::filesystem::path& dataset_uri, LanceFixtureInfo* info) {
     std::unique_ptr<LanceDataset, decltype(&lance_dataset_close)> dataset(
@@ -164,6 +166,117 @@ ColumnDefinition projected_column(std::string name, DataTypePtr type) {
 ColumnDefinition projected_column(std::string name, PrimitiveType type, bool nullable) {
     return projected_column(std::move(name),
                             DataTypeFactory::instance().create_data_type(type, nullable));
+}
+
+VExprContextSPtr create_int64_runtime_in_conjunct(std::string column_name,
+                                                  const std::vector<int64_t>& values,
+                                                  int filter_id) {
+    std::shared_ptr<HybridSetBase> filter(create_set(TYPE_BIGINT, false));
+    for (const auto value : values) {
+        filter->insert(&value);
+    }
+    TExprNode node;
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.in_predicate.__set_is_not_in(false);
+    node.__set_opcode(TExprOpcode::FILTER_IN);
+    node.__set_is_nullable(false);
+    auto predicate = VDirectInPredicate::create_shared(node, std::move(filter), true);
+    predicate->add_child(VSlotRef::create_shared(
+            0, 0, -1, make_nullable(std::make_shared<DataTypeInt64>()), std::move(column_name)));
+    return VExprContext::create_shared(
+            RuntimeFilterExpr::create_shared(node, std::move(predicate), 0.0, false, filter_id));
+}
+
+template <PrimitiveType PT>
+VExprContextSPtr create_typed_runtime_in_conjunct(
+        std::string column_name, const typename PrimitiveTypeTraits<PT>::CppType& value,
+        DataTypePtr value_type, int filter_id) {
+    std::shared_ptr<HybridSetBase> filter(create_set(PT, false));
+    filter->insert(&value);
+    TExprNode node;
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.in_predicate.__set_is_not_in(false);
+    node.__set_opcode(TExprOpcode::FILTER_IN);
+    node.__set_is_nullable(false);
+    auto predicate = VDirectInPredicate::create_shared(node, std::move(filter), true);
+    predicate->add_child(
+            VSlotRef::create_shared(0, 0, -1, make_nullable(value_type), std::move(column_name)));
+    return VExprContext::create_shared(
+            RuntimeFilterExpr::create_shared(node, std::move(predicate), 0.0, false, filter_id));
+}
+
+VExprContextSPtr create_string_runtime_in_conjunct(std::string column_name,
+                                                   const std::string& value, int filter_id) {
+    std::shared_ptr<HybridSetBase> filter(create_set(TYPE_STRING, false));
+    const StringRef value_ref(value.data(), value.size());
+    filter->insert(&value_ref);
+    TExprNode node;
+    node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.in_predicate.__set_is_not_in(false);
+    node.__set_opcode(TExprOpcode::FILTER_IN);
+    node.__set_is_nullable(false);
+    auto predicate = VDirectInPredicate::create_shared(node, std::move(filter), true);
+    predicate->add_child(VSlotRef::create_shared(
+            0, 0, -1, make_nullable(std::make_shared<DataTypeString>()), std::move(column_name)));
+    return VExprContext::create_shared(
+            RuntimeFilterExpr::create_shared(node, std::move(predicate), 0.0, false, filter_id));
+}
+
+template <PrimitiveType PT>
+VExprContextSPtr create_runtime_range_conjunct(
+        std::string column_name, TExprOpcode::type opcode,
+        const typename PrimitiveTypeTraits<PT>::CppType& value, DataTypePtr value_type,
+        int filter_id, bool null_aware = false) {
+    const auto nullable_value_type = make_nullable(value_type);
+    const auto result_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    TFunctionName function_name;
+    function_name.__set_function_name(opcode == TExprOpcode::GE ? "ge" : "le");
+    TFunction function;
+    function.__set_name(function_name);
+    function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    function.__set_arg_types({nullable_value_type->to_thrift(), value_type->to_thrift()});
+    function.__set_ret_type(result_type->to_thrift());
+    function.__set_has_var_args(false);
+
+    TExprNode predicate_node;
+    predicate_node.__set_node_type(TExprNodeType::BINARY_PRED);
+    predicate_node.__set_opcode(opcode);
+    predicate_node.__set_type(result_type->to_thrift());
+    predicate_node.__set_fn(function);
+    predicate_node.__set_num_children(2);
+    predicate_node.__set_is_nullable(true);
+    auto predicate = VectorizedFnCall::create_shared(predicate_node);
+    predicate->add_child(
+            VSlotRef::create_shared(0, 0, -1, nullable_value_type, std::move(column_name)));
+    predicate->add_child(VLiteral::create_shared(value_type, Field::create_field<PT>(value)));
+
+    TExprNode wrapper_node;
+    wrapper_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+    wrapper_node.__set_is_nullable(false);
+    return VExprContext::create_shared(RuntimeFilterExpr::create_shared(
+            wrapper_node, std::move(predicate), 0.0, null_aware, filter_id));
+}
+
+Status write_lance_record_batch(const std::filesystem::path& dataset_uri,
+                                const std::shared_ptr<arrow::RecordBatch>& batch) {
+    auto batch_reader = arrow::RecordBatchReader::Make({batch}, batch->schema());
+    if (!batch_reader.ok()) {
+        return Status::InternalError("create Arrow record batch reader failed: {}",
+                                     batch_reader.status().message());
+    }
+    ArrowArrayStream stream {};
+    const auto export_status =
+            arrow::ExportRecordBatchReader(std::move(batch_reader).ValueUnsafe(), &stream);
+    if (!export_status.ok()) {
+        return Status::InternalError("export Arrow record batch reader failed: {}",
+                                     export_status.message());
+    }
+    static_cast<void>(
+            ::lance::Dataset::write(dataset_uri.string(), &stream, ::lance::WriteMode::Create));
+    return Status::OK();
 }
 
 void add_output_columns(Block* block, const Columns& columns) {
@@ -249,6 +362,94 @@ TFileScanRangeParams make_float32_vector_search_params(
     return scan_params;
 }
 
+TFileScanRangeParams make_full_text_search_params(
+        std::string query_text, int64_t top_k, int64_t offset,
+        TFtsCoverageMode::type coverage_mode = TFtsCoverageMode::STRICT,
+        std::optional<std::string> filter = std::nullopt,
+        TFtsMatchOperator::type match_operator = TFtsMatchOperator::OR,
+        int32_t max_fuzzy_distance = 0) {
+    TFullTextSearchParams full_text_params;
+    full_text_params.__set_column("body");
+    full_text_params.__set_query(std::move(query_text));
+    full_text_params.__set_top_k(top_k);
+    full_text_params.__set_offset(offset);
+    full_text_params.__set_coverage_mode(coverage_mode);
+    full_text_params.__set_query_type(TFtsQueryType::MATCH);
+    full_text_params.__set_match_operator(match_operator);
+    full_text_params.__set_max_fuzzy_distance(max_fuzzy_distance);
+
+    TExternalSearchQuery query;
+    query.__set_full_text_search(std::move(full_text_params));
+    TExternalSearchRequest request;
+    request.__set_schema_version(1);
+    request.__set_search_query(std::move(query));
+    if (filter.has_value()) {
+        TSearchFilter search_filter;
+        search_filter.__set_format(TSearchFilterFormat::SQL);
+        search_filter.__set_payload(*filter);
+        request.__set_search_filter(std::move(search_filter));
+    }
+
+    TLanceScanParams lance_scan_params;
+    lance_scan_params.__set_external_search_request(std::move(request));
+    TFileScanRangeParams scan_params;
+    scan_params.__set_lance_scan_params(std::move(lance_scan_params));
+    return scan_params;
+}
+
+TFileScanRangeParams make_phrase_search_params(
+        std::string query_text, int64_t top_k, int64_t offset, int32_t slop,
+        TFtsCoverageMode::type coverage_mode = TFtsCoverageMode::STRICT,
+        std::optional<std::string> filter = std::nullopt) {
+    auto scan_params = make_full_text_search_params(std::move(query_text), top_k, offset,
+                                                    coverage_mode, std::move(filter));
+    auto& full_text =
+            scan_params.lance_scan_params.external_search_request.search_query.full_text_search;
+    full_text.__set_query_type(TFtsQueryType::PHRASE);
+    full_text.__isset.match_operator = false;
+    full_text.__isset.max_fuzzy_distance = false;
+    full_text.__set_phrase_slop(slop);
+    return scan_params;
+}
+
+Status get_index_segment_uuids(const std::filesystem::path& dataset_uri, const char* index_name,
+                               std::vector<std::string>* encoded_uuids) {
+    std::unique_ptr<LanceDataset, decltype(&lance_dataset_close)> dataset(
+            lance_dataset_open(dataset_uri.c_str(), nullptr, 0), lance_dataset_close);
+    if (dataset == nullptr) {
+        return Status::InternalError("Failed to open Lance fixture: {}", dataset_uri.string());
+    }
+    const auto segment_count = lance_dataset_index_segment_count(dataset.get(), index_name);
+    if (segment_count == 0) {
+        return Status::InternalError("Lance fixture index '{}' has no segments", index_name);
+    }
+    std::vector<uint8_t> raw_uuids(segment_count * 16);
+    uint64_t actual_count = 0;
+    if (lance_dataset_index_segments(dataset.get(), index_name, raw_uuids.data(), segment_count,
+                                     &actual_count) != 0 ||
+        actual_count != segment_count) {
+        return Status::InternalError("Failed to enumerate Lance fixture index '{}' segments",
+                                     index_name);
+    }
+    encoded_uuids->clear();
+    encoded_uuids->reserve(segment_count);
+    for (size_t index = 0; index < segment_count; ++index) {
+        encoded_uuids->emplace_back(reinterpret_cast<const char*>(raw_uuids.data() + index * 16),
+                                    16);
+    }
+    return Status::OK();
+}
+
+TFileRangeDesc make_full_text_search_range(const std::filesystem::path& dataset_uri,
+                                           const LanceFixtureInfo& fixture,
+                                           const char* index_name) {
+    auto range = make_lance_range(dataset_uri, fixture.version, fixture.fragment_ids);
+    std::vector<std::string> segment_uuids;
+    EXPECT_TRUE(get_index_segment_uuids(dataset_uri, index_name, &segment_uuids).ok());
+    range.table_format_params.lance_params.__set_index_segment_uuids(std::move(segment_uuids));
+    return range;
+}
+
 TEST(LanceTableReaderVectorSearchTest, RejectsMalformedVectorPayloadBeforeReadingIt) {
     const Columns columns {
             projected_column("row_id", TYPE_BIGINT, false),
@@ -266,6 +467,294 @@ TEST(LanceTableReaderVectorSearchTest, RejectsMalformedVectorPayloadBeforeReadin
 
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("query vector byte size"), std::string::npos);
+}
+
+TEST(LanceTableReaderVectorSearchTest, ValidatesMultiVectorWireShapeBeforeDatasetAccess) {
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    auto valid = make_float32_vector_search_params({1.0F, 0.0F, 0.0F}, 4, 0);
+    auto& request = valid.lance_scan_params.external_search_request;
+    request.__set_schema_version(1);
+    auto& query = request.search_query.vector_search.query_vector;
+    query.__set_dimension(3);
+    query.__set_num_vectors(1);
+    const auto check = [&](TFileScanRangeParams params, bool expected) {
+        RuntimeProfile profile("multi_vector_validation");
+        LanceTableReader reader;
+        EXPECT_EQ(expected, init_reader(&reader, columns, &state, &profile, &params).ok());
+    };
+    check(valid, true);
+    auto excessive_work = valid;
+    excessive_work.lance_scan_params.external_search_request.search_query.vector_search.__set_top_k(
+            100001);
+    check(excessive_work, false);
+    excessive_work.lance_scan_params.external_search_request.search_query.vector_search.__set_top_k(
+            1);
+    excessive_work.lance_scan_params.external_search_request.vector_search_options
+            .__set_refine_factor(std::numeric_limits<int32_t>::max());
+    check(excessive_work, false);
+    for (const int count : {0, -1, 2, std::numeric_limits<int32_t>::max()}) {
+        auto invalid = valid;
+        invalid.lance_scan_params.external_search_request.search_query.vector_search.query_vector
+                .__set_num_vectors(count);
+        check(invalid, false);
+    }
+    auto unsupported_version = valid;
+    unsupported_version.lance_scan_params.external_search_request.__set_schema_version(2);
+    check(unsupported_version, false);
+    auto missing_count = valid;
+    missing_count.lance_scan_params.external_search_request.search_query.vector_search.query_vector
+            .__isset.num_vectors = false;
+    // Without num_vectors, the same payload is an ordinary single-vector request.
+    check(missing_count, true);
+    auto hamming = valid;
+    hamming.lance_scan_params.external_search_request.search_query.vector_search.__set_metric(
+            TVectorMetric::HAMMING);
+    check(hamming, false);
+    for (const auto type : {TVectorElementType::INT8, TVectorElementType::UINT8}) {
+        auto integer = valid;
+        auto& q = integer.lance_scan_params.external_search_request.search_query.vector_search
+                          .query_vector;
+        q.__set_element_type(type);
+        q.__set_values(std::string(3, '\0'));
+        check(integer, false);
+    }
+}
+
+TEST(LanceTableReaderFullTextSearchTest, ValidatesRequestAndScoreTypeBeforeDatasetAccess) {
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_score", TYPE_FLOAT, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile valid_profile("lance_fts_valid_request");
+    auto valid_params = make_full_text_search_params("lance", 4, 1);
+    LanceTableReader valid_reader;
+    ASSERT_TRUE(init_reader(&valid_reader, columns, &state, &valid_profile, &valid_params).ok());
+
+    RuntimeProfile empty_query_profile("lance_fts_empty_query");
+    auto empty_query_params = make_full_text_search_params("", 4, 0);
+    LanceTableReader empty_query_reader;
+    const auto empty_query_status = init_reader(&empty_query_reader, columns, &state,
+                                                &empty_query_profile, &empty_query_params);
+    EXPECT_FALSE(empty_query_status.ok());
+    EXPECT_NE(empty_query_status.to_string().find("non-empty query"), std::string::npos);
+
+    RuntimeProfile coverage_profile("lance_fts_invalid_coverage");
+    auto invalid_coverage_params =
+            make_full_text_search_params("lance", 4, 0, static_cast<TFtsCoverageMode::type>(99));
+    LanceTableReader coverage_reader;
+    const auto coverage_status = init_reader(&coverage_reader, columns, &state, &coverage_profile,
+                                             &invalid_coverage_params);
+    EXPECT_FALSE(coverage_status.ok());
+    EXPECT_NE(coverage_status.to_string().find("STRICT or INDEX_ONLY"), std::string::npos);
+
+    const Columns wrong_score_columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_score", TYPE_DOUBLE, true),
+    };
+    RuntimeProfile score_profile("lance_fts_invalid_score_type");
+    auto score_params = make_full_text_search_params("lance", 4, 0);
+    LanceTableReader score_reader;
+    const auto score_status =
+            init_reader(&score_reader, wrong_score_columns, &state, &score_profile, &score_params);
+    EXPECT_FALSE(score_status.ok());
+    EXPECT_NE(score_status.to_string().find("must have Doris FLOAT type"), std::string::npos);
+}
+
+TEST(LanceTableReaderFullTextSearchTest, ValidatesQuerySpecificParameters) {
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_score", TYPE_FLOAT, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+
+    RuntimeProfile phrase_profile("lance_fts_phrase_request");
+    auto phrase_params = make_phrase_search_params("lance search", 4, 0, 1);
+    LanceTableReader phrase_reader;
+    ASSERT_TRUE(init_reader(&phrase_reader, columns, &state, &phrase_profile, &phrase_params).ok());
+
+    RuntimeProfile fuzzy_profile("lance_fts_fuzzy_request");
+    auto fuzzy_params = make_full_text_search_params("lance", 4, 0, TFtsCoverageMode::STRICT,
+                                                     std::nullopt, TFtsMatchOperator::OR, 1);
+    LanceTableReader fuzzy_reader;
+    const auto fuzzy_status =
+            init_reader(&fuzzy_reader, columns, &state, &fuzzy_profile, &fuzzy_params);
+    EXPECT_FALSE(fuzzy_status.ok());
+    EXPECT_NE(fuzzy_status.to_string().find("does not yet support max_fuzzy_distance=1"),
+              std::string::npos);
+
+    RuntimeProfile match_slop_profile("lance_fts_match_with_slop");
+    auto match_slop_params = make_full_text_search_params("lance", 4, 0);
+    match_slop_params.lance_scan_params.external_search_request.search_query.full_text_search
+            .__set_phrase_slop(1);
+    LanceTableReader match_slop_reader;
+    const auto match_slop_status = init_reader(&match_slop_reader, columns, &state,
+                                               &match_slop_profile, &match_slop_params);
+    EXPECT_FALSE(match_slop_status.ok());
+    EXPECT_NE(match_slop_status.to_string().find("MATCH query cannot set phrase_slop"),
+              std::string::npos);
+
+    RuntimeProfile negative_slop_profile("lance_fts_negative_phrase_slop");
+    auto negative_slop_params = make_phrase_search_params("lance search", 4, 0, -1);
+    LanceTableReader negative_slop_reader;
+    const auto negative_slop_status = init_reader(&negative_slop_reader, columns, &state,
+                                                  &negative_slop_profile, &negative_slop_params);
+    EXPECT_FALSE(negative_slop_status.ok());
+    EXPECT_NE(negative_slop_status.to_string().find("phrase_slop must be non-negative"),
+              std::string::npos);
+}
+
+std::vector<std::pair<int64_t, float>> read_full_text_search_rows(LanceTableReader* reader,
+                                                                  Block* block) {
+    std::vector<std::pair<int64_t, float>> rows;
+    bool eos = false;
+    while (!eos) {
+        EXPECT_TRUE(reader->get_block(block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& row_ids = assert_cast<const ColumnInt64&>(*block->get_by_position(0).column);
+        const auto& scores = assert_cast<const ColumnNullable&>(*block->get_by_position(1).column);
+        const auto& score_values = assert_cast<const ColumnFloat32&>(scores.get_nested_column());
+        for (size_t row = 0; row < block->rows(); ++row) {
+            EXPECT_EQ(0, scores.get_null_map_data()[row]);
+            rows.emplace_back(row_ids.get_data()[row], score_values.get_data()[row]);
+        }
+    }
+    return rows;
+}
+
+TEST(LanceTableReaderFullTextSearchTest, SearchesIndexedSnapshotWithOptionalScoreProjection) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/fts_indexed.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+    auto range = make_full_text_search_range(dataset_uri, fixture, "body_fts");
+
+    const Columns scored_columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_score", TYPE_FLOAT, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile scored_profile("lance_fts_indexed_fixture");
+    auto scored_params = make_full_text_search_params("lance", 4, 0);
+    LanceTableReader scored_reader;
+    ASSERT_TRUE(init_reader(&scored_reader, scored_columns, &state, &scored_profile, &scored_params)
+                        .ok());
+    ASSERT_TRUE(prepare_range(&scored_reader, range).ok());
+    Block scored_block;
+    add_output_columns(&scored_block, scored_columns);
+    const auto scored_rows = read_full_text_search_rows(&scored_reader, &scored_block);
+    ASSERT_EQ(4U, scored_rows.size());
+    EXPECT_EQ((std::vector<int64_t> {3, 2, 1, 7}),
+              (std::vector<int64_t> {scored_rows[0].first, scored_rows[1].first,
+                                     scored_rows[2].first, scored_rows[3].first}));
+    for (size_t index = 0; index < scored_rows.size(); ++index) {
+        EXPECT_GT(scored_rows[index].second, 0.0F);
+        if (index > 0) {
+            EXPECT_GT(scored_rows[index - 1].second, scored_rows[index].second);
+        }
+    }
+    EXPECT_TRUE(scored_reader.close().ok());
+
+    // Lance returns _score for ordering even when Doris does not materialize it. The reader must
+    // ignore that generated column while still rejecting any unexpected _rowid output.
+    const Columns row_id_columns {projected_column("row_id", TYPE_BIGINT, false)};
+    RuntimeProfile row_id_profile("lance_fts_without_score_projection_fixture");
+    auto row_id_params = make_full_text_search_params("lance", 2, 0);
+    LanceTableReader row_id_reader;
+    ASSERT_TRUE(init_reader(&row_id_reader, row_id_columns, &state, &row_id_profile, &row_id_params)
+                        .ok());
+    ASSERT_TRUE(prepare_range(&row_id_reader, range).ok());
+    Block row_id_block;
+    add_output_columns(&row_id_block, row_id_columns);
+    std::vector<int64_t> row_ids;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(row_id_reader.get_block(&row_id_block, &eos).ok());
+        if (!eos) {
+            const auto& values =
+                    assert_cast<const ColumnInt64&>(*row_id_block.get_by_position(0).column);
+            row_ids.insert(row_ids.end(), values.get_data().begin(), values.get_data().end());
+        }
+    }
+    EXPECT_EQ((std::vector<int64_t> {3, 2}), row_ids);
+    EXPECT_TRUE(row_id_reader.close().ok());
+}
+
+TEST(LanceTableReaderFullTextSearchTest, SupportsMatchAndPhraseQueries) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/fts_indexed.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+    auto range = make_full_text_search_range(dataset_uri, fixture, "body_fts");
+
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_score", TYPE_FLOAT, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+
+    RuntimeProfile match_and_profile("lance_fts_match_and");
+    auto match_and_params = make_full_text_search_params(
+            "lance storage", 10, 0, TFtsCoverageMode::STRICT, std::nullopt, TFtsMatchOperator::AND);
+    LanceTableReader match_and_reader;
+    ASSERT_TRUE(
+            init_reader(&match_and_reader, columns, &state, &match_and_profile, &match_and_params)
+                    .ok());
+    ASSERT_TRUE(prepare_range(&match_and_reader, range).ok());
+    Block match_and_block;
+    add_output_columns(&match_and_block, columns);
+    const auto match_and_rows = read_full_text_search_rows(&match_and_reader, &match_and_block);
+    ASSERT_EQ(1U, match_and_rows.size());
+    EXPECT_EQ(7, match_and_rows[0].first);
+    EXPECT_TRUE(match_and_reader.close().ok());
+
+    RuntimeProfile phrase_profile("lance_fts_phrase_exact");
+    auto phrase_params = make_phrase_search_params("lance search", 10, 0, 0);
+    LanceTableReader phrase_reader;
+    ASSERT_TRUE(init_reader(&phrase_reader, columns, &state, &phrase_profile, &phrase_params).ok());
+    ASSERT_TRUE(prepare_range(&phrase_reader, range).ok());
+    Block phrase_block;
+    add_output_columns(&phrase_block, columns);
+    const auto phrase_rows = read_full_text_search_rows(&phrase_reader, &phrase_block);
+    std::vector<int64_t> phrase_row_ids;
+    phrase_row_ids.reserve(phrase_rows.size());
+    for (const auto& [row_id, score] : phrase_rows) {
+        EXPECT_GT(score, 0.0F);
+        phrase_row_ids.emplace_back(row_id);
+    }
+    std::sort(phrase_row_ids.begin(), phrase_row_ids.end());
+    EXPECT_EQ((std::vector<int64_t> {1, 2, 3}), phrase_row_ids);
+    EXPECT_TRUE(phrase_reader.close().ok());
+
+    RuntimeProfile phrase_slop_profile("lance_fts_phrase_slop");
+    auto phrase_slop_params = make_phrase_search_params("lance engine", 10, 0, 1);
+    LanceTableReader phrase_slop_reader;
+    ASSERT_TRUE(init_reader(&phrase_slop_reader, columns, &state, &phrase_slop_profile,
+                            &phrase_slop_params)
+                        .ok());
+    ASSERT_TRUE(prepare_range(&phrase_slop_reader, range).ok());
+    Block phrase_slop_block;
+    add_output_columns(&phrase_slop_block, columns);
+    const auto phrase_slop_rows =
+            read_full_text_search_rows(&phrase_slop_reader, &phrase_slop_block);
+    std::vector<int64_t> phrase_slop_row_ids;
+    phrase_slop_row_ids.reserve(phrase_slop_rows.size());
+    for (const auto& [row_id, score] : phrase_slop_rows) {
+        EXPECT_GT(score, 0.0F);
+        phrase_slop_row_ids.emplace_back(row_id);
+    }
+    std::sort(phrase_slop_row_ids.begin(), phrase_slop_row_ids.end());
+    EXPECT_EQ((std::vector<int64_t> {1, 2, 3}), phrase_slop_row_ids);
+    EXPECT_TRUE(phrase_slop_reader.close().ok());
 }
 
 TEST(LanceTableReaderVectorSearchTest, RejectsMalformedIndexSegmentUuid) {
@@ -327,6 +816,383 @@ GlobalRowLoacationV2 decode_lance_row_id(const ColumnString& column, size_t row)
     return location;
 }
 
+TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexedCoverage) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    ASSERT_EQ(2, fixture.fragment_ids.size());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    TQueryOptions options;
+    options.__set_batch_size(1);
+    state.set_query_options(options);
+    for (const auto type :
+         {TVectorElementType::FLOAT16, TVectorElementType::FLOAT32, TVectorElementType::FLOAT64}) {
+        const size_t width = type == TVectorElementType::FLOAT16   ? 2
+                             : type == TVectorElementType::FLOAT32 ? 4
+                                                                   : 8;
+        const std::string column = type == TVectorElementType::FLOAT16   ? "vectors16"
+                                   : type == TVectorElementType::FLOAT32 ? "vectors32"
+                                                                         : "vectors64";
+        std::string bytes(4 * width, '\0');
+        for (const size_t i : {0U, 3U}) {
+            if (width == 2) LittleEndian::Store16(bytes.data() + i * width, 0x3c00);
+            if (width == 4)
+                LittleEndian::Store32(bytes.data() + i * width, std::bit_cast<uint32_t>(1.0F));
+            if (width == 8)
+                LittleEndian::Store64(bytes.data() + i * width, std::bit_cast<uint64_t>(1.0));
+        }
+        for (const bool indexed : {false, true}) {
+            for (const bool filtered : {false, true}) {
+                SCOPED_TRACE(column + " indexed=" + std::to_string(indexed) +
+                             " filtered=" + std::to_string(filtered));
+                RuntimeProfile profile("multi_vector_search");
+                auto params = make_float32_vector_search_params({0, 0, 0}, 10, 0);
+                auto& request = params.lance_scan_params.external_search_request;
+                request.__set_schema_version(1);
+                request.vector_search_options.__set_use_index(indexed);
+                request.vector_search_options.__set_nprobes(1);
+                auto& search = request.search_query.vector_search;
+                search.__set_column(column);
+                search.__set_metric(indexed ? TVectorMetric::COSINE : TVectorMetric::L2);
+                auto& q = search.query_vector;
+                q.__set_dimension(2);
+                q.__set_num_vectors(2);
+                q.__set_element_type(type);
+                q.__set_values(bytes);
+                if (filtered) {
+                    TSearchFilter filter;
+                    filter.__set_format(TSearchFilterFormat::SQL);
+                    filter.__set_payload("row_id >= 2");
+                    request.__set_search_filter(filter);
+                    search.__set_offset(1);
+                    search.__set_top_k(2);
+                }
+                LanceTableReader reader;
+                ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+                ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+                Block block;
+                add_output_columns(&block, columns);
+                auto rows = read_vector_search_rows(&reader, &block);
+                ASSERT_EQ(filtered ? 2 : 4, rows.size());
+                // L2 is sum of per-query nearest squared distances; null/empty rows never rank.
+                if (!indexed) {
+                    const std::vector<std::pair<int64_t, float>> expected =
+                            filtered ? std::vector<std::pair<int64_t, float>> {{2, 6.0F}, {3, 8.0F}}
+                                     : std::vector<std::pair<int64_t, float>> {
+                                               {1, 0.0F}, {6, 2.0F}, {2, 6.0F}, {3, 8.0F}};
+                    EXPECT_EQ(expected, rows);
+                } else {
+                    std::sort(rows.begin(), rows.end());
+                    const std::vector<std::pair<int64_t, float>> expected =
+                            filtered ? std::vector<
+                                               std::pair<int64_t, float>> {{2, 1.0F},
+                                                                           {6,
+                                                                            2.0F - std::sqrt(2.0F)}}
+                                     : std::vector<std::pair<int64_t, float>> {
+                                               {1, 0.0F},
+                                               {2, 1.0F},
+                                               {3, 0.0F},
+                                               {6, 2.0F - std::sqrt(2.0F)}};
+                    // Row 6 was appended after index creation and must use the same score scale.
+                    for (size_t i = 0; i < rows.size(); ++i) {
+                        EXPECT_EQ(expected[i].first, rows[i].first);
+                        EXPECT_NEAR(expected[i].second, rows[i].second, 1e-5);
+                    }
+                }
+                EXPECT_TRUE(reader.close().ok());
+            }
+        }
+    }
+}
+
+std::vector<float> representative_multi_vector(int id, int subvector) {
+    std::vector<float> result(128);
+    for (int j = 0; j < 128; ++j) {
+        result[j] = ((id * 17 + subvector * 29 + j * 13 + j * j * 7 + id * j * 3) % 1009 - 504) /
+                    512.0F;
+    }
+    return result;
+}
+
+TEST(LanceTableReaderVectorSearchTest, MultiVectorSegmentTopKMatchesIndependentGlobalOracle) {
+    const auto first = representative_multi_vector(7, 0);
+    const auto second = representative_multi_vector(11, 1);
+    std::vector<float> query = first;
+    query.insert(query.end(), second.begin(), second.end());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const auto* kind : {"flat", "pq"}) {
+        const std::filesystem::path uri = std::string("./be/test/format_v2/table/lance/data/") +
+                                          "multivector_ivf_" + kind + ".lance";
+        LanceFixtureInfo fixture;
+        ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+        ASSERT_EQ(3, fixture.fragment_ids.size());
+        std::vector<std::string> segments;
+        ASSERT_TRUE(get_index_segment_uuids(uri, "vectors_idx", &segments).ok());
+        ASSERT_EQ(2, segments.size());
+        for (const bool filtered : {false, true}) {
+            std::vector<std::pair<int64_t, float>> oracle;
+            for (int id = 1; id <= 768; ++id) {
+                if (filtered && id % 5 != 0) continue;
+                double score = 0;
+                for (const auto& q : {first, second}) {
+                    double best = std::numeric_limits<double>::infinity();
+                    for (int sub = 0; sub < 1 + id % 4; ++sub) {
+                        const auto v = representative_multi_vector(id, sub);
+                        double dot = 0, q_norm = 0, v_norm = 0;
+                        for (size_t j = 0; j < v.size(); ++j) {
+                            dot += static_cast<double>(q[j]) * v[j];
+                            q_norm += static_cast<double>(q[j]) * q[j];
+                            v_norm += static_cast<double>(v[j]) * v[j];
+                        }
+                        best = std::min(best, 1.0 - dot / std::sqrt(q_norm * v_norm));
+                    }
+                    score += best;
+                }
+                oracle.emplace_back(id, static_cast<float>(score));
+            }
+            const auto order = [](const auto& a, const auto& b) {
+                return std::tie(a.second, a.first) < std::tie(b.second, b.first);
+            };
+            std::sort(oracle.begin(), oracle.end(), order);
+            for (const int batch_size : {1, 64}) {
+                TQueryOptions options;
+                options.__set_batch_size(batch_size);
+                state.set_query_options(options);
+                std::vector<std::pair<int64_t, float>> candidates;
+                for (int split = 0; split < 3; ++split) {
+                    SCOPED_TRACE(std::string(kind) + " split=" + std::to_string(split) +
+                                 " filtered=" + std::to_string(filtered) +
+                                 " batch=" + std::to_string(batch_size));
+                    RuntimeProfile profile("multi_vector_segment_topk");
+                    // FE sends top_k + offset to each split, and applies offset only after merging.
+                    auto params = make_float32_vector_search_params({0, 0, 0}, 20, 0);
+                    auto& request = params.lance_scan_params.external_search_request;
+                    request.__set_schema_version(1);
+                    request.vector_search_options.__set_use_index(split < 2);
+                    request.vector_search_options.__set_nprobes(4);
+                    request.vector_search_options.__set_refine_factor(64);
+                    auto& search = request.search_query.vector_search;
+                    search.__set_column("vectors");
+                    search.__set_metric(TVectorMetric::COSINE);
+                    search.query_vector.__set_dimension(128);
+                    search.query_vector.__set_num_vectors(2);
+                    std::string bytes(query.size() * sizeof(float), '\0');
+                    for (size_t j = 0; j < query.size(); ++j) {
+                        LittleEndian::Store32(bytes.data() + j * sizeof(float),
+                                              std::bit_cast<uint32_t>(query[j]));
+                    }
+                    search.query_vector.__set_values(bytes);
+                    if (filtered) {
+                        TSearchFilter filter;
+                        filter.__set_format(TSearchFilterFormat::SQL);
+                        filter.__set_payload("row_id % 5 = 0");
+                        request.__set_search_filter(filter);
+                    }
+                    auto range =
+                            make_lance_range(uri, fixture.version, {fixture.fragment_ids[split]});
+                    if (split < 2) {
+                        range.table_format_params.lance_params.__set_index_segment_uuids(
+                                {segments[split]});
+                    }
+                    LanceTableReader reader;
+                    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+                    ASSERT_TRUE(prepare_range(&reader, range).ok());
+                    Block block;
+                    add_output_columns(&block, columns);
+                    auto rows = read_vector_search_rows(&reader, &block);
+                    ASSERT_EQ(20, rows.size());
+                    for (const auto& row : rows) EXPECT_EQ(split, (row.first - 1) % 3);
+                    candidates.insert(candidates.end(), rows.begin(), rows.end());
+                    EXPECT_TRUE(reader.close().ok());
+                }
+                std::sort(candidates.begin(), candidates.end(), order);
+                std::set<int64_t> unique;
+                for (const auto& row : candidates) ASSERT_TRUE(unique.insert(row.first).second);
+                for (int offset : {0, 7}) {
+                    for (int j = 0; j < 13; ++j) {
+                        EXPECT_EQ(oracle[offset + j].first, candidates[offset + j].first);
+                        EXPECT_NEAR(oracle[offset + j].second, candidates[offset + j].second, 2e-5);
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBatchIndependence) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const int batch_size : {1, 2, 1024}) {
+        TQueryOptions options;
+        options.__set_batch_size(batch_size);
+        state.set_query_options(options);
+        for (const bool indexed : {false, true}) {
+            SCOPED_TRACE("batch_size=" + std::to_string(batch_size) +
+                         " indexed=" + std::to_string(indexed));
+            auto params = make_float32_vector_search_params({0, 0, 0}, 1, 0);
+            auto& request = params.lance_scan_params.external_search_request;
+            request.__set_schema_version(1);
+            request.vector_search_options.__set_use_index(indexed);
+            request.vector_search_options.__set_nprobes(1);
+            auto& search = request.search_query.vector_search;
+            search.__set_column(indexed ? "batch_vectors" : "tiny_vectors");
+            search.__set_metric(indexed ? TVectorMetric::COSINE : TVectorMetric::L2);
+            auto& query = search.query_vector;
+            query.__set_dimension(2);
+            query.__set_num_vectors(indexed ? 2 : 1);
+            std::string values(indexed ? 16 : 8, '\0');
+            if (indexed) {
+                LittleEndian::Store32(values.data(), std::bit_cast<uint32_t>(1.0F));
+                LittleEndian::Store32(values.data() + 12, std::bit_cast<uint32_t>(1.0F));
+            }
+            query.__set_values(values);
+            RuntimeProfile profile("multi_vector_top_one");
+            LanceTableReader reader;
+            ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+            ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+            Block block;
+            add_output_columns(&block, columns);
+            auto rows = read_vector_search_rows(&reader, &block);
+            ASSERT_EQ(1, rows.size());
+            EXPECT_EQ(indexed ? 3 : 2, rows[0].first);
+            EXPECT_NEAR(indexed ? 2.0F - std::sqrt(2.0F) : 1e-8F, rows[0].second,
+                        indexed ? 1e-6F : 1e-13F);
+            EXPECT_TRUE(reader.close().ok());
+        }
+    }
+}
+
+TEST(LanceTableReaderVectorSearchTest, MultiVectorCosineMasksUndefinedRows) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector_zero.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const bool indexed : {false, true}) {
+        for (const bool zero_query : {false, true}) {
+            auto params = make_float32_vector_search_params({0, 0, 0}, 10, 0);
+            auto& request = params.lance_scan_params.external_search_request;
+            request.__set_schema_version(1);
+            request.vector_search_options.__set_use_index(indexed);
+            request.vector_search_options.__set_nprobes(1);
+            auto& search = request.search_query.vector_search;
+            search.__set_column("vectors");
+            search.__set_metric(TVectorMetric::COSINE);
+            auto& query = search.query_vector;
+            query.__set_dimension(2);
+            query.__set_num_vectors(2);
+            std::string values(16, '\0');
+            if (!zero_query) {
+                LittleEndian::Store32(values.data(), std::bit_cast<uint32_t>(1.0F));
+            }
+            LittleEndian::Store32(values.data() + 12, std::bit_cast<uint32_t>(1.0F));
+            query.__set_values(values);
+            RuntimeProfile profile("multi_vector_cosine_zero_norm");
+            LanceTableReader reader;
+            ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+            ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+            Block block;
+            add_output_columns(&block, columns);
+            auto rows = read_vector_search_rows(&reader, &block);
+            std::sort(rows.begin(), rows.end());
+            // Undefined pairs cannot poison valid matches in the same row or other fragments.
+            const std::vector<std::pair<int64_t, float>> expected =
+                    zero_query ? std::vector<std::pair<int64_t, float>> {}
+                               : std::vector<std::pair<int64_t, float>> {{2, 1}, {3, 1}};
+            EXPECT_EQ(expected, rows);
+            EXPECT_TRUE(reader.close().ok());
+        }
+    }
+}
+
+TEST(LanceTableReaderVectorSearchTest, MultiVectorDefaultMetricIsConsistentAcrossFragments) {
+    const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    std::vector<std::pair<int64_t, float>> all_rows;
+    for (const auto fragment : fixture.fragment_ids) {
+        auto params = make_float32_vector_search_params({0, 0, 0}, 10, 0);
+        auto& request = params.lance_scan_params.external_search_request;
+        request.__set_schema_version(1);
+        request.vector_search_options.__set_use_index(true);
+        auto& search = request.search_query.vector_search;
+        search.__set_column("vectors32");
+        search.__isset.metric = false;
+        auto& query = search.query_vector;
+        query.__set_dimension(2);
+        query.__set_num_vectors(1);
+        std::string values(8, '\0');
+        LittleEndian::Store32(values.data(), std::bit_cast<uint32_t>(1.0F));
+        query.__set_values(values);
+        RuntimeProfile profile("multi_vector_default_metric");
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+        ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, {fragment}).ok());
+        Block block;
+        add_output_columns(&block, columns);
+        auto rows = read_vector_search_rows(&reader, &block);
+        all_rows.insert(all_rows.end(), rows.begin(), rows.end());
+        EXPECT_TRUE(reader.close().ok());
+    }
+    std::sort(all_rows.begin(), all_rows.end());
+    EXPECT_EQ((std::vector<std::pair<int64_t, float>> {{1, 0}, {2, 1}, {3, 4}, {6, 1}}), all_rows);
+}
+
+TEST(LanceTableReaderVectorSearchTest, MultiVectorRejectsActualNullAndNonFiniteElements) {
+    const std::filesystem::path uri =
+            "./be/test/format_v2/table/lance/data/multivector_invalid_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(uri, &fixture).ok());
+    const Columns columns {projected_column("_distance", TYPE_FLOAT, true)};
+    TQueryGlobals globals;
+    RuntimeState state(globals);
+    for (const auto& [bits, type, width] : {std::tuple {16, TVectorElementType::FLOAT16, 2},
+                                            std::tuple {32, TVectorElementType::FLOAT32, 4},
+                                            std::tuple {64, TVectorElementType::FLOAT64, 8}}) {
+        for (const auto* prefix : {"null", "nan", "inf"}) {
+            const auto column = std::string(prefix) + std::to_string(bits);
+            SCOPED_TRACE(column);
+            auto params = make_float32_vector_search_params({0, 0, 0}, 1, 0);
+            auto& request = params.lance_scan_params.external_search_request;
+            request.__set_schema_version(1);
+            auto& search = request.search_query.vector_search;
+            search.__set_column(column);
+            search.query_vector.__set_dimension(3);
+            search.query_vector.__set_element_type(type);
+            search.query_vector.__set_num_vectors(1);
+            search.query_vector.__set_values(std::string(3 * width, '\0'));
+            RuntimeProfile profile("multi_vector_invalid_values");
+            LanceTableReader reader;
+            ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
+            ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+            Block block;
+            add_output_columns(&block, columns);
+            bool eos = false;
+            auto status = reader.get_block(&block, &eos);
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("finite, non-null elements"), std::string::npos);
+            EXPECT_TRUE(reader.close().ok());
+        }
+    }
+}
+
 TEST(LanceTableReaderVectorSearchTest, SearchesWholeSnapshotWithOffsetAndDistance) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";
@@ -362,12 +1228,6 @@ TEST(LanceTableReaderVectorSearchTest, SearchesWholeSnapshotWithOffsetAndDistanc
     EXPECT_FLOAT_EQ(1.0F, rows[0].second);
     EXPECT_EQ(4, rows[1].first);
     EXPECT_FLOAT_EQ(8.25F, rows[1].second);
-    ASSERT_NE(profile.get_info_string("LanceTopK"), nullptr);
-    EXPECT_EQ("2", *profile.get_info_string("LanceTopK"));
-    ASSERT_NE(profile.get_info_string("LanceOffset"), nullptr);
-    EXPECT_EQ("1", *profile.get_info_string("LanceOffset"));
-    ASSERT_NE(profile.get_info_string("LanceTopKPlusOffset"), nullptr);
-    EXPECT_EQ("3", *profile.get_info_string("LanceTopKPlusOffset"));
     EXPECT_TRUE(reader.close().ok());
 }
 
@@ -435,49 +1295,6 @@ TEST(LanceTableReaderVectorSearchTest, SearchesMultipleFragmentSplits) {
     }
     std::ranges::sort(row_ids);
     EXPECT_EQ((std::vector<int64_t> {1, 2, 3, 4}), row_ids);
-    ASSERT_NE(profile.get_counter("LancePlannedIndexSegmentCount"), nullptr);
-    EXPECT_EQ(0, profile.get_counter("LancePlannedIndexSegmentCount")->value());
-    ASSERT_NE(profile.get_counter("LancePlannedIndexedFragmentCount"), nullptr);
-    EXPECT_EQ(0, profile.get_counter("LancePlannedIndexedFragmentCount")->value());
-    ASSERT_NE(profile.get_counter("LancePlannedFlatSearchFragmentCount"), nullptr);
-    EXPECT_EQ(profile.get_counter("LancePlannedFlatSearchFragmentCount")->value(),
-              static_cast<int64_t>(fixture.fragment_ids.size()));
-    ASSERT_NE(profile.get_info_string("LanceTopK"), nullptr);
-    EXPECT_EQ("4", *profile.get_info_string("LanceTopK"));
-    ASSERT_NE(profile.get_info_string("LanceOffset"), nullptr);
-    EXPECT_EQ("0", *profile.get_info_string("LanceOffset"));
-    ASSERT_NE(profile.get_info_string("LanceTopKPlusOffset"), nullptr);
-    EXPECT_EQ("4", *profile.get_info_string("LanceTopKPlusOffset"));
-    EXPECT_NE(profile.get_counter("LanceDatasetOpenTime"), nullptr);
-    EXPECT_NE(profile.get_counter("LanceScannerConfigureTime"), nullptr);
-    EXPECT_NE(profile.get_counter("LanceScannerReadTime"), nullptr);
-    EXPECT_NE(profile.get_counter("LanceRowOffsetRangesScanned"), nullptr);
-    EXPECT_NE(profile.get_counter("LanceTaskWaitTime"), nullptr);
-    EXPECT_EQ(profile.get_counter("LanceExecutionIndexCacheMissLoads"), nullptr);
-    EXPECT_EQ(profile.get_counter("LanceRowIdTakeReadTime"), nullptr);
-    EXPECT_EQ(profile.get_counter("LanceRowIdFetchTotalTime"), nullptr);
-    EXPECT_EQ(profile.get_counter("LanceScalarIndexQueryTime"), nullptr);
-    EXPECT_EQ(profile.get_counter("LanceScalarIndexResultSerializationTime"), nullptr);
-    expect_lance_profile_hierarchy(&profile, {"LanceDatasetOpenTime",
-                                              "LanceScannerConfigureTime",
-                                              "LanceScannerReadTime",
-                                              "LanceArrowToDorisBlockTime",
-                                              "LanceExecutionIOOps",
-                                              "LanceExecutionIORequests",
-                                              "LanceExecutionIOBytesRead",
-                                              "LanceIndexPartitionCacheMissLoads",
-                                              "LanceIndexComparisons",
-                                              "LanceFragmentsScanned",
-                                              "LanceRowOffsetRangesScanned",
-                                              "LanceRowsScanned",
-                                              "LanceIVFPartitionsRanked",
-                                              "LanceIVFPartitionsSearched",
-                                              "LanceVectorIndexSegmentsSearched",
-                                              "LanceTaskWaitTime",
-                                              "LanceIVFPartitionRankingTime",
-                                              "LancePlannedIndexSegmentCount",
-                                              "LancePlannedIndexedFragmentCount",
-                                              "LancePlannedFlatSearchFragmentCount"});
     EXPECT_TRUE(reader.close().ok());
 }
 
@@ -581,13 +1398,6 @@ TEST(LanceTableReaderVectorSearchTest, ReturnsStableGlobalRowIdsAndFetchesPayloa
     EXPECT_EQ("extra", label_values.get_data_at(0).to_string());
     EXPECT_EQ("unit-x", label_values.get_data_at(1).to_string());
     EXPECT_EQ("extra", label_values.get_data_at(2).to_string());
-    EXPECT_NE(fetch_profile.get_counter("LanceDatasetOpenTime"), nullptr);
-    EXPECT_NE(fetch_profile.get_counter("LanceRowIdTakeReadTime"), nullptr);
-    EXPECT_NE(fetch_profile.get_counter("LanceArrowToDorisBlockTime"), nullptr);
-    EXPECT_NE(fetch_profile.get_counter("LanceRowIdFetchTotalTime"), nullptr);
-    expect_lance_profile_hierarchy(&fetch_profile,
-                                   {"LanceDatasetOpenTime", "LanceRowIdTakeReadTime",
-                                    "LanceArrowToDorisBlockTime", "LanceRowIdFetchTotalTime"});
     EXPECT_TRUE(payload_reader.close().ok());
 }
 
@@ -635,7 +1445,7 @@ TEST(LanceTableReaderVectorSearchTest, ReadsOnlyGlobalRowIdVirtualColumn) {
     EXPECT_TRUE(reader.close().ok());
 }
 
-TEST(LanceTableReaderFilterTest, PushesFilterOnNonProjectedColumn) {
+TEST(LanceTableReaderFilterTest, CombinesStaticSubstraitFilterWithRuntimeFilter) {
     const std::filesystem::path dataset_uri =
             "./be/test/format_v2/table/lance/data/all_types.lance";
     LanceFixtureInfo fixture;
@@ -711,6 +1521,419 @@ TEST(LanceTableReaderFilterTest, PushesFilterOnNonProjectedColumn) {
     }
     std::ranges::sort(labels);
     EXPECT_EQ((std::vector<std::string> {"extra", "mixed"}), labels);
+    EXPECT_TRUE(reader.close().ok());
+
+    // The static Substrait prefilter and a later runtime filter must both remain active. Static
+    // row_id >= 3 yields {3, 4}; runtime row_id IN (2, 4) yields {2, 4}; their intersection is {4}.
+    std::string combined_substrait_filter;
+    ASSERT_TRUE(base64_decode(substrait_filter_base64, &combined_substrait_filter));
+    TLanceScanParams combined_lance_scan_params;
+    combined_lance_scan_params.__set_lance_substrait_filter(std::move(combined_substrait_filter));
+    TFileScanRangeParams combined_scan_params;
+    combined_scan_params.__set_lance_scan_params(std::move(combined_lance_scan_params));
+    const Columns row_id_columns {projected_column("row_id", TYPE_BIGINT, false)};
+    RuntimeProfile combined_profile("lance_substrait_and_runtime_filter_fixture");
+    const auto combined_runtime_filter = create_int64_runtime_in_conjunct("row_id", {2, 4}, 42);
+
+    LanceTableReader combined_reader;
+    ASSERT_TRUE(init_reader(&combined_reader, row_id_columns, &state, &combined_profile,
+                            &combined_scan_params, {combined_runtime_filter})
+                        .ok());
+    ASSERT_TRUE(prepare_fixture(&combined_reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block combined_block;
+    add_output_columns(&combined_block, row_id_columns);
+    std::vector<int64_t> combined_row_ids;
+    eos = false;
+    while (!eos) {
+        ASSERT_TRUE(combined_reader.get_block(&combined_block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& row_ids =
+                assert_cast<const ColumnInt64&>(*combined_block.get_by_position(0).column);
+        combined_row_ids.insert(combined_row_ids.end(), row_ids.get_data().begin(),
+                                row_ids.get_data().end());
+    }
+    EXPECT_EQ((std::vector<int64_t> {4}), combined_row_ids);
+    EXPECT_TRUE(combined_reader.close().ok());
+}
+
+TEST(LanceTableReaderScalarSegmentTest, FiltersIndexedAndUncoveredDomainsWithoutLosingRows) {
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    for (const auto index_type : {LANCE_SCALAR_BTREE, LANCE_SCALAR_BITMAP}) {
+        SCOPED_TRACE(index_type == LANCE_SCALAR_BTREE ? "BTREE" : "BITMAP");
+        const auto dataset_uri = std::filesystem::temp_directory_path() /
+                                 ("doris_lance_scalar_segment_" + std::to_string(unique_suffix) +
+                                  "_" + std::to_string(index_type) + ".lance");
+        Defer cleanup {[&] {
+            std::error_code error;
+            std::filesystem::remove_all(dataset_uri, error);
+        }};
+        const auto schema = arrow::schema({arrow::field("row_id", arrow::int64(), false)});
+        for (int64_t first_id : {1, 3}) {
+            arrow::Int64Builder values;
+            ASSERT_TRUE(values.AppendValues({first_id, first_id + 1}).ok());
+            auto array = values.Finish();
+            ASSERT_TRUE(array.ok());
+            auto batch = arrow::RecordBatch::Make(schema, 2, {std::move(array).ValueUnsafe()});
+            auto batches = arrow::RecordBatchReader::Make({batch}, schema);
+            ASSERT_TRUE(batches.ok());
+            ArrowArrayStream stream {};
+            ASSERT_TRUE(
+                    arrow::ExportRecordBatchReader(std::move(batches).ValueUnsafe(), &stream).ok());
+            auto dataset = ::lance::Dataset::write(
+                    dataset_uri.string(), &stream,
+                    first_id == 1 ? ::lance::WriteMode::Create : ::lance::WriteMode::Append);
+            if (first_id == 1) {
+                // The second append remains uncovered by this index segment.
+                dataset.create_scalar_index("row_id", index_type, "row_id_idx");
+            }
+        }
+        LanceFixtureInfo fixture;
+        ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+        ASSERT_EQ(2, fixture.fragment_ids.size());
+        std::vector<std::string> segments;
+        ASSERT_TRUE(get_index_segment_uuids(dataset_uri, "row_id_idx", &segments).ok());
+        ASSERT_EQ(1, segments.size());
+
+        const auto read_domain = [&](const std::vector<int64_t>& fragments, bool use_segment,
+                                     const std::vector<int64_t>& expected) {
+            SCOPED_TRACE(::testing::PrintToString(fragments));
+            SCOPED_TRACE(use_segment ? "selected segment" : "scalar index disabled");
+            TQueryGlobals globals;
+            RuntimeState state(globals);
+            RuntimeProfile profile("lance_scalar_segment");
+            TFileScanRangeParams scan_params;
+            const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+            LanceTableReader reader;
+            auto filter = create_int64_runtime_in_conjunct("row_id", {2, 4}, 41);
+            ASSERT_TRUE(
+                    init_reader(&reader, columns, &state, &profile, &scan_params, {filter}).ok());
+            auto range = make_lance_range(dataset_uri, fixture.version, fragments);
+            if (use_segment) {
+                range.table_format_params.lance_params.__set_index_segment_uuids(segments);
+            } else {
+                range.table_format_params.lance_params.__set_use_scalar_index(false);
+            }
+            ASSERT_TRUE(prepare_range(&reader, std::move(range)).ok());
+            Block block;
+            add_output_columns(&block, columns);
+            std::vector<int64_t> actual;
+            bool eos = false;
+            while (!eos) {
+                auto status = reader.get_block(&block, &eos);
+                ASSERT_TRUE(status.ok()) << status.to_string();
+                if (!eos) {
+                    const auto& ids =
+                            assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+                    actual.insert(actual.end(), ids.get_data().begin(), ids.get_data().end());
+                }
+            }
+            std::ranges::sort(actual);
+            EXPECT_EQ(expected, actual);
+            EXPECT_TRUE(reader.close().ok());
+        };
+        read_domain({fixture.fragment_ids[0]}, true, {2});
+        read_domain({fixture.fragment_ids[1]}, false, {4});
+        // A segment which cannot cover the whole task must filter the entire explicit domain.
+        read_domain(fixture.fragment_ids, true, {2, 4});
+        // Disabling the index must produce the same rows in each read domain.
+        read_domain({fixture.fragment_ids[0]}, false, {2});
+        read_domain(fixture.fragment_ids, false, {2, 4});
+    }
+}
+
+TEST(LanceTableReaderScalarSegmentTest, RejectsInvalidSegmentAssignments) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+    const auto check_invalid = [&](TLanceFileDesc params, const std::string& message) {
+        TQueryGlobals globals;
+        RuntimeState state(globals);
+        RuntimeProfile profile("lance_invalid_scalar_segment");
+        TFileScanRangeParams scan_params;
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, {projected_column("row_id", TYPE_BIGINT, false)}, &state,
+                                &profile, &scan_params)
+                            .ok());
+        auto range = make_lance_range(dataset_uri, fixture.version, fixture.fragment_ids);
+        range.table_format_params.__set_lance_params(std::move(params));
+        auto status = prepare_range(&reader, std::move(range));
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find(message), std::string::npos) << status.to_string();
+        EXPECT_TRUE(reader.close().ok());
+    };
+    auto params = make_lance_range(dataset_uri, fixture.version, fixture.fragment_ids)
+                          .table_format_params.lance_params;
+    params.__set_index_segment_uuids({"too-short"});
+    check_invalid(params, "16 bytes");
+    params.__set_index_segment_uuids({std::string(16, 'a'), std::string(16, 'b')});
+    check_invalid(params, "only one scalar index segment");
+    params.__set_index_segment_uuids({std::string(16, 'a')});
+    params.__set_fragment_ids({});
+    check_invalid(params, "nonempty fragment ids");
+    params.__set_fragment_ids(fixture.fragment_ids);
+    params.__set_version(0);
+    check_invalid(params, "fixed version");
+    params.__set_version(fixture.version);
+    params.__set_use_scalar_index(false);
+    check_invalid(params, "use_scalar_index=false");
+}
+
+TEST(LanceTableReaderFilterTest, PushesRuntimeInFilterIntoLanceScanner) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryOptions query_options;
+    query_options.__set_batch_size(4);
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("lance_runtime_filter_pushdown_fixture");
+    TFileScanRangeParams scan_params;
+    const auto runtime_filter = create_int64_runtime_in_conjunct("row_id", {2, 4}, 41);
+
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, {runtime_filter}).ok());
+    ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    std::vector<int64_t> actual_row_ids;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& row_ids = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+        actual_row_ids.insert(actual_row_ids.end(), row_ids.get_data().begin(),
+                              row_ids.get_data().end());
+    }
+    std::ranges::sort(actual_row_ids);
+    EXPECT_EQ((std::vector<int64_t> {2, 4}), actual_row_ids);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderFilterTest, SkipsNullAwareRuntimeRangeBeforeLanceScanner) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_null_aware_runtime_filter_fixture");
+    TFileScanRangeParams scan_params;
+    const VExprContextSPtrs runtime_filters {
+            create_runtime_range_conjunct<TYPE_BIGINT>("bigint_value", TExprOpcode::GE,
+                                                       std::numeric_limits<int64_t>::lowest(),
+                                                       std::make_shared<DataTypeInt64>(), 43, true),
+            create_runtime_range_conjunct<TYPE_BIGINT>("bigint_value", TExprOpcode::LE,
+                                                       std::numeric_limits<int64_t>::max(),
+                                                       std::make_shared<DataTypeInt64>(), 43, true),
+    };
+
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, runtime_filters).ok());
+    ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    std::vector<int64_t> row_ids;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (!eos) {
+            const auto& values = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+            row_ids.insert(row_ids.end(), values.get_data().begin(), values.get_data().end());
+        }
+    }
+    std::ranges::sort(row_ids);
+    EXPECT_EQ((std::vector<int64_t> {1, 2, 3, 4}), row_ids);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderFilterTest, SkipsUnsafeStringRuntimeFiltersBeforeLanceCStringBoundary) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_unsafe_string_runtime_filter_fixture");
+    TFileScanRangeParams scan_params;
+    const VExprContextSPtrs runtime_filters {
+            create_string_runtime_in_conjunct("text_value", std::string("a\0b", 3), 44),
+            create_string_runtime_in_conjunct("text_value", std::string(1, static_cast<char>(0xff)),
+                                              45),
+    };
+
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, runtime_filters).ok());
+    ASSERT_TRUE(prepare_fixture(&reader, dataset_uri, fixture, fixture.fragment_ids).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (!eos) {
+            rows += block.rows();
+        }
+    }
+    EXPECT_EQ(4U, rows);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderFilterTest, SkipsTimestampNanoRuntimeFilterBeforeMaterialization) {
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto dataset_uri =
+            std::filesystem::temp_directory_path() /
+            ("doris_lance_timestamp_nano_rf_" + std::to_string(unique_suffix) + ".lance");
+    Defer cleanup {[&] {
+        std::error_code error;
+        std::filesystem::remove_all(dataset_uri, error);
+    }};
+
+    arrow::Int64Builder row_id_builder;
+    ASSERT_TRUE(row_id_builder.Append(1).ok());
+    std::shared_ptr<arrow::Array> row_ids;
+    ASSERT_TRUE(row_id_builder.Finish(&row_ids).ok());
+    const auto timestamp_type = arrow::timestamp(arrow::TimeUnit::NANO);
+    arrow::TimestampBuilder timestamp_builder(timestamp_type, arrow::default_memory_pool());
+    ASSERT_TRUE(timestamp_builder.Append(123456789).ok());
+    std::shared_ptr<arrow::Array> timestamps;
+    ASSERT_TRUE(timestamp_builder.Finish(&timestamps).ok());
+    const auto schema = arrow::schema({arrow::field("row_id", arrow::int64()),
+                                       arrow::field("timestamp_value", timestamp_type)});
+    ASSERT_TRUE(write_lance_record_batch(dataset_uri,
+                                         arrow::RecordBatch::Make(schema, 1, {row_ids, timestamps}))
+                        .ok());
+
+    DateV2Value<DateTimeV2ValueType> bound;
+    bound.unchecked_set_time(1970, 1, 1, 0, 0, 0, 123456);
+    const auto runtime_filter = create_runtime_range_conjunct<TYPE_DATETIMEV2>(
+            "timestamp_value", TExprOpcode::LE, bound, std::make_shared<DataTypeDateTimeV2>(6), 46);
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("timestamp_value",
+                             make_nullable(std::make_shared<DataTypeDateTimeV2>(6))),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_timestamp_nano_runtime_filter_fixture");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, {runtime_filter}).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(1U, block.rows());
+    const auto& values = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+    EXPECT_EQ(1, values.get_data()[0]);
+    const auto& timestamp = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    // The physical value has .123456789, while Doris materialization truncates it to .123456.
+    // Therefore the residual <= .123456 accepts this row and the pre-materialization SQL must not
+    // remove it.
+    EXPECT_EQ("1970-01-01 00:00:00.123456", columns[1].type->to_string(timestamp, 0));
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderFilterTest, SkipsPhysicalNumericTypesUnsupportedByPinnedPlanner) {
+    const auto unique_suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto dataset_uri =
+            std::filesystem::temp_directory_path() /
+            ("doris_lance_unsupported_numeric_rf_" + std::to_string(unique_suffix) + ".lance");
+    Defer cleanup {[&] {
+        std::error_code error;
+        std::filesystem::remove_all(dataset_uri, error);
+    }};
+
+    arrow::Int64Builder row_id_builder;
+    ASSERT_TRUE(row_id_builder.Append(1).ok());
+    std::shared_ptr<arrow::Array> row_ids;
+    ASSERT_TRUE(row_id_builder.Finish(&row_ids).ok());
+    arrow::HalfFloatBuilder half_float_builder;
+    ASSERT_TRUE(half_float_builder.Append(0x3E00).ok());
+    std::shared_ptr<arrow::Array> half_floats;
+    ASSERT_TRUE(half_float_builder.Finish(&half_floats).ok());
+    const auto scaled_decimal_type = arrow::decimal128(9, 2);
+    arrow::Decimal128Builder scaled_decimal_builder(scaled_decimal_type,
+                                                    arrow::default_memory_pool());
+    ASSERT_TRUE(scaled_decimal_builder.Append(arrow::Decimal128(12345)).ok());
+    std::shared_ptr<arrow::Array> scaled_decimals;
+    ASSERT_TRUE(scaled_decimal_builder.Finish(&scaled_decimals).ok());
+    const auto wide_decimal_type = arrow::decimal128(38, 0);
+    arrow::Decimal128Builder wide_decimal_builder(wide_decimal_type, arrow::default_memory_pool());
+    const uint64_t wide_value = static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1;
+    ASSERT_TRUE(wide_decimal_builder.Append(arrow::Decimal128(0, wide_value)).ok());
+    std::shared_ptr<arrow::Array> wide_decimals;
+    ASSERT_TRUE(wide_decimal_builder.Finish(&wide_decimals).ok());
+    arrow::UInt64Builder uint64_builder;
+    ASSERT_TRUE(uint64_builder.Append(wide_value).ok());
+    std::shared_ptr<arrow::Array> uint64_values;
+    ASSERT_TRUE(uint64_builder.Finish(&uint64_values).ok());
+    const auto schema = arrow::schema({
+            arrow::field("row_id", arrow::int64()),
+            arrow::field("half_float", arrow::float16()),
+            arrow::field("scaled_decimal", scaled_decimal_type),
+            arrow::field("wide_decimal", wide_decimal_type),
+            arrow::field("wide_uint64", arrow::uint64()),
+    });
+    ASSERT_TRUE(
+            write_lance_record_batch(
+                    dataset_uri, arrow::RecordBatch::Make(schema, 1,
+                                                          {row_ids, half_floats, scaled_decimals,
+                                                           wide_decimals, uint64_values}))
+                    .ok());
+
+    const auto doris_wide_value = static_cast<Int128>(wide_value);
+    const VExprContextSPtrs runtime_filters {
+            create_typed_runtime_in_conjunct<TYPE_FLOAT>("half_float", 1.5F,
+                                                         std::make_shared<DataTypeFloat32>(), 47),
+            create_typed_runtime_in_conjunct<TYPE_DECIMAL32>(
+                    "scaled_decimal", Decimal32(12345), std::make_shared<DataTypeDecimal32>(9, 2),
+                    48),
+            create_typed_runtime_in_conjunct<TYPE_DECIMAL128I>(
+                    "wide_decimal", Decimal128V3(doris_wide_value),
+                    std::make_shared<DataTypeDecimal128>(38, 0), 49),
+            create_typed_runtime_in_conjunct<TYPE_LARGEINT>("wide_uint64", doris_wide_value,
+                                                            std::make_shared<DataTypeInt128>(), 50),
+    };
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_unsupported_numeric_runtime_filter_fixture");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(
+            init_reader(&reader, columns, &state, &profile, &scan_params, runtime_filters).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    EXPECT_EQ(1U, block.rows());
     EXPECT_TRUE(reader.close().ok());
 }
 
@@ -860,6 +2083,49 @@ DataTypePtr nullable_type(PrimitiveType type, int precision = 0, int scale = 0) 
     return DataTypeFactory::instance().create_data_type(type, true, precision, scale);
 }
 
+// Creates an Arrow Duration array with one value and one null.
+std::shared_ptr<arrow::Array> make_duration_array(arrow::TimeUnit::type unit, int64_t value) {
+    arrow::DurationBuilder builder(arrow::duration(unit), arrow::default_memory_pool());
+    EXPECT_TRUE(builder.Append(value).ok());
+    EXPECT_TRUE(builder.AppendNull().ok());
+    std::shared_ptr<arrow::DurationArray> array;
+    EXPECT_TRUE(builder.Finish(&array).ok());
+    return array;
+}
+
+// Creates a Lance BFloat16 array with one vector and one null.
+std::shared_ptr<arrow::Array> make_bfloat16_vector_array() {
+    auto values = std::make_shared<arrow::FixedSizeBinaryBuilder>(arrow::fixed_size_binary(2));
+    arrow::FixedSizeListBuilder builder(arrow::default_memory_pool(), values, 2);
+    EXPECT_TRUE(builder.Append().ok());
+    const std::array<uint8_t, 2> one {0x80, 0x3F};
+    const std::array<uint8_t, 2> two {0x00, 0x40};
+    EXPECT_TRUE(values->Append(one.data()).ok());
+    EXPECT_TRUE(values->Append(two.data()).ok());
+    EXPECT_TRUE(builder.AppendNull().ok());
+    std::shared_ptr<arrow::FixedSizeListArray> array;
+    EXPECT_TRUE(builder.Finish(&array).ok());
+    return array;
+}
+
+// Creates a scalar Lance BFloat16 array from raw 16-bit values.
+std::shared_ptr<arrow::FixedSizeBinaryArray> make_bfloat16_array(
+        const std::vector<std::optional<uint16_t>>& values) {
+    arrow::FixedSizeBinaryBuilder builder(arrow::fixed_size_binary(2));
+    for (const auto& value : values) {
+        if (!value.has_value()) {
+            EXPECT_TRUE(builder.AppendNull().ok());
+            continue;
+        }
+        std::array<uint8_t, sizeof(uint16_t)> bytes {};
+        LittleEndian::Store16(bytes.data(), *value);
+        EXPECT_TRUE(builder.Append(bytes.data()).ok());
+    }
+    std::shared_ptr<arrow::FixedSizeBinaryArray> array;
+    EXPECT_TRUE(builder.Finish(&array).ok());
+    return array;
+}
+
 std::pair<size_t, size_t> array_range(const ColumnArray& array, size_t row) {
     const auto& offsets = array.get_offsets();
     return {row == 0 ? 0 : static_cast<size_t>(offsets[row - 1]),
@@ -910,17 +2176,25 @@ TEST(LanceTableReaderSchemaTest, FetchesSchemaWithoutFragmentIdsOrScanInitializa
               assert_cast<const DataTypeVarbinary&>(*binary_type).len());
 }
 
-TEST(LanceTableReaderSchemaTest, PreservesUnsupportedFieldsAndExtensionSemantics) {
-    const auto extension_metadata =
+// Verifies the additional mappings and preserves unknown extensions as unsupported.
+TEST(LanceTableReaderSchemaTest, MapsAdditionalTypesAndPreservesUnknownExtensions) {
+    const auto unknown_extension_metadata =
             arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"doris.test.extension"});
-    const auto extension_item =
-            arrow::field("item", arrow::float32())->WithMetadata(extension_metadata);
+    const auto json_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
+    const auto bfloat16_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto bfloat16_item = arrow::field("item", arrow::fixed_size_binary(2))
+                                       ->WithMetadata(bfloat16_extension_metadata);
     const auto arrow_schema = arrow::schema({
             arrow::field("row_id", arrow::int64()),
+            arrow::field("null_value", arrow::null()),
             arrow::field("duration", arrow::duration(arrow::TimeUnit::MILLI)),
-            arrow::field("json", arrow::utf8())->WithMetadata(extension_metadata),
+            arrow::field("json", arrow::utf8())->WithMetadata(json_extension_metadata),
+            arrow::field("bfloat16_vector", arrow::fixed_size_list(bfloat16_item, 4)),
             arrow::field("dictionary", arrow::dictionary(arrow::int16(), arrow::utf8())),
-            arrow::field("nested_extension", arrow::list(extension_item)),
+            arrow::field("unknown_extension", arrow::utf8())
+                    ->WithMetadata(unknown_extension_metadata),
             arrow::field("name", arrow::utf8()),
     });
 
@@ -928,19 +2202,685 @@ TEST(LanceTableReaderSchemaTest, PreservesUnsupportedFieldsAndExtensionSemantics
     std::vector<DataTypePtr> column_types;
     ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
 
-    EXPECT_EQ((std::vector<std::string> {"row_id", "duration", "json", "dictionary",
-                                         "nested_extension", "name"}),
+    EXPECT_EQ((std::vector<std::string> {"row_id", "null_value", "duration", "json",
+                                         "bfloat16_vector", "dictionary", "unknown_extension",
+                                         "name"}),
               column_names);
     ASSERT_EQ(column_names.size(), column_types.size());
     for (const auto& column_type : column_types) {
         ASSERT_NE(nullptr, column_type);
     }
     EXPECT_EQ(TYPE_BIGINT, column_types[0]->get_primitive_type());
-    EXPECT_EQ(INVALID_TYPE, column_types[1]->get_primitive_type());
-    EXPECT_EQ(INVALID_TYPE, column_types[2]->get_primitive_type());
-    EXPECT_EQ(INVALID_TYPE, column_types[3]->get_primitive_type());
-    EXPECT_EQ(INVALID_TYPE, column_types[4]->get_primitive_type());
-    EXPECT_EQ(TYPE_STRING, column_types[5]->get_primitive_type());
+    EXPECT_TRUE(column_types[1]->is_null_literal());
+    EXPECT_EQ(TYPE_BIGINT, column_types[2]->get_primitive_type());
+    EXPECT_EQ(TYPE_JSONB, column_types[3]->get_primitive_type());
+    ASSERT_EQ(TYPE_ARRAY, column_types[4]->get_primitive_type());
+    const auto& bfloat16_array =
+            assert_cast<const DataTypeArray&>(*remove_nullable(column_types[4]));
+    EXPECT_EQ(TYPE_FLOAT, bfloat16_array.get_nested_type()->get_primitive_type());
+    EXPECT_EQ(INVALID_TYPE, column_types[5]->get_primitive_type());
+    EXPECT_EQ(INVALID_TYPE, column_types[6]->get_primitive_type());
+    EXPECT_EQ(TYPE_STRING, column_types[7]->get_primitive_type());
+}
+
+// Verifies malformed storage for known extensions remains unsupported.
+TEST(LanceTableReaderSchemaTest, RejectsMalformedKnownExtensionStorage) {
+    const auto json_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
+    const auto bfloat16_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto arrow_schema = arrow::schema({
+            arrow::field("json", arrow::binary())->WithMetadata(json_extension_metadata),
+            arrow::field("bfloat16", arrow::fixed_size_binary(4))
+                    ->WithMetadata(bfloat16_extension_metadata),
+    });
+
+    std::vector<std::string> column_names;
+    std::vector<DataTypePtr> column_types;
+    ASSERT_TRUE(convert_arrow_schema_to_doris(arrow_schema, &column_names, &column_types).ok());
+    ASSERT_EQ(2, column_types.size());
+    for (const auto& column_type : column_types) {
+        ASSERT_NE(nullptr, column_type);
+        EXPECT_EQ(INVALID_TYPE, column_type->get_primitive_type());
+    }
+}
+
+// Verifies values, nullability, and precision when reading the additional types.
+TEST(LanceTableReaderTypeTest, ReadsAdditionalArrowAndLanceTypes) {
+    const auto json_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
+    const auto bfloat16_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto bfloat16_item = arrow::field("item", arrow::fixed_size_binary(2))
+                                       ->WithMetadata(bfloat16_extension_metadata);
+    const auto schema = arrow::schema({
+            arrow::field("null_value", arrow::null()),
+            arrow::field("duration_s", arrow::duration(arrow::TimeUnit::SECOND)),
+            arrow::field("duration_ms", arrow::duration(arrow::TimeUnit::MILLI)),
+            arrow::field("duration_us", arrow::duration(arrow::TimeUnit::MICRO)),
+            arrow::field("duration_ns", arrow::duration(arrow::TimeUnit::NANO)),
+            arrow::field("json_value", arrow::utf8())->WithMetadata(json_extension_metadata),
+            arrow::field("bfloat16_vector", arrow::fixed_size_list(bfloat16_item, 2)),
+    });
+
+    arrow::StringBuilder json_builder;
+    ASSERT_TRUE(json_builder.Append(R"({"engine":"doris"})").ok());
+    ASSERT_TRUE(json_builder.AppendNull().ok());
+    std::shared_ptr<arrow::StringArray> json_array;
+    ASSERT_TRUE(json_builder.Finish(&json_array).ok());
+
+    const auto record_batch =
+            arrow::RecordBatch::Make(schema, 2,
+                                     {
+                                             std::make_shared<arrow::NullArray>(2),
+                                             make_duration_array(arrow::TimeUnit::SECOND, 1),
+                                             make_duration_array(arrow::TimeUnit::MILLI, 1000),
+                                             make_duration_array(arrow::TimeUnit::MICRO, 1000000),
+                                             make_duration_array(arrow::TimeUnit::NANO, 1000000000),
+                                             json_array,
+                                             make_bfloat16_vector_array(),
+                                     });
+
+    const auto bfloat16_array_type =
+            make_nullable(std::make_shared<DataTypeArray>(nullable_type(TYPE_FLOAT)));
+    const Columns columns {
+            projected_column("null_value", nullable_type(TYPE_NULL)),
+            projected_column("duration_s", TYPE_BIGINT, true),
+            projected_column("duration_ms", TYPE_BIGINT, true),
+            projected_column("duration_us", TYPE_BIGINT, true),
+            projected_column("duration_ns", TYPE_BIGINT, true),
+            projected_column("json_value", TYPE_JSONB, true),
+            projected_column("bfloat16_vector", bfloat16_array_type),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_additional_types");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(2, rows);
+
+    const auto& null_values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    EXPECT_EQ((ColumnUInt8::Container {1, 1}), null_values.get_null_map_data());
+
+    const std::array<int64_t, 4> expected_durations {1, 1000, 1000000, 1000000000};
+    for (size_t column_idx = 0; column_idx < expected_durations.size(); ++column_idx) {
+        const auto& duration =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(column_idx + 1).column);
+        const auto& values = assert_cast<const ColumnInt64&>(duration.get_nested_column());
+        EXPECT_EQ(0, duration.get_null_map_data()[0]);
+        EXPECT_EQ(1, duration.get_null_map_data()[1]);
+        EXPECT_EQ(expected_durations[column_idx], values.get_data()[0]);
+    }
+
+    const auto& json_values = assert_cast<const ColumnNullable&>(*block.get_by_position(5).column);
+    EXPECT_EQ(0, json_values.get_null_map_data()[0]);
+    EXPECT_EQ(1, json_values.get_null_map_data()[1]);
+    EXPECT_EQ(R"({"engine":"doris"})", columns[5].type->to_string(json_values, 0));
+
+    const auto& vectors = assert_cast<const ColumnNullable&>(*block.get_by_position(6).column);
+    EXPECT_EQ(0, vectors.get_null_map_data()[0]);
+    EXPECT_EQ(1, vectors.get_null_map_data()[1]);
+    const auto& vector_values = assert_cast<const ColumnArray&>(vectors.get_nested_column());
+    EXPECT_EQ((ColumnArray::Offsets64 {2, 4}), vector_values.get_offsets());
+    const auto& bfloat16_values = assert_cast<const ColumnNullable&>(vector_values.get_data());
+    const auto& floats = assert_cast<const ColumnFloat32&>(bfloat16_values.get_nested_column());
+    EXPECT_FLOAT_EQ(1.0F, floats.get_data()[0]);
+    EXPECT_FLOAT_EQ(2.0F, floats.get_data()[1]);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+// Verifies sliced scalar arrays are compacted before Doris reads rows from offset zero.
+TEST(LanceTableReaderTypeTest, ReadsSlicedDurationAndJsonValues) {
+    const auto json_extension_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"arrow.json"});
+    const auto duration_type = arrow::duration(arrow::TimeUnit::MILLI);
+    const auto schema = arrow::schema({
+            arrow::field("duration", duration_type),
+            arrow::field("json_value", arrow::utf8())->WithMetadata(json_extension_metadata),
+    });
+
+    arrow::DurationBuilder duration_builder(duration_type, arrow::default_memory_pool());
+    ASSERT_TRUE(duration_builder.Append(111).ok());
+    ASSERT_TRUE(duration_builder.Append(222).ok());
+    ASSERT_TRUE(duration_builder.AppendNull().ok());
+    ASSERT_TRUE(duration_builder.Append(444).ok());
+    std::shared_ptr<arrow::DurationArray> durations;
+    ASSERT_TRUE(duration_builder.Finish(&durations).ok());
+
+    arrow::StringBuilder json_builder;
+    ASSERT_TRUE(json_builder.Append(R"({"sentinel":true})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"row":1})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"row":2})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"tail":true})").ok());
+    std::shared_ptr<arrow::StringArray> json_values;
+    ASSERT_TRUE(json_builder.Finish(&json_values).ok());
+
+    const auto record_batch =
+            arrow::RecordBatch::Make(schema, 2, {durations->Slice(1, 2), json_values->Slice(1, 2)});
+    const Columns columns {
+            projected_column("duration", TYPE_BIGINT, true),
+            projected_column("json_value", TYPE_JSONB, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_sliced_scalars");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(2, rows);
+
+    const auto& duration = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& duration_values = assert_cast<const ColumnInt64&>(duration.get_nested_column());
+    EXPECT_EQ((ColumnUInt8::Container {0, 1}), duration.get_null_map_data());
+    EXPECT_EQ(222, duration_values.get_data()[0]);
+
+    const auto& json = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_EQ((ColumnUInt8::Container {0, 0}), json.get_null_map_data());
+    EXPECT_EQ(R"({"row":1})", columns[1].type->to_string(json, 0));
+    EXPECT_EQ(R"({"row":2})", columns[1].type->to_string(json, 1));
+    EXPECT_TRUE(reader.close().ok());
+}
+
+// Verifies sliced nested registered JSON arrays are unwrapped before parent compaction.
+TEST(LanceTableReaderTypeTest, ReadsRegisteredJsonNestedInSlicedList) {
+    const auto json_type = arrow::extension::json();
+    const auto item_field = arrow::field("item", json_type);
+    const auto list_type = arrow::list(item_field);
+
+    arrow::StringBuilder json_builder;
+    ASSERT_TRUE(json_builder.Append(R"({"sentinel":true})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"row":1})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"row":2})").ok());
+    ASSERT_TRUE(json_builder.Append(R"({"tail":true})").ok());
+    std::shared_ptr<arrow::StringArray> json_storage;
+    ASSERT_TRUE(json_builder.Finish(&json_storage).ok());
+    const auto json_values = arrow::ExtensionType::WrapArray(json_type, json_storage);
+
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 1, 3, 4}).ok());
+    std::shared_ptr<arrow::Int32Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+    auto list_result = arrow::ListArray::FromArrays(list_type, *offsets, *json_values);
+    ASSERT_TRUE(list_result.ok()) << list_result.status().ToString();
+    const auto input = std::move(list_result).ValueUnsafe()->Slice(1, 1);
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(arrow::field("values", list_type),
+                                                             input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto normalized_list = std::dynamic_pointer_cast<arrow::ListArray>(normalized);
+    ASSERT_NE(nullptr, normalized_list);
+    EXPECT_EQ(0, normalized_list->offset());
+    ASSERT_EQ(2, normalized_list->values()->length());
+    const auto normalized_json =
+            std::dynamic_pointer_cast<arrow::StringArray>(normalized_list->values());
+    ASSERT_NE(nullptr, normalized_json);
+    EXPECT_EQ(R"({"row":1})", normalized_json->GetString(0));
+    EXPECT_EQ(R"({"row":2})", normalized_json->GetString(1));
+
+    const auto schema = arrow::schema({arrow::field("values", list_type)});
+    const auto record_batch = arrow::RecordBatch::Make(schema, 1, {input});
+    const auto doris_list_type =
+            make_nullable(std::make_shared<DataTypeArray>(nullable_type(TYPE_JSONB)));
+    const Columns columns {projected_column("values", doris_list_type)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_sliced_nested_json");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(1, rows);
+
+    const auto& nullable_list =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& list = assert_cast<const ColumnArray&>(nullable_list.get_nested_column());
+    EXPECT_EQ((ColumnArray::Offsets64 {2}), list.get_offsets());
+    const auto& items = assert_cast<const ColumnNullable&>(list.get_data());
+    const auto json_item_type = nullable_type(TYPE_JSONB);
+    EXPECT_EQ(R"({"row":1})", json_item_type->to_string(items, 0));
+    EXPECT_EQ(R"({"row":2})", json_item_type->to_string(items, 1));
+    EXPECT_TRUE(reader.close().ok());
+}
+
+// Verifies BFloat16 special values retain their exact Float32 bit patterns.
+TEST(LanceTableReaderTypeTest, ConvertsBFloat16SpecialValuesExactly) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto field = arrow::field("value", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const std::vector<std::optional<uint16_t>> input_bits {0x0000, 0x8000, 0x3F80, 0xBF80,
+                                                           0x7F80, 0xFF80, 0x7FC1, std::nullopt};
+    const std::array<uint32_t, 7> expected_bits {0x00000000, 0x80000000, 0x3F800000, 0xBF800000,
+                                                 0x7F800000, 0xFF800000, 0x7FC10000};
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(field, make_bfloat16_array(input_bits),
+                                                             &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(normalized);
+    ASSERT_NE(nullptr, floats);
+    ASSERT_EQ(input_bits.size(), static_cast<size_t>(floats->length()));
+    for (size_t index = 0; index < expected_bits.size(); ++index) {
+        ASSERT_FALSE(floats->IsNull(index));
+        EXPECT_EQ(expected_bits[index], std::bit_cast<uint32_t>(floats->Value(index)));
+    }
+    EXPECT_TRUE(floats->IsNull(expected_bits.size()));
+}
+
+// Verifies normalization honors the supplied pool when widening and compacting arrays.
+TEST(LanceTableReaderTypeTest, HonorsNormalizationMemoryPoolLimit) {
+    arrow::ProxyMemoryPool proxy_pool(arrow::default_memory_pool());
+    arrow::CappedMemoryPool capped_pool(&proxy_pool, 0);
+    std::shared_ptr<arrow::Array> normalized;
+
+    const auto bfloat16_metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto bfloat16_field =
+            arrow::field("value", arrow::fixed_size_binary(2))->WithMetadata(bfloat16_metadata);
+    const auto bfloat16_status = normalize_lance_arrow_array_for_test(
+            bfloat16_field, make_bfloat16_array({0x3F80}), &normalized, &capped_pool);
+    EXPECT_FALSE(bfloat16_status.ok());
+    EXPECT_NE(std::string::npos,
+              bfloat16_status.to_string().find("reserve Lance BFloat16 output failed"));
+
+    const auto duration_type = arrow::duration(arrow::TimeUnit::MILLI);
+    arrow::DurationBuilder duration_builder(duration_type, arrow::default_memory_pool());
+    ASSERT_TRUE(duration_builder.AppendValues({100, 200}).ok());
+    std::shared_ptr<arrow::DurationArray> durations;
+    ASSERT_TRUE(duration_builder.Finish(&durations).ok());
+    const auto duration_status =
+            normalize_lance_arrow_array_for_test(arrow::field("duration", duration_type),
+                                                 durations->Slice(1, 1), &normalized, &capped_pool);
+    EXPECT_FALSE(duration_status.ok());
+    EXPECT_NE(std::string::npos,
+              duration_status.to_string().find("reserve sliced Lance array builder failed"));
+}
+
+// Verifies nested BFloat16 fields are converted without rebuilding unaffected sibling data.
+TEST(LanceTableReaderTypeTest, ConvertsBFloat16NestedInStruct) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto value_field =
+            arrow::field("value", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const auto id_field = arrow::field("id", arrow::int32());
+    const auto bfloat16_values = make_bfloat16_array(
+            {std::optional<uint16_t> {0x3F80}, std::optional<uint16_t> {0xC020}});
+    arrow::Int32Builder id_builder;
+    ASSERT_TRUE(id_builder.AppendValues({7, 8}).ok());
+    std::shared_ptr<arrow::Int32Array> ids;
+    ASSERT_TRUE(id_builder.Finish(&ids).ok());
+    auto struct_result = arrow::StructArray::Make({bfloat16_values, ids}, {value_field, id_field});
+    ASSERT_TRUE(struct_result.ok()) << struct_result.status().ToString();
+    const auto input = std::move(struct_result).ValueUnsafe();
+    const auto field = arrow::field("record", input->type());
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(field, input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_NE(input.get(), normalized.get());
+    const auto normalized_struct = std::dynamic_pointer_cast<arrow::StructArray>(normalized);
+    ASSERT_NE(nullptr, normalized_struct);
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(normalized_struct->field(0));
+    ASSERT_NE(nullptr, floats);
+    EXPECT_FLOAT_EQ(1.0F, floats->Value(0));
+    EXPECT_FLOAT_EQ(-2.5F, floats->Value(1));
+    EXPECT_EQ(ids->data().get(), normalized_struct->field(1)->data().get());
+}
+
+// Verifies sliced List normalization converts only values visible through parent offsets.
+TEST(LanceTableReaderTypeTest, NormalizesVisibleBFloat16ValuesInSlicedList) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto item_field =
+            arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const auto values = make_bfloat16_array({0x3F80, 0x4000, 0x4040, 0x4080, 0x40A0, 0x40C0});
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 2, 5, 6}).ok());
+    std::shared_ptr<arrow::Int32Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+    auto list_result = arrow::ListArray::FromArrays(arrow::list(item_field), *offsets, *values);
+    ASSERT_TRUE(list_result.ok()) << list_result.status().ToString();
+    const auto input = std::move(list_result).ValueUnsafe()->Slice(1, 1);
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(
+            arrow::field("values", arrow::list(item_field)), input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto list = std::dynamic_pointer_cast<arrow::ListArray>(normalized);
+    ASSERT_NE(nullptr, list);
+    EXPECT_EQ(0, list->offset());
+    ASSERT_EQ(1, list->length());
+    EXPECT_EQ(0, list->value_offset(0));
+    EXPECT_EQ(3, list->value_offset(1));
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(list->values());
+    ASSERT_NE(nullptr, floats);
+    ASSERT_EQ(3, floats->length());
+    EXPECT_FLOAT_EQ(3.0F, floats->Value(0));
+    EXPECT_FLOAT_EQ(4.0F, floats->Value(1));
+    EXPECT_FLOAT_EQ(5.0F, floats->Value(2));
+}
+
+// Verifies sliced LargeList normalization rebases 64-bit offsets and trims child values.
+TEST(LanceTableReaderTypeTest, NormalizesVisibleBFloat16ValuesInSlicedLargeList) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto item_field =
+            arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const auto values = make_bfloat16_array({0x3F80, 0x4000, 0x4040, 0x4080, 0x40A0, 0x40C0});
+    arrow::Int64Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 1, 3, 6}).ok());
+    std::shared_ptr<arrow::Int64Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+    auto list_result =
+            arrow::LargeListArray::FromArrays(arrow::large_list(item_field), *offsets, *values);
+    ASSERT_TRUE(list_result.ok()) << list_result.status().ToString();
+    const auto input = std::move(list_result).ValueUnsafe()->Slice(1, 1);
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(
+            arrow::field("values", arrow::large_list(item_field)), input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto list = std::dynamic_pointer_cast<arrow::LargeListArray>(normalized);
+    ASSERT_NE(nullptr, list);
+    EXPECT_EQ(0, list->offset());
+    ASSERT_EQ(1, list->length());
+    EXPECT_EQ(0, list->value_offset(0));
+    EXPECT_EQ(2, list->value_offset(1));
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(list->values());
+    ASSERT_NE(nullptr, floats);
+    ASSERT_EQ(2, floats->length());
+    EXPECT_FLOAT_EQ(2.0F, floats->Value(0));
+    EXPECT_FLOAT_EQ(3.0F, floats->Value(1));
+}
+
+// Verifies sliced FixedSizeList normalization trims values using the fixed child width.
+TEST(LanceTableReaderTypeTest, NormalizesVisibleBFloat16ValuesInSlicedFixedSizeList) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto item_field =
+            arrow::field("item", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const auto values =
+            make_bfloat16_array({0x3F80, 0x4000, 0x4040, 0x4080, 0x40A0, 0x40C0, 0x40E0, 0x4100});
+    auto list_result = arrow::FixedSizeListArray::FromArrays(values, 2);
+    ASSERT_TRUE(list_result.ok()) << list_result.status().ToString();
+    const auto input = std::move(list_result).ValueUnsafe()->Slice(2, 1);
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(
+            arrow::field("values", arrow::fixed_size_list(item_field, 2)), input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto list = std::dynamic_pointer_cast<arrow::FixedSizeListArray>(normalized);
+    ASSERT_NE(nullptr, list);
+    EXPECT_EQ(0, list->offset());
+    ASSERT_EQ(1, list->length());
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(list->values());
+    ASSERT_NE(nullptr, floats);
+    ASSERT_EQ(2, floats->length());
+    EXPECT_FLOAT_EQ(5.0F, floats->Value(0));
+    EXPECT_FLOAT_EQ(6.0F, floats->Value(1));
+}
+
+// Verifies sliced Map normalization trims entries while preserving visible keys and values.
+TEST(LanceTableReaderTypeTest, NormalizesVisibleBFloat16ValuesInSlicedMap) {
+    const auto metadata =
+            arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.bfloat16"});
+    const auto item_field =
+            arrow::field("value", arrow::fixed_size_binary(2))->WithMetadata(metadata);
+    const auto values = make_bfloat16_array({0x3F80, 0x4000, 0x4040, 0x4080, 0x40A0, 0x40C0});
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 2, 5, 6}).ok());
+    std::shared_ptr<arrow::Int32Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+    arrow::StringBuilder keys_builder;
+    ASSERT_TRUE(keys_builder.AppendValues({"k0", "k1", "k2", "k3", "k4", "k5"}).ok());
+    std::shared_ptr<arrow::StringArray> keys;
+    ASSERT_TRUE(keys_builder.Finish(&keys).ok());
+    const auto map_type = arrow::map(arrow::utf8(), item_field);
+    auto map_result = arrow::MapArray::FromArrays(map_type, offsets, keys, values);
+    ASSERT_TRUE(map_result.ok()) << map_result.status().ToString();
+    const auto input = std::move(map_result).ValueUnsafe()->Slice(1, 1);
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(arrow::field("values", map_type),
+                                                             input, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto map = std::dynamic_pointer_cast<arrow::MapArray>(normalized);
+    ASSERT_NE(nullptr, map);
+    EXPECT_EQ(0, map->offset());
+    ASSERT_EQ(1, map->length());
+    EXPECT_EQ(0, map->value_offset(0));
+    EXPECT_EQ(3, map->value_offset(1));
+    const auto normalized_keys = std::dynamic_pointer_cast<arrow::StringArray>(map->keys());
+    ASSERT_NE(nullptr, normalized_keys);
+    ASSERT_EQ(3, normalized_keys->length());
+    EXPECT_EQ("k2", normalized_keys->GetString(0));
+    EXPECT_EQ("k3", normalized_keys->GetString(1));
+    EXPECT_EQ("k4", normalized_keys->GetString(2));
+    const auto floats = std::dynamic_pointer_cast<arrow::FloatArray>(map->items());
+    ASSERT_NE(nullptr, floats);
+    ASSERT_EQ(3, floats->length());
+    EXPECT_FLOAT_EQ(3.0F, floats->Value(0));
+    EXPECT_FLOAT_EQ(4.0F, floats->Value(1));
+    EXPECT_FLOAT_EQ(5.0F, floats->Value(2));
+
+    const auto schema = arrow::schema({arrow::field("values", map_type)});
+    const auto record_batch = arrow::RecordBatch::Make(schema, 1, {input});
+    const auto doris_map_type = make_nullable(
+            std::make_shared<DataTypeMap>(nullable_type(TYPE_STRING), nullable_type(TYPE_FLOAT)));
+    const Columns columns {projected_column("values", doris_map_type)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_sliced_map");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(1, rows);
+
+    const auto& nullable_map = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& materialized_map = assert_cast<const ColumnMap&>(nullable_map.get_nested_column());
+    EXPECT_EQ((ColumnArray::Offsets64 {3}), materialized_map.get_offsets());
+    const auto& materialized_keys = assert_cast<const ColumnNullable&>(materialized_map.get_keys());
+    const auto& key_values =
+            assert_cast<const ColumnString&>(materialized_keys.get_nested_column());
+    const auto& materialized_items =
+            assert_cast<const ColumnNullable&>(materialized_map.get_values());
+    const auto& item_values =
+            assert_cast<const ColumnFloat32&>(materialized_items.get_nested_column());
+    ASSERT_EQ(3, key_values.size());
+    ASSERT_EQ(3, item_values.size());
+    EXPECT_EQ("k2", key_values.get_data_at(0).to_string());
+    EXPECT_EQ("k3", key_values.get_data_at(1).to_string());
+    EXPECT_EQ("k4", key_values.get_data_at(2).to_string());
+    EXPECT_FLOAT_EQ(3.0F, item_values.get_data()[0]);
+    EXPECT_FLOAT_EQ(4.0F, item_values.get_data()[1]);
+    EXPECT_FLOAT_EQ(5.0F, item_values.get_data()[2]);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+// Verifies the Lance JSON extension reads LargeBinary values and nulls through JSON SerDe.
+TEST(LanceTableReaderTypeTest, ReadsLanceJsonLargeBinaryValues) {
+    const auto metadata = arrow::KeyValueMetadata::Make({"ARROW:extension:name"}, {"lance.json"});
+    const auto schema = arrow::schema(
+            {arrow::field("json_value", arrow::large_binary())->WithMetadata(metadata)});
+    arrow::LargeBinaryBuilder builder;
+    ASSERT_TRUE(builder.Append(R"({"format":"lance","value":42})").ok());
+    ASSERT_TRUE(builder.AppendNull().ok());
+    std::shared_ptr<arrow::LargeBinaryArray> values;
+    ASSERT_TRUE(builder.Finish(&values).ok());
+    const auto record_batch = arrow::RecordBatch::Make(schema, 2, {values});
+
+    const Columns columns {projected_column("json_value", TYPE_JSONB, true)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_json_large_binary");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(2, rows);
+    const auto& json_values = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    EXPECT_EQ((ColumnUInt8::Container {0, 1}), json_values.get_null_map_data());
+    EXPECT_EQ(R"({"format":"lance","value":42})", columns[0].type->to_string(json_values, 0));
+    EXPECT_TRUE(reader.close().ok());
+}
+
+// Verifies Duration values preserve signed 64-bit boundaries and nullability.
+TEST(LanceTableReaderTypeTest, ReadsDurationBoundaryValues) {
+    const auto duration_type = arrow::duration(arrow::TimeUnit::NANO);
+    const auto schema = arrow::schema({arrow::field("duration", duration_type)});
+    arrow::DurationBuilder builder(duration_type, arrow::default_memory_pool());
+    const std::array<int64_t, 4> expected {std::numeric_limits<int64_t>::min(), -1, 0,
+                                           std::numeric_limits<int64_t>::max()};
+    ASSERT_TRUE(builder.AppendValues(expected.data(), expected.size()).ok());
+    ASSERT_TRUE(builder.AppendNull().ok());
+    std::shared_ptr<arrow::DurationArray> values;
+    ASSERT_TRUE(builder.Finish(&values).ok());
+    const auto record_batch = arrow::RecordBatch::Make(schema, 5, {values});
+
+    const Columns columns {projected_column("duration", TYPE_BIGINT, true)};
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_duration_boundaries");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    size_t rows = 0;
+    ASSERT_TRUE(reader._fill_block_from_record_batch(record_batch, &block, &rows).ok());
+    ASSERT_EQ(5, rows);
+    const auto& durations = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& duration_values = assert_cast<const ColumnInt64&>(durations.get_nested_column());
+    EXPECT_EQ((ColumnUInt8::Container {0, 0, 0, 0, 1}), durations.get_null_map_data());
+    for (size_t index = 0; index < expected.size(); ++index) {
+        EXPECT_EQ(expected[index], duration_values.get_data()[index]);
+    }
+    EXPECT_TRUE(reader.close().ok());
+}
+
+// Verifies ordinary nested columns bypass Arrow reconstruction when no BFloat16 exists.
+TEST(LanceTableReaderTypeTest, KeepsOrdinaryNestedArrayUnchangedDuringNormalization) {
+    const auto nested_type = arrow::struct_({
+            arrow::field("items",
+                         arrow::list(arrow::field(
+                                 "item", arrow::struct_({arrow::field("value", arrow::int64())})))),
+            arrow::field("metadata", arrow::struct_({arrow::field("name", arrow::utf8()),
+                                                     arrow::field("enabled", arrow::boolean())})),
+    });
+    const auto field = arrow::field("ordinary_nested", nested_type);
+    auto array_result = arrow::MakeArrayOfNull(nested_type, 3);
+    ASSERT_TRUE(array_result.ok()) << array_result.status().ToString();
+    const auto array = std::move(array_result).ValueUnsafe();
+
+    std::shared_ptr<arrow::Array> normalized;
+    const auto status = normalize_lance_arrow_array_for_test(field, array, &normalized);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(array.get(), normalized.get());
+}
+
+// Verifies the additional types through the full scan path.
+TEST(LanceTableReaderTypeTest, ReadsAdditionalTypesFromCompatibilityFixture) {
+    const std::filesystem::path dataset_uri =
+            "./docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/lance/"
+            "all_types.lance";
+    const auto bfloat16_array_type =
+            make_nullable(std::make_shared<DataTypeArray>(nullable_type(TYPE_FLOAT)));
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("null_col", nullable_type(TYPE_NULL)),
+            projected_column("duration_s_col", TYPE_BIGINT, true),
+            projected_column("duration_ms_col", TYPE_BIGINT, true),
+            projected_column("duration_us_col", TYPE_BIGINT, true),
+            projected_column("duration_ns_col", TYPE_BIGINT, true),
+            projected_column("json_col", TYPE_JSONB, true),
+            projected_column("bfloat16_vector_col", bfloat16_array_type),
+    };
+    TQueryOptions query_options;
+    query_options.__set_batch_size(4);
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("lance_additional_types_fixture");
+    TFileScanRangeParams scan_params;
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    ASSERT_TRUE(prepare_range(&reader, make_latest_lance_range(dataset_uri)).ok());
+
+    Block block;
+    add_output_columns(&block, columns);
+    bool found = false;
+    bool eos = false;
+    while (!eos) {
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (eos) {
+            continue;
+        }
+        const auto& row_ids = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+        for (size_t row = 0; row < block.rows(); ++row) {
+            const auto& null_values =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+            EXPECT_EQ(1, null_values.get_null_map_data()[row]);
+            if (row_ids.get_data()[row] != 1) {
+                continue;
+            }
+            found = true;
+            const std::array<int64_t, 4> expected_durations {1, 1000, 1000000, 1000000000};
+            for (size_t duration_idx = 0; duration_idx < expected_durations.size();
+                 ++duration_idx) {
+                const auto& duration = assert_cast<const ColumnNullable&>(
+                        *block.get_by_position(duration_idx + 2).column);
+                const auto& values = assert_cast<const ColumnInt64&>(duration.get_nested_column());
+                EXPECT_EQ(0, duration.get_null_map_data()[row]);
+                EXPECT_EQ(expected_durations[duration_idx], values.get_data()[row]);
+            }
+
+            const auto& json_values =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(6).column);
+            EXPECT_EQ(R"({"engine":"doris","format":"lance"})",
+                      columns[6].type->to_string(json_values, row));
+
+            const auto& vectors =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(7).column);
+            const auto& vector_values =
+                    assert_cast<const ColumnArray&>(vectors.get_nested_column());
+            const auto [begin, end] = array_range(vector_values, row);
+            ASSERT_EQ(4, end - begin);
+            const auto& nullable_values =
+                    assert_cast<const ColumnNullable&>(vector_values.get_data());
+            const auto& floats =
+                    assert_cast<const ColumnFloat32&>(nullable_values.get_nested_column());
+            for (size_t index = 0; index < 4; ++index) {
+                EXPECT_FLOAT_EQ(static_cast<float>(index + 1), floats.get_data()[begin + index]);
+            }
+        }
+    }
+    EXPECT_TRUE(found);
+    EXPECT_TRUE(reader.close().ok());
 }
 
 TEST(LanceTableReaderSchemaTest, FetchesNegativeScaleDecimalAsUnsupported) {

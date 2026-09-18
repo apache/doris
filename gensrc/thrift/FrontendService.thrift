@@ -374,6 +374,11 @@ struct TGroupCommitInfo{
     5: optional bool updateLoadData
     6: optional i64 tableId 
     7: optional i64 receiveData
+    8: optional string loadSelectionPreferredKey
+    9: optional string loadSelectionMode
+    // set by followers that understand selection errors carried in TMasterOpResult
+    // statusCode/errMessage; masters must keep throwing for callers without it
+    10: optional bool supportsSelectionErrorResult
 }
 
 struct TMasterOpRequest {
@@ -418,6 +423,7 @@ struct TMasterOpRequest {
     // thrift field ids wire-compatible across maintained branches. Do not reuse these ids.
     34: optional set<string> reserved_field_34
     35: optional bool reserved_field_35
+    36: optional string connectingFeLocalResourceGroup
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -427,6 +433,10 @@ struct TMasterOpRequest {
     1002: optional string sessionId
     // propagate client's CLIENT_DEPRECATE_EOF capability for proxy forwarding
     1003: optional bool clientDeprecatedEOF
+    // Whether COM_STMT_EXECUTE requested CURSOR_TYPE_READ_ONLY.
+    1008: optional bool cursor_fetch_requested
+    // Capabilities negotiated with the original MySQL client.
+    1009: optional i32 mysql_capability
 }
 
 struct TColumnDefinition {
@@ -458,6 +468,8 @@ struct TMasterOpResult {
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
     11: optional i64 affectedRows;
+    // Confirms that the executing FE serialized raw MySQL packets with CLIENT_DEPRECATE_EOF.
+    13: optional bool clientDeprecatedEofApplied;
 }
 
 // Certificate-based authentication info forwarded from BE to FE
@@ -914,6 +926,7 @@ struct TMetadataTableRequestParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   15: optional set<string> reserved_field_15
+  16: optional PlanNodes.TLanceIndexMetadataParams lance_index_metadata_params
 }
 
 struct TSchemaTableRequestParams {

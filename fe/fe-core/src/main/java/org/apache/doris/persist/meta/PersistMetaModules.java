@@ -44,7 +44,7 @@ public class PersistMetaModules {
             "globalFunction", "workloadGroups",
             "binlogs", "resourceGroups", "AnalysisMgrV2", "AsyncJobManager", "workloadSchedPolicy",
             "insertOverwrite", "plsql", "dictionaryManager", "indexPolicy", "KeyManagerStore",
-            "authenticationIntegrations", "roleMappings"
+            "authenticationIntegrations", "roleMappings", "lanceIndexJobManager"
     );
 
     // The modules in `CloudEnv`.

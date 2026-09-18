@@ -66,13 +66,18 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
         return ((LanceExternalCatalog) catalog).loadTableMetadata(db.getRemoteName(), remoteName);
     }
 
-    public LanceTableMetadata loadMetadataForVectorSearch() {
-        return ((LanceExternalCatalog) catalog).loadTableMetadataForVectorSearch(
+    public LanceTableMetadata loadMetadataForSearch() {
+        return ((LanceExternalCatalog) catalog).loadTableMetadataForSearch(
                 db.getRemoteName(), remoteName);
     }
 
     public List<LanceLogicalIndex> loadIndexMetadata() throws AnalysisException {
         return ((LanceExternalCatalog) catalog).loadTableIndexMetadata(
+                db.getRemoteName(), remoteName);
+    }
+
+    public List<LancePhysicalIndexEntry> loadIndexEntries() throws AnalysisException {
+        return ((LanceExternalCatalog) catalog).loadTableIndexEntries(
                 db.getRemoteName(), remoteName);
     }
 

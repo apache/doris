@@ -1955,14 +1955,18 @@ public class IcebergExternalMetaCacheTest {
     public void testWeightedV2ManifestListMaterializesOnlyInQueryView() throws Exception {
         Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
         String tableLocation = temporaryFolder.newFolder("v2-table").toURI().toString();
-        Table liveTable = new HadoopTables(new Configuration()).create(
+        HadoopTables tables = new HadoopTables(new Configuration());
+        Table writerTable = tables.create(
                 schema, PartitionSpec.unpartitioned(), tableLocation);
-        liveTable.newAppend().appendFile(
-                DataFiles.builder(liveTable.spec())
+        writerTable.newAppend().appendFile(
+                DataFiles.builder(writerTable.spec())
                         .withPath(tableLocation + "/data/a.parquet")
                         .withFileSizeInBytes(10L)
                         .withRecordCount(1L)
                         .build()).commit();
+        // Iceberg 1.11 may retain eagerly loaded manifests on the writer-side snapshot after commit,
+        // while the cache invariant applies to the lazy snapshots reconstructed by catalog loads.
+        Table liveTable = tables.load(tableLocation);
         Assert.assertNotNull(liveTable.currentSnapshot().manifestListLocation());
         IcebergTableCacheValue value = new IcebergTableCacheValue(liveTable);
 

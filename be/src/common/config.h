@@ -1125,6 +1125,8 @@ DECLARE_mInt32(in_memory_file_size);
 
 // Max size of parquet page header in bytes
 DECLARE_mInt32(parquet_header_max_size_mb);
+// Max size of parquet file metadata in bytes
+DECLARE_mInt64(parquet_metadata_size_limit);
 // Max buffer size for parquet row group
 DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 // Max buffer size for parquet chunk column
@@ -1248,6 +1250,21 @@ DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
 DECLARE_Int32(blocking_pipeline_executor_size);
+
+// Lance shared session and optional Foyer data-file cache.
+DECLARE_Int64(lance_index_cache_size_bytes);
+DECLARE_Int64(lance_metadata_cache_size_bytes);
+DECLARE_Bool(enable_lance_data_cache);
+DECLARE_String(lance_data_cache_path);
+DECLARE_Int64(lance_data_cache_disk_capacity_bytes);
+DECLARE_Int64(lance_data_cache_read_block_size_bytes);
+
+// I/O buffering budget per Lance scanner, applied when a new scanner is created.
+DECLARE_mInt64(lance_io_buffer_size_bytes);
+
+// Read-ahead limits per Lance scanner, applied when a new scanner is created.
+DECLARE_mInt32(lance_batch_readahead);
+DECLARE_mInt32(lance_fragment_readahead);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
@@ -1508,6 +1525,8 @@ DECLARE_mBool(enable_mow_get_agg_by_cache);
 DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
 DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
 DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
+DECLARE_mBool(enable_remove_agg_pre_rowsets_delete_bitmap_by_keys);
+DECLARE_mBool(enable_remove_pre_rowsets_delete_bitmap_by_keys);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_String(user_files_secure_path);

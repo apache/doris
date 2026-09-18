@@ -640,8 +640,15 @@ std::optional<VariantShreddedPredicate> extract_variant_shredded_predicate(
                                      .op = *op};
 }
 
+VExprContextSPtrs metadata_pruning_conjuncts(const format::FileScanRequest& request) {
+    const size_t safe_count =
+            std::min(request.metadata_pruning_safe_conjunct_count, request.conjuncts.size());
+    return VExprContextSPtrs(request.conjuncts.begin(), request.conjuncts.begin() + safe_count);
+}
+
 bool has_variant_shredded_filter(const format::FileScanRequest& request) {
-    return std::ranges::any_of(request.conjuncts, [](const auto& conjunct) {
+    const auto conjuncts = metadata_pruning_conjuncts(request);
+    return std::ranges::any_of(conjuncts, [](const auto& conjunct) {
         return extract_variant_shredded_predicate(conjunct).has_value();
     });
 }
@@ -1078,7 +1085,9 @@ bool check_shredded_variant_statistics(
         const tparquet::FileMetaData& metadata, const tparquet::RowGroup& row_group,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, const cctz::time_zone* timezone) {
-    for (const auto& conjunct : request.conjuncts) {
+    // A Variant predicate localized after an unsafe conjunct must not skip the row group before
+    // that earlier conjunct reaches its row-level evaluation.
+    for (const auto& conjunct : metadata_pruning_conjuncts(request)) {
         const auto predicate = extract_variant_shredded_predicate(conjunct);
         if (!predicate.has_value()) {
             continue;
@@ -2060,7 +2069,7 @@ Status select_row_group_ranges_by_native_page_index(
         }
     }
 
-    for (const auto& conjunct : request.conjuncts) {
+    for (const auto& conjunct : metadata_pruning_conjuncts(request)) {
         const auto predicate = extract_variant_shredded_predicate(conjunct);
         if (!predicate.has_value()) {
             continue;

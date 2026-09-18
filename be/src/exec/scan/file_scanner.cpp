@@ -50,6 +50,7 @@
 #include "exec/common/stringop_substring.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/rowid_fetcher.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exec/scan/scan_node.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
@@ -533,9 +534,11 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
         if (_cur_reader == nullptr || _cur_reader_eof) {
             // The file may not exist because the file list is got from meta cache,
             // And the file may already be removed from storage.
-            // Just ignore not found files.
+            // Only formats without Iceberg snapshot guarantees may ignore missing files.
             Status st = _get_next_reader();
-            if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
+            if (st.is<ErrorCode::NOT_FOUND>() &&
+                can_ignore_not_found_file(_current_range,
+                                          config::ignore_not_found_file_in_external_table)) {
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_not_found_file_counter, 1);
                 continue;
@@ -1296,13 +1299,13 @@ Status FileScanner::_get_next_reader() {
         COUNTER_UPDATE(_file_counter, 1);
         // The FileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
-        // So, NOT_FOUND for FileScanner is not a fail case.
-        // Will remove this after file reader refactor.
+        // Iceberg snapshot files must still fail the query if they are missing.
         if (init_status.is<END_OF_FILE>()) {
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (init_status.is<ErrorCode::NOT_FOUND>()) {
-            if (config::ignore_not_found_file_in_external_table) {
+            if (can_ignore_not_found_file(_current_range,
+                                          config::ignore_not_found_file_in_external_table)) {
                 COUNTER_UPDATE(_not_found_file_counter, 1);
                 continue;
             }
@@ -1896,7 +1899,6 @@ Status FileScanner::_init_expr_ctxes() {
 
     if (_is_load) {
         // follow desc expr map is only for load task.
-        bool has_slot_id_map = _params->__isset.dest_sid_to_src_sid_without_trans;
         int idx = 0;
         for (auto* slot_desc : _output_tuple_desc->slots()) {
             auto it = _params->expr_of_dest_slot.find(slot_desc->id());
@@ -1914,20 +1916,17 @@ Status FileScanner::_init_expr_ctxes() {
             _dest_vexpr_ctx.emplace_back(ctx);
             _dest_slot_name_to_idx[slot_desc->col_name()] = idx++;
 
-            if (has_slot_id_map) {
-                auto it1 = _params->dest_sid_to_src_sid_without_trans.find(slot_desc->id());
-                if (it1 == std::end(_params->dest_sid_to_src_sid_without_trans)) {
-                    _src_slot_descs_order_by_dest.emplace_back(nullptr);
-                } else {
-                    auto _src_slot_it = full_src_slot_map.find(it1->second);
-                    if (_src_slot_it == std::end(full_src_slot_map)) {
-                        return Status::InternalError("No src slot {} in src slot descs",
-                                                     it1->second);
-                    }
-                    _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
-                                                         full_src_index_map[_src_slot_it->first]);
-                    _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
+            auto it1 = _params->dest_sid_to_src_sid_without_trans.find(slot_desc->id());
+            if (it1 == std::end(_params->dest_sid_to_src_sid_without_trans)) {
+                _src_slot_descs_order_by_dest.emplace_back(nullptr);
+            } else {
+                auto _src_slot_it = full_src_slot_map.find(it1->second);
+                if (_src_slot_it == std::end(full_src_slot_map)) {
+                    return Status::InternalError("No src slot {} in src slot descs", it1->second);
                 }
+                _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
+                                                     full_src_index_map[_src_slot_it->first]);
+                _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }
         }
     }
