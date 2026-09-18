@@ -162,6 +162,11 @@ hboSetParam
     | STRUCT EQ structCanonical=STRING_LITERAL                         #hboSetStruct
     | fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL            #hboSetFingerprint
     | valueWord=hboWord EQ valueName=identifier                        #hboSetWord
+    // a parameter name which is not one of the words above, with any value shape, so that a typo
+    // like FOO=1 is reported as an unknown parameter instead of as a parser error
+    | unknownWord=hboWord EQ unknownString=STRING_LITERAL              #hboSetUnknown
+    | unknownWord=hboWord EQ unknownNumber=(INTEGER_VALUE | DECIMAL_VALUE)   #hboSetUnknown
+    | unknownWord=hboWord EQ unknownName=identifier                    #hboSetUnknown
     ;
 
 // hbo parameter name: deliberately not 'identifier' (which includes the non reserved keywords)

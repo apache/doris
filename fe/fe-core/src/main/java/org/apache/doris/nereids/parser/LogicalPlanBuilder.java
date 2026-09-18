@@ -7234,6 +7234,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("LITERAL_MODE is given twice in hbo set statistics statement");
                 }
                 literalModeName = wordParam.valueName.getText();
+            } else if (param instanceof DorisParser.HboSetUnknownContext) {
+                throw new ParseException("unknown parameter '"
+                        + ((DorisParser.HboSetUnknownContext) param).unknownWord.getText()
+                        + "' in hbo set statistics statement, expect VALUE / TYPE / FINGERPRINT /"
+                        + " STRUCT / LITERAL_MODE");
             }
         }
         if (value == null) {
