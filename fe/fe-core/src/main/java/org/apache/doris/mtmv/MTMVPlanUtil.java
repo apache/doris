@@ -696,7 +696,7 @@ public class MTMVPlanUtil {
             if (col.getType().isVarBinaryType()) {
                 throw new AnalysisException("MTMV do not support varbinary type : " + col.getName());
             }
-            col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, keysType);
+            col.validate(true, keysSet, Sets.newHashSet(), finalEnableMergeOnWrite, keysType, true);
         }
     }
 
