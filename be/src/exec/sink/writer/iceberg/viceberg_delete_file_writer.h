@@ -50,7 +50,14 @@ class VFileFormatTransformer;
  */
 class VIcebergDeleteFileWriter {
 public:
+    /**
+     * @param output_path          full path the file is physically written to (backend-normalized)
+     * @param original_output_path the same file under the catalog's own URI; this is what is
+     *                             reported back for the iceberg manifest. Pass the same value as
+     *                             `output_path` when the location was never rewritten.
+     */
     VIcebergDeleteFileWriter(TFileContent::type delete_type, const std::string& output_path,
+                             const std::string& original_output_path,
                              TFileFormatType::type file_format,
                              TFileCompressType::type compress_type);
 
@@ -98,7 +105,11 @@ public:
 
 private:
     TFileContent::type _delete_type;
+    // Path used for filesystem I/O; may be a backend-internal URI (e.g. ADLS is normalized to an
+    // `s3://` form) and must therefore never be committed to iceberg metadata.
     std::string _output_path;
+    // Path reported in TIcebergCommitData.file_path, i.e. what the manifest will record.
+    std::string _original_output_path;
     TFileFormatType::type _file_format;
     TFileCompressType::type _compress_type = TFileCompressType::SNAPPYBLOCK;
 
@@ -123,7 +134,8 @@ class VIcebergDeleteFileWriterFactory {
 public:
     static std::unique_ptr<VIcebergDeleteFileWriter> create_writer(
             TFileContent::type delete_type, const std::string& output_path,
-            TFileFormatType::type file_format, TFileCompressType::type compress_type);
+            const std::string& original_output_path, TFileFormatType::type file_format,
+            TFileCompressType::type compress_type);
 };
 
 } // namespace doris
