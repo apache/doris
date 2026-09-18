@@ -27,6 +27,7 @@ import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
+import org.apache.doris.job.extensions.insert.streaming.StreamingJdbcUrlNormalizer;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
@@ -68,14 +69,17 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         copyProps.remove(INCLUDE_DELETE_SIGN);
         copyProps.put("format", "json");
 
+        DataSourceType sourceType = DataSourceType.valueOf(
+                copyProps.get(DataSourceConfigKeys.TYPE).toUpperCase());
+        copyProps.put(DataSourceConfigKeys.JDBC_URL, StreamingJdbcUrlNormalizer.normalize(
+                sourceType, copyProps.get(DataSourceConfigKeys.JDBC_URL)));
+
         // Standalone TVF: random jobId. TVF-in-job: job.id injected by rewriteTvfParams.
         String jobId = copyProps.computeIfAbsent(JOB_ID_KEY,
                 k -> UUID.randomUUID().toString().replace("-", ""));
 
         // Default PG slot/pub so cdcclient auto-creates per-job resources
-        StreamingJobUtils.populateDefaultSourceProperties(
-                DataSourceType.valueOf(copyProps.get(DataSourceConfigKeys.TYPE).toUpperCase()),
-                copyProps, jobId);
+        StreamingJobUtils.populateDefaultSourceProperties(sourceType, copyProps, jobId);
 
         super.parseCommonProperties(copyProps);
         this.processedParams.put(ENABLE_CDC_CLIENT_KEY, "true");
@@ -91,6 +95,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     }
 
     private String generateParams(Map<String, String> properties) throws AnalysisException {
+        properties.put(DataSourceConfigKeys.SCHEMA_CHANGE_ENABLED, "false");
         FetchRecordRequest recordRequest = new FetchRecordRequest();
         recordRequest.setJobId(properties.get(JOB_ID_KEY));
         recordRequest.setDataSource(properties.get(DataSourceConfigKeys.TYPE));

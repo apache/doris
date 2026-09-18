@@ -27,10 +27,12 @@
 #include <cmath>   // IWYU pragma: keep
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 
+#include "common/exception.h"
 #include "common/status.h"
+#include "core/allocator.h"
+#include "core/allocator_fwd.h"
 #include "exprs/block_bloom_filter.hpp"
 // IWYU pragma: no_include <emmintrin.h>
 #include "util/sse_util.hpp"
@@ -56,24 +58,25 @@ BlockBloomFilter::~BlockBloomFilter() {
 Status BlockBloomFilter::init_internal(const int log_space_bytes, uint32_t hash_seed) {
     // Since log_space_bytes is in bytes, we need to convert it to the number of tiny
     // Bloom filters we will use.
-    _log_num_buckets = std::max(1, log_space_bytes - kLogBucketByteSize);
+    const int log_num_buckets = std::max(1, log_space_bytes - kLogBucketByteSize);
     // Since we use 32 bits in the arguments of Insert() and Find(), _log_num_buckets
     // must be limited.
-    if (_log_num_buckets > 32) {
+    if (log_num_buckets > 32) {
         return Status::InvalidArgument("Bloom filter too large. log_space_bytes: {}",
                                        log_space_bytes);
     }
+
+    close(); // Ensure that any previously allocated memory for directory_ is released.
+    DCHECK(_directory == nullptr);
+
+    _log_num_buckets = log_num_buckets;
     // Don't use _log_num_buckets if it will lead to undefined behavior by a shift
     // that is too large.
     _directory_mask = (1 << _log_num_buckets) - 1;
 
     const size_t alloc_size = directory_size();
-    close(); // Ensure that any previously allocated memory for directory_ is released.
-    DCHECK(_directory == nullptr);
-    int rc = posix_memalign((void**)&_directory, 32, alloc_size);
-    if (rc != 0) {
-        return Status::InternalError("block_bloom_filter alloc fail");
-    }
+    RETURN_IF_CATCH_EXCEPTION(_directory = reinterpret_cast<Bucket*>(
+                                      Allocator<false> {}.alloc(alloc_size, kBucketByteSize)));
 
     _hash_seed = hash_seed;
     return Status::OK();
@@ -113,7 +116,7 @@ Status BlockBloomFilter::init_from_directory(int log_space_bytes,
 
 void BlockBloomFilter::close() {
     if (_directory != nullptr) {
-        free(_directory);
+        Allocator<false> {}.free(_directory, directory_size());
         _directory = nullptr;
     }
 }

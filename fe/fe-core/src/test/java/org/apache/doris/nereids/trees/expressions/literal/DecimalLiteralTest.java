@@ -130,4 +130,14 @@ public class DecimalLiteralTest {
         Assertions.assertInstanceOf(StringLiteral.class, expression);
         Assertions.assertEquals("234.567", ((StringLiteral) expression).value);
     }
+
+    @Test
+    void testDecimalV3CastToStringUsesPlainNotation() {
+        DecimalV3Literal literal = new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(10, 2),
+                new BigDecimal("1E+3"));
+
+        StringLiteral string = (StringLiteral) literal.uncheckedCastTo(StringType.INSTANCE);
+
+        Assertions.assertEquals("1000.00", string.getStringValue());
+    }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -491,31 +492,36 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                 .analyze("select 1 from t1 having sum(id) > 10")
                 .matchesFromRoot(
                         logicalResultSink(
-                                logicalFilter(
-                                        logicalProject(
+                                logicalProject(
+                                        logicalFilter(
                                                 logicalProject(
-                                                        logicalAggregate().when(agg -> {
-                                                            List<Slot> output = agg.getOutput();
-                                                            checkExprsToSql(output, "sum(id)");
-                                                            Assertions.assertTrue(output.get(0).nullable());
+                                                        logicalProject(
+                                                                logicalAggregate().when(agg -> {
+                                                                    List<Slot> output = agg.getOutput();
+                                                                    checkExprsToSql(output, "sum(id)");
+                                                                    Assertions.assertTrue(output.get(0).nullable());
+                                                                    return true;
+                                                                })
+                                                        ).when(project -> {
+                                                            List<NamedExpression> projects = project.getProjects();
+                                                            checkExprsToSql(projects, "sum(id)");
+                                                            Assertions.assertTrue(projects.get(0).nullable());
                                                             return true;
                                                         })
                                                 ).when(project -> {
                                                     List<NamedExpression> projects = project.getProjects();
-                                                    checkExprsToSql(projects, "sum(id)");
-                                                    Assertions.assertTrue(projects.get(0).nullable());
+                                                    checkExprsToSql(projects, "1 AS `1`", "sum(id)");
+                                                    Assertions.assertTrue(projects.get(1).nullable());
                                                     return true;
                                                 })
-                                        ).when(project -> {
-                                            List<NamedExpression> projects = project.getProjects();
-                                            checkExprsToSql(projects, "1 AS `1`", "sum(id)");
-                                            Assertions.assertTrue(projects.get(1).nullable());
+                                        ).when(filter -> {
+                                            List<Expression> conjuncts = filter.getExpressions();
+                                            checkExprsToSql(conjuncts, "(sum(id) > 10)");
+                                            Assertions.assertTrue(conjuncts.get(0).child(0).nullable());
                                             return true;
                                         })
-                                ).when(filter -> {
-                                    List<Expression> conjuncts = filter.getExpressions();
-                                    checkExprsToSql(conjuncts, "(sum(id) > 10)");
-                                    Assertions.assertTrue(conjuncts.get(0).child(0).nullable());
+                                ).when(project -> {
+                                    checkExprsToSql(project.getProjects(), "1");
                                     return true;
                                 })
                         )
@@ -734,6 +740,15 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                 )
                         )
                 );
+    }
+
+    @Test
+    public void testAggregateOrderByExpressionCannotContainAggregateFunction() {
+        String sql = "select group_concat(k order by sum(k)) as s "
+                + "from (select 1 as k union all select 2) t";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertEquals("aggregate function cannot contain aggregate parameters", exception.getMessage());
     }
 
     @Test

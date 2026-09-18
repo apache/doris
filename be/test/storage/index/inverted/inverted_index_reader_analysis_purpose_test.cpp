@@ -1,0 +1,440 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include <CLucene.h>
+#include <gtest/gtest.h>
+
+#include <atomic>
+#include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "common/exception.h"
+#include "io/fs/local_file_system.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "storage/compaction/collection_similarity.h"
+#include "storage/index/index_file_reader.h"
+#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/analyzer/analyzer_provider.h"
+#include "storage/index/inverted/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/snii/snii_index_reader.h"
+#include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
+#include "util/time.h"
+
+namespace doris::segment_v2 {
+namespace {
+
+using inverted_index::AnalyzerProvider;
+
+class RecordingFailingAnalyzerProvider final : public AnalyzerProvider {
+public:
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+        ++calls;
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer provider failure");
+    }
+
+    mutable uint32_t calls = 0;
+};
+
+class PartialFailureTokenStream final : public lucene::analysis::TokenStream {
+public:
+    explicit PartialFailureTokenStream(std::shared_ptr<std::atomic<uint32_t>> emitted_tokens)
+            : _emitted_tokens(std::move(emitted_tokens)) {}
+
+    lucene::analysis::Token* next(lucene::analysis::Token* token) override {
+        if (!_emitted) {
+            _emitted = true;
+            _term = "partial";
+            token->clear();
+            token->setTextNoCopy(_term.data(), static_cast<int32_t>(_term.size()));
+            token->positionIncrement = 1;
+            _emitted_tokens->fetch_add(1, std::memory_order_relaxed);
+            return token;
+        }
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced failure after first token");
+    }
+
+    void close() override {}
+    void reset() override { _emitted = false; }
+
+private:
+    std::shared_ptr<std::atomic<uint32_t>> _emitted_tokens;
+    bool _emitted = false;
+    std::string _term;
+};
+
+class PartialFailureAnalyzer final : public lucene::analysis::Analyzer {
+public:
+    explicit PartialFailureAnalyzer(std::shared_ptr<std::atomic<uint32_t>> emitted_tokens)
+            : _emitted_tokens(std::move(emitted_tokens)) {}
+
+    bool isSDocOpt() override { return true; }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
+        return new PartialFailureTokenStream(_emitted_tokens);
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       lucene::util::Reader*) override {
+        _reusable = std::make_unique<PartialFailureTokenStream>(_emitted_tokens);
+        return _reusable.get();
+    }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*,
+                                               const inverted_index::ReaderPtr&) override {
+        return new PartialFailureTokenStream(_emitted_tokens);
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       const inverted_index::ReaderPtr&) override {
+        _reusable = std::make_unique<PartialFailureTokenStream>(_emitted_tokens);
+        return _reusable.get();
+    }
+
+private:
+    std::shared_ptr<std::atomic<uint32_t>> _emitted_tokens;
+    std::unique_ptr<PartialFailureTokenStream> _reusable;
+};
+
+class RecordingPartialFailureAnalyzerProvider final : public AnalyzerProvider {
+public:
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+        ++calls;
+        return std::make_shared<PartialFailureAnalyzer>(emitted_tokens);
+    }
+
+    mutable uint32_t calls = 0;
+    std::shared_ptr<std::atomic<uint32_t>> emitted_tokens =
+            std::make_shared<std::atomic<uint32_t>>(0);
+};
+
+struct QueryExecutionContext {
+    explicit QueryExecutionContext(bool scoring) {
+        TQueryOptions query_options;
+        query_options.enable_inverted_index_query_cache = true;
+        query_options.enable_inverted_index_searcher_cache = true;
+        runtime_state.set_query_options(query_options);
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+        if (scoring) {
+            context->collection_similarity = std::make_shared<CollectionSimilarity>();
+        }
+    }
+
+    OlapReaderStatistics stats;
+    io::IOContext io_ctx;
+    RuntimeState runtime_state;
+    IndexQueryContextPtr context = std::make_shared<IndexQueryContext>();
+};
+
+class InvertedIndexReaderAnalysisPurposeTest : public testing::Test {
+protected:
+    void SetUp() override {
+        _previous_searcher_cache = ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
+        _previous_query_cache = ExecEnv::GetInstance()->get_inverted_index_query_cache();
+        _searcher_cache.reset(InvertedIndexSearcherCache::create_global_instance(1024 * 1024, 1));
+        _query_cache.reset(InvertedIndexQueryCache::create_global_cache(1024 * 1024, 1));
+        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(_searcher_cache.get());
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(_query_cache.get());
+
+        TabletIndexPB pb;
+        pb.set_index_type(IndexType::INVERTED);
+        pb.set_index_id(73);
+        pb.set_index_name("analysis_purpose_idx");
+        pb.add_col_unique_id(0);
+        pb.mutable_properties()->insert({"parser", "english"});
+        pb.mutable_properties()->insert({"lower_case", "true"});
+        pb.mutable_properties()->insert({"support_phrase", "true"});
+        _meta.init_from_pb(pb);
+
+        _snii_file_reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), "./ut_dir/missing_snii_analysis_purpose",
+                InvertedIndexStorageFormatPB::SNII);
+        // The file does not exist -- these cases only exercise the analysis-purpose
+        // router, never the count fast path -- so the segment shape is nominal.
+        _snii_reader = SniiIndexReader::create_shared(&_meta, _snii_file_reader,
+                                                      InvertedIndexReaderType::FULLTEXT,
+                                                      /*rows_of_segment=*/0,
+                                                      /*column_is_array=*/false);
+    }
+
+    void TearDown() override {
+        _snii_reader.reset();
+        _snii_file_reader.reset();
+        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(_previous_searcher_cache);
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(_previous_query_cache);
+        _searcher_cache.reset();
+        _query_cache.reset();
+    }
+
+    // This entry is admission-only: tests must exit during analysis before dereferencing the
+    // SNII postings reader.
+    void preload_legacy_searcher_cache_entries() {
+        const InvertedIndexSearcherCache::CacheKey snii_key(
+                _snii_file_reader->get_index_file_cache_key(&_meta));
+        _searcher_cache->insert(
+                snii_key, new InvertedIndexSearcherCache::CacheValue(
+                                  std::make_unique<doris::snii::reader::LogicalIndexReader>(), 1,
+                                  UnixMillis(), _snii_file_reader));
+    }
+
+    template <typename Reader, typename Provider>
+    void expect_analysis_failure_after_segment_admission(const std::shared_ptr<Reader>& reader,
+                                                         InvertedIndexQueryType query_type,
+                                                         std::string query, bool scoring,
+                                                         const std::shared_ptr<Provider>& provider,
+                                                         int64_t expected_query_cache_lookups = 0,
+                                                         int64_t expected_searcher_cache_hits = 1) {
+        QueryExecutionContext execution(scoring);
+        InvertedIndexAnalyzerCtx analyzer_ctx;
+        analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+        analyzer_ctx.analyzer_provider = provider;
+
+        auto original_bitmap = std::make_shared<roaring::Roaring>();
+        original_bitmap->add(999);
+        std::shared_ptr<roaring::Roaring> bitmap = original_bitmap;
+        const Field query_value = Field::create_field<TYPE_STRING>(std::move(query));
+
+        Status status;
+        EXPECT_NO_THROW(status = reader->query(execution.context, "content", query_value,
+                                               query_type, bitmap, &analyzer_ctx));
+        EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
+        EXPECT_EQ(provider->calls, 1U);
+        EXPECT_EQ(bitmap, original_bitmap);
+        EXPECT_EQ(bitmap->cardinality(), 1);
+        EXPECT_TRUE(bitmap->contains(999));
+        EXPECT_EQ(execution.stats.inverted_index_query_cache_hit, 0);
+        EXPECT_EQ(execution.stats.inverted_index_query_cache_miss, expected_query_cache_lookups);
+        EXPECT_EQ(execution.stats.inverted_index_query_cache_lookup, expected_query_cache_lookups);
+        EXPECT_EQ(execution.stats.inverted_index_query_cache_insert, 0);
+        EXPECT_EQ(execution.stats.inverted_index_searcher_cache_hit, expected_searcher_cache_hits);
+        EXPECT_EQ(execution.stats.inverted_index_searcher_cache_miss, 0);
+    }
+
+    template <typename Reader>
+    void expect_provider_failure_after_segment_admission(const std::shared_ptr<Reader>& reader,
+                                                         InvertedIndexQueryType query_type,
+                                                         std::string query, bool scoring,
+                                                         int64_t expected_query_cache_lookups = 0,
+                                                         int64_t expected_searcher_cache_hits = 1) {
+        expect_analysis_failure_after_segment_admission(
+                reader, query_type, std::move(query), scoring,
+                std::make_shared<RecordingFailingAnalyzerProvider>(), expected_query_cache_lookups,
+                expected_searcher_cache_hits);
+    }
+
+    template <typename Reader>
+    void expect_raw_query_bypasses_analyzer(const std::shared_ptr<Reader>& reader,
+                                            InvertedIndexQueryType query_type, std::string query) {
+        QueryExecutionContext execution(/*scoring=*/false);
+        auto provider = std::make_shared<RecordingFailingAnalyzerProvider>();
+        InvertedIndexAnalyzerCtx analyzer_ctx;
+        analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+        analyzer_ctx.analyzer_provider = provider;
+        std::shared_ptr<roaring::Roaring> bitmap;
+        const Field query_value = Field::create_field<TYPE_STRING>(std::move(query));
+
+        const Status status = reader->query(execution.context, "content", query_value, query_type,
+                                            bitmap, &analyzer_ctx);
+        EXPECT_NE(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
+        EXPECT_EQ(provider->calls, 0U);
+    }
+
+    template <typename Reader, typename Provider>
+    void expect_raw_cache_hit_after_segment_admission(
+            const std::shared_ptr<Reader>& reader,
+            const std::shared_ptr<IndexFileReader>& file_reader,
+            const std::shared_ptr<Provider>& provider) {
+        QueryExecutionContext execution(/*scoring=*/false);
+        InvertedIndexAnalyzerCtx analyzer_ctx;
+        analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+        analyzer_ctx.analyzer_provider = provider;
+
+        const std::string raw_query = "the history";
+        const InvertedIndexRawQuerySemantic semantic {
+                .raw_query_bytes = raw_query,
+                .query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                .slop = 0,
+                .ordered = false,
+                .max_expansions =
+                        execution.runtime_state.query_options().inverted_index_max_expansions};
+        const InvertedIndexQueryCache::CacheKey key {
+                file_reader->get_index_file_cache_key(&_meta), "content",
+                InvertedIndexQueryType::MATCH_PHRASE_QUERY, semantic.encode()};
+        auto cached = std::make_shared<roaring::Roaring>();
+        cached->add(7);
+        InvertedIndexQueryCacheHandle insert_handle;
+        _query_cache->insert(key, cached, &insert_handle);
+
+        std::shared_ptr<roaring::Roaring> bitmap;
+        const Field query_value = Field::create_field<TYPE_STRING>(raw_query);
+        const Status status =
+                reader->query(execution.context, "content", query_value,
+                              InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap, &analyzer_ctx);
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_EQ(provider->calls, 0U);
+        ASSERT_NE(bitmap, nullptr);
+        EXPECT_EQ(bitmap->cardinality(), 1);
+        EXPECT_TRUE(bitmap->contains(7));
+        EXPECT_EQ(execution.stats.inverted_index_query_cache_hit, 1);
+        EXPECT_EQ(execution.stats.inverted_index_query_cache_miss, 0);
+        EXPECT_EQ(execution.stats.inverted_index_query_cache_lookup, 1);
+        EXPECT_EQ(execution.stats.inverted_index_query_cache_insert, 0);
+        // The hit occurs before opening the logical reader, without touching the searcher cache.
+        EXPECT_EQ(execution.stats.inverted_index_searcher_cache_hit, 0);
+        EXPECT_EQ(execution.stats.inverted_index_searcher_cache_miss, 0);
+    }
+
+    InvertedIndexSearcherCache* _previous_searcher_cache = nullptr;
+    InvertedIndexQueryCache* _previous_query_cache = nullptr;
+    std::unique_ptr<InvertedIndexSearcherCache> _searcher_cache;
+    std::unique_ptr<InvertedIndexQueryCache> _query_cache;
+    TabletIndex _meta;
+    std::shared_ptr<IndexFileReader> _snii_file_reader;
+    std::shared_ptr<SniiIndexReader> _snii_reader;
+};
+
+TEST(InvertedIndexRawQuerySemanticTest, EncodesOnlyRawSemanticDimensionsWithoutDelimiters) {
+    const std::string raw_query("a/b\0c", 5);
+    InvertedIndexRawQuerySemantic base {.raw_query_bytes = raw_query,
+                                        .query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                        .slop = 2,
+                                        .ordered = true,
+                                        .max_expansions = 50,
+                                        .cache_semantics_version = 3};
+    const std::string encoded = base.encode();
+    constexpr size_t kFixedEncodedBytes = sizeof(uint32_t) + sizeof(uint64_t) + sizeof(uint32_t) +
+                                          sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t);
+    EXPECT_EQ(encoded.size(), kFixedEncodedBytes + raw_query.size());
+
+    auto changed = base;
+    changed.raw_query_bytes = std::string_view(raw_query).substr(0, 3);
+    EXPECT_NE(changed.encode(), encoded);
+    changed = base;
+    changed.query_type = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
+    EXPECT_NE(changed.encode(), encoded);
+    changed = base;
+    changed.slop = 3;
+    EXPECT_NE(changed.encode(), encoded);
+    changed = base;
+    changed.ordered = false;
+    EXPECT_NE(changed.encode(), encoded);
+    changed = base;
+    changed.max_expansions = 51;
+    EXPECT_NE(changed.encode(), encoded);
+    changed = base;
+    changed.cache_semantics_version = 4;
+    EXPECT_NE(changed.encode(), encoded);
+    changed = base;
+}
+
+TEST(InvertedIndexRawQuerySemanticTest, CacheEnvelopeSeparatesSlashAndNulBoundaries) {
+    const InvertedIndexQueryCache::CacheKey slash_left {
+            io::Path("a/b"), "c", InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
+    const InvertedIndexQueryCache::CacheKey slash_right {
+            io::Path("a"), "b/c", InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
+    EXPECT_NE(slash_left.encode(), slash_right.encode());
+
+    const InvertedIndexQueryCache::CacheKey nul_left {
+            io::Path("a"), std::string("b\0c", 3), InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
+    const InvertedIndexQueryCache::CacheKey nul_right {
+            io::Path(std::string("a\0b", 3)), "c", InvertedIndexQueryType::MATCH_PHRASE_QUERY, "d"};
+    EXPECT_NE(nul_left.encode(), nul_right.encode());
+}
+
+// Result cache keys contain only (index file, column, query type, raw query bytes). Hits precede
+// opening the segment and analysis, so they succeed even if the analyzer provider would fail.
+TEST_F(InvertedIndexReaderAnalysisPurposeTest, SniiRawCacheHitHappensBeforeSegmentOpenAndAnalysis) {
+    preload_legacy_searcher_cache_entries();
+    expect_raw_cache_hit_after_segment_admission(
+            _snii_reader, _snii_file_reader, std::make_shared<RecordingFailingAnalyzerProvider>());
+}
+
+TEST_F(InvertedIndexReaderAnalysisPurposeTest, DisabledResultCacheDoesNotLookupCountOrInsert) {
+    QueryExecutionContext execution(/*scoring=*/false);
+    TQueryOptions disabled_options;
+    disabled_options.enable_inverted_index_query_cache = false;
+    disabled_options.enable_inverted_index_searcher_cache = true;
+    execution.runtime_state.set_query_options(disabled_options);
+
+    const InvertedIndexQueryCache::CacheKey key {io::Path("disabled-cache"), "content",
+                                                 InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                                 "raw-semantic"};
+    auto bitmap = std::make_shared<roaring::Roaring>();
+    bitmap->add(3);
+    InvertedIndexQueryCacheHandle handle;
+    _snii_reader->insert_query_cache(execution.context, _query_cache.get(), key, bitmap, &handle);
+    std::shared_ptr<roaring::Roaring> lookup_bitmap;
+    EXPECT_FALSE(_snii_reader->handle_query_cache(execution.context, _query_cache.get(), key,
+                                                  &handle, lookup_bitmap));
+    EXPECT_EQ(execution.stats.inverted_index_query_cache_hit, 0);
+    EXPECT_EQ(execution.stats.inverted_index_query_cache_miss, 0);
+    EXPECT_EQ(execution.stats.inverted_index_query_cache_lookup, 0);
+    EXPECT_EQ(execution.stats.inverted_index_query_cache_insert, 0);
+
+    TQueryOptions enabled_options;
+    enabled_options.enable_inverted_index_query_cache = true;
+    enabled_options.enable_inverted_index_searcher_cache = true;
+    execution.runtime_state.set_query_options(enabled_options);
+    EXPECT_FALSE(_snii_reader->handle_query_cache(execution.context, _query_cache.get(), key,
+                                                  &handle, lookup_bitmap));
+    EXPECT_EQ(execution.stats.inverted_index_query_cache_miss, 1);
+    EXPECT_EQ(execution.stats.inverted_index_query_cache_lookup, 1);
+}
+
+TEST_F(InvertedIndexReaderAnalysisPurposeTest, SniiAsksProviderOnlyAfterSegmentAdmission) {
+    preload_legacy_searcher_cache_entries();
+    expect_provider_failure_after_segment_admission(
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
+            /*expected_query_cache_lookups=*/1);
+    expect_provider_failure_after_segment_admission(
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history ~2", false,
+            /*expected_query_cache_lookups=*/1);
+    expect_provider_failure_after_segment_admission(
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "the hist", false,
+            /*expected_query_cache_lookups=*/1);
+    expect_provider_failure_after_segment_admission(
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", true);
+}
+
+TEST_F(InvertedIndexReaderAnalysisPurposeTest, PartialAnalysisFailureDoesNotPublishState) {
+    preload_legacy_searcher_cache_entries();
+    auto snii_provider = std::make_shared<RecordingPartialFailureAnalyzerProvider>();
+    expect_analysis_failure_after_segment_admission(
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
+            snii_provider, /*expected_query_cache_lookups=*/1);
+    EXPECT_EQ(snii_provider->emitted_tokens->load(std::memory_order_relaxed), 1);
+}
+
+TEST_F(InvertedIndexReaderAnalysisPurposeTest, RegexpAndWildcardBypassAnalyzer) {
+    for (const auto query_type :
+         {InvertedIndexQueryType::MATCH_REGEXP_QUERY, InvertedIndexQueryType::WILDCARD_QUERY}) {
+        expect_raw_query_bypasses_analyzer(_snii_reader, query_type, "hist.*");
+    }
+}
+
+} // namespace
+} // namespace doris::segment_v2

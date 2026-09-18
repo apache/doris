@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "cpp/sync_point.h"
 #include "storage/index/indexed_column_reader.h"
 #include "util/json/path_in_data.h"
 
@@ -56,7 +57,8 @@ Status VariantExternalMetaReader::_find_key_meta(const SegmentFooterPB& footer, 
 
 Status VariantExternalMetaReader::init_from_footer(std::shared_ptr<const SegmentFooterPB> footer,
                                                    const io::FileReaderSPtr& file_reader,
-                                                   int32_t root_uid) {
+                                                   int32_t root_uid, OlapReaderStatistics* stats,
+                                                   const io::IOContext* source_io_ctx) {
     _footer = std::move(footer);
     _file_reader = file_reader;
 
@@ -85,17 +87,21 @@ Status VariantExternalMetaReader::init_from_footer(std::shared_ptr<const Segment
     }
 
     _key_reader = std::make_unique<segment_v2::IndexedColumnReader>(file_reader, key_meta);
-    RETURN_IF_ERROR(_key_reader->load(true, false));
+    TEST_SYNC_POINT_CALLBACK("VariantExternalMetaReader::init_from_footer:key_reader_io_ctx",
+                             source_io_ctx);
+    RETURN_IF_ERROR(_key_reader->load(true, false, stats, source_io_ctx));
     return Status::OK();
 }
 
 Status VariantExternalMetaReader::lookup_meta_by_path(const std::string& rel_path,
-                                                      ColumnMetaPB* out_meta) const {
+                                                      ColumnMetaPB* out_meta,
+                                                      OlapReaderStatistics* stats,
+                                                      const io::IOContext* source_io_ctx) const {
     if (!available()) {
         return Status::Error<ErrorCode::NOT_FOUND, false>("no external variant meta");
     }
     // 1. Seek for Path
-    auto key_it = segment_v2::IndexedColumnIterator(_key_reader.get());
+    auto key_it = segment_v2::IndexedColumnIterator(_key_reader.get(), stats, source_io_ctx);
     bool exact = false;
     Status st = key_it.seek_at_or_after(&rel_path, &exact);
     if (st.is<ErrorCode::ENTRY_NOT_FOUND>()) {
@@ -127,13 +133,16 @@ Status VariantExternalMetaReader::lookup_meta_by_path(const std::string& rel_pat
 
     // 3. Derive column id from root_col_id and key ordinal, then read ColumnMetaPB.
     auto col_id = _root_col_id + 1 + ordinal;
-    return ExternalColMetaUtil::read_col_meta(_file_reader, *_footer, _meta_ptrs, col_id, out_meta);
+    return ExternalColMetaUtil::read_col_meta(_file_reader, *_footer, _meta_ptrs, col_id, out_meta,
+                                              stats, source_io_ctx);
 }
 
 Status VariantExternalMetaReader::load_all(SubcolumnColumnMetaInfo* out_meta_tree,
-                                           VariantStatistics* out_stats) {
+                                           VariantStatistics* out_stats,
+                                           OlapReaderStatistics* stats,
+                                           const io::IOContext* source_io_ctx) {
     DCHECK(available());
-    auto key_it = segment_v2::IndexedColumnIterator(_key_reader.get());
+    auto key_it = segment_v2::IndexedColumnIterator(_key_reader.get(), stats, source_io_ctx);
     RETURN_IF_ERROR(key_it.seek_to_ordinal(0));
     auto total = static_cast<size_t>(_key_reader->num_values());
     size_t built = 0;
@@ -152,8 +161,8 @@ Status VariantExternalMetaReader::load_all(SubcolumnColumnMetaInfo* out_meta_tre
             auto col_id = _root_col_id + 1 + ordinal;
 
             ColumnMetaPB meta;
-            RETURN_IF_ERROR(ExternalColMetaUtil::read_col_meta(_file_reader, *_footer, _meta_ptrs,
-                                                               col_id, &meta));
+            RETURN_IF_ERROR(ExternalColMetaUtil::read_col_meta(
+                    _file_reader, *_footer, _meta_ptrs, col_id, &meta, stats, source_io_ctx));
 
             if (!meta.has_column_path_info()) {
                 continue;
@@ -180,7 +189,9 @@ Status VariantExternalMetaReader::load_all(SubcolumnColumnMetaInfo* out_meta_tre
     return Status::OK();
 }
 
-Status VariantExternalMetaReader::has_prefix(const std::string& prefix, bool* out) const {
+Status VariantExternalMetaReader::has_prefix(const std::string& prefix, bool* out,
+                                             OlapReaderStatistics* stats,
+                                             const io::IOContext* source_io_ctx) const {
     DCHECK(out != nullptr);
     DCHECK(available());
     *out = false;
@@ -190,7 +201,7 @@ Status VariantExternalMetaReader::has_prefix(const std::string& prefix, bool* ou
         return Status::OK();
     }
 
-    segment_v2::IndexedColumnIterator key_it(_key_reader.get());
+    segment_v2::IndexedColumnIterator key_it(_key_reader.get(), stats, source_io_ctx);
     bool exact = false;
     Status st = key_it.seek_at_or_after(&prefix, &exact);
     if (st.is<ErrorCode::ENTRY_NOT_FOUND>()) {
@@ -218,13 +229,15 @@ Status VariantExternalMetaReader::has_prefix(const std::string& prefix, bool* ou
 }
 
 Status VariantExternalMetaReader::load_all_once(SubcolumnColumnMetaInfo* out_meta_tree,
-                                                VariantStatistics* out_stats) {
+                                                VariantStatistics* out_stats,
+                                                OlapReaderStatistics* stats,
+                                                const io::IOContext* source_io_ctx) {
     DCHECK(available());
-    return _load_once_call.call([&]() -> Status {
+    return _load_once_call.call([this, out_meta_tree, out_stats, stats, source_io_ctx]() -> Status {
         if (_loaded) {
             return Status::OK();
         }
-        RETURN_IF_ERROR(load_all(out_meta_tree, out_stats));
+        RETURN_IF_ERROR(load_all(out_meta_tree, out_stats, stats, source_io_ctx));
         _loaded = true;
         return Status::OK();
     });

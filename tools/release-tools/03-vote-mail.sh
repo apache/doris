@@ -41,7 +41,7 @@ fi
 FPR="$(gpg --list-keys --with-colons "$SIGNER" | awk -F: '/^fpr:/{print $10; exit}')"
 
 mkdir -p "$WORK_DIR"
-subject="[VOTE] Release Apache Doris ${TAG}"
+subject="[VOTE] Release for Apache Doris ${TAG}"
 body_file="$WORK_DIR/vote-email.txt"
 eml_file="$WORK_DIR/vote-email.eml"
 
@@ -88,11 +88,19 @@ The vote will be open for at least 72 hours.
 [ ] +0 No opinion
 [ ] -1 Do not release this package because ...
 
+Here is my +1(binding)
+
 Best Regards,
 ${SIGNER_NAME} (${APACHE_ID})
 EOF
 
-printf '%s\n' "$BODY" > "$body_file"
+# The .txt draft carries the subject line too, so the whole mail can be copied
+# from one file. The .eml keeps it as a real header below.
+{
+  echo "Subject: ${subject}"
+  echo
+  printf '%s\n' "$BODY"
+} > "$body_file"
 {
   echo "To: ${DEV_LIST}"
   echo "Subject: ${subject}"

@@ -22,6 +22,7 @@
 
 #include <gen_cpp/internal_service.pb.h>
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -49,6 +50,10 @@ public:
 
     Status create_file_cache(const std::string& cache_base_path,
                              FileCacheSettings file_cache_settings);
+
+    Status create_file_caches(
+            const std::vector<CachePath>& cache_paths,
+            const std::function<bool(const std::string&, const Status&)>& should_ignore_error);
 
     Status reload_file_cache(const std::vector<CachePath>& cache_base_paths);
 
@@ -95,6 +100,15 @@ public:
 
     std::vector<std::string> get_base_paths();
 
+    /// Re-read the BE-wide async-write settings, split the pending-byte ownership limit equally
+    /// across all initialized cache instances, and update every per-disk manager.
+    /// @return OK after every manager is updated; otherwise the first manager update error.
+    Status refresh_async_write_options();
+
+    /// Start async-write workers for every initialized cache disk. Repeated calls are idempotent.
+    /// @return OK after every manager is ready; otherwise the first startup error.
+    Status start_async_write_managers();
+
     /**
      * Clears data of all file cache instances
      *
@@ -114,6 +128,8 @@ public:
     FileCacheFactory(const FileCacheFactory&) = delete;
 
 private:
+    Status _refresh_async_write_options_locked();
+
     std::mutex _mtx;
     std::vector<std::unique_ptr<BlockFileCache>> _caches;
     std::unordered_map<std::string, BlockFileCache*> _path_to_cache;

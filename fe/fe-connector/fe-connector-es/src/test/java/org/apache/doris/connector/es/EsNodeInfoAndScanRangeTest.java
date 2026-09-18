@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.es;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -129,12 +128,6 @@ class EsNodeInfoAndScanRangeTest {
         Assertions.assertEquals("_doc", range.getMappingType());
         Assertions.assertEquals(0, range.getShardId());
         Assertions.assertEquals(2, range.getEsHosts().size());
-    }
-
-    @Test
-    void testScanRangeType() {
-        EsScanRange range = new EsScanRange("idx", null, 1, Collections.emptyList());
-        Assertions.assertEquals(ConnectorScanRangeType.FILE_SCAN, range.getRangeType());
     }
 
     @Test

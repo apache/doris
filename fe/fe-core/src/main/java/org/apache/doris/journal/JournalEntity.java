@@ -44,11 +44,11 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.cooldown.CooldownDelete;
-import org.apache.doris.datasource.CatalogLog;
-import org.apache.doris.datasource.ExternalObjectLog;
-import org.apache.doris.datasource.InitCatalogLog;
-import org.apache.doris.datasource.InitDatabaseLog;
-import org.apache.doris.datasource.MetaIdMappingsLog;
+import org.apache.doris.datasource.log.CatalogLog;
+import org.apache.doris.datasource.log.ExternalObjectLog;
+import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.datasource.log.InitDatabaseLog;
+import org.apache.doris.datasource.log.MetaIdMappingsLog;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
 import org.apache.doris.indexpolicy.IndexPolicy;
@@ -87,6 +87,7 @@ import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.CreateDictionaryPersistInfo;
+import org.apache.doris.persist.CreateFunctionInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DictionaryDecreaseVersionInfo;
@@ -139,10 +140,10 @@ import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
-import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.NewPartitionLoadedEvent;
-import org.apache.doris.statistics.TableStatsMeta;
-import org.apache.doris.statistics.UpdateRowsEvent;
+import org.apache.doris.statistics.analysis.AnalysisInfo;
+import org.apache.doris.statistics.analysis.NewPartitionLoadedEvent;
+import org.apache.doris.statistics.analysis.TableStatsMeta;
+import org.apache.doris.statistics.analysis.UpdateRowsEvent;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -496,6 +497,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_FUNCTION: {
                 data = Function.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ADD_FUNCTIONS: {
+                data = CreateFunctionInfo.read(in);
                 isRead = true;
                 break;
             }

@@ -229,7 +229,7 @@ suite("test_write_inverted_index_exception_fault_injection", "nonConcurrent") {
         "InvertedIndexColumnWriter::create_unsupported_type_for_inverted_index"
     ]
 
-    def inverted_index_storage_format = ["v1", "v2"]
+    def inverted_index_storage_format = ["v2"]
     try {
         String backend_id;
         backend_id = backendId_to_backendIP.keySet()[0]

@@ -47,13 +47,17 @@
 #include "common/logging.h"
 #include "core/uint128.h"
 #include "exec/common/sip_hash.h"
+#include "io/cache/async_cache_write_manager.h"
 #include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/mem_file_cache_storage.h"
+#include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/runtime_profile.h"
 #include "util/concurrency_stats.h"
+#include "util/mem_info.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
@@ -64,10 +68,6 @@ namespace {
 
 constexpr std::array<FileCacheType, 4> LRU_LOG_REPLAY_TYPES = {
         FileCacheType::TTL, FileCacheType::INDEX, FileCacheType::NORMAL, FileCacheType::DISPOSABLE};
-
-size_t file_cache_type_index(FileCacheType type) {
-    return static_cast<size_t>(type);
-}
 
 } // namespace
 
@@ -226,6 +226,10 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_ttl_cache_evict_size");
     _total_evict_size_metrics = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_total_evict_size");
+    _evict_not_downloaded_size_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_not_downloaded_size");
+    _evict_not_downloaded_num_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_not_downloaded_num");
     _total_read_size_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                      "file_cache_total_read_size");
     _total_hit_size_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
@@ -384,6 +388,9 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_cache_lock_wait_time_us");
     _get_or_set_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_get_or_set_latency_us");
+    // Probe timing remains available to focused tests without adding another per-disk latency
+    // family to the Prometheus scrape surface.
+    _probe_latency_us = std::make_shared<bvar::LatencyRecorder>();
     _storage_sync_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_storage_sync_remove_latency_us");
     _storage_retry_sync_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
@@ -448,6 +455,38 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     }
 
     LOG(INFO) << "file cache path= " << _cache_base_path << " " << cache_settings.to_string();
+}
+
+BlockFileCache::~BlockFileCache() {
+    if (_async_write_manager) {
+        _async_write_manager->shutdown();
+    }
+    {
+        std::lock_guard lock(_close_mtx);
+        _close = true;
+    }
+    _close_cv.notify_all();
+    if (_cache_background_monitor_thread.joinable()) {
+        _cache_background_monitor_thread.join();
+    }
+    if (_cache_background_gc_thread.joinable()) {
+        _cache_background_gc_thread.join();
+    }
+    if (_cache_background_evict_in_advance_thread.joinable()) {
+        _cache_background_evict_in_advance_thread.join();
+    }
+    if (_cache_background_lru_dump_thread.joinable()) {
+        _cache_background_lru_dump_thread.join();
+    }
+    if (_cache_background_lru_log_replay_thread.joinable()) {
+        _cache_background_lru_log_replay_thread.join();
+    }
+    if (_cache_background_block_lru_update_thread.joinable()) {
+        _cache_background_block_lru_update_thread.join();
+    }
+    if (_ttl_mgr) {
+        _ttl_mgr.reset();
+    }
 }
 
 UInt128Wrapper BlockFileCache::hash(const std::string& path) {
@@ -546,6 +585,28 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
         restore_lru_queues_from_disk(cache_lock);
     }
     RETURN_IF_ERROR(_storage->init(this));
+
+    _inflight_write_buffer_index = std::make_unique<InflightWriteBufferIndex>(
+            static_cast<size_t>(
+                    config::async_file_cache_write_inflight_write_buffer_index_shard_count),
+            _cache_base_path);
+    // BlockFileCache is the configuration boundary for a newly created per-disk manager. Pass a
+    // value snapshot so AsyncCacheWriteManager does not need to know where its settings came from.
+    AsyncCacheWriteManagerOptions async_write_options;
+    async_write_options.worker_count =
+            static_cast<size_t>(config::async_file_cache_write_workers_per_disk);
+    // A standalone cache uses the complete BE-wide value. FileCacheFactory replaces this with an
+    // equal per-instance share after it knows how many cache paths initialized successfully.
+    RETURN_IF_ERROR(resolve_async_file_cache_write_max_pending_bytes(
+            config::async_file_cache_write_max_pending_bytes, MemInfo::mem_limit(),
+            &async_write_options.max_pending_bytes));
+    _async_write_manager =
+            std::make_unique<AsyncCacheWriteManager>(this, std::move(async_write_options));
+    // Do not create persistent per-disk workers while async writeback is disabled. The config
+    // update adapter starts existing managers explicitly when the switch is enabled online.
+    if (config::enable_async_file_cache_write) {
+        RETURN_IF_ERROR(_async_write_manager->start());
+    }
 
     if (auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(_storage.get())) {
         if (auto* meta_store = fs_storage->get_meta_store()) {
@@ -821,6 +882,114 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
     return Status::OK();
 }
 
+FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t offset, size_t size,
+                                            const CacheContext& context) {
+    DORIS_CHECK(size > 0);
+    DORIS_CHECK(_max_file_block_size > 0);
+    const size_t end = offset + size;
+    DORIS_CHECK(end > offset);
+    const int64_t probe_start_us = MonotonicMicros();
+    SCOPED_CACHE_LOCK(_mutex, this);
+
+    auto file_iterator = _files.find(hash);
+    if (file_iterator == _files.end() && !_async_open_done) {
+        FileCacheKey key;
+        key.hash = hash;
+        key.meta.type = context.cache_type;
+        key.meta.expiration_time = context.expiration_time;
+        key.meta.tablet_id = context.tablet_id;
+        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+        file_iterator = _files.find(hash);
+    }
+
+    FileBlocksByOffset* cached_blocks = nullptr;
+    FileBlocksByOffset::iterator cached_block;
+    if (file_iterator != _files.end()) {
+        DORIS_CHECK(!file_iterator->second.empty());
+        cached_blocks = &file_iterator->second;
+        cached_block = cached_blocks->lower_bound(offset);
+        if (cached_block != cached_blocks->begin()) {
+            const auto& previous_range = std::prev(cached_block)->second.file_block->range();
+            DORIS_CHECK(previous_range.right < offset);
+        }
+    }
+
+    std::vector<FileBlockSPtr> result;
+    result.reserve(size / _max_file_block_size + (size % _max_file_block_size != 0));
+    for (size_t block_offset = offset; block_offset < end;) {
+        const size_t block_size = std::min(_max_file_block_size, end - block_offset);
+        const FileBlock::Range expected_range(block_offset, block_offset + block_size - 1);
+        FileBlockSPtr file_block;
+        if (cached_blocks != nullptr && cached_block != cached_blocks->end() &&
+            cached_block->second.file_block->range().left <= expected_range.right) {
+            file_block = cached_block->second.file_block;
+            DORIS_CHECK(file_block->range().left == expected_range.left);
+            DORIS_CHECK(file_block->range().right >= expected_range.right);
+            // File writers allocate full-size cache blocks before the final buffer size is known.
+            // Only the last short probe slot can therefore have a larger cached right boundary.
+            DORIS_CHECK(file_block->range().right == expected_range.right ||
+                        block_size < _max_file_block_size);
+            ++cached_block;
+        }
+        result.emplace_back(std::move(file_block));
+        block_offset += block_size;
+    }
+    *_probe_latency_us << (MonotonicMicros() - probe_start_us);
+    return FileBlocksProbeResult(std::move(result));
+}
+
+void BlockFileCache::touch_probe_block_if_cached(const FileBlockSPtr& block,
+                                                 const CacheContext& context) {
+    DORIS_CHECK(block != nullptr);
+    FileBlockSPtr async_touch;
+    {
+        SCOPED_CACHE_LOCK(_mutex, this);
+        auto file_iterator = _files.find(block->get_hash_value());
+        if (file_iterator == _files.end()) {
+            return;
+        }
+        auto cell_iterator = file_iterator->second.find(block->offset());
+        if (cell_iterator == file_iterator->second.end() ||
+            cell_iterator->second.file_block != block) {
+            return;
+        }
+        {
+            std::lock_guard block_lock(block->_mutex);
+            if (block->_is_deleting) {
+                return;
+            }
+        }
+        auto& cell = cell_iterator->second;
+        const bool move_iter = need_to_move(block->cache_type(), context.cache_type);
+        if (config::enable_file_cache_async_touch_on_get_or_set) {
+            cell.update_atime();
+            if (move_iter) {
+                async_touch = block;
+            }
+        } else {
+            use_cell(cell, nullptr, move_iter, cache_lock);
+        }
+    }
+    if (async_touch) {
+        add_need_update_lru_block(std::move(async_touch));
+    }
+}
+
+bool BlockFileCache::is_block_deleting(const FileBlockSPtr& block) const {
+    DORIS_CHECK(block != nullptr);
+    SCOPED_CACHE_LOCK(_mutex, this);
+    auto file_iterator = _files.find(block->get_hash_value());
+    if (file_iterator == _files.end()) {
+        return true;
+    }
+    auto cell_iterator = file_iterator->second.find(block->offset());
+    if (cell_iterator == file_iterator->second.end() || cell_iterator->second.file_block != block) {
+        return true;
+    }
+    std::lock_guard block_lock(block->_mutex);
+    return block->_is_deleting;
+}
+
 std::string BlockFileCache::clear_file_cache_async() {
     return clear_file_cache_impl(false);
 }
@@ -830,6 +999,8 @@ std::string BlockFileCache::clear_file_cache_sync() {
 }
 
 std::string BlockFileCache::clear_file_cache_impl(bool sync_remove) {
+    DORIS_CHECK(_async_write_manager != nullptr);
+    _async_write_manager->invalidate_all_pending_writes();
     const char* action = sync_remove ? "clear_file_cache_sync" : "clear_file_cache_async";
     LOG(INFO) << "start " << action << ", path=" << _cache_base_path;
     _lru_dumper->remove_lru_dump_files();
@@ -900,10 +1071,21 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
     while (current_pos < end_pos_non_included) {
         current_size = std::min(remaining_size, _max_file_block_size);
         remaining_size -= current_size;
-        state = try_reserve(hash, context, current_pos, current_size, cache_lock)
-                        ? state
-                        : FileBlock::State::SKIP_CACHE;
-        if (state == FileBlock::State::SKIP_CACHE) [[unlikely]] {
+        auto block_state = state;
+        if (block_state != FileBlock::State::SKIP_CACHE &&
+            context.admit_cache_write_by_remote_scan_limiter) {
+            auto* limiter = context.remote_scan_cache_write_limiter;
+            DCHECK(limiter != nullptr);
+            if (!limiter->try_admit_cache_write(static_cast<int64_t>(current_size))) {
+                block_state = FileBlock::State::SKIP_CACHE;
+            }
+        }
+        if (block_state != FileBlock::State::SKIP_CACHE) {
+            block_state = try_reserve(hash, context, current_pos, current_size, cache_lock)
+                                  ? block_state
+                                  : FileBlock::State::SKIP_CACHE;
+        }
+        if (block_state == FileBlock::State::SKIP_CACHE) [[unlikely]] {
             FileCacheKey key;
             key.hash = hash;
             key.offset = current_pos;
@@ -914,7 +1096,8 @@ FileBlocks BlockFileCache::split_range_into_cells(const UInt128Wrapper& hash,
                                                           FileBlock::State::SKIP_CACHE);
             file_blocks.push_back(std::move(file_block));
         } else {
-            auto* cell = add_cell(hash, context, current_pos, current_size, state, cache_lock);
+            auto* cell =
+                    add_cell(hash, context, current_pos, current_size, block_state, cache_lock);
             if (cell) {
                 file_blocks.push_back(cell->file_block);
                 if (!context.is_cold_data) {
@@ -1012,7 +1195,7 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     int64_t duration = 0;
     {
         ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->increment();
-        std::lock_guard cache_lock(_mutex);
+        SCOPED_CACHE_LOCK(_mutex, this);
         ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->decrement();
         stats->lock_wait_timer += sw.elapsed_time();
         SCOPED_RAW_TIMER(&duration);
@@ -1357,6 +1540,8 @@ void BlockFileCache::try_evict_in_advance(size_t size, std::lock_guard<std::mute
 // remove specific cache synchronously, for critical operations
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
+    DORIS_CHECK(_async_write_manager != nullptr);
+    _async_write_manager->invalidate_pending_writes(file_key);
     std::string reason = "remove_if_cached";
     SCOPED_CACHE_LOCK(_mutex, this);
     auto iter = _files.find(file_key);
@@ -1377,6 +1562,8 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
 // cache meta is deleted synchronously if not in use, and the block file is deleted asynchronously
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
+    DORIS_CHECK(_async_write_manager != nullptr);
+    _async_write_manager->invalidate_pending_writes(file_key);
     std::string reason = "remove_if_cached_async";
     SCOPED_CACHE_LOCK(_mutex, this);
 
@@ -1653,15 +1840,15 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                                           cell->file_block->get_hash_value(),
                                           cell->file_block->offset(), cell->size());
     }
-    *_queue_evict_size_metrics[file_cache_type_index(file_block->cache_type())]
-            << file_block->range().size();
-    *_total_evict_size_metrics << file_block->range().size();
-
     VLOG_DEBUG << "Removing file block from cache. hash: " << hash.to_string()
                << ", offset: " << offset << ", size: " << file_block->range().size()
                << ", type: " << cache_type_to_string(type);
 
-    if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADED) {
+    const auto state = file_block->state_unlock(block_lock);
+    if (state == FileBlock::State::DOWNLOADED) {
+        *_queue_evict_size_metrics[file_cache_type_index(file_block->cache_type())]
+                << file_block->range().size();
+        *_total_evict_size_metrics << file_block->range().size();
         FileCacheKey key;
         key.hash = hash;
         key.offset = offset;
@@ -1700,9 +1887,12 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                 }
             }
         }
-    } else if (file_block->state_unlock(block_lock) == FileBlock::State::DOWNLOADING) {
+    } else if (state == FileBlock::State::DOWNLOADING) {
         file_block->set_deleting();
         return;
+    } else {
+        *_evict_not_downloaded_size_metrics << file_block->range().size();
+        *_evict_not_downloaded_num_metrics << 1;
     }
     _cur_cache_size -= file_block->range().size();
     if (FileCacheType::TTL == type) {
@@ -2011,8 +2201,6 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
             queue_released = remove_blocks(_ttl_queue);
             ss << " ttl_queue released " << queue_released;
 
-            _disk_resource_limit_mode = true;
-            _disk_limit_mode_metrics->set_value(1);
             ss << " total_space_released=" << space_released;
         }
         old_capacity = _capacity;
@@ -2032,11 +2220,6 @@ void BlockFileCache::check_disk_resource_limit() {
         return;
     }
 
-    bool previous_mode = _disk_resource_limit_mode;
-    if (_capacity > _cur_cache_size) {
-        _disk_resource_limit_mode = false;
-        _disk_limit_mode_metrics->set_value(0);
-    }
     std::pair<int, int> percent;
     int ret = disk_used_percentage(_cache_base_path, &percent);
     if (ret != 0) {
@@ -2061,18 +2244,21 @@ void BlockFileCache::check_disk_resource_limit() {
         config::file_cache_enter_disk_resource_limit_mode_percent = 88;
         config::file_cache_exit_disk_resource_limit_mode_percent = 80;
     }
+    bool previous_mode = _disk_resource_limit_mode.load();
     bool is_space_insufficient = is_insufficient(space_percentage);
     bool is_inode_insufficient = is_insufficient(inode_percentage);
+    // Enter when either resource reaches the enter threshold, but exit only after both
+    // resources fall below the exit threshold. Values in [exit, enter) preserve the previous
+    // mode through _disk_resource_limit_mode.
     if (is_space_insufficient || is_inode_insufficient) {
         _disk_resource_limit_mode = true;
-        _disk_limit_mode_metrics->set_value(1);
     } else if (_disk_resource_limit_mode &&
                (space_percentage < config::file_cache_exit_disk_resource_limit_mode_percent) &&
                (inode_percentage < config::file_cache_exit_disk_resource_limit_mode_percent)) {
         _disk_resource_limit_mode = false;
-        _disk_limit_mode_metrics->set_value(0);
     }
-    if (previous_mode != _disk_resource_limit_mode) {
+    _disk_limit_mode_metrics->set_value(_disk_resource_limit_mode.load());
+    if (previous_mode != _disk_resource_limit_mode.load()) {
         // add log for disk resource limit mode switching
         if (_disk_resource_limit_mode) {
             LOG(WARNING) << "Entering disk resource limit mode: file_cache=" << get_base_path()
@@ -2129,7 +2315,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         config::file_cache_enter_need_evict_cache_in_advance_percent = 78;
         config::file_cache_exit_need_evict_cache_in_advance_percent = 75;
     }
-    bool previous_mode = _need_evict_cache_in_advance;
+    bool previous_mode = _need_evict_cache_in_advance.load();
     bool is_space_insufficient = is_insufficient(space_percentage);
     bool is_inode_insufficient = is_insufficient(inode_percentage);
     bool is_size_insufficient = is_insufficient(size_percentage);
@@ -2143,7 +2329,7 @@ void BlockFileCache::check_need_evict_cache_in_advance() {
         _need_evict_cache_in_advance = false;
         _need_evict_cache_in_advance_metrics->set_value(0);
     }
-    if (previous_mode != _need_evict_cache_in_advance) {
+    if (previous_mode != _need_evict_cache_in_advance.load()) {
         // add log for evict cache in advance mode switching
         if (_need_evict_cache_in_advance) {
             LOG(WARNING) << "Entering evict cache in advance mode: "
@@ -2258,7 +2444,6 @@ void BlockFileCache::run_background_monitor() {
                         (double)_no_warmup_num_read_blocks_1h->get_value());
             }
         }
-        _lru_recorder->update_shadow_queue_element_count_metrics();
     }
 }
 
@@ -2581,8 +2766,8 @@ std::map<std::string, double> BlockFileCache::get_stats() {
             (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::DISPOSABLE]
                     ->get_value();
 
-    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
-    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance.load();
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode.load();
 
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
@@ -2591,6 +2776,8 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["total_read_size"] = (double)_total_read_size_metrics->get_value();
     stats["total_hit_size"] = (double)_total_hit_size_metrics->get_value();
     stats["total_removed_size"] = (double)_total_evict_size_metrics->get_value();
+    stats["evict_not_downloaded_size"] = (double)_evict_not_downloaded_size_metrics->get_value();
+    stats["evict_not_downloaded_num"] = (double)_evict_not_downloaded_num_metrics->get_value();
 
     return stats;
 }
@@ -2634,8 +2821,8 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
             (double)_lru_recorder_shadow_queue_element_count_metrics[FileCacheType::DISPOSABLE]
                     ->get_value();
 
-    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance;
-    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode;
+    stats["need_evict_cache_in_advance"] = (double)_need_evict_cache_in_advance.load();
+    stats["disk_resource_limit_mode"] = (double)_disk_resource_limit_mode.load();
 
     stats["total_removed_counts"] = (double)_num_removed_blocks->get_value();
     stats["total_hit_counts"] = (double)_num_hit_blocks->get_value();
@@ -2644,6 +2831,8 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
     stats["total_read_size"] = (double)_total_read_size_metrics->get_value();
     stats["total_hit_size"] = (double)_total_hit_size_metrics->get_value();
     stats["total_removed_size"] = (double)_total_evict_size_metrics->get_value();
+    stats["evict_not_downloaded_size"] = (double)_evict_not_downloaded_size_metrics->get_value();
+    stats["evict_not_downloaded_num"] = (double)_evict_not_downloaded_num_metrics->get_value();
 
     return stats;
 }

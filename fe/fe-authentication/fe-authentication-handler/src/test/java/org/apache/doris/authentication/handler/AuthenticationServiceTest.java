@@ -154,7 +154,8 @@ class AuthenticationServiceTest {
                     .authenticator("test_integration")
                     .build();
 
-            AuthenticationResult successResult = AuthenticationResult.success(principal);
+            long expiresAtMillis = 1_700_000_000_000L;
+            AuthenticationResult successResult = AuthenticationResult.success(principal, expiresAtMillis);
 
             Mockito.when(bindingResolver.resolveCandidates(Mockito.eq("alice"), Mockito.any()))
                     .thenReturn(Collections.singletonList(testIntegration));
@@ -181,7 +182,8 @@ class AuthenticationServiceTest {
                     .authenticator("test_integration")
                     .build();
 
-            AuthenticationResult successResult = AuthenticationResult.success(principal);
+            long expiresAtMillis = 1_700_000_000_000L;
+            AuthenticationResult successResult = AuthenticationResult.success(principal, expiresAtMillis);
 
             Mockito.when(bindingResolver.resolveCandidates(Mockito.eq("alice"), Mockito.any()))
                     .thenReturn(Collections.singletonList(testIntegration));
@@ -194,6 +196,8 @@ class AuthenticationServiceTest {
 
             Assertions.assertTrue(result.isSuccess());
             Assertions.assertEquals(Set.of("admin", "analyst"), result.getGrantedRoles());
+            Assertions.assertTrue(result.getCredentialExpiresAtMillis().isPresent());
+            Assertions.assertEquals(expiresAtMillis, result.getCredentialExpiresAtMillis().getAsLong());
             Mockito.verify(roleMappingEvaluator).evaluate(testIntegration, principal);
         }
 

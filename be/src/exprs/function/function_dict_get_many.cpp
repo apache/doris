@@ -35,7 +35,7 @@
 
 namespace doris {
 
-struct DictGetState {
+struct DictGetManyState {
     std::shared_ptr<const IDictionary> dict;
     ///TODO:
     // 1. we do not need to check dict every time(shoud only check in open)
@@ -65,7 +65,7 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
-        std::shared_ptr<DictGetState> state = std::make_shared<DictGetState>();
+        std::shared_ptr<DictGetManyState> state = std::make_shared<DictGetManyState>();
         context->set_function_state(scope, state);
         DCHECK(context->get_num_args() == 3);
         auto dict_fn = context->dict_function();
@@ -87,7 +87,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        auto* dict_state = reinterpret_cast<DictGetState*>(
+        auto* dict_state = reinterpret_cast<DictGetManyState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!dict_state) {
             return Status::RuntimeError("funciton context for function '{}' must have dict_state;",

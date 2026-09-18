@@ -17,6 +17,12 @@
 
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <mutex>
+#include <string>
+
 #include "runtime/process_profile.h"
 #include "util/mem_info.h"
 

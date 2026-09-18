@@ -19,12 +19,15 @@
 
 #include <unicode/utf8.h>
 
+#include <algorithm>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/regex.hpp>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include "common/exception.h"
 
@@ -166,6 +169,12 @@ public:
             result += key + "=" + value;
         }
         return result;
+    }
+
+    std::vector<std::pair<std::string, std::string>> sorted_entries() const {
+        std::vector<std::pair<std::string, std::string>> entries(_args.begin(), _args.end());
+        std::sort(entries.begin(), entries.end());
+        return entries;
     }
 
 private:

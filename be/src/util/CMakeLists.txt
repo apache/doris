@@ -29,8 +29,6 @@ else ()
     list(REMOVE_ITEM UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/perf_counters_mac.cpp ${CMAKE_CURRENT_SOURCE_DIR}/disk_info_mac.cpp)
 endif()
 
-list(REMOVE_ITEM UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/libjvm_loader.cpp)
-
 if (ENABLE_TLS)
     list(REMOVE_ITEM UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/oss/client_connection_provider.cpp)
     list(APPEND UTIL_FILES ${CMAKE_CURRENT_SOURCE_DIR}/../${TLS_MODULE_DIR}/client_connection_provider.cpp)
@@ -41,3 +39,22 @@ add_library(Util STATIC
 )
 
 pch_reuse(Util)
+
+# Unity build for the small util TUs (parse-overhead dominated). Ten files
+# leak file-scope macros and stay individual; hash/city.cc keeps its generic
+# k0..k4 static hash constants away from sibling scopes. perf_counters.cpp
+# is a Linux-only member (macOS builds its _mac variant, which is clean).
+set(UTIL_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/bfd_parser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/hash/city.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/hash/murmur_hash3.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/network_util.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/os_info.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/os_util.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/perf_counters.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/simd/parquet_kernels.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/thrift_util.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/zlib.cpp)
+doris_skip_unity_inclusion(${UTIL_UNITY_SKIP})
+set_target_properties(Util PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
+                                      UNITY_BUILD_BATCH_SIZE 24)

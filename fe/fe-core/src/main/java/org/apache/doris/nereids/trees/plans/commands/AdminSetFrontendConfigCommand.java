@@ -20,10 +20,13 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -91,6 +94,11 @@ public class AdminSetFrontendConfigCommand extends Command implements Redirect {
 
         if (type != NodeType.FRONTEND) {
             throw new AnalysisException("Only support setting Frontend configs now");
+        }
+
+        if (Config.isCloudMode()
+                && !ConnectContext.get().getCurrentUserIdentity().getUser().equals(Auth.ROOT_USER)) {
+            throw new DdlException("Unsupported operation");
         }
     }
 

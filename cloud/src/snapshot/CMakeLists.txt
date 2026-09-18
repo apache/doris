@@ -18,4 +18,10 @@
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/snapshot")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/snapshot")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lfdb_c -L${THIRDPARTY_DIR}/lib")
-add_library(Snapshot snapshot_manager.cpp snapshot_manager_factory.cpp)
+
+# Extension modules may replace the factory while reusing the public SnapshotManager API.
+if (NOT DORIS_CLOUD_SNAPSHOT_MANAGER_FACTORY_SOURCE)
+    set(DORIS_CLOUD_SNAPSHOT_MANAGER_FACTORY_SOURCE snapshot_manager_factory.cpp)
+endif()
+
+add_library(Snapshot snapshot_manager.cpp ${DORIS_CLOUD_SNAPSHOT_MANAGER_FACTORY_SOURCE})

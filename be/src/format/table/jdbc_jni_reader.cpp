@@ -35,7 +35,7 @@ JdbcJniReader::JdbcJniReader(const std::vector<SlotDescriptor*>& file_slot_descs
                              RuntimeState* state, RuntimeProfile* profile,
                              const std::map<std::string, std::string>& jdbc_params)
         : JniReader(
-                  file_slot_descs, state, profile, "org/apache/doris/jdbc/JdbcJniScanner",
+                  file_slot_descs, state, profile, Jni::plugin::JDBC_SCANNER,
                   [&]() {
                       std::ostringstream required_fields;
                       std::ostringstream columns_types;
@@ -190,7 +190,7 @@ Status JdbcJniReader::_cast_string_to_special_type(const SlotDescriptor* slot_de
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(2);
-    argument_template.emplace_back(std::move(input_col), input_string_type, "java.sql.String");
+    argument_template.emplace_back(input_col, input_string_type, "java.sql.String");
     argument_template.emplace_back(cast_param, cast_param_data_type, target_data_type_name);
 
     FunctionBasePtr func_cast = SimpleFunctionFactory::instance().get_function(

@@ -17,6 +17,7 @@
 
 #include "io/cache/block_file_cache_profile.h"
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <string>
@@ -31,6 +32,10 @@ std::shared_ptr<AtomicStatistics> FileCacheMetrics::report() {
     output_stats->num_io_bytes_read_from_cache += _statistics->num_io_bytes_read_from_cache;
     output_stats->num_io_bytes_read_from_remote += _statistics->num_io_bytes_read_from_remote;
     output_stats->num_io_bytes_read_from_peer += _statistics->num_io_bytes_read_from_peer;
+    output_stats->inverted_index_bytes_read_from_remote +=
+            _statistics->inverted_index_bytes_read_from_remote;
+    output_stats->segment_footer_index_bytes_read_from_remote +=
+            _statistics->segment_footer_index_bytes_read_from_remote;
     return output_stats;
 }
 
@@ -45,6 +50,10 @@ void FileCacheMetrics::update(FileCacheStatistics* input_stats) {
     _statistics->num_io_bytes_read_from_cache += input_stats->bytes_read_from_local;
     _statistics->num_io_bytes_read_from_remote += input_stats->bytes_read_from_remote;
     _statistics->num_io_bytes_read_from_peer += input_stats->bytes_read_from_peer;
+    _statistics->inverted_index_bytes_read_from_remote +=
+            input_stats->inverted_index_bytes_read_from_remote;
+    _statistics->segment_footer_index_bytes_read_from_remote +=
+            input_stats->segment_footer_index_bytes_read_from_remote;
 }
 
 void FileCacheMetrics::register_entity() {
@@ -63,6 +72,10 @@ void FileCacheMetrics::update_metrics_callback() {
     DorisMetrics::instance()->num_io_bytes_read_total->set_value(
             stats->num_io_bytes_read_from_cache + stats->num_io_bytes_read_from_remote +
             stats->num_io_bytes_read_from_peer);
+    DorisMetrics::instance()->inverted_index_bytes_read_from_remote->set_value(
+            stats->inverted_index_bytes_read_from_remote);
+    DorisMetrics::instance()->segment_footer_index_bytes_read_from_remote->set_value(
+            stats->segment_footer_index_bytes_read_from_remote);
 }
 
 FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
@@ -87,6 +100,17 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(lock_wait_timer);
     SUBTRACT_FIELD(get_timer);
     SUBTRACT_FIELD(set_timer);
+    SUBTRACT_FIELD(async_cache_write_submitted);
+    SUBTRACT_FIELD(async_cache_write_rejected);
+    SUBTRACT_FIELD(async_cache_write_buffer_alloc_fail);
+    SUBTRACT_FIELD(async_cache_write_drop_stale_epoch);
+    SUBTRACT_FIELD(inflight_write_buffer_index_hit);
+    SUBTRACT_FIELD(inflight_write_buffer_index_miss);
+    SUBTRACT_FIELD(probe_downloaded_hit);
+    SUBTRACT_FIELD(probe_downloading_hit);
+    SUBTRACT_FIELD(probe_miss);
+    SUBTRACT_FIELD(block_wait_success);
+    SUBTRACT_FIELD(block_wait_timeout);
 
     SUBTRACT_FIELD(inverted_index_num_local_io_total);
     SUBTRACT_FIELD(inverted_index_num_remote_io_total);
@@ -94,10 +118,17 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(inverted_index_bytes_read_from_local);
     SUBTRACT_FIELD(inverted_index_bytes_read_from_remote);
     SUBTRACT_FIELD(inverted_index_bytes_read_from_peer);
+    SUBTRACT_FIELD(inverted_index_remote_physical_read_bytes);
+    SUBTRACT_FIELD(inverted_index_bytes_write_into_cache);
     SUBTRACT_FIELD(inverted_index_local_io_timer);
     SUBTRACT_FIELD(inverted_index_remote_io_timer);
     SUBTRACT_FIELD(inverted_index_peer_io_timer);
     SUBTRACT_FIELD(inverted_index_io_timer);
+    SUBTRACT_FIELD(inverted_index_write_cache_io_timer);
+    SUBTRACT_FIELD(inverted_index_request_bytes);
+    SUBTRACT_FIELD(inverted_index_read_bytes);
+    SUBTRACT_FIELD(inverted_index_range_read_count);
+    SUBTRACT_FIELD(inverted_index_serial_read_rounds);
 
     SUBTRACT_FIELD(segment_footer_index_num_local_io_total);
     SUBTRACT_FIELD(segment_footer_index_num_remote_io_total);
@@ -108,13 +139,30 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(segment_footer_index_local_io_timer);
     SUBTRACT_FIELD(segment_footer_index_remote_io_timer);
     SUBTRACT_FIELD(segment_footer_index_peer_io_timer);
+    SUBTRACT_FIELD(segment_footer_index_write_cache_io_timer);
+    SUBTRACT_FIELD(segment_footer_index_bytes_write_into_cache);
+    SUBTRACT_FIELD(remote_only_on_miss_triggered);
+    SUBTRACT_FIELD(remote_only_on_miss_threshold_bytes);
+
+    SUBTRACT_FIELD(num_cross_cg_peer_io_total);
+    SUBTRACT_FIELD(bytes_read_from_cross_cg_peer);
+    SUBTRACT_FIELD(cross_cg_peer_io_timer);
+    SUBTRACT_FIELD(num_same_cg_peer_io_total);
+    SUBTRACT_FIELD(bytes_read_from_same_cg_peer);
+    SUBTRACT_FIELD(same_cg_peer_io_timer);
+    SUBTRACT_FIELD(num_peer_race_peer_win);
+    SUBTRACT_FIELD(num_peer_race_s3_win);
+    SUBTRACT_FIELD(num_peer_lazy_fetch);
+    SUBTRACT_FIELD(peer_lazy_fetch_timer);
 #undef SUBTRACT_FIELD
     return diff;
 }
 
-FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _profile(profile) {
+FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
+                                                   const std::string& parent_counter)
+        : _profile(profile) {
     static const char* cache_profile = "FileCache";
-    ADD_TIMER_WITH_LEVEL(profile, cache_profile, 2);
+    total_time = ADD_CHILD_TIMER_WITH_LEVEL(profile, cache_profile, parent_counter.c_str(), 2);
     num_local_io_total =
             ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
     num_remote_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "NumRemoteIOTotal", TUnit::UNIT,
@@ -145,6 +193,32 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
     lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
     get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
     set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
+    async_cache_write_submitted = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AsyncCacheWriteSubmittedCount", TUnit::UNIT, cache_profile, 1);
+    async_cache_write_rejected = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AsyncCacheWriteRejectedCount", TUnit::UNIT, cache_profile, 1);
+    async_cache_write_buffer_alloc_fail = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AsyncCacheWriteBufferAllocFailCount", TUnit::UNIT, cache_profile, 1);
+    async_cache_write_drop_stale_epoch = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AsyncCacheWriteDropStaleEpochCount", TUnit::UNIT, cache_profile, 1);
+    inflight_write_buffer_index_hit = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InflightWriteBufferIndexHitCount", TUnit::UNIT, cache_profile, 1);
+    inflight_write_buffer_index_miss = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InflightWriteBufferIndexMissCount", TUnit::UNIT, cache_profile, 1);
+    probe_downloaded_hit = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeDownloadedHitCount",
+                                                        TUnit::UNIT, cache_profile, 1);
+    probe_downloading_hit = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeDownloadingHitCount",
+                                                         TUnit::UNIT, cache_profile, 1);
+    probe_miss =
+            ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeMissCount", TUnit::UNIT, cache_profile, 1);
+    block_wait_success = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BlockWaitSuccessCount", TUnit::UNIT,
+                                                      cache_profile, 1);
+    block_wait_timeout = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BlockWaitTimeoutCount", TUnit::UNIT,
+                                                      cache_profile, 1);
+    remote_only_on_miss_triggered = profile->AddHighWaterMarkCounter("RemoteOnlyOnMissTriggered",
+                                                                     TUnit::UNIT, cache_profile, 1);
+    remote_only_on_miss_threshold_bytes = profile->AddHighWaterMarkCounter(
+            "RemoteOnlyOnMissThresholdBytes", TUnit::BYTES, cache_profile, 1);
 
     inverted_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "InvertedIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -158,6 +232,10 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
             profile, "InvertedIndexBytesScannedFromRemote", TUnit::BYTES, cache_profile, 1);
     inverted_index_bytes_scanned_from_peer = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "InvertedIndexBytesScannedFromPeer", TUnit::BYTES, cache_profile, 1);
+    inverted_index_remote_physical_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexRemotePhysicalReadBytes", TUnit::BYTES, cache_profile, 1);
+    inverted_index_bytes_write_into_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexBytesWriteIntoCache", TUnit::BYTES, cache_profile, 1);
     inverted_index_local_io_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexLocalIOUseTimer", cache_profile, 1);
     inverted_index_remote_io_timer =
@@ -166,6 +244,16 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexPeerIOUseTimer", cache_profile, 1);
     inverted_index_io_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "InvertedIndexIOTimer", cache_profile, 1);
+    inverted_index_write_cache_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            profile, "InvertedIndexWriteCacheIOUseTimer", cache_profile, 1);
+    inverted_index_request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexRequestBytes", TUnit::BYTES, cache_profile, 1);
+    inverted_index_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "InvertedIndexReadBytes",
+                                                             TUnit::BYTES, cache_profile, 1);
+    inverted_index_range_read_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexRangeReadCount", TUnit::UNIT, cache_profile, 1);
+    inverted_index_serial_read_rounds = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "InvertedIndexSerialReadRounds", TUnit::UNIT, cache_profile, 1);
 
     segment_footer_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "SegmentFooterIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -185,6 +273,10 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
             profile, "SegmentFooterIndexRemoteIOUseTimer", cache_profile, 1);
     segment_footer_index_peer_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
             profile, "SegmentFooterIndexPeerIOUseTimer", cache_profile, 1);
+    segment_footer_index_write_cache_io_timer = ADD_CHILD_TIMER_WITH_LEVEL(
+            profile, "SegmentFooterIndexWriteCacheIOUseTimer", cache_profile, 1);
+    segment_footer_index_bytes_write_into_cache = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "SegmentFooterIndexBytesWriteIntoCache", TUnit::BYTES, cache_profile, 1);
 
     num_cross_cg_peer_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "CrossCGPeerIOTotal",
                                                               TUnit::UNIT, cache_profile, 1);
@@ -209,6 +301,12 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
 }
 
 void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) const {
+    // These are the outer cache-path phases. Their sum keeps the group timer actionable instead of
+    // displaying zero while individual cache IO and coordination timers are non-zero.
+    COUNTER_UPDATE(total_time, statistics->local_io_timer + statistics->remote_io_timer +
+                                       statistics->peer_io_timer + statistics->remote_wait_timer +
+                                       statistics->write_cache_io_timer +
+                                       statistics->cache_get_or_set_timer);
     COUNTER_UPDATE(num_local_io_total, statistics->num_local_io_total);
     COUNTER_UPDATE(num_remote_io_total, statistics->num_remote_io_total);
     COUNTER_UPDATE(num_peer_io_total, statistics->num_peer_io_total);
@@ -227,6 +325,21 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(lock_wait_timer, statistics->lock_wait_timer);
     COUNTER_UPDATE(get_timer, statistics->get_timer);
     COUNTER_UPDATE(set_timer, statistics->set_timer);
+    COUNTER_UPDATE(async_cache_write_submitted, statistics->async_cache_write_submitted);
+    COUNTER_UPDATE(async_cache_write_rejected, statistics->async_cache_write_rejected);
+    COUNTER_UPDATE(async_cache_write_buffer_alloc_fail,
+                   statistics->async_cache_write_buffer_alloc_fail);
+    COUNTER_UPDATE(async_cache_write_drop_stale_epoch,
+                   statistics->async_cache_write_drop_stale_epoch);
+    COUNTER_UPDATE(inflight_write_buffer_index_hit, statistics->inflight_write_buffer_index_hit);
+    COUNTER_UPDATE(inflight_write_buffer_index_miss, statistics->inflight_write_buffer_index_miss);
+    COUNTER_UPDATE(probe_downloaded_hit, statistics->probe_downloaded_hit);
+    COUNTER_UPDATE(probe_downloading_hit, statistics->probe_downloading_hit);
+    COUNTER_UPDATE(probe_miss, statistics->probe_miss);
+    COUNTER_UPDATE(block_wait_success, statistics->block_wait_success);
+    COUNTER_UPDATE(block_wait_timeout, statistics->block_wait_timeout);
+    remote_only_on_miss_triggered->set(statistics->remote_only_on_miss_triggered);
+    remote_only_on_miss_threshold_bytes->set(statistics->remote_only_on_miss_threshold_bytes);
 
     COUNTER_UPDATE(inverted_index_num_local_io_total,
                    statistics->inverted_index_num_local_io_total);
@@ -239,10 +352,16 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
                    statistics->inverted_index_bytes_read_from_remote);
     COUNTER_UPDATE(inverted_index_bytes_scanned_from_peer,
                    statistics->inverted_index_bytes_read_from_peer);
+    COUNTER_UPDATE(inverted_index_remote_physical_read_bytes,
+                   statistics->inverted_index_remote_physical_read_bytes);
+    COUNTER_UPDATE(inverted_index_bytes_write_into_cache,
+                   statistics->inverted_index_bytes_write_into_cache);
     COUNTER_UPDATE(inverted_index_local_io_timer, statistics->inverted_index_local_io_timer);
     COUNTER_UPDATE(inverted_index_remote_io_timer, statistics->inverted_index_remote_io_timer);
     COUNTER_UPDATE(inverted_index_peer_io_timer, statistics->inverted_index_peer_io_timer);
     COUNTER_UPDATE(inverted_index_io_timer, statistics->inverted_index_io_timer);
+    COUNTER_UPDATE(inverted_index_write_cache_io_timer,
+                   statistics->inverted_index_write_cache_io_timer);
 
     COUNTER_UPDATE(segment_footer_index_num_local_io_total,
                    statistics->segment_footer_index_num_local_io_total);
@@ -262,6 +381,10 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
                    statistics->segment_footer_index_remote_io_timer);
     COUNTER_UPDATE(segment_footer_index_peer_io_timer,
                    statistics->segment_footer_index_peer_io_timer);
+    COUNTER_UPDATE(segment_footer_index_write_cache_io_timer,
+                   statistics->segment_footer_index_write_cache_io_timer);
+    COUNTER_UPDATE(segment_footer_index_bytes_write_into_cache,
+                   statistics->segment_footer_index_bytes_write_into_cache);
 
     COUNTER_UPDATE(num_cross_cg_peer_io_total, statistics->num_cross_cg_peer_io_total);
     COUNTER_UPDATE(bytes_scanned_from_cross_cg_peer, statistics->bytes_read_from_cross_cg_peer);
@@ -284,6 +407,11 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
         }
         _profile->add_info_string("PeerCacheNodes", peer_nodes);
     }
+    COUNTER_UPDATE(inverted_index_request_bytes, statistics->inverted_index_request_bytes);
+    COUNTER_UPDATE(inverted_index_read_bytes, statistics->inverted_index_read_bytes);
+    COUNTER_UPDATE(inverted_index_range_read_count, statistics->inverted_index_range_read_count);
+    COUNTER_UPDATE(inverted_index_serial_read_rounds,
+                   statistics->inverted_index_serial_read_rounds);
 }
 
 } // namespace doris::io

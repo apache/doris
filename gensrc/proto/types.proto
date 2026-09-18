@@ -57,6 +57,7 @@ message PTypeNode {
     // only used for VARIANT
     optional int32 variant_max_subcolumns_count = 6 [default = 0];
     optional bool variant_enable_doc_mode = 7 [default = false];
+    optional bool variant_is_v2 = 8 [default = false];
 };
 
 // A flattened representation of a tree of column types obtained by depth-first
@@ -121,6 +122,7 @@ message PGenericType {
         IPV6 = 40;
         VARBINARY = 41;
         TIMESTAMPTZ = 42;
+        TIMESTAMP_NS = 43;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

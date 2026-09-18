@@ -40,8 +40,8 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -50,7 +50,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncsWithSessionVar;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.ImmutableList;
@@ -63,6 +62,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -160,10 +160,15 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             CascadesContext ctx) {
         // Push down exprs:
         // collect group by exprs
-        Set<Expression> groupingByExprs = Utils.fastToImmutableSet(aggregate.getGroupByExpressions());
+        // Keep first-occurrence order of group-by keys. IVM row-id is a hash over the group keys in
+        // order, so group-by order must be stable across parses; HashSet order depends on hashCode
+        // (ExprId) and is not stable across parses, while ImmutableSet only "typically" preserves
+        // insertion order and its iteration order is not contractual.
+        Set<Expression> groupingByExprs = new LinkedHashSet<>(aggregate.getGroupByExpressions());
 
         // collect all trivial-agg
-        List<NamedExpression> aggregateOutput = aggregate.getOutputExpressions();
+        List<NamedExpression> aggregateOutput = normalizeMultiColumnDistinctCount(
+                aggregate.getOutputExpressions());
         Map<AggregateFunction, Map<String, String>> aggFuncs =
                 CollectNonWindowedAggFuncsWithSessionVar.collect(aggregateOutput);
 
@@ -173,11 +178,17 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         ImmutableSet.Builder<Expression> needPushDownSelfExprs = ImmutableSet.builder();
         ImmutableSet.Builder<Expression> needPushDownInputs = ImmutableSet.builder();
         for (AggregateFunction aggFunc : aggFuncs.keySet()) {
+            for (Expression child : aggFunc.children()) {
+                if (ExpressionUtils.hasNonWindowAggregateFunction(child)) {
+                    throw new AnalysisException(
+                            "aggregate function cannot contain aggregate parameters");
+                }
+            }
             if (!aggFunc.isDistinct()) {
                 for (Expression arg : aggFunc.children()) {
                     // should not push down literal under aggregate
                     // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
-                    if (arg instanceof Literal) {
+                    if (arg.isConstant()) {
                         continue;
                     }
                     if (arg.containsType(SubqueryExpr.class, WindowExpression.class, Unnest.class,
@@ -195,7 +206,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 for (Expression arg : aggFunc.children()) {
                     // should not push down literal under aggregate
                     // e.g. group_concat(distinct xxx, ','), the ',' literal show stay in aggregate
-                    if (arg instanceof Literal) {
+                    if (arg.isConstant()) {
                         continue;
                     }
 
@@ -257,11 +268,6 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         // normalize trivial-aggs by bottomProjects
         List<Expression> normalizedAggFuncs =
                 bottomSlotContext.normalizeToUseSlotRef(SessionVarGuardExpr.getExprWithGuard(aggFuncs));
-        if (normalizedAggFuncs.stream().anyMatch(agg -> !agg.children().isEmpty()
-                && agg.child(0).containsType(AggregateFunction.class))) {
-            throw new AnalysisException(
-                    "aggregate function cannot contain aggregate parameters");
-        }
 
         // build normalized agg output
         NormalizeToSlotContext normalizedAggFuncsToSlotContext =
@@ -296,7 +302,9 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
             for (NamedExpression expression : normalizedAggOutput) {
                 aggOutputExprIds.add(expression.getExprId());
             }
-            Set<Slot> missingSlotsInAggregate = new HashSet<>(slotsUsedInUpperProject.size());
+            // Keep insertion order: missing slots append to the group-by/output in a stable order,
+            // which IVM relies on for row-id (hash of group keys).
+            Set<Slot> missingSlotsInAggregate = new LinkedHashSet<>(slotsUsedInUpperProject.size());
             for (Slot slot : slotsUsedInUpperProject) {
                 if (!aggOutputExprIds.contains(slot.getExprId()) && !(slot instanceof SlotNotFromChildren)) {
                     missingSlotsInAggregate.add(slot);
@@ -315,7 +323,9 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 // global aggregate adding a key would change empty-input semantics. isUniformAndNotNull (not
                 // isUniform) excludes the nullable side of an outer join, which holds the uniform value on
                 // matched rows but NULL on unmatched rows of the same group.
-                Set<Slot> constantMissingSlots = new HashSet<>();
+                // Same order-stability requirement as missingSlotsInAggregate: constant keys append
+                // to the group-by in first-occurrence order.
+                Set<Slot> constantMissingSlots = new LinkedHashSet<>();
                 if (SqlModeHelper.hasOnlyFullGroupBy() && !normalizedGroupExprs.isEmpty()) {
                     DataTrait childTrait = aggregate.child().getLogicalProperties().getTrait();
                     for (Slot slot : missingSlotsInAggregate) {
@@ -447,6 +457,31 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 having.get().withChildren(new LogicalProject<>(bottomProjectsBuilder.build(), newAggregate)));
     }
 
+    private List<NamedExpression> normalizeMultiColumnDistinctCount(List<NamedExpression> aggregateOutput) {
+        // Multi-column distinct counts treat arguments as a set: remove duplicates and canonicalize
+        // equivalent counts to the first-occurrence source order so the structural equality below can
+        // share one aggregate result. The order matters for IVM, since these arguments become internal
+        // group-by keys for row-id; the map key stays an ImmutableSet (set semantics, lookup only).
+        Map<ImmutableSet<Expression>, Count> distinctArgumentsToCount = new HashMap<>();
+        return ExpressionUtils.rewriteDownShortCircuit(aggregateOutput, expression -> {
+            if (!(expression instanceof Count)) {
+                return expression;
+            }
+            Count count = (Count) expression;
+            if (!count.isDistinct() || count.arity() <= 1) {
+                return count;
+            }
+            ImmutableSet<Expression> distinctArguments = ImmutableSet.copyOf(count.getDistinctArguments());
+            Count normalizedCount = distinctArgumentsToCount.get(distinctArguments);
+            if (normalizedCount == null) {
+                normalizedCount = count.withDistinctAndChildren(true,
+                        ImmutableList.copyOf(new LinkedHashSet<>(count.getDistinctArguments())));
+                distinctArgumentsToCount.put(distinctArguments, normalizedCount);
+            }
+            return count.withDistinctAndChildren(true, normalizedCount.children());
+        });
+    }
+
     private List<NamedExpression> normalizeOutput(List<NamedExpression> aggregateOutput,
             NormalizeToSlotContext groupByToSlotContext, NormalizeToSlotContext argsOfAggFuncNeedPushDownContext,
             NormalizeToSlotContext normalizedAggFuncsToSlotContext) {
@@ -547,7 +582,9 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         }
         if (newNormalizedGroupExprs.isEmpty()) {
             Alias tinyInt = new Alias(new TinyIntLiteral((byte) 1));
-            bottomProjects = new HashSet<>(bottomProjects);
+            // Append the tiny-int key last with a stable order: bottom-project column order feeds the
+            // final group-by/output layout, which IVM row-id depends on.
+            bottomProjects = new LinkedHashSet<>(bottomProjects);
             bottomProjects.add(tinyInt);
             normalizedAggOutput = new ArrayList<>(normalizedAggOutput);
             Slot tinyIntSlot = tinyInt.toSlot();

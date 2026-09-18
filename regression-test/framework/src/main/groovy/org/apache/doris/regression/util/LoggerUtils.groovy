@@ -20,6 +20,29 @@ package org.apache.doris.regression.util
 import com.google.common.collect.Sets
 
 class LoggerUtils {
+    static File findErrorFile(Throwable t, File suiteRoot, File fallbackFile) {
+        try {
+            def st = findRootGroovyStackTrace(t, Sets.newLinkedHashSet())
+            if (st.is(null) || Objects.equals(st.fileName, fallbackFile.name)) {
+                return fallbackFile
+            }
+
+            def candidates = []
+            suiteRoot.eachFileRecurse { file ->
+                if (file.isFile() && Objects.equals(file.name, st.fileName)) {
+                    candidates.add(file)
+                }
+            }
+
+            candidates = candidates.findAll { file ->
+                st.lineNumber <= 0 || st.lineNumber <= file.readLines().size()
+            }
+            return candidates.size() == 1 ? candidates[0] as File : fallbackFile
+        } catch (Exception e) {
+            return fallbackFile
+        }
+    }
+
     static Tuple2<Integer, String> getErrorInfo(Throwable t, File file) {
         try {
             if (file.name.endsWith(".groovy")) {
@@ -66,6 +89,25 @@ class LoggerUtils {
                 if (st.getLineNumber() < fileLineCt) {
                     return st
                 }
+            }
+        }
+        return null
+    }
+
+    static StackTraceElement findRootGroovyStackTrace(Throwable t, Set<Throwable> throwables) {
+        throwables.add(t)
+
+        def cause = t.getCause()
+        if (!cause.is(null) && !throwables.contains(cause)) {
+            def foundStackTrace = findRootGroovyStackTrace(cause, throwables)
+            if (!foundStackTrace.is(null)) {
+                return foundStackTrace
+            }
+        }
+
+        for (def st : t.getStackTrace()) {
+            if (st.fileName != null && st.fileName.endsWith(".groovy") && st.lineNumber > 0) {
+                return st
             }
         }
         return null

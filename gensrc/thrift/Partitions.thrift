@@ -128,10 +128,8 @@ enum TLocalPartitionType {
   //   Scan(build side) -> LocalExchangeNode(BROADCAST) -> HashJoin(build)
   BROADCAST = 6,
   // PASS_TO_ONE: funnel all rows to a single local instance (channel 0); every other instance gets EOS
-  // immediately and produces nothing (PassToOneExchanger). used for a broadcast join with a shared
-  // hash table, where only instance 0 needs the build data and the others share its hash table.
-  // NOTE: BE only uses PassToOneExchanger when `enable_share_hash_table_for_broadcast_join` is on;
-  // when it is off the same PASS_TO_ONE type degrades to BROADCAST (each instance keeps its own copy).
+  // immediately and produces nothing (PassToOneExchanger). Used at parallel-to-serial boundaries and
+  // for a broadcast join with a shared hash table. A private broadcast hash table uses BROADCAST.
   PASS_TO_ONE = 7,
   // LOCAL_MERGE_SORT: k-way merge of several already-sorted local inputs into one globally sorted
   // stream on a single instance (paired with LocalMergeSortSourceOperator, for a SortNode with
@@ -183,6 +181,8 @@ struct TIcebergPartitionField {
   3: required Exprs.TExpr source_expr
   4: optional string name
   5: optional i32 source_id
+  // Zero-based STRUCT child indexes below source_expr; empty/unset means a top-level source.
+  6: optional list<i32> source_field_path
 }
 
 struct TMergePartitionInfo {

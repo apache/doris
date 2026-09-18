@@ -45,12 +45,12 @@ public class CommonUserProperties implements GsonPostProcessable {
     private long maxQueryInstances = -1;
     @SerializedName(value = "pfei", alternate = {"parallelFragmentExecInstanceNum"})
     private int parallelFragmentExecInstanceNum = -1;
-    @SerializedName(value = "sbr", alternate = {"sqlBlockRule"})
+    @SerializedName(value = "sbr", alternate = {"sqlBlockRule", "sqlBlockRules"})
     private String sqlBlockRules = "";
     @SerializedName(value = "crl", alternate = {"cpuResourceLimit"})
     private int cpuResourceLimit = -1;
     // The tag of the resource that the user is allowed to use
-    @SerializedName(value = "rt", alternate = {"resourceTag"})
+    @SerializedName(value = "rt", alternate = {"resourceTag", "resourceTags"})
     private Set<Tag> resourceTags = Sets.newHashSet();
     // user level exec_mem_limit, if > 0, will overwrite the exec_mem_limit in session variable
     @SerializedName(value = "eml", alternate = {"execMemLimit"})

@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
 
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.mysql.MySqlSourceReader;
+import org.apache.doris.cdcclient.source.reader.oceanbase.OceanBaseSourceReader;
 import org.apache.doris.cdcclient.source.reader.postgres.PostgresSourceReader;
 
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,14 @@ class SourceReaderFactoryTest {
         assertInstanceOf(
                 PostgresSourceReader.class,
                 SourceReaderFactory.createSourceReader(DataSource.POSTGRES));
+    }
+
+    @Test
+    void createsOceanBaseReader() {
+        SourceReader reader = SourceReaderFactory.createSourceReader(DataSource.OCEANBASE);
+
+        assertInstanceOf(OceanBaseSourceReader.class, reader);
+        assertInstanceOf(MySqlSourceReader.class, reader);
     }
 
     @Test

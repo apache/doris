@@ -57,13 +57,12 @@ std::string thrift_table_desc =
         R"xxx({"1":{"lst":["rec",7,{"1":{"i32":0},"2":{"i32":0},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":-1},"8":{"str":"id"},"9":{"i32":0},"10":{"tf":1},"11":{"i32":0},"12":{"tf":1},"13":{"tf":1},"14":{"tf":0},"17":{"i32":5}},{"1":{"i32":1},"2":{"i32":0},"3":{"rec":{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":-1},"8":{"str":"embedding"},"9":{"i32":3},"10":{"tf":1},"11":{"i32":1},"12":{"tf":0},"13":{"tf":1},"14":{"tf":0},"17":{"i32":20}},{"1":{"i32":3},"2":{"i32":0},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":0},"8":{"str":"value"},"9":{"i32":1},"10":{"tf":1},"11":{"i32":3},"12":{"tf":0},"13":{"tf":1},"14":{"tf":0},"17":{"i32":5}},{"1":{"i32":4},"2":{"i32":0},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":-1},"8":{"str":"__DORIS_VIRTUAL_COL__1"},"9":{"i32":2},"10":{"tf":1},"11":{"i32":2147483646},"12":{"tf":0},"13":{"tf":1},"14":{"tf":0},"17":{"i32":7},"18":{"rec":{"1":{"lst":["rec",11,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":2},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"l2_distance_approximate"}}},"2":{"i32":0},"3":{"lst":["rec",2,{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}},{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"5":{"tf":0},"7":{"str":"l2_distance_approximate(array<float>, array<float>)"},"9":{"rec":{"1":{"str":""}}},"11":{"i64":0},"13":{"tf":1},"14":{"tf":0},"15":{"tf":0},"16":{"i64":360}}},"29":{"tf":0}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":1},"2":{"i32":0},"3":{"i32":1},"4":{"tf":0}}},"20":{"i32":-1},"29":{"tf":0},"36":{"str":"embedding"}},{"1":{"i32":21},"2":{"rec":{"1":{"lst":["rec",2,{"1":{"i32":1},"4":{"tf":1},"5":{"lst":["tf",1,1]}},{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":8},"20":{"i32":-1},"28":{"i32":7},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":1}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":2}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":3}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":4}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":5}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":6}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":7}}},"20":{"i32":-1},"29":{"tf":0}},{"1":{"i32":8},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":0},"9":{"rec":{"1":{"dbl":20}}},"20":{"i32":-1},"29":{"tf":0}}]}}}},{"1":{"i32":5},"2":{"i32":1},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":-1},"8":{"str":"id"},"9":{"i32":0},"10":{"tf":1},"11":{"i32":0},"12":{"tf":1},"13":{"tf":1},"14":{"tf":0},"17":{"i32":5}},{"1":{"i32":6},"2":{"i32":1},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":0},"8":{"str":"value"},"9":{"i32":1},"10":{"tf":1},"11":{"i32":3},"12":{"tf":0},"13":{"tf":1},"14":{"tf":0},"17":{"i32":5}},{"1":{"i32":7},"2":{"i32":1},"3":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":7},"5":{"i32":0}}}}]},"3":{"i64":-1}}},"4":{"i32":-1},"5":{"i32":-1},"6":{"i32":0},"7":{"i32":-1},"8":{"str":""},"9":{"i32":2},"10":{"tf":1},"11":{"i32":-1},"12":{"tf":0},"13":{"tf":1},"14":{"tf":0},"17":{"i32":0}}]},"2":{"lst":["rec",2,{"1":{"i32":0},"2":{"i32":0},"3":{"i32":0},"4":{"i64":-794312748}},{"1":{"i32":1},"2":{"i32":0},"3":{"i32":0},"4":{"i64":-794312748}}]},"3":{"lst":["rec",1,{"1":{"i64":1755847311316},"2":{"i32":1},"3":{"i32":4},"4":{"i32":0},"7":{"str":"ann_with_fulltext"},"8":{"str":""},"11":{"rec":{"1":{"str":"ann_with_fulltext"}}}}]}})xxx";
 
 static std::shared_ptr<IndexExecContext> create_index_context(
-        const std::vector<ColumnId>& col_ids,
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         std::vector<IndexFieldNameAndTypePair>& storage_name_and_type,
         std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
                 common_expr_index_status) {
     segment_v2::ColumnIteratorOptions column_iter_opts;
-    return std::make_shared<IndexExecContext>(col_ids, index_iterators, storage_name_and_type,
+    return std::make_shared<IndexExecContext>(index_iterators, storage_name_and_type,
                                               common_expr_index_status, nullptr, nullptr,
                                               column_iter_opts);
 }
@@ -133,16 +132,9 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.dst_col_idx, 3);
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.radius, 10);
 
-    std::vector<ColumnId> idx_to_cid;
-    idx_to_cid.resize(4);
-    idx_to_cid[0] = 0;
-    idx_to_cid[1] = 1;
-    idx_to_cid[2] = 2;
-    idx_to_cid[3] = 3;
-    std::vector<std::unique_ptr<segment_v2::IndexIterator>> cid_to_index_iterators;
-    cid_to_index_iterators.resize(4);
-    cid_to_index_iterators[1] =
-            std::make_unique<doris::vector_search_utils::MockAnnIndexIterator>();
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    index_iterators.resize(4);
+    index_iterators[1] = std::make_unique<doris::vector_search_utils::MockAnnIndexIterator>();
     std::vector<std::unique_ptr<segment_v2::ColumnIterator>> column_iterators;
     column_iterators.resize(4);
     column_iterators[3] = std::make_unique<doris::segment_v2::VirtualColumnIterator>();
@@ -150,7 +142,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     roaring::Roaring row_bitmap;
     doris::vector_search_utils::MockAnnIndexIterator* mock_ann_index_iter =
             dynamic_cast<doris::vector_search_utils::MockAnnIndexIterator*>(
-                    cid_to_index_iterators[1].get());
+                    index_iterators[1].get());
 
     std::map<std::string, std::string> properties;
     properties["index_type"] = "hnsw";
@@ -183,12 +175,12 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
             common_expr_to_slotref_map;
     std::vector<IndexFieldNameAndTypePair> storage_name_and_type(4);
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> common_expr_index_status;
-    range_search_ctx->set_index_context(create_index_context(
-            idx_to_cid, cid_to_index_iterators, storage_name_and_type, common_expr_index_status));
+    range_search_ctx->set_index_context(
+            create_index_context(index_iterators, storage_name_and_type, common_expr_index_status));
     bool ann_range_search_executed = false;
     ASSERT_TRUE(range_search_ctx
-                        ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
-                                                    column_iterators, common_expr_to_slotref_map,
+                        ->evaluate_ann_range_search(index_iterators, column_iterators,
+                                                    common_expr_to_slotref_map,
                                                     row_bitmap.cardinality(), row_bitmap, stats,
                                                     false, &ann_range_search_executed)
                         .ok());
@@ -234,23 +226,16 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.dst_col_idx, 3);
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.radius, 10);
 
-    std::vector<ColumnId> idx_to_cid;
-    idx_to_cid.resize(4);
-    idx_to_cid[0] = 0;
-    idx_to_cid[1] = 1;
-    idx_to_cid[2] = 2;
-    idx_to_cid[3] = 3;
-    std::vector<std::unique_ptr<segment_v2::IndexIterator>> cid_to_index_iterators;
-    cid_to_index_iterators.resize(4);
-    cid_to_index_iterators[1] =
-            std::make_unique<doris::vector_search_utils::MockAnnIndexIterator>();
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators;
+    index_iterators.resize(4);
+    index_iterators[1] = std::make_unique<doris::vector_search_utils::MockAnnIndexIterator>();
     std::vector<std::unique_ptr<segment_v2::ColumnIterator>> column_iterators;
     column_iterators.resize(4);
     column_iterators[3] = std::make_unique<doris::segment_v2::VirtualColumnIterator>();
     roaring::Roaring row_bitmap;
     doris::vector_search_utils::MockAnnIndexIterator* mock_ann_index_iter =
             dynamic_cast<doris::vector_search_utils::MockAnnIndexIterator*>(
-                    cid_to_index_iterators[1].get());
+                    index_iterators[1].get());
     std::map<std::string, std::string> properties;
     properties["index_type"] = "hnsw";
     properties["metric_type"] = "l2_distance";
@@ -287,12 +272,12 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
             common_expr_to_slotref_map;
     std::vector<IndexFieldNameAndTypePair> storage_name_and_type(4);
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> common_expr_index_status;
-    range_search_ctx->set_index_context(create_index_context(
-            idx_to_cid, cid_to_index_iterators, storage_name_and_type, common_expr_index_status));
+    range_search_ctx->set_index_context(
+            create_index_context(index_iterators, storage_name_and_type, common_expr_index_status));
     bool ann_range_search_executed = false;
     ASSERT_TRUE(range_search_ctx
-                        ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
-                                                    column_iterators, common_expr_to_slotref_map,
+                        ->evaluate_ann_range_search(index_iterators, column_iterators,
+                                                    common_expr_to_slotref_map,
                                                     row_bitmap.cardinality(), row_bitmap, stats,
                                                     false, &ann_range_search_executed)
                         .ok());
@@ -337,7 +322,6 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearchStateDoesNotLeakAcrossClones)
     ASSERT_TRUE(range_search_ctx->clone(state.get(), segment_without_ann_ctx).ok());
     ASSERT_EQ(segment_with_ann_ctx->root().get(), segment_without_ann_ctx->root().get());
 
-    std::vector<ColumnId> idx_to_cid = {0, 1, 2, 3};
     std::vector<std::unique_ptr<segment_v2::IndexIterator>> ann_index_iterators(4);
     ann_index_iterators[1] = std::make_unique<doris::vector_search_utils::MockAnnIndexIterator>();
     auto* mock_ann_index_iter = dynamic_cast<doris::vector_search_utils::MockAnnIndexIterator*>(
@@ -353,8 +337,8 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearchStateDoesNotLeakAcrossClones)
     ann_column_iterators[3] = std::make_unique<doris::segment_v2::VirtualColumnIterator>();
     std::vector<IndexFieldNameAndTypePair> ann_storage_name_and_type(4);
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> ann_index_status;
-    segment_with_ann_ctx->set_index_context(create_index_context(
-            idx_to_cid, ann_index_iterators, ann_storage_name_and_type, ann_index_status));
+    segment_with_ann_ctx->set_index_context(
+            create_index_context(ann_index_iterators, ann_storage_name_and_type, ann_index_status));
 
     EXPECT_CALL(*mock_ann_index_iter, range_search(testing::_, testing::_, testing::_, testing::_))
             .WillOnce(testing::Invoke([](const doris::segment_v2::AnnRangeSearchParams& params,
@@ -375,10 +359,10 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearchStateDoesNotLeakAcrossClones)
             common_expr_to_slotref_map;
     bool ann_range_search_executed = false;
     ASSERT_TRUE(segment_with_ann_ctx
-                        ->evaluate_ann_range_search(
-                                ann_index_iterators, idx_to_cid, ann_column_iterators,
-                                common_expr_to_slotref_map, ann_row_bitmap.cardinality(),
-                                ann_row_bitmap, ann_stats, false, &ann_range_search_executed)
+                        ->evaluate_ann_range_search(ann_index_iterators, ann_column_iterators,
+                                                    common_expr_to_slotref_map,
+                                                    ann_row_bitmap.cardinality(), ann_row_bitmap,
+                                                    ann_stats, false, &ann_range_search_executed)
                         .ok());
     EXPECT_TRUE(ann_range_search_executed);
     const auto* ann_result = segment_with_ann_ctx->get_index_context()->get_index_result_for_expr(
@@ -393,18 +377,18 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearchStateDoesNotLeakAcrossClones)
     std::vector<IndexFieldNameAndTypePair> no_ann_storage_name_and_type(4);
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> no_ann_index_status;
     segment_without_ann_ctx->set_index_context(create_index_context(
-            idx_to_cid, no_ann_index_iterators, no_ann_storage_name_and_type, no_ann_index_status));
+            no_ann_index_iterators, no_ann_storage_name_and_type, no_ann_index_status));
 
     roaring::Roaring no_ann_row_bitmap;
     segment_v2::AnnIndexStats no_ann_stats;
     bool no_ann_range_search_executed = true;
-    ASSERT_TRUE(
-            segment_without_ann_ctx
-                    ->evaluate_ann_range_search(no_ann_index_iterators, idx_to_cid,
-                                                no_ann_column_iterators, common_expr_to_slotref_map,
-                                                no_ann_row_bitmap.cardinality(), no_ann_row_bitmap,
-                                                no_ann_stats, false, &no_ann_range_search_executed)
-                    .ok());
+    ASSERT_TRUE(segment_without_ann_ctx
+                        ->evaluate_ann_range_search(no_ann_index_iterators, no_ann_column_iterators,
+                                                    common_expr_to_slotref_map,
+                                                    no_ann_row_bitmap.cardinality(),
+                                                    no_ann_row_bitmap, no_ann_stats, false,
+                                                    &no_ann_range_search_executed)
+                        .ok());
     EXPECT_FALSE(no_ann_range_search_executed);
     EXPECT_FALSE(segment_without_ann_ctx->get_index_context()->has_index_result_for_expr(
             segment_without_ann_ctx->root().get()));
@@ -433,12 +417,10 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearchUsesSourceColumnIndexForSlotM
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.src_col_idx, 1);
     ASSERT_EQ(range_search_ctx->_ann_range_search_runtime.dst_col_idx, 3);
 
-    std::vector<ColumnId> idx_to_cid = {0, 5, 6, 7};
-    std::vector<std::unique_ptr<segment_v2::IndexIterator>> cid_to_index_iterators(8);
-    cid_to_index_iterators[5] =
-            std::make_unique<doris::vector_search_utils::MockAnnIndexIterator>();
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators(4);
+    index_iterators[1] = std::make_unique<doris::vector_search_utils::MockAnnIndexIterator>();
     auto* mock_ann_index_iter = dynamic_cast<doris::vector_search_utils::MockAnnIndexIterator*>(
-            cid_to_index_iterators[5].get());
+            index_iterators[1].get());
     std::map<std::string, std::string> properties;
     properties["index_type"] = "hnsw";
     properties["metric_type"] = "l2_distance";
@@ -446,13 +428,13 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearchUsesSourceColumnIndexForSlotM
     auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
     mock_ann_index_iter->_ann_reader = pair.second;
 
-    std::vector<std::unique_ptr<segment_v2::ColumnIterator>> column_iterators(8);
-    column_iterators[7] = std::make_unique<doris::segment_v2::VirtualColumnIterator>();
-    std::vector<IndexFieldNameAndTypePair> storage_name_and_type(8);
+    std::vector<std::unique_ptr<segment_v2::ColumnIterator>> column_iterators(4);
+    column_iterators[3] = std::make_unique<doris::segment_v2::VirtualColumnIterator>();
+    std::vector<IndexFieldNameAndTypePair> storage_name_and_type(4);
     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>> common_expr_index_status;
-    common_expr_index_status[5][range_search_ctx->root().get()] = false;
-    range_search_ctx->set_index_context(create_index_context(
-            idx_to_cid, cid_to_index_iterators, storage_name_and_type, common_expr_index_status));
+    common_expr_index_status[1][range_search_ctx->root().get()] = false;
+    range_search_ctx->set_index_context(
+            create_index_context(index_iterators, storage_name_and_type, common_expr_index_status));
 
     std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>
             common_expr_to_slotref_map;
@@ -479,13 +461,13 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearchUsesSourceColumnIndexForSlotM
     segment_v2::AnnIndexStats stats;
     bool ann_range_search_executed = false;
     ASSERT_TRUE(range_search_ctx
-                        ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
-                                                    column_iterators, common_expr_to_slotref_map,
+                        ->evaluate_ann_range_search(index_iterators, column_iterators,
+                                                    common_expr_to_slotref_map,
                                                     row_bitmap.cardinality(), row_bitmap, stats,
                                                     false, &ann_range_search_executed)
                         .ok());
     EXPECT_TRUE(ann_range_search_executed);
-    EXPECT_TRUE(common_expr_index_status[5][range_search_ctx->root().get()]);
+    EXPECT_TRUE(common_expr_index_status[1][range_search_ctx->root().get()]);
     const auto* result = range_search_ctx->get_index_context()->get_index_result_for_expr(
             range_search_ctx->root().get());
     ASSERT_NE(result, nullptr);
@@ -845,13 +827,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch_DimensionMismatch) {
     range_search_ctx->prepare_ann_range_search(user_params);
     ASSERT_TRUE(range_search_ctx->_ann_range_search_runtime.is_ann_range_search);
     // Force a dimension mismatch: query dim is 8 in thrift; set index dim to 4
-    std::vector<ColumnId> idx_to_cid(4);
-    idx_to_cid[0] = 0;
-    idx_to_cid[1] = 1; // embedding
-    idx_to_cid[2] = 2;
-    idx_to_cid[3] = 3; // virtual dist
-
-    std::vector<std::unique_ptr<segment_v2::IndexIterator>> cid_to_index_iterators(4);
+    std::vector<std::unique_ptr<segment_v2::IndexIterator>> index_iterators(4);
     auto mock_iter = std::make_unique<doris::vector_search_utils::MockAnnIndexIterator>();
 
     // Back its reader with a real AnnIndexReader but with dim=4
@@ -861,7 +837,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch_DimensionMismatch) {
     properties["dim"] = "4"; // mismatch
     auto pair = vector_search_utils::create_tmp_ann_index_reader(properties);
     mock_iter->_ann_reader = pair.second;
-    cid_to_index_iterators[1] = std::move(mock_iter);
+    index_iterators[1] = std::move(mock_iter);
 
     std::vector<std::unique_ptr<segment_v2::ColumnIterator>> column_iterators(4);
     column_iterators[3] = std::make_unique<doris::segment_v2::VirtualColumnIterator>();
@@ -872,8 +848,8 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch_DimensionMismatch) {
             common_expr_to_slotref_map;
 
     auto st = range_search_ctx->evaluate_ann_range_search(
-            cid_to_index_iterators, idx_to_cid, column_iterators, common_expr_to_slotref_map,
-            row_bitmap.cardinality(), row_bitmap, stats, false, nullptr);
+            index_iterators, column_iterators, common_expr_to_slotref_map, row_bitmap.cardinality(),
+            row_bitmap, stats, false, nullptr);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.is<doris::ErrorCode::INVALID_ARGUMENT>());
 }

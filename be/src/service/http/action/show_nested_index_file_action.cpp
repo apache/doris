@@ -22,7 +22,9 @@
 #include <exception>
 #include <string>
 
+#include "cloud/cloud_tablet.h"
 #include "common/status.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
@@ -33,8 +35,6 @@
 
 namespace doris {
 using namespace ErrorCode;
-
-const static std::string HEADER_JSON = "application/json";
 
 ShowNestedIndexFileAction::ShowNestedIndexFileAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
                                                      TPrivilegeType::type ptype)
@@ -54,6 +54,10 @@ Status ShowNestedIndexFileAction::_handle_show_nested_index_file(HttpRequest* re
     }
 
     auto tablet = DORIS_TRY(ExecEnv::get_tablet(tablet_id));
+    if (auto cloud_tablet = std::dynamic_pointer_cast<CloudTablet>(tablet)) {
+        // The debug endpoint must inspect all visible cloud rowsets, not only the local cache.
+        RETURN_IF_ERROR(cloud_tablet->sync_rowsets());
+    }
     RETURN_IF_ERROR(tablet->show_nested_index_file(json_meta));
     return Status::OK();
 }

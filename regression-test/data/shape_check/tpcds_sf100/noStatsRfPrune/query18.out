@@ -27,12 +27,12 @@ PhysicalResultSink
 --------------------------------------------filter((cd1.cd_education_status = 'Advanced Degree') and (cd1.cd_gender = 'F'))
 ----------------------------------------------PhysicalOlapScan[customer_demographics(cd1)]
 --------------------------------------PhysicalProject
-----------------------------------------filter(c_birth_month IN (1, 10, 2, 4, 7, 8))
+----------------------------------------filter(customer.c_birth_month IN (1, 10, 2, 4, 7, 8))
 ------------------------------------------PhysicalOlapScan[customer] apply RFs: RF3
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[customer_demographics(cd2)]
 ------------------------------PhysicalProject
---------------------------------filter(ca_state IN ('GA', 'IN', 'ME', 'NC', 'OK', 'WA', 'WY'))
+--------------------------------filter(customer_address.ca_state IN ('GA', 'IN', 'ME', 'NC', 'OK', 'WA', 'WY'))
 ----------------------------------PhysicalOlapScan[customer_address]
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[item]

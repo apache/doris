@@ -216,7 +216,7 @@ struct TMultiCastDataStreamSink {
     2: optional list<list<TPlanFragmentDestination>> destinations;
 }
 
-// [deprecated] two phase read is replaced by topn lazy materialize. TFetchOption is not used.
+// [deprecated] Two-phase read is replaced by TopN lazy materialization.
 struct TFetchOption {
     1: optional bool use_two_phase_fetch;
     // Nodes in this cluster, used for second phase fetch
@@ -230,6 +230,7 @@ struct TFetchOption {
 struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options; // deprecated
+    // [deprecated] Two-phase read is replaced by TopN lazy materialization.
     3: optional TFetchOption fetch_option;
 }
 
@@ -384,6 +385,7 @@ struct THiveTableSink {
     10: optional bool overwrite
     11: optional THiveSerDeProperties serde_properties
     12: optional list<Types.TNetworkAddress> broker_addresses;
+    13: optional bool supports_deferred_azure_multipart
 }
 
 enum TUpdateMode {
@@ -487,6 +489,8 @@ struct TIcebergTableSink {
     15: optional map<string, string> static_partition_values;
     16: optional PlanNodes.TSortInfo sort_info;
     17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
+    // Unset keeps collection enabled for rolling upgrades with older FEs.
+    18: optional bool collect_column_stats;
 }
 
 struct TIcebergRewritableDeleteFileSet {
@@ -533,6 +537,14 @@ struct TIcebergMergeSink {
     11: optional map<string, string> hadoop_config
     12: optional Types.TFileType file_type
     13: optional list<Types.TNetworkAddress> broker_addresses;
+    // Unset keeps collection enabled for rolling upgrades with older FEs.
+    14: optional bool collect_column_stats;
+    // Unset preserves old-FE UPDATE behavior; execution version gates SQL MERGE validation.
+    15: optional bool require_merge_cardinality_check;
+    // Unset preserves old-FE UPDATE behavior, which always writes replacement data rows.
+    16: optional bool writes_data_files;
+    // Whether the complete target schema contains Variant; used only to fence old-BE writer omission.
+    17: optional bool has_variant_schema;
 
     // delete side (position delete only)
     20: optional TFileContent delete_type
@@ -585,7 +597,10 @@ struct TTVFTableSink {
     12: optional PlanNodes.TFileCompressType compression_type
     13: optional i64 backend_id              // local TVF: specify BE
     14: optional TTVFWriterType writer_type   // NATIVE or JNI
-    15: optional string writer_class          // Java class name (required when writer_type=JNI)
+    // "<plugin>:<factory>", e.g. "java-writer:local-file" (required when writer_type=JNI). Not a
+    // Java class name: a plugin's classes are private to its own classloader, so BE addresses a
+    // writer by the plugin directory it is deployed in and the factory name within it.
+    15: optional string writer_class
 }
 
 struct TMCCommitData {

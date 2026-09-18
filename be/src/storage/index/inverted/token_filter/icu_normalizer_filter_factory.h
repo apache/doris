@@ -82,6 +82,10 @@ public:
         return std::make_shared<ICUNormalizerFilter>(in, _normalizer);
     }
 
+    PositionCapability position_capability() const override {
+        return PositionCapability::kAlwaysUnitIncrement;
+    }
+
 private:
     static const icu::Normalizer2* get_normalizer(const std::string& name, UErrorCode& status) {
         std::string lower_name = to_lower_copy(trim_copy(name));

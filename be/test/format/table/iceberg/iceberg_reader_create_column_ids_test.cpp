@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/consts.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -1164,6 +1165,98 @@ TEST_F(IcebergReaderCreateColumnIdsTest, test_create_column_ids_6) {
         run_orc_test(table_column_names, access_configs, expected_column_ids,
                      expected_filter_column_ids);
     }
+}
+
+// Regression coverage for _create_column_ids() driven by the schema-mapping StructNode:
+//   1. Synthesized/metadata slots (e.g. the TopN global row-id column) are never serialized into
+//      the Iceberg schema tree, so they are absent from the node. Before the
+//      get_children().contains() guard, StructNode::children_column_exists() was called on such an
+//      unregistered name and hit DCHECK(children.contains(name)) -> abort in debug/ASAN builds
+//      (and threw std::out_of_range from .at() in release). The projected row-id slot reproduces
+//      that; with the guard it is skipped instead.
+//   2. A projected column must resolve to its physical file column BY NAME through the node, not by
+//      Iceberg field id and not by its own (table) name, so partial-id / name-mapping files stay
+//      correct. Table column "a" maps to physical "legacy_a", while an unrelated "stale" column
+//      carries a field id that collides with the projected slot's default field id (0). The result
+//      must be "legacy_a"'s column id, never "stale"'s -- a regression to id-only or identity-name
+//      binding would produce a different set and fail here.
+TEST_F(IcebergReaderCreateColumnIdsTest, parquet_name_mapped_and_synthesized_slots) {
+    // Physical Parquet schema (BY_NAME / partial-id file):
+    //   legacy_a: id-less real data column            -> column id 1
+    //   stale:    unrelated column carrying stale id 0 -> column id 2
+    FieldDescriptor field_desc;
+    FieldSchema legacy_a;
+    legacy_a.name = "legacy_a";
+    legacy_a.data_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    legacy_a.field_id = -1;
+    field_desc._fields.emplace_back(legacy_a);
+    FieldSchema stale;
+    stale.name = "stale";
+    stale.data_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    stale.field_id = 0; // collides with the projected slot's default col_unique_id (0)
+    field_desc._fields.emplace_back(stale);
+
+    // Table column "a" resolves BY NAME to physical "legacy_a"; the synthesized global row-id
+    // column is intentionally NOT registered.
+    auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    struct_node->add_children("a", "legacy_a", TableSchemaChangeHelper::ConstNode::get_instance());
+    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node = struct_node;
+
+    SlotDescriptor a_slot;
+    a_slot._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    a_slot._col_name = "a";
+
+    SlotDescriptor row_id_slot;
+    row_id_slot._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    row_id_slot._col_name = BeConsts::GLOBAL_ROWID_COL;
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&a_slot);
+    tuple_desc.add_slot(&row_id_slot);
+
+    // No abort on the synthesized slot; "a" resolves BY NAME to "legacy_a" (column id 1), never to
+    // "stale" (column id 2) through the colliding field id.
+    const ColumnIdResult result =
+            IcebergParquetReader::_create_column_ids(&field_desc, &tuple_desc, table_info_node);
+    EXPECT_EQ(result.column_ids, (std::set<uint64_t> {1}));
+    EXPECT_TRUE(result.filter_column_ids.empty());
+}
+
+TEST_F(IcebergReaderCreateColumnIdsTest, orc_name_mapped_and_synthesized_slots) {
+    // Physical ORC schema (BY_NAME): legacy_a -> column id 1, stale -> column id 2. "stale" carries
+    // an iceberg.id attribute colliding with the projected slot's default field id (0).
+    std::unique_ptr<orc::Type> orc_type(
+            orc::Type::buildTypeFromString("struct<legacy_a:bigint,stale:bigint>"));
+    orc_type->getSubtype(1)->setAttribute(IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE, "0");
+
+    // Table column "a" resolves BY NAME to physical "legacy_a"; the synthesized global row-id
+    // column is intentionally NOT registered.
+    auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    struct_node->add_children("a", "legacy_a", TableSchemaChangeHelper::ConstNode::get_instance());
+    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node = struct_node;
+
+    SlotDescriptor a_slot;
+    a_slot._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    a_slot._col_name = "a";
+
+    SlotDescriptor row_id_slot;
+    row_id_slot._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, true);
+    row_id_slot._col_name = BeConsts::GLOBAL_ROWID_COL;
+
+    TupleDescriptor tuple_desc;
+    tuple_desc.add_slot(&a_slot);
+    tuple_desc.add_slot(&row_id_slot);
+
+    // No abort on the synthesized slot; "a" resolves BY NAME to "legacy_a" (column id 1), never to
+    // "stale" (column id 2) through the colliding field id.
+    const ColumnIdResult result =
+            IcebergOrcReader::_create_column_ids(orc_type.get(), &tuple_desc, table_info_node);
+    EXPECT_EQ(result.column_ids, (std::set<uint64_t> {1}));
+    EXPECT_TRUE(result.filter_column_ids.empty());
 }
 
 } // namespace doris

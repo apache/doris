@@ -51,8 +51,7 @@ class UnionSinkOperatorX;
 class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionSharedState> {
 public:
     ENABLE_FACTORY_CREATOR(UnionSinkLocalState);
-    UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state), _child_row_idx(0) {}
+    UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state) : Base(parent, state) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     friend class UnionSinkOperatorX;
@@ -60,8 +59,6 @@ public:
     using Parent = UnionSinkOperatorX;
 
 private:
-    std::unique_ptr<Block> _output_block;
-
     /// Const exprs materialized by this node. These exprs don't refer to any children.
     /// Only materialized by the first fragment instance to avoid duplication.
     VExprContextSPtrs _const_expr;
@@ -69,8 +66,6 @@ private:
     /// Exprs materialized by this node. The i-th result expr list refers to the i-th child.
     VExprContextSPtrs _child_expr;
 
-    /// Index of current row in child_row_block_.
-    int _child_row_idx;
     RuntimeProfile::Counter* _expr_timer = nullptr;
 };
 
@@ -168,7 +163,6 @@ private:
                 RETURN_IF_ERROR(
                         materialize_block(local_state._child_expr, input_block, &res, false));
             }
-            local_state._child_row_idx += res.rows();
             RETURN_IF_ERROR(mblock.merge(res));
         }
         return Status::OK();

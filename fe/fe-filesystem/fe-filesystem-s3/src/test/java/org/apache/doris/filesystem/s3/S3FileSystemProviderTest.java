@@ -90,6 +90,98 @@ class S3FileSystemProviderTest {
     }
 
     @Test
+    void supports_yieldsToGuessedDedicatedDialects() {
+        // These maps satisfy the generic credential+location fallback, but a dedicated dialect
+        // provider of this module recognizes them, so S3 must yield. The decision comes from the
+        // map alone -- no _STORAGE_TYPE_ marker and no reliance on SPI registration order.
+        Map<String, String> gcs = new HashMap<>();
+        gcs.put("AWS_ENDPOINT", "https://storage.googleapis.com");
+        gcs.put("AWS_ACCESS_KEY", "ak");
+        gcs.put("AWS_SECRET_KEY", "sk");
+
+        Map<String, String> minio = new HashMap<>();
+        minio.put("minio.endpoint", "http://127.0.0.1:9000");
+        minio.put("minio.access_key", "ak");
+        minio.put("AWS_ENDPOINT", "http://127.0.0.1:9000");
+        minio.put("AWS_ACCESS_KEY", "ak");
+
+        Assertions.assertFalse(provider.supports(gcs));
+        Assertions.assertFalse(provider.supports(minio));
+    }
+
+    @Test
+    void supports_yieldsToExplicitlyRequestedDedicatedDialects() {
+        // An explicit dialect request wins even when the endpoint carries no dialect signal at all
+        // (Ozone in particular has no guess and can only be reached this way).
+        for (Map.Entry<String, String> hint : Map.of(
+                "fs.gcs.support", "true",
+                "fs.minio.support", "true",
+                "fs.ozone.support", "true",
+                "provider", "OZONE").entrySet()) {
+            Map<String, String> props = new HashMap<>();
+            props.put(hint.getKey(), hint.getValue());
+            props.put("s3.endpoint", "http://ozone-s3g.local:9878");
+            props.put("s3.access_key", "ak");
+
+            Assertions.assertFalse(provider.supports(props), "must yield for " + hint);
+        }
+    }
+
+    @Test
+    void supports_keepsGoogleapisMapWhenUserExplicitlyRequestsS3() {
+        // An explicit fs.s3.support=true / provider=S3 overrides the dialect guess: the user has
+        // the final say about which filesystem serves the map.
+        Map<String, String> fsSupport = new HashMap<>();
+        fsSupport.put("fs.s3.support", "true");
+        fsSupport.put("s3.endpoint", "https://storage.googleapis.com");
+        fsSupport.put("s3.access_key", "ak");
+
+        Map<String, String> providerHint = new HashMap<>();
+        providerHint.put("provider", "S3");
+        providerHint.put("s3.endpoint", "https://storage.googleapis.com");
+        providerHint.put("s3.access_key", "ak");
+
+        Assertions.assertTrue(provider.supports(fsSupport));
+        Assertions.assertTrue(provider.supports(providerHint));
+    }
+
+    @Test
+    void supports_yieldsForConvertedGcsMapDespiteGenericS3Marker() {
+        // StoragePropertiesConverter stamps _STORAGE_TYPE_="S3" on every S3-compatible map, GCS
+        // included, so the marker must NOT be treated as an explicit S3 request by the yield rule.
+        Map<String, String> props = new HashMap<>();
+        props.put("_STORAGE_TYPE_", "S3");
+        props.put("provider", "GCP");
+        props.put("AWS_ENDPOINT", "https://storage.googleapis.com");
+        props.put("AWS_ACCESS_KEY", "ak");
+        props.put("AWS_REGION", "us-east1");
+
+        Assertions.assertFalse(provider.supports(props));
+    }
+
+    @Test
+    void supports_keepsUnflaggedOzoneMap() {
+        // Ozone has no guessIsMe in legacy, so an unflagged Ozone gateway map is served by the
+        // generic S3 provider. Documents that this is intended, not an accident.
+        Map<String, String> props = new HashMap<>();
+        props.put("ozone.endpoint", "http://ozone-s3g.local:9878");
+        props.put("AWS_ENDPOINT", "http://ozone-s3g.local:9878");
+        props.put("AWS_ACCESS_KEY", "ak");
+
+        Assertions.assertTrue(provider.supports(props));
+    }
+
+    @Test
+    void supports_stillAcceptsUnmarkedGenericFallback() {
+        // Cloud snapshot / stage flows pass unmarked maps; the generic fallback must survive.
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", "https://example.com");
+        props.put("AWS_ACCESS_KEY", "ak");
+
+        Assertions.assertTrue(provider.supports(props));
+    }
+
+    @Test
     void bind_returnsValidatedS3FileSystemProperties() {
         Map<String, String> props = new HashMap<>();
         props.put("s3.endpoint", "https://minio.local");
@@ -117,5 +209,15 @@ class S3FileSystemProviderTest {
         S3FileSystem s3 = (S3FileSystem) fileSystem;
         Assertions.assertTrue(s3.properties().isPresent());
         Assertions.assertEquals("https://minio.local", s3.properties().orElseThrow().getEndpoint());
+    }
+
+    @Test
+    void sensitivePropertyKeysCoverSecretsButNotAccessKey() {
+        java.util.Set<String> keys = provider.sensitivePropertyKeys();
+
+        Assertions.assertTrue(keys.contains("s3.secret_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("s3.session_token"), keys.toString());
+        Assertions.assertFalse(keys.contains("s3.access_key"), keys.toString());
+        Assertions.assertFalse(keys.contains("AWS_ACCESS_KEY"), keys.toString());
     }
 }

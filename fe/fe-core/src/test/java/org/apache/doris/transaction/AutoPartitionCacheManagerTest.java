@@ -19,8 +19,8 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.thrift.TTabletLocation;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -33,29 +33,24 @@ public class AutoPartitionCacheManagerTest {
         AutoPartitionCacheManager cacheManager = new AutoPartitionCacheManager();
         List<TTabletLocation> firstTablets = new ArrayList<>();
         firstTablets.add(new TTabletLocation(10001L, Arrays.asList(1L)));
-        List<TTabletLocation> firstSlaveTablets = new ArrayList<>();
-
         long storedLoadTabletIdx = cacheManager.getOrSetAutoPartitionInfo(
-                10L, 20L, firstTablets, firstSlaveTablets, 3);
-        Assert.assertEquals(3, storedLoadTabletIdx);
+                10L, 20L, firstTablets, 3);
+        Assertions.assertEquals(3, storedLoadTabletIdx);
 
         List<TTabletLocation> secondTablets = new ArrayList<>();
         secondTablets.add(new TTabletLocation(20001L, Arrays.asList(2L)));
-        List<TTabletLocation> secondSlaveTablets = new ArrayList<>();
-
         long cachedLoadTabletIdx = cacheManager.getOrSetAutoPartitionInfo(
-                10L, 20L, secondTablets, secondSlaveTablets, 5);
-        Assert.assertEquals(3, cachedLoadTabletIdx);
-        Assert.assertEquals(1, secondTablets.size());
-        Assert.assertEquals(10001L, secondTablets.get(0).getTabletId());
+                10L, 20L, secondTablets, 5);
+        Assertions.assertEquals(3, cachedLoadTabletIdx);
+        Assertions.assertEquals(1, secondTablets.size());
+        Assertions.assertEquals(10001L, secondTablets.get(0).getTabletId());
 
         List<TTabletLocation> cachedTablets = new ArrayList<>();
-        List<TTabletLocation> cachedSlaveTablets = new ArrayList<>();
         AtomicLong readLoadTabletIdx = new AtomicLong(-1);
-        Assert.assertTrue(cacheManager.getAutoPartitionInfo(
-                10L, 20L, cachedTablets, cachedSlaveTablets, readLoadTabletIdx));
-        Assert.assertEquals(3, readLoadTabletIdx.get());
-        Assert.assertEquals(1, cachedTablets.size());
-        Assert.assertEquals(10001L, cachedTablets.get(0).getTabletId());
+        Assertions.assertTrue(cacheManager.getAutoPartitionInfo(
+                10L, 20L, cachedTablets, readLoadTabletIdx));
+        Assertions.assertEquals(3, readLoadTabletIdx.get());
+        Assertions.assertEquals(1, cachedTablets.size());
+        Assertions.assertEquals(10001L, cachedTablets.get(0).getTabletId());
     }
 }

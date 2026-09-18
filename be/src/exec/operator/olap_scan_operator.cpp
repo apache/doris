@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -130,6 +131,8 @@ Status OlapScanLocalState::_init_profile() {
     _scan_rows = ADD_COUNTER(custom_profile(), "ScanRows", TUnit::UNIT);
     _tablets_pruned_by_rf_counter =
             ADD_COUNTER(custom_profile(), "TabletsPrunedByRuntimeFilter", TUnit::UNIT);
+    _buckets_pruned_by_rf_counter =
+            ADD_COUNTER(custom_profile(), "BucketsPrunedByRuntimeFilter", TUnit::UNIT);
 
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
@@ -138,6 +141,13 @@ Status OlapScanLocalState::_init_profile() {
     // 2. init timer and counters
     _reader_init_timer = ADD_TIMER(_scanner_profile, "ReaderInitTime");
     _scanner_init_timer = ADD_TIMER(_scanner_profile, "ScannerInitTime");
+    _rowset_tso_prune_timer = ADD_TIMER(custom_profile(), "RowsetTsoPruneTime");
+    _rowsets_pruned_by_tso_counter =
+            ADD_COUNTER(custom_profile(), "RowsetsPrunedByTso", TUnit::UNIT);
+    _segments_pruned_by_tso_counter =
+            ADD_COUNTER(custom_profile(), "SegmentsPrunedByTso", TUnit::UNIT);
+    _tablets_pruned_by_tso_counter =
+            ADD_COUNTER(custom_profile(), "TabletsPrunedByTso", TUnit::UNIT);
     _process_conjunct_timer = ADD_TIMER(custom_profile(), "ProcessConjunctTime");
     _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
@@ -264,6 +274,10 @@ Status OlapScanLocalState::_init_profile() {
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheHit", TUnit::UNIT, 1);
     _inverted_index_query_cache_miss_counter =
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryCacheMiss", TUnit::UNIT, 1);
+    _inverted_index_query_cache_lookup_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexQueryCacheLookup", TUnit::UNIT, 1);
+    _inverted_index_query_cache_insert_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexQueryCacheInsert", TUnit::UNIT, 1);
     _inverted_index_query_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexQueryTime", 1);
     _inverted_index_query_null_bitmap_timer =
@@ -284,6 +298,8 @@ Status OlapScanLocalState::_init_profile() {
             _segment_profile, "InvertedIndexSearcherCacheMiss", TUnit::UNIT, 1);
     _inverted_index_downgrade_count_counter =
             ADD_COUNTER_WITH_LEVEL(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT, 1);
+    _inverted_index_conjuncts_short_circuited_counter = ADD_COUNTER_WITH_LEVEL(
+            _segment_profile, "InvertedIndexConjunctsShortCircuited", TUnit::UNIT, 1);
     _inverted_index_analyzer_timer =
             ADD_TIMER_WITH_LEVEL(_segment_profile, "InvertedIndexAnalyzerTime", 1);
     _inverted_index_lookup_timer =
@@ -298,8 +314,6 @@ Status OlapScanLocalState::_init_profile() {
             ADD_CHILD_TIMER(_scanner_profile, "TabletReaderInitTimer", "ReaderInitTime");
     _tablet_reader_capture_rs_readers_timer = ADD_CHILD_TIMER(
             _scanner_profile, "TabletReaderCaptureRsReadersTimer", "TabletReaderInitTimer");
-    _tablet_reader_init_return_columns_timer = ADD_CHILD_TIMER(
-            _scanner_profile, "TabletReaderInitReturnColumnsTimer", "TabletReaderInitTimer");
     _tablet_reader_init_keys_param_timer = ADD_CHILD_TIMER(
             _scanner_profile, "TabletReaderInitKeysParamTimer", "TabletReaderInitTimer");
     _tablet_reader_init_orderby_keys_param_timer = ADD_CHILD_TIMER(
@@ -329,8 +343,8 @@ Status OlapScanLocalState::_init_profile() {
 
     _segment_iterator_init_timer =
             ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitTimer", "BlockFetchTime");
-    _segment_iterator_init_return_column_iterators_timer =
-            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitReturnColumnIteratorsTimer",
+    _segment_iterator_init_column_iterators_timer =
+            ADD_CHILD_TIMER(_scanner_profile, "SegmentIteratorInitColumnIteratorsTimer",
                             "SegmentIteratorInitTimer");
     _segment_iterator_init_index_iterators_timer = ADD_CHILD_TIMER(
             _scanner_profile, "SegmentIteratorInitIndexIteratorsTimer", "SegmentIteratorInitTimer");
@@ -348,6 +362,8 @@ Status OlapScanLocalState::_init_profile() {
 
     _index_filter_profile = std::make_unique<RuntimeProfile>("IndexFilter");
     _scanner_profile->add_child(_index_filter_profile.get(), true, nullptr);
+    _snii_prx_profile_counters.initialize(_index_filter_profile.get());
+    _snii_phrase_profile_counters.initialize(_index_filter_profile.get());
     /*
     SegmentIterator:
         - AnnIndexLoadCosts: 102.262us
@@ -512,6 +528,13 @@ bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
     return res != p._olap_scan_node.key_column_name.end();
 }
 
+bool OlapScanLocalState::can_push_down_column_predicate(const SlotDescriptor* slot) {
+    // The Operator-level method handles static column capabilities. The LocalState-level
+    // condition additionally handles the current scan range's binlog merge mode.
+    return Base::can_push_down_column_predicate(slot) &&
+           (!_is_binlog_merge_scan() || _is_key_column(slot->col_name()));
+}
+
 Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* fn_call,
                                                              VExprContext* expr_ctx,
                                                              StringRef* constant_str,
@@ -526,7 +549,6 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
     const auto& children = fn_call->children();
     doris::FunctionContext* func_cxt = expr_ctx->fn_context(fn_call->fn_context_index());
     DCHECK(func_cxt != nullptr);
-    DCHECK(children.size() == 2);
     for (size_t i = 0; i < children.size(); i++) {
         if (VExpr::expr_without_cast(children[i])->node_type() != TExprNodeType::SLOT_REF) {
             // not a slot ref(column)
@@ -620,6 +642,32 @@ bool OlapScanLocalState::_is_binlog_merge_scan() const {
     return scan_type == TBinlogScanType::MIN_DELTA || scan_type == TBinlogScanType::DETAIL;
 }
 
+void OlapScanLocalState::_prune_rowsets_by_tso(const TPaloScanRange& scan_range,
+                                               TabletReadSource& read_source) {
+    SCOPED_TIMER(_rowset_tso_prune_timer);
+    int64_t pruned_segments = 0;
+    const auto pruned_rowsets = std::erase_if(read_source.rs_splits, [&](const auto& split) {
+        const auto& rowset = split.rs_reader->rowset();
+        const auto tso = rowset->commit_tso();
+        // Old rowsets can lack commit TSO metadata, including compaction inputs with an
+        // unknown endpoint. Keep them for the existing segment/row-level predicates.
+        if (tso.start_tso() < 0 || tso.end_tso() < 0) {
+            return false;
+        }
+        DCHECK_LE(tso.start_tso(), tso.end_tso());
+        // Rowset metadata is inclusive [min, max]; the query is half-open [start, end).
+        const bool outside_window =
+                (scan_range.__isset.start_tso && tso.end_tso() < scan_range.start_tso) ||
+                (scan_range.__isset.end_tso && tso.start_tso() >= scan_range.end_tso);
+        if (outside_window) {
+            pruned_segments += rowset->num_segments();
+        }
+        return outside_window;
+    });
+    COUNTER_UPDATE(_rowsets_pruned_by_tso_counter, pruned_rowsets);
+    COUNTER_UPDATE(_segments_pruned_by_tso_counter, pruned_segments);
+}
+
 Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
         _eos = true;
@@ -644,7 +692,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         _cond_ranges.emplace_back(new doris::OlapScanRange());
     }
 
-    // Filter out tablets whose partitions have been pruned by runtime filters.
+    // Filter out tablets whose partitions or buckets have been pruned by runtime filters.
     //
     // TODO(rf-partition-prune): this happens after OlapScanLocalState::init()
     // has already executed _sync_cloud_tablets() (in cloud mode that performs
@@ -659,13 +707,16 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // the tablet, (b) acquire ready-at-start RFs before _sync_cloud_tablets()
     // and run partition pruning there to filter _scan_ranges by partition_id
     // so the heavy per-tablet work is skipped for pruned partitions.
-    if (_rf_partition_pruner.pruned_partition_count() > 0) {
+    if (_rf_partition_pruner.pruned_partition_count() > 0 ||
+        _rf_bucket_pruner.pruned_tablet_count() > 0) {
         DCHECK_EQ(_tablets.size(), _scan_ranges.size());
         DCHECK_EQ(_tablets.size(), _read_sources.size());
         size_t write_idx = 0;
         for (size_t read_idx = 0; read_idx < _tablets.size(); ++read_idx) {
             int64_t pid = _tablets[read_idx].tablet->partition_id();
-            if (!_rf_partition_pruner.is_partition_pruned(pid)) {
+            const auto& scan_range = *_scan_ranges[read_idx];
+            if (!_is_tablet_pruned_by_runtime_filter(pid, scan_range.bucket_seq,
+                                                     scan_range.bucket_num)) {
                 if (write_idx != read_idx) {
                     _tablets[write_idx] = std::move(_tablets[read_idx]);
                     _scan_ranges[write_idx] = std::move(_scan_ranges[read_idx]);
@@ -705,6 +756,15 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     // And the user send a query like select userid,count(*) from base table group by userid.
     // then the storage layer do not need do aggregation, it could just return the partial agg data, because the compute layer will do aggregation.
     // PreAgg OFF: The storage layer must complete pre-aggregation and return fully aggregated data. (Slow data reading)
+    // Query cache incremental merge needs no special case here: the read
+    // sources captured in prepare() already cover exactly the delta versions
+    // (cached_version, current_version], and the parallel scanner builder
+    // consumes the captured read sources as they are. The delta is NOT small
+    // by construction (an entry can sit dormant for arbitrarily many versions
+    // before it is reused; the merge-count threshold bounds prior write-backs,
+    // not idle accumulation), so a large suffix is split by rowset/segment
+    // rows like any full scan, while a small delta naturally collapses to a
+    // single scanner through min_rows_per_scanner.
     if (enable_parallel_scan && !p._should_run_serial &&
         p._push_down_agg_type == TPushAggOp::NONE &&
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)
@@ -720,9 +780,9 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             key_ranges.emplace_back(range.get());
         }
 
-        ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scanner_profile,
-                                               key_ranges, state(), p._limit, true,
-                                               p._olap_scan_node.is_preaggregation);
+        ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scan_ranges,
+                                               _scanner_profile, key_ranges, state(), p._limit,
+                                               true, p._olap_scan_node.is_preaggregation);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
@@ -768,6 +828,22 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
     for (size_t scan_range_idx = 0; scan_range_idx < _scan_ranges.size(); scan_range_idx++) {
         const auto& palo_scan_range = *_scan_ranges[scan_range_idx];
+        if (read_row_binlog &&
+            (palo_scan_range.__isset.start_tso || palo_scan_range.__isset.end_tso)) {
+            auto& read_source = _read_sources[scan_range_idx];
+            // The version-consistent read source and delete predicates have already been
+            // captured. Prune before cloning readers or opening any segment footers.
+            _prune_rowsets_by_tso(palo_scan_range, read_source);
+            if (std::all_of(read_source.rs_splits.begin(), read_source.rs_splits.end(),
+                            [](const auto& split) {
+                                return split.rs_reader->rowset()->num_rows() == 0;
+                            })) {
+                // Empty bootstrap rowsets may have no TSO. Skip the tablet even if those
+                // remain, and do not let OlapScanner recapture an empty read source.
+                COUNTER_UPDATE(_tablets_pruned_by_tso_counter, 1);
+                continue;
+            }
+        }
         int64_t version = 0;
         std::from_chars(palo_scan_range.version.data(),
                         palo_scan_range.version.data() + palo_scan_range.version.size(), version);
@@ -811,6 +887,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                   p._olap_scan_node.is_preaggregation,
                                   read_row_binlog,
                                   resolve_binlog_scan_type(palo_scan_range),
+                                  palo_scan_range.bucket_seq,
+                                  palo_scan_range.bucket_num,
                                   palo_scan_range.__isset.start_tso
                                           ? std::make_optional(palo_scan_range.start_tso)
                                           : std::nullopt,
@@ -849,15 +927,16 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                 tasks.emplace_back([this, sync_stats, version, i, task_ctx, task_create_time]() {
                     // Record bthread scheduling delay
                     auto task_start_time = std::chrono::steady_clock::now();
+                    auto task_lock = task_ctx.lock();
+                    if (task_lock == nullptr) {
+                        return Status::OK();
+                    }
+                    // The local state owns sync_stats, so keep its context alive before access.
                     if (sync_stats) {
                         sync_stats->bthread_schedule_delay_ns +=
                                 std::chrono::duration_cast<std::chrono::nanoseconds>(
                                         task_start_time - task_create_time)
                                         .count();
-                    }
-                    auto task_lock = task_ctx.lock();
-                    if (task_lock == nullptr) {
-                        return Status::OK();
                     }
                     Defer defer([&] {
                         if (_pending_tablets_num.fetch_sub(1) == 1) {
@@ -981,13 +1060,35 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         }
     }
 
+    const bool cache_incremental =
+            _query_cache_decision != nullptr &&
+            _query_cache_decision->mode == QueryCacheInstanceDecision::Mode::INCREMENTAL;
     for (size_t i = 0; i < _scan_ranges.size(); i++) {
+        if (cache_incremental) {
+            // Scan only the delta rowsets in (cached_version, current_version].
+            // The read source was already captured (and verified to contain no
+            // delete predicate) when the cache decision was made, so a capture
+            // failure cannot surface here, where the cache source operator has
+            // already committed to emitting the cached blocks. take() returning
+            // null would mean the FE invariant "one instance per tablet set, no
+            // shared scan under query cache" was broken (someone else consumed
+            // this tablet's read source); failing fast is the only safe answer,
+            // because a silent full-scan fallback would emit the data twice
+            // (cached blocks + full scan).
+            auto delta_source =
+                    _query_cache_decision->take_delta_read_source(_tablets[i].tablet->tablet_id());
+            if (delta_source == nullptr) {
+                return Status::InternalError(
+                        "query cache incremental read source is absent, tablet_id={}",
+                        _tablets[i].tablet->tablet_id());
+            }
+            _read_sources[i] = std::move(*delta_source);
+            continue;
+        }
         _read_sources[i] = DORIS_TRY(_tablets[i].tablet->capture_read_source(
                 {0, _tablets[i].version},
                 {.skip_missing_versions = _state->skip_missing_version(),
                  .enable_fetch_rowsets_from_peers = config::enable_fetch_rowsets_from_peer_replicas,
-                 .capture_row_binlog = olap_scan_node().__isset.read_row_binlog &&
-                                       olap_scan_node().read_row_binlog,
                  .enable_prefer_cached_rowset =
                          config::is_cloud_mode() ? _state->enable_prefer_cached_rowset() : false,
                  .query_freshness_tolerance_ms =
@@ -1023,7 +1124,8 @@ Status OlapScanLocalState::open(RuntimeState* state) {
         if (virtual_col_expr) {
             std::shared_ptr<doris::VExprContext> virtual_column_expr_ctx;
             RETURN_IF_ERROR(VExpr::create_expr_tree(*virtual_col_expr, virtual_column_expr_ctx));
-            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(state, p.intermediate_row_desc()));
+            RETURN_IF_ERROR(virtual_column_expr_ctx->prepare(
+                    state, p.operator_row_desc_before_projection()));
             RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
 
             _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
@@ -1031,11 +1133,11 @@ Status OlapScanLocalState::open(RuntimeState* state) {
     }
 
     if (_score_runtime) {
-        RETURN_IF_ERROR(_score_runtime->prepare(state, p.intermediate_row_desc()));
+        RETURN_IF_ERROR(_score_runtime->prepare(state, p.operator_row_desc_before_projection()));
     }
 
     if (_ann_topn_runtime) {
-        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.intermediate_row_desc()));
+        RETURN_IF_ERROR(_ann_topn_runtime->prepare(state, p.operator_row_desc_before_projection()));
     }
 
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::open(state));
@@ -1049,29 +1151,71 @@ TOlapScanNode& OlapScanLocalState::olap_scan_node() const {
 
 void OlapScanLocalState::set_scan_ranges(RuntimeState* state,
                                          const std::vector<TScanRangeParams>& scan_ranges) {
-    const auto& cache_param = _parent->cast<OlapScanOperatorX>()._cache_param;
-    bool hit_cache = false;
-    // read binlog<row> scan should not participate in query cache.
-    if (olap_scan_node().__isset.read_row_binlog && olap_scan_node().read_row_binlog) {
-        hit_cache = false;
-    } else if (!cache_param.digest.empty() && !cache_param.force_refresh_query_cache) {
-        std::string cache_key;
-        int64_t version = 0;
-        auto status = QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version);
-        if (!status.ok()) {
-            throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR, status.msg());
+    auto& parent = _parent->cast<OlapScanOperatorX>();
+    // Consume the per-instance cache decision. It is made exactly once and
+    // shared with the cache source operator of this fragment, so the two
+    // operators always agree: the scan skips scanning if and only if the cache
+    // source emits the cached blocks (HIT), and scans only the delta rowsets if
+    // and only if the cache source merges them with the cached blocks
+    // (INCREMENTAL). The decision also pins the cache entry, so it cannot be
+    // evicted between the two operators' init.
+    // Note: an invalid cache key (e.g. FE could not align this instance to one
+    // partition, so tablets carry different versions) now degrades to an
+    // uncached full scan instead of failing the query.
+    if (parent._query_cache_runtime != nullptr) {
+        _query_cache_decision = parent._query_cache_runtime->get_or_make_decision(scan_ranges);
+        if (_query_cache_decision->mode == QueryCacheInstanceDecision::Mode::HIT) {
+            // Exact hit: the cache source emits the entry, nothing to scan.
+            return;
         }
-        doris::QueryCacheHandle handle;
-        hit_cache = QueryCache::instance()->lookup(cache_key, version, &handle);
     }
 
-    if (!hit_cache) {
-        for (auto& scan_range : scan_ranges) {
-            DCHECK(scan_range.scan_range.__isset.palo_scan_range);
-            _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
-            COUNTER_UPDATE(_tablet_counter, 1);
+    bool bucket_prune_metadata_initialized = !_scan_ranges.empty();
+    for (const auto& scan_range : scan_ranges) {
+        DORIS_CHECK(scan_range.scan_range.__isset.palo_scan_range);
+        _scan_ranges.emplace_back(new TPaloScanRange(scan_range.scan_range.palo_scan_range));
+        const auto& palo_scan_range = *_scan_ranges.back();
+        DORIS_CHECK_EQ(palo_scan_range.__isset.bucket_seq, palo_scan_range.__isset.bucket_num);
+        if (!bucket_prune_metadata_initialized) {
+            _has_rf_bucket_prune_metadata = palo_scan_range.__isset.bucket_seq;
+            bucket_prune_metadata_initialized = true;
+        } else {
+            DORIS_CHECK_EQ(palo_scan_range.__isset.bucket_seq, _has_rf_bucket_prune_metadata);
         }
+        if (_has_rf_bucket_prune_metadata) {
+            DORIS_CHECK_GT(palo_scan_range.bucket_num, 0);
+            DORIS_CHECK_GE(palo_scan_range.bucket_seq, 0);
+            DORIS_CHECK_LT(palo_scan_range.bucket_seq, palo_scan_range.bucket_num);
+        }
+        COUNTER_UPDATE(_tablet_counter, 1);
     }
+}
+
+Status OlapScanLocalState::_on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) {
+    RETURN_IF_ERROR(Base::_on_runtime_filter_update(new_conjuncts));
+    if (!state()->query_options().enable_runtime_filter_bucket_prune ||
+        !_has_rf_bucket_prune_metadata || _scan_ranges.empty()) {
+        return Status::OK();
+    }
+
+    int64_t newly_pruned = 0;
+    RETURN_IF_ERROR(_rf_bucket_pruner.prune_by_runtime_filters(
+            _scan_ranges, new_conjuncts, _parent->runtime_filter_descs(), _parent->node_id(),
+            state()->runtime_filter_max_in_num(), &newly_pruned));
+    if (newly_pruned > 0) {
+        COUNTER_SET(_buckets_pruned_by_rf_counter, _rf_bucket_pruner.pruned_tablet_count());
+    }
+    return Status::OK();
+}
+
+bool OlapScanLocalState::_is_tablet_pruned_by_runtime_filter(int64_t partition_id,
+                                                             int32_t bucket_seq,
+                                                             int32_t bucket_num) const {
+    if (_rf_partition_pruner.is_partition_pruned(partition_id)) {
+        return true;
+    }
+    return _has_rf_bucket_prune_metadata &&
+           _rf_bucket_pruner.is_bucket_pruned(bucket_seq, bucket_num);
 }
 
 static std::string tablets_id_to_string(
@@ -1263,10 +1407,12 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                      const DescriptorTbl& descs, int parallel_tasks,
-                                     const TQueryCacheParam& param)
+                                     const TQueryCacheParam& param,
+                                     std::shared_ptr<QueryCacheRuntime> query_cache_runtime)
         : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
           _olap_scan_node(tnode.olap_scan_node),
-          _cache_param(param) {
+          _cache_param(param),
+          _query_cache_runtime(std::move(query_cache_runtime)) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     if (_olap_scan_node.__isset.sort_info && _olap_scan_node.__isset.sort_limit) {
         DORIS_CHECK(_limit < 0);

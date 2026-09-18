@@ -2,7 +2,7 @@
 -- !sql_1_shape --
 PhysicalResultSink
 --PhysicalProject
-----filter(a IN (1, 3))
+----filter(tbl_test_case_when_rules.a IN (1, 3))
 ------PhysicalOlapScan[tbl_test_case_when_rules]
 
 -- !sql_1_result --
@@ -21,7 +21,7 @@ PhysicalResultSink
 -- !sql_3_shape --
 PhysicalResultSink
 --PhysicalProject
-----filter(OR[( not a IN (1, 2, 3)),a IS NULL])
+----filter(OR[( not tbl_test_case_when_rules.a IN (1, 2, 3)),tbl_test_case_when_rules.a IS NULL])
 ------PhysicalOlapScan[tbl_test_case_when_rules]
 
 -- !sql_3_result --
@@ -33,7 +33,7 @@ PhysicalResultSink
 -- !sql_4_shape --
 PhysicalResultSink
 --PhysicalProject
-----filter(OR[( not (a = 3)),a IS NULL])
+----filter(OR[( not (tbl_test_case_when_rules.a = 3)),tbl_test_case_when_rules.a IS NULL])
 ------PhysicalOlapScan[tbl_test_case_when_rules]
 
 -- !sql_4_result --
@@ -47,7 +47,7 @@ PhysicalResultSink
 -- !sql_5_shape --
 PhysicalResultSink
 --PhysicalProject
-----filter(a IN (1, 2))
+----filter(tbl_test_case_when_rules.a IN (1, 2))
 ------PhysicalOlapScan[tbl_test_case_when_rules]
 
 -- !sql_5_result --

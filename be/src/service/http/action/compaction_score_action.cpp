@@ -42,6 +42,7 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/status.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_handler_with_auth.h"
 #include "service/http/http_headers.h"
@@ -58,7 +59,6 @@ const std::string SYNC_META = "sync_meta";
 const std::string COMPACTION_SCORE = "compaction_score";
 constexpr size_t DEFAULT_TOP_N = std::numeric_limits<size_t>::max();
 constexpr bool DEFAULT_SYNC_META = false;
-constexpr std::string_view TABLET_ID = "tablet_id";
 
 template <typename T>
 concept CompactionScoreAccessble = requires(T t) {

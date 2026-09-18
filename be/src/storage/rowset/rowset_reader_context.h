@@ -30,21 +30,22 @@
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/row_cursor.h"
 #include "storage/rowid_conversion.h"
+#include "storage/schema.h"
 
 namespace doris {
 
-class RowCursor;
 class DeleteBitmap;
 class DeleteHandler;
 class TabletSchema;
 
 struct RowsetReaderContext {
     ReaderType reader_type = ReaderType::READER_QUERY;
+    bool read_row_binlog = false;
     Version version {-1, -1};
     TabletSchemaSPtr tablet_schema = nullptr;
     std::vector<int> topn_filter_source_node_ids;
-    int topn_filter_target_node_id = -1;
     // whether rowset should return ordered rows.
     bool need_ordered_result = true;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
@@ -52,31 +53,28 @@ struct RowsetReaderContext {
     // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
     // For example, use lower rowset version / segment id first.
     bool use_insert_order_when_same = false;
-    bool force_key_ordered_read = false;
-    // columns for orderby keys
+    // ordinals (positions in read_schema) of the orderby key columns
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     // limit of rows for read_orderby_key
     size_t read_orderby_key_limit = 0;
-    // projection columns: the set of columns rowset reader should return
-    const std::vector<uint32_t>* return_columns = nullptr;
-    // TSO predicate column that is absent from return_columns but must be read by storage.
-    std::optional<ColumnId> tso_predicate_column_id;
+    ReadSchemaSPtr read_schema = nullptr;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
     const std::vector<std::shared_ptr<ColumnPredicate>>* predicates = nullptr;
     // value column predicate in UNIQUE table
     const std::vector<std::shared_ptr<ColumnPredicate>>* value_predicates = nullptr;
-    const std::vector<RowCursor>* lower_bound_keys = nullptr;
+    const std::vector<std::optional<RowCursor>>* lower_bound_keys = nullptr;
     const std::vector<bool>* is_lower_keys_included = nullptr;
-    const std::vector<RowCursor>* upper_bound_keys = nullptr;
+    const std::vector<std::optional<RowCursor>>* upper_bound_keys = nullptr;
     const std::vector<bool>* is_upper_keys_included = nullptr;
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
     VExprContextSPtrs common_expr_ctxs_push_down;
     bool use_page_cache = false;
-    int sequence_id_idx = -1;
+    // Whether equal-key merge should use the sequence column as its tie-break column.
+    bool use_sequence_column_for_merge_order = true;
     int batch_size = 1024;
     // Effective adaptive batch size byte budget. 0 means disabled internally.
     size_t preferred_block_size_bytes = 8388608UL;
@@ -90,12 +88,16 @@ struct RowsetReaderContext {
     bool record_rowids = false;
     RowIdConversion* rowid_conversion = nullptr;
     bool is_key_column_group = false;
+    // column unique ids referenced by output/orderby exprs (NOT ordinals)
     const std::set<int32_t>* output_columns = nullptr;
     std::set<ColumnId> extra_columns;
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;
-    int64_t ttl_seconds = 0;
+    // Absolute timestamp (seconds since epoch) after which cache blocks filled by this
+    // read stop being TTL protected; 0 means no TTL.
+    // See TabletMeta::file_cache_ttl_expiration_time().
+    int64_t file_cache_expiration_time = 0;
 
     std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
 

@@ -10,7 +10,7 @@ PhysicalResultSink
 -- !filter_through_generate_unique_2 --
 PhysicalResultSink
 --PhysicalProject[tmp1.e1]
-----filter(((cast(id as BIGINT) + random(1, 100)) > 5))
+----filter(((cast(t1.id as BIGINT) + random(1, 100)) > 5))
 ------PhysicalGenerate
 --------PhysicalProject[t1.id]
 ----------filter((t1.id > 10))
@@ -19,7 +19,7 @@ PhysicalResultSink
 -- !filter_through_generate_unique_3 --
 PhysicalResultSink
 --PhysicalProject[tmp1.e1]
-----filter(((cast(id as BIGINT) + random(1, 100)) > 5))
+----filter(((cast(t1.id as BIGINT) + random(1, 100)) > 5))
 ------PhysicalGenerate
 --------PhysicalProject[t1.id]
 ----------PhysicalOlapScan[t1]

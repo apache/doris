@@ -21,9 +21,11 @@ import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.spi.LegacyS3Uri;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.ParamRules;
@@ -36,6 +38,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -249,6 +252,12 @@ public final class ObsFileSystemProperties
         kv.put("AWS_REQUEST_TIMEOUT_MS", requestTimeoutMs);
         kv.put("AWS_CONNECTION_TIMEOUT_MS", connectionTimeoutMs);
         kv.put("use_path_style", usePathStyle);
+        // Mirror fe-core AbstractS3CompatibleProperties#getAwsCredentialsProviderTypeForBackend:
+        // anonymous access (no static credentials) emits ANONYMOUS; otherwise the key is omitted so
+        // BE uses SimpleAWSCredentialsProvider. OBS never configures a provider type explicitly.
+        if (StringUtils.isBlank(accessKey) && StringUtils.isBlank(secretKey)) {
+            kv.put("AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS");
+        }
         return Collections.unmodifiableMap(kv);
     }
 
@@ -257,8 +266,10 @@ public final class ObsFileSystemProperties
         Map<String, String> cfg = new HashMap<>();
         cfg.put("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
         cfg.put("fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        cfg.put("fs.s3.impl.disable.cache", "true");
-        cfg.put("fs.s3a.impl.disable.cache", "true");
+        // No blanket cache disabling: the Doris-patched FileSystem keys its cache by the
+        // per-scheme credential fingerprint below, so different credentials never share an
+        // instance and merging this map with another storage's loses neither.
+        FsCacheKeys.putFsCacheKeys(cfg, this);
         cfg.put("fs.s3a.endpoint", endpoint);
         cfg.put("fs.s3a.endpoint.region", region);
         if (StringUtils.isNotBlank(accessKey)) {
@@ -349,6 +360,11 @@ public final class ObsFileSystemProperties
         return usePathStyle;
     }
 
+    @Override
+    public Set<String> getSupportedSchemes() {
+        return Set.of("obs", "s3", "s3a");
+    }
+
     public String getForceParsingByStandardUrl() {
         return forceParsingByStandardUrl;
     }
@@ -362,6 +378,17 @@ public final class ObsFileSystemProperties
     }
 
     private void normalize() {
+        // Legacy AbstractS3CompatibleProperties.setEndpointIfPossible leg 2 (inherited by fe-core
+        // OBSProperties): derive the endpoint from the raw "uri" property when no endpoint key is
+        // set; parse failures are swallowed exactly like fe-core. Runs before region extraction so
+        // a uri-derived endpoint feeds it, matching the legacy ordering.
+        if (StringUtils.isBlank(endpoint)) {
+            String derived = LegacyS3Uri.deriveEndpointQuietly(rawProperties, usePathStyle,
+                    forceParsingByStandardUrl);
+            if (StringUtils.isNotBlank(derived)) {
+                endpoint = derived;
+            }
+        }
         if (StringUtils.isBlank(region) && StringUtils.isNotBlank(endpoint)) {
             region = extractRegion(endpoint).orElse("");
         }
@@ -393,16 +420,30 @@ public final class ObsFileSystemProperties
     }
 
     private static boolean isClassAvailable(String className) {
-        try {
-            Class.forName(className, false, ObsFileSystemProperties.class.getClassLoader());
-            return true;
-        } catch (ClassNotFoundException e) {
-            return false;
-        }
+        // Read as a resource rather than Class.forName: the question is whether the OBS connector
+        // ships in this plugin, and loading the class answers a strictly harder one. OBSFileSystem
+        // comes from hadoop-huaweicloud, which declares its hadoop-common parent provided, so
+        // hadoop-common is deliberately absent from this plugin's runtime closure and from lib/.
+        // Class.forName has to link the missing superclass org.apache.hadoop.fs.FileSystem and
+        // throws NoClassDefFoundError -- a LinkageError, not a ClassNotFoundException, so the
+        // former catch did not hold it and it aborted this class's static initializer instead.
+        // Widening the catch would only trade the crash for a lie: the probe would report OBS
+        // absent and silently downgrade fs.obs.impl to S3AFileSystem as soon as the host stops
+        // supplying hadoop-common, even though the connector is right there in lib/ and the
+        // consumers that actually instantiate it (fe-connector-paimon, be-java-extensions/
+        // hadoop-deps) carry their own hadoop. Resolving the class file uses the same classloader
+        // and the same delegation without linking anything.
+        return ObsFileSystemProperties.class.getResource("/" + className.replace('.', '/') + ".class") != null;
     }
 
     @Override
     public String toString() {
         return ConnectorPropertiesUtils.toMaskedString(this);
     }
+
+    @Override
+    public Set<String> legacyCacheSchemes() {
+        return Set.of("obs");
+    }
+
 }

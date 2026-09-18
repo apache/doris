@@ -25,8 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.CloudObjectStoreAdapter;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
 import org.apache.doris.rpc.BackendServiceProxy;
@@ -148,7 +147,7 @@ public class StorageVaultMgr {
 
     private Cloud.StorageVaultPB.Builder buildAlterS3VaultRequest(Map<String, String> properties, String name)
             throws Exception {
-        Cloud.ObjectStoreInfoPB.Builder objBuilder = S3Properties.getObjStoreInfoPB(properties);
+        Cloud.ObjectStoreInfoPB.Builder objBuilder = CloudObjectStoreAdapter.getObjStoreInfoPB(properties);
         Cloud.StorageVaultPB.Builder alterObjVaultBuilder = Cloud.StorageVaultPB.newBuilder();
         alterObjVaultBuilder.setName(name);
         alterObjVaultBuilder.setObjInfo(objBuilder.build());
@@ -210,9 +209,11 @@ public class StorageVaultMgr {
                 request.setOp(Operation.ALTER_S3_VAULT);
             } else if (type == StorageVaultType.HDFS) {
                 properties.keySet().stream()
+                        // Exact literals of the legacy S3Properties.S3_PREFIX ("s3.") and
+                        // StorageProperties.FS_PROVIDER_KEY ("provider") constants.
                         .filter(key -> HdfsStorageVault.FORBID_ALTER_PROPERTIES.contains(key)
-                                || key.toLowerCase().contains(S3Properties.S3_PREFIX)
-                                || key.toLowerCase().contains(StorageProperties.FS_PROVIDER_KEY))
+                                || key.toLowerCase().contains("s3.")
+                                || key.toLowerCase().contains("provider"))
                         .findAny()
                         .ifPresent(key -> {
                             throw new IllegalArgumentException("Alter property " + key + " is not allowed.");

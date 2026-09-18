@@ -17,7 +17,7 @@ index 2087cbcf..7aede561 100644
      Tabbed* tabbed = dynamic_cast<Tabbed*>(service);
      for (int i = 0; i < sd->method_count(); ++i) {
          const google::protobuf::MethodDescriptor* md = sd->method(i);
-@@ -1282,6 +1290,14 @@ int Server::AddServiceInternal(google::protobuf::Service* service,
+@@ -1282,6 +1290,16 @@ int Server::AddServiceInternal(google::protobuf::Service* service,
          mp.method = md;
          mp.status = new MethodStatus;
          _method_map[md->full_name()] = mp;
@@ -27,17 +27,21 @@ index 2087cbcf..7aede561 100644
 +            secondary_method_name.append(secondary_full_name);
 +            secondary_method_name.push_back('.');
 +            secondary_method_name.append(md->name());
-+            _method_map[secondary_method_name] = mp;
++            MethodProperty secondary_mp = mp;
++            secondary_mp.own_method_status = false;
++            _method_map[secondary_method_name] = secondary_mp;
 +        }
          if (is_idl_support && sd->name() != sd->full_name()/*has ns*/) {
              MethodProperty mp2 = mp;
              mp2.own_method_status = false;
-@@ -1306,6 +1322,9 @@ int Server::AddServiceInternal(google::protobuf::Service* service,
+@@ -1306,6 +1324,11 @@ int Server::AddServiceInternal(google::protobuf::Service* service,
          is_builtin_service, svc_opt.ownership, service, NULL };
      _fullname_service_map[sd->full_name()] = ss;
      _service_map[sd->name()] = ss;
 +    if (!secondary_full_name.empty()) {
-+        _fullname_service_map[secondary_full_name] = ss;
++        ServiceProperty secondary_ss = ss;
++        secondary_ss.ownership = SERVER_DOESNT_OWN_SERVICE;
++        _fullname_service_map[secondary_full_name] = secondary_ss;
 +    }
      if (is_builtin_service) {
          ++_builtin_service_count;

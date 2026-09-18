@@ -180,7 +180,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                        -(inner_sink_state->_hash_table_memory_usage->value() +
                          inner_sink_state->_build_arena_memory_usage->value()));
     }
-    const auto& row_desc = p._child->row_desc();
+    const auto& row_desc = p._child->operator_row_desc_after_projection();
     const auto num_slots = row_desc.num_slots();
     Block build_block;
     int64_t block_old_mem = 0;
@@ -438,7 +438,7 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
 Status PartitionedHashJoinSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>::prepare(state));
     RETURN_IF_ERROR(_inner_sink_operator->set_child(_child));
-    RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
+    RETURN_IF_ERROR(_partitioner->prepare(state, _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(_partitioner->open(state));
     return _inner_sink_operator->prepare(state);
 }

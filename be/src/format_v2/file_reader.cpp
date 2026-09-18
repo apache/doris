@@ -53,6 +53,10 @@ std::string FileScanRequest::debug_string() const {
         << join_debug_strings(
                    non_predicate_columns,
                    [](const LocalColumnIndex& projection) { return projection.debug_string(); })
+        << ", predicate_only_columns="
+        << join_debug_strings(
+                   predicate_only_columns,
+                   [](LocalColumnId column_id) { return std::to_string(column_id.value()); })
         << ", local_positions={";
     size_t position_idx = 0;
     for (const auto& [column_id, block_position] : local_positions) {
@@ -61,8 +65,34 @@ std::string FileScanRequest::debug_string() const {
         }
         out << column_id << ":" << block_position;
     }
-    out << "}, conjunct_count=" << conjuncts.size()
-        << ", delete_conjunct_count=" << delete_conjuncts.size() << "}";
+    out << "}, non_predicate_positions={";
+    position_idx = 0;
+    for (const auto& [column_id, block_position] : non_predicate_positions) {
+        if (position_idx++ > 0) {
+            out << ", ";
+        }
+        out << column_id << ":" << block_position;
+    }
+    out << "}, row_ids=";
+    if (row_ids.has_value()) {
+        out << join_debug_strings(*row_ids, [](int64_t row_id) { return std::to_string(row_id); });
+    } else {
+        out << "nullopt";
+    }
+    out << ", conjunct_count=" << conjuncts.size()
+        << ", metadata_pruning_safe_conjunct_count=" << metadata_pruning_safe_conjunct_count
+        << ", constant_pruning_safe_table_filter_count=" << constant_pruning_safe_table_filter_count
+        << ", delete_conjunct_count=" << delete_conjuncts.size() << ", variant_schema_overrides="
+        << join_debug_strings(
+                   variant_schema_overrides,
+                   [](const LocalColumnIndex& projection) { return projection.debug_string(); })
+        << ", count_star_placeholder_columns={";
+    const char* delimiter = "";
+    for (const auto column_id : count_star_placeholder_columns) {
+        out << delimiter << column_id.value();
+        delimiter = ",";
+    }
+    out << "}}";
     return out.str();
 }
 

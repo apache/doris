@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hms;
 
-import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorColumn;
 
 import java.util.Collections;
 import java.util.List;
@@ -34,30 +34,44 @@ public final class HmsTableInfo {
 
     private final String dbName;
     private final String tableName;
+    private final String owner;
+    private final int createTime;
     private final String tableType;
     private final String location;
     private final String inputFormat;
     private final String outputFormat;
     private final String serializationLib;
+    private final String viewOriginalText;
+    private final String viewExpandedText;
     private final List<ConnectorColumn> columns;
     private final List<ConnectorColumn> partitionKeys;
+    private final List<String> bucketCols;
+    private final int numBuckets;
     private final Map<String, String> parameters;
     private final Map<String, String> sdParameters;
 
     private HmsTableInfo(Builder builder) {
         this.dbName = Objects.requireNonNull(builder.dbName, "dbName");
         this.tableName = Objects.requireNonNull(builder.tableName, "tableName");
+        this.owner = builder.owner;
+        this.createTime = builder.createTime;
         this.tableType = builder.tableType;
         this.location = builder.location;
         this.inputFormat = builder.inputFormat;
         this.outputFormat = builder.outputFormat;
         this.serializationLib = builder.serializationLib;
+        this.viewOriginalText = builder.viewOriginalText;
+        this.viewExpandedText = builder.viewExpandedText;
         this.columns = builder.columns == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(builder.columns);
         this.partitionKeys = builder.partitionKeys == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(builder.partitionKeys);
+        this.bucketCols = builder.bucketCols == null
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(builder.bucketCols);
+        this.numBuckets = builder.numBuckets;
         this.parameters = builder.parameters == null
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(builder.parameters);
@@ -72,6 +86,16 @@ public final class HmsTableInfo {
 
     public String getTableName() {
         return tableName;
+    }
+
+    /** HMS owner captured with the table generation. */
+    public String getOwner() {
+        return owner;
+    }
+
+    /** HMS creation time, used as the standard metastore table-incarnation signal. */
+    public int getCreateTime() {
+        return createTime;
     }
 
     /** e.g. "MANAGED_TABLE", "EXTERNAL_TABLE", "VIRTUAL_VIEW". */
@@ -95,6 +119,21 @@ public final class HmsTableInfo {
         return serializationLib;
     }
 
+    /**
+     * Raw {@code viewOriginalText} of a view ({@code null} for a base table). For a Presto/Trino-authored hive
+     * view this carries the {@code "/* Presto View: <base64> *}{@code /"} definition; for a native hive view it
+     * is the original CREATE VIEW SQL. Presence of this (or {@link #getViewExpandedText()}) is the hive
+     * view signal (legacy {@code HMSExternalTable.isView}).
+     */
+    public String getViewOriginalText() {
+        return viewOriginalText;
+    }
+
+    /** Raw {@code viewExpandedText} of a view ({@code null} for a base table); the fully-qualified view SQL. */
+    public String getViewExpandedText() {
+        return viewExpandedText;
+    }
+
     /** Data columns (excludes partition keys). */
     public List<ConnectorColumn> getColumns() {
         return columns;
@@ -103,6 +142,16 @@ public final class HmsTableInfo {
     /** Partition key columns. */
     public List<ConnectorColumn> getPartitionKeys() {
         return partitionKeys;
+    }
+
+    /** Bucketing columns (empty when the table is not bucketed). */
+    public List<String> getBucketCols() {
+        return bucketCols;
+    }
+
+    /** Bucket count (0 when the table is not bucketed). */
+    public int getNumBuckets() {
+        return numBuckets;
     }
 
     public Map<String, String> getParameters() {
@@ -130,13 +179,19 @@ public final class HmsTableInfo {
     public static final class Builder {
         private String dbName;
         private String tableName;
+        private String owner;
+        private int createTime;
         private String tableType;
         private String location;
         private String inputFormat;
         private String outputFormat;
         private String serializationLib;
+        private String viewOriginalText;
+        private String viewExpandedText;
         private List<ConnectorColumn> columns;
         private List<ConnectorColumn> partitionKeys;
+        private List<String> bucketCols;
+        private int numBuckets;
         private Map<String, String> parameters;
         private Map<String, String> sdParameters;
 
@@ -150,6 +205,16 @@ public final class HmsTableInfo {
 
         public Builder tableName(String val) {
             this.tableName = val;
+            return this;
+        }
+
+        public Builder owner(String val) {
+            this.owner = val;
+            return this;
+        }
+
+        public Builder createTime(int val) {
+            this.createTime = val;
             return this;
         }
 
@@ -178,6 +243,16 @@ public final class HmsTableInfo {
             return this;
         }
 
+        public Builder viewOriginalText(String val) {
+            this.viewOriginalText = val;
+            return this;
+        }
+
+        public Builder viewExpandedText(String val) {
+            this.viewExpandedText = val;
+            return this;
+        }
+
         public Builder columns(List<ConnectorColumn> val) {
             this.columns = val;
             return this;
@@ -185,6 +260,16 @@ public final class HmsTableInfo {
 
         public Builder partitionKeys(List<ConnectorColumn> val) {
             this.partitionKeys = val;
+            return this;
+        }
+
+        public Builder bucketCols(List<String> val) {
+            this.bucketCols = val;
+            return this;
+        }
+
+        public Builder numBuckets(int val) {
+            this.numBuckets = val;
             return this;
         }
 

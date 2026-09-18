@@ -40,6 +40,7 @@
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 #include "storage/olap_scan_common.h"
 #include "util/obj_lru_cache.h"
@@ -160,6 +161,12 @@ public:
     // set the delete rows in current parquet file
     void set_delete_rows(const std::vector<int64_t>* delete_rows) { _delete_rows = delete_rows; }
 
+    // DVs stay compressed in the query cache. Only row ids belonging to the row group being opened
+    // are materialized for the legacy RowGroupReader position-delete interface.
+    void set_deletion_vector(const roaring::Roaring64Map* deletion_vector) {
+        _deletion_vector = deletion_vector;
+    }
+
     int64_t size() const { return _file_reader->size(); }
 
     Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
@@ -212,7 +219,8 @@ public:
     int64_t get_total_rows() const override;
 
     bool has_delete_operations() const override {
-        return _delete_rows != nullptr && !_delete_rows->empty();
+        return (_delete_rows != nullptr && !_delete_rows->empty()) ||
+               (_deletion_vector != nullptr && !_deletion_vector->isEmpty());
     }
 
     /// Disable row-group range filtering (needed when reading delete files
@@ -408,6 +416,8 @@ private:
     // Deleted rows will be marked by Iceberg/Paimon. So we should filter deleted rows when reading it.
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
+    const roaring::Roaring64Map* _deletion_vector = nullptr;
+    std::vector<int64_t> _row_group_deletion_vector_rows;
 
     // parquet file reader object
     RuntimeProfile* _profile = nullptr;

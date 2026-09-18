@@ -32,6 +32,17 @@ public interface PluginFactory {
     String name();
 
     /**
+     * Returns a one-line human-readable description of the plugin.
+     *
+     * <p>Snapshotted once at load time by the loader; never invoked at query time.</p>
+     *
+     * @return plugin description, empty by default
+     */
+    default String description() {
+        return "";
+    }
+
+    /**
      * Create a new plugin instance.
      *
      * @return plugin instance

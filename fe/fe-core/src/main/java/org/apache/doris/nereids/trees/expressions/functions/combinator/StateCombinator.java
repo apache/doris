@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NotSupportAggState;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctionParams;
@@ -60,6 +61,9 @@ public class StateCombinator extends ScalarFunction
      */
     public StateCombinator(List<Expression> arguments, AggregateFunction nested) {
         super(nested.getName() + AggCombinerFunctionBuilder.STATE_SUFFIX, arguments);
+        if (nested instanceof NotSupportAggState) {
+            throw new AnalysisException("Aggregate function does not support AggState: " + nested.getName());
+        }
         for (Expression arg : arguments) {
             if (arg instanceof OrderExpression) {
                 throw new AnalysisException(String
@@ -98,7 +102,7 @@ public class StateCombinator extends ScalarFunction
 
     @Override
     public StateCombinator withChildren(List<Expression> children) {
-        return new StateCombinator(getFunctionParams(children), nested);
+        return new StateCombinator(getFunctionParams(children), nested.withChildren(children));
     }
 
     @Override
@@ -115,7 +119,19 @@ public class StateCombinator extends ScalarFunction
 
     @Override
     public DataType getDataType() {
-        return returnType;
+        // Input nullability is part of the serialized state layout. Keep the analyzed
+        // signature when rewrites replace nullable expressions with non-null literals.
+        return getSignature().returnType;
+    }
+
+    @Override
+    protected boolean extraEquals(Expression that) {
+        return super.extraEquals(that) && getDataType().equals(that.getDataType());
+    }
+
+    @Override
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), getDataType());
     }
 
     @Override
@@ -143,5 +159,10 @@ public class StateCombinator extends ScalarFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         nested.checkLegalityBeforeTypeCoercion();
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        nested.withChildren(children()).checkLegalityAfterRewrite();
     }
 }

@@ -497,6 +497,19 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
         _fill_missing_cols.clear();
         _fill_missing_defaults.clear();
         for (const auto& col_name : base_ctx->column_names) {
+            // A projected column that is not present at all in the table-side schema tree means the
+            // schema info from FE (e.g. the paimon/iceberg history_schema_info, or the hive/orc name
+            // map) is inconsistent with the scan projection. Fail this query loudly instead of aborting
+            // the whole BE process via the children_column_exists DCHECK (or an std::out_of_range from
+            // children.at() in a release build). A column that IS known but missing from the data file
+            // keeps its key (add_not_exist_children) and is correctly classified as fill-missing below.
+            if (!_table_info_node_ptr->has_children_column(col_name)) {
+                return Status::InternalError(
+                        "schema mapping is missing projected column '{}'; the schema info from FE "
+                        "is "
+                        "inconsistent with the scan projection (file: {})",
+                        col_name, _scan_range.path);
+            }
             if (!_table_info_node_ptr->children_column_exists(col_name)) {
                 _fill_missing_cols.insert(col_name);
             }
@@ -862,6 +875,33 @@ Status ParquetReader::_do_get_next_block(Block* block, size_t* read_rows, bool* 
 
 RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
         const tparquet::RowGroup& row_group, const RowGroupReader::RowGroupIndex& row_group_index) {
+    if (_deletion_vector != nullptr) {
+        _row_group_deletion_vector_rows.clear();
+        auto it = _deletion_vector->begin();
+        it.move(cast_set<uint64_t>(row_group_index.first_row));
+        const auto end = _deletion_vector->end();
+        while (it != end && *it < cast_set<uint64_t>(row_group_index.last_row)) {
+            _row_group_deletion_vector_rows.push_back(cast_set<int64_t>(*it));
+            ++it;
+        }
+        // Iceberg may plan a DV together with older position delete files. Preserve both sources
+        // while keeping only the current row group's temporary expansion.
+        if (_delete_rows != nullptr) {
+            const auto position_begin = std::lower_bound(_delete_rows->begin(), _delete_rows->end(),
+                                                         row_group_index.first_row);
+            const auto position_end =
+                    std::lower_bound(position_begin, _delete_rows->end(), row_group_index.last_row);
+            _row_group_deletion_vector_rows.insert(_row_group_deletion_vector_rows.end(),
+                                                   position_begin, position_end);
+            std::ranges::sort(_row_group_deletion_vector_rows);
+            auto unique_end = std::ranges::unique(_row_group_deletion_vector_rows).begin();
+            _row_group_deletion_vector_rows.erase(unique_end,
+                                                  _row_group_deletion_vector_rows.end());
+        }
+        return RowGroupReader::PositionDeleteContext(
+                _row_group_deletion_vector_rows, row_group.num_rows, row_group_index.first_row, 0,
+                cast_set<int64_t>(_row_group_deletion_vector_rows.size()));
+    }
     if (_delete_rows == nullptr) {
         return RowGroupReader::PositionDeleteContext(row_group.num_rows, row_group_index.first_row);
     }
@@ -1467,6 +1507,8 @@ Status ParquetReader::_process_column_stat_filter(
     // Cache bloom filters for each column to avoid reading the same bloom filter multiple times
     // when there are multiple predicates on the same column
     std::unordered_map<int, std::unique_ptr<ParquetBlockSplitBloomFilter>> bloom_filter_cache;
+    constexpr size_t MAX_CACHED_BLOOM_FILTER_BYTES = 16 * 1024 * 1024;
+    size_t cached_bloom_filter_bytes = 0;
 
     // Initialize output parameters
     *filtered_by_min_max = false;
@@ -1525,6 +1567,7 @@ Status ParquetReader::_process_column_stat_filter(
                     auto cache_iter = bloom_filter_cache.find(parquet_col_id);
                     if (cache_iter != bloom_filter_cache.end()) {
                         // Bloom filter already loaded for this column, reuse it
+                        cached_bloom_filter_bytes -= cache_iter->second->size();
                         stat->bloom_filter = std::move(cache_iter->second);
                         bloom_filter_cache.erase(cache_iter);
                         return stat->bloom_filter != nullptr;
@@ -1567,6 +1610,12 @@ Status ParquetReader::_process_column_stat_filter(
 
         // After evaluating, if the bloom filter was used, cache it for subsequent predicates
         if (stat.bloom_filter) {
+            // Large filters remain tracked but are not retained across predicates; this bounds the
+            // row-group cache independently of the number of predicate columns.
+            if (stat.bloom_filter->size() >
+                MAX_CACHED_BLOOM_FILTER_BYTES - cached_bloom_filter_bytes) {
+                continue;
+            }
             // Find the column id for caching
             for (auto* slot : _tuple_descriptor->slots()) {
                 if (_table_info_node_ptr->children_column_exists(slot->col_name())) {
@@ -1576,6 +1625,7 @@ Status ParquetReader::_process_column_stat_filter(
                             _file_metadata->schema().get_column(file_col_name);
                     int parquet_col_id = col_schema->physical_column_index;
                     if (stat.col_schema == col_schema) {
+                        cached_bloom_filter_bytes += stat.bloom_filter->size();
                         bloom_filter_cache[parquet_col_id] = std::move(stat.bloom_filter);
                         break;
                     }

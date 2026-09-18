@@ -17,11 +17,15 @@
 
 #pragma once
 
+#include <shared_mutex>
+
 #include "runtime/exec_env.h"
 #include "runtime/workload_management/workload_sched_policy.h"
 #include "util/countdown_latch.h"
 
 namespace doris {
+
+class Thread;
 
 class WorkloadSchedPolicyMgr {
 public:

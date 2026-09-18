@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_method.h"
 #include "service/http/http_request.h"
@@ -40,7 +41,6 @@ namespace {
 const std::string CHECK_PARAMETER = "check";
 const std::string LIST_PARAMETER = "list";
 const std::string DIR_PARAMETER = "dir";
-const std::string TOKEN_PARAMETER = "token";
 } // namespace
 
 BatchDownloadAction::BatchDownloadAction(

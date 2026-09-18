@@ -24,6 +24,16 @@
 namespace doris {
 
 bvar::Adder<int64_t> object_request_retry_count("object_request_retry_count");
+bvar::Adder<int64_t> s3_request_retry_too_many_requests_count(
+        "s3_request_retry_too_many_requests_count");
+bvar::Adder<int64_t> s3_request_failed_too_many_requests_count(
+        "s3_request_failed_too_many_requests_count");
+
+void record_object_request_failed(int http_code) {
+    if (http_code == static_cast<int>(Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS)) {
+        s3_request_failed_too_many_requests_count << 1;
+    }
+}
 
 S3CustomRetryStrategy::S3CustomRetryStrategy(int maxRetries, bool retry_slow_down)
         : DefaultRetryStrategy(maxRetries), _retry_slow_down(retry_slow_down) {}
@@ -43,6 +53,9 @@ bool S3CustomRetryStrategy::ShouldRetry(const Aws::Client::AWSError<Aws::Client:
 
     if (Aws::Http::IsRetryableHttpResponseCode(error.GetResponseCode()) || error.ShouldRetry()) {
         object_request_retry_count << 1;
+        if (error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS) {
+            s3_request_retry_too_many_requests_count << 1;
+        }
         LOG(INFO) << "retry due to error: " << error << ", attempt: " << attemptedRetries + 1 << "/"
                   << m_maxRetries;
         return true;
@@ -65,6 +78,10 @@ std::unique_ptr<Azure::Core::Http::RawResponse> AzureRetryRecordPolicy::Send(
         static_cast<int>(response->GetStatusCode()) < 200) {
         if (retry_count > 0) {
             object_request_retry_count << 1;
+            if (static_cast<int>(response->GetStatusCode()) ==
+                static_cast<int>(Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS)) {
+                s3_request_retry_too_many_requests_count << 1;
+            }
         }
 
         // If the response is not successful, we log the retry attempt and status code.

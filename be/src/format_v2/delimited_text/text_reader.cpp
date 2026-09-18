@@ -25,6 +25,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "format/file_reader/new_plain_text_line_reader.h"
+#include "format/hive_text_util.h"
 #include "runtime/descriptors.h"
 #include "util/decompressor.h"
 
@@ -104,7 +105,7 @@ void TextReader::_split_line_single_char(const Slice& line) {
         if (line.data[i] == _value_separator[0]) {
             // Hive text lets a string escape the field separator. The backslash remains in the
             // field slice so deserialize_one_cell_from_hive_text() can unescape the final value.
-            if (_escape != 0 && i > 0 && line.data[i - 1] == _escape) {
+            if (_escape != 0 && is_hive_text_separator_escaped(line.data, i, _escape)) {
                 continue;
             }
             _split_values.emplace_back(line.data + value_start, i - value_start);
@@ -119,7 +120,7 @@ void TextReader::_split_line_multi_char(const Slice& line) {
     size_t i = 0;
     while (i < line.size) {
         if (starts_with_at(line, i, _value_separator)) {
-            if (_escape != 0 && i > 0 && line.data[i - 1] == _escape) {
+            if (_escape != 0 && is_hive_text_separator_escaped(line.data, i, _escape)) {
                 ++i;
                 continue;
             }

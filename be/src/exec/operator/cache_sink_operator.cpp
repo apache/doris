@@ -54,12 +54,13 @@ Status CacheSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool 
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
-    if (in_block->rows() > 0) {
-        RETURN_IF_ERROR(local_state._shared_state->data_queue.push_block(
-                Block::create_unique(std::move(*in_block)), 0));
-    }
-    if (UNLIKELY(eos)) {
-        local_state._shared_state->data_queue.set_finish(0);
+    if (in_block->rows() > 0 || eos) {
+        std::unique_ptr<Block> output_block;
+        if (in_block->rows() > 0) {
+            output_block = Block::create_unique(std::move(*in_block));
+        }
+        RETURN_IF_ERROR(
+                local_state._shared_state->data_queue.push_block(std::move(output_block), 0, eos));
     }
     return Status::OK();
 }

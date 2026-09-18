@@ -28,7 +28,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "core/column/column_variant.h"
 #include "core/column/subcolumn_tree.h"
 #include "nested_group_provider.h"
 #include "nested_group_reader.h"
@@ -187,7 +186,9 @@ public:
 
     Status init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
                 const std::shared_ptr<SegmentFooterPB>& footer, int32_t column_uid,
-                uint64_t num_rows, io::FileReaderSPtr file_reader);
+                uint64_t num_rows, io::FileReaderSPtr file_reader,
+                OlapReaderStatistics* stats = nullptr,
+                const io::IOContext* source_io_ctx = nullptr);
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt) override;
@@ -249,7 +250,9 @@ public:
     Status create_path_reader(const PathInData& relative_path, const ColumnReaderOptions& opts,
                               ColumnMetaAccessor* accessor, const SegmentFooterPB& footer,
                               const io::FileReaderSPtr& file_reader, uint64_t num_rows,
-                              std::shared_ptr<ColumnReader>* out);
+                              std::shared_ptr<ColumnReader>* out,
+                              OlapReaderStatistics* stats = nullptr,
+                              const io::IOContext* source_io_ctx = nullptr);
 
     // Try create a ColumnReader from externalized meta (path -> ColumnMetaPB bytes) if present.
     // Only used internally by create_path_reader. External callers should not rely
@@ -257,17 +260,21 @@ public:
     Status create_reader_from_external_meta(const std::string& path,
                                             const ColumnReaderOptions& opts,
                                             const io::FileReaderSPtr& file_reader,
-                                            uint64_t num_rows, std::shared_ptr<ColumnReader>* out);
+                                            uint64_t num_rows, std::shared_ptr<ColumnReader>* out,
+                                            OlapReaderStatistics* stats = nullptr,
+                                            const io::IOContext* source_io_ctx = nullptr);
 
     // Ensure external meta is loaded only once across concurrent callers.
-    Status load_external_meta_once();
+    Status load_external_meta_once(OlapReaderStatistics* stats = nullptr,
+                                   const io::IOContext* source_io_ctx = nullptr);
 
     // Determine whether `path` is a strict prefix of any existing subcolumn path.
     // Consider three sources:
     // 1) Extracted subcolumns in `_subcolumns_meta_info`
     // 2) Sparse column statistics in `_statistics->sparse_column_non_null_size`
     // 3) Externalized metas via `_ext_meta_reader`
-    bool has_prefix_path(const PathInData& relative_path) const;
+    bool has_prefix_path(const PathInData& relative_path, OlapReaderStatistics* stats = nullptr,
+                         const io::IOContext* io_ctx = nullptr) const;
 
     // NestedGroup support
     // Get NestedGroup reader for a given array path
@@ -294,13 +301,15 @@ public:
 private:
     // Internal unlocked helpers. Caller must hold `_subcolumns_meta_mutex` when using them.
     bool _is_exceeded_sparse_column_limit_unlocked() const;
-    bool _has_prefix_path_unlocked(const PathInData& relative_path) const;
+    bool _has_prefix_path_unlocked(const PathInData& relative_path,
+                                   OlapReaderStatistics* stats = nullptr,
+                                   const io::IOContext* io_ctx = nullptr) const;
 
     // Describe how a variant sub-path should be read. This is a logical plan only and
     // does not create any concrete ColumnIterator.
     enum class ReadKind {
-        ROOT_FLAT,          // root variant using `VariantRootColumnIterator`
         HIERARCHICAL,       // hierarchical merge (root + subcolumns + sparse)
+        ROOT_ONLY,          // root sidecar only for flat-leaf compaction
         HIERARCHICAL_DOC,   // hierarchical merge (root + doc)
         LEAF,               // direct leaf reader
         BINARY_EXTRACT,     // extract single path from sparse column
@@ -369,12 +378,12 @@ private:
                                       const PathInData& relative_path) const;
     Status _try_build_leaf_plan(ReadPlan* plan, int32_t col_uid, const PathInData& relative_path,
                                 const SubcolumnColumnMetaInfo::Node* node,
-                                ColumnReaderCache* column_reader_cache,
-                                OlapReaderStatistics* stats);
+                                ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
+                                const io::IOContext* io_ctx);
     Status _try_build_external_leaf_plan(ReadPlan* plan, int32_t col_uid,
                                          const PathInData& relative_path,
                                          ColumnReaderCache* column_reader_cache,
-                                         OlapReaderStatistics* stats);
+                                         OlapReaderStatistics* stats, const io::IOContext* io_ctx);
 
     // Materialize a concrete ColumnIterator according to the previously built plan.
     Status _create_iterator_from_plan(ColumnIteratorUPtr* iterator, const ReadPlan& plan,
@@ -395,7 +404,8 @@ private:
                                        const SubcolumnColumnMetaInfo::Node* root,
                                        ColumnReaderCache* column_reader_cache,
                                        OlapReaderStatistics* stats,
-                                       HierarchicalDataIterator::ReadType read_type);
+                                       HierarchicalDataIterator::ReadType read_type,
+                                       const io::IOContext* io_ctx);
     // Create a reader that merges subcolumns into the destination sparse column.
     // If bucket_index is set, only subcolumns whose path belongs to this bucket will be merged.
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
@@ -432,45 +442,6 @@ private:
     // NestedGroup readers for array<object> paths
     NestedGroupReaders _nested_group_readers;
     std::unique_ptr<NestedGroupReadProvider> _nested_group_read_provider;
-};
-
-class VariantRootColumnIterator : public ColumnIterator {
-public:
-    VariantRootColumnIterator() = delete;
-
-    explicit VariantRootColumnIterator(FileColumnIteratorUPtr iter) {
-        _inner_iter = std::move(iter);
-    }
-
-    ~VariantRootColumnIterator() override = default;
-
-    Status init(const ColumnIteratorOptions& opts) override { return _inner_iter->init(opts); }
-
-    Status seek_to_ordinal(ordinal_t ord_idx) override {
-        return _inner_iter->seek_to_ordinal(ord_idx);
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst) {
-        bool has_null;
-        return next_batch(n, dst, &has_null);
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
-
-    Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          MutableColumnPtr& dst) override;
-
-    ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
-
-    Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override;
-
-private:
-    Status _process_root_column(MutableColumnPtr& dst, MutableColumnPtr& root_column,
-                                const DataTypePtr& most_common_type);
-    std::unique_ptr<FileColumnIterator> _inner_iter;
 };
 
 class DefaultNestedColumnIterator : public ColumnIterator {

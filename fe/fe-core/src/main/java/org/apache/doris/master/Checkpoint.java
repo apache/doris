@@ -32,7 +32,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.metric.MetricRepo;
@@ -121,14 +120,6 @@ public class Checkpoint extends MasterDaemon {
             if (imageVersion < checkPointVersion) {
                 LOG.info("Trigger checkpoint since last checkpoint journal id: {} is less than "
                         + "current finalized journal id: {}", imageVersion, checkPointVersion);
-            } else if (Config.isCloudMode() && Config.cloud_checkpoint_image_stale_threshold_seconds > 0
-                    && latestImageCreateTime > 0 && ((System.currentTimeMillis() - latestImageCreateTime)
-                    >= Config.cloud_checkpoint_image_stale_threshold_seconds * 1000L)) {
-                // No new finalized journals beyond the latest image.
-                // But in cloud mode, we may still want to force a checkpoint if the latest image file is expired.
-                // This helps that image can keep the newer table version, partition version, tablet stats.
-                LOG.info("Trigger checkpoint in cloud mode because latest image is expired. "
-                        + "latestImageSeq: {}, latestImageCreateTime: {}", imageVersion, latestImageCreateTime);
             } else {
                 return;
             }
@@ -229,10 +220,10 @@ public class Checkpoint extends MasterDaemon {
                     // skip master itself
                     continue;
                 }
-                int port = Config.http_port;
+                int port = HttpURLUtil.getHttpPort();
 
-                String url = "http://" + NetUtils.getHostPortInAccessibleFormat(host, port) + "/put?version=" + replayedJournalId
-                        + "&port=" + port;
+                String queryParams = "version=" + replayedJournalId + "&port=" + port;
+                String url = HttpURLUtil.buildInternalFeUrl(host, "/put", queryParams);
                 LOG.info("Put image:{}", url);
 
                 try {
@@ -286,7 +277,6 @@ public class Checkpoint extends MasterDaemon {
                             // skip master itself
                             continue;
                         }
-                        int port = Config.http_port;
                         String idURL;
                         HttpURLConnection conn = null;
                         try {
@@ -296,7 +286,7 @@ public class Checkpoint extends MasterDaemon {
                              * any non-master node's current replayed journal id. otherwise,
                              * this lagging node can never get the deleted journal.
                              */
-                            idURL = "http://" + NetUtils.getHostPortInAccessibleFormat(host, port) + "/journal_id";
+                            idURL = HttpURLUtil.buildInternalFeUrl(host, "/journal_id", null);
                             conn = HttpURLUtil.getConnectionWithNodeIdent(idURL);
                             conn.setConnectTimeout(CONNECT_TIMEOUT_SECOND * 1000);
                             conn.setReadTimeout(READ_TIMEOUT_SECOND * 1000);
@@ -306,6 +296,7 @@ public class Checkpoint extends MasterDaemon {
                                 minOtherNodesJournalId = id;
                             }
                         } catch (Throwable e) {
+                            int port = HttpURLUtil.getHttpPort();
                             throw new CheckpointException(String.format("Exception when getting current replayed"
                                     + " journal id. host=%s, port=%d", host, port), e);
                         } finally {

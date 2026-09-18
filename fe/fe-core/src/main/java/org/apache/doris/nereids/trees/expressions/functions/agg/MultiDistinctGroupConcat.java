@@ -140,4 +140,12 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
         }
         return firstOrderExrIndex;
     }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (nonOrderArguments == 2 && !getArgument(1).isConstant()) {
+            throw new AnalysisException(
+                    "multi_distinct_group_concat requires separator must be a constant : " + this.toSql());
+        }
+    }
 }

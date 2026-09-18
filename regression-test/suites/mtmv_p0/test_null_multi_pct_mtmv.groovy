@@ -81,14 +81,14 @@ String suiteName = "test_multi_pct_bad_mtmv"
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
     assertTrue(showPartitionsResult.toString().contains("p_1"))
     assertTrue(showPartitionsResult.toString().contains("p_2"))
-    assertTrue(showPartitionsResult.toString().contains("p_NULL"))
+    assertTrue(showPartitionsResult.toString().contains("pn_NULL"))
 
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} AUTO
         """
     waitingMTMVTaskFinishedByMvName(mvName)
 
-    order_qt_list_null "SELECT * FROM ${mvName} partitions(p_NULL) order by user_id,num"
+    order_qt_list_null "SELECT * FROM ${mvName} partitions(pn_NULL) order by user_id,num"
     order_qt_list_1 "SELECT * FROM ${mvName} partitions(p_1) order by user_id,num"
     order_qt_list_2 "SELECT * FROM ${mvName} partitions(p_2) order by user_id,num"
 

@@ -19,7 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.ExternalScanNode;
+import org.apache.doris.datasource.scan.ExternalScanNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TGroupCommitScanNode;
 import org.apache.doris.thrift.TPlanNode;

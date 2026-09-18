@@ -16,20 +16,65 @@
 // under the License.
 
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
 
+#include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/like.h"
+#include "exprs/function_context.h"
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/runtime_state.h"
 #include "testutil/any_type.h"
 
 namespace doris {
+
+class FunctionLikeTestHelper : public FunctionLikeBase {
+public:
+    using FunctionLikeBase::should_fallback_to_re2;
+};
+
+template <typename Function>
+Status execute_pattern_with_fallback_disabled(const std::string& value, const std::string& pattern,
+                                              bool constant_known_at_open) {
+    TQueryOptions query_options;
+    query_options.__set_enable_hyperscan_fallback(false);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+
+    auto string_type = std::make_shared<DataTypeString>();
+    auto context = FunctionContext::create_context(
+            &runtime_state, std::make_shared<DataTypeUInt8>(), {string_type, string_type});
+
+    auto values = ColumnString::create();
+    values->insert_data(value.data(), value.size());
+    auto patterns = ColumnString::create();
+    patterns->insert_data(pattern.data(), pattern.size());
+    ColumnPtr pattern_column = ColumnConst::create(std::move(patterns), 1);
+
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(2);
+    if (constant_known_at_open) {
+        constant_columns[1] = std::make_shared<ColumnPtrWrapper>(pattern_column);
+    }
+    context->set_constant_cols(constant_columns);
+
+    Function function;
+    RETURN_IF_ERROR(function.open(context.get(), FunctionContext::THREAD_LOCAL));
+
+    Block block;
+    block.insert({std::move(values), string_type, "value"});
+    block.insert({std::move(pattern_column), string_type, "pattern"});
+    block.insert({nullptr, std::make_shared<DataTypeUInt8>(), "result"});
+    return function.execute_impl(context.get(), block, {0, 1}, 2, 1);
+}
 
 TEST(FunctionLikeTest, like) {
     std::string func_name = "like";
@@ -99,6 +144,80 @@ TEST(FunctionLikeTest, like) {
             func_name, const_pattern_input_types, data_set));
 }
 
+TEST(FunctionLikeTest, like_matches_whole_value) {
+    std::string func_name = "like";
+
+    DataSet data_set = {
+            // A trailing newline belongs to the value, so a pattern that is anchored at the
+            // tail must not match across it.
+            {{std::string("acb"), std::string("a_b")}, uint8_t(1)},
+            {{std::string("acb\n"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("acb\r\n"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("acb\n\n"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("acbx"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("\nacb"), std::string("a_b")}, uint8_t(0)},
+            {{std::string("abc"), std::string("a%c")}, uint8_t(1)},
+            {{std::string("abc\n"), std::string("a%c")}, uint8_t(0)},
+            {{std::string("abc\n"), std::string("%b%c")}, uint8_t(0)},
+            // The newline is an ordinary character for '_' and '%'.
+            {{std::string("a\nb"), std::string("a_b")}, uint8_t(1)},
+            {{std::string("a\nb"), std::string("a%b")}, uint8_t(1)},
+            {{std::string("acb\n"), std::string("a_b_")}, uint8_t(1)},
+            {{std::string("acb\n"), std::string("a_b%")}, uint8_t(1)},
+            {{std::string("abc\n"), std::string("a_c%")}, uint8_t(1)},
+            // '_' stands for one character, not for one byte.
+            {{std::string("a中b"), std::string("a_b")}, uint8_t(1)},
+            {{std::string("a中b\n"), std::string("a_b")}, uint8_t(0)},
+            // An empty pattern only matches an empty value.
+            {{std::string(""), std::string("")}, uint8_t(1)},
+            {{std::string("\n"), std::string("")}, uint8_t(0)},
+            // The shortcut paths and the regex path must agree on the same value.
+            {{std::string("acb\n"), std::string("acb")}, uint8_t(0)},
+            {{std::string("abc\n"), std::string("%c")}, uint8_t(0)},
+            {{std::string("abc\n"), std::string("a%")}, uint8_t(1)},
+
+            // A literal '*' at the tail of the pattern is not the '.*' expanded from a
+            // trailing '%', so the pattern stays anchored.
+            {{std::string("ab*"), std::string("a_*")}, uint8_t(1)},
+            {{std::string("ab*xyz"), std::string("a_*")}, uint8_t(0)},
+            {{std::string("ab*\n"), std::string("a_*")}, uint8_t(0)},
+            {{std::string("ab%"), std::string("a_\\%")}, uint8_t(1)},
+            {{std::string("ab%xyz"), std::string("a_\\%")}, uint8_t(0)},
+    };
+
+    InputTypeSet const_pattern_input_types = {PrimitiveType::TYPE_VARCHAR,
+                                              PrimitiveType::TYPE_VARCHAR};
+    check_function_all_arg_comb<DataTypeUInt8, true>(func_name, const_pattern_input_types,
+                                                     data_set);
+}
+
+TEST(FunctionLikeTest, convert_like_pattern_shapes) {
+    auto convert = [](const std::string& pattern) {
+        std::string re_pattern;
+        FunctionLike::convert_like_pattern(nullptr, pattern, &re_pattern);
+        return re_pattern;
+    };
+
+    // The tail anchor is `\z`, never `$`: Hyperscan reads `$` the PCRE way and would also
+    // match right before a newline that ends the value.
+    EXPECT_EQ(convert(""), "^\\z");
+    EXPECT_EQ(convert("a_b"), "^a.b\\z");
+    EXPECT_EQ(convert("%c%b"), ".*c.*b\\z");
+
+    // A trailing `%` is the only shape left open at the tail, and it needs no `.*` either.
+    EXPECT_EQ(convert("abc%"), "^abc");
+    EXPECT_EQ(convert("a_b%%"), "^a.b.*");
+    EXPECT_EQ(convert("%"), "");
+
+    // An escaped literal `*` ends the produced regex with '*' without being a wildcard, and an
+    // escaped `%` is a literal: both stay anchored.
+    EXPECT_EQ(convert("a_*"), "^a.\\*\\z");
+    EXPECT_EQ(convert("a_\\%"), "^a.%\\z");
+
+    // A backslash that does not open a LIKE escape is a literal backslash.
+    EXPECT_EQ(convert("a_\\"), "^a.\\\\\\z");
+}
+
 TEST(FunctionLikeTest, regexp) {
     std::string func_name = "regexp";
 
@@ -133,6 +252,69 @@ TEST(FunctionLikeTest, regexp) {
         DataSet const_pattern_dataset = {line};
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
                                                               const_pattern_dataset));
+    }
+}
+
+TEST(FunctionLikeTest, hyperscan_bounded_repeat_fallback) {
+    std::string func_name = "regexp";
+    std::string matching_value = "prompt_rewrite.h03" + std::string(500, 'x') + "429";
+
+    DataSet data_set = {
+            {{matching_value, std::string(R"(prompt_rewrite\.h03.{0,1000}429)")}, uint8_t(1)},
+            {{std::string("prompt_rewrite.h03") + std::string(500, 'x') + "430",
+              std::string(R"(prompt_rewrite\.h03.{0,1000}429)")},
+             uint8_t(0)}};
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    check_function_all_arg_comb<DataTypeUInt8, true>(func_name, input_types, data_set);
+}
+
+TEST(FunctionLikeTest, hyperscan_bounded_repeat_threshold) {
+    EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2("a*"));
+    EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2("a{50}"));
+    EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2("a{0,50}"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{51}"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{51,}"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{0,51}"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{51,51}"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{ 0, 1000 }"));
+    EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2(R"(a\{51\})"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("[a{51}]"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("(?# note{51})a"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("(?# [)(ab?c?d){1000,5000}"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("[^^](ab?c?d){1000,5000}"));
+}
+
+TEST(FunctionLikeTest, hyperscan_bounded_repeat_fallback_disabled) {
+    for (bool constant_known_at_open : {false, true}) {
+        SCOPED_TRACE(constant_known_at_open ? "prepare during open" : "prepare during execute");
+        auto status = execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
+                "prompt_rewrite.h03xxx429", R"(prompt_rewrite\.h03.{0,1000}429)",
+                constant_known_at_open);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
+
+        status = execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
+                "^abc", "[^^](ab?c?d){1000,5000}", constant_known_at_open);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
+
+        status = execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
+                "abcd", "(?# [)(ab?c?d){1000,5000}", constant_known_at_open);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
+    }
+}
+
+TEST(FunctionLikeTest, hyperscan_bounded_repeat_literal_with_fallback_disabled) {
+    for (bool constant_known_at_open : {false, true}) {
+        SCOPED_TRACE(constant_known_at_open ? "prepare during open" : "prepare during execute");
+        EXPECT_TRUE(execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
+                            "a{51}", R"(a\{51\})", constant_known_at_open)
+                            .ok());
+        EXPECT_TRUE(execute_pattern_with_fallback_disabled<FunctionLike>("a{51}", "_{51}",
+                                                                         constant_known_at_open)
+                            .ok());
     }
 }
 
@@ -245,6 +427,156 @@ TEST(FunctionLikeTest, regexp_extract_all) {
         DataSet const_pattern_dataset = {line};
         static_cast<void>(check_function<DataTypeString, true>(func_name, const_pattern_input_types,
                                                                const_pattern_dataset));
+    }
+}
+
+TEST(FunctionLikeTest, regexp_extract_all_array) {
+    std::string func_name = "regexp_extract_all_array";
+    auto str_type = std::make_shared<DataTypeString>();
+    auto return_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())));
+
+    auto run_case = [&](const std::string& str, const std::string& pattern,
+                        const std::string& expected, bool expect_null = false) {
+        auto col_str = ColumnString::create();
+        col_str->insert_data(str.data(), str.size());
+        auto col_pattern = ColumnString::create();
+        col_pattern->insert_data(pattern.data(), pattern.size());
+
+        Block block;
+        block.insert({std::move(col_str), str_type, "str"});
+        block.insert({ColumnConst::create(std::move(col_pattern), 1), str_type, "pattern"});
+        block.insert({nullptr, return_type, "result"});
+
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+        auto func =
+                SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
+        ASSERT_TRUE(func != nullptr);
+
+        std::vector<DataTypePtr> arg_types = {str_type, str_type};
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        fn_ctx->set_constant_cols(
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1}, 2, 1));
+
+        auto result_col = block.get_by_position(2).column;
+        ASSERT_TRUE(result_col.get() != nullptr);
+        if (expect_null) {
+            EXPECT_TRUE(result_col->is_null_at(0));
+        } else {
+            ASSERT_FALSE(result_col->is_null_at(0));
+            auto result_str = return_type->to_string(*result_col, 0);
+            EXPECT_EQ(expected, result_str)
+                    << "input: '" << str << "', pattern: '" << pattern << "'";
+        }
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    };
+
+    run_case("x=a3&x=18abc&x=2&y=3&x=4&x=17bcd", "x=([0-9]+)([a-z]+)", "[\"18\", \"17\"]");
+    run_case("x=a3&x=18abc&x=2&y=3&x=4", "^x=([a-z]+)([0-9]+)", "[\"a\"]");
+    run_case("http://a.m.baidu.com/i41915173660.htm", "i([0-9]+)", "[\"41915173660\"]");
+    run_case("http://a.m.baidu.com/i41915i73660.htm", "i([0-9]+)", "[\"41915\", \"73660\"]");
+    run_case("hitdecisiondlist", "(i)(.*?)(e)", "[\"i\"]");
+    run_case("no_match_here", "x=([0-9]+)", "[]");
+    run_case("abc", "([a-z]+)", "[\"abc\"]");
+
+    // Helper for testing null input propagation
+    auto nullable_str_type = make_nullable(str_type);
+    auto run_null_case = [&](bool null_str, bool null_pattern) {
+        ColumnPtr col_str;
+        DataTypePtr str_col_type;
+        if (null_str) {
+            auto col = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+            col->insert_default();
+            col_str = std::move(col);
+            str_col_type = nullable_str_type;
+        } else {
+            auto col = ColumnString::create();
+            col->insert_data("abc", 3);
+            col_str = std::move(col);
+            str_col_type = str_type;
+        }
+
+        ColumnPtr col_pattern;
+        DataTypePtr pattern_col_type;
+        if (null_pattern) {
+            auto col = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
+            col->insert_default();
+            col_pattern = ColumnConst::create(std::move(col), 1);
+            pattern_col_type = nullable_str_type;
+        } else {
+            auto col = ColumnString::create();
+            col->insert_data("([a-z]+)", 8);
+            col_pattern = ColumnConst::create(std::move(col), 1);
+            pattern_col_type = str_type;
+        }
+
+        Block block;
+        block.insert({col_str, str_col_type, "str"});
+        block.insert({col_pattern, pattern_col_type, "pattern"});
+        block.insert({nullptr, return_type, "result"});
+
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+        auto func =
+                SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
+        ASSERT_TRUE(func != nullptr);
+
+        std::vector<DataTypePtr> arg_types = {str_col_type, pattern_col_type};
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        fn_ctx->set_constant_cols(
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+        ASSERT_EQ(Status::OK(), func->execute(fn_ctx, block, {0, 1}, 2, 1));
+
+        EXPECT_TRUE(block.get_by_position(2).column->is_null_at(0))
+                << "Expected null for null_str=" << null_str << " null_pattern=" << null_pattern;
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    };
+
+    // NULL input string → null result
+    run_null_case(true, false);
+    // NULL pattern → null result
+    run_null_case(false, true);
+
+    // Invalid const pattern → open() should fail
+    {
+        auto col_str = ColumnString::create();
+        col_str->insert_data("abc", 3);
+        auto col_pattern = ColumnString::create();
+        col_pattern->insert_data("(", 1);
+        Block block;
+        block.insert({std::move(col_str), str_type, "str"});
+        block.insert({ColumnConst::create(std::move(col_pattern), 1), str_type, "pattern"});
+        block.insert({nullptr, return_type, "result"});
+
+        ColumnsWithTypeAndName arg_cols = {block.get_by_position(0), block.get_by_position(1)};
+        auto func =
+                SimpleFunctionFactory::instance().get_function(func_name, arg_cols, return_type);
+        ASSERT_TRUE(func != nullptr);
+
+        std::vector<DataTypePtr> arg_types = {str_type, str_type};
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        fn_ctx->set_constant_cols(
+                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        // Invalid pattern should cause open() to fail for THREAD_LOCAL scope
+        EXPECT_NE(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     }
 }
 

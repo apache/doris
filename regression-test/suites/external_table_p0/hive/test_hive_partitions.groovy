@@ -197,7 +197,12 @@ suite("test_hive_partitions", "p0,external") {
                 sql ("select * from partition_table")
                 verbose (true)
 
-                contains "(approximate)inputSplitNum=60"
+                // Plugin-SPI hive batch mode reports the approximate split count as the SELECTED PARTITION
+                // count (numApproximateSplits = selectedPartitions.size() = 6), uniform across connectors
+                // (matches MaxCompute). Legacy HiveScanNode reported numSplitsPerPartition * partitions (=60);
+                // the "(approximate)" prefix still confirms async batch generation was chosen for this
+                // no-predicate full scan (num_partitions_in_batch_mode=1 forces it).
+                contains "(approximate)inputSplitNum=6"
             }
             sql """unset variable num_partitions_in_batch_mode"""
         } finally {

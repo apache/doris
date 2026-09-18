@@ -51,6 +51,11 @@ public abstract class UnaryOperator extends Expression implements UnaryExpressio
     }
 
     @Override
+    public String shapeInfo() {
+        return "(" + symbol + " " + child().shapeInfo() + ")";
+    }
+
+    @Override
     public String toString() {
         return "(" + symbol + " " + child().toString() + ")";
     }

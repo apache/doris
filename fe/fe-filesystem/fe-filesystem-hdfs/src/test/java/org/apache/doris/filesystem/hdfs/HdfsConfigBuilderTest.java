@@ -33,9 +33,9 @@ class HdfsConfigBuilderTest {
     }
 
     @Test
-    void build_disablesCacheForAllSupportedSchemes() {
+    void build_disablesCacheForAllServedSchemes() {
         Configuration conf = HdfsConfigBuilder.build(Map.of());
-        for (String scheme : HdfsFileSystemProvider.SUPPORTED_SCHEMES) {
+        for (String scheme : HdfsConfigBuilder.CACHE_DISABLE_SCHEMES) {
             Assertions.assertTrue(
                     conf.getBoolean("fs." + scheme + ".impl.disable.cache", false),
                     "fs." + scheme + ".impl.disable.cache should be true");
@@ -43,6 +43,15 @@ class HdfsConfigBuilderTest {
                     conf.getBoolean("fs.AbstractFileSystem." + scheme + ".impl.disable.cache", false),
                     "fs.AbstractFileSystem." + scheme + ".impl.disable.cache should be true");
         }
+    }
+
+    @Test
+    void build_disablesCacheForOssHdfsScheme() {
+        // oss is served by OSS-HDFS (JindoFS) via DFSFileSystem, so its FS cache must be disabled
+        // even though oss:// routing lives in OssHdfsFileSystemProvider, not SUPPORTED_SCHEMES.
+        Configuration conf = HdfsConfigBuilder.build(Map.of());
+        Assertions.assertTrue(conf.getBoolean("fs.oss.impl.disable.cache", false));
+        Assertions.assertTrue(conf.getBoolean("fs.AbstractFileSystem.oss.impl.disable.cache", false));
     }
 
     @Test
@@ -67,6 +76,29 @@ class HdfsConfigBuilderTest {
         // empty and null values should not be set
         Assertions.assertFalse(conf.iterator().hasNext()
                 && "empty.key".equals(conf.get("empty.key")));
+    }
+
+    @Test
+    void buildPinsPluginClassLoaderNotTccl() {
+        // WHY (test_string_dict_filter, hdfs scan): Hadoop resolves impl classes via Configuration.getClass,
+        // which uses the conf's OWN classLoader field. new HdfsConfiguration() captures the thread-context CL
+        // active AT CONSTRUCTION into that field. DFSFileSystem is built under a connector's plugin loader
+        // during a scan, so unpinned the conf would carry that connector loader; then RPC.getProtocolEngine
+        // loads ProtobufRpcEngine2 from the connector's hadoop-common copy while RPC/RpcEngine come from the
+        // engine copy -> "class ProtobufRpcEngine2 cannot be cast to class RpcEngine". The conf MUST be pinned
+        // to this plugin's loader. MUTATION: drop the setClassLoader in build() -> the conf keeps the foreign
+        // TCCL below -> red. (A flat-classpath assertion alone cannot repro the real cross-loader cast, so we
+        // install a distinct TCCL to make the captured-loader bug observable offline.)
+        ClassLoader foreign = new java.net.URLClassLoader(new java.net.URL[0], null);
+        ClassLoader prev = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(foreign);
+            Configuration conf = HdfsConfigBuilder.build(Map.of());
+            Assertions.assertSame(HdfsConfigBuilder.class.getClassLoader(), conf.getClassLoader());
+            Assertions.assertNotSame(foreign, conf.getClassLoader());
+        } finally {
+            Thread.currentThread().setContextClassLoader(prev);
+        }
     }
 
     @Test

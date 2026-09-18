@@ -27,12 +27,16 @@
 #include "common/status.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/scan_operator.h"
+#include "exec/runtime_filter/runtime_filter_bucket_pruner.h"
 #include "runtime/runtime_profile.h"
+#include "storage/index/snii/snii_prx_profile.h"
 #include "storage/olap_scan_common.h"
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
 class OlapScanner;
+class QueryCacheRuntime;
+struct QueryCacheInstanceDecision;
 } // namespace doris
 
 namespace doris {
@@ -75,7 +79,10 @@ private:
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
     Status _process_conjuncts(RuntimeState* state) override;
+    Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) override;
     bool _is_key_column(const std::string& col_name) override;
+
+    bool can_push_down_column_predicate(const SlotDescriptor* slot) override;
 
     Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
                                              StringRef* constant_str,
@@ -85,6 +92,7 @@ private:
     PushDownType _should_push_down_bloom_filter() const override {
         return PushDownType::ACCEPTABLE;
     }
+
     PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
@@ -93,6 +101,7 @@ private:
                        ? PushDownType::ACCEPTABLE
                        : PushDownType::UNACCEPTABLE;
     }
+
     PushDownType _should_push_down_in_predicate() const override {
         return PushDownType::ACCEPTABLE;
     }
@@ -126,9 +135,16 @@ private:
 
     Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
 
+    void _prune_rowsets_by_tso(const TPaloScanRange& scan_range, TabletReadSource& read_source);
+
     Status _build_key_ranges_and_filters();
 
+    bool _is_tablet_pruned_by_runtime_filter(int64_t partition_id, int32_t bucket_seq,
+                                             int32_t bucket_num) const;
+
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
+    bool _has_rf_bucket_prune_metadata = false;
+    RuntimeFilterBucketPruner _rf_bucket_pruner;
     std::vector<SyncRowsetStats> _sync_statistics;
     MonotonicStopWatch _sync_cloud_tablets_watcher;
     std::shared_ptr<Dependency> _cloud_tablet_dependency;
@@ -143,11 +159,18 @@ private:
 
     std::unique_ptr<RuntimeProfile> _segment_profile;
     std::unique_ptr<RuntimeProfile> _index_filter_profile;
+    snii::SniiPrxRuntimeProfileCounters _snii_prx_profile_counters;
+    snii::SniiPhraseRuntimeProfileCounters _snii_phrase_profile_counters;
 
     RuntimeProfile::Counter* _tablet_counter = nullptr;
+    RuntimeProfile::Counter* _buckets_pruned_by_rf_counter = nullptr;
     RuntimeProfile::Counter* _key_range_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
     RuntimeProfile::Counter* _scanner_init_timer = nullptr;
+    RuntimeProfile::Counter* _rowset_tso_prune_timer = nullptr;
+    RuntimeProfile::Counter* _rowsets_pruned_by_tso_counter = nullptr;
+    RuntimeProfile::Counter* _segments_pruned_by_tso_counter = nullptr;
+    RuntimeProfile::Counter* _tablets_pruned_by_tso_counter = nullptr;
     RuntimeProfile::Counter* _process_conjunct_timer = nullptr;
 
     RuntimeProfile::Counter* _io_timer = nullptr;
@@ -237,6 +260,8 @@ private:
     RuntimeProfile::Counter* _inverted_index_query_null_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_lookup_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_insert_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_query_bitmap_copy_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
@@ -246,6 +271,7 @@ private:
     RuntimeProfile::Counter* _inverted_index_searcher_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_searcher_cache_miss_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_downgrade_count_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_conjuncts_short_circuited_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_analyzer_timer = nullptr;
     RuntimeProfile::Counter* _inverted_index_lookup_timer = nullptr;
 
@@ -295,7 +321,6 @@ private:
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_capture_rs_readers_timer = nullptr;
-    RuntimeProfile::Counter* _tablet_reader_init_return_columns_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_keys_param_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_orderby_keys_param_timer = nullptr;
     RuntimeProfile::Counter* _tablet_reader_init_conditions_param_timer = nullptr;
@@ -312,7 +337,7 @@ private:
     RuntimeProfile::Counter* _rowset_reader_load_segments_timer = nullptr;
 
     RuntimeProfile::Counter* _segment_iterator_init_timer = nullptr;
-    RuntimeProfile::Counter* _segment_iterator_init_return_column_iterators_timer = nullptr;
+    RuntimeProfile::Counter* _segment_iterator_init_column_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_index_iterators_timer = nullptr;
     RuntimeProfile::Counter* _segment_iterator_init_segment_prefetchers_timer = nullptr;
 
@@ -343,6 +368,12 @@ private:
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;
 
+    // The per-instance query cache decision shared with the cache source
+    // operator of the same fragment. Null when the query cache is disabled.
+    // HIT: leave _scan_ranges empty so nothing is scanned; INCREMENTAL: scan
+    // only the pre-captured delta read sources in (cached, current] version.
+    std::shared_ptr<QueryCacheInstanceDecision> _query_cache_decision;
+
     std::map<SlotId, VExprContextSPtr> _slot_id_to_virtual_column_expr;
 
     // ---- Runtime-filter partition pruning ----
@@ -358,23 +389,24 @@ class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
 public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                       const DescriptorTbl& descs, int parallel_tasks,
-                      const TQueryCacheParam& cache_param);
+                      const TQueryCacheParam& cache_param,
+                      std::shared_ptr<QueryCacheRuntime> query_cache_runtime = nullptr);
 
     Status prepare(RuntimeState* state) override;
-
-    int get_column_id(const std::string& col_name) const override {
-        if (!_tablet_schema) {
-            return -1;
-        }
-        const auto& column = *DORIS_TRY(_tablet_schema->column(col_name));
-        return _tablet_schema->field_index(column.unique_id());
-    }
 
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
     TQueryCacheParam _cache_param;
+    // Shared with the cache source operator of the same fragment so both
+    // consume the same per-instance cache decision (see QueryCacheRuntime).
+    // Null when the query cache is disabled.
+    std::shared_ptr<QueryCacheRuntime> _query_cache_runtime;
     TabletSchemaSPtr _tablet_schema;
 };
+
+/// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class ScanOperatorX<OlapScanLocalState>;
+extern template class ScanLocalState<OlapScanLocalState>;
 
 } // namespace doris

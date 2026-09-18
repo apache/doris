@@ -119,7 +119,7 @@ suite("test_agg_foreach") {
    	qt_sql """select array_agg_foreach(s) from foreach_table;"""
 
     qt_array_agg_nested """
-        select /*+ SET_VAR(parallel_pipeline_task_num=1) */
+        select /*+ SET_VAR(agg_phase=2, parallel_pipeline_task_num=1) */
             size(array_agg_foreach(b)),
             size(element_at(array_agg_foreach(b), 1)),
             size(element_at(array_agg_foreach(b), 2)),
@@ -145,4 +145,9 @@ suite("test_agg_foreach") {
 		sql """select PERCENTILE_APPROX_foreach(a,a) from foreach_table;"""
 		exception "Unsupport the func"
 	}
+
+    test {
+        sql """select PERCENTILE_APPROX_ARRAY_foreach(a,a) from foreach_table;"""
+        exception "Unsupport the func"
+    }
 }

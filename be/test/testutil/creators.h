@@ -121,6 +121,7 @@ struct CreateTabletRequestColumnDef {
     bool is_key = false;
     bool has_aggregation_type = false;
     TAggregationType::type aggregation_type = TAggregationType::NONE;
+    bool is_allow_null = false;
 };
 
 // Append a ColumnPB to `schema_pb`. Currently only INT and STRING columns are supported.
@@ -163,6 +164,7 @@ inline TColumn create_tablet_column(const CreateTabletRequestColumnDef& column_d
     TColumn column;
     column.column_name = column_def.column_name;
     column.__set_is_key(column_def.is_key);
+    column.__set_is_allow_null(column_def.is_allow_null);
     column.column_type.type = column_def.type;
     if (column_def.has_aggregation_type) {
         column.__set_aggregation_type(column_def.aggregation_type);
@@ -192,35 +194,43 @@ inline TCreateTabletReq create_tablet_request(
     return request;
 }
 
-inline void enable_row_binlog(TCreateTabletReq* request, int32_t row_binlog_schema_hash = 0) {
+inline void enable_row_binlog(TCreateTabletReq* request) {
     DCHECK(request != nullptr);
 
     TBinlogConfig binlog_config;
     binlog_config.__set_enable(true);
     binlog_config.__set_binlog_format(TBinlogFormat::ROW);
     request->__set_binlog_config(binlog_config);
+}
 
-    TTabletSchema row_binlog_schema = request->tablet_schema;
-    row_binlog_schema.schema_hash = row_binlog_schema_hash > 0
-                                            ? row_binlog_schema_hash
-                                            : request->tablet_schema.schema_hash + 1;
+inline TTabletSchema create_row_binlog_tablet_schema(const TTabletSchema& base_schema,
+                                                     int32_t row_binlog_schema_hash) {
+    TTabletSchema row_binlog_schema = base_schema;
+    row_binlog_schema.schema_hash = row_binlog_schema_hash;
     row_binlog_schema.keys_type = TKeysType::DUP_KEYS;
 
-    for (auto& col : row_binlog_schema.columns) {
+    row_binlog_schema.columns.clear();
+    for (const auto& base_col : base_schema.columns) {
+        if (base_col.__isset.visible && !base_col.visible && !base_col.is_key) {
+            continue;
+        }
+        auto col = base_col;
         if (!col.is_key) {
             col.__set_aggregation_type(TAggregationType::NONE);
         }
+        row_binlog_schema.columns.push_back(col);
     }
 
-    row_binlog_schema.columns.push_back(
-            create_tablet_column({std::string(kRowBinlogLsnColName), TPrimitiveType::LARGEINT,
-                                  false, true, TAggregationType::NONE}));
     row_binlog_schema.columns.push_back(create_tablet_column(
-            {"__DORIS_BINLOG_OP__", TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
-    row_binlog_schema.columns.push_back(
-            create_tablet_column({std::string(kRowBinlogTimestampColName), TPrimitiveType::BIGINT,
-                                  false, true, TAggregationType::NONE}));
-    request->__set_row_binlog_schema(row_binlog_schema);
+            {BINLOG_TSO_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE, true}));
+    row_binlog_schema.__set_binlog_tso_idx(row_binlog_schema.columns.size() - 1);
+    row_binlog_schema.columns.push_back(create_tablet_column(
+            {BINLOG_LSN_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
+    row_binlog_schema.__set_binlog_lsn_idx(row_binlog_schema.columns.size() - 1);
+    row_binlog_schema.columns.push_back(create_tablet_column(
+            {BINLOG_OP_COL, TPrimitiveType::BIGINT, false, true, TAggregationType::NONE}));
+    row_binlog_schema.__set_binlog_op_idx(row_binlog_schema.columns.size() - 1);
+    return row_binlog_schema;
 }
 
 inline TDescriptorTable create_descriptor_table(
@@ -271,7 +281,7 @@ inline std::shared_ptr<OlapTableSchemaParam> create_table_schema_param(
                 row_binlog_index_schema.columns.push_back(col.column_name);
             }
         }
-        tschema.__set_row_binlog_index_schema(row_binlog_index_schema);
+        tschema.__set_row_binlog_index_schemas({row_binlog_index_schema});
     }
     Status st = param->init(tschema);
     EXPECT_TRUE(st.ok()) << st;

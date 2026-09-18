@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -170,13 +171,22 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         if (targetType.isTimeStampTzType()) {
             return new TimestampTzLiteral((TimeStampTzType) targetType,
                     year, month, day, hour, minute, second, microSecond);
+        } else if (targetType instanceof TimeStampNsType) {
+            DateTimeV2Literal dtV2Lit = new DateTimeV2Literal(DateTimeV2Type.MAX,
+                    year, month, day, hour, minute, second, microSecond);
+            dtV2Lit = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
+                    dtV2Lit, new StringLiteral("UTC"),
+                    new StringLiteral(getSessionTimeZone()));
+            return new TimeStampNsLiteral(dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
+                    dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(),
+                    dtV2Lit.getMicroSecond() * 1000L);
         } else if (targetType.isDateTimeV2Type()) {
             DateTimeV2Literal dtV2Lit = new DateTimeV2Literal((DateTimeV2Type) targetType,
                     year, month, day, hour, minute, second, microSecond);
             dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
                     dtV2Lit,
                     new StringLiteral("UTC"),
-                    new StringLiteral(ConnectContext.get().getSessionVariable().timeZone)));
+                    new StringLiteral(getSessionTimeZone())));
             return dtV2Lit;
         }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
@@ -380,7 +390,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
 
     // When performing addition or subtraction with MicroSeconds, the precision must be set to 6 to display it
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
-    public Expression plusMicroSeconds(long microSeconds) {
+    public TimestampTzLiteral plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)), 6);
     }
 
@@ -473,7 +483,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     /**
      * convert java LocalDateTime object to TimeStampTzTypeLiteral object.
      */
-    public static Expression fromJavaDateType(LocalDateTime dateTime, int precision) {
+    public static TimestampTzLiteral fromJavaDateType(LocalDateTime dateTime, int precision) {
         long value = (long) Math.pow(10, TimeStampTzType.MAX_SCALE - precision);
         if (isDateOutOfRange(dateTime)) {
             throw new AnalysisException("datetime out of range" + dateTime.toString());

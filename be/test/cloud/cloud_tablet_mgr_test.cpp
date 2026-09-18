@@ -26,10 +26,15 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 #include "cloud/cloud_storage_engine.h"
+#include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "cpp/sync_point.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/countdown_latch.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -173,6 +178,134 @@ TEST_F(CloudTabletMgrTest, TestConcurrentGetTabletTabletMapConsistency) {
             << " should be in tablet_map. "
                "If this fails, it means the bug is present: tablet is in cache (found_in_cache="
             << found_in_cache << ") but was erased from tablet_map by Value destructors.";
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+TEST_F(CloudTabletMgrTest, TestGetTabletIfCachedOnlyReturnsCachedTablet) {
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [this](auto&& args) {
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = _tablet_meta;
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets",
+                      [](auto&& args) { try_any_cast_ret<Status>(args)->second = true; });
+
+    CloudTabletMgr mgr(_engine);
+    const int64_t cached_tablet_id = 99999;
+    const int64_t uncached_tablet_id = 100000;
+
+    EXPECT_EQ(nullptr, mgr.get_tablet_if_cached(cached_tablet_id));
+
+    auto res = mgr.get_tablet(cached_tablet_id);
+    ASSERT_TRUE(res.has_value()) << res.error();
+
+    auto cached_tablet = mgr.get_tablet_if_cached(cached_tablet_id);
+    ASSERT_NE(nullptr, cached_tablet);
+    EXPECT_EQ(cached_tablet_id, cached_tablet->tablet_id());
+
+    EXPECT_EQ(nullptr, mgr.get_tablet_if_cached(uncached_tablet_id));
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+// A tablet under continuous ingest keeps last_sync_rowsets_time_s permanently fresh, because every
+// rowset sync advances it. Selecting meta work by that same clock meant such a tablet never had
+// sync_meta() called on it at all, so it kept serving the tablet properties -- the file cache
+// TTL among them -- that it happened to be built with.
+TEST_F(CloudTabletMgrTest, SyncTabletsRefreshesMetaOfContinuouslyIngestedTablet) {
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    std::mutex mutex;
+    std::unordered_map<int64_t, TabletMetaSharedPtr> metas;
+    std::unordered_map<int64_t, int> meta_syncs;
+    std::unordered_map<int64_t, int> rowset_syncs;
+
+    auto meta_for = [&](int64_t tablet_id) {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto it = metas.find(tablet_id);
+        if (it == metas.end()) {
+            it = metas.emplace(tablet_id, std::make_shared<TabletMeta>(
+                                                  1, 2, tablet_id, 15674, 4, 5, TTabletSchema(), 6,
+                                                  std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                  UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                  TCompressionType::LZ4F))
+                         .first;
+        }
+        return it->second;
+    };
+
+    sp->set_call_back("CloudMetaMgr::get_tablet_meta", [&](auto&& args) {
+        auto tablet_id = try_any_cast<int64_t>(args[0]);
+        auto* tablet_meta_ptr = try_any_cast<TabletMetaSharedPtr*>(args[1]);
+        *tablet_meta_ptr = meta_for(tablet_id);
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++meta_syncs[tablet_id];
+        }
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+    sp->set_call_back("CloudMetaMgr::sync_tablet_rowsets", [&](auto&& args) {
+        auto* tablet = try_any_cast<CloudTablet*>(args[0]);
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++rowset_syncs[tablet->tablet_id()];
+        }
+        try_any_cast_ret<Status>(args)->second = true;
+    });
+
+    CloudTabletMgr mgr(_engine);
+    constexpr int64_t kBothStale = 70001;
+    constexpr int64_t kIngesting = 70002;
+    constexpr int64_t kFresh = 70003;
+
+    std::vector<std::shared_ptr<CloudTablet>> tablets;
+    for (int64_t tablet_id : {kBothStale, kIngesting, kFresh}) {
+        auto res = mgr.get_tablet(tablet_id);
+        ASSERT_TRUE(res.has_value()) << res.error();
+        tablets.push_back(res.value());
+    }
+
+    const int64_t now = ::time(nullptr);
+    const int64_t stale = now - config::tablet_sync_interval_s - 10;
+
+    tablets[0]->last_sync_rowsets_time_s = stale;
+    tablets[0]->last_sync_tablet_meta_time_s = stale;
+    // Rowsets pulled a moment ago, meta left behind.
+    tablets[1]->last_sync_rowsets_time_s = now;
+    tablets[1]->last_sync_tablet_meta_time_s = stale;
+    tablets[2]->last_sync_rowsets_time_s = now;
+    tablets[2]->last_sync_tablet_meta_time_s = now;
+
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        meta_syncs.clear();
+        rowset_syncs.clear();
+    }
+
+    CountDownLatch latch(1);
+    mgr.sync_tablets(latch);
+
+    std::lock_guard<std::mutex> lock(mutex);
+    EXPECT_EQ(1, meta_syncs[kBothStale]);
+    EXPECT_EQ(1, rowset_syncs[kBothStale]);
+
+    // The regression: meta has to be refreshed even though the rowset clock never goes stale,
+    // and it costs one RPC rather than the two a full sync would.
+    EXPECT_EQ(1, meta_syncs[kIngesting]);
+    EXPECT_EQ(0, rowset_syncs[kIngesting]);
+    EXPECT_GE(tablets[1]->last_sync_tablet_meta_time_s, now);
+
+    EXPECT_EQ(0, meta_syncs[kFresh]);
+    EXPECT_EQ(0, rowset_syncs[kFresh]);
 
     sp->disable_processing();
     sp->clear_all_call_backs();

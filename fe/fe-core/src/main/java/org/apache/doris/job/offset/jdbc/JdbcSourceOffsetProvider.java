@@ -24,8 +24,10 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.CompareOffsetRequest;
+import org.apache.doris.job.cdc.request.FetchEndOffsetRequest;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
+import org.apache.doris.job.cdc.response.FetchEndOffsetResult;
 import org.apache.doris.job.cdc.split.AbstractSourceSplit;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -89,7 +91,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     List<SnapshotSplit> finishedSplits = new ArrayList<>();
 
     volatile JdbcOffset currentOffset;
-    Map<String, String> endBinlogOffset;
+    volatile Map<String, String> endBinlogOffset;
 
     @SerializedName("chw")
     // tableID -> splitId -> chunk of highWatermark
@@ -106,6 +108,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     volatile boolean hasMoreData = true;
 
+    transient volatile long lagBytes = -1;
+
     transient volatile String cloudCluster;
 
     // Route fetchEndOffset/compareOffset to the bound BE (synced from job, not persisted).
@@ -117,7 +121,10 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     /** Cache of Job.syncTables, set by initSplitProgress / replayIfNeed. */
     transient List<String> cachedSyncTables;
 
-    /** Guards cdcSplitProgress/committedSplitProgress/remainingSplits/finishedSplits. */
+    /**
+     * Guards cdcSplitProgress/committedSplitProgress/remainingSplits/finishedSplits
+     * and compound binlog updates to currentOffset/endBinlogOffset/hasMoreData.
+     */
     protected final transient Object splitsLock = new Object();
 
     /**
@@ -251,11 +258,46 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 }
             }
         } else {
-            BinlogSplit binlogSplit = (BinlogSplit) newOffset.getSplits().get(0);
-            binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
-            binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+            synchronized (splitsLock) {
+                BinlogSplit binlogSplit = (BinlogSplit) newOffset.getSplits().get(0);
+                if (MapUtils.isEmpty(binlogSplit.getStartingOffset())) {
+                    log.warn("Skip empty committed binlog offset for job {}", getJobId());
+                    return;
+                }
+                binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
+                binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                clearSnapshotState();
+                currentOffset = newOffset;
+                hasMoreData = true;
+            }
+            return;
         }
         this.currentOffset = newOffset;
+    }
+
+    protected void clearSnapshotState() {
+        if (MapUtils.isNotEmpty(chunkHighWatermarkMap)) {
+            chunkHighWatermarkMap = new HashMap<>();
+        }
+        remainingSplits.clear();
+        finishedSplits.clear();
+        if (committedSplitProgress != null) {
+            clearProgress(committedSplitProgress);
+        }
+        if (cdcSplitProgress != null) {
+            clearProgress(cdcSplitProgress);
+        }
+    }
+
+    public boolean shouldPersistOffset(long lastPersistTimeMs, long currentTimeMs) {
+        synchronized (splitsLock) {
+            if (currentOffset == null || !currentOffset.snapshotSplit()) {
+                return true;
+            }
+        }
+        long intervalMs = Math.max(1L,
+                (long) Config.streaming_job_snapshot_offset_persist_interval_sec) * 1000L;
+        return lastPersistTimeMs == 0L || currentTimeMs - lastPersistTimeMs >= intervalMs;
     }
 
     @Override
@@ -266,8 +308,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
         Backend backend = StreamingJobUtils.selectBackend(cloudCluster, boundBackendId);
-        JobBaseConfig requestParams =
-                new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
+        FetchEndOffsetRequest requestParams =
+                new FetchEndOffsetRequest(
+                        getJobId().toString(),
+                        sourceType.name(),
+                        sourceProperties,
+                        getFrontendAddress(),
+                        getLagReferenceOffset());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchEndOffset")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -284,13 +331,18 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                         "Failed to get end offset from backend," + result.getStatus().getErrorMsgs(0) + ", response: "
                                 + result.getResponse());
             }
-            Map<String, String> newEndOffset = parseCdcResponseData(
-                    result.getResponse(), new TypeReference<Map<String, String>>() {});
-            // null→value also counts as a change: upstream may have advanced while fetch was blocked.
-            if (endBinlogOffset == null || !endBinlogOffset.equals(newEndOffset)) {
-                hasMoreData = true;
+            FetchEndOffsetResult fetchResult = parseFetchEndOffsetResponse(result.getResponse());
+            Map<String, String> newEndOffset = fetchResult.getEndOffset();
+            synchronized (splitsLock) {
+                // null→value also counts as a change: upstream may have advanced while fetch was blocked.
+                if (endBinlogOffset == null || !endBinlogOffset.equals(newEndOffset)) {
+                    hasMoreData = true;
+                }
+                endBinlogOffset = newEndOffset;
+                if (!isSnapshotOnlyMode()) {
+                    updateLagBytes(fetchResult.getLagBytes());
+                }
             }
-            endBinlogOffset = newEndOffset;
         } catch (TimeoutException te) {
             log.warn("cdc_client RPC timeout api=/api/fetchEndOffset jobId={} backend={}:{} timeout_sec={}",
                     getJobId(), backend.getHost(), backend.getBrpcPort(),
@@ -302,12 +354,38 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
     }
 
+    Map<String, String> getLagReferenceOffset() {
+        if (isSnapshotOnlyMode()) {
+            return null;
+        }
+        synchronized (splitsLock) {
+            if (currentOffset != null && !currentOffset.snapshotSplit()) {
+                BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+                if (MapUtils.isNotEmpty(binlogSplit.getStartingOffset())) {
+                    return new HashMap<>(binlogSplit.getStartingOffset());
+                }
+            }
+            if (sourceType == DataSourceType.POSTGRES) {
+                // PostgreSQL can use the replication slot's confirmed flush LSN during snapshot.
+                return null;
+            }
+            return finishedSplits.stream()
+                    .map(SnapshotSplit::getHighWatermark)
+                    .filter(MapUtils::isNotEmpty)
+                    .findFirst()
+                    .map(HashMap::new)
+                    .orElse(null);
+        }
+    }
+
     @Override
     public boolean hasMoreDataToConsume() {
         if (currentOffset == null) {
             return true;
         }
 
+        JdbcOffset currentOffsetAtCompare;
+        Map<String, String> endOffsetAtCompare;
         synchronized (splitsLock) {
             if (currentOffset.snapshotSplit()) {
                 if (!remainingSplits.isEmpty()) {
@@ -328,19 +406,33 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             if (CollectionUtils.isNotEmpty(remainingSplits)) {
                 return true;
             }
+            currentOffsetAtCompare = currentOffset;
+            endOffsetAtCompare = endBinlogOffset;
         }
-        if (MapUtils.isEmpty(endBinlogOffset)) {
+        if (MapUtils.isEmpty(endOffsetAtCompare)) {
             return false;
         }
         try {
-            if (!currentOffset.snapshotSplit()) {
-                BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+            if (!currentOffsetAtCompare.snapshotSplit()) {
+                BinlogSplit binlogSplit = (BinlogSplit) currentOffsetAtCompare.getSplits().get(0);
                 if (MapUtils.isEmpty(binlogSplit.getStartingOffset())) {
                     // snapshot to binlog phase
                     return true;
                 }
-                hasMoreData = compareOffset(endBinlogOffset, new HashMap<>(binlogSplit.getStartingOffset()));
-                return hasMoreData;
+                Map<String, String> currentBinlogOffset = new HashMap<>(binlogSplit.getStartingOffset());
+                int compareResult = compareOffset(endOffsetAtCompare, currentBinlogOffset);
+                synchronized (splitsLock) {
+                    if (currentOffset != currentOffsetAtCompare || endBinlogOffset != endOffsetAtCompare) {
+                        // The stale result cannot prove that the latest offsets have caught up.
+                        hasMoreData = true;
+                        return true;
+                    }
+                    if (compareResult < 0) {
+                        endBinlogOffset = currentBinlogOffset;
+                    }
+                    hasMoreData = compareResult > 0;
+                    return hasMoreData;
+                }
             } else {
                 // snapshot means has data to consume
                 return true;
@@ -351,7 +443,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
     }
 
-    private boolean compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
+    protected int compareOffset(Map<String, String> offsetFirst, Map<String, String> offsetSecond)
             throws JobException {
         Backend backend = StreamingJobUtils.selectBackend(cloudCluster, boundBackendId);
         CompareOffsetRequest requestParams =
@@ -375,7 +467,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             }
             Integer cmp = parseCdcResponseData(
                     result.getResponse(), new TypeReference<Integer>() {});
-            return cmp != null && cmp > 0;
+            return cmp;
         } catch (TimeoutException te) {
             log.warn("cdc_client RPC timeout api=/api/compareOffset jobId={} backend={}:{} timeout_sec={}",
                     getJobId(), backend.getHost(), backend.getBrpcPort(),
@@ -889,6 +981,23 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
     }
 
+    FetchEndOffsetResult parseFetchEndOffsetResponse(String response) throws JobException {
+        JsonNode data = parseCdcResponseData(response, new TypeReference<JsonNode>() {});
+        if (data == null) {
+            throw new JobException(response);
+        }
+        try {
+            if (data.has("endOffset")) {
+                return objectMapper.convertValue(data, FetchEndOffsetResult.class);
+            }
+            Map<String, String> endOffset = objectMapper.convertValue(
+                    data, new TypeReference<Map<String, String>>() {});
+            return new FetchEndOffsetResult(endOffset, -1);
+        } catch (IllegalArgumentException exception) {
+            throw new JobException(response);
+        }
+    }
+
     protected boolean checkNeedSplitChunks(Map<String, String> sourceProperties) {
         String startMode = sourceProperties.get(DataSourceConfigKeys.OFFSET);
         if (startMode == null) {
@@ -904,45 +1013,46 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public String getLag() {
-        if (currentOffset == null || currentOffset.snapshotSplit()) {
-            return "";
-        }
-        // Source is idle (last task consumed no data), report zero lag
-        if (!hasMoreData) {
-            return "0";
-        }
-        BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
-        Map<String, String> offsetMap = binlogSplit.getStartingOffset();
-        if (MapUtils.isEmpty(offsetMap)) {
-            return "";
-        }
-        long eventTimeMs = extractEventTimeMs(offsetMap);
-        if (eventTimeMs <= 0) {
-            return "0";
-        }
-        long lagSec = (System.currentTimeMillis() - eventTimeMs) / 1000;
-        return String.valueOf(Math.max(lagSec, 0));
+    public long getLagBytes() {
+        return lagBytes;
     }
 
-    /**
-     * Extract event timestamp in milliseconds from binlog offset map.
-     * MySQL: ts_sec (seconds), PostgreSQL: ts_usec (microseconds).
-     */
-    protected long extractEventTimeMs(Map<String, String> offsetMap) {
-        try {
-            String tsSec = offsetMap.get("ts_sec");
-            if (tsSec != null) {
-                return Long.parseLong(tsSec) * 1000;
+    @Override
+    public long getLastSourceEventTimestampSeconds() {
+        synchronized (splitsLock) {
+            if (currentOffset == null || currentOffset.snapshotSplit()) {
+                return 0;
             }
-            String tsUsec = offsetMap.get("ts_usec");
-            if (tsUsec != null) {
-                return Long.parseLong(tsUsec) / 1000;
+            BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+            Map<String, String> offsetMap = binlogSplit.getStartingOffset();
+            if (MapUtils.isEmpty(offsetMap)) {
+                return 0;
             }
-        } catch (NumberFormatException e) {
-            log.warn("Failed to parse event timestamp from offset: {}", offsetMap, e);
+            try {
+                String timestampSeconds = offsetMap.get("ts_sec");
+                if (timestampSeconds != null) {
+                    return Math.max(Long.parseLong(timestampSeconds), 0);
+                }
+                String timestampMicros = offsetMap.get("ts_usec");
+                if (timestampMicros != null) {
+                    return Math.max(Long.parseLong(timestampMicros) / 1_000_000, 0);
+                }
+            } catch (NumberFormatException e) {
+                log.warn("Failed to parse source event timestamp from offset: {}", offsetMap, e);
+            }
+            return 0;
         }
-        return -1;
+    }
+
+    @Override
+    public void resetLag() {
+        lagBytes = -1;
+    }
+
+    void updateLagBytes(long fetchedLagBytes) {
+        if (fetchedLagBytes >= 0) {
+            lagBytes = fetchedLagBytes;
+        }
     }
 
     @Override

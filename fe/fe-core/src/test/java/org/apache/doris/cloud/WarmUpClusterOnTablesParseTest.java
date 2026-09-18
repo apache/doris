@@ -17,10 +17,11 @@
 
 package org.apache.doris.cloud;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.OnTablesFilter.TableFilterRule;
 import org.apache.doris.cloud.OnTablesFilter.TableFilterRule.RuleType;
-import org.apache.doris.cloud.catalog.ComputeGroup;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -66,6 +67,11 @@ public class WarmUpClusterOnTablesParseTest {
         originalSystemInfo = getField(env, Env.class, "systemInfo");
         connectContext = new ConnectContext();
         connectContext.setEnv(env);
+        // this test covers ON TABLES parsing and validation, not authorization, so give the
+        // context an identity and let it bypass the privilege checks in validate()
+        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        connectContext.setNoAuth(true);
+        connectContext.setSkipAuth(true);
         connectContext.setThreadLocalInfo();
     }
 
@@ -103,14 +109,14 @@ public class WarmUpClusterOnTablesParseTest {
 
     private void addVirtualComputeGroup(CloudSystemInfoService cloudSys,
             String virtualComputeGroupName, String activeComputeGroupName, String standbyComputeGroupName) {
-        ComputeGroup activeComputeGroup = new ComputeGroup(activeComputeGroupName + "_id",
-                activeComputeGroupName, ComputeGroup.ComputeTypeEnum.COMPUTE);
-        ComputeGroup standbyComputeGroup = new ComputeGroup(standbyComputeGroupName + "_id",
-                standbyComputeGroupName, ComputeGroup.ComputeTypeEnum.COMPUTE);
-        ComputeGroup virtualComputeGroup = new ComputeGroup(virtualComputeGroupName + "_id",
-                virtualComputeGroupName, ComputeGroup.ComputeTypeEnum.VIRTUAL);
+        CloudComputeGroupMeta activeComputeGroup = new CloudComputeGroupMeta(activeComputeGroupName + "_id",
+                activeComputeGroupName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta standbyComputeGroup = new CloudComputeGroupMeta(standbyComputeGroupName + "_id",
+                standbyComputeGroupName, CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE);
+        CloudComputeGroupMeta virtualComputeGroup = new CloudComputeGroupMeta(virtualComputeGroupName + "_id",
+                virtualComputeGroupName, CloudComputeGroupMeta.ComputeTypeEnum.VIRTUAL);
         virtualComputeGroup.setSubComputeGroups(Arrays.asList(activeComputeGroupName, standbyComputeGroupName));
-        ComputeGroup.Policy policy = new ComputeGroup.Policy();
+        CloudComputeGroupMeta.Policy policy = new CloudComputeGroupMeta.Policy();
         policy.setActiveComputeGroup(activeComputeGroupName);
         policy.setStandbyComputeGroup(standbyComputeGroupName);
         virtualComputeGroup.setPolicy(policy);
@@ -370,7 +376,7 @@ public class WarmUpClusterOnTablesParseTest {
             CloudSystemInfoService cloudSys = buildCloudSystemInfoWithVirtualComputeGroup(
                     "vcg", "active_cg", "standby_cg");
             cloudSys.addComputeGroup("outside_cg_id",
-                    new ComputeGroup("outside_cg_id", "outside_cg", ComputeGroup.ComputeTypeEnum.COMPUTE));
+                    new CloudComputeGroupMeta("outside_cg_id", "outside_cg", CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE));
             setField(env, Env.class, "systemInfo", cloudSys);
             WarmUpClusterCommand cmd = parse(
                     "WARM UP CLUSTER standby_cg WITH CLUSTER outside_cg "
@@ -398,7 +404,7 @@ public class WarmUpClusterOnTablesParseTest {
             CloudSystemInfoService cloudSys = buildCloudSystemInfoWithVirtualComputeGroup(
                     "vcg", "active_cg", "standby_cg");
             cloudSys.addComputeGroup("outside_cg_id",
-                    new ComputeGroup("outside_cg_id", "outside_cg", ComputeGroup.ComputeTypeEnum.COMPUTE));
+                    new CloudComputeGroupMeta("outside_cg_id", "outside_cg", CloudComputeGroupMeta.ComputeTypeEnum.COMPUTE));
             setField(env, Env.class, "systemInfo", cloudSys);
             WarmUpClusterCommand cmd = parse(
                     "WARM UP CLUSTER outside_cg WITH CLUSTER active_cg "

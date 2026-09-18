@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "core/block/column_with_type_and_name.h"
 #include "exec/partitioner/partitioner.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 
@@ -52,8 +53,11 @@ private:
         std::unique_ptr<PartitionColumnTransform> transformer;
         int32_t source_id = 0;
         std::string name;
+        std::vector<int32_t> source_field_path;
     };
 
+    Status _nested_partition_source(size_t rows, const InsertPartitionField& field,
+                                    ColumnWithTypeAndName* source) const;
     Status _compute_hashes_with_transform(Block* block, std::vector<HashValType>& partitions) const;
     Status _compute_hashes_with_exprs(Block* block, std::vector<HashValType>& partitions) const;
     Status _clone_expr_ctxs(RuntimeState* state, const VExprContextSPtrs& src,

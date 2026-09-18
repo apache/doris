@@ -53,6 +53,7 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_PARSER_ICU = InvertedIndexProperties.INVERTED_INDEX_PARSER_ICU;
     public static String INVERTED_INDEX_PARSER_BASIC = InvertedIndexProperties.INVERTED_INDEX_PARSER_BASIC;
     public static String INVERTED_INDEX_PARSER_IK = InvertedIndexProperties.INVERTED_INDEX_PARSER_IK;
+    public static String INVERTED_INDEX_PARSER_KUROMOJI = InvertedIndexProperties.INVERTED_INDEX_PARSER_KUROMOJI;
 
     public static String INVERTED_INDEX_PARSER_MODE_KEY = InvertedIndexProperties.INVERTED_INDEX_PARSER_MODE_KEY;
 
@@ -68,6 +69,9 @@ public class InvertedIndexUtil {
 
     public static String INVERTED_INDEX_SUPPORT_PHRASE_KEY =
             InvertedIndexProperties.INVERTED_INDEX_SUPPORT_PHRASE_KEY;
+
+    public static String INVERTED_INDEX_NORMS_KEY =
+            InvertedIndexProperties.INVERTED_INDEX_NORMS_KEY;
 
     public static String INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY =
             InvertedIndexProperties.INVERTED_INDEX_PARSER_IGNORE_ABOVE_KEY;
@@ -93,6 +97,18 @@ public class InvertedIndexUtil {
         return InvertedIndexProperties.getInvertedIndexFieldPattern(properties);
     }
 
+    /**
+     * Scalar column types the SNII storage format can serve with its native BKD index. Mirrors
+     * {@code field_is_numeric_type} on the BE side, which is what routes the column to
+     * SniiBkdIndexColumnWriter / SniiBkdIndexReader. Kept in sync with
+     * {@code IndexDefinition.isSupportSniiNumericIdxType}, which applies the same rule one layer up
+     * where the ARRAY item type is also known.
+     */
+    public static boolean isSupportSniiNumericIdxType(PrimitiveType colType) {
+        return colType.isNumericType() || colType.isDateLikeType() || colType.isTimeStampTzType()
+                || colType.isIPType() || colType == PrimitiveType.BOOLEAN;
+    }
+
     public static void checkInvertedIndexParser(String indexColName, PrimitiveType colType,
             Map<String, String> properties,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
@@ -103,6 +119,16 @@ public class InvertedIndexUtil {
                 parser = properties.get(INVERTED_INDEX_PARSER_KEY_ALIAS);
             }
             checkInvertedIndexProperties(properties, colType, invertedIndexFileStorageFormat);
+        }
+
+        // A whole-column VARIANT index reaches here with the parent type, which decides
+        // nothing: the sub-column type is checked on the field_pattern path instead.
+        if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII
+                && !colType.isStringType() && !colType.isArrayType()
+                && colType != PrimitiveType.VARIANT
+                && !isSupportSniiNumericIdxType(colType)) {
+            throw new AnalysisException("SNII inverted index storage format does not support index on column: "
+                    + indexColName + " type: " + colType);
         }
 
         // default is "none" if not set
@@ -124,7 +150,8 @@ public class InvertedIndexUtil {
                                 || parser.equals(INVERTED_INDEX_PARSER_CHINESE)
                                     || parser.equals(INVERTED_INDEX_PARSER_ICU)
                                         || parser.equals(INVERTED_INDEX_PARSER_BASIC)
-                                            || parser.equals(INVERTED_INDEX_PARSER_IK))) {
+                                            || parser.equals(INVERTED_INDEX_PARSER_IK)
+                                                || parser.equals(INVERTED_INDEX_PARSER_KUROMOJI))) {
                 throw new AnalysisException("INVERTED index parser: " + parser
                     + " is invalid for column: " + indexColName + " of type " + colType);
             }
@@ -178,6 +205,7 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_KEY_ALIAS,
                 INVERTED_INDEX_PARSER_MODE_KEY,
                 INVERTED_INDEX_SUPPORT_PHRASE_KEY,
+                INVERTED_INDEX_NORMS_KEY,
                 INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE,
                 INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN,
                 INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT,
@@ -232,9 +260,10 @@ public class InvertedIndexUtil {
         checkAnalyzerName(analyzerName, colType);
         checkNormalizerName(normalizerName, colType);
 
-        if (parser != null && !parser.matches("none|english|unicode|chinese|standard|icu|basic|ik")) {
+        if (parser != null
+                && !parser.matches("none|english|unicode|chinese|standard|icu|basic|ik|kuromoji")) {
             throw new AnalysisException("Invalid inverted index 'parser' value: " + parser
-                    + ", parser must be none, english, unicode, chinese, icu, basic or ik");
+                    + ", parser must be none, english, unicode, chinese, icu, basic, ik or kuromoji");
         }
 
         if (parserMode != null) {
@@ -248,14 +277,25 @@ public class InvertedIndexUtil {
                     throw new AnalysisException("Invalid inverted index 'parser_mode' value: " + parserMode
                         + ", parser_mode must be ik_max_word or ik_smart for ik parser");
                 }
-            } else if (parserMode != null) {
-                throw new AnalysisException("parser_mode is only available for chinese and ik parser");
+            } else if (INVERTED_INDEX_PARSER_KUROMOJI.equals(parser)) {
+                if (!parserMode.matches("search|normal|extended")) {
+                    throw new AnalysisException("Invalid inverted index 'parser_mode' value: " + parserMode
+                        + ", parser_mode must be search, normal or extended for kuromoji parser");
+                }
+            } else {
+                throw new AnalysisException("parser_mode is only available for chinese, ik and kuromoji parser");
             }
         }
 
         if (supportPhrase != null && !supportPhrase.matches("true|false")) {
             throw new AnalysisException("Invalid inverted index 'support_phrase' value: " + supportPhrase
                     + ", support_phrase must be true or false");
+        }
+
+        String norms = properties.get(INVERTED_INDEX_NORMS_KEY);
+        if (norms != null && !norms.matches("true|false")) {
+            throw new AnalysisException("Invalid inverted index 'norms' value: " + norms
+                    + ", norms must be true or false");
         }
 
         checkCharFilterProperties(properties);
@@ -294,11 +334,7 @@ public class InvertedIndexUtil {
                         "Invalid inverted index 'dict_compression' value: "
                                 + dictCompression + ", dict_compression must be true or false");
             }
-
-            if (invertedIndexFileStorageFormat != TInvertedIndexFileStorageFormat.V3) {
-                throw new AnalysisException(
-                        "dict_compression can only be set when storage format is V3");
-            }
+            // dict_compression now silently ignores by V2/V3 inverted index
         }
 
         // Normalize analyzer and normalizer names to lowercase for case-insensitive matching

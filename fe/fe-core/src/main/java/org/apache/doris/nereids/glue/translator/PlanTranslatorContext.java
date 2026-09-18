@@ -52,6 +52,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,8 +107,21 @@ public class PlanTranslatorContext {
     private final Map<PlanFragmentId, CTEScanNode> cteScanNodeMap = Maps.newHashMap();
 
     private final Map<RelationId, TPushAggOp> tablePushAggOp = Maps.newHashMap();
+    private final Map<RelationId, List<ExprId>> tablePushCountArgumentExprIds = Maps.newHashMap();
 
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
+
+    /**
+     * Depth of fragment-merging binary nodes (hash join / nested loop join /
+     * set operation) whose children are being visited right now. Bucketed fusion
+     * removes the exchange node that would otherwise keep an olap scan in its own
+     * fragment; when the fused fragment is consumed by such a node the scan gets
+     * merged into a fragment that already contains other scans, which the
+     * scan-assignment jobs reject ("Not supported multiple scan multiple
+     * OlapTable but not contains colocate join or bucket shuffle join"). The
+     * translator therefore skips bucketed fusion while inside a merge child.
+     */
+    private int fragmentMergeChildDepth = 0;
 
     // Per-node "is there a serial operator between me and the pipeline's sink" flag.
     // Mirrors BE's any_of(operators[idx..end], is_serial_operator) check used by
@@ -118,6 +132,12 @@ public class PlanTranslatorContext {
     // skip) and by child overrides that compute their require.  Reset to false at fragment
     // root and across pipeline boundaries (see shouldResetSerialFlagForChild).
     private final Map<PlanNodeId, Boolean> serialAncestorInPipelineMap = Maps.newHashMap();
+
+    // Per-node "does this pipeline have a serial parent pipeline" flag. Mirrors BE's
+    // Pipeline::num_tasks_of_parent() gate in _add_local_exchange: a pipeline whose parent
+    // has one task must not be split by another local exchange, because that would raise only
+    // the new source side to N tasks while the paired sink/source operators stay one-to-one.
+    private final Map<PlanNodeId, Boolean> serialParentPipelineMap = Maps.newHashMap();
 
     // Per-node "is there a downstream operator that depends on hash distribution for
     // correctness, with HASH/NOOP path connecting it to me" flag.  Mirrors BE's
@@ -278,6 +298,14 @@ public class PlanTranslatorContext {
         return serialAncestorInPipelineMap.getOrDefault(node.getId(), false);
     }
 
+    public void setHasSerialParentPipeline(PlanNode node, boolean value) {
+        serialParentPipelineMap.put(node.getId(), value);
+    }
+
+    public boolean hasSerialParentPipeline(PlanNode node) {
+        return serialParentPipelineMap.getOrDefault(node.getId(), false);
+    }
+
     public void setHasShuffleForCorrectnessAncestor(PlanNode node, boolean value) {
         shuffledAncestorMap.put(node.getId(), value);
     }
@@ -321,6 +349,18 @@ public class PlanTranslatorContext {
 
     public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
         exprIdToColumnRef.put(exprId, columnRefExpr);
+    }
+
+    public void enterFragmentMergeChild() {
+        fragmentMergeChildDepth++;
+    }
+
+    public void exitFragmentMergeChild() {
+        fragmentMergeChildDepth--;
+    }
+
+    public boolean isInFragmentMergeChild() {
+        return fragmentMergeChildDepth > 0;
     }
 
     /**
@@ -428,6 +468,14 @@ public class PlanTranslatorContext {
 
     public TPushAggOp getRelationPushAggOp(RelationId relationId) {
         return tablePushAggOp.getOrDefault(relationId, TPushAggOp.NONE);
+    }
+
+    public void setRelationPushCountArgumentExprIds(RelationId relationId, List<ExprId> exprIds) {
+        tablePushCountArgumentExprIds.put(relationId, Lists.newArrayList(exprIds));
+    }
+
+    public List<ExprId> getRelationPushCountArgumentExprIds(RelationId relationId) {
+        return tablePushCountArgumentExprIds.getOrDefault(relationId, Collections.emptyList());
     }
 
     public boolean isTopMaterializeNode() {

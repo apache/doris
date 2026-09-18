@@ -2,6 +2,55 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260911
+
+- Modified: libunwind 1.6.2 -> 1.8.3. 1.6.2 hard-codes a 4 KiB page size in the
+  AArch64 memory validator (`mincore`/`msync` on 4 KiB-aligned addresses), so on a
+  64 KiB-page kernel every validation fails, `unw_step` falls back to a link register
+  that `getcontext_trace` never saved and dereferences it unvalidated. This crashed
+  every aarch64 BE on such kernels before `main()`, in bRPC's `backtrace()` warm-up.
+  1.8.x reads the page size at runtime, validates through the pipe-write probe only,
+  and validates addresses before the DWARF-failure fallback. The Doris PHDR-cache hook
+  patch is rebased onto 1.8.3; the test programs and man pages are no longer built.
+
+## 20260909
+
+- Modified: snappy 1.1.10 -> 1.2.1. Enable x86 SSE4.2 paths and AVX2 by default;
+  use `USE_AVX2=0` or `OFF` when building third-party libraries for a non-AVX2 BE.
+  Enable ARM CRC32 hashing through `ARM_MARCH` (default `armv8-a+crc`).
+  Retain RTTI for `SnappySlicesSource` and remove the sign-compare patch already
+  included upstream.
+
+## 20260824
+
+- Modified: thrift 0.16.0 -> 0.24.0
+
+## 20260819
+
+- Added: `installed/include/hadoop_hdfs` and `installed/lib/hadoop_hdfs` are symlinks to
+  their `hadoop_hdfs_3_4` counterparts, so a tree that still includes
+  `<hadoop_hdfs/hdfs.h>` or links `lib/hadoop_hdfs/native/libhdfs.a` - branch-3.0,
+  branch-3.1, the cloud module, anything outside this repository - builds against
+  3.4.2.4 rather than failing to find the prefix. This is a compatibility shim over a
+  single build, not a second one; drop it once nothing reads the old prefix.
+
+## 20260817
+
+- Removed: hadoop-libs 3.3.6.6, along with the `installed/{include,lib}/hadoop_hdfs/`
+  prefix it produced. hadoop-libs 3.4.2.4 under `hadoop_hdfs_3_4/` is the only libhdfs
+  built now.
+- Modified: azure-core 1.16.0 is now built on aarch64 and macOS as well, and only the
+  parts Doris links (azure-core, azure-identity, azure-storage-common,
+  azure-storage-blobs) are built. Its vcpkg dependency closure no longer contains
+  opentelemetry-cpp, protobuf, abseil, utf8-range, uAMQP, and vcpkg builds the
+  remaining ports release-only. `DISABLE_THIRDPARTY_BUILD_AZURE=ON` skips the package
+  during a third-party build; `DISABLE_BUILD_AZURE` now only decides whether BE and
+  the cloud meta-service link it.
+
+## 20260816
+
+- Modified: hadoop-libs 3.4.2.3 -> 3.4.2.4
+
 ## 20260206
 
 - Modified: jindofs 6.8.2 -> 6.10.4

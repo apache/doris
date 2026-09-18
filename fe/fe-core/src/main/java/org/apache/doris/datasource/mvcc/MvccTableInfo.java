@@ -31,8 +31,17 @@ public class MvccTableInfo {
     private String tableName;
     private String dbName;
     private String ctlName;
+    // Version selector distinguishing references to the SAME table at different snapshots within one
+    // statement (e.g. main vs @branch/@tag/FOR-TIME-AS-OF). Empty string ("") is the default/latest read.
+    // Without it a statement mixing main and @branch of one table collapses to a single map entry and the
+    // @branch reference reuses main's pinned snapshot. Derived by StatementContext.versionKeyOf.
+    private final String version;
 
     public MvccTableInfo(TableIf table) {
+        this(table, "");
+    }
+
+    public MvccTableInfo(TableIf table, String version) {
         java.util.Objects.requireNonNull(table, "table is null");
         DatabaseIf database = table.getDatabase();
         java.util.Objects.requireNonNull(database, "database is null");
@@ -41,6 +50,7 @@ public class MvccTableInfo {
         this.tableName = table.getName();
         this.dbName = database.getFullName();
         this.ctlName = catalog.getName();
+        this.version = version == null ? "" : version;
     }
 
     public String getTableName() {
@@ -55,6 +65,24 @@ public class MvccTableInfo {
         return ctlName;
     }
 
+    public String getVersion() {
+        return version;
+    }
+
+    /**
+     * Whether {@code other} refers to the same (catalog, db, table) as this, IGNORING the version
+     * selector. Used by the version-blind {@code StatementContext.getSnapshot(TableIf)} to recognise a
+     * lone pinned snapshot for a table when no default ("") entry exists (e.g. a standalone @branch read).
+     */
+    public boolean isSameTable(MvccTableInfo other) {
+        if (other == null) {
+            return false;
+        }
+        return Objects.equal(tableName, other.tableName)
+                && Objects.equal(dbName, other.dbName)
+                && Objects.equal(ctlName, other.ctlName);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -65,12 +93,13 @@ public class MvccTableInfo {
         }
         MvccTableInfo that = (MvccTableInfo) o;
         return Objects.equal(tableName, that.tableName) && Objects.equal(
-                dbName, that.dbName) && Objects.equal(ctlName, that.ctlName);
+                dbName, that.dbName) && Objects.equal(ctlName, that.ctlName)
+                && Objects.equal(version, that.version);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(tableName, dbName, ctlName);
+        return Objects.hashCode(tableName, dbName, ctlName, version);
     }
 
     @Override
@@ -79,6 +108,7 @@ public class MvccTableInfo {
                 + "tableName='" + tableName + '\''
                 + ", dbName='" + dbName + '\''
                 + ", ctlName='" + ctlName + '\''
+                + ", version='" + version + '\''
                 + '}';
     }
 }

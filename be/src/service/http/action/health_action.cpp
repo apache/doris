@@ -21,14 +21,13 @@
 #include <string>
 
 #include "runtime/exec_env.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
 
 namespace doris {
-
-const static std::string HEADER_JSON = "application/json";
 
 void HealthAction::handle(HttpRequest* req) {
     std::string status;

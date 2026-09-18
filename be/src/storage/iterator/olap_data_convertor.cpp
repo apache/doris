@@ -35,8 +35,8 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
-#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -166,6 +166,9 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     }
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
         return std::make_unique<OlapColumnDataConvertorDateTimeV2>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS: {
+        return std::make_unique<OlapColumnDataConvertorSimple<TYPE_TIMESTAMP_NS>>();
     }
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ: {
         return std::make_unique<OlapColumnDataConvertorSimple<TYPE_TIMESTAMPTZ>>();
@@ -332,7 +335,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorBase::clear_source_column() 
 }
 
 // Obtain the converted nullmap with an offset of _row_pos.
-// This should be called only in SegmentWriter and `get_data_at` in Convertor.
+// This should be called only in VerticalSegmentWriter and `get_data_at` in Convertor.
 // If you want to access origin nullmap without offset, use `_nullmap` directly.
 const UInt8* OlapBlockDataConvertor::OlapColumnDataConvertorBase::get_nullmap() const {
     assert(_typed_column.column);
@@ -548,7 +551,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
 
     // If column_string is not padded to full, we should do padding here.
     if (should_padding(column_string, _length)) {
-        _column = clone_and_padding(column_string, _length);
+        _column = clone_and_padding(column_string, _length, _nullmap);
         column_string = assert_cast<const ColumnString*>(_column.get());
     }
 
@@ -956,17 +959,17 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     ColumnPtr value_data = column_map->get_values_ptr();
 
     // NOTICE here are two situation:
-    // 1. Multi-SegmentWriter with different olap_convertor to convert same column_map(in memory which is from same block)
+    // 1. Multi-VerticalSegmentWriter with different olap_convertor to convert same column_map(in memory which is from same block)
     //   eg: Block(6 row): column_map offsets in memory: [10, 21, 33, 43, 54, 66]
-    //   After SegmentWriter1 with olap_convertor1 deal with first 3 rows:  _offsets(pre-disk)=[0, 10, 21], _base_offset=33
-    //   then SegmentWriter may flush data (see BetaRowsetWriter::_add_block(max_row_add < 1))
+    //   After VerticalSegmentWriter1 with olap_convertor1 deal with first 3 rows:  _offsets(pre-disk)=[0, 10, 21], _base_offset=33
+    //   then VerticalSegmentWriter may flush data (see BetaRowsetWriter::_add_block(max_row_add < 1))
     //   ColumnWriter will flush offset array to disk [0, 10, 21, 33]
     //                                                 ---------  ----
     //                                                 |--_offsets  |--set_next_array_item_ordinal(_kv_writers[0]->get_next_rowid())
-    //   new SegmentWriter2 with olap_convertor2 deal with next map offsets [43, 54, 66]
+    //   new VerticalSegmentWriter2 with olap_convertor2 deal with next map offsets [43, 54, 66]
     //   but in disk here is new segment file offset should start with 0, so after convert:
     //      _offsets(pre-disk)=[0, 10, 21], _base_row=33, After flush data finally in disk: [0, 10, 21, 33]
-    //2. One-SegmentWriter with olap_convertor to convertor different blocks into one page
+    //2. One-VerticalSegmentWriter with olap_convertor to convertor different blocks into one page
     //    eg: Two blocks -> block1 [10, 21, 33] and block2 [1, 3, 6]
     //      After first convert: _offsets_1(pre-disk)=[0, 10, 21], _base_row=33, without flush, just append to page,
     //      then deal with coming block2, after current convert:
@@ -1006,50 +1009,54 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
 
 void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
-    // set
     const ColumnNullable* nullable_column = nullptr;
     if (is_column_nullable(*typed_column.column)) {
         nullable_column = assert_cast<const ColumnNullable*>(typed_column.column.get());
-        _nullmap = nullable_column->get_null_map_data().data();
     }
-    const auto* variant = nullable_column == nullptr
-                                  ? check_and_get_column<const ColumnVariant>(*typed_column.column)
-                                  : check_and_get_column<const ColumnVariant>(
-                                            nullable_column->get_nested_column());
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
 
-    _value_ptr = variant;
-    // Convert root data, since the root data is a jsonb column, we treat is as jsonb convertor
-    if (!_value_ptr) {
+    const IColumn& physical_column = nullable_column == nullptr
+                                             ? *typed_column.column
+                                             : nullable_column->get_nested_column();
+    const bool is_v2 = check_and_get_column<ColumnVariantV2>(physical_column) != nullptr;
+    _value_ptr = is_v2 ? &physical_column : nullptr;
+    _variant_column_data.reset();
+    _root_data_convertor.reset();
+    if (_value_ptr == nullptr && check_and_get_column<ColumnString>(physical_column) != nullptr) {
         _root_data_convertor = std::make_unique<OlapColumnDataConvertorVarChar>(true);
         _root_data_convertor->set_source_column(typed_column, row_pos, num_rows);
     }
 }
 
-// convert root data
 Status OlapBlockDataConvertor::OlapColumnDataConvertorVariant::convert_to_olap() {
-    // Convert root data, since the root data is a jsonb column, we treat is as jsonb convertor
-    if (!_value_ptr) {
-        const auto* nullable = assert_cast<const ColumnNullable*>(_typed_column.column.get());
-        const auto* root_column = assert_cast<const ColumnString*>(&nullable->get_nested_column());
-        RETURN_IF_ERROR(_root_data_convertor->convert_to_olap(_nullmap, root_column));
+    if (_value_ptr != nullptr) {
+        _variant_column_data = std::make_unique<VariantColumnData>(_value_ptr, _row_pos);
         return Status::OK();
     }
-    // Do nothing, the column writer will finally do finalize and write subcolumns one by one
-    // since we are not sure the final column(type and columns) until the end of the last block
-    // need to return the position of the column data
-    _variant_column_data = std::make_unique<VariantColumnData>(_value_ptr, _row_pos);
-    return Status::OK();
+    if (_root_data_convertor == nullptr) {
+        return Status::InvalidArgument(
+                "Variant storage boundary requires ColumnVariantV2 or nullable ColumnString root "
+                "input, got {}",
+                _typed_column.column->get_name());
+    }
+    const auto* nullable = check_and_get_column<ColumnNullable>(*_typed_column.column);
+    if (nullable == nullptr) {
+        return Status::InvalidArgument("Variant root storage input must be nullable");
+    }
+    const auto* root_column = check_and_get_column<ColumnString>(nullable->get_nested_column());
+    if (root_column == nullptr) {
+        return Status::InvalidArgument("Variant root storage input must contain ColumnString");
+    }
+    return _root_data_convertor->convert_to_olap(_nullmap, root_column);
 }
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorVariant::get_data() const {
-    if (!_value_ptr) {
-        return _root_data_convertor->get_data();
+    if (_value_ptr != nullptr) {
+        return _variant_column_data.get();
     }
-    // return the ptr of VariantColumnData, see VariantColumnWriterImpl::append_data
-    // which will cast to VariantColumnData
-    return _variant_column_data.get();
+    DORIS_CHECK(_root_data_convertor != nullptr);
+    return _root_data_convertor->get_data();
 }
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorVariant::get_data_at(
         size_t offset) const {

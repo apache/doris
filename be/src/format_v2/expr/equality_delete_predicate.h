@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,6 +27,7 @@
 #include "core/block/block.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr.h"
+#include "format_v2/expr/equality_delete_hash_index.h"
 
 namespace doris {
 class RowDescriptor;
@@ -41,14 +41,14 @@ class EqualityDeletePredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(EqualityDeletePredicate);
 
 public:
-    EqualityDeletePredicate(Block delete_block, std::vector<int> field_ids);
+    EqualityDeletePredicate(
+            Block delete_block, std::vector<int> field_ids,
+            std::shared_ptr<const EqualityDeleteHashIndex> delete_hash_index = nullptr);
     ~EqualityDeletePredicate() override = default;
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) const override;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
-                               size_t count, ColumnPtr& result_column) const override {
-        return Status::InternalError("Not implement EqualityDeletePredicate::execute_column_impl");
-    }
+                               size_t count, ColumnPtr& result_column) const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;
@@ -57,15 +57,18 @@ public:
     uint64_t get_digest(uint64_t seed) const override { return 0; }
     const std::string& expr_name() const override { return _expr_name; }
 
+    static std::shared_ptr<const EqualityDeleteHashIndex> build_hash_index(
+            const Block& delete_block);
+
 private:
     static std::vector<uint64_t> _build_hashes(const Block& block);
+    ColumnPtr _evaluate_key_block(const Block& data_key_block) const;
     bool _equal(const Block& data_block, size_t data_row, size_t delete_row) const;
 
     std::string _expr_name;
     Block _delete_block;
     std::vector<int> _field_ids;
-    std::vector<uint64_t> _delete_hashes;
-    std::multimap<uint64_t, size_t> _delete_hash_map;
+    std::shared_ptr<const EqualityDeleteHashIndex> _delete_hash_index;
 };
 
 } // namespace doris::format

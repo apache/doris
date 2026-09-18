@@ -749,16 +749,22 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(AggregateDataPtr* places,
                               };
 
                               auto creator_for_null_key = [&](auto& mapped) {
-                                  mapped = Base::_shared_state->agg_arena_pool.aligned_alloc(
-                                          Base::_parent->template cast<AggSinkOperatorX>()
-                                                  ._total_size_of_aggregate_states,
-                                          Base::_parent->template cast<AggSinkOperatorX>()
-                                                  ._align_aggregate_states);
-                                  auto st = _create_agg_status(mapped);
+                                  auto* new_state =
+                                          Base::_shared_state->agg_arena_pool.aligned_alloc(
+                                                  Base::_parent->template cast<AggSinkOperatorX>()
+                                                          ._total_size_of_aggregate_states,
+                                                  Base::_parent->template cast<AggSinkOperatorX>()
+                                                          ._align_aggregate_states);
+                                  auto st = _create_agg_status(new_state);
                                   if (!st) {
                                       throw Exception(st.code(), st.to_string());
                                   }
-                                  _shared_state->refresh_top_limit(i, key_columns);
+                                  commit_aggregate_state(
+                                          mapped, new_state,
+                                          [&] { _shared_state->refresh_top_limit(i, key_columns); },
+                                          [&](auto* state) {
+                                              static_cast<void>(_destroy_agg_status(state));
+                                          });
                               };
 
                               SCOPED_TIMER(_hash_table_emplace_timer);
@@ -910,8 +916,9 @@ Status AggSinkOperatorX::_init_probe_expr_ctx(RuntimeState* state) {
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
-    RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state,
-                                   DataSinkOperatorX<AggSinkLocalState>::_child->row_desc()));
+    RETURN_IF_ERROR(VExpr::prepare(
+            _probe_expr_ctxs, state,
+            DataSinkOperatorX<AggSinkLocalState>::_child->operator_row_desc_after_projection()));
 
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
     return Status::OK();
@@ -931,7 +938,8 @@ Status AggSinkOperatorX::_init_aggregate_evaluators(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, DataSinkOperatorX<AggSinkLocalState>::_child->row_desc(),
+                state,
+                DataSinkOperatorX<AggSinkLocalState>::_child->operator_row_desc_after_projection(),
                 intermediate_slot_desc, output_slot_desc));
         _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }

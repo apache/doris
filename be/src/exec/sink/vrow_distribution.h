@@ -86,7 +86,6 @@ public:
         const VExprContextSPtrs* vec_output_expr_ctxs = nullptr;
         std::shared_ptr<OlapTableSchemaParam> schema;
         void* caller = nullptr;
-        bool write_single_replica = false;
         CreatePartitionCallback create_partition_callback;
     };
     friend class VTabletWriter;
@@ -108,7 +107,6 @@ public:
         _vec_output_expr_ctxs = ctx.vec_output_expr_ctxs;
         _schema = ctx.schema;
         _caller = ctx.caller;
-        _write_single_replica = ctx.write_single_replica;
         _create_partition_callback = ctx.create_partition_callback;
     }
 
@@ -132,6 +130,7 @@ public:
             auto [part_ctxs, part_funcs] = _get_partition_function();
             for (auto part_ctx : part_ctxs) {
                 RETURN_IF_ERROR(part_ctx->prepare(_state, *output_row_desc));
+                part_ctx->set_auto_partition_boundary_context();
                 RETURN_IF_ERROR(part_ctx->open(_state));
             }
         }
@@ -246,7 +245,6 @@ private:
     CreatePartitionCallback _create_partition_callback = nullptr;
     void* _caller = nullptr;
     std::shared_ptr<OlapTableSchemaParam> _schema;
-    bool _write_single_replica = false;
 
     // reuse for find_tablet. save partitions found by find_tablets
     std::vector<VOlapTablePartition*> _partitions;

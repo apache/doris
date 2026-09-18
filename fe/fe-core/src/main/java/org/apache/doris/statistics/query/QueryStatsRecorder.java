@@ -27,6 +27,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -34,42 +35,53 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * Records column-level query-hit and filter-hit statistics from the Nereids physical plan.
- * Called once per query in NereidsPlanner after plan translation.
+ * Only OlapTable scans are recorded; DML, EXPLAIN, and internal queries are skipped.
  *
- * <p>queryHit: SELECT output columns (alias-unwrapped), GROUP BY keys,
- * ORDER BY keys, window PARTITION BY / ORDER BY keys, aggregate input columns.
- * filterHit: WHERE predicate columns and JOIN ON conditions.
- * Only OlapTable scans are recorded. DML, EXPLAIN, and internal queries are skipped.
- * Per query each table's count is incremented at most once regardless of scan count.
+ * <p>{@code exprIdToScan} holds only base scan-backed ExprIds; every derived slot (alias,
+ * aggregate output, CTE consumer, set-op output) is an edge in {@code derivedSlotInputs}
+ * pointing at its own inputs. {@link #resolveBaseScanExprIds} expands that edge map
+ * recursively, however many computed hops deep a slot's provenance chain is.
  */
 public class QueryStatsRecorder {
     private static final Logger LOG = LogManager.getLogger(QueryStatsRecorder.class);
@@ -99,11 +111,12 @@ public class QueryStatsRecorder {
                     }
                 }
             }
-        } catch (Exception e) {
+        } catch (Throwable t) {
+            // Best-effort telemetry: catch Errors too (e.g. StackOverflowError), never break the query.
             ConnectContext cc = stmtContext.getConnectContext();
             String queryId = (cc != null && cc.queryId() != null)
                     ? cc.queryId().toString() : "unknown";
-            LOG.warn("Failed to build query stats deltas for query={}", queryId, e);
+            LOG.warn("Failed to build query stats deltas for query={}", queryId, t);
         }
     }
 
@@ -115,7 +128,10 @@ public class QueryStatsRecorder {
         Map<ExprId, PhysicalOlapScan> exprIdToScan = new HashMap<>();
         Map<ExprId, String> exprIdToColName = new HashMap<>();
         Map<String, StatsDelta> deltas = new HashMap<>();
-        walkPlan(plan, exprIdToScan, exprIdToColName, deltas);
+        // ExprId -> input slots for any derived slot (alias, aggregate output, CTE consumer
+        // slot, set-operation output). resolveBaseScanExprIds expands this recursively.
+        Map<ExprId, Set<Slot>> derivedSlotInputs = new HashMap<>();
+        walkPlan(plan, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
         if (exprIdToScan.isEmpty()) {
             return deltas;
         }
@@ -125,20 +141,9 @@ public class QueryStatsRecorder {
                 : plan.getOutput();
         for (NamedExpression ne : rootExprs) {
             SlotReference sr = unwrapAlias(ne);
-            if (sr == null) {
-                continue;
-            }
-            PhysicalOlapScan sourceScan = exprIdToScan.get(sr.getExprId());
-            if (sourceScan == null) {
-                continue;
-            }
-            StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
-            if (delta != null) {
-                String colName = sr.getOriginalColumn().map(col -> col.getName())
-                        .orElseGet(() -> exprIdToColName.get(sr.getExprId()));
-                if (colName != null) {
-                    delta.addQueryStats(colName);
-                }
+            ExprId lookupId = (sr != null) ? sr.getExprId() : ne.getExprId();
+            for (ExprId baseId : resolveBaseScanExprIds(lookupId, exprIdToScan, derivedSlotInputs)) {
+                recordExprIdAsQueryHit(baseId, exprIdToScan, exprIdToColName, deltas);
             }
         }
         return deltas;
@@ -170,17 +175,14 @@ public class QueryStatsRecorder {
     }
 
     /**
-     * Single-pass tree walk: registers scan output slots into exprIdToScan,
-     * records filterHit for WHERE conjuncts, and records queryHit for
-     * GROUP BY / ORDER BY / window keys and aggregate input columns.
-     * Children are visited before the current node so scans are registered first.
-     * PhysicalLazyMaterializeOlapScan is checked before PhysicalOlapScan
-     * because it is a subclass; the inner scan's metadata must be used.
+     * Single-pass tree walk: registers scan slots, records filterHit for WHERE/JOIN conditions,
+     * and queryHit for GROUP BY / ORDER BY / window keys and aggregate inputs.
      */
     private static void walkPlan(Plan plan,
             Map<ExprId, PhysicalOlapScan> exprIdToScan,
             Map<ExprId, String> exprIdToColName,
-            Map<String, StatsDelta> deltas) {
+            Map<String, StatsDelta> deltas,
+            Map<ExprId, Set<Slot>> derivedSlotInputs) {
         if (plan instanceof PhysicalStorageLayerAggregate) {
             // COUNT(*)/MIN/MAX pushdown — the aggregate wraps the real scan but has no children.
             PhysicalRelation inner = ((PhysicalStorageLayerAggregate) plan).getRelation();
@@ -216,22 +218,69 @@ public class QueryStatsRecorder {
             }
             return;
         }
-        // TODO: PhysicalCTEConsumer slots use consumer-side ExprIds that differ from the producer
-        // scan's ExprIds, so CTE column stats are silently missed. Fix requires mapping consumer
-        // slots back to producer slots via StatementContext.getConsumerToProducerSlotMap().
+        // PhysicalCTEProducer: walk its single child so the producer scan is registered
+        // before any PhysicalCTEConsumer nodes are encountered during the tree walk.
+        // Uses plan.children() for consistency with the rest of walkPlan.
+        if (plan instanceof PhysicalCTEProducer) {
+            walkPlan(plan.children().get(0),
+                    exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
+            return;
+        }
+        // PhysicalCTEConsumer: link consumer slots to producer slots; resolveBaseScanExprIds
+        // expands through this whether the producer column is direct or itself computed.
+        if (plan instanceof PhysicalCTEConsumer) {
+            PhysicalCTEConsumer cteConsumer = (PhysicalCTEConsumer) plan;
+            for (Slot consumerSlot : cteConsumer.getOutput()) {
+                Slot producerSlot = cteConsumer.getProducerSlot(consumerSlot);
+                derivedSlotInputs.put(consumerSlot.getExprId(), ImmutableSet.of(producerSlot));
+            }
+        }
+        // PhysicalRecursiveUnion extends PhysicalBinary (not PhysicalSetOperation): left() is the
+        // base case (wrapped in PhysicalRecursiveUnionAnchor), right() is the recursive case, which
+        // contains a PhysicalWorkTableReference re-scanning the base case's own output on every
+        // iteration. WorkTableReference's output slots get brand-new ExprIds (no named API back to
+        // the base case) that only positionally correspond to the base case's own output, scoped by
+        // matching CTEId to the anchor. Any Filter/Join predicate inside the recursive branch that
+        // references those slots is walked as part of walking right() below, so this linkage must
+        // be established in derivedSlotInputs in between walking left() and right() — the generic
+        // post-order recursion (walk all children, then run this node's own handler) can't do that,
+        // so PhysicalRecursiveUnion controls its own children's walk order here instead.
+        if (plan instanceof PhysicalRecursiveUnion) {
+            PhysicalRecursiveUnion<?, ?> recursiveUnion = (PhysicalRecursiveUnion<?, ?>) plan;
+            Plan baseCase = recursiveUnion.left();
+            Plan recursiveCase = recursiveUnion.right();
+            walkPlan(baseCase, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
+            List<List<SlotReference>> childrenOutputs = recursiveUnion.getRegularChildrenOutputs();
+            if (baseCase instanceof PhysicalRecursiveUnionAnchor && !childrenOutputs.isEmpty()) {
+                CTEId anchorCteId = ((PhysicalRecursiveUnionAnchor<?>) baseCase).getCteId();
+                List<SlotReference> baseOutput = childrenOutputs.get(0);
+                List<PhysicalWorkTableReference> workTables = recursiveCase.collectToList(
+                        node -> node instanceof PhysicalWorkTableReference
+                                && anchorCteId.equals(((PhysicalWorkTableReference) node).getCteId()));
+                for (PhysicalWorkTableReference workTable : workTables) {
+                    List<Slot> workTableOutput = workTable.getOutput();
+                    for (int i = 0; i < workTableOutput.size() && i < baseOutput.size(); i++) {
+                        derivedSlotInputs.put(workTableOutput.get(i).getExprId(),
+                                ImmutableSet.of(baseOutput.get(i)));
+                    }
+                }
+            }
+            walkPlan(recursiveCase, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
+            recordSetOpChildrenOutputs(recursiveUnion.getOutput(), childrenOutputs,
+                    exprIdToScan, exprIdToColName, deltas, derivedSlotInputs, false);
+            return;
+        }
         for (Plan child : plan.children()) {
-            walkPlan(child, exprIdToScan, exprIdToColName, deltas);
+            walkPlan(child, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
         }
         if (plan instanceof PhysicalFilter) {
             PhysicalFilter<?> filter = (PhysicalFilter<?>) plan;
             for (Expression conjunct : filter.getConjuncts()) {
-                recordInputSlotsAsFilterHit(conjunct, exprIdToScan, exprIdToColName, deltas);
+                recordInputSlotsAsFilterHit(conjunct, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
             }
         }
-        // Lazy-materialized columns are not in PhysicalLazyMaterializeOlapScan.getOutput()
-        // (only operative slots + row-id are). The parent PhysicalLazyMaterialize exposes
-        // the lazy slots via getLazySlots(). Use each row-id — already registered by the
-        // child scan branch — to look up the source scan and register the lazy ExprIds.
+        // Lazy columns are absent from PhysicalLazyMaterializeOlapScan.getOutput(); the parent
+        // PhysicalLazyMaterialize exposes them via getLazySlots(), linked by row-id to the scan.
         if (plan instanceof PhysicalLazyMaterialize) {
             PhysicalLazyMaterialize<?> lazy = (PhysicalLazyMaterialize<?>) plan;
             List<Relation> rels = lazy.getRelations();
@@ -254,16 +303,31 @@ public class QueryStatsRecorder {
             Aggregate<?> agg = (Aggregate<?>) plan;
             // GROUP BY keys
             for (Expression expr : agg.getGroupByExpressions()) {
-                recordInputSlotsAsQueryHit(expr, exprIdToScan, exprIdToColName, deltas);
+                recordInputSlotsAsQueryHit(expr, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
             }
             // Columns consumed by aggregate functions (e.g. k2 in SUM(k2))
             for (NamedExpression expr : agg.getOutputExpressions()) {
-                recordInputSlotsAsQueryHit(expr, exprIdToScan, exprIdToColName, deltas);
+                recordInputSlotsAsQueryHit(expr, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
+            }
+            // HAVING: link each non-scan-backed aggregate output to its own inputs, however
+            // computed those already are (e.g. HAVING SUM(x) where x is itself computed).
+            for (NamedExpression ne : agg.getOutputExpressions()) {
+                if (exprIdToScan.containsKey(ne.getExprId()) || ne instanceof Slot) {
+                    // Bare pass-through output (e.g. two-phase DISTINCT's merge phase reusing the
+                    // local phase's slot) — already linked there; getInputSlots() on a bare Slot
+                    // includes itself, which would self-loop here.
+                    continue;
+                }
+                Set<Slot> inputSlots = ne.getInputSlots();
+                if (!inputSlots.isEmpty()) {
+                    derivedSlotInputs.put(ne.getExprId(), inputSlots);
+                }
             }
         }
         if (plan instanceof AbstractPhysicalSort) {
             for (OrderKey orderKey : ((AbstractPhysicalSort<?>) plan).getOrderKeys()) {
-                recordInputSlotsAsQueryHit(orderKey.getExpr(), exprIdToScan, exprIdToColName, deltas);
+                recordInputSlotsAsQueryHit(orderKey.getExpr(), exprIdToScan, exprIdToColName, deltas,
+                        derivedSlotInputs);
             }
         }
         // PhysicalPartitionTopN does not extend AbstractPhysicalSort but also has ORDER BY and
@@ -271,10 +335,11 @@ public class QueryStatsRecorder {
         if (plan instanceof PhysicalPartitionTopN) {
             PhysicalPartitionTopN<?> ptn = (PhysicalPartitionTopN<?>) plan;
             for (Expression partKey : ptn.getPartitionKeys()) {
-                recordInputSlotsAsQueryHit(partKey, exprIdToScan, exprIdToColName, deltas);
+                recordInputSlotsAsQueryHit(partKey, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
             }
             for (OrderKey orderKey : ptn.getOrderKeys()) {
-                recordInputSlotsAsQueryHit(orderKey.getExpr(), exprIdToScan, exprIdToColName, deltas);
+                recordInputSlotsAsQueryHit(orderKey.getExpr(), exprIdToScan, exprIdToColName, deltas,
+                        derivedSlotInputs);
             }
         }
         // PhysicalRepeat handles ROLLUP/CUBE: group sets are like GROUP BY keys.
@@ -282,44 +347,108 @@ public class QueryStatsRecorder {
             PhysicalRepeat<?> repeat = (PhysicalRepeat<?>) plan;
             for (List<Expression> groupSet : repeat.getGroupingSets()) {
                 for (Expression expr : groupSet) {
-                    recordInputSlotsAsQueryHit(expr, exprIdToScan, exprIdToColName, deltas);
+                    recordInputSlotsAsQueryHit(expr, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
                 }
             }
             for (NamedExpression expr : repeat.getOutputExpressions()) {
-                recordInputSlotsAsQueryHit(expr, exprIdToScan, exprIdToColName, deltas);
+                recordInputSlotsAsQueryHit(expr, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
+            }
+            // HAVING GROUPING(a)/GROUPING_ID(...): link each non-scan-backed repeat output
+            // (e.g. Alias(Grouping(a), G)) to its own inputs, same guard as Aggregate HAVING.
+            for (NamedExpression ne : repeat.getOutputExpressions()) {
+                if (exprIdToScan.containsKey(ne.getExprId()) || ne instanceof Slot) {
+                    continue;
+                }
+                Set<Slot> inputSlots = ne.getInputSlots();
+                if (!inputSlots.isEmpty()) {
+                    derivedSlotInputs.put(ne.getExprId(), inputSlots);
+                }
             }
         }
         if (plan instanceof PhysicalWindow) {
             WindowFrameGroup wfg = ((PhysicalWindow<?>) plan).getWindowFrameGroup();
             Set<Expression> partitionKeys = wfg.getPartitionKeys();
             for (Expression expr : partitionKeys) {
-                recordInputSlotsAsQueryHit(expr, exprIdToScan, exprIdToColName, deltas);
+                recordInputSlotsAsQueryHit(expr, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
             }
             for (OrderExpression orderExpr : wfg.getOrderKeys()) {
-                recordInputSlotsAsQueryHit(orderExpr.child(), exprIdToScan, exprIdToColName, deltas);
+                recordInputSlotsAsQueryHit(orderExpr.child(), exprIdToScan, exprIdToColName, deltas,
+                        derivedSlotInputs);
             }
-            // queryHit for the window function value columns (e.g. k2 in SUM(k2) OVER (...)).
+            // queryHit for window value columns (e.g. k2 in SUM(k2) OVER (...)), and link the
+            // alias to the window's FULL input set (function args + partition + order keys) for
+            // a QUALIFY-style filter above. Positional functions like ROW_NUMBER have no function
+            // arguments, but still have partition/order keys, so windowExpr.getInputSlots() (not
+            // function.getInputSlots()) is used for the link — WindowExpression wires all three
+            // as children, so this is a single union, not three separate calls.
             for (NamedExpression windowAlias : wfg.getGroups()) {
                 Expression windowExpr = windowAlias.child(0);
                 if (windowExpr instanceof WindowExpression) {
-                    recordInputSlotsAsQueryHit(
-                            ((WindowExpression) windowExpr).getFunction(),
-                            exprIdToScan, exprIdToColName, deltas);
+                    Expression function = ((WindowExpression) windowExpr).getFunction();
+                    recordInputSlotsAsQueryHit(function, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
+                    if (!exprIdToScan.containsKey(windowAlias.getExprId())) {
+                        Set<Slot> inputSlots = windowExpr.getInputSlots();
+                        if (!inputSlots.isEmpty()) {
+                            derivedSlotInputs.put(windowAlias.getExprId(), inputSlots);
+                        }
+                    }
                 }
             }
         }
-        // filterHit for JOIN ON conditions (hash equality and non-equality predicates).
+        // filterHit for all JOIN ON conditions; mark conjuncts are a separate field not included
+        // in hashJoinConjuncts or otherJoinConjuncts (IN/EXISTS subquery correlation columns).
         if (plan instanceof AbstractPhysicalJoin) {
             AbstractPhysicalJoin<?, ?> join = (AbstractPhysicalJoin<?, ?>) plan;
             for (Expression conjunct : join.getHashJoinConjuncts()) {
-                recordInputSlotsAsFilterHit(conjunct, exprIdToScan, exprIdToColName, deltas);
+                recordInputSlotsAsFilterHit(conjunct, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
             }
             for (Expression conjunct : join.getOtherJoinConjuncts()) {
-                recordInputSlotsAsFilterHit(conjunct, exprIdToScan, exprIdToColName, deltas);
+                recordInputSlotsAsFilterHit(conjunct, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
+            }
+            for (Expression conjunct : join.getMarkJoinConjuncts()) {
+                recordInputSlotsAsFilterHit(conjunct, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
             }
         }
-        // Propagate alias ExprIds for intermediate PhysicalProject nodes so that parent
-        // plan output slots (derived from aliases) resolve back to the original scan.
+        // UNION / INTERSECT / EXCEPT: queryHit per branch, plus link the set op's own output
+        // slots to those branch slots so a filter kept above the set op (e.g. a volatile
+        // predicate PushDownFilterThroughSetOperation can't push down) still resolves. For
+        // EXCEPT and INTERSECT, only the first (build-side) branch's values ever reach the
+        // output block at execution time (see SetSourceOperatorX::_add_result_columns / the
+        // build-side DCHECK(_cur_child_id == 0) in set_sink_operator.cpp) — later branches are
+        // scanned only to probe/exclude — so the output-slot link is restricted to branch 0.
+        if (plan instanceof PhysicalSetOperation) {
+            PhysicalSetOperation setOp = (PhysicalSetOperation) plan;
+            recordSetOpChildrenOutputs(setOp.getOutput(), setOp.getRegularChildrenOutputs(),
+                    exprIdToScan, exprIdToColName, deltas, derivedSlotInputs,
+                    plan instanceof PhysicalExcept || plan instanceof PhysicalIntersect);
+        }
+        // LATERAL VIEW / EXPLODE: queryHit for generator inputs; filterHit for the generator's
+        // own ON predicate (e.g. table-function join), sent straight to TableFunctionNode.
+        // generators[i] positionally produces generatorOutput[i] (see MergeGenerates), so link
+        // each output slot back to its generator's inputs for a parent GROUP BY/filter on it.
+        if (plan instanceof PhysicalGenerate) {
+            PhysicalGenerate<?> generate = (PhysicalGenerate<?>) plan;
+            List<Function> generators = generate.getGenerators();
+            List<Slot> generatorOutput = generate.getGeneratorOutput();
+            for (int i = 0; i < generators.size(); i++) {
+                Function generator = generators.get(i);
+                recordInputSlotsAsQueryHit(generator, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
+                if (i >= generatorOutput.size()) {
+                    continue;
+                }
+                Slot outputSlot = generatorOutput.get(i);
+                if (!exprIdToScan.containsKey(outputSlot.getExprId())) {
+                    Set<Slot> inputSlots = generator.getInputSlots();
+                    if (!inputSlots.isEmpty()) {
+                        derivedSlotInputs.put(outputSlot.getExprId(), inputSlots);
+                    }
+                }
+            }
+            for (Expression conjunct : generate.getConjuncts()) {
+                recordInputSlotsAsFilterHit(conjunct, exprIdToScan, exprIdToColName, deltas, derivedSlotInputs);
+            }
+        }
+        // Link alias ExprIds to their input slots so parent output resolves back to the scan.
         if (plan instanceof PhysicalProject) {
             for (NamedExpression ne : ((PhysicalProject<?>) plan).getProjects()) {
                 if (exprIdToScan.containsKey(ne.getExprId())) {
@@ -327,31 +456,121 @@ public class QueryStatsRecorder {
                 }
                 SlotReference underlying = unwrapAlias(ne);
                 if (underlying != null && !underlying.getExprId().equals(ne.getExprId())) {
-                    // Simple alias: Alias(SlotRef) — propagate scan and column name.
-                    PhysicalOlapScan scan = exprIdToScan.get(underlying.getExprId());
-                    if (scan != null) {
-                        exprIdToScan.put(ne.getExprId(), scan);
-                        String colName = exprIdToColName.get(underlying.getExprId());
-                        if (colName != null) {
-                            exprIdToColName.put(ne.getExprId(), colName);
-                        }
-                    }
+                    // Simple alias: Alias(SlotRef) — one input slot, same identity chain.
+                    derivedSlotInputs.put(ne.getExprId(), ImmutableSet.of(underlying));
                 } else if (underlying == null && ne instanceof Alias) {
-                    // Complex alias: Alias(Cast(col), name) — created by
-                    // PushDownExpressionsInHashCondition for type-mismatched join keys.
-                    // If all input slots trace back to one scan, propagate to the alias ExprId.
+                    // Computed alias: Alias(k1+k2), Alias(Cast(k1)) join-key cast, etc.
                     Set<Slot> inputSlots = ((Alias) ne).child().getInputSlots();
-                    if (inputSlots.size() == 1) {
-                        Slot inputSlot = inputSlots.iterator().next();
-                        PhysicalOlapScan scan = exprIdToScan.get(inputSlot.getExprId());
-                        if (scan != null) {
-                            exprIdToScan.put(ne.getExprId(), scan);
-                            String colName = exprIdToColName.get(inputSlot.getExprId());
-                            if (colName != null) {
-                                exprIdToColName.put(ne.getExprId(), colName);
-                            }
-                        }
+                    if (!inputSlots.isEmpty()) {
+                        derivedSlotInputs.put(ne.getExprId(), inputSlots);
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * Resolves an ExprId down to the base scan-backed ExprIds it derives from, recursing
+     * through derivedSlotInputs for any non-scan slot. Shared by every call site.
+     */
+    private static Set<ExprId> resolveBaseScanExprIds(ExprId exprId,
+            Map<ExprId, PhysicalOlapScan> exprIdToScan,
+            Map<ExprId, Set<Slot>> derivedSlotInputs) {
+        return resolveBaseScanExprIds(exprId, exprIdToScan, derivedSlotInputs, new HashSet<>());
+    }
+
+    // visiting guards against a cyclic derivedSlotInputs entry causing unbounded recursion.
+    private static Set<ExprId> resolveBaseScanExprIds(ExprId exprId,
+            Map<ExprId, PhysicalOlapScan> exprIdToScan,
+            Map<ExprId, Set<Slot>> derivedSlotInputs,
+            Set<ExprId> visiting) {
+        if (exprIdToScan.containsKey(exprId)) {
+            return ImmutableSet.of(exprId);
+        }
+        if (!visiting.add(exprId)) {
+            return ImmutableSet.of();
+        }
+        Set<Slot> inputSlots = derivedSlotInputs.get(exprId);
+        if (inputSlots == null) {
+            return ImmutableSet.of();
+        }
+        ImmutableSet.Builder<ExprId> result = ImmutableSet.builder();
+        for (Slot slot : inputSlots) {
+            if (slot instanceof SlotReference) {
+                result.addAll(resolveBaseScanExprIds(slot.getExprId(), exprIdToScan, derivedSlotInputs, visiting));
+            }
+        }
+        return result.build();
+    }
+
+    private static void recordExprIdAsQueryHit(ExprId baseExprId,
+            Map<ExprId, PhysicalOlapScan> exprIdToScan,
+            Map<ExprId, String> exprIdToColName,
+            Map<String, StatsDelta> deltas) {
+        PhysicalOlapScan scan = exprIdToScan.get(baseExprId);
+        if (scan == null) {
+            return;
+        }
+        StatsDelta delta = getOrCreateDelta(deltas, scan);
+        if (delta == null) {
+            return;
+        }
+        String colName = exprIdToColName.get(baseExprId);
+        if (colName != null) {
+            delta.addQueryStats(colName);
+        }
+    }
+
+    private static void recordExprIdAsFilterHit(ExprId baseExprId,
+            Map<ExprId, PhysicalOlapScan> exprIdToScan,
+            Map<ExprId, String> exprIdToColName,
+            Map<String, StatsDelta> deltas) {
+        PhysicalOlapScan scan = exprIdToScan.get(baseExprId);
+        if (scan == null) {
+            return;
+        }
+        StatsDelta delta = getOrCreateDelta(deltas, scan);
+        if (delta == null) {
+            return;
+        }
+        String colName = exprIdToColName.get(baseExprId);
+        if (colName != null) {
+            delta.addFilterStats(colName);
+        }
+    }
+
+    /** Shared by PhysicalSetOperation and PhysicalRecursiveUnion — both expose the same
+     *  getOutput()/getRegularChildrenOutputs() contract and need identical recording logic.
+     *  onlyFirstBranchLinksOutput is true for EXCEPT: every branch is still scanned and gets
+     *  queryHit, but only the first branch's values ever reach the output, so a filter kept
+     *  above the EXCEPT must not resolve back to a later (subtracted-away) branch's column. */
+    private static void recordSetOpChildrenOutputs(
+            List<Slot> setOpOutput,
+            List<List<SlotReference>> childrenOutputs,
+            Map<ExprId, PhysicalOlapScan> exprIdToScan,
+            Map<ExprId, String> exprIdToColName,
+            Map<String, StatsDelta> deltas,
+            Map<ExprId, Set<Slot>> derivedSlotInputs,
+            boolean onlyFirstBranchLinksOutput) {
+        for (int branchIdx = 0; branchIdx < childrenOutputs.size(); branchIdx++) {
+            List<SlotReference> childOutput = childrenOutputs.get(branchIdx);
+            boolean linkOutput = !onlyFirstBranchLinksOutput || branchIdx == 0;
+            for (int i = 0; i < childOutput.size(); i++) {
+                SlotReference branchSlot = childOutput.get(i);
+                for (ExprId baseId : resolveBaseScanExprIds(branchSlot.getExprId(), exprIdToScan,
+                        derivedSlotInputs)) {
+                    recordExprIdAsQueryHit(baseId, exprIdToScan, exprIdToColName, deltas);
+                }
+                if (!linkOutput || i >= setOpOutput.size()) {
+                    continue;
+                }
+                Slot outputSlot = setOpOutput.get(i);
+                if (outputSlot instanceof SlotReference && !exprIdToScan.containsKey(outputSlot.getExprId())
+                        && !outputSlot.getExprId().equals(branchSlot.getExprId())) {
+                    // Skip self-reuse (output slot IS the branch slot) — would self-loop; the
+                    // branch's queryHit is already recorded above regardless.
+                    derivedSlotInputs.computeIfAbsent(outputSlot.getExprId(), k -> new HashSet<>())
+                            .add(branchSlot);
                 }
             }
         }
@@ -360,23 +579,14 @@ public class QueryStatsRecorder {
     private static void recordInputSlotsAsQueryHit(Expression expr,
             Map<ExprId, PhysicalOlapScan> exprIdToScan,
             Map<ExprId, String> exprIdToColName,
-            Map<String, StatsDelta> deltas) {
+            Map<String, StatsDelta> deltas,
+            Map<ExprId, Set<Slot>> derivedSlotInputs) {
         for (Slot slot : expr.getInputSlots()) {
             if (!(slot instanceof SlotReference)) {
                 continue;
             }
-            SlotReference sr = (SlotReference) slot;
-            PhysicalOlapScan sourceScan = exprIdToScan.get(sr.getExprId());
-            if (sourceScan == null) {
-                continue;
-            }
-            StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
-            if (delta != null) {
-                String colName = sr.getOriginalColumn().map(col -> col.getName())
-                        .orElseGet(() -> exprIdToColName.get(sr.getExprId()));
-                if (colName != null) {
-                    delta.addQueryStats(colName);
-                }
+            for (ExprId baseId : resolveBaseScanExprIds(slot.getExprId(), exprIdToScan, derivedSlotInputs)) {
+                recordExprIdAsQueryHit(baseId, exprIdToScan, exprIdToColName, deltas);
             }
         }
     }
@@ -384,23 +594,14 @@ public class QueryStatsRecorder {
     private static void recordInputSlotsAsFilterHit(Expression expr,
             Map<ExprId, PhysicalOlapScan> exprIdToScan,
             Map<ExprId, String> exprIdToColName,
-            Map<String, StatsDelta> deltas) {
+            Map<String, StatsDelta> deltas,
+            Map<ExprId, Set<Slot>> derivedSlotInputs) {
         for (Slot slot : expr.getInputSlots()) {
             if (!(slot instanceof SlotReference)) {
                 continue;
             }
-            SlotReference sr = (SlotReference) slot;
-            PhysicalOlapScan sourceScan = exprIdToScan.get(sr.getExprId());
-            if (sourceScan == null) {
-                continue;
-            }
-            StatsDelta delta = getOrCreateDelta(deltas, sourceScan);
-            if (delta != null) {
-                String colName = sr.getOriginalColumn().map(col -> col.getName())
-                        .orElseGet(() -> exprIdToColName.get(sr.getExprId()));
-                if (colName != null) {
-                    delta.addFilterStats(colName);
-                }
+            for (ExprId baseId : resolveBaseScanExprIds(slot.getExprId(), exprIdToScan, derivedSlotInputs)) {
+                recordExprIdAsFilterHit(baseId, exprIdToScan, exprIdToColName, deltas);
             }
         }
     }

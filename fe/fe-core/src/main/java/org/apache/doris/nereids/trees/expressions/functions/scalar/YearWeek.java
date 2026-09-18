@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -43,7 +44,9 @@ public class YearWeek extends ScalarFunction
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE));
+            FunctionSignature.ret(IntegerType.INSTANCE).args(TimeStampNsType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(DateTimeV2Type.WILDCARD, IntegerType.INSTANCE),
+            FunctionSignature.ret(IntegerType.INSTANCE).args(TimeStampNsType.INSTANCE, IntegerType.INSTANCE));
 
     /**
      * constructor with 1 argument.

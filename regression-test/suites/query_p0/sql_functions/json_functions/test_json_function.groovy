@@ -83,10 +83,11 @@ suite("test_json_function", "arrow_flight_sql") {
 
     qt_sql "SELECT json_extract_no_quotes('[1, 2, 3]', '\$.[1]');"
     qt_sql "SELECT json_extract_no_quotes('{\"id\": 123, \"name\": \"doris\"}', '\$.name');"
-    qt_sql "SELECT json_extract_no_quotes('{\"id\": 123, \"name\": \"doris\"}', '\$.id', null);"
     qt_sql "SELECT json_extract_no_quotes(null, '\$.id');"
-    qt_sql "SELECT json_extract_no_quotes('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k1', '\$.k2');"
-    qt_sql "SELECT json_extract_no_quotes('{\"k1\": \"v1\", \"k2\": { \"k21\": 6.6, \"k22\": [1, 2, 3] } }', '\$.k2.k21', '\$.k2.k22', '\$.k2.k22[1]');"
+    test {
+        sql "SELECT json_extract_no_quotes('{\"id\": 123, \"name\": \"doris\"}', '\$.id', null);"
+        exception "Can not found function 'json_extract_no_quotes' which has 3 arity"
+    }
 
     // invalid json path
     qt_sql """select get_json_string('{"name\\k" : 123}', '\$.name\\k')"""

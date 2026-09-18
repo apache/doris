@@ -26,10 +26,11 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -60,8 +61,8 @@ public class CreateTableTest extends TestWithFeService {
         createTable(sql);
         Set<Long> tabletIdSetAfterCreateFirstTable = env.getTabletInvertedIndex().getReplicaMetaTable().rowKeySet();
         Set<Long> colocateTableIdBeforeCreateFirstTable = env.getColocateTableIndex().getTable2Group().keySet();
-        Assert.assertTrue(colocateTableIdBeforeCreateFirstTable.size() > 0);
-        Assert.assertTrue(tabletIdSetAfterCreateFirstTable.size() > 0);
+        Assertions.assertTrue(colocateTableIdBeforeCreateFirstTable.size() > 0);
+        Assertions.assertTrue(tabletIdSetAfterCreateFirstTable.size() > 0);
 
         createTable(sql);
         // check whether tablet is cleared after duplicate create table
@@ -69,13 +70,13 @@ public class CreateTableTest extends TestWithFeService {
         Set<Long> tabletIdSetAfterDuplicateCreateTable2 = env.getTabletInvertedIndex().getBackingReplicaMetaTable().columnKeySet();
         Set<Long> tabletIdSetAfterDuplicateCreateTable3 = env.getTabletInvertedIndex().getTabletMetaMap().keySet();
 
-        Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable1);
-        Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable2);
-        Assert.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable3);
+        Assertions.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable1);
+        Assertions.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable2);
+        Assertions.assertEquals(tabletIdSetAfterCreateFirstTable, tabletIdSetAfterDuplicateCreateTable3);
 
         // check whether table id is cleared from colocate group after duplicate create table
         Set<Long> colocateTableIdAfterCreateFirstTable = env.getColocateTableIndex().getTable2Group().keySet();
-        Assert.assertEquals(colocateTableIdBeforeCreateFirstTable, colocateTableIdAfterCreateFirstTable);
+        Assertions.assertEquals(colocateTableIdBeforeCreateFirstTable, colocateTableIdAfterCreateFirstTable);
     }
 
     @Test
@@ -226,37 +227,50 @@ public class CreateTableTest extends TestWithFeService {
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable rowBinlogNormal = (OlapTable) db.getTableOrDdlException("row_binlog_normal");
-        Assert.assertTrue(rowBinlogNormal.needRowBinlog());
-        Assert.assertNotNull(rowBinlogNormal.getAutoIncrementGenerator());
-        Assert.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
+        Assertions.assertTrue(rowBinlogNormal.needRowBinlog());
+        Assertions.assertNotNull(rowBinlogNormal.getAutoIncrementGenerator());
+        Assertions.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
                 rowBinlogNormal.getAutoIncrementGenerator().getColumnId());
+        boolean foundRowBinlogIndex = false;
+        for (Partition partition : rowBinlogNormal.getPartitions()) {
+            for (MaterializedIndex index
+                    : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)) {
+                foundRowBinlogIndex |= index.isRowBinlog();
+                for (Tablet tablet : index.getTablets()) {
+                    TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tablet.getId());
+                    Assertions.assertNotNull(tabletMeta);
+                    Assertions.assertEquals(index.isRowBinlog(), tabletMeta.isRowBinlog());
+                }
+            }
+        }
+        Assertions.assertTrue(foundRowBinlogIndex);
 
         OlapTable rowBinlogUnique = (OlapTable) db.getTableOrDdlException("row_binlog_unique");
-        Assert.assertTrue(rowBinlogUnique.needRowBinlog());
-        Assert.assertNotNull(rowBinlogUnique.getAutoIncrementGenerator());
-        Assert.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
+        Assertions.assertTrue(rowBinlogUnique.needRowBinlog());
+        Assertions.assertNotNull(rowBinlogUnique.getAutoIncrementGenerator());
+        Assertions.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
                 rowBinlogUnique.getAutoIncrementGenerator().getColumnId());
 
         OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
-        Assert.assertTrue(tbl6.getColumn("k1").isKey());
-        Assert.assertTrue(tbl6.getColumn("k2").isKey());
-        Assert.assertTrue(tbl6.getColumn("k3").isKey());
+        Assertions.assertTrue(tbl6.getColumn("k1").isKey());
+        Assertions.assertTrue(tbl6.getColumn("k2").isKey());
+        Assertions.assertTrue(tbl6.getColumn("k3").isKey());
 
         OlapTable tbl7 = (OlapTable) db.getTableOrDdlException("tbl7");
-        Assert.assertTrue(tbl7.getColumn("k1").isKey());
-        Assert.assertFalse(tbl7.getColumn("k2").isKey());
-        Assert.assertTrue(tbl7.getColumn("k2").getAggregationType() == AggregateType.NONE);
+        Assertions.assertTrue(tbl7.getColumn("k1").isKey());
+        Assertions.assertFalse(tbl7.getColumn("k2").isKey());
+        Assertions.assertTrue(tbl7.getColumn("k2").getAggregationType() == AggregateType.NONE);
 
         OlapTable tbl8 = (OlapTable) db.getTableOrDdlException("tbl8");
-        Assert.assertTrue(tbl8.getColumn("k1").isKey());
-        Assert.assertTrue(tbl8.getColumn("k2").isKey());
-        Assert.assertFalse(tbl8.getColumn("v1").isKey());
-        Assert.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
+        Assertions.assertTrue(tbl8.getColumn("k1").isKey());
+        Assertions.assertTrue(tbl8.getColumn("k2").isKey());
+        Assertions.assertFalse(tbl8.getColumn("v1").isKey());
+        Assertions.assertTrue(tbl8.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
 
         OlapTable tbl13 = (OlapTable) db.getTableOrDdlException("tbl13");
-        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
-        Assert.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getType() == Type.INT);
-        Assert.assertEquals(tbl13.getSequenceMapCol(), "v1");
+        Assertions.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getAggregationType() == AggregateType.NONE);
+        Assertions.assertTrue(tbl13.getColumn(Column.SEQUENCE_COL).getType() == Type.INT);
+        Assertions.assertEquals(tbl13.getSequenceMapCol(), "v1");
 
         ExceptionChecker.expectThrowsNoException(
                 () -> createTable("create table test.tbl14\n" + "(k1 int, k2 int default 10)\n" + "duplicate key(k1)\n"
@@ -269,6 +283,23 @@ public class CreateTableTest extends TestWithFeService {
         ExceptionChecker.expectThrowsNoException(
                 () -> createTable("create table test.tbl17\n" + "(k1 int, k2 decimal(10,2) default 10.3)\n" + "duplicate key(k1)\n"
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1'); "));
+    }
+
+    @Test
+    public void testPartitionsStoreTableInvertedIndexStorageFormat() throws Exception {
+        createTable("CREATE TABLE test.partition_inverted_index_format (k1 INT) "
+                + "DUPLICATE KEY(k1) PARTITION BY RANGE(k1) "
+                + "(PARTITION p1 VALUES LESS THAN ('10')) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
+                + "PROPERTIES('replication_num' = '1', 'inverted_index_storage_format' = 'SNII')");
+        executeSql("ALTER TABLE test.partition_inverted_index_format "
+                + "ADD PARTITION p2 VALUES LESS THAN ('20')");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable table = (OlapTable) db.getTableOrDdlException("partition_inverted_index_format");
+        Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII, table.getPartitionInfo()
+                .getInvertedIndexFileStorageFormat(table.getPartition("p1").getId()));
+        Assertions.assertEquals(TInvertedIndexFileStorageFormat.SNII, table.getPartitionInfo()
+                .getInvertedIndexFileStorageFormat(table.getPartition("p2").getId()));
     }
 
     @Test
@@ -786,10 +817,10 @@ public class CreateTableTest extends TestWithFeService {
         });
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tb = (OlapTable) db.getTableOrDdlException("test_strLen");
-        Assert.assertEquals(1, tb.getColumn("k1").getStrLen());
-        Assert.assertEquals(10, tb.getColumn("k2").getStrLen());
-        Assert.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, tb.getColumn("k3").getStrLen());
-        Assert.assertEquals(10, tb.getColumn("k4").getStrLen());
+        Assertions.assertEquals(1, tb.getColumn("k1").getStrLen());
+        Assertions.assertEquals(10, tb.getColumn("k2").getStrLen());
+        Assertions.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, tb.getColumn("k3").getStrLen());
+        Assertions.assertEquals(10, tb.getColumn("k4").getStrLen());
     }
 
     @Test
@@ -812,8 +843,8 @@ public class CreateTableTest extends TestWithFeService {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
             OlapTable tb = (OlapTable) db.getTableOrDdlException("test_replica");
             Partition p1 = tb.getPartition("p1");
-            Assert.assertEquals(1, tb.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum());
-            Assert.assertEquals(1, tb.getTableProperty().getReplicaAllocation().getTotalReplicaNum());
+            Assertions.assertEquals(1, tb.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum());
+            Assertions.assertEquals(1, tb.getTableProperty().getReplicaAllocation().getTotalReplicaNum());
         } finally {
             Config.force_olap_table_replication_num = -1;
         }
@@ -823,14 +854,14 @@ public class CreateTableTest extends TestWithFeService {
     public void testCreateTableDetailMsg() throws Exception {
         Map<Tag, Short> allocMap = Maps.newHashMap();
         allocMap.put(Tag.create(Tag.TYPE_LOCATION, "group_a"),  (short) 6);
-        Assert.assertEquals(" Backends details: backends with tag {\"location\" : \"group_a\"} is [], ",
+        Assertions.assertEquals(" Backends details: backends with tag {\"location\" : \"group_a\"} is [], ",
                 Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap)));
 
         allocMap.clear();
         allocMap.put(Tag.create(Tag.TYPE_LOCATION, new String(Tag.VALUE_DEFAULT_TAG)),  (short) 6);
         String msg = Env.getCurrentSystemInfo().getDetailsForCreateReplica(new ReplicaAllocation(allocMap));
-        Assert.assertTrue("msg: " + msg, msg.contains("Backends details: backends with tag {\"location\" : \"default\"} is [[backendId=")
-                && msg.contains("hdd disks count={ok=1,}, ssd disk count={}], [backendId="));
+        Assertions.assertTrue(msg.contains("Backends details: backends with tag {\"location\" : \"default\"} is [[backendId=")
+                && msg.contains("hdd disks count={ok=1,}, ssd disk count={}], [backendId="), "msg: " + msg);
     }
 
     @Test
@@ -847,18 +878,18 @@ public class CreateTableTest extends TestWithFeService {
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tbl1 = (OlapTable) db.getTableOrDdlException("tbl_min_load_replica_num_1");
-        Assert.assertEquals(1, tbl1.getMinLoadReplicaNum());
-        Assert.assertEquals(2, (int) tbl1.getDefaultReplicaAllocation().getTotalReplicaNum());
+        Assertions.assertEquals(1, tbl1.getMinLoadReplicaNum());
+        Assertions.assertEquals(2, (int) tbl1.getDefaultReplicaAllocation().getTotalReplicaNum());
 
         ExceptionChecker.expectThrowsNoException(
                 () -> alterTableSync("alter table test.tbl_min_load_replica_num_1\n"
                                  + " set ( 'min_load_replica_num' = '2');"));
-        Assert.assertEquals(2, tbl1.getMinLoadReplicaNum());
+        Assertions.assertEquals(2, tbl1.getMinLoadReplicaNum());
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to check min load replica num",
                 () -> alterTableSync("alter table test.tbl_min_load_replica_num_1\n"
                                  + " set ( 'min_load_replica_num' = '3');"));
-        Assert.assertEquals(2, tbl1.getMinLoadReplicaNum());
+        Assertions.assertEquals(2, tbl1.getMinLoadReplicaNum());
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "min_load_replica_num should > 0 or =-1",
                 () -> alterTableSync("alter table test.tbl_min_load_replica_num_1\n"
@@ -891,7 +922,7 @@ public class CreateTableTest extends TestWithFeService {
                                   + ");"));
 
         OlapTable tbl3 = (OlapTable) db.getTableOrDdlException("tbl_min_load_replica_num_3");
-        Assert.assertEquals(1, tbl3.getMinLoadReplicaNum());
+        Assertions.assertEquals(1, tbl3.getMinLoadReplicaNum());
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to check min load replica num",
                 () -> createTable("create table test.tbl_min_load_replica_num_4\n"
@@ -1040,10 +1071,10 @@ public class CreateTableTest extends TestWithFeService {
         Database db =
                 Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_trim_property_key");
-        Assert.assertEquals(1, table.getMinLoadReplicaNum());
-        Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getEnable());
-        Assert.assertEquals("DAY", table.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
-        Assert.assertEquals(3, table.getTableProperty().getDynamicPartitionProperty().getEnd());
+        Assertions.assertEquals(1, table.getMinLoadReplicaNum());
+        Assertions.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getEnable());
+        Assertions.assertEquals("DAY", table.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
+        Assertions.assertEquals(3, table.getTableProperty().getDynamicPartitionProperty().getEnd());
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Invalid dynamic partition properties: dynamic_partition. enable",
@@ -1086,10 +1117,10 @@ public class CreateTableTest extends TestWithFeService {
         Database db =
                 Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("tbl_trim_property_key_with_nereids");
-        Assert.assertEquals(1, table.getMinLoadReplicaNum());
-        Assert.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getEnable());
-        Assert.assertEquals("DAY", table.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
-        Assert.assertEquals(3, table.getTableProperty().getDynamicPartitionProperty().getEnd());
+        Assertions.assertEquals(1, table.getMinLoadReplicaNum());
+        Assertions.assertTrue(table.getTableProperty().getDynamicPartitionProperty().getEnable());
+        Assertions.assertEquals("DAY", table.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
+        Assertions.assertEquals(3, table.getTableProperty().getDynamicPartitionProperty().getEnd());
 
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
                 "Invalid dynamic partition properties: dynamic_partition. enable",

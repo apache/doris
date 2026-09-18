@@ -33,8 +33,9 @@ namespace doris {
 
 struct MockUnionSourceOperator : public UnionSourceOperatorX {
     MockUnionSourceOperator(int32_t child_size, DataTypes types, ObjectPool* pool)
-            : UnionSourceOperatorX(child_size), _mock_row_descriptor(types, pool) {}
-    RowDescriptor& row_descriptor() override { return _mock_row_descriptor; }
+            : UnionSourceOperatorX(child_size), _mock_row_descriptor(types, pool) {
+        _row_descriptor = _mock_row_descriptor;
+    }
     MockRowDescriptor _mock_row_descriptor;
 };
 
@@ -254,7 +255,9 @@ TEST_F(UnionOperatorTest, test_sink_and_source) {
 
     {
         for (int i = 0; i < child_size; i++) {
-            sink_state[i]->_batch_size = 2;
+            // Each sink input should be queued immediately, including materialized children whose
+            // input is smaller than the runtime batch size.
+            sink_state[i]->_batch_size = 10;
             Block block = ColumnHelper::create_block<DataTypeInt64>({1, 2}, {3, 4});
             EXPECT_TRUE(sink_ops[i]->sink(sink_state[i].get(), &block, false));
         }

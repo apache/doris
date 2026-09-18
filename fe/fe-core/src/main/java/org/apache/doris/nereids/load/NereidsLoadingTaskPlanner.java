@@ -39,6 +39,8 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TUniqueId;
@@ -78,6 +80,7 @@ public class NereidsLoadingTaskPlanner {
     private final boolean enableMemtableOnSinkNode;
     private UserIdentity userInfo;
     private final DescriptorTable descTable = new DescriptorTable();
+    private BackendSelection.SelectionHint loadBackendSelectionHint;
 
     // Output params
     private List<PlanFragment> fragments = Lists.newArrayList();
@@ -115,6 +118,13 @@ public class NereidsLoadingTaskPlanner {
      */
     public void plan(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded)
             throws UserException {
+        // Broker loads are planned asynchronously and may execute after the submitting session
+        // has changed. Re-assert the job-owned hint immediately before planning every sink and
+        // scan, so no current/global session value can replace the persisted decision.
+        ConnectContext planningContext = ConnectContext.get();
+        if (planningContext != null) {
+            BackendSelectionManager.restoreLoadSelection(planningContext, loadBackendSelectionHint);
+        }
         if (isPartialUpdate && !table.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
         }
@@ -124,19 +134,15 @@ public class NereidsLoadingTaskPlanner {
 
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {
+            List<NereidsImportColumnDesc> importColumnDescs = fileGroups.get(0).getColumnExprList();
             for (Column col : table.getFullSchema()) {
-                boolean existInExpr = false;
-                for (NereidsImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {
-                    if (importColumnDesc.getColumnName() != null
-                            && importColumnDesc.getColumnName().equals(col.getName())) {
-                        if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
-                            throw new UserException("Partial update should not include invisible column except"
-                                    + " delete sign column: " + col.getName());
-                        }
-                        partialUpdateInputColumns.add(col.getName());
-                        existInExpr = true;
-                        break;
+                boolean existInExpr = NereidsLoadUtils.hasImportColumn(importColumnDescs, col);
+                if (existInExpr) {
+                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                        throw new UserException("Partial update should not include invisible column except"
+                                + " delete sign column: " + col.getName());
                     }
+                    partialUpdateInputColumns.add(col.getName());
                 }
                 if (col.isKey() && !existInExpr) {
                     throw new UserException("Partial update should include all key columns, missing: " + col.getName());
@@ -213,6 +219,10 @@ public class NereidsLoadingTaskPlanner {
             fragment.finalize(null);
         }
         Collections.reverse(fragments);
+    }
+
+    public void setLoadBackendSelectionHint(BackendSelection.SelectionHint hint) {
+        loadBackendSelectionHint = hint;
     }
 
     public DescriptorTable getDescTable() {

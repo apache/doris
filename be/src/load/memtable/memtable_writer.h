@@ -62,7 +62,7 @@ public:
                 std::shared_ptr<PartialUpdateInfo> partial_update_info,
                 std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow = false);
 
-    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+    Status write(const Block* block, const TabletAddRowsPayload& rows,
                  bool* memtable_flushed = nullptr);
 
     // flush the last memtable to flush queue, must call it before close_wait()
@@ -103,13 +103,7 @@ public:
 
     uint64_t flush_running_count() const;
 
-    uint64_t workload_group_id() const {
-        auto wg = _resource_ctx->workload_group();
-        if (wg != nullptr) {
-            return wg->id();
-        }
-        return 0;
-    }
+    uint64_t workload_group_id() const;
 
 private:
     Status _flush_memtable();
@@ -130,6 +124,7 @@ private:
     std::shared_ptr<MemTable> _mem_table;
     TabletSchemaSPtr _tablet_schema;
     bool _unique_key_mow = false;
+    bool _need_lsn = false;
 
     // This variable is accessed from writer thread and token flush thread
     // use a shared ptr to avoid use after free problem.

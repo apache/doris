@@ -545,6 +545,10 @@ void ColumnVector<T>::replace_float_special_values() {
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.
+/// A new instantiation here needs the matching 'extern template' declaration
+/// in column_vector.h: without it, every TU that uses the specialization
+/// silently instantiates its own copy again (enforced by
+/// build-support/check-extern-template-pairing.py at configure time).
 template class ColumnVector<TYPE_BOOLEAN>;
 template class ColumnVector<TYPE_TINYINT>;
 template class ColumnVector<TYPE_SMALLINT>;
@@ -559,6 +563,7 @@ template class ColumnVector<TYPE_DATE>;
 template class ColumnVector<TYPE_DATEV2>;
 template class ColumnVector<TYPE_DATETIME>;
 template class ColumnVector<TYPE_DATETIMEV2>;
+template class ColumnVector<TYPE_TIMESTAMP_NS>;
 template class ColumnVector<TYPE_TIMEV2>;
 template class ColumnVector<TYPE_TIMESTAMPTZ>;
 template class ColumnVector<TYPE_UINT32>;

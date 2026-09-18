@@ -551,12 +551,9 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
                         const UInt8* __restrict null_map_data, UInt8* __restrict filled_flag,
                         const size_t input_rows_count) {
     if (result_column->size() == 0 && input_rows_count) {
-        result_column->resize(input_rows_count);
-        auto* __restrict result_raw_data =
-                assert_cast<ColumnType*>(result_column.get())->get_data().data();
-        for (int i = 0; i < input_rows_count; i++) {
-            result_raw_data[i] = {};
-        }
+        // The branchless accumulation below requires an all-zero buffer. Do not value-initialize
+        // date-like types here because their default values may have non-zero packed bits.
+        assert_cast<ColumnType*>(result_column.get())->get_data().resize_fill(input_rows_count);
     }
     auto* __restrict result_raw_data =
             assert_cast<ColumnType*>(result_column.get())->get_data().data();
@@ -577,6 +574,11 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
                     result_raw_data[row].to_date_int_val() +
                     column_raw_data[row].to_date_int_val() *
                             uint64_t(!(null_map_data[row] | filled_flag[row])));
+        } else if constexpr (std::is_same_v<ColumnType, ColumnTimeStampNs>) {
+            result_raw_data[row] =
+                    TimeStampNsValue(result_raw_data[row].epoch_nanos() +
+                                     column_raw_data[row].epoch_nanos() *
+                                             int64_t(!(null_map_data[row] | filled_flag[row])));
         } else if constexpr (std::is_same_v<ColumnType, ColumnTimeStampTz>) {
             result_raw_data[row] = binary_cast<uint64_t, TimestampTzValue>(
                     result_raw_data[row].to_date_int_val() +
@@ -676,6 +678,7 @@ Status VectorizedCoalesceExpr::execute_column_impl(VExprContext* context, const 
                                result_type->get_primitive_type() == PrimitiveType::TYPE_MAP ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY ||
+                               result_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT ||
                                result_type->get_primitive_type() == PrimitiveType::TYPE_JSONB;
     if (cannot_random_write) {
         result_column->reserve(input_rows_count);

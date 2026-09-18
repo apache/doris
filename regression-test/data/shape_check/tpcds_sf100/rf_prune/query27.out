@@ -28,6 +28,6 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[item]
 ----------------------PhysicalProject
-------------------------filter(s_state IN ('AL', 'LA', 'MI', 'MO', 'SC', 'TN'))
+------------------------filter(store.s_state IN ('AL', 'LA', 'MI', 'MO', 'SC', 'TN'))
 --------------------------PhysicalOlapScan[store]
 

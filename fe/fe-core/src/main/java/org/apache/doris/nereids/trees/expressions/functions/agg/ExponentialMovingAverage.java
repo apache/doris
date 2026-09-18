@@ -43,7 +43,7 @@ import java.util.List;
  * timestamp columns use {@code intDiv(toUnixTimestamp(ts), interval_seconds)}.
  */
 public class ExponentialMovingAverage extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature {
+        implements ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE)
@@ -119,4 +119,10 @@ public class ExponentialMovingAverage extends NullableAggregateFunction
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }
+
+    @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(1), getArgument(2)) : ImmutableList.of();
+    }
+
 }

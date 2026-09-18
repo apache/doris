@@ -21,17 +21,17 @@ import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.authentication.spi.AuthenticationPluginFactory;
+import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
 import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
+import org.apache.doris.extension.loader.PluginRegistry;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.Closeable;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -41,6 +41,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Manager for authentication plugins.
@@ -63,8 +64,30 @@ public class AuthenticationPluginManager {
     private static final List<String> AUTH_PARENT_FIRST_PREFIXES =
             Collections.singletonList("org.apache.doris.authentication.");
 
+    /** Family label in the process-wide {@link PluginRegistry}. */
+    private static final String PLUGIN_FAMILY = "AUTHENTICATION";
+
+    /**
+     * The authentication plugin API contract this FE serves. Built from the version filtered into
+     * fe-authentication-spi at build time, anchored on {@link AuthenticationPluginFactory} so that it is read
+     * from the very artifact carrying the SPI. A missing or malformed resource is a build defect and fails
+     * class initialization loudly rather than degrading into a check that admits everything.
+     */
+    private static final ApiVersionGate API_VERSION_GATE =
+            ApiVersionGate.forFamily("authentication", AuthenticationPluginFactory.class);
+
     /** Factories by plugin name (e.g., "ldap", "oidc", "password") */
     private final Map<String, AuthenticationPluginFactory> factories = new ConcurrentHashMap<>();
+
+    /**
+     * Plugins the last {@link #loadAll} refused on their declared API version, newest run only.
+     *
+     * <p>Authentication is the one family that loads lazily and reports "no factory for this type" from a
+     * different place than the load itself. Without this, an operator whose plugin was refused on its version
+     * sees only "not found", with the actual reason buried in an FE log line — so the reason is kept here and
+     * appended to that exception (see {@link #apiVersionRejectionHint()}).
+     */
+    private final List<String> apiVersionRejections = new CopyOnWriteArrayList<>();
 
     /** Plugin instances by integration name */
     private final Map<String, AuthenticationPlugin> pluginByIntegration = new ConcurrentHashMap<>();
@@ -88,7 +111,23 @@ public class AuthenticationPluginManager {
                 : ClassLoadingPolicy.defaultPolicy();
 
         ServiceLoader.load(AuthenticationPluginFactory.class)
-                .forEach(factory -> factories.put(factory.name(), factory));
+                .forEach(factory -> {
+                    try {
+                        // Snapshot self-reported metadata before publishing the factory so
+                        // one throwing implementation is rejected cleanly. The registry is
+                        // first-wins on (family, name), so re-registration from another
+                        // manager instance is a quiet no-op. First registration also wins
+                        // here, keeping the executable factory and the inventory row the
+                        // same plugin.
+                        PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
+                        if (factories.putIfAbsent(factory.name(), factory) != null) {
+                            LOG.warn("Skip duplicated built-in authentication plugin name: {}", factory.name());
+                        }
+                    } catch (RuntimeException e) {
+                        LOG.warn("Skip built-in authentication plugin factory {}: self-reported metadata failed",
+                                factory.getClass().getName(), e);
+                    }
+                });
     }
 
     /**
@@ -124,11 +163,16 @@ public class AuthenticationPluginManager {
                 pluginRoots,
                 parent,
                 AuthenticationPluginFactory.class,
-                classLoadingPolicy);
+                classLoadingPolicy,
+                API_VERSION_GATE);
 
+        apiVersionRejections.clear();
         for (LoadFailure failure : report.getFailures()) {
             LOG.warn("Skip plugin directory due to load failure: pluginDir={}, stage={}, message={}",
                     failure.getPluginDir(), failure.getStage(), failure.getMessage(), failure.getCause());
+            if (LoadFailure.STAGE_API_VERSION.equals(failure.getStage())) {
+                apiVersionRejections.add(failure.getMessage());
+            }
         }
 
         int loadedPlugins = 0;
@@ -136,11 +180,14 @@ public class AuthenticationPluginManager {
             String pluginName = handle.getPluginName();
             AuthenticationPluginFactory existing = factories.putIfAbsent(pluginName, handle.getFactory());
             if (existing != null) {
-                closeClassLoaderQuietly(handle.getClassLoader());
+                // Remove the rejected handle from the runtime manager too, so its
+                // classloader is not retained for the FE lifetime.
+                runtimeManager.discard(pluginName);
                 LOG.warn("Skip duplicated plugin name: {} from directory {}", pluginName, handle.getPluginDir());
                 continue;
             }
             loadedPlugins++;
+            PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
             LOG.info("Loaded external authentication plugin: name={}, pluginDir={}, jarCount={}",
                     pluginName, handle.getPluginDir(), handle.getResolvedJars().size());
         }
@@ -156,6 +203,23 @@ public class AuthenticationPluginManager {
         }
     }
 
+    /**
+     * A clause naming any plugin the last {@link #loadAll} refused on its declared API version, or the empty
+     * string when there was none.
+     *
+     * <p>Callers append this to their "no factory for type X" exception. A plugin directory that loaded some
+     * other plugin successfully does not throw from {@code loadAll} at all, so without this the version
+     * rejection would never reach the user — exactly the undiagnosable case this exists to prevent.
+     */
+    public String apiVersionRejectionHint() {
+        if (apiVersionRejections.isEmpty()) {
+            return "";
+        }
+        return ". Note that " + apiVersionRejections.size()
+                + " plugin(s) were refused on their declared API version: "
+                + String.join("; ", apiVersionRejections);
+    }
+
     private static LoadFailure firstNonConflictFailure(List<LoadFailure> failures) {
         for (LoadFailure failure : failures) {
             if (!LoadFailure.STAGE_CONFLICT.equals(failure.getStage())) {
@@ -163,17 +227,6 @@ public class AuthenticationPluginManager {
             }
         }
         return null;
-    }
-
-    private static void closeClassLoaderQuietly(ClassLoader classLoader) {
-        if (!(classLoader instanceof Closeable)) {
-            return;
-        }
-        try {
-            ((Closeable) classLoader).close();
-        } catch (IOException ignored) {
-            // Best effort close.
-        }
     }
 
     /**

@@ -34,9 +34,11 @@
 #include "common/status.h" // Status
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
+#include "io/cache/file_cache_common.h" // io::UInt128Wrapper returned by value
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "storage/cache/page_cache.h"
 #include "storage/olap_common.h"
@@ -49,7 +51,7 @@ namespace doris {
 class IDataType;
 
 class ShortKeyIndexDecoder;
-class Schema;
+class ReadSchema;
 class StorageReadOptions;
 class PrimaryKeyIndexReader;
 class RowwiseIterator;
@@ -95,7 +97,8 @@ public:
                        uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info = {},
-                       OlapReaderStatistics* stats = nullptr);
+                       OlapReaderStatistics* stats = nullptr,
+                       const io::IOContext* io_ctx = nullptr);
 
     static io::UInt128Wrapper file_cache_key(std::string_view rowset_id, uint32_t seg_id);
     io::UInt128Wrapper file_cache_key() const {
@@ -107,7 +110,7 @@ public:
     int64_t get_metadata_size() const override;
     void update_metadata_size();
 
-    Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
+    Status new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
 
     static Status new_default_iterator(const TabletColumn& tablet_column,
@@ -141,7 +144,8 @@ public:
 
     Status lookup_row_key(const Slice& key, const TabletSchema* latest_schema, bool with_seq_col,
                           bool with_rowid, RowLocation* row_location, OlapReaderStatistics* stats,
-                          std::string* encoded_seq_value = nullptr);
+                          std::string* encoded_seq_value = nullptr,
+                          const io::IOContext* io_ctx = nullptr);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
@@ -151,9 +155,9 @@ public:
                                   StorageReadOptions& storage_read_options,
                                   std::unique_ptr<ColumnIterator>& iterator_hint);
 
-    Status load_index(OlapReaderStatistics* stats);
+    Status load_index(OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
 
-    Status load_pk_index_and_bf(OlapReaderStatistics* stats);
+    Status load_pk_index_and_bf(OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
 
     void update_healthy_status(Status new_status) { _healthy_status.update(new_status); }
     // The segment is loaded into SegmentCache and then will load indices, if there are something wrong
@@ -176,21 +180,21 @@ public:
     // another method `get_metadata_size` not include the column reader, only the segment object itself.
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
-    // Get the inner file column's data type.
-    // When `read_options` is provided, the decision (e.g. flat-leaf vs hierarchical) can depend
-    // on the reader type and tablet schema; when it is nullptr, we treat it as a query reader.
-    // nullptr will be returned if storage type does not contain such column.
-    std::shared_ptr<const IDataType> get_data_type_of(const TabletColumn& column,
+    // Variant paths use segment metadata; other columns use `read_type`.
+    std::shared_ptr<const IDataType> get_data_type_of(const TabletColumn& read_column,
+                                                      const DataTypePtr& read_type,
                                                       const StorageReadOptions& read_options);
 
     // If column in segment is the same type in schema, then it is safe to apply predicate.
+    // `ordinal` is a read-schema ordinal (the coordinate ColumnPredicate::column_id() carries).
     bool can_apply_predicate_safely(
-            int cid, const Schema& schema,
+            int ordinal, const ReadSchema& schema,
             const std::map<std::string, DataTypePtr>& target_cast_type_for_variants,
             const StorageReadOptions& read_options) {
-        const TabletColumn* col = schema.column(cid);
-        DCHECK(col != nullptr) << "Column not found in schema for cid=" << cid;
-        DataTypePtr storage_column_type = get_data_type_of(*col, read_options);
+        const TabletColumn* col = schema.column(ordinal);
+        DCHECK(col != nullptr) << "Column not found in schema for ordinal=" << ordinal;
+        DataTypePtr storage_column_type =
+                get_data_type_of(*col, schema.data_type(ordinal), read_options);
         if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
             !target_cast_type_for_variants.contains(col->name())) {
             // Default column iterator or not variant column
@@ -203,24 +207,24 @@ public:
         }
     }
 
-    // The tso column (__DORIS_BINLOG_TIMESTAMP__) is a NULL placeholder on disk on a
+    // The tso column (__DORIS_BINLOG_TSO__) is a NULL placeholder on disk on a
     // single-version binlog segment, replaced with the real commit_tso at read time
     // (SegmentIterator::_update_tso_col_if_needed). Its zonemap reflects the placeholder, so
     // it must NOT drive zonemap pruning. Mirrors the guards of _update_tso_col_if_needed.
     // Returns false for range (compaction) segments whose on-disk value is real.
-    bool is_tso_placeholder_col(int cid, const Schema& schema,
+    bool is_tso_placeholder_col(int cid, const ReadSchema& schema,
                                 const StorageReadOptions& read_options) const;
 
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 
     // get the column reader by tablet column, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(const TabletColumn& col, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats,
+                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
                              std::optional<Field> const_value = std::nullopt);
 
     // get the column reader by column unique id, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats,
+                             OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr,
                              std::optional<Field> const_value = std::nullopt);
 
     Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);
@@ -243,25 +247,29 @@ private:
                         RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                         const io::FileReaderOptions& reader_options,
                         std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info,
-                        OlapReaderStatistics* stats);
+                        OlapReaderStatistics* stats = nullptr,
+                        const io::IOContext* io_ctx = nullptr);
     // open segment file and read the minimum amount of necessary information (footer)
-    Status _open(OlapReaderStatistics* stats);
+    Status _open(OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
     Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
-                         OlapReaderStatistics* stats = nullptr);
-    Status _create_column_meta(const SegmentFooterPB& footer);
-    Status _load_pk_bloom_filter(OlapReaderStatistics* stats);
-    // Must ensure _create_column_readers_once has been called before calling this function.
-    ColumnReader* _get_column_reader(const TabletColumn& col);
+                         OlapReaderStatistics* stats = nullptr,
+                         const io::IOContext* io_ctx = nullptr);
+    Status _create_column_meta(const SegmentFooterPB& footer, OlapReaderStatistics* stats = nullptr,
+                               const io::IOContext* io_ctx = nullptr);
+    Status _load_pk_bloom_filter(OlapReaderStatistics* stats,
+                                 const io::IOContext* io_ctx = nullptr);
 
     Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
                              io::IOContext& io_ctx);
 
     Status _open_index_file_reader();
 
-    Status _create_column_meta_once(OlapReaderStatistics* stats);
+    Status _create_column_meta_once(OlapReaderStatistics* stats,
+                                    const io::IOContext* io_ctx = nullptr);
 
     virtual Status _get_segment_footer(std::shared_ptr<SegmentFooterPB>&,
-                                       OlapReaderStatistics* stats);
+                                       OlapReaderStatistics* stats,
+                                       const io::IOContext* io_ctx = nullptr);
 
     StoragePageCache::CacheKey get_segment_footer_cache_key() const;
 

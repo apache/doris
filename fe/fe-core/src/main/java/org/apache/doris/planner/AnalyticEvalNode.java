@@ -209,17 +209,19 @@ public class AnalyticEvalNode extends PlanNode {
         LocalExchangeType outputType = null;
         if (partitionExprs.isEmpty()) {
             // Serial AnalyticEval (OVER() with no PARTITION BY):
-            // Must NOT have any LocalExchange between AnalyticEval and its child.
-            // On BE, AnalyticSink and AnalyticSource share state (source_deps/sink_deps).
-            // A LocalExchange below would restore the AnalyticSink pipeline to _num_instances
-            // tasks while the serial AnalyticSource pipeline stays at 1 task.
+            // Do not keep a redundant LocalExchange between AnalyticEval and an already
+            // serial child. On BE, AnalyticSink and AnalyticSource share state
+            // (source_deps/sink_deps), so restoring only the sink pipeline to
+            // _num_instances tasks would mismatch the serial source pipeline.
             //
-            // Use enforceRequire with noRequire to traverse children, then strip any
-            // LocalExchange the child inserted (e.g., Exchange wrapping itself with PASSTHROUGH).
+            // PASS_TO_ONE is different: enforceRequire inserts it when the child subtree is
+            // parallel. It is the explicit N-to-one boundary that keeps every upstream task
+            // active while leaving the analytic sink/source pair at one task, so retain it.
             Pair<PlanNode, LocalExchangeType> enforceResult
                     = enforceRequire(translatorContext, children.get(0), 0, LocalExchangeTypeRequire.noRequire());
             PlanNode newChild = enforceResult.first;
-            if (newChild instanceof LocalExchangeNode) {
+            if (newChild instanceof LocalExchangeNode
+                    && ((LocalExchangeNode) newChild).getExchangeType() != LocalExchangeType.PASS_TO_ONE) {
                 newChild = newChild.getChild(0);
             }
             children = Lists.newArrayList(newChild);
@@ -229,9 +231,13 @@ public class AnalyticEvalNode extends PlanNode {
             return Pair.of(this, LocalExchangeType.NOOP);
         } else if (orderByElements.isEmpty()) {
             if (AddLocalExchange.isColocated(this)) {
+                // requireHash() is the generic hash require, which BUCKET_HASH_SHUFFLE also
+                // satisfies — a bucket-distributed child then keeps its bucket placement and no
+                // local exchange is inserted. Leave outputType null so the real placement is
+                // reported upward; hardcoding LOCAL_EXECUTION_HASH_SHUFFLE would let a parent
+                // that requires exactly that type (a bucket join upgraded to local hash) skip
+                // its realign local exchange and pair up mismatched placements.
                 requireChild = LocalExchangeTypeRequire.requireHash();
-                outputType = AddLocalExchange.resolveExchangeType(
-                        LocalExchangeTypeRequire.requireHash());
             } else {
                 // Non-colocated analytic with PARTITION BY but no ORDER BY:
                 // The parent SortNode (mergeByExchange) will insert PASSTHROUGH above us,

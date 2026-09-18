@@ -110,8 +110,43 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             if (policy.isInvalid()) {
                 throw new DdlException("Analyzer '" + analyzerName + "' is invalid");
             }
+            validateReferencedComponentsUsableLocked(analyzerName, policy);
         } finally {
             readUnlock();
+        }
+    }
+
+    /**
+     * Older metadata may retain components that current validation rejects. Load these policies so
+     * one obsolete policy cannot prevent FE startup, but reject analyzers that reference them before
+     * BE tries to construct the analyzer during index construction or querying.
+     */
+    private void validateReferencedComponentsUsableLocked(String analyzerName, IndexPolicy analyzer)
+            throws DdlException {
+        Map<String, String> analyzerProperties = analyzer.getProperties();
+        if (analyzerProperties == null) {
+            return;
+        }
+        String tokenizerName = analyzerProperties.get(IndexPolicy.PROP_TOKENIZER);
+        IndexPolicy tokenizer = tokenizerName == null
+                ? null : nameToIndexPolicy.get(normalizeKey(tokenizerName));
+        if (tokenizer != null && tokenizer.isInvalid()) {
+            throw new DdlException("Analyzer '" + analyzerName + "' references invalid tokenizer '"
+                    + tokenizerName + "'");
+        }
+
+        String tokenFilterNames = analyzerProperties.get(IndexPolicy.PROP_TOKEN_FILTER);
+        if (tokenFilterNames == null || tokenFilterNames.isEmpty()) {
+            return;
+        }
+        for (String tokenFilterName : tokenFilterNames.split(",\\s*")) {
+            IndexPolicy tokenFilter = nameToIndexPolicy.get(normalizeKey(tokenFilterName));
+            if (tokenFilter != null && tokenFilter.isInvalid()) {
+                throw new DdlException("Analyzer '" + analyzerName + "' references token filter '"
+                        + tokenFilterName + "' of type '"
+                        + tokenFilter.getProperties().get(IndexPolicy.PROP_TYPE)
+                        + "', which is no longer supported");
+            }
         }
     }
 
@@ -159,11 +194,18 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             throw new DdlException("Policy name '" + policyName + "' conflicts with built-in analyzer name");
         }
 
-        IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, properties);
-
         writeLock();
         try {
-            validatePolicyProperties(type, properties);
+            Map<String, String> storedProperties = properties == null
+                    ? null : Maps.newHashMap(properties);
+            validatePolicyProperties(type, storedProperties);
+            if (type == IndexPolicyTypeEnum.TOKENIZER
+                    && "ngram".equals(storedProperties.get(IndexPolicy.PROP_TYPE))) {
+                // Presence distinguishes policies created with the absolute-size limit from
+                // compatible policies replayed from a version before max_ngram_diff existed.
+                storedProperties.putIfAbsent("max_ngram_diff", "1");
+            }
+            IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, storedProperties);
 
             if (nameToIndexPolicy.containsKey(normalizedName)) {
                 if (ifNotExists) {
@@ -183,7 +225,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
-        LOG.info("Created index policy successfully: {}", indexPolicy);
+        LOG.info("Created index policy successfully: {}", policyName);
     }
 
     public IndexPolicy getPolicyByName(String name) {
@@ -291,16 +333,17 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
 
     private void validatePolicyReference(String name, IndexPolicyTypeEnum expectedType)
             throws DdlException {
+        String normalizedName = normalizeKey(name);
         if (expectedType == IndexPolicyTypeEnum.TOKENIZER
-                && IndexPolicy.BUILTIN_TOKENIZERS.contains(name)) {
+                && IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName)) {
             return;
         }
         if (expectedType == IndexPolicyTypeEnum.TOKEN_FILTER
-                && IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(name)) {
+                && IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(normalizedName)) {
             return;
         }
         if (expectedType == IndexPolicyTypeEnum.CHAR_FILTER
-                && IndexPolicy.BUILTIN_CHAR_FILTERS.contains(name)) {
+                && IndexPolicy.BUILTIN_CHAR_FILTERS.contains(normalizedName)) {
             return;
         }
 
@@ -311,6 +354,9 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         if (policy.getType() != expectedType) {
             throw new DdlException("Referenced policy '" + name + "' is of type "
                     + policy.getType() + " but expected " + expectedType);
+        }
+        if (policy.isInvalid()) {
+            throw new DdlException("Referenced " + expectedType + " policy '" + name + "' is invalid");
         }
     }
 
@@ -539,7 +585,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             if (policyType == IndexPolicyTypeEnum.TOKENIZER
                     && otherType == IndexPolicyTypeEnum.ANALYZER) {
                 String tokenizer = properties.get(IndexPolicy.PROP_TOKENIZER);
-                if (policyName.equals(tokenizer)) {
+                if (normalizeKey(policyName).equals(normalizeKey(tokenizer))) {
                     throw new DdlException("Cannot drop " + policyType + " policy '" + policyName
                             + "' as it is referenced by " + otherType + " policy '"
                             + otherPolicy.getName() + "'");
@@ -559,7 +605,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             String filterList) throws DdlException {
         if (filterList != null && !filterList.isEmpty()) {
             for (String filter : filterList.split(",\\s*")) {
-                if (policyName.equals(filter)) {
+                if (normalizeKey(policyName).equals(normalizeKey(filter))) {
                     throw new DdlException("Cannot drop " + policyType + " policy '" + policyName
                             + "' as it is referenced by " + referencingType + " policy '"
                             + referencingPolicy.getName() + "'");
@@ -590,6 +636,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     public void replayCreateIndexPolicy(IndexPolicy indexPolicy) {
         writeLock();
         try {
+            warnIfUnsupported(indexPolicy);
             idToIndexPolicy.put(indexPolicy.getId(), indexPolicy);
             // Store with normalized key for case-insensitive lookup
             nameToIndexPolicy.put(normalizeKey(indexPolicy.getName()), indexPolicy);
@@ -631,7 +678,21 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         // Store with normalized key for case-insensitive lookup
+        nameToIndexPolicy.clear();
         idToIndexPolicy.forEach(
-                (id, indexPolicy) -> nameToIndexPolicy.put(normalizeKey(indexPolicy.getName()), indexPolicy));
+                (id, indexPolicy) -> {
+                    warnIfUnsupported(indexPolicy);
+                    nameToIndexPolicy.put(normalizeKey(indexPolicy.getName()), indexPolicy);
+                });
     }
+
+    private static void warnIfUnsupported(IndexPolicy indexPolicy) {
+        if (indexPolicy.isInvalid()) {
+            LOG.error("Index policy '{}' (id={}, type={}) is not valid in this version; analyzers"
+                    + " referencing it will be rejected. Drop the indexes and policies that depend"
+                    + " on it.", indexPolicy.getName(), indexPolicy.getId(),
+                    indexPolicy.getProperties().get(IndexPolicy.PROP_TYPE));
+        }
+    }
+
 }

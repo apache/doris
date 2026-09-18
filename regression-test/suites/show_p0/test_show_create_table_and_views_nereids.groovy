@@ -38,6 +38,10 @@ suite("test_show_create_table_and_views_nereids", "show") {
 
     def ret = sql "SHOW FRONTEND CONFIG like '%enable_feature_binlog%';"
     logger.info("${ret}")
+    if (isCloudMode()) {
+        logger.info("This SHOW CREATE TABLE case has no cloud-specific expected results, skip it in cloud mode.")
+        return
+    }
     if (ret.size() != 0 && ret[0].size() > 1 && ret[0][1] == 'false') {
         logger.info("enable_feature_binlog=false in frontend config, no need to run this case.")
         return
@@ -49,6 +53,22 @@ suite("test_show_create_table_and_views_nereids", "show") {
     String viewName = "${suiteName}_view"
     String rollupName = "${suiteName}_rollup"
     String likeName = "${suiteName}_like"
+
+    def forceReplicaAllocation = getFeConfig('force_olap_table_replication_allocation').trim()
+    def effectiveReplicaNum = 1
+    if (!forceReplicaAllocation.isEmpty()) {
+        def matcher = forceReplicaAllocation =~ /^tag\.location\.default:\s*(1|3)$/
+        assertTrue(matcher.matches(),
+                "Unsupported force_olap_table_replication_allocation: ${forceReplicaAllocation}")
+        effectiveReplicaNum = matcher.group(1).toInteger()
+    } else {
+        def forceReplicaNum = getFeConfig('force_olap_table_replication_num').toInteger()
+        if (forceReplicaNum > 0) {
+            assertTrue(forceReplicaNum in [1, 3],
+                    "Unsupported force_olap_table_replication_num: ${forceReplicaNum}")
+            effectiveReplicaNum = forceReplicaNum
+        }
+    }
 
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
@@ -99,7 +119,7 @@ suite("test_show_create_table_and_views_nereids", "show") {
         (2, 200, 1111),
         (23, 900, 1)"""
 
-    qt_show "SHOW CREATE TABLE ${dbName}.${tableName}"
+    quickRunTest("show_initial_replica_${effectiveReplicaNum}", "SHOW CREATE TABLE ${dbName}.${tableName}")
     qt_select "SELECT * FROM ${dbName}.${tableName} ORDER BY user_id, good_id"
 
     sql "drop view if exists ${dbName}.${viewName};"
@@ -132,15 +152,16 @@ suite("test_show_create_table_and_views_nereids", "show") {
     }
 
     qt_select "SELECT user_id, SUM(cost) FROM ${dbName}.${tableName} GROUP BY user_id ORDER BY user_id"
-    qt_show "SHOW CREATE TABLE ${dbName}.${tableName}"
+    quickRunTest("show_after_rollup_replica_${effectiveReplicaNum}", "SHOW CREATE TABLE ${dbName}.${tableName}")
 
     // create like
     sql "CREATE TABLE ${dbName}.${likeName} LIKE ${dbName}.${tableName}"
-    qt_show "SHOW CREATE TABLE ${dbName}.${likeName}"
+    quickRunTest("show_like_replica_${effectiveReplicaNum}", "SHOW CREATE TABLE ${dbName}.${likeName}")
 
     // create like with rollup
     sql "CREATE TABLE ${dbName}.${likeName}_with_rollup LIKE ${dbName}.${tableName} WITH ROLLUP"
-    qt_show "SHOW CREATE TABLE ${dbName}.${likeName}_with_rollup"
+    quickRunTest("show_like_with_rollup_replica_${effectiveReplicaNum}",
+            "SHOW CREATE TABLE ${dbName}.${likeName}_with_rollup")
 
     sql "DROP TABLE IF EXISTS ${dbName}.${likeName}_with_rollup FORCE"
     sql "DROP TABLE ${dbName}.${likeName} FORCE"
@@ -148,4 +169,3 @@ suite("test_show_create_table_and_views_nereids", "show") {
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
 }
-

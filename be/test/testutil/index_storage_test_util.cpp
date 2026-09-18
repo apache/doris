@@ -38,8 +38,10 @@
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "exec/common/variant_util.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "storage/compaction/cumulative_compaction.h"
@@ -53,11 +55,13 @@
 #include "storage/rowset/rowset_reader.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/schema.h"
 #include "storage/segment/segment.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/task/index_builder.h"
 #include "util/debug_points.h"
+#include "util/variant/variant_test_utils.h"
 
 namespace doris::index_storage_test {
 namespace {
@@ -401,19 +405,17 @@ void ensure_variant_json_shape(const IndexBatch& batch, size_t column_pos) {
 Status fill_variant_column(const VariantColumnSpec& column_spec, const IndexBatch& batch,
                            size_t column_pos, MutableColumnPtr* output) {
     ensure_variant_json_shape(batch, column_pos);
-    auto variant_column =
-            ColumnVariant::create(column_spec.max_subcolumns_count, column_spec.enable_doc_mode);
-    auto json_column = ColumnString::create();
+    auto variant_column = ColumnVariantV2::create();
+    JsonStringToVariantEncoder encoder(
+            {.throw_on_invalid_json = true,
+             .check_duplicate_json_path = batch.check_duplicate_json_path});
     for (const auto& json : batch.variant_jsons_by_column[column_pos]) {
-        json_column->insert_data(json.data(), json.size());
+        encoder.add_json({json.data(), json.size()});
     }
-
-    ParseConfig config;
-    config.deprecated_enable_flatten_nested = batch.deprecated_enable_flatten_nested;
-    config.check_duplicate_json_path = batch.check_duplicate_json_path;
-    config.parse_to =
-            column_spec.enable_doc_mode ? ParseConfig::ParseTo::OnlyDocValueColumn : batch.parse_to;
-    variant_util::parse_json_to_variant(*variant_column, *json_column, config);
+    VariantBatchBuilder encoded = encoder.finish_batch();
+    for (size_t row = 0; row < batch.variant_jsons_by_column[column_pos].size(); ++row) {
+        insert_encoded_field(*variant_column, VariantField::from_ref(encoded.value_at(row)));
+    }
     if (column_spec.nullable) {
         auto null_map = ColumnUInt8::create();
         null_map->insert_many_defaults(variant_column->size());
@@ -444,10 +446,10 @@ Status validate_direct_variant_column(const VariantColumnSpec& column_spec, cons
         }
         nested_column = &nullable_column->get_nested_column();
     }
-    if (check_and_get_column<ColumnVariant>(nested_column) == nullptr) {
+    if (check_and_get_column<ColumnVariantV2>(nested_column) == nullptr) {
         return Status::InvalidArgument(
-                "direct variant column {} must be ColumnVariant or ColumnNullable(ColumnVariant), "
-                "actual={}",
+                "direct variant column {} must be ColumnVariantV2 or "
+                "ColumnNullable(ColumnVariantV2), actual={}",
                 column_spec.name, column->get_name());
     }
     return Status::OK();
@@ -560,10 +562,12 @@ void collect_variant_values_from_block(const TabletSchema& schema,
 
         auto full_column = block.get_by_position(pos).column->convert_to_full_column_if_const();
         const auto* nullable_column = check_and_get_column<ColumnNullable>(*full_column);
-        const auto* variant_column =
-                nullable_column != nullptr
-                        ? assert_cast<const ColumnVariant*>(&nullable_column->get_nested_column())
-                        : assert_cast<const ColumnVariant*>(full_column.get());
+        const IColumn* nested_column = nullable_column != nullptr
+                                               ? &nullable_column->get_nested_column()
+                                               : full_column.get();
+        const auto* variant_v2_column = check_and_get_column<ColumnVariantV2>(nested_column);
+        DORIS_CHECK(variant_v2_column != nullptr);
+        result->variant_v2_output_uids.insert(tablet_column.unique_id());
         auto& values = result->variant_values_by_uid[tablet_column.unique_id()];
         for (size_t row = 0; row < full_column->size(); ++row) {
             if (full_column->is_null_at(row)) {
@@ -571,7 +575,14 @@ void collect_variant_values_from_block(const TabletSchema& schema,
                 continue;
             }
             std::string value;
-            variant_column->serialize_one_row_to_string(row, &value, options);
+            auto output = ColumnString::create();
+            BufferWritable writer(*output);
+            DataTypeVariantV2SerDe serde;
+            auto status =
+                    serde.serialize_one_cell_to_json(*variant_v2_column, row, writer, options);
+            DORIS_CHECK(status.ok()) << status;
+            writer.commit();
+            value = output->get_data_at(0).to_string();
             values.emplace_back(std::move(value));
         }
     }
@@ -606,7 +617,8 @@ void collect_variant_column_layout(const ColumnMetaPB& column_meta, IndexSegment
 }
 
 Result<IndexSegmentLayout> probe_segment(const RowsetSharedPtr& rowset, int64_t segment_id) {
-    auto segment_path = rowset->segment_path(segment_id);
+    auto seg = rowset->segment(rowset->rowset_meta()->position_of(segment_id));
+    auto segment_path = seg.path();
     if (!segment_path.has_value()) {
         return ResultError(segment_path.error());
     }
@@ -616,8 +628,7 @@ Result<IndexSegmentLayout> probe_segment(const RowsetSharedPtr& rowset, int64_t 
     auto status = segment_v2::Segment::open(
             rowset->rowset_meta()->fs(), segment_path.value(), rowset->rowset_meta()->tablet_id(),
             static_cast<uint32_t>(segment_id), rowset->rowset_id(), rowset->tablet_schema(),
-            io::FileReaderOptions {}, &segment,
-            rowset->rowset_meta()->inverted_index_file_info(static_cast<int>(segment_id)), &stats);
+            io::FileReaderOptions {}, &segment, seg.inverted_index_file_info(), &stats);
     if (!status.ok()) {
         return ResultError(status);
     }
@@ -1218,7 +1229,7 @@ Result<RowsetSharedPtr> IndexStorageTestFixture::write_rowset(const IndexRowsetS
                     tablet_options.variant_columns.size(), batch.variant_columns_by_column.size()));
         }
 
-        Block block = _tablet_schema->create_block();
+        Block block = _tablet_schema->create_storage_block();
         RETURN_RESULT_IF_ERROR(
                 fill_block(*_tablet_schema, tablet_options, batch, &next_key, &block));
         RETURN_RESULT_IF_ERROR(rowset_writer->add_block(&block));
@@ -1259,6 +1270,22 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         return_columns.resize(_tablet_schema->num_columns());
         std::iota(return_columns.begin(), return_columns.end(), 0);
     }
+    auto read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(_tablet_schema->columns(), return_columns));
+    // Test specs express predicate columns as tablet cids; the read path wants
+    // ordinals into the read schema, so rebase them here (the role TabletReader
+    // plays for real queries). Predicate columns must be read columns.
+    std::vector<std::shared_ptr<ColumnPredicate>> predicates;
+    predicates.reserve(options.predicates.size());
+    for (const auto& pred : options.predicates) {
+        auto pos = std::find(return_columns.begin(), return_columns.end(), pred->column_id());
+        if (pos == return_columns.end()) {
+            return ResultError(Status::InvalidArgument("predicate column {} not in return columns",
+                                                       pred->column_id()));
+        }
+        auto ordinal = static_cast<uint32_t>(std::distance(return_columns.begin(), pos));
+        predicates.push_back(ordinal == pred->column_id() ? pred : pred->clone(ordinal));
+    }
 
     RuntimeState runtime_state;
     runtime_state.set_exec_env(ExecEnv::GetInstance());
@@ -1278,8 +1305,8 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         context.reader_type = options.reader_type;
         context.tablet_schema = _tablet_schema;
         context.need_ordered_result = options.need_ordered_result;
-        context.return_columns = &return_columns;
-        context.predicates = &options.predicates;
+        context.read_schema = read_schema;
+        context.predicates = &predicates;
         context.stats = &result.stats;
         context.target_cast_type_for_variants = options.target_cast_type_for_variants;
         context.all_access_paths = options.all_access_paths;
@@ -1290,7 +1317,7 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
         RETURN_RESULT_IF_ERROR(reader->init(&context));
 
         while (true) {
-            Block block = _tablet_schema->create_block_by_cids(return_columns);
+            Block block = read_schema->create_read_block();
             auto status = reader->next_batch(&block);
             if (status.is<ErrorCode::END_OF_FILE>()) {
                 break;
@@ -1518,8 +1545,8 @@ Result<IndexRowsetProbe> IndexStorageTestFixture::probe_rowset(const RowsetShare
     }
     probe.index_files = std::move(index_files).value();
 
-    for (int64_t segment_id = 0; segment_id < rowset->num_segments(); ++segment_id) {
-        auto segment_probe = probe_segment(rowset, segment_id);
+    for (auto seg : rowset->segments()) {
+        auto segment_probe = probe_segment(rowset, seg.id());
         if (!segment_probe.has_value()) {
             return ResultError(segment_probe.error());
         }
@@ -1557,6 +1584,10 @@ int32_t IndexStorageTestFixture::column_id_by_path(const std::string& path) cons
     const int32_t column_id = _tablet_schema->field_index(PathInData(path));
     if (column_id >= 0) {
         return column_id;
+    }
+    const int32_t root_column_id = _tablet_schema->field_index(path);
+    if (root_column_id >= 0) {
+        return root_column_id;
     }
 
     const std::string relative_query_path = relative_variant_path(path);

@@ -31,13 +31,11 @@
 #include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_variant.h"
 #include "core/column/subcolumn_tree.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
-#include "core/data_type/data_type_variant.h"
 #include "core/types.h"
 #include "exprs/function/function_helpers.h"
 #include "io/io_common.h"
@@ -71,8 +69,7 @@ public:
             return entry->data.iterator->next_batch(n, entry->data.column, &has_null);
         }));
         // then read sparse column
-        return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, *n,
-                              dst);
+        return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, dst);
     }
 
     // RowID-based read using template method
@@ -84,7 +81,7 @@ public:
         }));
         // then read sparse column
         return _process_batch([&]() { return _sparse_column_cache->read_by_rowids(rowids, count); },
-                              count, dst);
+                              dst);
     }
 
     Status seek_to_ordinal(ordinal_t ord) override;

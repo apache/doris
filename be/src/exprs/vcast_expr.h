@@ -44,7 +44,8 @@ public:
 #ifdef BE_TEST
     VCastExpr() = default;
 #endif
-    VCastExpr(const TExprNode& node) : VExpr(node) {}
+    VCastExpr(const TExprNode& node)
+            : VExpr(node), _is_strict_cast(node.__isset.is_strict_cast && node.is_strict_cast) {}
     ~VCastExpr() override = default;
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override;
@@ -55,6 +56,7 @@ public:
     const std::string& expr_name() const override;
     std::string debug_string() const override;
     const DataTypePtr& get_target_type() const;
+    bool is_safe_to_execute_on_selected_rows() const override { return false; }
 
     virtual std::string cast_name() const { return "CAST"; }
     Status clone_node(VExprSPtr* cloned_expr) const override {
@@ -66,8 +68,9 @@ public:
     uint64_t get_digest(uint64_t seed) const override {
         auto res = VExpr::get_digest(seed);
         if (res) {
-            return HashUtil::hash64(_target_data_type_name.data(), _target_data_type_name.size(),
-                                    res);
+            res = HashUtil::hash64(_target_data_type_name.data(), _target_data_type_name.size(),
+                                   res);
+            return HashUtil::hash64(&_is_strict_cast, sizeof(_is_strict_cast), res);
         }
         return 0;
     }
@@ -81,6 +84,8 @@ private:
     std::string _target_data_type_name;
 
     DataTypePtr _cast_param_data_type;
+
+    bool _is_strict_cast = false;
 
     static const constexpr char* function_name = "CAST";
 };
@@ -99,6 +104,9 @@ public:
                                size_t count, ColumnPtr& result_column) const override;
     ~TryCastExpr() override = default;
     std::string cast_name() const override { return "TRY CAST"; }
+    bool is_safe_to_execute_on_selected_rows() const override {
+        return VExpr::is_safe_to_execute_on_selected_rows();
+    }
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
         auto node = clone_texpr_node();
@@ -109,7 +117,6 @@ public:
 
 private:
     DataTypePtr original_cast_return_type() const;
-    template <bool original_cast_reutrn_is_nullable>
     Status single_row_execute(VExprContext* context, const ColumnWithTypeAndName& input_info,
                               ColumnPtr& return_column) const;
 

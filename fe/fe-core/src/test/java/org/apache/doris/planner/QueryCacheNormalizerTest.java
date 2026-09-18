@@ -117,7 +117,40 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 3\n"
                 + "properties('replication_num' = '1')";
 
-        createTables(nonPart, part1, part2, multiLeveParts, variantTable);
+        String uniqueMowTable = "create table db1.uniq_mow("
+                + "  k1 int,\n"
+                + "  v1 int)\n"
+                + "UNIQUE KEY(k1)\n"
+                + "distributed by hash(k1) buckets 3\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true')";
+
+        String uniqueMorTable = "create table db1.uniq_mor("
+                + "  k1 int,\n"
+                + "  v1 int)\n"
+                + "UNIQUE KEY(k1)\n"
+                + "distributed by hash(k1) buckets 3\n"
+                + "properties('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'false')";
+
+        String aggTable = "create table db1.agg_tbl("
+                + "  k1 int,\n"
+                + "  v1 int sum)\n"
+                + "AGGREGATE KEY(k1)\n"
+                + "distributed by hash(k1) buckets 3\n"
+                + "properties('replication_num' = '1')";
+
+        String timestampNsPart = "create table db1.timestamp_ns_part("
+                + "  ts timestamp_ns,\n"
+                + "  v1 int)\n"
+                + "DUPLICATE KEY(ts)\n"
+                + "PARTITION BY RANGE(ts)\n"
+                + "(\n"
+                + "  PARTITION p_all VALUES LESS THAN MAXVALUE\n"
+                + ")\n"
+                + "distributed by hash(ts) buckets 3\n"
+                + "properties('replication_num' = '1')";
+
+        createTables(nonPart, part1, part2, multiLeveParts, variantTable, uniqueMowTable,
+                uniqueMorTable, aggTable, timestampNsPart);
 
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setEnableQueryCache(true);
@@ -141,6 +174,32 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
         String digest5 = getDigest("select k1 as k, sum(v1) as v from db1.non_part where v1 >= 1 and v1 < 11 group by 1");
         Assertions.assertNotEquals(digest3, digest5);
         Assertions.assertEquals(64, digest5.length());
+    }
+
+    @Test
+    public void testTimestampNsBoundaryNormalization() throws Exception {
+        String minimum = "cast('1677-09-21 00:12:43.145224192' as timestamp_ns)";
+        String maximum = "cast('2262-04-11 23:47:16.854775807' as timestamp_ns)";
+
+        TQueryCacheParam openMinimum = getQueryCacheParam(
+                "select count(*) from db1.timestamp_ns_part where ts > " + minimum);
+        TQueryCacheParam closedMinimum = getQueryCacheParam(
+                "select count(*) from db1.timestamp_ns_part where ts >= " + minimum);
+        Assertions.assertEquals(openMinimum.digest, closedMinimum.digest);
+        Assertions.assertFalse(openMinimum.tablet_to_range.isEmpty());
+        Assertions.assertFalse(closedMinimum.tablet_to_range.isEmpty());
+        Assertions.assertNotEquals(openMinimum.tablet_to_range, closedMinimum.tablet_to_range);
+        Assertions.assertTrue(openMinimum.tablet_to_range.values().stream()
+                .allMatch(range -> range.contains("1677-09-21 00:12:43.145224193")));
+        Assertions.assertTrue(closedMinimum.tablet_to_range.values().stream()
+                .allMatch(range -> range.contains("1677-09-21 00:12:43.145224192")));
+
+        TQueryCacheParam maximumInclusive = getQueryCacheParam(
+                "select count(*) from db1.timestamp_ns_part where ts <= " + maximum);
+        Assertions.assertEquals(64, Hex.encodeHexString(maximumInclusive.digest).length());
+        Assertions.assertFalse(maximumInclusive.tablet_to_range.isEmpty());
+        Assertions.assertTrue(maximumInclusive.tablet_to_range.values().stream()
+                .allMatch(range -> range.contains("MAXVALUE")));
     }
 
     @Test
@@ -380,6 +439,72 @@ public class QueryCacheNormalizerTest extends TestWithFeService {
         String digest3 = getDigest(
                 "select cast(data['int_1'] as int) as a, count(*) as cnt from db1.variant_tbl group by cast(data['int_1'] as int)");
         Assertions.assertEquals(digest1, digest3);
+    }
+
+    @Test
+    public void testAllowIncremental() throws Exception {
+        // Switch off (the default): never allow incremental merge.
+        Assertions.assertFalse(connectContext.getSessionVariable().getEnableQueryCacheIncremental());
+        TQueryCacheParam withoutSwitch = getQueryCacheParam(
+                "select k2, sum(v1) as v from db1.part1 group by k2");
+        Assertions.assertFalse(withoutSwitch.allow_incremental);
+
+        connectContext.getSessionVariable().setEnableQueryCacheIncremental(true);
+        try {
+            // DUP_KEYS with a two-phase aggregation (group by a non-distribution
+            // column): the cache point is the non-finalize first phase, whose
+            // output is merged again upstream, so incremental merge is safe.
+            TQueryCacheParam dupTwoPhase = getQueryCacheParam(
+                    "select k2, sum(v1) as v from db1.part1 group by k2");
+            Assertions.assertTrue(dupTwoPhase.allow_incremental);
+
+            // One-phase aggregation finalizes inside the cached fragment: its
+            // output has no downstream merge, so emitting cached and delta
+            // blocks side by side would duplicate group keys.
+            TQueryCacheParam onePhase = phaseAgg(1, () -> getQueryCacheParam(
+                    "select k1, sum(v1) as v from db1.non_part group by k1"));
+            Assertions.assertFalse(onePhase.allow_incremental);
+
+            // UNIQUE merge-on-write is append-only as long as loads do not
+            // touch pre-existing keys; FE grants the capability and BE checks
+            // the delete bitmap of the delta window per tablet. Group by a
+            // non-distribution column so the aggregation stays two-phase and
+            // the decision reaches the keys-type check.
+            TQueryCacheParam uniqueMow = getQueryCacheParam(
+                    "select v1, count(*) as v from db1.uniq_mow group by v1");
+            Assertions.assertTrue(uniqueMow.allow_incremental);
+
+            // UNIQUE merge-on-read resolves duplicates by merging across
+            // rowsets at read time: a delta-only scan cannot stand alone.
+            TQueryCacheParam uniqueMor = getQueryCacheParam(
+                    "select v1, count(*) as v from db1.uniq_mor group by v1");
+            Assertions.assertFalse(uniqueMor.allow_incremental);
+
+            // AGG_KEYS merges rows inside the storage layer.
+            TQueryCacheParam aggKeys = getQueryCacheParam(
+                    "select v1, count(*) as v from db1.agg_tbl group by v1");
+            Assertions.assertFalse(aggKeys.allow_incremental);
+
+            // Agg over Agg inside one fragment (distinct aggregation grouped by
+            // the distribution column): the cache point is not directly on the
+            // scan (and finalizes here as well), so incremental is not allowed.
+            TQueryCacheParam distinctAgg = getQueryCacheParam(
+                    "select k1, count(distinct k2) from db1.non_part group by k1");
+            Assertions.assertFalse(distinctAgg.allow_incremental);
+
+            // Nested cache point: a non-finalize partial agg over a finalized
+            // colocate agg over scan. The inner agg would see only the delta
+            // rows during an incremental run, so its finalized output is not a
+            // mergeable complement of the cached snapshot -- must be rejected
+            // even though the cache point itself does not finalize.
+            TQueryCacheParam nestedAgg = getQueryCacheParam(
+                    "select cnt, count(*) from"
+                            + " (select k1, count(*) cnt from db1.non_part group by k1) x"
+                            + " group by cnt");
+            Assertions.assertFalse(nestedAgg.allow_incremental);
+        } finally {
+            connectContext.getSessionVariable().setEnableQueryCacheIncremental(false);
+        }
     }
 
     private String getDigest(String sql) throws Exception {

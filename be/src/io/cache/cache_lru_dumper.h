@@ -87,6 +87,8 @@ private:
     // For parsing
     doris::io::cache::LRUDumpEntryGroupPb _current_parse_group;
     doris::io::cache::LRUDumpMetaPb _parse_meta;
+    int _parse_group_index = 0;
+    int _parse_entry_index = 0;
 
     BlockFileCache* _mgr;
     LRUQueueRecorder* _recorder;

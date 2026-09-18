@@ -63,9 +63,21 @@ INSERT INTO three_partition_tb PARTITION (part1='EU', part2=2025, part3='Q3') VA
 INSERT INTO three_partition_tb PARTITION (part1='AS', part2=2025, part3='Q1') VALUES (13, 'Nina');
 INSERT INTO three_partition_tb PARTITION (part1='AS', part2=2025, part3='Q2') VALUES (14, 'Oscar');
 INSERT INTO three_partition_tb PARTITION (part1='AS', part2=2025, part3='Q3') VALUES (15, 'Paul');
+-- FIX-NONPART-PRUNE-DATALOSS: a NON-partitioned table is required to guard the regression where a
+-- filtered query over a non-partitioned MaxCompute table silently returned ZERO rows.
+CREATE TABLE no_partition_tb (
+    id INT,
+    name string
+);
+INSERT INTO no_partition_tb VALUES (1, 'Alice');
+INSERT INTO no_partition_tb VALUES (2, 'Bob');
+INSERT INTO no_partition_tb VALUES (3, 'Charlie');
+INSERT INTO no_partition_tb VALUES (4, 'David');
+INSERT INTO no_partition_tb VALUES (5, 'Eva');
 select * from one_partition_tb;
 select * from two_partition_tb;
 select * from three_partition_tb;
+select * from no_partition_tb;
 show partitions one_partition_tb;
 show partitions two_partition_tb;
 show partitions three_partition_tb;
@@ -132,6 +144,8 @@ suite("test_max_compute_partition_prune", "p2,external") {
                     explain {
                         sql("${one_partition_1_1}")
                         contains "partition=1/2"
+                        // VPluginDrivenScanNode surfaces the backing connector/catalog type
+                        contains "CONNECTOR: max_compute"
                     }
 
                     qt_one_partition_2_1 one_partition_2_1
@@ -288,6 +302,26 @@ suite("test_max_compute_partition_prune", "p2,external") {
                         sql("${three_partition_11_0}")
                         contains "partition=0/10"
                     }
+
+                    // FIX-NONPART-PRUNE-DATALOSS truth-gate: a filtered query over a NON-partitioned
+                    // table must return its matching rows, NOT zero. Before the fix
+                    // (supportInternalPartitionPruned gated on partition columns) PruneFileScanPartition
+                    // overwrote the selection with isPruned=true+empty for non-partitioned tables, so
+                    // PluginDrivenScanNode short-circuited to no splits and these queries silently
+                    // returned 0 rows. Asserted directly (no .out dependency) so the count is unambiguous.
+                    def no_part_filtered = sql """SELECT id, name FROM no_partition_tb WHERE id = 5;"""
+                    assertEquals(1, no_part_filtered.size(),
+                            "non-partitioned MC table WHERE id=5 must return exactly its 1 matching row, "
+                                    + "not zero (FIX-NONPART-PRUNE-DATALOSS)")
+                    assertEquals("5", no_part_filtered[0][0].toString())
+
+                    def no_part_range = sql """SELECT id FROM no_partition_tb WHERE id >= 3 ORDER BY id;"""
+                    assertEquals(3, no_part_range.size(),
+                            "non-partitioned MC table WHERE id>=3 must return 3 rows (id 3,4,5), not zero")
+
+                    def no_part_all = sql """SELECT id FROM no_partition_tb ORDER BY id;"""
+                    assertEquals(5, no_part_all.size(),
+                            "non-partitioned MC table full scan must return all 5 rows")
                 }
             }
         }

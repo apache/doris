@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <limits>
 #include <string>
 
 #include "core/column/column_array.h"
@@ -185,6 +186,34 @@ static ColumnPtr run_element_at(ColumnPtr arr_col, DataTypePtr arr_type, ColumnP
 
     EXPECT_TRUE(func->execute(nullptr, block, {0, 1}, 2, input_rows_count).ok());
     return block.get_by_position(2).column;
+}
+
+TEST(function_array_element_test, element_at_int64_min_is_out_of_range) {
+    const Int64 minimum = std::numeric_limits<Int64>::min();
+    static_cast<void>(check_function<DataTypeInt64, true>(
+            "element_at", {TYPE_ARRAY, TYPE_BIGINT, TYPE_BIGINT},
+            {{{TestArray {Int64(1), Int64(2)}, minimum}, Null()}}));
+    static_cast<void>(check_function<DataTypeString, true>(
+            "element_at", {TYPE_ARRAY, TYPE_VARCHAR, TYPE_BIGINT},
+            {{{TestArray {std::string("a"), std::string("b")}, minimum}, Null()}}));
+
+    auto inner_data = ColumnInt32::create();
+    inner_data->insert_value(1);
+    inner_data->insert_value(2);
+    auto inner_offsets = ColumnArray::ColumnOffsets::create();
+    inner_offsets->insert_value(1);
+    inner_offsets->insert_value(2);
+    auto inner_arrays = ColumnArray::create(std::move(inner_data), std::move(inner_offsets));
+    auto outer_offsets = ColumnArray::ColumnOffsets::create();
+    outer_offsets->insert_value(2);
+    auto outer_array = ColumnArray::create(std::move(inner_arrays), std::move(outer_offsets));
+    auto inner_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    auto outer_type = std::make_shared<DataTypeArray>(inner_type);
+    auto index = ColumnInt64::create();
+    index->insert_value(minimum);
+    auto result = run_element_at(std::move(outer_array), outer_type, std::move(index),
+                                 std::make_shared<DataTypeInt64>(), make_nullable(inner_type), 1);
+    ASSERT_TRUE(assert_cast<const ColumnNullable&>(*result).is_null_at(0));
 }
 
 // Tests for element_at with a constant (ColumnConst) array argument and a varying index.

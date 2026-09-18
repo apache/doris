@@ -30,6 +30,10 @@ public:
 
     TokenizerPtr create() override;
 
+    PositionCapability position_capability() const override {
+        return PositionCapability::kAlwaysUnitIncrement;
+    }
+
 private:
     static UChar32 parse_escaped_char(const icu::UnicodeString& unicode_str);
 

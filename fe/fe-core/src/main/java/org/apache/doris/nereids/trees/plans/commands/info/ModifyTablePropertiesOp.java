@@ -35,6 +35,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -70,14 +71,18 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
 
     @Override
     public boolean allowOpRowBinlog() {
-        // Only allow table property changes that are not related to bloom filter
-        // when row binlog is enabled.
+        // Row-binlog tables forbid bloom-filter changes and storage relocation.
         if (properties == null || properties.isEmpty()) {
             return true;
         }
         // BF related properties are forbidden on row binlog tables.
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
+            return false;
+        }
+        if (properties.keySet().stream().anyMatch(key ->
+                key.equalsIgnoreCase(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)
+                        || key.equalsIgnoreCase(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME))) {
             return false;
         }
         // Other properties are allowed.
@@ -280,6 +285,9 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                                 + PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD
                                 + " should be set to true or false");
             }
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT)) {
+            PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(new HashMap<>(properties));
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
             throw new AnalysisException(

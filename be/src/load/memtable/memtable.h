@@ -34,13 +34,14 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "storage/partial_update_info.h"
+#include "storage/rowset/rowset_fwd.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
-class Schema;
 class SlotDescriptor;
 class TabletSchema;
+struct TabletAddRowsPayload;
 class TupleDescriptor;
 enum KeysType : int;
 
@@ -52,11 +53,14 @@ enum MemType { ACTIVE = 0, WRITE_FINISHED = 1, FLUSH = 2 };
 // row pos in _input_mutable_block
 struct RowInBlock {
     size_t _row_pos;
+    int64_t _allocated_lsn = 0;
     char* _agg_mem = nullptr;
     size_t* _agg_state_offset = nullptr;
     bool _has_init_agg;
 
     RowInBlock(size_t row) : _row_pos(row), _has_init_agg(false) {}
+    RowInBlock(size_t row, int64_t allocated_lsn)
+            : _row_pos(row), _allocated_lsn(allocated_lsn), _has_init_agg(false) {}
 
     void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
         _has_init_agg = true;
@@ -174,14 +178,14 @@ public:
     MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
-             const std::shared_ptr<ResourceContext>& resource_ctx);
+             const std::shared_ptr<ResourceContext>& resource_ctx, bool need_lsn = false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
     size_t get_flush_reserve_memory_size() const;
     // insert tuple from (row_pos) to (row_pos+num_rows)
-    Status insert(const Block* block, const DorisVector<uint32_t>& row_idxs);
+    Status insert(const Block* block, const TabletAddRowsPayload& rows);
 
     void shrink_memtable_by_agg();
 
@@ -190,6 +194,8 @@ public:
     bool need_agg() const;
 
     Status to_block(std::unique_ptr<Block>* res);
+
+    ConstAllocatedLsnVectorSharedPtr allocated_lsns() const { return _output_allocated_lsns; }
 
     bool empty() const { return _input_mutable_block.rows() == 0; }
 
@@ -212,6 +218,13 @@ private:
     template <bool has_skip_bitmap_col>
     void _aggregate_two_row_in_block(MutableBlock& mutable_block, RowInBlock* new_row,
                                      RowInBlock* row_in_skiplist);
+
+    // Merge allocated LSN sidecar only when MemTable merges two RowInBlock objects.
+    // Table models that require complex merge semantics, such as AGG tables and unique key
+    // merge-on-read tables, do not support allocated LSN now and are rejected in insert().
+    void _merge_allocated_lsn(RowInBlock* src_row, RowInBlock* dst_row);
+
+    void _append_output_allocated_lsn(RowInBlock* row);
 
     void _aggregate_two_row_with_sequence_map(MutableBlock& mutable_block, RowInBlock* new_row,
                                               RowInBlock* row_in_skiplist);
@@ -244,6 +257,7 @@ private:
     void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
                                             const TupleDescriptor* tuple_desc);
     std::vector<int> _column_offset;
+    int32_t _row_lsn_col_pos = -1;
 
     // Number of rows inserted to this memtable.
     // This is not the rows in this memtable, because rows may be merged
@@ -253,6 +267,8 @@ private:
     //for vectorized
     MutableBlock _input_mutable_block;
     MutableBlock _output_mutable_block;
+    AllocatedLsnVectorSharedPtr _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
+    bool _need_lsn = false;
     size_t _last_sorted_pos = 0;
     size_t _last_agg_pos = 0;
 

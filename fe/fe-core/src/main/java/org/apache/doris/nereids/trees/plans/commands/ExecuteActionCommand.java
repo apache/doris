@@ -27,7 +27,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -94,7 +93,6 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
         if (!(table instanceof ExternalTable)) {
             throw new AnalysisException("ALTER TABLE EXECUTE is currently only supported for external tables");
         }
-
         try {
             ExecuteAction action = ExecuteActionFactory.createAction(
                     actionName, properties, partitionNamesInfo, whereCondition, table);
@@ -105,7 +103,6 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
             action.validate(tableNameInfo, ctx.getCurrentUserIdentity());
             ResultSet resultSet = action.execute(table);
-            logRefreshTable(table, System.currentTimeMillis());
             if (resultSet != null) {
                 executor.sendResultSet(resultSet);
             }
@@ -142,26 +139,5 @@ public class ExecuteActionCommand extends Command implements ForwardWithSync {
 
     public Optional<Expression> getWhereCondition() {
         return whereCondition;
-    }
-
-    /**
-     * Log refresh table to make follow fe metadata cache refresh.
-     *
-     * @param table the table to log
-     * @throws UserException if the table type is not supported
-     */
-    private void logRefreshTable(TableIf table, long updateTime) throws UserException {
-        if (table instanceof ExternalTable) {
-            ExternalTable externalTable = (ExternalTable) table;
-            Env.getCurrentEnv().getEditLog()
-                    .logRefreshExternalTable(
-                            ExternalObjectLog.createForRefreshTable(
-                                    externalTable.getCatalog().getId(),
-                                    externalTable.getDbName(),
-                                    externalTable.getName(), updateTime));
-        } else {
-            // support more table in future
-            throw new UserException("Unsupported table type: " + table.getClass().getName() + " for refresh table");
-        }
     }
 }

@@ -55,6 +55,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaRoutineLoadJobScanner::_s_tbls_colu
         {"CURRENT_ABORT_TASK_NUM", TYPE_INT, sizeof(int32_t), true},
         {"IS_ABNORMAL_PAUSE", TYPE_BOOLEAN, sizeof(int8_t), true},
         {"COMPUTE_GROUP", TYPE_STRING, sizeof(StringRef), true},
+        {"FIRST_ERROR_MSG", TYPE_STRING, sizeof(StringRef), true},
 };
 
 SchemaRoutineLoadJobScanner::SchemaRoutineLoadJobScanner()
@@ -174,6 +175,9 @@ Status SchemaRoutineLoadJobScanner::_fill_block_impl(Block* block) {
                     break;
                 case 20: // COMPUTE_GROUP
                     column_value = job_info.__isset.compute_group ? job_info.compute_group : "";
+                    break;
+                case 21: // FIRST_ERROR_MSG
+                    column_value = job_info.__isset.first_error_msg ? job_info.first_error_msg : "";
                     break;
                 }
 

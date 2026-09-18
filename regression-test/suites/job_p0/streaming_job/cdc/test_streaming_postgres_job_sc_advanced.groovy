@@ -35,11 +35,10 @@ import static java.util.concurrent.TimeUnit.SECONDS
  *   3. UPDATE on existing rows after rename guard – verifies that a row whose old column (c1)
  *      was dropped in PG gets c1=NULL in Doris after the next UPDATE (stream load replaces the
  *      whole row without c1 since PG no longer has it).
- *   4. ADD COLUMN with DEFAULT value – verifies that the DEFAULT clause is passed through to
- *      Doris and that pre-existing rows automatically receive the default value after the DDL.
- *   5. ADD COLUMN NOT NULL with DEFAULT – verifies the NOT NULL path in SchemaChangeHelper
- *      (col.isOptional()=false → appends NOT NULL) and that Doris accepts the DDL when a
- *      DEFAULT is present (satisfying the NOT NULL constraint for existing rows).
+ *   4. ADD COLUMN with DEFAULT value – verifies that Doris does not copy the source DEFAULT or
+ *      backfill existing rows, while subsequent CDC rows carry PostgreSQL's evaluated value.
+ *   5. ADD COLUMN NOT NULL with DEFAULT – verifies that the Doris column is added as nullable
+ *      without a DEFAULT so existing rows remain valid and subsequent CDC values are preserved.
  */
 suite("test_streaming_postgres_job_sc_advanced",
         "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
@@ -252,12 +251,9 @@ suite("test_streaming_postgres_job_sc_advanced",
         qt_rename_guard_update """ SELECT name, age, c1, c2 FROM ${table1} ORDER BY name """
 
         // ── Phase 4: ADD COLUMN with DEFAULT value ────────────────────────────
-        // PG adds a nullable TEXT column with a DEFAULT value.
-        // buildAddColumnSql picks up col.defaultValueExpression() and appends DEFAULT 'default_val'
-        // to the Doris ALTER TABLE.  After the DDL, Doris fills the default for all pre-existing
-        // rows (metadata operation), so C1/D1/E1 all get c4='default_val' without any DML replay.
-        // F1 is inserted without an explicit c4 value → PG fills in the default → WAL record
-        // already carries c4='default_val', so Doris writes 'default_val' for F1 as well.
+        // Doris does not copy the source DEFAULT, so existing rows remain NULL. F1 is inserted
+        // without c4; PostgreSQL evaluates the default before writing WAL, and CDC carries the
+        // resulting value.
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             // PG current cols: name, age, c2, c3
             sql """ALTER TABLE ${pgSchema}.${table1} ADD COLUMN c4 TEXT DEFAULT 'default_val'"""
@@ -277,39 +273,37 @@ suite("test_streaming_postgres_job_sc_advanced",
         def descAfterDefaultAdd = sql "DESC ${table1}"
         def c4Row = descAfterDefaultAdd.find { it[0] == 'c4' }
         assert c4Row != null : "c4 must be added"
-        assert c4Row[4] == 'default_val' : "c4 must carry DEFAULT 'default_val', got: ${c4Row[4]}"
+        assert c4Row[4] == null : "c4 must not carry the source DEFAULT, got: ${c4Row[4]}"
 
-        // Pre-existing rows receive the default value from Doris's ALTER TABLE (not from DML replay).
         try {
-            waitForValue('C1', 'c4', 'default_val')
-            waitForValue('D1', 'c4', 'default_val')
-            waitForValue('E1', 'c4', 'default_val')
             waitForValue('F1', 'c4', 'default_val')
         } catch (Exception ex) {
             dumpJobState()
             throw ex
         }
+        assert (sql "SELECT c4 FROM ${table1} WHERE name='C1'")[0][0] == null
+        assert (sql "SELECT c4 FROM ${table1} WHERE name='D1'")[0][0] == null
+        assert (sql "SELECT c4 FROM ${table1} WHERE name='E1'")[0][0] == null
 
-        // C1(30,_,default_val), D1(99,_,default_val), E1(50,_,default_val), F1(60,_,default_val)
         qt_default_col """ SELECT name, age, c4 FROM ${table1} ORDER BY name """
 
         // ── Phase 5: ADD COLUMN NOT NULL with DEFAULT ─────────────────────────
-        // In PG, adding a NOT NULL column to a non-empty table requires a DEFAULT so existing rows
-        // satisfy the constraint.  Debezium captures col.isOptional()=false, so SchemaChangeHelper
-        // appends NOT NULL to the Doris column type, and the DEFAULT clause is also passed through.
-        // With both NOT NULL and DEFAULT, Doris can apply the DDL: existing rows get the default
-        // value (satisfying NOT NULL), and new rows must supply a value or receive the default.
+        // The target column is intentionally nullable and has no DEFAULT because existing Doris
+        // rows are not backfilled. New CDC rows still carry PostgreSQL's actual value.
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             // PG current cols: name, age, c2, c3, c4
             sql """ALTER TABLE ${pgSchema}.${table1}
                        ADD COLUMN c5 TEXT NOT NULL DEFAULT 'required'"""
             sql """INSERT INTO ${pgSchema}.${table1} (name, age, c2, c3, c4, c5)
                        VALUES ('G1', 70, 30, 66, 'g1c4', 'explicit')"""
+            sql """INSERT INTO ${pgSchema}.${table1} (name, age, c2, c3)
+                       VALUES ('H1', 80, 40, 77)"""
         }
 
         try {
             waitForColumn('c5', true)
             waitForRow('G1')
+            waitForRow('H1')
         } catch (Exception ex) {
             dumpJobState()
             throw ex
@@ -319,20 +313,20 @@ suite("test_streaming_postgres_job_sc_advanced",
         def descAfterNotNullAdd = sql "DESC ${table1}"
         def c5Row = descAfterNotNullAdd.find { it[0] == 'c5' }
         assert c5Row != null : "c5 must be added"
-        assert c5Row[4] == 'required' : "c5 must carry DEFAULT 'required', got: ${c5Row[4]}"
+        assert c5Row[4] == null : "c5 must not carry the source DEFAULT, got: ${c5Row[4]}"
 
-        // Pre-existing rows must have the default value (Doris ALTER TABLE fills it).
-        // G1 was inserted with an explicit 'explicit' value.
         try {
-            waitForValue('C1', 'c5', 'required')
-            waitForValue('D1', 'c5', 'required')
             waitForValue('G1', 'c5', 'explicit')
+            waitForValue('H1', 'c4', 'default_val')
+            waitForValue('H1', 'c5', 'required')
         } catch (Exception ex) {
             dumpJobState()
             throw ex
         }
+        assert (sql "SELECT c5 FROM ${table1} WHERE name='C1'")[0][0] == null
+        assert (sql "SELECT c5 FROM ${table1} WHERE name='D1'")[0][0] == null
+        assert (sql "SELECT c5 FROM ${table1} WHERE name='F1'")[0][0] == null
 
-        // C1(_,default_val,required), D1(_,default_val,required), ...G1(_,g1c4,explicit)
         qt_not_null_col """ SELECT name, age, c4, c5 FROM ${table1} ORDER BY name """
 
         assert (sql """select * from jobs("type"="insert") where Name='${jobName}'""")[0][5] == "RUNNING"

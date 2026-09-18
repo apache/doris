@@ -113,4 +113,8 @@ inline void PhraseScorer<TPostings>::intersection(std::vector<uint32_t>& left,
     left.resize(count);
 }
 
+/// Instantiated once in phrase_scorer.cpp; suppresses per-TU implicit instantiation.
+extern template class PhraseScorer<PostingsPtr>;
+extern template class PhraseScorer<SegmentPostingsPtr>;
+
 } // namespace doris::segment_v2::inverted_index::query_v2

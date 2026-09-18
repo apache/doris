@@ -53,6 +53,7 @@
 #include "orc/Type.hh"
 #include "orc/Vector.hh"
 #include "orc/sargs/Literal.hh"
+#include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 
 namespace doris {
@@ -193,8 +194,17 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<DataTypePtr>* col_types) override;
 
+    const orc::Type* get_file_root_type() const {
+        DORIS_CHECK(_reader != nullptr);
+        return &_reader->getType();
+    }
+
     void set_position_delete_rowids(const std::vector<int64_t>* delete_rows) {
         _position_delete_ordered_rowids = delete_rows;
+    }
+
+    void set_deletion_vector(const roaring::Roaring64Map* deletion_vector) {
+        _deletion_vector = deletion_vector;
     }
 
     void set_delete_rows(const AcidRowIDSet* delete_rows) { _delete_rows = delete_rows; }
@@ -260,6 +270,7 @@ public:
     bool has_delete_operations() const override {
         return (_position_delete_ordered_rowids != nullptr &&
                 !_position_delete_ordered_rowids->empty()) ||
+               (_deletion_vector != nullptr && !_deletion_vector->isEmpty()) ||
                (_delete_rows != nullptr && !_delete_rows->empty());
     }
 
@@ -420,7 +431,8 @@ private:
                                        const DataTypePtr& data_type,
                                        std::shared_ptr<TableSchemaChangeHelper::Node> root_node,
                                        const orc::Type* orc_column_type,
-                                       const orc::ColumnVectorBatch* cvb, size_t num_values);
+                                       const orc::ColumnVectorBatch* cvb, size_t num_values,
+                                       const orc::ColumnVectorBatch* parent_cvb = nullptr);
 
     template <PrimitiveType PType, typename OrcColumnType>
     Status _decode_flat_column(const std::string& col_name, const MutableColumnPtr& data_column,
@@ -671,6 +683,7 @@ private:
                                      const orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
                                      size_t* element_size);
 
+    void _block_dict_filter_for_slots(const VExprSPtr& expr);
     bool _can_filter_by_dict(int slot_id);
 
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
@@ -819,7 +832,7 @@ private:
     VExprContextSPtrs _dict_filter_conjuncts;
     VExprContextSPtrs _non_dict_filter_conjuncts;
     VExprContextSPtrs _filter_conjuncts;
-    bool _disable_dict_filter = false;
+    std::unordered_set<int> _dict_filter_blocked_slot_ids;
     // std::pair<col_name, slot_id>
     std::vector<std::pair<std::string, int>> _dict_filter_cols;
     std::unique_ptr<ObjectPool> _obj_pool;
@@ -831,6 +844,7 @@ private:
 
     //support iceberg position delete .
     const std::vector<int64_t>* _position_delete_ordered_rowids = nullptr;
+    const roaring::Roaring64Map* _deletion_vector = nullptr;
     std::unordered_map<const VSlotRef*, orc::PredicateDataType>
             _vslot_ref_to_orc_predicate_data_type;
     std::unordered_map<const VLiteral*, orc::Literal> _vliteral_to_orc_literal;
@@ -845,6 +859,9 @@ private:
     // Through this node, you can find the file column based on the table column.
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =
             TableSchemaChangeHelper::ConstNode::get_instance();
+    // Hold the resolved type with the one-row value so equivalent complex types reconstructed for
+    // later Blocks reuse the same Iceberg field-ID entry outside the batch conversion path.
+    std::unordered_map<int32_t, std::pair<DataTypePtr, ColumnPtr>> _nested_initial_default_values;
 
     std::set<uint64_t> _column_ids;
     std::set<uint64_t> _filter_column_ids;

@@ -54,7 +54,7 @@ services:
       retries: 120
 
   postgres:
-    image: postgis/postgis:14-3.3
+    image: ${ICEBERG_POSTGRES_IMAGE:-postgis/postgis:14-3.3}
     container_name: doris--iceberg-postgres
     environment:
       POSTGRES_PASSWORD: 123456
@@ -101,8 +101,25 @@ services:
       - /usr/lib/iceberg-rest/iceberg-rest-adapter.jar:/opt/jdbc/postgresql.jar
       - org.apache.iceberg.rest.RESTCatalogServer
 
+  trino:
+    image: trinodb/trino:482
+    container_name: doris--iceberg-trino
+    depends_on:
+      rest:
+        condition: service_started
+      mc:
+        condition: service_completed_successfully
+    user: root
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /etc/trino/catalog && command -v trino >/dev/null"]
+      interval: 5s
+      timeout: 60s
+      retries: 120
+
   minio:
-    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    image: doristhirdpartydocker/minio:RELEASE.2025-01-20T14-49-07Z
     container_name: doris--iceberg-minio
     ports:
       - ${MINIO_API_PORT}:9000
@@ -128,7 +145,7 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    image: minio/mc:RELEASE.2025-01-17T23-25-50Z
+    image: doristhirdpartydocker/mc:RELEASE.2025-01-17T23-25-50Z
     container_name: doris--iceberg-mc
     environment:
       - AWS_ACCESS_KEY_ID=admin

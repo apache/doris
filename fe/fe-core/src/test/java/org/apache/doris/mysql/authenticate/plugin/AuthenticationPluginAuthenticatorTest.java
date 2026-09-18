@@ -154,6 +154,35 @@ class AuthenticationPluginAuthenticatorTest {
     }
 
     @Test
+    void testAuthenticatePropagatesCredentialExpirationFromPluginResult() throws Exception {
+        long expiresAtMillis = 1_700_000_000_000L;
+        Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+        Mockito.when(plugin.authenticate(Mockito.any(), Mockito.any()))
+                .thenReturn(AuthenticationResult.success(BasicPrincipal.builder()
+                        .name("external_alice")
+                        .authenticator("oidc")
+                        .build(), Collections.emptySet(), expiresAtMillis));
+        Mockito.when(auth.getUserIdentityForExternalAuth("alice", "127.0.0.1"))
+                .thenReturn(Collections.emptyList());
+
+        Map<String, String> integrationProperties = new HashMap<>();
+        integrationProperties.put("enable_jit_user", "true");
+        AuthenticationPluginAuthenticator authenticator = new AuthenticationPluginAuthenticator(
+                "oidc", integrationProperties, pluginManager);
+
+        AuthenticateResponse response = authenticator.authenticate(AuthenticateRequest.builder()
+                .userName("alice")
+                .remoteHost("127.0.0.1")
+                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credential("token".getBytes(StandardCharsets.UTF_8))
+                .build());
+
+        Assertions.assertTrue(response.isSuccess());
+        Assertions.assertTrue(response.getCredentialExpiresAtMillis().isPresent());
+        Assertions.assertEquals(expiresAtMillis, response.getCredentialExpiresAtMillis().getAsLong());
+    }
+
+    @Test
     void testEnsurePluginFactoryLoadedSupportsMultiplePluginRoots() throws Exception {
         org.apache.doris.common.Config.authentication_plugins_dir = "/tmp/auth-root-a, /tmp/auth-root-b";
         Mockito.when(pluginManager.hasFactory("oidc")).thenReturn(false, true);

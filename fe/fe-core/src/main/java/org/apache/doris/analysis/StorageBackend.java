@@ -139,7 +139,7 @@ public class StorageBackend {
          * Includes: S3 (referring to all systems compatible with the S3 protocol),
          * HDFS, OFS, JFS, and AZURE. For S3, this is a generalized type that matches
          * any system whose storage type name is returned as "s3" (or compatible)
-         * by {@link org.apache.doris.datasource.property.storage.StorageProperties#getStorageName()}.
+         * by {@link org.apache.doris.datasource.storage.StorageAdapter#getStorageName()}.
          * <p>
          * This set is a temporary solution. Once parameter refactoring is fully supported
          * across all storage systems, this class can be removed.

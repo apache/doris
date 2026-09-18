@@ -19,13 +19,16 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "format_v2/column_data.h"
+#include "format_v2/column_mapper.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
@@ -41,11 +44,19 @@ ColumnDefinition table_column(const std::string& name, DataTypePtr type) {
     return column;
 }
 
+ColumnDefinition file_column(const std::string& name, DataTypePtr type, int32_t local_id) {
+    ColumnDefinition column;
+    column.local_id = local_id;
+    column.name = name;
+    column.type = std::move(type);
+    return column;
+}
+
 Status init_hive_reader(FileFormat format, TFileScanRangeParams* params, RuntimeState* state,
-                        RuntimeProfile* profile, HiveReader* reader) {
+                        RuntimeProfile* profile, HiveReader* reader,
+                        std::vector<ColumnDefinition> projected_columns) {
     return reader->init({
-            .projected_columns = {table_column("id", std::make_shared<DataTypeInt32>()),
-                                  table_column("name", std::make_shared<DataTypeString>())},
+            .projected_columns = std::move(projected_columns),
             .conjuncts = {},
             .format = format,
             .scan_params = params,
@@ -53,6 +64,17 @@ Status init_hive_reader(FileFormat format, TFileScanRangeParams* params, Runtime
             .runtime_state = state,
             .scanner_profile = profile,
     });
+}
+
+Status init_hive_reader(FileFormat format, TFileScanRangeParams* params, RuntimeState* state,
+                        RuntimeProfile* profile, HiveReader* reader) {
+    return init_hive_reader(format, params, state, profile, reader,
+                            {table_column("id", std::make_shared<DataTypeInt32>()),
+                             table_column("name", std::make_shared<DataTypeString>())});
+}
+
+bool has_name_mapping(const ColumnDefinition& column, const std::string& name) {
+    return std::ranges::find(column.name_mapping, name) != column.name_mapping.end();
 }
 
 class HiveV2ReaderTest : public testing::Test {
@@ -123,6 +145,29 @@ TEST_F(HiveV2ReaderTest, MappingModeUsesInitializedFormat) {
     EXPECT_FALSE(reader.prepare_split(orc_split).ok());
 }
 
+TEST_F(HiveV2ReaderTest, OrcConsumesColumnIdxsAsPositionalSchemaMapping) {
+    query_options.hive_orc_use_column_names = false;
+    state.set_query_options(query_options);
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    params.__set_column_idxs({3});
+    ProjectedColumnBuildContext context {
+            .scan_params = &params,
+            .runtime_state = &state,
+    };
+    HiveReader reader;
+
+    TFileScanSlotInfo slot;
+    slot.__set_is_file_slot(true);
+    auto column = table_column("value", std::make_shared<DataTypeInt32>());
+
+    ASSERT_TRUE(reader.annotate_projected_column(slot, &context, &column).ok());
+    ASSERT_TRUE(column.has_identifier_field_id());
+    EXPECT_EQ(column.get_identifier_position(), 3);
+    EXPECT_EQ(context.next_file_column_idx, 1);
+}
+
 // Scenario: positional mapping is only for Hive Parquet/ORC sessions that disable name mapping.
 // CSV keeps the synthesized file-column names and leaves column_idxs for the CsvReader itself.
 TEST_F(HiveV2ReaderTest, CsvDoesNotConsumeColumnIdxsAsPositionalSchemaMapping) {
@@ -144,6 +189,43 @@ TEST_F(HiveV2ReaderTest, CsvDoesNotConsumeColumnIdxsAsPositionalSchemaMapping) {
     ASSERT_TRUE(column.has_identifier_name());
     EXPECT_EQ(column.get_identifier_name(), "value");
     EXPECT_EQ(context.next_file_column_idx, 0);
+}
+
+TEST_F(HiveV2ReaderTest, OrcHive1ColumnNamesUsePositionAliasesWhenNameMappingEnabled) {
+    query_options.hive_orc_use_column_names = true;
+    state.set_query_options(query_options);
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    params.__set_column_idxs({0, 1, 2});
+    std::vector<ColumnDefinition> projected_columns {
+            table_column("a", std::make_shared<DataTypeUInt8>()),
+            table_column("b", std::make_shared<DataTypeInt32>()),
+            table_column("c", std::make_shared<DataTypeString>())};
+    HiveReader reader;
+    ASSERT_TRUE(
+            init_hive_reader(FileFormat::ORC, &params, &state, &profile, &reader, projected_columns)
+                    .ok());
+
+    std::vector<ColumnDefinition> file_schema {
+            file_column("_col0", std::make_shared<DataTypeUInt8>(), 0),
+            file_column("_col1", std::make_shared<DataTypeInt32>(), 1),
+            file_column("_col2", std::make_shared<DataTypeString>(), 2)};
+    ASSERT_TRUE(reader.TEST_annotate_file_schema(&file_schema).ok());
+
+    EXPECT_TRUE(has_name_mapping(file_schema[0], "a"));
+    EXPECT_TRUE(has_name_mapping(file_schema[1], "b"));
+    EXPECT_TRUE(has_name_mapping(file_schema[2], "c"));
+
+    TableColumnMapper mapper({.mode = reader.mapping_mode()});
+    ASSERT_TRUE(mapper.create_mapping(projected_columns, {}, file_schema).ok());
+    ASSERT_EQ(mapper.mappings().size(), 3);
+    ASSERT_TRUE(mapper.mappings()[0].file_local_id.has_value());
+    ASSERT_TRUE(mapper.mappings()[1].file_local_id.has_value());
+    ASSERT_TRUE(mapper.mappings()[2].file_local_id.has_value());
+    EXPECT_EQ(*mapper.mappings()[0].file_local_id, 0);
+    EXPECT_EQ(*mapper.mappings()[1].file_local_id, 1);
+    EXPECT_EQ(*mapper.mappings()[2].file_local_id, 2);
 }
 
 } // namespace

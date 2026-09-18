@@ -61,6 +61,11 @@ public class WhenClause extends Expression implements BinaryExpression, ExpectsI
     }
 
     @Override
+    public String shapeInfo() {
+        return " WHEN " + left().shapeInfo() + " THEN " + right().shapeInfo();
+    }
+
+    @Override
     public WhenClause withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new WhenClause(children);

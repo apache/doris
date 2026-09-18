@@ -54,4 +54,7 @@ public:
     [[nodiscard]] bool is_source() const override { return false; }
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StreamingOperatorX<SelectLocalState>;
+
 } // namespace doris

@@ -18,14 +18,18 @@
 #include "storage/compaction/cumulative_compaction_policy.h"
 
 #include <algorithm>
+#include <iterator>
 #include <list>
 #include <ostream>
 #include <string>
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/olap_common.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/debug_points.h"
@@ -268,6 +272,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     int transient_size = 0;
     *compaction_score = 0;
     int64_t total_size = 0;
+    RowsetSharedPtr last_popped;
 
     // DEFER: trim input_rowsets from back if score > max_compaction_score
     // This ensures we don't return more rowsets than allowed by max_compaction_score,
@@ -277,10 +282,18 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         // Keep at least 1 rowset to avoid removing the only rowset (consistent with fallback branch)
         while (input_rowsets->size() > 1 &&
                *compaction_score > static_cast<size_t>(max_compaction_score)) {
-            auto& last_rowset = input_rowsets->back();
-            *compaction_score -= last_rowset->rowset_meta()->get_compaction_score();
-            total_size -= last_rowset->rowset_meta()->total_disk_size();
+            last_popped = std::move(input_rowsets->back());
+            *compaction_score -= last_popped->rowset_meta()->get_compaction_score();
+            total_size -= last_popped->rowset_meta()->total_disk_size();
             input_rowsets->pop_back();
+        }
+        // A single non-overlapping rowset cannot be compacted by itself. Restore the direct
+        // successor and accept a one-off max-score overshoot to keep the input mergeable.
+        if (input_rowsets->size() == 1 && last_popped != nullptr &&
+            !input_rowsets->front()->rowset_meta()->is_segments_overlapping()) {
+            *compaction_score += last_popped->rowset_meta()->get_compaction_score();
+            total_size += last_popped->rowset_meta()->total_disk_size();
+            input_rowsets->push_back(std::move(last_popped));
         }
     });
 
@@ -303,7 +316,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         if (tablet->tablet_state() == TABLET_NOTREADY) {
             // If tablet under alter, keep latest 10 version so that base tablet max version
             // not merged in new tablet, and then we can copy data from base tablet
-            if (rowset->version().second < max_version - 10) {
+            if (rowset->version().second > max_version - 10) {
                 continue;
             }
         }
@@ -317,10 +330,6 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     }
     DBUG_EXECUTE_IF("SizeBaseCumulativeCompactionPolicy.pick_input_rowsets.return_input_rowsets",
                     { return transient_size; })
-
-    if (total_size >= promotion_size) {
-        return transient_size;
-    }
 
     // if there is delete version, do compaction directly
     if (last_delete_version->first != -1) {
@@ -338,6 +347,8 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 
     auto rs_begin = input_rowsets->begin();
     size_t new_compaction_score = *compaction_score;
+    const bool can_handle_exhausted_input =
+            *compaction_score >= static_cast<size_t>(max_compaction_score);
     while (rs_begin != input_rowsets->end()) {
         auto& rs_meta = (*rs_begin)->rowset_meta();
         int64_t current_level = _level_size(rs_meta->total_disk_size());
@@ -347,9 +358,16 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         if (current_level <= remain_level) {
             break;
         }
+
+        auto next = std::next(rs_begin);
+        // Keep the last suffix rowset for the singleton checks unless the exhausted-input
+        // fallback below can select a useful input.
+        if (next == input_rowsets->end() && !can_handle_exhausted_input) {
+            break;
+        }
         total_size -= rs_meta->total_disk_size();
         new_compaction_score -= rs_meta->get_compaction_score();
-        ++rs_begin;
+        rs_begin = next;
     }
     if (rs_begin == input_rowsets->end() && *compaction_score >= max_compaction_score) {
         // No suitable level size found in `input_rowsets` but score of `input_rowsets` exceed max compaction score,
@@ -418,6 +436,8 @@ CumulativeCompactionPolicyFactory::create_cumulative_compaction_policy(
         return std::make_shared<TimeSeriesCumulativeCompactionPolicy>();
     } else if (compaction_policy == CUMULATIVE_SIZE_BASED_POLICY) {
         return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
+    } else if (compaction_policy == CUMULATIVE_BINLOG_POLICY) {
+        return std::make_shared<BinlogCumulativeCompactionPolicy>();
     }
     return std::make_shared<SizeBasedCumulativeCompactionPolicy>();
 }

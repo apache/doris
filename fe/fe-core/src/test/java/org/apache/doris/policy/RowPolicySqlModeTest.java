@@ -1,0 +1,297 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.policy;
+
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.util.PlanRewriter;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.utframe.TestWithFeService;
+
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * What a row policy means must not depend on the {@code sql_mode} of whoever created it.
+ *
+ * <p>Two bits of {@code sql_mode} change what SQL text means - {@code PIPES_AS_CONCAT} turns {@code ||} from
+ * OR into string concatenation, {@code NO_BACKSLASH_ESCAPES} changes how a string literal decodes - and
+ * {@code sql_mode} is a session variable any account may set with no privilege at all. The predicate of a row
+ * policy is therefore read under one fixed mode ({@link SqlModeHelper#MODE_FOR_POLICY_TEXT}), and it is read
+ * under it at every stage: when the statement is accepted, when {@code SHOW ROW POLICY} renders it, and when a
+ * query the policy restricts is planned. Any stage disagreeing with the others is a policy that does not do
+ * what it says - and the restricted user is the one who would choose which.
+ */
+public class RowPolicySqlModeTest extends TestWithFeService {
+
+    private static final String DB = "row_policy_sql_mode";
+    private static final String TBL = "policy_tbl";
+    private static final String USER = "policy_sql_mode_user";
+
+    private static OlapTable table;
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
+        createDatabase(DB);
+        useDatabase(DB);
+        createTable("create table " + TBL + " (region varchar(8), path varchar(64))"
+                + " distributed by hash(region) buckets 1 properties(\"replication_num\" = \"1\");");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(DB);
+        table = (OlapTable) db.getTableOrAnalysisException(TBL);
+
+        addUser(USER, true);
+        grantPriv("GRANT SELECT_PRIV ON internal." + DB + "." + TBL + " TO '" + USER + "'@'%'");
+    }
+
+    /**
+     * {@code ||} in a policy means OR, whatever the creator's session made it mean.
+     *
+     * <p>Under {@code PIPES_AS_CONCAT} the same text reads as {@code region = ('cn' || region) = 'us'} - a
+     * comparison against a concatenation, which filters something else entirely. What the query is planned
+     * with is the OR, so that is what the statement has to be accepted as and what {@code SHOW ROW POLICY} has
+     * to render; anything else is a policy showing one predicate and enforcing another.
+     */
+    @Test
+    public void testPipesInAPolicyMeanOrWhateverTheCreatorsSessionMeant() throws Exception {
+        long callerMode = connectContext.getSessionVariable().getSqlMode();
+        connectContext.getSessionVariable().setSqlMode(callerMode | SqlModeHelper.MODE_PIPES_AS_CONCAT);
+        try {
+            // This ConnectContext is shared with every other case here, and running a command directly does
+            // not reset its state the way ConnectProcessor does per statement.
+            connectContext.getState().reset();
+            createPolicy("CREATE ROW POLICY p_pipes ON " + TBL + " AS PERMISSIVE TO " + USER
+                    + " USING (region = 'cn' || region = 'us')");
+
+            // The statement succeeds and stores a predicate the creator did not write, so it has to say so to
+            // the creator and not only to fe.log: this session is the only place holding both readings, and
+            // SHOW ROW POLICY renders the stored one with nothing to compare it against.
+            String reported = connectContext.getState().getInfoMessage();
+            Assertions.assertNotNull(reported,
+                    "the statement dropped the creator's reading of their own text without telling them");
+            Assertions.assertTrue(reported.contains("sql_mode"),
+                    "the message does not say that policy text is read under a fixed sql_mode, which is the"
+                            + " one thing the creator needs to know here: " + reported);
+
+            RowPolicy stored = onlyPolicyOfTheUser();
+            Assertions.assertTrue(stored.getWherePredicate() instanceof Or,
+                    "the stored predicate is not a disjunction, so SHOW ROW POLICY renders a concatenation"
+                            + " while the query is filtered by an OR: " + stored.getWherePredicate().toSql());
+
+            Expression planned = onlyFilterConjunctPlannedFor(USER);
+            Assertions.assertTrue(planned instanceof Or,
+                    "the query was planned with something other than the disjunction: " + planned.toSql());
+        } finally {
+            connectContext.getSessionVariable().setSqlMode(callerMode);
+            dropPolicy("DROP ROW POLICY p_pipes ON " + TBL);
+        }
+    }
+
+    /**
+     * A predicate only the creator's {@code sql_mode} can read is refused where it is written.
+     *
+     * <p>{@code 'C:\'} is a complete string literal under {@code NO_BACKSLASH_ESCAPES} and an unterminated one
+     * without it. Accepting it would store a policy that parses on no query at all: every statement touching
+     * the table would fail, for every user the policy applies to, with an error about a string literal nobody
+     * wrote. Refusing it here says so once, to the account that can fix it.
+     */
+    @Test
+    public void testAPredicateOnlyTheCreatorsModeCanReadIsRefusedAtCreation() throws Exception {
+        long callerMode = connectContext.getSessionVariable().getSqlMode();
+        connectContext.getSessionVariable().setSqlMode(callerMode | SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+        try {
+            Exception refused = Assertions.assertThrows(Exception.class,
+                    () -> createPolicy("CREATE ROW POLICY p_escapes ON " + TBL + " AS PERMISSIVE TO " + USER
+                            + " USING (path <> 'C:\\')"));
+            Assertions.assertTrue(refused.getMessage().contains("sql_mode"),
+                    "the refusal does not say that a policy's text is read under a fixed sql_mode, which is"
+                            + " the one thing the creator needs to know here: " + refused.getMessage());
+            Assertions.assertTrue(policiesOfTheUser().isEmpty(),
+                    "a policy that cannot be read on any query was stored anyway");
+        } finally {
+            connectContext.getSessionVariable().setSqlMode(callerMode);
+        }
+    }
+
+    /** An ordinary policy is unaffected: the fixed mode is the one a fresh session already has. */
+    @Test
+    public void testAnOrdinaryPolicyIsUnaffected() throws Exception {
+        connectContext.getState().reset();
+        createPolicy("CREATE ROW POLICY p_plain ON " + TBL + " AS PERMISSIVE TO " + USER
+                + " USING (region = 'cn' or region = 'us')");
+        try {
+            Assertions.assertTrue(onlyFilterConjunctPlannedFor(USER) instanceof Or);
+            // The negative control for the message the case above expects: both modes read this text the same
+            // way, so there is nothing to report, and a statement that reports anyway trains operators to
+            // ignore it.
+            Assertions.assertNull(connectContext.getState().getInfoMessage(),
+                    "a policy whose text means the same under both modes reported a difference anyway");
+        } finally {
+            dropPolicy("DROP ROW POLICY p_plain ON " + TBL);
+        }
+    }
+
+    /**
+     * A {@code SET_VAR} hint inside the policy text does not take the caller's {@code sql_mode} away.
+     *
+     * <p>The fixed mode used to be written into the live {@code SessionVariable} for the duration of the
+     * parse. Anything the parse itself wrote to {@code sql_mode} then snapshotted the swapped-in value as if
+     * it were the caller's own and restored it as permanent when the statement ended - so a hint in a
+     * predicate the restricted user cannot even see silently dropped that user's {@code sql_mode} for the
+     * rest of the connection, and everything they ran afterwards decoded string literals differently.
+     */
+    @Test
+    public void testAHintInThePolicyTextDoesNotOutliveTheParse() throws Exception {
+        createPolicy("CREATE ROW POLICY p_hint ON " + TBL + " AS PERMISSIVE TO " + USER
+                + " USING (region = 'cn' or region = 'us')");
+        // Restored in the finally below like every sibling case here: what this one asserts is that the session
+        // ends up under PIPES_AS_CONCAT, and this ConnectContext is shared with every other case in this class.
+        // JUnit does not order methods, so leaving it set is a case that passes or fails by where it ran.
+        long enteringMode = connectContext.getSessionVariable().getSqlMode();
+        try {
+            useUser(USER);
+            long callerMode = connectContext.getSessionVariable().getSqlMode()
+                    | SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES;
+            connectContext.getSessionVariable().setSqlMode(callerMode);
+
+            // A parse under the fixed mode, with something inside it setting sql_mode - which is what a
+            // SET_VAR hint in a policy's own text does, on this very thread.
+            SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT, () -> {
+                Assertions.assertFalse(SqlModeHelper.hasNoBackSlashEscapes(),
+                        "the policy text was read under the caller's mode rather than the fixed one");
+                connectContext.getSessionVariable().setSqlMode(SqlModeHelper.MODE_PIPES_AS_CONCAT);
+                return null;
+            });
+
+            Assertions.assertEquals(SqlModeHelper.MODE_PIPES_AS_CONCAT,
+                    connectContext.getSessionVariable().getSqlMode(),
+                    "the window put back a mode the session never asked for, so a hint inside policy text"
+                            + " decides this connection's sql_mode from here on");
+        } finally {
+            useUser("root");
+            connectContext.getSessionVariable().setSqlMode(enteringMode);
+            dropPolicy("DROP ROW POLICY p_hint ON " + TBL);
+        }
+    }
+
+    /**
+     * A policy recovered with no connection on the thread is recovered under the mode it is enforced under.
+     *
+     * <p>Replaying a journal and loading an image both run on such a thread, and the fixed mode used to be a
+     * documented no-op there: what {@code gsonPostProcess} re-derived {@code wherePredicate} from was the
+     * <em>global</em> {@code sql_mode} an operator had set, while the query it governs re-reads the stored
+     * text under the fixed one. {@code SHOW ROW POLICY} would render the first and the query be filtered by
+     * the second, so on any FE that had loaded the policy from an image the two disagreed.
+     *
+     * <p>Asserted on the window itself rather than through a global {@code SET}, because the window is the
+     * whole of it: what a recovery reads is whatever these two readers answer while it runs.
+     */
+    @Test
+    public void testTheFixedModeHoldsWithNoConnectionOnTheThread() {
+        ConnectContext caller = ConnectContext.get();
+        ConnectContext.remove();
+        try {
+            Assertions.assertTrue(SqlModeHelper.withSqlMode(SqlModeHelper.MODE_PIPES_AS_CONCAT,
+                            SqlModeHelper::hasPipeAsConcat),
+                    "the window had no effect without a connection, so a policy recovered by a replay or an"
+                            + " image load is read under the global sql_mode rather than the fixed one");
+            Assertions.assertFalse(SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT,
+                    SqlModeHelper::hasPipeAsConcat));
+            Assertions.assertFalse(SqlModeHelper.hasPipeAsConcat(),
+                    "the window outlived itself");
+        } finally {
+            caller.setThreadLocalInfo();
+        }
+    }
+
+    /**
+     * A policy created inside a multi-statement request is recovered by index, index 0 included.
+     *
+     * <p>{@code ConnectProcessor} records the whole request whenever its two statement splitters disagree on
+     * how many statements it holds, and the first policy in such a request still carries index 0. Parsing that
+     * text as one statement - which is what index 0 used to take as the shortcut - recovers nothing: the
+     * policy loses its predicate, disappears from {@code SHOW ROW POLICY} and refuses every query it governs.
+     */
+    @Test
+    public void testAPolicyAtIndexZeroOfAMultiStatementRequestIsStillRecovered() throws Exception {
+        createPolicy("CREATE ROW POLICY p_idx ON " + TBL + " AS PERMISSIVE TO " + USER
+                + " USING (region = 'cn' or region = 'us')");
+        try {
+            RowPolicy stored = onlyPolicyOfTheUser();
+            String asOneOfSeveral = stored.getOriginStmt() + "; select 1 from " + TBL;
+            RowPolicy recovered = new RowPolicy(stored.getId(), stored.getPolicyName(), "internal", DB, TBL,
+                    stored.getUser(), stored.getRoleName(), asOneOfSeveral, 0, stored.getFilterType(), null);
+
+            recovered.gsonPostProcess();
+
+            Assertions.assertFalse(recovered.isInvalid(),
+                    "a policy recorded as statement 0 of a request holding two lost its predicate, so it is"
+                            + " invisible in SHOW ROW POLICY and refuses every query it governs");
+            Assertions.assertTrue(recovered.getWherePredicate() instanceof Or,
+                    "the wrong statement was recovered: " + recovered.getWherePredicate().toSql());
+        } finally {
+            dropPolicy("DROP ROW POLICY p_idx ON " + TBL);
+        }
+    }
+
+    private List<RowPolicy> policiesOfTheUser() throws Exception {
+        UserIdentity user = new UserIdentity(USER, "%");
+        user.analyze();
+        return Env.getCurrentEnv().getPolicyMgr().getUserPolicies("internal", DB, TBL, user);
+    }
+
+    private RowPolicy onlyPolicyOfTheUser() throws Exception {
+        List<RowPolicy> policies = policiesOfTheUser();
+        Assertions.assertEquals(1, policies.size(), "expected exactly one policy, got " + policies);
+        return policies.get(0);
+    }
+
+    /** The predicate a query by {@code user} is actually planned with. */
+    private Expression onlyFilterConjunctPlannedFor(String user) throws Exception {
+        useUser(user);
+        try {
+            LogicalRelation relation = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), table,
+                    Arrays.asList(DB));
+            Plan plan = PlanRewriter.bottomUpRewrite(new LogicalCheckPolicy<>(relation), connectContext,
+                    new CheckPolicy());
+            LogicalFilter<?> filter = (LogicalFilter<?>) plan;
+            Assertions.assertEquals(1, filter.getConjuncts().size(),
+                    "expected one conjunct, got " + filter.getConjuncts());
+            return ImmutableList.copyOf(filter.getConjuncts()).get(0);
+        } finally {
+            useUser("root");
+        }
+    }
+}

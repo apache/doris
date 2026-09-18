@@ -21,7 +21,7 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF3 RF5
 ----------------------------------PhysicalProject
-------------------------------------filter(ca_county IN ('Campbell County', 'Cleburne County', 'Escambia County', 'Fairfield County', 'Washtenaw County'))
+------------------------------------filter(ca.ca_county IN ('Campbell County', 'Cleburne County', 'Escambia County', 'Fairfield County', 'Washtenaw County'))
 --------------------------------------PhysicalOlapScan[customer_address(ca)]
 --------------------------PhysicalProject
 ----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->ss_sold_date_sk

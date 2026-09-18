@@ -149,17 +149,26 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.DATETIME.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DATE.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DATETIME.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATE.ordinal()][PrimitiveType.TIMESTAMP_NS.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATETIME.ordinal()][PrimitiveType.TIMESTAMP_NS.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DATE.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATE.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.TIMESTAMP_NS.ordinal()][PrimitiveType.DATE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DATEV2.ordinal()][PrimitiveType.DATETIME.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.TIMESTAMP_NS.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DATEV2.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATEV2.ordinal()][PrimitiveType.TIMESTAMP_NS.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATETIME.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.TIMESTAMP_NS.ordinal()][PrimitiveType.DATETIME.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.DATEV2.ordinal()][PrimitiveType.DATE.ordinal()] = true;
 
         // we should support schema change between different precision
         schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DATETIMEV2.ordinal()][PrimitiveType.TIMESTAMP_NS.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.TIMESTAMP_NS.ordinal()][PrimitiveType.DATETIMEV2.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.TIMESTAMP_NS.ordinal()][PrimitiveType.TIMESTAMP_NS.ordinal()] = true;
 
         // Currently, we do not support schema change between complex types with subtypes.
         schemaChangeMatrix[PrimitiveType.ARRAY.ordinal()][PrimitiveType.ARRAY.ordinal()] = true;
@@ -322,11 +331,10 @@ public abstract class ColumnType {
                 existingNames.add(originalField.getName());
             }
 
-            // check new field name is not conflict with old field name
+            // check appended field names do not conflict with existing or earlier appended fields
             for (int i = originalFields.size(); i < otherStructType.getFields().size(); i++) {
-                // to check new field name is not conflict with old field name
                 String newFieldName = otherStructType.getFields().get(i).getName();
-                if (existingNames.contains(newFieldName)) {
+                if (!existingNames.add(newFieldName)) {
                     throw new DdlException("Added struct field '" + newFieldName + "' conflicts with existing field");
                 }
             }

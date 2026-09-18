@@ -42,6 +42,6 @@ PhysicalResultSink
 --------------------------------------filter((date_dim.d_moy <= 3) and (date_dim.d_moy >= 1) and (date_dim.d_year = 2000))
 ----------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------PhysicalProject
---------------------------------filter(ca_state IN ('MI', 'TX', 'VA'))
+--------------------------------filter(ca.ca_state IN ('MI', 'TX', 'VA'))
 ----------------------------------PhysicalOlapScan[customer_address(ca)]
 

@@ -39,9 +39,11 @@ static const std::string WHERE_SIGN = "__DORIS_WHERE_SIGN__";
 static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
 static const std::string SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
 static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
-static const std::string BINLOG_TIMESTAMP_COL = "__DORIS_BINLOG_TIMESTAMP__";
-static const std::string BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
 static const std::string COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
+static const std::string ROW_LSN_COL = "__DORIS_ROW_LSN_COL__";
+static const std::string BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
+static const std::string BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
+static const std::string BINLOG_OP_COL = "__DORIS_BINLOG_OP__";
 
 // 用来加速运算
 const static int32_t g_power_table[] = {1,      10,      100,      1000,      10000,
@@ -169,8 +171,7 @@ bool valid_unsigned_number(const std::string& value_str) {
 
 bool valid_decimal(const std::string& value_str, const uint32_t precision, const uint32_t frac);
 
-// Validate for date/datetime roughly. The format is 'yyyy-MM-dd HH:mm:ss'
-// TODO: support 'yyyy-MM-dd HH:mm:ss.SSS'
+// Validate date/datetime format and fractional-second scale roughly.
 bool valid_datetime(const std::string& value_str, const uint32_t scale);
 
 bool valid_bool(const std::string& value_str);
@@ -183,32 +184,6 @@ constexpr bool is_string_type(const FieldType& field_type) {
     return field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
            field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
            field_type == FieldType::OLAP_FIELD_TYPE_STRING;
-}
-
-constexpr bool is_numeric_type(const FieldType& field_type) {
-    return field_type == FieldType::OLAP_FIELD_TYPE_INT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_BIGINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_SMALLINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_TINYINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DOUBLE ||
-           field_type == FieldType::OLAP_FIELD_TYPE_FLOAT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DATE ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DATEV2 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DATETIME ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ ||
-           field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
-           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_BOOL ||
-           field_type == FieldType::OLAP_FIELD_TYPE_IPV4 ||
-           field_type == FieldType::OLAP_FIELD_TYPE_IPV6;
 }
 
 // Util used to get string name of thrift enum item
@@ -247,25 +222,6 @@ struct RowLocation {
 };
 using RowLocationSet = std::set<RowLocation>;
 using RowLocationPairList = std::list<std::pair<RowLocation, RowLocation>>;
-
-struct GlobalRowLoacation {
-    GlobalRowLoacation(int64_t tid, RowsetId rsid, uint32_t sid, uint32_t rid)
-            : tablet_id(tid), row_location(rsid, sid, rid) {}
-    int64_t tablet_id;
-    RowLocation row_location;
-
-    bool operator==(const GlobalRowLoacation& rhs) const {
-        return tablet_id == rhs.tablet_id && row_location == rhs.row_location;
-    }
-
-    bool operator<(const GlobalRowLoacation& rhs) const {
-        if (tablet_id != rhs.tablet_id) {
-            return tablet_id < rhs.tablet_id;
-        } else {
-            return row_location < rhs.row_location;
-        }
-    }
-};
 
 struct GlobalRowLoacationV2 {
     GlobalRowLoacationV2(uint8_t ver, uint64_t bid, uint32_t fid, uint32_t rid)

@@ -22,13 +22,10 @@ import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cloud.catalog.ComputeGroup;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -39,6 +36,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.computegroup.ComputeGroup;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -49,7 +47,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -64,6 +64,11 @@ public class ShowClustersCommand extends ShowCommand {
     public static final ImmutableList<String> COMPUTE_GROUP_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("IsCurrent").add("Users").add("BackendNum")
             .add("SubComputeGroups").add("Policy").add("Properties").build();
+    // non cloud mode, a resource group(backend location tag) is the counterpart of a cloud compute group
+    public static final ImmutableList<String> CLUSTER_TITLE_NAMES_NON_CLOUD = new ImmutableList.Builder<String>()
+            .add("cluster").add("backend_num").build();
+    public static final ImmutableList<String> COMPUTE_GROUP_TITLE_NAMES_NON_CLOUD = new ImmutableList.Builder<String>()
+            .add("Name").add("BackendNum").build();
 
     private static final Logger LOG = LogManager.getLogger(ShowClustersCommand.class);
     private final boolean isComputeGroup;
@@ -73,22 +78,23 @@ public class ShowClustersCommand extends ShowCommand {
         this.isComputeGroup = isComputeGroup;
     }
 
-    private void validate(ConnectContext ctx) throws AnalysisException {
-        if (Config.isNotCloudMode()) {
-            // just user admin
-            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get().getCurrentUserIdentity(),
-                        PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV), Operator.OR))) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-            }
-        }
-    }
-
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        validate(ctx);
         final List<List<String>> rows = Lists.newArrayList();
-        if (!Config.isCloudMode()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_CLOUD_MODE);
+        if (Config.isNotCloudMode()) {
+            // resource group is the compute group of non cloud mode, a user only sees the resource groups
+            // it is allowed to use, same as the cloud mode which filters clusters by usage priv.
+            ComputeGroup userComputeGroup = ctx.getComputeGroup();
+            if (ComputeGroup.INVALID_COMPUTE_GROUP == userComputeGroup) {
+                return new ShowResultSet(getMetaData(), rows);
+            }
+            Map<String, Long> backendNumByGroup = Env.getCurrentSystemInfo().getAllClusterBackends(false).stream()
+                    .map(be -> be.getLocationTag().value)
+                    .filter(userComputeGroup::containsBackend)
+                    .collect(Collectors.groupingBy(name -> name, TreeMap::new, Collectors.counting()));
+            for (Map.Entry<String, Long> entry : backendNumByGroup.entrySet()) {
+                rows.add(Lists.newArrayList(entry.getKey(), String.valueOf(entry.getValue())));
+            }
             return new ShowResultSet(getMetaData(), rows);
         }
 
@@ -96,9 +102,9 @@ public class ShowClustersCommand extends ShowCommand {
         CloudSystemInfoService cloudSys = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
         clusterNames = cloudSys.getCloudClusterNames();
         // virtual cluster info
-        List<ComputeGroup> virtualComputeGroup = cloudSys.getComputeGroups(true);
+        List<CloudComputeGroupMeta> virtualComputeGroup = cloudSys.getComputeGroups(true);
         List<String> virtualComputeGroupNames = virtualComputeGroup.stream()
-                .map(ComputeGroup::getName).collect(Collectors.toList());
+                .map(CloudComputeGroupMeta::getName).collect(Collectors.toList());
 
         clusterNames.addAll(virtualComputeGroupNames);
 
@@ -112,7 +118,7 @@ public class ShowClustersCommand extends ShowCommand {
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 continue;
             }
-            ComputeGroup cg = cloudSys.getComputeGroupByName(clusterName);
+            CloudComputeGroupMeta cg = cloudSys.getComputeGroupByName(clusterName);
             if (cg == null) {
                 continue;
             }
@@ -181,9 +187,9 @@ public class ShowClustersCommand extends ShowCommand {
 
         ImmutableList<String> titleNames = null;
         if (isComputeGroup) {
-            titleNames = COMPUTE_GROUP_TITLE_NAMES;
+            titleNames = Config.isNotCloudMode() ? COMPUTE_GROUP_TITLE_NAMES_NON_CLOUD : COMPUTE_GROUP_TITLE_NAMES;
         } else {
-            titleNames = CLUSTER_TITLE_NAMES;
+            titleNames = Config.isNotCloudMode() ? CLUSTER_TITLE_NAMES_NON_CLOUD : CLUSTER_TITLE_NAMES;
         }
 
         for (String title : titleNames) {

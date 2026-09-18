@@ -54,6 +54,12 @@ public class SqlUtils {
         return str.replaceAll("\"", "\\\\\"");
     }
 
+    /** Quote a value as a SQL string literal under the requested backslash-escape mode. */
+    public static String quoteStringLiteral(String value, boolean noBackslashEscapes) {
+        String escaped = noBackslashEscapes ? value : value.replace("\\", "\\\\");
+        return "\"" + escaped.replace("\"", "\"\"") + "\"";
+    }
+
     public static List<String> splitMultiStmts(String sql) {
         DorisSqlSeparatorLexer lexer = new DorisSqlSeparatorLexer(CharStreams.fromString(sql));
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);

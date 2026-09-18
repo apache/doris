@@ -20,8 +20,8 @@ package org.apache.doris.load.routineload.kinesis;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
@@ -37,7 +37,7 @@ public class KinesisDataSourcePropertiesTest {
         KinesisDataSourceProperties properties = new KinesisDataSourceProperties(dataSourceProperties);
         properties.convertAndCheckDataSourceProperties();
 
-        Assert.assertEquals("http://localhost:4566", properties.getEndpoint());
+        Assertions.assertEquals("http://localhost:4566", properties.getEndpoint());
     }
 
     @Test
@@ -50,7 +50,7 @@ public class KinesisDataSourcePropertiesTest {
         KinesisDataSourceProperties properties = new KinesisDataSourceProperties(dataSourceProperties);
         properties.convertAndCheckDataSourceProperties();
 
-        Assert.assertEquals("http://localhost:4566", properties.getEndpoint());
+        Assertions.assertEquals("http://localhost:4566", properties.getEndpoint());
     }
 
     @Test
@@ -62,9 +62,9 @@ public class KinesisDataSourcePropertiesTest {
         dataSourceProperties.put(KinesisConfiguration.KINESIS_POSITIONS.getName(), "2026-04-08 00:00:00");
 
         KinesisDataSourceProperties properties = new KinesisDataSourceProperties(dataSourceProperties);
-        AnalysisException e = Assert.assertThrows(AnalysisException.class,
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
                 properties::convertAndCheckDataSourceProperties);
-        Assert.assertTrue(e.getMessage().contains("must be TRIM_HORIZON, LATEST, or a valid sequence number"));
+        Assertions.assertTrue(e.getMessage().contains("must be TRIM_HORIZON, LATEST, or a valid sequence number"));
     }
 
     @Test
@@ -76,8 +76,8 @@ public class KinesisDataSourcePropertiesTest {
                 "2026-04-08 00:00:00");
 
         KinesisDataSourceProperties properties = new KinesisDataSourceProperties(dataSourceProperties);
-        AnalysisException e = Assert.assertThrows(AnalysisException.class,
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
                 properties::convertAndCheckDataSourceProperties);
-        Assert.assertTrue(e.getMessage().contains("TRIM_HORIZON, LATEST, or a valid sequence number"));
+        Assertions.assertTrue(e.getMessage().contains("TRIM_HORIZON, LATEST, or a valid sequence number"));
     }
 }

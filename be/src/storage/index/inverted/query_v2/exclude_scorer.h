@@ -57,4 +57,7 @@ ScorerPtr make_exclude(ScorerPtr underlying, ScorerPtr excluding,
                        roaring::Roaring exclude_null = {},
                        const NullBitmapResolver* resolver = nullptr);
 
+/// Instantiated once in exclude_scorer.cpp; suppresses per-TU implicit instantiation.
+extern template class Exclude<ScorerPtr, ScorerPtr>;
+
 } // namespace doris::segment_v2::inverted_index::query_v2

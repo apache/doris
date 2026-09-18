@@ -44,6 +44,7 @@
 #include "runtime/exec_env.h"
 #include "service/backend_options.h"
 #include "util/client_connection_provider.h"
+#include "util/defer_op.h"
 #include "util/dns_cache.h"
 #include "util/network_util.h"
 
@@ -174,6 +175,14 @@ public:
             Status status = dns_cache->get(host, &realhost);
             if (!status.ok()) {
                 LOG(WARNING) << "failed to get ip from host:" << status.to_string();
+                // The hostname is no longer resolvable, which normally means the backend
+                // was dropped from the cluster. Returning early is not enough: any stub
+                // cached under this host:port still holds a brpc Channel bound to the last
+                // resolved (now dead) IP, and brpc keeps health-checking that socket
+                // forever, which is the source of the endless
+                // "Fail to wait EPOLLOUT ... Connection timed out" warnings. Drop it here
+                // so the socket is closed along with the last reference to the stub.
+                _stub_map.erase(fmt::format("{}:{}", host, port));
                 return nullptr;
             }
         }
@@ -244,7 +253,8 @@ public:
     std::shared_ptr<T> get_new_client_no_cache(const std::string& host_port,
                                                const std::string& protocol = "",
                                                const std::string& connection_type = "",
-                                               const std::string& connection_group = "") {
+                                               const std::string& connection_group = "",
+                                               int connect_timeout_ms = 2000, int max_retry = 10) {
         brpc::ChannelOptions options;
         Status status = doris::client::configure_brpc_channel_options(&options);
         if (!status.ok()) {
@@ -267,9 +277,9 @@ public:
         }
         // Add random connection id to connection_group to make sure use new socket
         options.connection_group += std::to_string(_connection_id.fetch_add(1));
-        options.connect_timeout_ms = 2000;
+        options.connect_timeout_ms = connect_timeout_ms;
         options.timeout_ms = 2000;
-        options.max_retry = 10;
+        options.max_retry = max_retry;
 
         std::unique_ptr<FailureDetectChannel> channel(new FailureDetectChannel());
         int ret_code = 0;

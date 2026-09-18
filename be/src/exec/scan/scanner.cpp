@@ -40,8 +40,12 @@ Scanner::Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t l
           _limit(limit),
           _profile(profile),
           _output_tuple_desc(_local_state->output_tuple_desc()),
-          _output_row_descriptor(_local_state->_parent->output_row_descriptor()),
+          _has_projection(_local_state->_parent->has_projection()),
           _has_prepared(false) {
+    if (_has_projection) {
+        _projection_output_row_descriptor.emplace(
+                _local_state->_parent->operator_row_desc_after_projection());
+    }
     _total_rf_num = cast_set<int>(_local_state->_helper.runtime_filter_nums());
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }
@@ -85,9 +89,18 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
 
 Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
-    auto& row_descriptor = _local_state->_parent->row_descriptor();
-    if (_output_row_descriptor) {
+    const auto& row_descriptor = _local_state->_parent->operator_row_desc_before_projection();
+    if (_has_projection) {
         _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
+        if (!_can_merge_padding_blocks(_padding_block, _origin_block)) {
+            DORIS_CHECK(_padding_block.empty())
+                    << "padding policy must remain stable for one scanner";
+            // Some physical columns carry file-local state that an upper projection must consume
+            // before the next split is read. Padding those blocks first would make correctness
+            // depend on whether two file tails happen to share one output batch.
+            RETURN_IF_ERROR(get_block(state, &_origin_block, eos));
+            return _do_projections(&_origin_block, block);
+        }
         const auto min_batch_size = std::max(state->batch_size() / 2, 1);
         const auto block_max_bytes = state->preferred_block_size_bytes();
         while (_padding_block.rows() < min_batch_size && _padding_block.bytes() < block_max_bytes &&
@@ -205,46 +218,56 @@ Status Scanner::_filter_output_block(Block* block) {
 Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     SCOPED_RAW_TIMER(&_projection_timer);
+    DORIS_CHECK(_projection_output_row_descriptor.has_value());
 
     const size_t rows = origin_block->rows();
     if (rows == 0) {
         return Status::OK();
     }
-    Block input_block = *origin_block;
 
-    std::vector<int> result_column_ids;
-    for (auto& projections : _intermediate_projections) {
-        result_column_ids.resize(projections.size());
-        for (int i = 0; i < projections.size(); i++) {
-            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+    {
+        Block input_block = *origin_block;
+
+        std::vector<int> result_column_ids;
+        for (auto& projections : _intermediate_projections) {
+            result_column_ids.resize(projections.size());
+            for (int i = 0; i < projections.size(); i++) {
+                RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+            }
+            input_block.shuffle_columns(result_column_ids);
         }
-        input_block.shuffle_columns(result_column_ids);
+
+        DCHECK_EQ(rows, input_block.rows());
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+                output_block, _projection_output_row_descriptor->get());
+        auto& mutable_columns = scoped_mutable_block.mutable_columns();
+        DCHECK_EQ(mutable_columns.size(), _projections.size());
+        Columns shared_columns(mutable_columns.size());
+
+        for (int i = 0; i < mutable_columns.size(); ++i) {
+            ColumnPtr column_ptr;
+            RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
+            column_ptr = column_ptr->convert_to_full_column_if_const();
+            if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
+            }
+            if (column_ptr->is_exclusive()) {
+                mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
+            } else {
+                shared_columns[i] = std::move(column_ptr);
+            }
+        }
+
+        scoped_mutable_block.restore();
+        for (int i = 0; i < shared_columns.size(); ++i) {
+            if (shared_columns[i]) {
+                output_block->replace_by_position(i, std::move(shared_columns[i]));
+            }
+        }
     }
 
-    DCHECK_EQ(rows, input_block.rows());
-    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
-            output_block, *_output_row_descriptor);
-    auto& mutable_block = scoped_mutable_block.mutable_block();
-
-    auto& mutable_columns = mutable_block.mutable_columns();
-
-    DCHECK_EQ(mutable_columns.size(), _projections.size());
-
-    for (int i = 0; i < mutable_columns.size(); ++i) {
-        ColumnPtr column_ptr;
-        RETURN_IF_ERROR(_projections[i]->execute(&input_block, column_ptr));
-        column_ptr = column_ptr->convert_to_full_column_if_const();
-        if (mutable_columns[i]->is_nullable() != column_ptr->is_nullable()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "Nullable mismatch");
-        }
-        mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
-    }
-
-    scoped_mutable_block.restore();
-
-    // origin columns was moved into output_block, so we need to set origin_block to empty columns
-    auto empty_columns = origin_block->clone_empty_columns();
-    origin_block->set_columns(std::move(empty_columns));
+    origin_block->clear_column_data(
+            _local_state->_parent->operator_row_desc_before_projection().num_materialized_slots());
     DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
@@ -269,6 +292,40 @@ Status Scanner::try_append_late_arrival_runtime_filter() {
     _applied_rf_num = arrived_rf_num;
     return Status::OK();
 }
+
+uint64_t Scanner::_current_condition_cache_digest() const {
+    DORIS_CHECK(_state != nullptr);
+    DORIS_CHECK(_local_state != nullptr);
+    if (_local_state->get_condition_cache_digest() == 0) {
+        return 0;
+    }
+
+    // ScanLocalState computed its digest after collecting the RFs that were ready during open(). A
+    // scanner may later clone more RF conjuncts between file splits, so rebuild from its current
+    // snapshot instead of reusing that stale value. For example, split 0 may use P, while split 1
+    // starts after an IN RF with payload {7, 9} arrives and must use digest(P AND RF{7, 9}). A
+    // different payload {8, 10} consequently receives a different key. get_digest() returning zero
+    // is the correctness fallback for an RF whose complete semantics cannot be represented.
+    return _build_condition_cache_digest(_state->query_options().condition_cache_digest,
+                                         _conjuncts);
+}
+
+uint64_t Scanner::_build_condition_cache_digest(uint64_t seed, const VExprContextSPtrs& conjuncts) {
+    for (const auto& conjunct : conjuncts) {
+        seed = conjunct->get_digest(seed);
+        if (seed == 0) {
+            return 0;
+        }
+    }
+    return seed;
+}
+
+#ifdef BE_TEST
+uint64_t Scanner::TEST_build_condition_cache_digest(uint64_t seed,
+                                                    const VExprContextSPtrs& conjuncts) {
+    return _build_condition_cache_digest(seed, conjuncts);
+}
+#endif
 
 Status Scanner::close(RuntimeState* state) {
 #ifndef BE_TEST

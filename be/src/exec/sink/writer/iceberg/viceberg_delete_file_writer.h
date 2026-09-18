@@ -94,6 +94,8 @@ public:
      */
     int64_t get_file_size() const { return _file_size; }
 
+    std::shared_ptr<io::FileSystem> file_system() const { return _fs; }
+
 private:
     TFileContent::type _delete_type;
     std::string _output_path;

@@ -49,6 +49,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 #include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/inverted_index_iterator.h"
 
 namespace doris {
 
@@ -622,7 +623,7 @@ public:
             }
             const auto cidr = parse_ip_with_cidr(cidr_data.to_string_view());
             if constexpr (PT == PrimitiveType::TYPE_IPV4) {
-                if (cidr._address.as_v4()) {
+                if (cidr._address.is_v4()) {
                     col_res_data[i] = match_ipv4_subnet(ip_data[addr_idx], cidr._address.as_v4(),
                                                         cidr._prefix)
                                               ? 1
@@ -631,7 +632,7 @@ public:
                     col_res_data[i] = 0;
                 }
             } else if constexpr (PT == PrimitiveType::TYPE_IPV6) {
-                if (cidr._address.as_v6()) {
+                if (cidr._address.is_v6()) {
                     col_res_data[i] = match_ipv6_subnet((uint8_t*)(&ip_data[addr_idx]),
                                                         cidr._address.as_v6(), cidr._prefix)
                                               ? 1
@@ -686,12 +687,12 @@ public:
         Field min_ip, max_ip;
         IPAddressCIDR cidr = parse_ip_with_cidr(arg_column->get_data_at(0));
         if (data_type_with_name.second->get_primitive_type() == TYPE_IPV4 &&
-            cidr._address.as_v4()) {
+            cidr._address.is_v4()) {
             auto range = apply_cidr_mask(cidr._address.as_v4(), cidr._prefix);
             min_ip = Field::create_field<TYPE_IPV4>(range.first);
             max_ip = Field::create_field<TYPE_IPV4>(range.second);
         } else if (data_type_with_name.second->get_primitive_type() == TYPE_IPV6 &&
-                   cidr._address.as_v6()) {
+                   cidr._address.is_v6()) {
             auto cidr_range_ipv6_col = ColumnIPv6::create(2, 0);
             auto& cidr_range_ipv6_data = cidr_range_ipv6_col->get_data();
             apply_cidr_mask(reinterpret_cast<const char*>(cidr._address.as_v6()),
@@ -707,6 +708,8 @@ public:
         }
         // apply for inverted index
         std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+        bool has_null = DORIS_TRY(iter->has_null());
+        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
 
         // >= min ip
         segment_v2::InvertedIndexParam min_param;
@@ -716,7 +719,14 @@ public:
         min_param.query_value = min_ip;
         min_param.num_rows = num_rows;
         min_param.roaring = std::make_shared<roaring::Roaring>();
+        if (has_null) {
+            // Fetch the NULL bitmap together with the first range query to reuse its index reader.
+            min_param.null_bitmap_cache_handle = &null_bitmap_cache_handle;
+        }
         RETURN_IF_ERROR(iter->read_from_index(&min_param));
+        if (has_null) {
+            null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        }
 
         // <= max ip
         segment_v2::InvertedIndexParam max_param;

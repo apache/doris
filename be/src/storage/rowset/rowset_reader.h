@@ -70,6 +70,9 @@ public:
 
     virtual RowsetSharedPtr rowset() = 0;
 
+    // Exact schema of the caller-visible Block produced by next_batch().
+    virtual const ReadSchema& read_schema() const = 0;
+
     virtual int64_t filtered_rows() = 0;
 
     virtual uint64_t merged_rows() = 0;

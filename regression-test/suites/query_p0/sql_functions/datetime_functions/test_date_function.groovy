@@ -496,6 +496,7 @@ suite("test_date_function") {
     check_fold_consistency("str_to_date('2026-01-28 11:32:47.1234567', '%Y-%m-%d %T.%f')")
     check_fold_consistency("str_to_date('2026-01-28 11:32:47.123456789', '%Y-%m-%d %T.%f')")
     check_fold_consistency("str_to_date('2026-01-28 11:32:47', '%Y-%m-%d %T')")
+    testFoldConst("select str_to_date('2024-01-01', concat('%Y-%m', '-%d'))")
     sql """ truncate table ${tableName} """
     sql """ insert into ${tableName} values ("2020-09-01")  """
     qt_sql """ select str_to_date(test_datetime, "%Y-%m-%d %H:%i:%s") from ${tableName};"""
@@ -648,10 +649,7 @@ suite("test_date_function") {
     sql "select /*+SET_VAR(debug_skip_fold_constant=true)*/ utc_timestamp(),utc_timestamp() + 1;"
     utc_timestamp_str = sql """ select utc_timestamp(6), utc_timestamp(6) + 1 """
     assertTrue(utc_timestamp_str[0].size() == 2)
-    test {
-        sql """ select utc_timestamp(7) """
-        exception "scale must be between 0 and 6"
-    }
+    sql """ select utc_timestamp(7) """
     test {
         sql """ SELECT UTC_TIMESTAMP(NULL); """
         exception "UTC_TIMESTAMP argument cannot be NULL."
@@ -1107,11 +1105,8 @@ suite("test_date_function") {
               birth2 <= date_sub('2023-02-01 10:35:13', INTERVAL dayofmonth('2023-02-01 10:35:13')-1 DAY)
         """
     test {
-        sql"""select current_timestamp(7);"""
-        check{result, exception, startTime, endTime ->
-            assertTrue(exception != null)
-            logger.info(exception.message)
-        }
+        sql """select current_timestamp(10);"""
+        exception "Precision of NOW must be between 0 and 9. Precision was set to: 10"
     }
     
     test {

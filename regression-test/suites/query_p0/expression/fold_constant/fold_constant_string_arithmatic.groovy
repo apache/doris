@@ -155,6 +155,15 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select field('=', '+', '=', '=', 'こ')")
     testFoldConst("select field('==', '+', '=', '==', 'こ')")
     testFoldConst("select field('=', '+', '==', '==', 'こ')")
+    testFoldConst("select field(cast('nan' as float), cast('nan' as float)), "
+            + "field(cast('nan' as double), cast('nan' as double))")
+    testFoldConst("select field(cast(0.0 as float), cast(-0.0 as float)), "
+            + "field(cast(-0.0 as float), cast(0.0 as float)), "
+            + "field(cast(0.0 as double), cast(-0.0 as double)), "
+            + "field(cast(-0.0 as double), cast(0.0 as double))")
+
+    // cast decimalv3 to string
+    testFoldConst("select cast(cast('1E+3' as decimalv3(10, 2)) as string)")
 
     // find_in_set
     testFoldConst("select find_in_set('a', null)")
@@ -620,6 +629,13 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select parse_url('http://www.example.com/path?query=こんにちは', 'QUERY')")
     testFoldConst("select parse_url(\"http://www.example.com/path?query=a\b\'\", 'QUERY')")
     testFoldConst("select parse_url(\"http://www.example.com/path.query=a\b\'\", 'QUERY')")
+    // The query component is located between the first '?' and the fragment, so a url whose
+    // '#' comes before its '?' has no query component.
+    testFoldConst("select parse_url('http://h/p#f?k=v', 'QUERY')")
+    testFoldConst("select parse_url('http://h/p#f/?#k=v', 'QUERY')")
+    // The query component ends before the fragment.
+    testFoldConst("select parse_url('http://h/p?k=1#f&k=2', 'QUERY')")
+    testFoldConst("select parse_url('http://h/p?k=1&k=2#f', 'QUERY')")
     testFoldConst("select PARSE_URL('http://example.com', 'PROTOCOL')")
     testFoldConst("select PARSE_URL('http://example.com', 'protocol')")
     testFoldConst("select PARSE_URL('http://example.com', 'Protocol')")
@@ -1491,6 +1507,13 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("select extract_url_parameter('http://user:pwd@www.baidu.com?a=b', null)")
     testFoldConst("select extract_url_parameter(null, 'a')")
     testFoldConst("select extract_url_parameter('http://user:pwd@www.baidu.com?a=b', 'a&b')")
+    // The parameters are located between the first '?' and the fragment, so a url whose '#'
+    // comes before its '?' has no parameters.
+    testFoldConst("select extract_url_parameter('http://h/p#f?k=v', 'k')")
+    testFoldConst("select extract_url_parameter('http://h/p#f?k=v', 'v')")
+    // The parameters end before the fragment.
+    testFoldConst("select extract_url_parameter('http://h/p?a=1&k=2#f', 'k')")
+    testFoldConst("select extract_url_parameter('http://h/p?a=1#f&k=2', 'k')")
     testFoldConst("select extract_url_parameter('http://user:pwd@www.baidu.com?a=b&c=d', 'c')")
     testFoldConst("select extract_url_parameter('http://user:pwd@www.baidu.com?a=b&c=d', 'C')")
     testFoldConst("select extract_url_parameter('http://user:pwd@www.baidu.com?a=b&c=d', 'd')")
@@ -2048,4 +2071,3 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT IS_UUID('6ccd780cbaba102')")
     testFoldConst("SELECT IS_UUID(NULL)")
 }
-

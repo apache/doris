@@ -86,6 +86,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -95,9 +96,11 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -139,11 +142,16 @@ public class CacheHotspotManager extends MasterDaemon {
 
     private ConcurrentMap<Long, CloudWarmUpJob> runnableCloudWarmUpJobs = Maps.newConcurrentMap();
 
+    // Keep scheduling history in memory only. Jobs that have never been scheduled have sequence 0
+    // and are selected before jobs that ran in previous cycles.
+    private final ConcurrentMap<Long, Long> cloudWarmUpJobLastScheduleSeq = Maps.newConcurrentMap();
+
+    private final AtomicLong cloudWarmUpJobScheduleSeq = new AtomicLong(0);
+
     private final ConcurrentMap<OncePendingJobKey, RefCountedPendingCreateLock> oncePendingCreateLocks
             = Maps.newConcurrentMap();
 
-    private final ThreadPoolExecutor cloudWarmUpThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
-            Config.max_active_cloud_warm_up_job, "cloud-warm-up-pool", true);
+    private final ThreadPoolExecutor cloudWarmUpThreadPool;
 
     private static class JobKey {
         private final String srcName;
@@ -404,6 +412,12 @@ public class CacheHotspotManager extends MasterDaemon {
                 continue;
             }
             if (isTableLevelLoadEventWarmUpJob(newJob) != isTableLevelLoadEventWarmUpJob(existingJob)) {
+                LOG.info("warmup-conflict detect newJobId={} existingJobId={} srcCluster={} dstCluster={} "
+                                + "newJobType={} existingJobType={} newTableFilter={} existingTableFilter={}",
+                        newJob.getJobId(), existingJob.getJobId(),
+                        newJob.getSrcClusterName(), newJob.getDstClusterName(),
+                        newJob.getJobType(), existingJob.getJobType(),
+                        newJob.getTableFilterExpr(), existingJob.getTableFilterExpr());
                 throw buildLoadEventWarmUpConflictException(newJob, existingJob);
             }
         }
@@ -493,6 +507,20 @@ public class CacheHotspotManager extends MasterDaemon {
     private Map<String, Long> clusterToRunningJobId = new ConcurrentHashMap<>();
 
     /**
+     * Rebuild the runtime owners after all image and journal records have been restored, before
+     * this FE becomes ready or starts scheduling warm-up jobs. Only the final RUNNING state owns
+     * a destination: a periodic job may have returned to PENDING in a later journal record.
+     */
+    public void recoverRunningJobsBeforeStart() {
+        Preconditions.checkState(!startJobDaemon, "Warm-up recovery must precede job scheduling");
+        clusterToRunningJobId.clear();
+        cloudWarmUpJobs.values().stream()
+                .filter(job -> !job.isEventDriven() && job.getJobState() == JobState.RUNNING)
+                .forEach(this::tryRegisterRunningJob);
+        LOG.info("restored warm-up owners for {} destinations", clusterToRunningJobId.size());
+    }
+
+    /**
      * Attempts to register a job as running for the given destination cluster.
      * <p>
      * For one-time or periodic jobs, returns {@code false} if there is already a running job
@@ -507,6 +535,10 @@ public class CacheHotspotManager extends MasterDaemon {
     public boolean tryRegisterRunningJob(CloudWarmUpJob job) {
         if (job.isEventDriven()) {
             // Event-driven jobs do not require registration, always allow
+            LOG.debug("warmup-lock register-skip jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                            + "reason=event-driven",
+                    job.getJobId(), job.getSrcClusterName(), job.getDstClusterName(),
+                    job.getSyncMode(), job.getJobType());
             return true;
         }
 
@@ -516,9 +548,16 @@ public class CacheHotspotManager extends MasterDaemon {
         // Try to register the job atomically if absent
         Long existingJobId = clusterToRunningJobId.putIfAbsent(clusterName, jobId);
         boolean success = (existingJobId == null) || (existingJobId == jobId);
-        if (!success) {
-            LOG.info("Job {} skipped: waiting for job {} to finish on destination cluster {}",
-                    jobId, existingJobId, clusterName);
+        if (success) {
+            LOG.debug("warmup-lock register jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                            + "existingJobId={} registerResult={}",
+                    jobId, job.getSrcClusterName(), clusterName, job.getSyncMode(), job.getJobType(),
+                    existingJobId, "success");
+        } else {
+            LOG.info("warmup-lock register jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                            + "existingJobId={} registerResult={}",
+                    jobId, job.getSrcClusterName(), clusterName, job.getSyncMode(), job.getJobType(),
+                    existingJobId, "blocked");
         }
         return success;
     }
@@ -539,19 +578,32 @@ public class CacheHotspotManager extends MasterDaemon {
     private boolean deregisterRunningJob(CloudWarmUpJob job) {
         if (job.isEventDriven()) {
             // Event-driven jobs are not registered, so nothing to deregister
+            LOG.debug("warmup-lock deregister-skip jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                            + "reason=event-driven",
+                    job.getJobId(), job.getSrcClusterName(), job.getDstClusterName(),
+                    job.getSyncMode(), job.getJobType());
             return true;
         }
 
         String clusterName = job.getDstClusterName();
         long jobId = job.getJobId();
-
-        return clusterToRunningJobId.remove(clusterName, jobId);
+        Long currentRegisteredJobId = clusterToRunningJobId.get(clusterName);
+        boolean removed = clusterToRunningJobId.remove(clusterName, jobId);
+        LOG.info("warmup-lock deregister jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                        + "currentRegisteredJobId={} releaseResult={} jobFinalState={}",
+                jobId, job.getSrcClusterName(), clusterName, job.getSyncMode(), job.getJobType(),
+                currentRegisteredJobId, removed, job.getJobState());
+        return removed;
     }
 
     public void notifyJobStop(CloudWarmUpJob job) {
         if (job.isOnce() || job.isPeriodic()) {
             this.deregisterRunningJob(job);
         }
+        LOG.info("warmup-lock notify-stop jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                        + "jobState={} isDone={}",
+                job.getJobId(), job.getSrcClusterName(), job.getDstClusterName(),
+                job.getSyncMode(), job.getJobType(), job.getJobState(), job.isDone());
         if (!job.isDone()) {
             return;
         }
@@ -563,8 +615,15 @@ public class CacheHotspotManager extends MasterDaemon {
     }
 
     public CacheHotspotManager(CloudSystemInfoService nodeMgr) {
+        this(nodeMgr, ThreadPoolManager.newDaemonCacheThreadPoolThrowException(
+                Config.max_active_cloud_warm_up_job, "cloud-warm-up-pool", true));
+    }
+
+    @VisibleForTesting
+    CacheHotspotManager(CloudSystemInfoService nodeMgr, ThreadPoolExecutor cloudWarmUpThreadPool) {
         super("CacheHotspotManager", Config.fetch_cluster_cache_hotspot_interval_ms);
         this.nodeMgr = nodeMgr;
+        this.cloudWarmUpThreadPool = cloudWarmUpThreadPool;
     }
 
     @Override
@@ -973,6 +1032,10 @@ public class CacheHotspotManager extends MasterDaemon {
 
         @Override
         public void runAfterCatalogReady() {
+            if (getInterval() != Config.cloud_warm_up_job_scheduler_interval_millisecond) {
+                setInterval(Config.cloud_warm_up_job_scheduler_interval_millisecond);
+                LOG.info("update cloud warm up job daemon interval to {}ms", getInterval());
+            }
             if (cycleCount >= CYCLE_COUNT_TO_CHECK_EXPIRE_CLOUD_WARM_UP_JOB) {
                 clearFinishedOrCancelCloudWarmUpJob();
                 cycleCount = 0;
@@ -1172,6 +1235,7 @@ public class CacheHotspotManager extends MasterDaemon {
             CloudWarmUpJob cloudWarmUpJob = iterator.next().getValue();
             if (cloudWarmUpJob.isDone()) {
                 iterator.remove();
+                cloudWarmUpJobLastScheduleSeq.remove(cloudWarmUpJob.getJobId());
             }
         }
         Iterator<Map.Entry<Long, CloudWarmUpJob>> iterator2 = cloudWarmUpJobs.entrySet().iterator();
@@ -1474,28 +1538,86 @@ public class CacheHotspotManager extends MasterDaemon {
         }
     }
 
-    private void runCloudWarmUpJob() {
-        runnableCloudWarmUpJobs.values().forEach(cloudWarmUpJob -> {
-            if (cloudWarmUpJob.shouldWait()) {
-                return;
+    @VisibleForTesting
+    void runCloudWarmUpJob() {
+        int maxActiveJobs = Config.max_active_cloud_warm_up_job;
+        if (maxActiveJobs <= 0) {
+            return;
+        }
+
+        if (cloudWarmUpThreadPool.getMaximumPoolSize() != maxActiveJobs) {
+            cloudWarmUpThreadPool.setMaximumPoolSize(maxActiveJobs);
+            LOG.info("resize cloud warm up thread pool to {}", maxActiveJobs);
+        }
+
+        int availableSlots = maxActiveJobs - activeCloudWarmUpJobs.size();
+        if (availableSlots <= 0) {
+            return;
+        }
+
+        // A smaller last-scheduled sequence has higher priority, and never-scheduled jobs use sequence 0.
+        // For the same sequence, prefer ONCE jobs, then earlier creation time, then smaller job ID.
+        Comparator<CloudWarmUpJob> schedulePriority = Comparator
+                .comparingLong((CloudWarmUpJob job) ->
+                        cloudWarmUpJobLastScheduleSeq.getOrDefault(job.getJobId(), 0L))
+                .thenComparingInt(job -> job.isOnce() ? 0 : 1)
+                .thenComparingLong(CloudWarmUpJob::getCreateTimeMs)
+                .thenComparingLong(CloudWarmUpJob::getJobId);
+
+        // Keep only the highest-priority jobs needed by this cycle. The reversed comparator keeps
+        // the lowest-priority selected job at the heap top so it can be replaced during the scan.
+        PriorityQueue<CloudWarmUpJob> candidates = new PriorityQueue<>(schedulePriority.reversed());
+        for (CloudWarmUpJob job : runnableCloudWarmUpJobs.values()) {
+            if (job.shouldWait() || job.isDone() || activeCloudWarmUpJobs.containsKey(job.getJobId())) {
+                continue;
             }
-            if (!cloudWarmUpJob.isDone() && !activeCloudWarmUpJobs.containsKey(cloudWarmUpJob.getJobId())
-                    && activeCloudWarmUpJobs.size() < Config.max_active_cloud_warm_up_job) {
-                if (FeConstants.runningUnitTest) {
-                    cloudWarmUpJob.run();
-                } else {
-                    cloudWarmUpThreadPool.submit(() -> {
-                        if (activeCloudWarmUpJobs.putIfAbsent(cloudWarmUpJob.getJobId(), cloudWarmUpJob) == null) {
-                            try {
-                                cloudWarmUpJob.run();
-                            } finally {
-                                activeCloudWarmUpJobs.remove(cloudWarmUpJob.getJobId());
-                            }
-                        }
-                    });
+            if (candidates.size() < availableSlots) {
+                candidates.offer(job);
+            } else if (schedulePriority.compare(job, candidates.peek()) < 0) {
+                candidates.poll();
+                candidates.offer(job);
+            }
+        }
+
+        List<CloudWarmUpJob> jobsToSchedule = new ArrayList<>(candidates);
+        jobsToSchedule.sort(schedulePriority);
+
+        for (CloudWarmUpJob job : jobsToSchedule) {
+            if (availableSlots <= 0) {
+                break;
+            }
+            long jobId = job.getJobId();
+            if (activeCloudWarmUpJobs.putIfAbsent(jobId, job) != null) {
+                continue;
+            }
+
+            if (FeConstants.runningUnitTest) {
+                cloudWarmUpJobLastScheduleSeq.put(jobId, cloudWarmUpJobScheduleSeq.incrementAndGet());
+                try {
+                    job.run();
+                } finally {
+                    activeCloudWarmUpJobs.remove(jobId, job);
                 }
+                --availableSlots;
+                continue;
             }
-        });
+
+            try {
+                cloudWarmUpThreadPool.execute(() -> {
+                    try {
+                        job.run();
+                    } finally {
+                        activeCloudWarmUpJobs.remove(jobId, job);
+                    }
+                });
+                cloudWarmUpJobLastScheduleSeq.put(jobId, cloudWarmUpJobScheduleSeq.incrementAndGet());
+                --availableSlots;
+            } catch (RejectedExecutionException e) {
+                activeCloudWarmUpJobs.remove(jobId, job);
+                LOG.warn("failed to schedule cloud warm up job {}, retry in next cycle", jobId);
+                break;
+            }
+        }
     }
 
     public void replayCloudWarmUpJob(CloudWarmUpJob cloudWarmUpJob) throws Exception {

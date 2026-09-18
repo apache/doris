@@ -18,12 +18,17 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.thrift.TQueryOptions;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
@@ -33,6 +38,7 @@ public class StmtExecutorInternalQueryTest {
         StmtExecutor executor = new StmtExecutor(new ConnectContext(), "select * from table1");
         try (MockedConstruction<NereidsPlanner> mocked = Mockito.mockConstruction(NereidsPlanner.class,
                 (mock, context) -> {
+                    Mockito.when(mock.getStatementContext()).thenReturn(executor.getContext().getStatementContext());
                     Mockito.doThrow(new RuntimeException()).when(mock).plan(
                             Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class));
                 })) {
@@ -42,7 +48,7 @@ public class StmtExecutorInternalQueryTest {
                 // do nothing
             }
         }
-        Assert.assertEquals("a8ec30e5ad0820f8c5bd16a82a4491ca", executor.getContext().getSqlHash());
+        Assertions.assertEquals("a8ec30e5ad0820f8c5bd16a82a4491ca", executor.getContext().getSqlHash());
     }
 
     @Test
@@ -53,18 +59,56 @@ public class StmtExecutorInternalQueryTest {
         ConnectContext ctx = new ConnectContext();
         StmtExecutor executor = new StmtExecutor(ctx, "select * from table1");
         try (MockedConstruction<NereidsPlanner> mocked = Mockito.mockConstruction(NereidsPlanner.class,
-                (mock, context) -> Mockito.doThrow(new RuntimeException("mock plan failure"))
-                        .when(mock).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class)))) {
-            Assert.assertThrows(RuntimeException.class, executor::executeInternalQuery);
+                (mock, context) -> {
+                    Mockito.when(mock.getStatementContext()).thenReturn(ctx.getStatementContext());
+                    Mockito.doThrow(new RuntimeException("mock plan failure"))
+                            .when(mock).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class));
+                })) {
+            Assertions.assertThrows(RuntimeException.class, executor::executeInternalQuery);
         }
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
-        Assert.assertEquals(ErrorCode.ERR_INTERNAL_ERROR, ctx.getState().getErrorCode());
-        Assert.assertNotNull(ctx.getState().getErrorMessage());
-        Assert.assertTrue("error message should mention root cause, got: " + ctx.getState().getErrorMessage(),
-                ctx.getState().getErrorMessage().contains("mock plan failure"));
-        Assert.assertTrue("internal query should be flagged as internal in audit state",
-                ctx.getState().isInternal());
-        Assert.assertTrue("internal query should be flagged as query in audit state",
-                ctx.getState().isQuery());
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
+        Assertions.assertEquals(ErrorCode.ERR_INTERNAL_ERROR, ctx.getState().getErrorCode());
+        Assertions.assertNotNull(ctx.getState().getErrorMessage());
+        Assertions.assertTrue(ctx.getState().getErrorMessage().contains("mock plan failure"), "error message should mention root cause, got: " + ctx.getState().getErrorMessage());
+        Assertions.assertTrue(ctx.getState().isInternal(), "internal query should be flagged as internal in audit state");
+        Assertions.assertTrue(ctx.getState().isQuery(), "internal query should be flagged as query in audit state");
+    }
+
+    @Test
+    public void testExecuteInternalQuerySubmitsErrorAuditEventOnFailure() {
+        ConnectContext ctx = new ConnectContext();
+        StmtExecutor executor = new StmtExecutor(ctx, "select * from table1");
+        Env env = Env.getCurrentEnv();
+        WorkloadRuntimeStatusMgr originalWorkloadRuntimeStatusMgr = env.getWorkloadRuntimeStatusMgr();
+        WorkloadRuntimeStatusMgr workloadRuntimeStatusMgr = Mockito.mock(WorkloadRuntimeStatusMgr.class);
+        ArgumentCaptor<AuditEvent> auditEventCaptor = ArgumentCaptor.forClass(AuditEvent.class);
+
+        Deencapsulation.setField(env, "workloadRuntimeStatusMgr", workloadRuntimeStatusMgr);
+        try {
+            try (MockedConstruction<NereidsPlanner> mockedPlanner = Mockito.mockConstruction(NereidsPlanner.class,
+                    (mock, context) -> {
+                        Mockito.when(mock.getStatementContext()).thenReturn(ctx.getStatementContext());
+                        Mockito.doThrow(new RuntimeException("mock plan failure"))
+                                .when(mock).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class));
+                    })) {
+                Assertions.assertThrows(RuntimeException.class, executor::executeInternalQuery);
+            }
+
+            Mockito.verify(workloadRuntimeStatusMgr).submitFinishQueryToAudit(auditEventCaptor.capture());
+        } finally {
+            Deencapsulation.setField(env, "workloadRuntimeStatusMgr", originalWorkloadRuntimeStatusMgr);
+        }
+
+        AuditEvent auditEvent = auditEventCaptor.getValue();
+        Assertions.assertEquals(AuditEvent.EventType.AFTER_QUERY, auditEvent.type);
+        Assertions.assertEquals("ERR", auditEvent.state);
+        Assertions.assertEquals(ErrorCode.ERR_INTERNAL_ERROR.getCode(), auditEvent.errorCode);
+        Assertions.assertNotNull(auditEvent.errorMessage);
+        Assertions.assertTrue(auditEvent.errorMessage.contains("mock plan failure"), "error message should mention root cause, got: " + auditEvent.errorMessage);
+        Assertions.assertTrue(auditEvent.isInternal, "audit event should be marked as internal");
+        Assertions.assertTrue(auditEvent.isQuery, "audit event should be marked as query");
+        Assertions.assertTrue(auditEvent.isNereids, "audit event should be marked as nereids");
+        Assertions.assertEquals("select * from table1", auditEvent.stmt);
+        Assertions.assertEquals("a8ec30e5ad0820f8c5bd16a82a4491ca", auditEvent.sqlHash);
     }
 }

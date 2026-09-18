@@ -35,7 +35,6 @@ suite("test_http_meta_tables_auth","p0,auth,nonConcurrent") {
         PROPERTIES ('replication_num' = '1') ;
         """
     try {
-            sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "true"); """
             def getTables = { check_func ->
                 httpTest {
                     basicAuthorization "${user}","${pwd}"
@@ -61,9 +60,8 @@ suite("test_http_meta_tables_auth","p0,auth,nonConcurrent") {
             }
 
             sql """drop table if exists `${tableName}`"""
-            try_sql("DROP USER ${user}")
     } finally {
-         sql """ ADMIN SET ALL FRONTENDS CONFIG ("enable_all_http_auth" = "false"); """
+         try_sql("DROP USER ${user}")
     }
 
 

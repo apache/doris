@@ -35,7 +35,7 @@ import java.util.List;
  * AggregateFunction 'percentile_reservoir'
  */
 public class PercentileReservoir extends NullableAggregateFunction
-        implements BinaryExpression, ExplicitlyCastableSignature {
+        implements BinaryExpression, ExplicitlyCastableSignature, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE)
@@ -74,7 +74,8 @@ public class PercentileReservoir extends NullableAggregateFunction
         }
         if (levelArgument instanceof Literal) {
             double value = ((Literal) levelArgument).getDouble();
-            if (value < 0 || value > 1) {
+            // Negate the valid range to reject NaN, which makes both < 0 and > 1 false.
+            if (!(value >= 0 && value <= 1)) {
                 throw new AnalysisException(
                         "percentile_reservoir level must be in [0, 1], but got " + value + ": " + this.toSql());
             }
@@ -106,5 +107,10 @@ public class PercentileReservoir extends NullableAggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public List<Expression> getDistinctArguments() {
+        return distinct ? ImmutableList.of(getArgument(0)) : ImmutableList.of();
     }
 }

@@ -32,9 +32,9 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
-#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 class BufferWritable;
@@ -47,7 +47,7 @@ IDataType::IDataType() = default;
 IDataType::~IDataType() = default;
 
 doris::FieldType IDataType::get_storage_field_type() const {
-    return TabletColumn::get_field_type_by_type(get_primitive_type());
+    return primitive_type_to_storage_field_type(get_primitive_type());
 }
 
 String IDataType::get_name() const {
@@ -78,6 +78,14 @@ size_t IDataType::get_size_of_value_in_memory() const {
 
 void IDataType::to_pb_column_meta(PColumnMeta* col_meta) const {
     col_meta->set_type(get_pdata_type(this));
+}
+
+void IDataType::to_protobuf(PTypeDesc* ptype) const {
+    auto node = ptype->add_types();
+    node->set_type(TTypeNodeType::SCALAR);
+    auto scalar_type = node->mutable_scalar_type();
+    scalar_type->set_type(doris::to_thrift(get_primitive_type()));
+    to_protobuf(ptype, node, scalar_type);
 }
 
 PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
@@ -126,6 +134,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::VARIANT;
     case PrimitiveType::TYPE_DATETIMEV2:
         return PGenericType::DATETIMEV2;
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        return PGenericType::TIMESTAMP_NS;
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return PGenericType::TIMESTAMPTZ;
     case PrimitiveType::TYPE_BITMAP:

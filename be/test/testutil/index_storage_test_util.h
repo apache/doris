@@ -179,6 +179,7 @@ struct IndexReadResult {
     OlapReaderStatistics stats;
     std::map<int32_t, std::vector<std::optional<std::string>>> string_values_by_uid;
     std::map<int32_t, std::vector<std::optional<std::string>>> variant_values_by_uid;
+    std::set<int32_t> variant_v2_output_uids;
 
     bool inverted_index_used() const;
 };

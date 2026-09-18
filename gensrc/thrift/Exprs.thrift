@@ -329,6 +329,12 @@ struct TExprNode {
   39: optional bool is_cast_nullable
   40: optional TSearchParam search_param
   41: optional bool short_circuit_evaluation
+  // Lambda argument names in the current lambda scope. It is used by BE to
+  // distinguish current-scope lambda arguments from captured outer lambda
+  // arguments when nested lambda expressions contain duplicated column ids.
+  42: optional list<string> lambda_argument_names
+  // Force this CAST to fail on invalid input regardless of the query-level strict-cast setting.
+  43: optional bool is_strict_cast
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

@@ -89,12 +89,18 @@ public:
     }
 
     template <class T>
-    T* get(const KType& key, const std::function<T*()> create_func) {
+    T* get(const KType& key, const std::function<T*()> create_func, bool* cache_hit = nullptr) {
         std::lock_guard<std::mutex> lock(_lock);
         auto it = _storage.find(key);
         if (it != _storage.end()) {
+            if (cache_hit != nullptr) {
+                *cache_hit = true;
+            }
             return reinterpret_cast<T*>(it->second);
         } else {
+            if (cache_hit != nullptr) {
+                *cache_hit = false;
+            }
             T* rawPtr = create_func();
             if (rawPtr != nullptr) {
                 _delete_fn[key] = [](void* obj) { delete reinterpret_cast<T*>(obj); };
@@ -129,8 +135,9 @@ public:
     }
 
     template <class T>
-    T* get(const std::string& key, const std::function<T*()> create_func) {
-        return _shards[_get_idx(key)]->get(key, create_func);
+    T* get(const std::string& key, const std::function<T*()> create_func,
+           bool* cache_hit = nullptr) {
+        return _shards[_get_idx(key)]->get(key, create_func, cache_hit);
     }
 
 private:

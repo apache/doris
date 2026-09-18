@@ -50,6 +50,7 @@ import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -88,6 +89,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.remove(DateV2Type.class);
         allowedTypes.remove(DateTimeType.class);
         allowedTypes.remove(DateTimeV2Type.class);
+        allowedTypes.remove(TimeStampNsType.class);
         allowedTypes.remove(TimeV2Type.class);
         allowedTypes.add(JsonType.class);
         allowedTypes.add(VariantType.class);
@@ -117,6 +119,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateV2Type.class);
         allowedTypes.add(DateTimeType.class);
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
         strictCastWhiteList.put(DateType.class, allowedTypes);
@@ -130,6 +133,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateV2Type.class);
         allowedTypes.add(DateTimeType.class);
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
@@ -143,15 +147,32 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateV2Type.class);
         allowedTypes.add(DateTimeType.class);
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
         allowedTypes.add(TimeStampTzType.class);
         strictCastWhiteList.put(DateTimeV2Type.class, allowedTypes);
 
+        // TimestampNs
+        allowedTypes = Sets.newHashSet();
+        allowedTypes.add(BigIntType.class);
+        allowedTypes.add(LargeIntType.class);
+        allowedTypes.add(DateType.class);
+        allowedTypes.add(DateV2Type.class);
+        allowedTypes.add(DateTimeType.class);
+        allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
+        allowedTypes.add(TimeV2Type.class);
+        allowToStringLikeType(allowedTypes);
+        allowedTypes.add(VariantType.class);
+        allowedTypes.add(TimeStampTzType.class);
+        strictCastWhiteList.put(TimeStampNsType.class, allowedTypes);
+
         // timestamp tz
         allowedTypes = Sets.newHashSet();
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowedTypes.add(TimeStampTzType.class);
         allowToStringLikeType(allowedTypes);
         strictCastWhiteList.put(TimeStampTzType.class, allowedTypes);
@@ -167,6 +188,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateV2Type.class);
         allowedTypes.add(DateTimeType.class);
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
         allowedTypes.add(VariantType.class);
@@ -179,6 +201,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(IPv6Type.class);
         allowedTypes.add(VarBinaryType.class);
         allowedTypes.add(TimeStampTzType.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowToComplexType(allowedTypes);
         allowedTypes.remove(HllType.class);
         allowedTypes.remove(BitmapType.class);
@@ -253,6 +276,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.remove(DateV2Type.class);
         allowedTypes.remove(DateTimeType.class);
         allowedTypes.remove(DateTimeV2Type.class);
+        allowedTypes.remove(TimeStampNsType.class);
         allowedTypes.remove(TimeV2Type.class);
         allowedTypes.add(ArrayType.class);
         allowedTypes.add(StructType.class);
@@ -281,6 +305,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DoubleType.class);
         unStrictCastWhiteList.put(DateTimeType.class, allowedTypes);
         unStrictCastWhiteList.put(DateTimeV2Type.class, allowedTypes);
+        unStrictCastWhiteList.put(TimeStampNsType.class, allowedTypes);
 
         // Time
         allowedTypes = Sets.newHashSet();
@@ -304,6 +329,7 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         allowedTypes.add(DateV2Type.class);
         allowedTypes.add(DateTimeType.class);
         allowedTypes.add(DateTimeV2Type.class);
+        allowedTypes.add(TimeStampNsType.class);
         allowedTypes.add(TimeV2Type.class);
         allowToStringLikeType(allowedTypes);
     }
@@ -334,6 +360,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                     DataType originalType = cast.child().getDataType();
                     DataType targetType = cast.getDataType();
                     if (!check(originalType, targetType, SessionVariable.enableStrictCast())) {
+                        if (requiresExactAggStateMatch(originalType, targetType)) {
+                            throw new AnalysisException(exactAggStateMatchError(originalType, targetType));
+                        }
                         throw new AnalysisException("cannot cast " + originalType.toSql()
                                 + " to " + targetType.toSql());
                     }
@@ -355,9 +384,6 @@ public class CheckCast implements ExpressionPatternRuleFactory {
      */
     public static boolean check(DataType originalType, DataType targetType,
             boolean isStrictMode, boolean looseAggState) {
-        if (originalType.isVariantType() && targetType.isVariantType()) {
-            return originalType.equals(targetType);
-        }
         if (originalType.isVariantType() && (targetType instanceof PrimitiveType || targetType.isArrayType())) {
             // variant could cast to primitive types and array
             return true;
@@ -373,7 +399,8 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         if (looseAggState && originalType instanceof AggStateType && targetType instanceof AggStateType) {
             AggStateType originalAggState = (AggStateType) originalType;
             AggStateType targetAggState = (AggStateType) targetType;
-            if (originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
+            if (originalAggState.isLooseTypeCoercionAllowed()
+                    && originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
                     && originalAggState.getSubTypes().size() == targetAggState.getSubTypes().size()) {
                 return true;
             }
@@ -414,7 +441,16 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                 return false;
             }
             for (int i = 0; i < targetFields.size(); i++) {
-                if (originalFields.get(i).isNullable() != targetFields.get(i).isNullable()) {
+                // A nullable target can safely accept a required source, but the inverse would
+                // allow a possible NULL into a required nested field.
+                if (originalFields.get(i).isNullable() && !targetFields.get(i).isNullable()) {
+                    return false;
+                }
+                // Non-strict conversion failures become NULL, while strict conversion failures abort the cast;
+                // only non-strict mode can therefore violate a required target through a failed conversion.
+                if (!isStrictMode && !targetFields.get(i).isNullable()
+                        && Cast.castNullable(false, originalFields.get(i).getDataType(),
+                                targetFields.get(i).getDataType())) {
                     return false;
                 }
                 if (!check(originalFields.get(i).getDataType(), targetFields.get(i).getDataType(), isStrictMode)) {
@@ -427,6 +463,20 @@ public class CheckCast implements ExpressionPatternRuleFactory {
         } else {
             return true;
         }
+    }
+
+    /** Whether the source AggState only allows an exact target type. */
+    public static boolean requiresExactAggStateMatch(DataType originalType, DataType targetType) {
+        return originalType instanceof AggStateType
+                && targetType instanceof AggStateType
+                && !((AggStateType) originalType).isLooseTypeCoercionAllowed()
+                && !originalType.equals(targetType);
+    }
+
+    /** Build the analysis error for a non-exact aggregate combine state cast. */
+    public static String exactAggStateMatchError(DataType originalType, DataType targetType) {
+        return "Aggregate combine state requires an exact AggState type match: cannot cast "
+                + originalType.toSql() + " to " + targetType.toSql();
     }
 
     /**

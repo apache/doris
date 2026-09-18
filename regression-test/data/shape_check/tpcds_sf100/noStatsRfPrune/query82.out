@@ -19,7 +19,7 @@ PhysicalResultSink
 ----------------------------filter((inventory.inv_quantity_on_hand <= 500) and (inventory.inv_quantity_on_hand >= 100))
 ------------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1
 --------------------------PhysicalProject
-----------------------------filter((item.i_current_price <= 47.00) and (item.i_current_price >= 17.00) and i_manufact_id IN (138, 169, 339, 639))
+----------------------------filter((item.i_current_price <= 47.00) and (item.i_current_price >= 17.00) and item.i_manufact_id IN (138, 169, 339, 639))
 ------------------------------PhysicalOlapScan[item]
 ----------------------PhysicalProject
 ------------------------filter((date_dim.d_date <= '1999-09-07') and (date_dim.d_date >= '1999-07-09'))

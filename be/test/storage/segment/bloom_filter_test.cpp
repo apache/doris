@@ -16,6 +16,7 @@
 // under the License.
 #include "storage/index/bloom_filter/bloom_filter.h"
 
+#include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
 
 #include <iostream>

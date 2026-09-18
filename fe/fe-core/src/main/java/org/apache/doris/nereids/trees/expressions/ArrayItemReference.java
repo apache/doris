@@ -97,6 +97,11 @@ public class ArrayItemReference extends NamedExpression implements ExpectsInputT
     }
 
     @Override
+    public String shapeInfo() {
+        return child(0).shapeInfo();
+    }
+
+    @Override
     public Slot toSlot() {
         return new ArrayItemSlot(exprId, name, getDataType(), nullable());
     }

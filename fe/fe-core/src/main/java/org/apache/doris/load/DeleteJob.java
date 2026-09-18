@@ -310,7 +310,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         AgentBatchTask batchTask = new AgentBatchTask();
         String vaultId = targetTbl.getStorageVaultId();
         for (Partition partition : partitions) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL,
+                    true)) {
                 long indexId = index.getId();
                 MaterializedIndexMeta indexMeta = targetTbl.getIndexMetaByIndexId(indexId);
                 int schemaVersion = indexMeta.getSchemaVersion();

@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.sql.Types
+import java.time.LocalDateTime
+
 suite("test_select", "arrow_flight_sql") {
     def tableName = "test_select"
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -32,14 +35,128 @@ suite("test_select", "arrow_flight_sql") {
     tableName = "test_select_datetime"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
-        create table ${tableName} (id int, name varchar(20), f_datetime_p datetime(6), f_datetime datetime) DUPLICATE key(`id`) distributed by hash (`id`) buckets 4
+        create table ${tableName} (id int, name varchar(20), f_datetime_p datetime(6),
+            f_datetime datetime, f_timestamptz timestamptz(6))
+        DUPLICATE key(`id`) distributed by hash (`id`) buckets 4
         properties ("replication_num"="1");
         """
-    sql """INSERT INTO ${tableName} VALUES(111, "plsql111","2024-07-19 12:00:00.123456","2024-07-19 12:00:00")"""
-    sql """INSERT INTO ${tableName} VALUES(222, "plsql222","2024-07-20 12:00:00.123456","2024-07-20 12:00:00")"""
-    sql """INSERT INTO ${tableName} VALUES(333, "plsql333","2024-07-21 12:00:00.123456","2024-07-21 12:00:00")"""
+    sql """INSERT INTO ${tableName} VALUES
+        (111, "plsql111", "2024-07-19 12:00:00.123456", "2024-07-19 12:00:00",
+            "2024-07-19 12:00:00.123456 +08:00"),
+        (222, "plsql222", "2024-07-20 12:00:00.123456", "2024-07-20 12:00:00",
+            "2024-07-20 12:00:00.123456 +08:00"),
+        (333, "plsql333", "2024-07-21 12:00:00.123456", "2024-07-21 12:00:00",
+            "2024-07-21 12:00:00.123456 +08:00")
+    """
 
-    qt_arrow_flight_sql_datetime "select * from ${tableName} order by id desc"
+    // Arrow JDBC's untyped getObject() applies timezone conversion to a naive timestamp. Keep the
+    // snapshot comparison textual and verify the timestamp schema and wall-clock values explicitly.
+    qt_arrow_flight_sql_datetime """
+        SELECT id, name, CAST(f_datetime_p AS STRING), CAST(f_datetime AS STRING)
+        FROM ${tableName}
+        ORDER BY id DESC
+    """
+
+    def discoveredColumnTypes = [:]
+    context.getArrowFlightSqlConnection().getMetaData()
+            .getColumns(null, context.dbName, tableName, null).withCloseable { columns ->
+        while (columns.next()) {
+            discoveredColumnTypes[columns.getString("COLUMN_NAME")] = columns.getInt("DATA_TYPE")
+        }
+    }
+    assertEquals(Types.TIMESTAMP, discoveredColumnTypes["f_datetime_p"])
+    assertEquals(Types.TIMESTAMP, discoveredColumnTypes["f_datetime"])
+    assertEquals(Types.TIMESTAMP_WITH_TIMEZONE, discoveredColumnTypes["f_timestamptz"])
+
+    context.getArrowFlightSqlConnection().createStatement().withCloseable { statement ->
+        statement.executeQuery("""
+            USE ${context.dbName};
+            SELECT
+                CAST('2024-07-19 12:00:00' AS DATETIME(0)) AS datetime_s,
+                CAST('2024-07-19 12:00:00.123' AS DATETIME(3)) AS datetime_ms,
+                CAST('2024-07-19 12:00:00.123456' AS DATETIME(6)) AS datetime_us,
+                CAST('2024-07-19 12:00:00.123456 +08:00' AS TIMESTAMPTZ(6)) AS timestamptz_us
+        """).withCloseable { resultSet ->
+            def metadata = resultSet.getMetaData()
+            assertEquals(4, metadata.getColumnCount())
+            for (int i = 1; i <= 3; i++) {
+                assertEquals(Types.TIMESTAMP, metadata.getColumnType(i))
+                assertEquals("TIMESTAMP", metadata.getColumnTypeName(i))
+            }
+            assertEquals(Types.TIMESTAMP_WITH_TIMEZONE, metadata.getColumnType(4))
+            assertEquals("TIMESTAMP_WITH_TIMEZONE", metadata.getColumnTypeName(4))
+
+            assertTrue(resultSet.next())
+            assertEquals(LocalDateTime.parse("2024-07-19T12:00:00"),
+                    resultSet.getObject(1, LocalDateTime.class))
+            assertEquals(LocalDateTime.parse("2024-07-19T12:00:00.123"),
+                    resultSet.getObject(2, LocalDateTime.class))
+            assertEquals(LocalDateTime.parse("2024-07-19T12:00:00.123456"),
+                    resultSet.getObject(3, LocalDateTime.class))
+        }
+    }
+
+    sql "DROP TABLE IF EXISTS test_select_timestamp_ns"
+    sql """
+        CREATE TABLE test_select_timestamp_ns (
+            id INT,
+            ts TIMESTAMP_NS NULL
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO test_select_timestamp_ns VALUES
+            (1, '1677-09-21 00:12:43.145224192'),
+            (2, '1969-12-31 23:59:59.999999999'),
+            (3, '1970-01-01 00:00:00.000000001'),
+            (4, '2024-02-29 12:34:56.123456789'),
+            (5, '2262-04-11 23:47:16.854775807'),
+            (6, NULL)
+    """
+
+    arrow_flight_sql "SET time_zone = '+00:00'"
+    order_qt_arrow_flight_sql_timestamp_ns_text_utc """
+        SELECT id, CAST(ts AS STRING) FROM test_select_timestamp_ns ORDER BY id
+    """
+    arrow_flight_sql "SET time_zone = '+08:00'"
+    order_qt_arrow_flight_sql_timestamp_ns_text_plus_eight """
+        SELECT id, CAST(ts AS STRING) FROM test_select_timestamp_ns ORDER BY id
+    """
+
+    def expectedTimestampNs = [
+        LocalDateTime.parse("1677-09-21T00:12:43.145224192"),
+        LocalDateTime.parse("1969-12-31T23:59:59.999999999"),
+        LocalDateTime.parse("1970-01-01T00:00:00.000000001"),
+        LocalDateTime.parse("2024-02-29T12:34:56.123456789"),
+        LocalDateTime.parse("2262-04-11T23:47:16.854775807"),
+        null
+    ]
+    for (def sessionTimeZone : ["+00:00", "+08:00"]) {
+        arrow_flight_sql "SET time_zone = '${sessionTimeZone}'"
+        context.getArrowFlightSqlConnection().createStatement().withCloseable { statement ->
+            statement.executeQuery("""
+                USE ${context.dbName};
+                SELECT ts FROM test_select_timestamp_ns ORDER BY id
+            """).withCloseable { resultSet ->
+                def metadata = resultSet.getMetaData()
+                assertEquals(1, metadata.getColumnCount())
+                assertEquals(Types.TIMESTAMP, metadata.getColumnType(1))
+                assertEquals("TIMESTAMP", metadata.getColumnTypeName(1))
+
+                for (def expected : expectedTimestampNs) {
+                    assertTrue(resultSet.next())
+                    if (expected == null) {
+                        assertNull(resultSet.getObject(1))
+                    } else {
+                        assertEquals(expected, resultSet.getObject(1, LocalDateTime.class))
+                    }
+                }
+                assertFalse(resultSet.next())
+            }
+        }
+    }
 
     tableName = "test_select_jsonb"
     sql "DROP TABLE IF EXISTS ${tableName}"

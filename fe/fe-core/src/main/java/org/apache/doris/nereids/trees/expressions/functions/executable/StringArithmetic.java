@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
+import org.apache.doris.nereids.trees.expressions.ExecFunctionList;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
@@ -44,16 +46,22 @@ import org.apache.doris.nereids.types.ArrayType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -61,6 +69,8 @@ import java.util.regex.Pattern;
  * concat
  */
 public class StringArithmetic {
+    private static final long MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS = 16L * 1024L * 1024L;
+
     private static Literal castStringLikeLiteral(StringLikeLiteral first, String value) {
         if (first instanceof StringLiteral) {
             return new StringLiteral(value);
@@ -554,11 +564,20 @@ public class StringArithmetic {
         return 0;
     }
 
+    private static int compareTimeStampNsLiteral(TimeStampNsLiteral first, TimeStampNsLiteral... second) {
+        for (int i = 0; i < second.length; i++) {
+            if (second[i].equals(first)) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
     private static int compareFloatLiteral(FloatLiteral first, FloatLiteral... second) {
         float firstValue = first.getValue();
         for (int i = 0; i < second.length; i++) {
             float secondValue = second[i].getValue();
-            if (secondValue == firstValue) {
+            if (secondValue == firstValue || Float.isNaN(secondValue) && Float.isNaN(firstValue)) {
                 return i + 1;
             }
         }
@@ -569,7 +588,7 @@ public class StringArithmetic {
         double firstValue = first.getValue();
         for (int i = 0; i < second.length; i++) {
             double secondValue = second[i].getValue();
-            if (secondValue == firstValue) {
+            if (secondValue == firstValue || Double.isNaN(secondValue) && Double.isNaN(firstValue)) {
                 return i + 1;
             }
         }
@@ -662,6 +681,11 @@ public class StringArithmetic {
     @ExecFunction(name = "field")
     public static Expression fieldDateTimeV2(DateTimeV2Literal first, DateTimeV2Literal... second) {
         return new IntegerLiteral(compareLiteral(first, second));
+    }
+
+    @ExecFunction(name = "field")
+    public static Expression fieldTimeStampNs(TimeStampNsLiteral first, TimeStampNsLiteral... second) {
+        return new IntegerLiteral(compareTimeStampNsLiteral(first, second));
     }
 
     /**
@@ -1014,6 +1038,12 @@ public class StringArithmetic {
         if (startPos < 0) {
             return null;
         }
+        int fragmentPos = protocolEnd.indexOf('#');
+        if (fragmentPos >= 0 && fragmentPos < startPos) {
+            // The '#' comes before the '?', so the '?' and everything behind it belongs to the
+            // fragment and the url has no query component.
+            return null;
+        }
         String queryStart = protocolEnd.substring(startPos + 1);
         return substringEnd(queryStart, queryStart.indexOf('#'));
     }
@@ -1055,10 +1085,57 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "url_decode")
     public static Expression urlDecode(StringLikeLiteral first) {
+        if (!isValidUtf8AfterUrlDecode(first.getValue())) {
+            // String literals cannot preserve an invalid UTF-8 byte sequence. Let BE evaluate it
+            // instead of folding the replacement characters produced by java.net.URLDecoder.
+            throw new IllegalArgumentException("URL-decoded value is not valid UTF-8");
+        }
         try {
             return castStringLikeLiteral(first, URLDecoder.decode(first.getValue(), StandardCharsets.UTF_8.name()));
         } catch (UnsupportedEncodingException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private static boolean isValidUtf8AfterUrlDecode(String value) {
+        ByteArrayOutputStream decodedBytes = new ByteArrayOutputStream(value.length());
+        int index = 0;
+        while (index < value.length()) {
+            char current = value.charAt(index);
+            if (current == '%') {
+                if (index + 2 >= value.length()) {
+                    // Preserve URLDecoder's existing malformed-escape handling.
+                    return true;
+                }
+                int high = Character.digit(value.charAt(index + 1), 16);
+                int low = Character.digit(value.charAt(index + 2), 16);
+                if (high < 0 || low < 0) {
+                    // Preserve URLDecoder's existing malformed-escape handling.
+                    return true;
+                }
+                decodedBytes.write((high << 4) + low);
+                index += 3;
+            } else if (current == '+') {
+                decodedBytes.write(' ');
+                index++;
+            } else {
+                int start = index;
+                while (index < value.length() && value.charAt(index) != '%' && value.charAt(index) != '+') {
+                    index++;
+                }
+                byte[] originalBytes = value.substring(start, index).getBytes(StandardCharsets.UTF_8);
+                decodedBytes.write(originalBytes, 0, originalBytes.length);
+            }
+        }
+
+        try {
+            StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(decodedBytes.toByteArray()));
+            return true;
+        } catch (CharacterCodingException e) {
+            return false;
         }
     }
 
@@ -1115,6 +1192,11 @@ public class StringArithmetic {
             return castStringLikeLiteral(first, "");
         }
         int hashPos = trimmedUrl.indexOf('#');
+        if (hashPos >= 0 && hashPos < questionPos) {
+            // The '#' comes before the '?', so the '?' and everything behind it belongs to the
+            // fragment and the url has no query parameters.
+            return castStringLikeLiteral(first, "");
+        }
         String subUrl = hashPos < 0
                 ? trimmedUrl.substring(questionPos + 1)
                 : trimmedUrl.substring(questionPos + 1, hashPos);
@@ -1217,7 +1299,11 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions levenshtein
      */
-    @ExecFunction(name = "levenshtein")
+    @ExecFunctionList({
+            @ExecFunction(name = "levenshtein"),
+            @ExecFunction(name = "levenshtein_distance"),
+            @ExecFunction(name = "edit_distance")
+    })
     public static Expression levenshtein(StringLikeLiteral first, StringLikeLiteral second) {
         int[] left = first.getValue().codePoints().toArray();
         int[] right = second.getValue().codePoints().toArray();
@@ -1259,6 +1345,73 @@ public class StringArithmetic {
         }
 
         return new IntegerLiteral(prev[n]);
+    }
+
+    /**
+     * Executable arithmetic functions damerau_levenshtein_distance
+     */
+    @ExecFunction(name = "damerau_levenshtein_distance")
+    public static Expression damerauLevenshteinDistance(StringLikeLiteral first,
+            StringLikeLiteral second) {
+        int[] left = first.getValue().codePoints().toArray();
+        int[] right = second.getValue().codePoints().toArray();
+        return new IntegerLiteral(damerauLevenshteinDistance(left, right));
+    }
+
+    private static int damerauLevenshteinDistance(int[] left, int[] right) {
+        int m = left.length;
+        int n = right.length;
+        if (m == 0) {
+            return n;
+        }
+        if (n == 0) {
+            return m;
+        }
+
+        long matrixCells = ((long) m + 2L) * ((long) n + 2L);
+        if (matrixCells > MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS) {
+            throw new AnalysisException("damerau_levenshtein_distance distance matrix is too large: "
+                    + matrixCells + " cells exceeds limit " + MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS);
+        }
+
+        int maxDistance = m + n;
+        int cols = n + 2;
+        int[] distance = new int[(int) matrixCells];
+        Map<Integer, Integer> lastRow = new HashMap<>();
+
+        distance[0] = maxDistance;
+        for (int i = 0; i <= m; i++) {
+            distance[(i + 1) * cols] = maxDistance;
+            distance[(i + 1) * cols + 1] = i;
+        }
+        for (int j = 0; j <= n; j++) {
+            distance[j + 1] = maxDistance;
+            distance[cols + j + 1] = j;
+        }
+
+        for (int i = 1; i <= m; i++) {
+            int lastMatchCol = 0;
+            for (int j = 1; j <= n; j++) {
+                int lastMatchRow = lastRow.getOrDefault(right[j - 1], 0);
+                int transpositionCol = lastMatchCol;
+                int cost = 1;
+                if (left[i - 1] == right[j - 1]) {
+                    cost = 0;
+                    lastMatchCol = j;
+                }
+
+                int replaceCost = distance[i * cols + j] + cost;
+                int insertCost = distance[(i + 1) * cols + j] + 1;
+                int deleteCost = distance[i * cols + j + 1] + 1;
+                int transposeCost = distance[lastMatchRow * cols + transpositionCol]
+                        + i - lastMatchRow - 1 + 1 + j - transpositionCol - 1;
+                distance[(i + 1) * cols + j + 1] = Math.min(Math.min(replaceCost, insertCost),
+                        Math.min(deleteCost, transposeCost));
+            }
+            lastRow.put(left[i - 1], i);
+        }
+
+        return distance[(m + 1) * cols + n + 1];
     }
 
     /**

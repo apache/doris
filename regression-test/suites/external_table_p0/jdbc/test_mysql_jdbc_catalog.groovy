@@ -383,6 +383,35 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
 
             contains "QUERY: SELECT `k12` FROM `doris_test`.`test1`"
         }
+        // Same projection, no WHERE: the remote query must still carry only the projected column.
+        // Every other remote-query assertion here filters, and a filter is exactly what used to make the
+        // connector rebuild its scan properties -- those are first built during scan init(), which runs
+        // before the project above the scan prunes the tuple, so a WHERE-less query explained (and told
+        // the connector) a full-width read. Keep one assertion on the unfiltered path.
+        explain {
+            sql("select k8 from test1;")
+
+            contains "QUERY: SELECT `k8` FROM `doris_test`.`test1`"
+        }
+        // count(*) asks for no column of its own, but the remote scan still has to read something.
+        // PhysicalPlanTranslator.updateScanSlotsMaterialization keeps exactly ONE (smallest) slot rather
+        // than letting the tuple go empty, and an empty projection is precisely what makes JdbcQueryBuilder
+        // emit `SELECT *` -- i.e. a full 12-column read of test1 just to count rows. That regression is
+        // invisible to every result-comparing test, so it needs an explain assertion. Asserted on the arity
+        // of the select list, not on which column wins: that is getSmallestSlot's business and may
+        // legitimately change with type widths.
+        explain {
+            sql("select count(*) from test1;")
+            check { String explainStr ->
+                def matcher = (explainStr =~ /QUERY: SELECT (.*) FROM `doris_test`\.`test1`/)
+                assertTrue(matcher.find(), "no jdbc remote QUERY for test1 in explain:\n${explainStr}")
+                def selectList = matcher.group(1).trim()
+                assertTrue(selectList.startsWith("`"),
+                        "count(*) must not degrade to a full-width read, got select list: ${selectList}")
+                assertEquals(1, selectList.split(",").size(),
+                        "count(*) must read exactly one column, got select list: ${selectList}")
+            }
+        }
         explain {
             sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05';")
 
@@ -526,6 +555,10 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         }
         explain {
             sql "insert into ${auto_default_t}(name,dt) select col1,col12 from ex_tb15;"
+            // P6.3-T02: jdbc now writes through the unified plan-provider sink, but the connector
+            // restores its write detail in EXPLAIN via ConnectorWritePlanProvider.appendExplainInfo,
+            // so the generated INSERT SQL is still shown (the leading "WRITE TYPE: JDBC_WRITE" line
+            // is the only sink-label change). Covered at unit level by JdbcWritePlanProviderTest.
             contains "INSERT SQL: INSERT INTO `doris_test`.`auto_default_t`(`name`,`dt`) VALUES (?, ?)"
         }
         order_qt_auto_default_t2 """insert into ${auto_default_t}(name,dt) select col1, coalesce(col12,'2022-01-01 00:00:00') from ex_tb15 limit 1;"""

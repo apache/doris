@@ -104,11 +104,14 @@ suite("test_streaming_job_cdc_stream_postgres_latest_alter_cred",
             )
         """
 
-        // wait for job to reach RUNNING state (at least one task scheduled)
+        // wait for the first task to commit the resolved latest offset
         try {
-            Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until({
-                def status = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
-                status.size() == 1 && status.get(0).get(0) == "RUNNING"
+            Awaitility.await().atMost(300, SECONDS).pollInterval(1, SECONDS).until({
+                def jobInfo = sql """select Status, SucceedTaskCount from jobs("type"="insert")
+                                     where Name='${jobName}' and ExecuteType='STREAMING'"""
+                log.info("job readiness for latest offset: " + jobInfo)
+                jobInfo.size() == 1 && jobInfo.get(0).get(0) == "RUNNING"
+                        && (jobInfo.get(0).get(1) as int) >= 1
             })
         } catch (Exception ex) {
             log.info("job: " + (sql """select * from jobs("type"="insert") where Name='${jobName}'"""))

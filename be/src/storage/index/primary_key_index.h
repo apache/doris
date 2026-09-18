@@ -37,6 +37,7 @@ namespace doris {
 
 namespace io {
 class FileWriter;
+struct IOContext;
 } // namespace io
 namespace segment_v2 {
 
@@ -108,15 +109,18 @@ public:
 
     Status parse_index(io::FileReaderSPtr file_reader,
                        const segment_v2::PrimaryKeyIndexMetaPB& meta,
-                       OlapReaderStatistics* pk_index_load_stats);
+                       OlapReaderStatistics* pk_index_load_stats,
+                       const io::IOContext* io_ctx = nullptr);
 
     Status parse_bf(io::FileReaderSPtr file_reader, const segment_v2::PrimaryKeyIndexMetaPB& meta,
-                    OlapReaderStatistics* pk_index_load_stats);
+                    OlapReaderStatistics* pk_index_load_stats,
+                    const io::IOContext* io_ctx = nullptr);
 
     Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator,
-                        OlapReaderStatistics* stats) const {
+                        OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr) const {
         DCHECK(_index_parsed);
-        index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get(), stats));
+        index_iterator->reset(
+                new segment_v2::IndexedColumnIterator(_index_reader.get(), stats, io_ctx));
         return Status::OK();
     }
 

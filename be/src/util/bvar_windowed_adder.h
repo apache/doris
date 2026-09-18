@@ -33,6 +33,12 @@
 
 namespace doris {
 
+// Shared window spans (seconds) for multi-window metrics.
+// bvar::Window enforces MAX_SECONDS_LIMIT = 3600, so the longest window is 1h.
+inline constexpr int WINDOW_5M = 300;
+inline constexpr int WINDOW_30M = 1800;
+inline constexpr int WINDOW_1H = 3600;
+
 /**
  * Multi-dimension windowed adder.
  *

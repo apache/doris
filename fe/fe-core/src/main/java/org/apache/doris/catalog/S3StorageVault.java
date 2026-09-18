@@ -19,8 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.S3Properties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 
 import com.google.common.base.Preconditions;
@@ -62,17 +60,17 @@ public class S3StorageVault extends StorageVault {
     public static final String S3_ROOT_PATH = "s3.root.path";
 
     public static class PropertyKey {
-        public static final String ACCESS_KEY = S3Properties.ACCESS_KEY;
-        public static final String SECRET_KEY = S3Properties.SECRET_KEY;
-        public static final String USE_PATH_STYLE = S3Properties.USE_PATH_STYLE;
+        public static final String ACCESS_KEY = "s3.access_key";
+        public static final String SECRET_KEY = "s3.secret_key";
+        public static final String USE_PATH_STYLE = "use_path_style";
         public static final String ROOT_PATH = S3_ROOT_PATH;
-        public static final String PROVIDER = StorageProperties.FS_PROVIDER_KEY;
-        public static final String REGION = S3Properties.REGION;
-        public static final String ENDPOINT = S3Properties.ENDPOINT;
-        public static final String BUCKET = S3Properties.BUCKET;
-        public static final String ROLE_ARN = S3Properties.ROLE_ARN;
-        public static final String EXTERNAL_ID = S3Properties.EXTERNAL_ID;
-        public static final String CREDENTIALS_PROVIDER_TYPE = S3Properties.CREDENTIALS_PROVIDER_TYPE;
+        public static final String PROVIDER = "provider";
+        public static final String REGION = "s3.region";
+        public static final String ENDPOINT = "s3.endpoint";
+        public static final String BUCKET = "s3.bucket";
+        public static final String ROLE_ARN = "s3.role_arn";
+        public static final String EXTERNAL_ID = "s3.external_id";
+        public static final String CREDENTIALS_PROVIDER_TYPE = "s3.credentials_provider_type";
     }
 
     public static final HashSet<String> ALLOW_ALTER_PROPERTIES = new HashSet<>(Arrays.asList(

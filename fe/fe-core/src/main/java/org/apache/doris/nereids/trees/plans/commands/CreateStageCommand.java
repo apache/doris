@@ -38,7 +38,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -122,8 +122,8 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
             }
 
             ObjectInfo objectInfo = ObjectInfoAdapter.analyzeStageObjectStoreInfo(stagePB);
-            StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
+            StorageAdapter storageAdapter = ObjectInfoAdapter.toStorageAdapter(objectInfo);
+            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageAdapter);
 
             // headObjectWithMeta does not throw exception if key does not exist.
             fs.headObjectWithMeta(objectInfo.getPrefix(), "1");

@@ -19,7 +19,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <ranges>
 #include <vector>
 
 #include "storage/index/inverted/query_v2/term_query/term_scorer.h"

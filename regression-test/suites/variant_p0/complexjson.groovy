@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_complexjson", "variant_type_complex_json") {
+    def variantV2Function = "parse_to_variant"
     def create_table = { table_name ->
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
@@ -24,13 +25,13 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
                 v variant
             )
             DUPLICATE KEY(`k`)
-            DISTRIBUTED BY RANDOM BUCKETS 5 
+            DISTRIBUTED BY RANDOM BUCKETS 5
             properties("replication_num" = "1", "disable_auto_compaction" = "true");
         """
     }
     def table_name = "complexjson"
     create_table table_name
-    sql """insert into ${table_name} values (1, '{
+    sql """insert into ${table_name} values (1, ${variantV2Function}('{
     "id": 1,
     "key_0":[
         {
@@ -59,12 +60,13 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
             ]
         }
     ]
-    }')"""
-    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
+    }'))"""
+    qt_sql """SELECT k, sort_json_object_keys(cast(v AS JSON)) from ${table_name}
+        order by cast(v["id"] as int)"""
 
     table_name = "complexjson2"
     create_table table_name
-    sql """insert into ${table_name} values (1, '{
+    sql """insert into ${table_name} values (1, ${variantV2Function}('{
     "id": 1,
     "key_1":[
         {
@@ -87,29 +89,31 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
             ]
         }
     ]
-    }')""" 
-    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
+    }'))"""
+    qt_sql """SELECT k, sort_json_object_keys(cast(v AS JSON)) from ${table_name}
+        order by cast(v["id"] as int)"""
 
     table_name = "complexjson3"
     create_table table_name
-    sql """INSERT INTO ${table_name} VALUES (1, '{"key_10":65536,"key_11":"anve","key_0":{"key_1":{"key_2":1025,"key_3":1},"key_4":1,"key_5":256}}')"""
-    sql """INSERT INTO ${table_name} VALUES (2, '{"key_0":[{"key_12":"buwvq","key_11":0.0000000255}]}')"""
-    qt_sql """SELECT * from ${table_name} order by k"""
+    sql """INSERT INTO ${table_name} VALUES (1, ${variantV2Function}('{"key_10":65536,"key_11":"anve","key_0":{"key_1":{"key_2":1025,"key_3":1},"key_4":1,"key_5":256}}'))"""
+    sql """INSERT INTO ${table_name} VALUES (2, ${variantV2Function}('{"key_0":[{"key_12":"buwvq","key_11":0.0000000255}]}'))"""
+    qt_sql """SELECT k, sort_json_object_keys(cast(v AS JSON)) from ${table_name} order by k"""
 
     table_name = "complexjson4"
     create_table table_name
-    sql """INSERT INTO ${table_name} VALUES (1, '{
+    sql """INSERT INTO ${table_name} VALUES (1, ${variantV2Function}('{
         "id": 1,
         "key_0":[
             {"key_1":{"key_2":[1, 2, 3],"key_8":"sffjx"},"key_10":65535,"key_0":-1},
             {"key_10":10.23,"key_0":922337203.685}
         ]
-    }')"""
-    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
+    }'))"""
+    qt_sql """SELECT k, sort_json_object_keys(cast(v AS JSON)) from ${table_name}
+        order by cast(v["id"] as int)"""
 
     table_name = "complexjson5"
     create_table table_name
-    sql """INSERT INTO ${table_name} VALUES (1, '{
+    sql """INSERT INTO ${table_name} VALUES (1, ${variantV2Function}('{
     "id": 1,
     "key_0":[
         {
@@ -131,6 +135,7 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
         ]
         }
     ]
-    }')""" 
-    qt_sql """SELECT * from ${table_name} order by cast(v["id"] as int)"""
+    }'))"""
+    qt_sql """SELECT k, sort_json_object_keys(cast(v AS JSON)) from ${table_name}
+        order by cast(v["id"] as int)"""
 }

@@ -22,6 +22,9 @@ suite("test_tz_load", "nonConcurrent") {
     def s3Region = getS3Region()
     def ak = getS3AK()
     def sk = getS3SK()
+    def originGlobalTimeZone = sql("select @@global.time_zone")[0][0]
+
+    try {
     
     sql "drop table if exists ${table1}"
 
@@ -226,4 +229,8 @@ suite("test_tz_load", "nonConcurrent") {
     }
     sql "sync"
     qt_global_offset "select * from ${table1} order by id"
+    } finally {
+        sql "SET GLOBAL time_zone = '${originGlobalTimeZone}'"
+        try_sql("drop table if exists ${table1}")
+    }
 }

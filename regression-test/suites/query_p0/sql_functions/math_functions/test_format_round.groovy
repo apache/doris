@@ -56,6 +56,13 @@ suite("test_format_round", "p0") {
     order_qt_format_round_10 """ select format_round(largeint_col, 6) from test_format_round order by user_id"""
     order_qt_format_round_12 """ select format_round(double_col, 6) from test_format_round order by user_id"""
     order_qt_format_round_13 """ select format_round(decimal_col, 6) from test_format_round order by user_id"""
+    order_qt_format_round_73 """
+        select format_round(cast(1.9 as decimal(9, 1)), 0),
+                format_round(cast(-1.9 as decimal(9, 1)), 0),
+                format_round(cast(1.4 as decimal(9, 1)), 0),
+                format_round(cast(-1.4 as decimal(9, 1)), 0);
+    """
+    order_qt_format_round_74 """ select format_round(decimal_col, 0) from test_format_round order by user_id"""
 
     test {
         sql """select format_round(1234567.8910, -1) """

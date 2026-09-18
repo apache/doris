@@ -21,8 +21,29 @@
 #include <gtest/gtest-test-part.h>
 
 #include "gtest/gtest_pred_impl.h"
+#include "io/cache/block_file_cache_profile.h"
 
 namespace doris {
+namespace {
+
+struct IndexRemoteMetricSnapshot {
+    int64_t inverted_index_remote = 0;
+    int64_t segment_footer_index_remote = 0;
+};
+
+IndexRemoteMetricSnapshot get_index_remote_metric_snapshot() {
+    // Update only file cache exported metrics. Triggering every server hook here
+    // can touch test-local objects registered by unrelated unit tests.
+    io::FileCacheMetrics::instance().update_metrics_callback();
+    return {
+            .inverted_index_remote =
+                    DorisMetrics::instance()->inverted_index_bytes_read_from_remote->value(),
+            .segment_footer_index_remote =
+                    DorisMetrics::instance()->segment_footer_index_bytes_read_from_remote->value(),
+    };
+}
+
+} // namespace
 
 class DorisMetricsTest : public testing::Test {
 public:
@@ -158,6 +179,18 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("31", metric->to_string().c_str());
     }
     {
+        DorisMetrics::instance()->tablet_size_based_max_compaction_score->set_value(41);
+        auto metric = server_entity->get_metric("tablet_size_based_max_compaction_score");
+        EXPECT_TRUE(metric != nullptr);
+        EXPECT_STREQ("41", metric->to_string().c_str());
+    }
+    {
+        DorisMetrics::instance()->tablet_time_series_max_compaction_score->set_value(42);
+        auto metric = server_entity->get_metric("tablet_time_series_max_compaction_score");
+        EXPECT_TRUE(metric != nullptr);
+        EXPECT_STREQ("42", metric->to_string().c_str());
+    }
+    {
         DorisMetrics::instance()->base_compaction_bytes_total->increment(32);
         auto metric =
                 server_entity->get_metric("base_compaction_bytes_total", "compaction_bytes_total");
@@ -189,6 +222,21 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("10", metric->to_string().c_str());
     }
+}
+
+TEST_F(DorisMetricsTest, FileCacheMetricsExportRemoteIndexBytes) {
+    const auto before = get_index_remote_metric_snapshot();
+
+    io::FileCacheStatistics stats;
+    stats.inverted_index_bytes_read_from_remote = 23;
+    stats.segment_footer_index_bytes_read_from_remote = 33;
+    io::FileCacheMetrics::instance().update(&stats);
+
+    const auto after = get_index_remote_metric_snapshot();
+    EXPECT_EQ(after.inverted_index_remote - before.inverted_index_remote,
+              stats.inverted_index_bytes_read_from_remote);
+    EXPECT_EQ(after.segment_footer_index_remote - before.segment_footer_index_remote,
+              stats.segment_footer_index_bytes_read_from_remote);
 }
 
 } // namespace doris

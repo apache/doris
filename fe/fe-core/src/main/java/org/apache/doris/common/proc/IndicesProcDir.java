@@ -65,7 +65,7 @@ public class IndicesProcDir implements ProcDirInterface {
         olapTable.readLock();
         try {
             result.setNames(TITLE_NAMES);
-            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                 List<Comparable> indexInfo = new ArrayList<Comparable>();
                 indexInfo.add(materializedIndex.getId());
                 indexInfo.add(olapTable.getIndexNameById(materializedIndex.getId()));

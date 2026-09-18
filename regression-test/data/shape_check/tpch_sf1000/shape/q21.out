@@ -8,10 +8,10 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[RIGHT_SEMI_JOIN colocated] hashCondition=((l2.l_orderkey = l1.l_orderkey)) otherCondition=(( not (l_suppkey = l_suppkey))) build RFs:RF4 l_orderkey->l_orderkey
+----------------hashJoin[RIGHT_SEMI_JOIN colocated] hashCondition=((l2.l_orderkey = l1.l_orderkey)) otherCondition=(( not (l2.l_suppkey = l1.l_suppkey))) build RFs:RF4 l_orderkey->l_orderkey
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[lineitem(l2)] apply RFs: RF4
-------------------hashJoin[RIGHT_ANTI_JOIN colocated] hashCondition=((l3.l_orderkey = l1.l_orderkey)) otherCondition=(( not (l_suppkey = l_suppkey))) build RFs:RF3 l_orderkey->l_orderkey
+------------------hashJoin[RIGHT_ANTI_JOIN colocated] hashCondition=((l3.l_orderkey = l1.l_orderkey)) otherCondition=(( not (l3.l_suppkey = l1.l_suppkey))) build RFs:RF3 l_orderkey->l_orderkey
 --------------------PhysicalProject
 ----------------------filter((l3.l_receiptdate > l3.l_commitdate))
 ------------------------PhysicalOlapScan[lineitem(l3)] apply RFs: RF3

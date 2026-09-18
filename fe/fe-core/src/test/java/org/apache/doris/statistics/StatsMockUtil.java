@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.statistics.repository.ResultRow;
+
 import java.util.ArrayList;
 import java.util.List;
 

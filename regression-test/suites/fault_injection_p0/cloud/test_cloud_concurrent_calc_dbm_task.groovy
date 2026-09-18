@@ -93,13 +93,6 @@ suite("test_cloud_concurrent_calc_dbm_task", "multi_cluster,docker") {
             sql """use @${cluster1.cluster}"""
             qt_base_cluster1 "select * from ${table1} order by k1;"
 
-            def newThreadInDocker = { Closure actionSupplier ->
-                def connInfo = context.threadLocalConn.get()
-                return Thread.start {
-                    connect(connInfo.username, connInfo.password, connInfo.conn.getMetaData().getURL(), actionSupplier)
-                }
-            }
-
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
             GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
 
@@ -108,7 +101,7 @@ suite("test_cloud_concurrent_calc_dbm_task", "multi_cluster,docker") {
 
 
             // partial update load 1 on cluster0
-            def t1 = newThreadInDocker {
+            def t1 = thread("partial-update-load-1-cluster0") {
                 sql """use @${cluster0.cluster}"""
                 sql "set enable_unique_key_partial_update=true;"
                 sql "insert into ${table1}(k1,c1) values(1,999);"
@@ -117,7 +110,7 @@ suite("test_cloud_concurrent_calc_dbm_task", "multi_cluster,docker") {
             Thread.sleep(1000)
 
             // partial update load 2 on cluster1
-            def t2 = newThreadInDocker {
+            def t2 = thread("partial-update-load-2-cluster1") {
                 sql """use @${cluster1.cluster}"""
                 sql "set enable_unique_key_partial_update=true;"
                 sql "insert into ${table1}(k1,c2) values(1,888);"
@@ -127,7 +120,7 @@ suite("test_cloud_concurrent_calc_dbm_task", "multi_cluster,docker") {
             // let partial update load 1 succeed and wait for it
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
             GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
-            t1.join()
+            t1.get()
 
             sql """use @${cluster0.cluster}"""
             qt_upadte1_cluster0 "select * from ${table1} order by k1;"
@@ -140,7 +133,7 @@ suite("test_cloud_concurrent_calc_dbm_task", "multi_cluster,docker") {
             GetDebugPoint().disableDebugPoint(backend1.Host, backend1.HttpPort as int, NodeType.BE, "BaseTablet::update_delete_bitmap.after.create_transient_rs_writer")
 
             // wait for partial update load 2 finish
-            t2.join()
+            t2.get()
 
             sql """use @${cluster1.cluster}"""
             qt_upadte2_cluster1 "select * from ${table1} order by k1;"

@@ -146,6 +146,10 @@ public:
         return model_name_;
     }
 
+    // Some virtualized hosts do not expose cache topology. Always return a positive value so hot
+    // decode paths can use this threshold without repeating platform-specific guards.
+    static long get_l2_cache_size();
+
     static std::string debug_string();
 
     /// A utility class for temporarily disabling CPU features. Usage:

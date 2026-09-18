@@ -5,42 +5,42 @@ PhysicalResultSink
 
 -- !check_equal_no_agg_2_shape --
 PhysicalResultSink
---PhysicalProject[(a + random()) AS `a + random()`, (a + random()) AS `a + random()`]
+--PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ----PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_no_agg_3_shape --
 PhysicalResultSink
---PhysicalProject[(a + random()) AS `a + random()`, (a + random()) AS `a + random()`]
+--PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ----filter(((tbl_unique_function_with_one_row.a + random()) > 0.01))
 ------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_no_agg_4_shape --
 PhysicalResultSink
---PhysicalProject[(a + random()) AS `a + random()`, (a + random()) AS `a + random()`, sum(a + random()) over(), sum(a + random()) over()]
+--PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`, sum(a + random()) over(), sum(a + random()) over()]
 ----PhysicalWindow
-------PhysicalProject[(a + random()) AS `(a + random())`, (a + random()) AS `(a + random())`, tbl_unique_function_with_one_row.a]
+------PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `(a + random())`, (tbl_unique_function_with_one_row.a + random()) AS `(a + random())`, tbl_unique_function_with_one_row.a]
 --------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_no_agg_5_shape --
 PhysicalResultSink
---PhysicalProject[(a + random()) AS `a + random()`, (a + random()) AS `a + random()`]
+--PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ----filter((sum((a + random())) OVER() > 0.01) and (sum((a + random())) OVER(PARTITION BY (a + random())) > 0.01))
 ------PhysicalWindow
 --------PhysicalWindow
 ----------PhysicalQuickSort[LOCAL_SORT]
-------------PhysicalProject[(a + random()) AS `(a + random())`, (a + random()) AS `(a + random())`, (a + random()) AS `(a + random())`, tbl_unique_function_with_one_row.a]
+------------PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `(a + random())`, (tbl_unique_function_with_one_row.a + random()) AS `(a + random())`, (tbl_unique_function_with_one_row.a + random()) AS `(a + random())`, tbl_unique_function_with_one_row.a]
 --------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_no_agg_6_shape --
 PhysicalResultSink
---PhysicalProject[(a + random()) AS `a + random()`, (a + random()) AS `a + random()`, sum(a + random()) over (partition by a + random())]
+--PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`, sum(a + random()) over (partition by a + random())]
 ----filter((sum((a + random())) OVER() > 0.01) and (sum((a + random())) OVER(PARTITION BY (a + random())) > 0.01))
 ------PhysicalWindow
 --------PhysicalWindow
 ----------PhysicalQuickSort[LOCAL_SORT]
 ------------PhysicalWindow
 --------------PhysicalQuickSort[LOCAL_SORT]
-----------------PhysicalProject[(a + random()) AS `(a + random())`, (a + random()) AS `(a + random())`, (a + random()) AS `(a + random())`, (a + random()) AS `(a + random())`, (a + random()) AS `(a + random())`, tbl_unique_function_with_one_row.a]
+----------------PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `(a + random())`, (tbl_unique_function_with_one_row.a + random()) AS `(a + random())`, (tbl_unique_function_with_one_row.a + random()) AS `(a + random())`, (tbl_unique_function_with_one_row.a + random()) AS `(a + random())`, (tbl_unique_function_with_one_row.a + random()) AS `(a + random())`, tbl_unique_function_with_one_row.a]
 ------------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_one_row_to_agg_1_shape --
@@ -102,7 +102,7 @@ PhysicalResultSink
 ----PhysicalQuickSort[LOCAL_SORT]
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
-----------PhysicalProject[(a + random()) AS `a + random()`, (a + random()) AS `a + random()`]
+----------PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_agg_with_groupby_1_shape --
@@ -135,7 +135,7 @@ PhysicalResultSink
 
 -- !check_equal_agg_with_groupby_4_shape --
 PhysicalResultSink
---PhysicalProject[(a + random()) AS `a + random()`, (a + random()) AS `a + random()`, sum(a + random()), sum(a + random())]
+--PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`, sum(a + random()), sum(a + random())]
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalProject[tbl_unique_function_with_one_row.a]
@@ -143,7 +143,7 @@ PhysicalResultSink
 
 -- !check_equal_agg_with_groupby_5_shape --
 PhysicalResultSink
---PhysicalProject[(a + random()) AS `a + random()`, (a + random()) AS `a + random()`, sum(a + random()), sum(a + random())]
+--PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`, sum(a + random()), sum(a + random())]
 ----filter(((tbl_unique_function_with_one_row.a + random()) > 0.01))
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
@@ -155,7 +155,7 @@ PhysicalResultSink
 --PhysicalProject[a + random(), a + random(), abs(a + random()), sum(a + random()), sum(a + random())]
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject[(a + random()) AS `(a + random())`, (a + random()) AS `a + random()`, (a + random()) AS `a + random()`, abs((a + random())) AS `abs(a + random())`, sum(a + random()), sum(a + random())]
+--------PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `(a + random())`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`, abs((tbl_unique_function_with_one_row.a + random())) AS `abs(a + random())`, sum(a + random()), sum(a + random())]
 ----------filter(((tbl_unique_function_with_one_row.a + random()) > 0.01))
 ------------hashAgg[GLOBAL]
 --------------hashAgg[LOCAL]
@@ -168,7 +168,7 @@ PhysicalResultSink
 ----PhysicalWindow
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
-----------PhysicalProject[(a + random()) AS `a + random()`]
+----------PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_agg_with_groupby_8_shape --
@@ -178,7 +178,7 @@ PhysicalResultSink
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------filter((a + random() > 0.01))
-------------PhysicalProject[(a + random()) AS `a + random()`]
+------------PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 --------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_agg_with_groupby_9_shape --
@@ -190,7 +190,7 @@ PhysicalResultSink
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------filter((a + random() > 0.01))
-----------------PhysicalProject[(a + random()) AS `a + random()`]
+----------------PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ------------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_agg_with_groupby_10_shape --
@@ -198,7 +198,7 @@ PhysicalResultSink
 --PhysicalProject[a + random(), a + random() AS `a + random()`, sum(a + random()) AS `sum(a + random())`, sum(a + random()) AS `sum(a + random())`]
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------PhysicalProject[(a + random()) AS `a + random()`]
+--------PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ----------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_agg_with_groupby_11_shape --
@@ -207,7 +207,7 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------filter((a + random() > 0.01))
-----------PhysicalProject[(a + random()) AS `a + random()`]
+----------PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_agg_with_groupby_12_shape --
@@ -218,7 +218,7 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
 ------------filter((a + random() > 0.01))
---------------PhysicalProject[(a + random()) AS `a + random()`]
+--------------PhysicalProject[(tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ----------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_agg_with_groupby_13_shape --
@@ -226,7 +226,7 @@ PhysicalResultSink
 --PhysicalProject[a + random(), a + random() + 0, sum(a + random() + 0) AS `sum(a + random() + 0)`, sum(a + random()) AS `sum(a + random())`]
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------PhysicalProject[((a + random()) + 0.0) AS `a + random() + 0`, (a + random()) AS `a + random()`]
+--------PhysicalProject[((tbl_unique_function_with_one_row.a + random()) + 0.0) AS `a + random() + 0`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ----------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_agg_with_groupby_14_shape --
@@ -237,7 +237,7 @@ PhysicalResultSink
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
 ------------filter((a + random() > 0.01))
---------------PhysicalProject[((a + random()) + 0.0) AS `a + random() + 0`, (a + random()) AS `a + random()`]
+--------------PhysicalProject[((tbl_unique_function_with_one_row.a + random()) + 0.0) AS `a + random() + 0`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ----------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_agg_with_groupby_15_shape --
@@ -249,7 +249,7 @@ PhysicalResultSink
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------filter((a + random() + 0 > 0.01))
-----------------PhysicalProject[((a + random()) + 0.0) AS `a + random() + 0`, (a + random()) AS `a + random()`]
+----------------PhysicalProject[((tbl_unique_function_with_one_row.a + random()) + 0.0) AS `a + random() + 0`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ------------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 
 -- !check_equal_repeat1_shape --
@@ -258,13 +258,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalProject[a + random(), a + random() + 0, a + random() + 0 AS `a + random() + 0`, a + random() AS `a + random()`]
-----------PhysicalProject[((a + random()) + 0.0) AS `a + random() + 0`, (a + random()) AS `a + random()`]
+----------PhysicalProject[((tbl_unique_function_with_one_row.a + random()) + 0.0) AS `a + random() + 0`, (tbl_unique_function_with_one_row.a + random()) AS `a + random()`]
 ------------PhysicalOlapScan[tbl_unique_function_with_one_row]
 --PhysicalResultSink
 ----PhysicalProject[a + random(), a + random() + 0, abs(a + random()), sum(a + random() + 0), sum(a + random())]
 ------PhysicalQuickSort[MERGE_SORT]
 --------PhysicalQuickSort[LOCAL_SORT]
-----------PhysicalProject[(a + random() + 1.0) AS `(a + random() + 1.0)`, a + random() + 0 AS `a + random() + 0`, a + random() AS `a + random()`, abs(a + random()) AS `abs(a + random())`, sum(a + random() + 0) AS `sum(a + random() + 0)`, sum(a + random()) AS `sum(a + random())`]
+----------PhysicalProject[(.a + random() + 1.0) AS `(a + random() + 1.0)`, .a + random() + 0 AS `a + random() + 0`, .a + random() AS `a + random()`, .sum(a + random() + 0) AS `sum(a + random() + 0)`, .sum(a + random()) AS `sum(a + random())`, abs(.a + random()) AS `abs(a + random())`]
 ------------filter((.a + random() + 0 > 0.01))
 --------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

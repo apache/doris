@@ -5,7 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_firstyear.customer_id = t_w_secyear.customer_id)) otherCondition=((if((year_total > 0.00), (cast(year_total as DECIMALV3(38, 8)) / year_total), 0.000000) > if((year_total > 0.00), (cast(year_total as DECIMALV3(38, 8)) / year_total), 0.000000))) build RFs:RF12 customer_id->c_customer_id;RF13 customer_id->c_customer_id;RF14 customer_id->c_customer_id
+----------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_firstyear.customer_id = t_w_secyear.customer_id)) otherCondition=((if((t_w_firstyear.year_total > 0.00), (cast(t_w_secyear.year_total as DECIMALV3(38, 8)) / t_w_firstyear.year_total), 0.000000) > if((t_s_firstyear.year_total > 0.00), (cast(t_s_secyear.year_total as DECIMALV3(38, 8)) / t_s_firstyear.year_total), 0.000000))) build RFs:RF12 customer_id->c_customer_id;RF13 customer_id->c_customer_id;RF14 customer_id->c_customer_id
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_firstyear.customer_id = t_w_firstyear.customer_id)) otherCondition=() build RFs:RF9 customer_id->c_customer_id;RF10 customer_id->c_customer_id
 ----------------hashJoin[INNER_JOIN colocated] hashCondition=((t_s_secyear.customer_id = t_s_firstyear.customer_id)) otherCondition=() build RFs:RF8 customer_id->c_customer_id;RF11 customer_id->c_customer_id;RF15 customer_id->c_customer_id

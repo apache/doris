@@ -36,6 +36,14 @@ public:
                                      format::ColumnDefinition* column) const override;
     Status validate_projected_columns(
             const format::ProjectedColumnBuildContext& context) const override;
+#ifdef BE_TEST
+    Status TEST_annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) {
+        return annotate_file_schema(file_schema);
+    }
+#endif
+
+protected:
+    Status annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) override;
 };
 
 } // namespace doris::format::hive

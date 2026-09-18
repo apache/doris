@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
@@ -75,10 +76,11 @@ Status BetaRowset::init() {
 namespace {
 Status load_segment_rows_from_footer(BetaRowsetSharedPtr rowset,
                                      std::vector<uint32_t>* segment_rows, bool enable_segment_cache,
-                                     OlapReaderStatistics* read_stats) {
+                                     OlapReaderStatistics* read_stats,
+                                     const io::IOContext* io_ctx) {
     SegmentCacheHandle segment_cache_handle;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-            rowset, &segment_cache_handle, enable_segment_cache, false, read_stats));
+            rowset, &segment_cache_handle, enable_segment_cache, false, read_stats, io_ctx));
     for (const auto& segment : segment_cache_handle.get_segments()) {
         segment_rows->emplace_back(segment->num_rows());
     }
@@ -106,14 +108,14 @@ Status check_segment_rows_consistency(const std::vector<uint32_t>& rows_from_met
 } // namespace
 
 Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
-                                        bool enable_segment_cache,
-                                        OlapReaderStatistics* read_stats) {
+                                        bool enable_segment_cache, OlapReaderStatistics* read_stats,
+                                        const io::IOContext* io_ctx) {
 #ifndef BE_TEST
     // `ROWSET_UNLOADING` is state for closed() called but owned by some readers.
     // So here `ROWSET_UNLOADING` is allowed.
     DCHECK_NE(_rowset_state_machine.rowset_state(), ROWSET_UNLOADED);
 #endif
-    RETURN_IF_ERROR(_load_segment_rows_once.call([this, enable_segment_cache, read_stats] {
+    RETURN_IF_ERROR(_load_segment_rows_once.call([this, enable_segment_cache, read_stats, io_ctx] {
         auto segment_count = num_segments();
         if (segment_count == 0) {
             return Status::OK();
@@ -130,7 +132,7 @@ Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
                     std::vector<uint32_t> rows_from_footer;
                     auto self = std::dynamic_pointer_cast<BetaRowset>(shared_from_this());
                     auto load_status = load_segment_rows_from_footer(
-                            self, &rows_from_footer, enable_segment_cache, read_stats);
+                            self, &rows_from_footer, enable_segment_cache, read_stats, io_ctx);
                     if (load_status.ok()) {
                         return check_segment_rows_consistency(
                                 _segments_rows, rows_from_footer, _rowset_meta->tablet_id(),
@@ -162,7 +164,7 @@ Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
         TEST_SYNC_POINT("BetaRowset::get_segment_num_rows:load_from_segment_footer");
         auto self = std::dynamic_pointer_cast<BetaRowset>(shared_from_this());
         return load_segment_rows_from_footer(self, &_segments_rows, enable_segment_cache,
-                                             read_stats);
+                                             read_stats, io_ctx);
     }));
     segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
     return Status::OK();
@@ -177,8 +179,8 @@ Status BetaRowset::get_inverted_index_size(int64_t* index_size) {
 
     if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
         for (const auto& index : _schema->inverted_indexes()) {
-            for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-                auto seg_path = DORIS_TRY(segment_path(seg_id));
+            for (auto seg : segments()) {
+                auto seg_path = DORIS_TRY(seg.path());
                 int64_t file_size = 0;
 
                 std::string inverted_index_file_path =
@@ -190,8 +192,8 @@ Status BetaRowset::get_inverted_index_size(int64_t* index_size) {
             }
         }
     } else {
-        for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-            auto seg_path = DORIS_TRY(segment_path(seg_id));
+        for (auto seg : segments()) {
+            auto seg_path = DORIS_TRY(seg.path());
             int64_t file_size = 0;
 
             std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
@@ -204,8 +206,8 @@ Status BetaRowset::get_inverted_index_size(int64_t* index_size) {
 }
 
 void BetaRowset::clear_inverted_index_cache() {
-    for (int i = 0; i < num_segments(); ++i) {
-        auto seg_path = segment_path(i);
+    for (auto seg : segments()) {
+        auto seg_path = seg.path();
         if (!seg_path) {
             continue;
         }
@@ -232,8 +234,8 @@ Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
                                           _rowset_meta->resource_id());
     }
 
-    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        auto seg_path = DORIS_TRY(segment_path(seg_id));
+    for (auto seg : segments()) {
+        auto seg_path = DORIS_TRY(seg.path());
         int64_t file_size;
         RETURN_IF_ERROR(fs->file_size(seg_path, &file_size));
         segments_size->push_back(file_size);
@@ -242,44 +244,45 @@ Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
 }
 
 Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments) {
-    return load_segments(0, num_segments(), segments);
-}
-
-Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
-                                 std::vector<segment_v2::SegmentSharedPtr>* segments) {
-    int64_t seg_id = seg_id_begin;
-    while (seg_id < seg_id_end) {
+    for (auto seg : _rowset_meta->segments()) {
         std::shared_ptr<segment_v2::Segment> segment;
-        RETURN_IF_ERROR(load_segment(seg_id, nullptr, &segment));
+        RETURN_IF_ERROR(load_segment(seg.ref(), nullptr, &segment));
         segments->push_back(std::move(segment));
-        seg_id++;
     }
     return Status::OK();
 }
 
 Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
-                                segment_v2::SegmentSharedPtr* segment) {
+                                segment_v2::SegmentSharedPtr* segment,
+                                const io::IOContext* io_ctx) {
+    return load_segment(_rowset_meta->segment_ref(_rowset_meta->position_of(seg_id)), stats,
+                        segment, io_ctx);
+}
+
+Status BetaRowset::load_segment(RowsetSegmentRef seg, OlapReaderStatistics* stats,
+                                segment_v2::SegmentSharedPtr* segment,
+                                const io::IOContext* io_ctx) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
     }
 
-    DCHECK(seg_id >= 0);
-    auto seg_path = DORIS_TRY(segment_path(seg_id));
+    DCHECK(seg.id >= 0);
+    auto seg_path = DORIS_TRY(segment_path(seg.id));
     io::FileReaderOptions reader_options {
             .cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
                                                     : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true,
             .cache_base_path = "",
-            .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
+            .file_size = _rowset_meta->segment_file_size_by_pos(seg.pos),
             .tablet_id = _rowset_meta->tablet_id(),
             .storage_resource_id = _rowset_meta->resource_id(),
     };
 
     auto s = segment_v2::Segment::open(
-            fs, seg_path, _rowset_meta->tablet_id(), static_cast<uint32_t>(seg_id), rowset_id(),
+            fs, seg_path, _rowset_meta->tablet_id(), cast_set<uint32_t>(seg.id), rowset_id(),
             _schema, reader_options, segment,
-            _rowset_meta->inverted_index_file_info(static_cast<int>(seg_id)), stats);
+            _rowset_meta->inverted_index_file_info_by_pos(seg.pos), stats, io_ctx);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();
@@ -310,8 +313,8 @@ Status BetaRowset::remove() {
     bool success = true;
     Status st;
     const auto& fs = io::global_local_filesystem();
-    for (int i = 0; i < num_segments(); ++i) {
-        auto seg_path = local_segment_path(_tablet_path, rowset_id().to_string(), i);
+    for (auto seg : segments()) {
+        auto seg_path = local_segment_path(_tablet_path, rowset_id().to_string(), seg.id());
         LOG(INFO) << "deleting " << seg_path;
         st = fs->delete_file(seg_path);
         if (!st.ok()) {
@@ -335,7 +338,7 @@ Status BetaRowset::remove() {
                 }
             }
         } else {
-            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
+            if (_schema->has_inverted_or_ann_index()) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
                 st = fs->delete_file(inverted_index_file);
@@ -447,7 +450,7 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 }
             }
         } else {
-            if ((_schema->has_inverted_index() || _schema->has_ann_index()) &&
+            if ((_schema->has_inverted_or_ann_index()) &&
                 (without_index_uids == nullptr || without_index_uids->empty())) {
                 std::string inverted_index_file_src =
                         InvertedIndexDescriptor::get_index_file_path_v2(
@@ -514,7 +517,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                 }
             }
         } else {
-            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
+            if (_schema->has_inverted_or_ann_index()) {
                 std::string inverted_index_src_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(src_path));
@@ -572,7 +575,7 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
                 }
             }
         } else {
-            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
+            if (_schema->has_inverted_or_ann_index()) {
                 std::string remote_inverted_index_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(
@@ -603,8 +606,8 @@ Status BetaRowset::check_file_exist() {
                                      _rowset_meta->resource_id());
     }
 
-    for (int i = 0; i < num_segments(); ++i) {
-        auto seg_path = DORIS_TRY(segment_path(i));
+    for (auto seg : segments()) {
+        auto seg_path = DORIS_TRY(seg.path());
         bool seg_file_exist = false;
         RETURN_IF_ERROR(fs->exists(seg_path, &seg_file_exist));
         if (!seg_file_exist) {
@@ -623,8 +626,8 @@ Status BetaRowset::check_current_rowset_segment() {
                                      _rowset_meta->resource_id());
     }
 
-    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        auto seg_path = DORIS_TRY(segment_path(seg_id));
+    for (auto seg : segments()) {
+        auto seg_path = DORIS_TRY(seg.path());
 
         std::shared_ptr<segment_v2::Segment> segment;
         io::FileReaderOptions reader_options {
@@ -632,14 +635,14 @@ Status BetaRowset::check_current_rowset_segment() {
                                                         : io::FileCachePolicy::NO_CACHE,
                 .is_doris_table = true,
                 .cache_base_path {},
-                .file_size = _rowset_meta->segment_file_size(seg_id),
+                .file_size = seg.file_size(),
                 .tablet_id = _rowset_meta->tablet_id(),
                 .storage_resource_id = _rowset_meta->resource_id(),
         };
 
-        auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id,
-                                           rowset_id(), _schema, reader_options, &segment,
-                                           _rowset_meta->inverted_index_file_info(seg_id));
+        auto s = segment_v2::Segment::open(
+                fs, seg_path, _rowset_meta->tablet_id(), cast_set<uint32_t>(seg.id()), rowset_id(),
+                _schema, reader_options, &segment, seg.inverted_index_file_info());
         if (!s.ok()) {
             LOG(WARNING) << "segment can not be opened. file=" << seg_path;
             return s;
@@ -728,7 +731,7 @@ Status BetaRowset::add_to_binlog() {
                 linked_success_files.push_back(binlog_index_file);
             }
         } else {
-            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
+            if (_schema->has_inverted_or_ann_index()) {
                 auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_file));
                 auto binlog_index_file = (std::filesystem::path(binlog_dir) /
@@ -760,8 +763,8 @@ Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
 
     // 1. pick up all the files including dat file and idx file
     std::vector<io::Path> file_paths;
-    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        auto seg_path = DORIS_TRY(segment_path(seg_id));
+    for (auto seg : segments()) {
+        auto seg_path = DORIS_TRY(seg.path());
         file_paths.emplace_back(seg_path);
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
             for (const auto& column : _schema->columns()) {
@@ -775,7 +778,7 @@ Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
                 }
             }
         } else {
-            if (_schema->has_inverted_index() || _schema->has_ann_index()) {
+            if (_schema->has_inverted_or_ann_index()) {
                 std::string inverted_index_file = InvertedIndexDescriptor::get_index_file_path_v2(
                         InvertedIndexDescriptor::get_index_file_path_prefix(seg_path));
                 file_paths.emplace_back(std::move(inverted_index_file));
@@ -829,6 +832,9 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
     case InvertedIndexStorageFormatPB::V3:
         format_str = "V3";
         break;
+    case InvertedIndexStorageFormatPB::SNII:
+        format_str = "SNII";
+        break;
     default:
         return Status::InternalError("inverted index storage format error");
         break;
@@ -838,33 +844,42 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
     rowset_value->AddMember("index_storage_format", rapidjson::Value(format_str.c_str(), allocator),
                             allocator);
     rapidjson::Value segments(rapidjson::kArrayType);
-    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
+    auto add_file_info_to_json = [&](const std::string& path,
+                                     rapidjson::Value& json_value) -> Status {
+        json_value.AddMember("idx_file_path", rapidjson::Value(path.c_str(), allocator), allocator);
+        int64_t idx_file_size = 0;
+        auto st = fs->file_size(path, &idx_file_size);
+        if (st != Status::OK()) {
+            LOG(WARNING) << "show nested index file get file size error, file: " << path
+                         << ", error: " << st.msg();
+            return st;
+        }
+        json_value.AddMember("idx_file_size", rapidjson::Value(idx_file_size).Move(), allocator);
+        return Status::OK();
+    };
+    for (auto seg : this->segments()) {
         rapidjson::Value segment(rapidjson::kObjectType);
-        segment.AddMember("segment_id", rapidjson::Value(seg_id).Move(), allocator);
+        segment.AddMember("segment_id", rapidjson::Value(seg.id()).Move(), allocator);
 
-        auto seg_path = DORIS_TRY(segment_path(seg_id));
+        auto seg_path = DORIS_TRY(seg.path());
         auto index_file_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
         auto index_file_reader = std::make_unique<IndexFileReader>(
                 fs, std::string(index_file_path_prefix), storage_format, InvertedIndexFileInfo(),
                 _rowset_meta->tablet_id());
         RETURN_IF_ERROR(index_file_reader->init());
+        if (storage_format == InvertedIndexStorageFormatPB::SNII) {
+            rapidjson::Value index_file(rapidjson::kObjectType);
+            auto index_file_path =
+                    InvertedIndexDescriptor::get_index_file_path_v2(index_file_path_prefix);
+            RETURN_IF_ERROR(add_file_info_to_json(index_file_path, index_file));
+            segment.AddMember("index_files", rapidjson::Value(rapidjson::kArrayType).Move(),
+                              allocator);
+            auto& index_files = segment["index_files"];
+            index_files.PushBack(index_file, allocator);
+            segments.PushBack(segment, allocator);
+            continue;
+        }
         auto dirs = index_file_reader->get_all_directories();
-
-        auto add_file_info_to_json = [&](const std::string& path,
-                                         rapidjson::Value& json_value) -> Status {
-            json_value.AddMember("idx_file_path", rapidjson::Value(path.c_str(), allocator),
-                                 allocator);
-            int64_t idx_file_size = 0;
-            auto st = fs->file_size(path, &idx_file_size);
-            if (st != Status::OK()) {
-                LOG(WARNING) << "show nested index file get file size error, file: " << path
-                             << ", error: " << st.msg();
-                return st;
-            }
-            json_value.AddMember("idx_file_size", rapidjson::Value(idx_file_size).Move(),
-                                 allocator);
-            return Status::OK();
-        };
 
         auto process_files = [&allocator, &index_file_reader](auto& index_meta,
                                                               rapidjson::Value& indices,

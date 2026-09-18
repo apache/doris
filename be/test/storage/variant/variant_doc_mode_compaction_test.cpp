@@ -38,7 +38,7 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
 #include "io/fs/local_file_system.h"
@@ -250,9 +250,9 @@ protected:
         EXPECT_TRUE(res.has_value()) << res.error();
         auto rowset_writer = std::move(res).value();
 
-        Block block = tablet_schema->create_block();
+        Block block = tablet_schema->create_storage_block();
         auto columns = std::move(block).mutate_columns();
-        auto* variant_col = assert_cast<ColumnVariant*>(columns[1].get());
+        auto* variant_col = assert_cast<ColumnVariantV2*>(columns[1].get());
         auto raw_json_column = ColumnString::create();
         raw_json_column->reserve(kRowsPerSegment);
         for (uint32_t i = 0; i < kRowsPerSegment; ++i) {
@@ -263,8 +263,7 @@ protected:
             raw_json_column->insert_data(json.data(), json.size());
         }
 
-        variant_col->create_root(make_nullable(std::make_shared<DataTypeString>()),
-                                 std::move(raw_json_column));
+        VariantUtil::insert_json_rows(*variant_col, *raw_json_column);
 
         auto import_start = std::chrono::steady_clock::now();
         auto s = rowset_writer->add_block(&block);
@@ -427,18 +426,20 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
             input_reader_context.tablet_schema = tablet_schema;
             input_reader_context.need_ordered_result = false;
             std::vector<uint32_t> input_return_columns = {1};
-            input_reader_context.return_columns = &input_return_columns;
+            auto input_read_schema = std::make_shared<ReadSchema>(
+                    project_columns_by_ordinal(tablet_schema->columns(), input_return_columns));
+            input_reader_context.read_schema = input_read_schema;
             RowsetReaderSharedPtr input_rs_reader;
             create_and_init_rowset_reader(rowset.get(), input_reader_context, &input_rs_reader);
 
-            Block input_block = tablet_schema->create_block_by_cids(input_return_columns);
+            Block input_block = input_read_schema->create_read_block();
             auto st = input_rs_reader->next_batch(&input_block);
             ASSERT_TRUE(st.ok()) << st.to_json();
             ASSERT_EQ(1, input_block.columns());
             ASSERT_GT(input_block.rows(), 0);
             const auto& var =
-                    assert_cast<const ColumnVariant&>(*input_block.get_by_position(0).column);
-            ASSERT_GT(var.serialized_doc_value_column_offsets()[0], 0);
+                    assert_cast<const ColumnVariantV2&>(*input_block.get_by_position(0).column);
+            ASSERT_GT(var.size(), 0);
         }
         ASSERT_TRUE(tablet->add_rowset(rowset).ok());
         input_rowsets.push_back(rowset);
@@ -474,14 +475,16 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
     std::vector<uint32_t> return_columns = {0};
-    reader_context.return_columns = &return_columns;
+    auto read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(tablet_schema->columns(), return_columns));
+    reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
     int64_t total_rows = 0;
     Status s = Status::OK();
     while (s.ok()) {
-        Block output_block = tablet_schema->create_block_by_cids(return_columns);
+        Block output_block = read_schema->create_read_block();
         s = output_rs_reader->next_batch(&output_block);
         if (s.ok()) {
             total_rows += output_block.rows();

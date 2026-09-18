@@ -42,6 +42,15 @@ TEST(ColumnConstTest, TestCreate) {
     EXPECT_TRUE(!is_column_const(column_const2->get_data_column()));
 }
 
+TEST(ColumnConstTest, IsExclusiveChecksNestedColumn) {
+    auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
+    auto column_const = ColumnConst::create(column_data, 3);
+
+    EXPECT_FALSE(column_const->is_exclusive());
+    column_data.reset();
+    EXPECT_TRUE(column_const->is_exclusive());
+}
+
 TEST(ColumnConstTest, ConstNullableIsSemanticallyNullable) {
     auto nullable_data = ColumnHelper::create_nullable_column<DataTypeInt64>({7}, {0});
     auto const_nullable = ColumnConst::create(nullable_data, 3);

@@ -34,13 +34,20 @@ class OssMetaBrpcServerStarter final : public ICloudServerStarter {
 public:
     OssMetaBrpcServerStarter(brpc::Server* server, int port) : _server(server), _port(port) {}
 
-    bool start() override {
+    bool validate_config() override {
         if (_server == nullptr) {
             LOG(ERROR) << "meta brpc server is null";
             return false;
         }
         if (config::enable_tls) {
             LOG(ERROR) << "Cloud TLS requires TLS module";
+            return false;
+        }
+        return true;
+    }
+
+    bool start() override {
+        if (!validate_config()) {
             return false;
         }
 

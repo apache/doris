@@ -127,14 +127,14 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = t.a) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(a IN (133333, 2) and b IN ('aa', 'dd'))
+----filter(t3.a IN (133333, 2) and t3.b IN ('aa', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_all_const_tinyint_int --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(a IN (2, 3) and b IN ('aa', 'dd'))
+----filter(t3.a IN (2, 3) and t3.b IN ('aa', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_all_const_empty_relation --
@@ -148,28 +148,28 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(38, 6)) = expr_cast(a as DECIMALV3(38, 6))) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(b IN ('aa', 'dd'))
+----filter(t3.b IN ('aa', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_all_const2_has_cast_to_null_different_type --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(38, 6)) = expr_cast(a as DECIMALV3(38, 6))) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(b IN ('12', 'dd'))
+----filter(t3.b IN ('12', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_all_different_type_int_cast_to_char --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(a as DECIMALV3(38, 6)) = expr_cast(a as DECIMALV3(38, 6))) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(b IN ('12', 'dd'))
+----filter(t3.b IN ('12', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_all_const_char3_char2 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.a = expr_cast(a as INT)) and (t3.b = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(a IN (2, 3, 5) and b IN ('aa', 'aab', 'dd'))
+----filter(t3.a IN (2, 3, 5) and t3.b IN ('aa', 'aab', 'dd'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_child_and_const_exprs --
@@ -178,11 +178,11 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
-----------filter(a IN (1, 2))
+----------filter(test_pull_up_predicate_set_op1.a IN (1, 2))
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
-----------filter(a IN (1, 2))
+----------filter(test_pull_up_predicate_set_op2.a IN (1, 2))
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op2]
-----filter(a IN (1, 2))
+----filter(t3.a IN (1, 2))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_child_and_const_exprs_andpredicates --
@@ -191,9 +191,9 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
-----------filter(a IN (1, 2) and b IN ('2d', '3'))
+----------filter(test_pull_up_predicate_set_op1.a IN (1, 2) and test_pull_up_predicate_set_op1.b IN ('2d', '3'))
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
-----filter(a IN (1, 2))
+----filter(t3.a IN (1, 2))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
 -- !union_child_and_const_exprs_orpredicates --
@@ -202,7 +202,7 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
-----------filter(OR[a IN (1, 2),b IN ('2d', '3')])
+----------filter(OR[test_pull_up_predicate_set_op1.a IN (1, 2),test_pull_up_predicate_set_op1.b IN ('2d', '3')])
 ------------PhysicalOlapScan[test_pull_up_predicate_set_op1]
 ----PhysicalOlapScan[test_pull_up_predicate_set_op3(t3)]
 
@@ -374,28 +374,28 @@ PhysicalResultSink
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datetimev2 as DATETIMEV2(6)) = expr_cast(b as DATETIMEV2(6))) and (expr_cast(d_smallint as INT) = t.a)) otherCondition=()
 ----PhysicalUnion
-----filter(cast(d_smallint as INT) IN (12222222, 2))
+----filter(cast(t3.d_smallint as INT) IN (12222222, 2))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op4(t3)]
 
 -- !union_all_const_date --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_datev2 as DATETIMEV2(6)) = expr_cast(b as DATETIMEV2(6))) and (expr_cast(d_smallint as INT) = t.a)) otherCondition=()
 ----PhysicalUnion
-----filter(cast(d_smallint as INT) IN (12222222, 2))
+----filter(cast(t3.d_smallint as INT) IN (12222222, 2))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op4(t3)]
 
 -- !union_all_const_char100 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as INT) = t.a) and (t3.d_char100 = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(cast(d_smallint as INT) IN (12222222, 2) and d_char100 IN ('2024-01-03 10:00:00', '2024-01-03'))
+----filter(cast(t3.d_smallint as INT) IN (12222222, 2) and t3.d_char100 IN ('2024-01-03 10:00:00', '2024-01-03'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op4(t3)]
 
 -- !union_all_const_char10 --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t3.d_char10 = t.b)) otherCondition=()
 ----PhysicalUnion
-----filter(d_char10 IN ('2024-01-03 10:00:00', '2024-01-04'))
+----filter(t3.d_char10 IN ('2024-01-03 10:00:00', '2024-01-04'))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op4(t3)]
 
 -- !union_all_and_project_pull_up --
@@ -413,7 +413,7 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalUnion
-----filter(a IN (1, 2))
+----filter(t2.a IN (1, 2))
 ------PhysicalOlapScan[test_pull_up_predicate_set_op3(t2)]
 
 -- !intersect_res --

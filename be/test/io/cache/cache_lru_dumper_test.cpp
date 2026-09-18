@@ -160,6 +160,48 @@ TEST_F(CacheLRUDumperTest, test_dump_and_restore_queue) {
     }
 }
 
+TEST_F(CacheLRUDumperTest, test_parse_multiple_groups_without_mutating_repeated_fields) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer defer {[old_tail_record_num] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+    }};
+    config::file_cache_background_lru_dump_tail_record_num = 10001;
+
+    LRUQueue src_queue;
+    std::string queue_name = "normal";
+    std::lock_guard<std::mutex> lock(_mutex);
+    UInt128Wrapper hash(987654321ULL);
+
+    for (size_t i = 0; i < 10001; ++i) {
+        src_queue.add(hash, i * 4096, 4096 + i, lock);
+    }
+
+    dumper->do_dump_queue(src_queue, queue_name);
+
+    std::string filename = fmt::format("{}lru_dump_{}.tail", test_dir, queue_name);
+    std::ifstream in(filename, std::ios::binary);
+    ASSERT_TRUE(in);
+
+    size_t entry_num = 0;
+    ASSERT_TRUE(dumper->parse_dump_footer(in, filename, entry_num).ok());
+    ASSERT_EQ(entry_num, 10001);
+    ASSERT_EQ(dumper->_parse_meta.group_offset_size_size(), 2);
+
+    UInt128Wrapper parsed_hash;
+    size_t offset = 0;
+    size_t size = 0;
+    for (size_t i = 0; i < entry_num; ++i) {
+        ASSERT_TRUE(dumper->parse_one_lru_entry(in, filename, parsed_hash, offset, size).ok());
+        EXPECT_EQ(parsed_hash, hash);
+        EXPECT_EQ(offset, i * 4096);
+        EXPECT_EQ(size, 4096 + i);
+    }
+
+    EXPECT_EQ(dumper->_parse_meta.group_offset_size_size(), 2);
+    EXPECT_EQ(dumper->_parse_group_index, 2);
+    EXPECT_EQ(dumper->_parse_entry_index, 1);
+}
+
 TEST_F(CacheLRUDumperTest, test_lru_log_record_disabled_keeps_existing_backlog) {
     const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
     const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
@@ -269,28 +311,29 @@ TEST_F(CacheLRUDumperTest, test_remove_event_trims_existing_oversized_shadow_que
     EXPECT_EQ(offsets, std::vector<size_t>({1, 2}));
 }
 
-TEST_F(CacheLRUDumperTest, test_update_shadow_queue_metric_does_not_trim_queue) {
+TEST_F(CacheLRUDumperTest, test_replay_publishes_shadow_queue_metric) {
     const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
-    Defer defer {[old_tail_record_num] {
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
         config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
     }};
 
-    config::file_cache_background_lru_dump_tail_record_num = 1;
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+    config::file_cache_background_lru_log_queue_max_size = 100;
 
-    UInt128Wrapper hash(778899ULL);
-    {
-        std::lock_guard lru_log_lock(recorder->_mutex_lru_log);
-        auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::INDEX);
-        for (size_t offset = 0; offset < 3; ++offset) {
-            shadow_queue.add(hash, offset, 4096, lru_log_lock);
-        }
+    UInt128Wrapper hash(556677ULL);
+    for (size_t offset = 0; offset < 5; ++offset) {
+        recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, offset,
+                                     4096);
     }
 
-    recorder->update_shadow_queue_element_count_metrics();
-
-    EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::INDEX).get_elements_num_unsafe(), 3);
+    // replay_queue_event() is the only thing that publishes this gauge, and it does so under the
+    // same lock that mutates the shadow queue. That is what lets run_background_monitor() stay
+    // off _mutex_lru_log.
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::NORMAL), 5);
     auto stats = mock_cache->get_stats_unsafe();
-    EXPECT_EQ(stats["lru_recorder_index_shadow_queue_curr_elements"], 3);
+    EXPECT_EQ(stats["lru_recorder_normal_shadow_queue_curr_elements"], 5);
 }
 
 TEST_F(CacheLRUDumperTest, test_remove_event_still_obeys_replay_queue_cap) {

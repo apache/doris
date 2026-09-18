@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "load/delta_writer/delta_writer_context.h"
 #include "load/memtable/memtable.h"
+#include "storage/binlog.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -38,7 +39,7 @@ class MemTableMemoryLimiter;
 class Block;
 class GroupRowsetWriter;
 class OlapTableSchemaParam;
-class AutoIncIDBuffer;
+struct RowsetWriterContext;
 class RowsetWriter;
 class SystemMetrics;
 class WorkloadGroup;
@@ -64,6 +65,13 @@ struct SharedMemtable {
     std::once_flag block_once;
     Status block_status;
     std::shared_ptr<Block> block;
+    // Owns the segment LSN map so cleanup in ~SharedMemtable stays valid even when
+    // the FlushToken's last reference drops inside PartOfGroupMemtableFlushTask::run()
+    // before the thread pool destroys the task (and with it this SharedMemtable).
+    // A null map means this group writes no per-row LSNs (see GroupRowsetWriter::init,
+    // which creates the map exactly when LSN allocation is needed).
+    std::shared_ptr<segment_v2::SegmentAllocatedLsnMap> allocated_lsn_map;
+    bool has_allocated_lsns = false;
 
     std::atomic<int> finished_sub_task_count {0};
     // data + binlog
@@ -114,13 +122,6 @@ public:
         _table_schema_param = std::move(table_schema_param);
     }
 
-#ifdef BE_TEST
-    void set_row_binlog_lsn_buffer_for_test(
-            std::shared_ptr<AutoIncIDBuffer> row_binlog_lsn_buffer) {
-        _row_binlog_lsn_buffer = std::move(row_binlog_lsn_buffer);
-    }
-#endif
-
     const MemTableStat& memtable_stat() { return _memtable_stat; }
 
 private:
@@ -160,7 +161,6 @@ private:
     std::shared_ptr<RowsetWriter> _rowset_writer = nullptr;
 
     std::shared_ptr<OlapTableSchemaParam> _table_schema_param = nullptr;
-    std::shared_ptr<AutoIncIDBuffer> _row_binlog_lsn_buffer = nullptr;
 
     MemTableStat _memtable_stat;
 

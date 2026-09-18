@@ -356,26 +356,66 @@ suite("test_filecache_compaction_and_read_stale_cloud_docker", "docker") {
             tablet_status = getTabletStatus(tablet)
             def final_rowsets = tablet_status["rowsets"]
 
-            // sleep for vacuum_stale_rowsets_interval_s=10 seconds to wait for unused rowsets are deleted
-            sleep(21000)
-
             def be_host = backendId_to_backendIP[tablet.BackendId]
             def be_http_port = backendId_to_backendHttpPort[tablet.BackendId]
-            for (int i = 0; i < all_history_stale_rowsets.size(); i++) {
-                def rowsetStr = all_history_stale_rowsets[i]
-                // [12-12] 1 DATA NONOVERLAPPING 02000000000000124843c92c13625daa8296c20957119893 1011.00 B
-                def start_version = rowsetStr.split(" ")[0].replace('[', '').replace(']', '').split("-")[0].toInteger()
-                def end_version = rowsetStr.split(" ")[0].replace('[', '').replace(']', '').split("-")[1].toInteger()
-                def rowset_id = rowsetStr.split(" ")[4]
-                if (start_version == 0 || start_version != end_version) {
-                    continue
+            def be_brpc_port = backendId_to_backendBrpcPort[tablet.BackendId]
+            def listHistoryStaleRowsetCache = {
+                def cachedRowsets = []
+                int i = 0
+                for (def rowsetStr : all_history_stale_rowsets) {
+                    // [12-12] 1 DATA NONOVERLAPPING 02000000000000124843c92c13625daa8296c20957119893 1011.00 B
+                    def start_version = rowsetStr.split(" ")[0].replace('[', '').replace(']', '').split("-")[0].toInteger()
+                    def end_version = rowsetStr.split(" ")[0].replace('[', '').replace(']', '').split("-")[1].toInteger()
+                    def rowset_id = rowsetStr.split(" ")[4]
+                    if (start_version != 0 && start_version == end_version) {
+                        def data = Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=list_cache&value=${rowset_id}_0.dat", true)
+                        if (data.size() > 0) {
+                            cachedRowsets.add([
+                                index: i,
+                                version: "${start_version}-${end_version}",
+                                rowset_id: rowset_id,
+                                cache_files: data
+                            ])
+                        }
+                    }
+                    i++
                 }
-
-                logger.info("rowset ${i}, start: ${start_version}, end: ${end_version}, id: ${rowset_id}")
-                def data = Http.GET("http://${be_host}:${be_http_port}/api/file_cache?op=list_cache&value=${rowset_id}_0.dat", true)
-                logger.info("file cache data: ${data}")
-                assertTrue(data.size() == 0)
+                return cachedRowsets
             }
+            def getBeVars = {
+                def (code, out, err) = curl("GET", "http://${be_host}:${be_brpc_port}/vars")
+                logger.info("get be vars: code=${code}, err=${err}")
+                if (code != 0) {
+                    return "failed to get /vars, code=${code}, err=${err}"
+                }
+                return out.readLines().findAll {
+                    it.contains("file_cache") || it.contains("unused_rowsets")
+                }.join("\n")
+            }
+            def getUnusedRowsetsCount = {
+                def (code, out, err) = curl("GET", "http://${be_host}:${be_brpc_port}/vars/unused_rowsets_count")
+                logger.info("unused_rowsets_count: code=${code}, out=${out}, err=${err}")
+                if (code != 0) {
+                    return -1
+                }
+                return out.trim().split(":")[1].trim().toInteger()
+            }
+
+            def staleRowsetCache = []
+            for (int i = 0; i < 100; i++) {
+                staleRowsetCache = listHistoryStaleRowsetCache()
+                if (staleRowsetCache.isEmpty()) {
+                    break
+                }
+                logger.info("stale rowset file cache is not recycled yet, try=${i}, cached=${staleRowsetCache}")
+                sleep(500)
+            }
+            if (!staleRowsetCache.isEmpty()) {
+                logger.info("final stale rowset file cache remains: ${staleRowsetCache}")
+                logger.info("final unused_rowsets_count: ${getUnusedRowsetsCount()}")
+                logger.info("final file cache vars:\n${getBeVars()}")
+            }
+            assertTrue(staleRowsetCache.isEmpty(), "stale rowset file cache is not recycled: ${staleRowsetCache}")
 
             for (int i = 0; i < final_rowsets.size(); i++) {
                 def rowsetStr = final_rowsets[i]
@@ -392,10 +432,7 @@ suite("test_filecache_compaction_and_read_stale_cloud_docker", "docker") {
                 assertTrue(data.size() > 0)
             }
 
-            def (code_0, out_0, err_0) = curl("GET", "http://${be_host}:${backendId_to_backendBrpcPort[tablet.BackendId]}/vars/unused_rowsets_count")
-            logger.info("out_0: ${out_0}")
-            def unusedRowsetsCount = out_0.trim().split(":")[1].trim().toInteger()
-            assertEquals(0, unusedRowsetsCount)
+            assertEquals(0, getUnusedRowsetsCount())
 
         } finally {
             GetDebugPoint().clearDebugPointsForAllBEs()

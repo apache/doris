@@ -8,6 +8,6 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------filter(( not (AdvEngineID = 0)))
+----------------filter(( not (hits.AdvEngineID = 0)))
 ------------------PhysicalOlapScan[hits]
 

@@ -23,6 +23,7 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Status_types.h>
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -50,6 +51,7 @@
 #include "core/string_ref.h"
 #include "exec/common/stringop_substring.h"
 #include "exec/rowid_fetcher.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exec/scan/scan_node.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
@@ -62,34 +64,31 @@
 #include "format/count_reader.h"
 #include "format/csv/csv_reader.h"
 #include "format/json/new_json_reader.h"
-#include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/es/es_http_reader.h"
 #include "format/table/hive_reader.h"
 #include "format/table/hudi_jni_reader.h"
 #include "format/table/hudi_reader.h"
+#include "format/table/iceberg_position_delete_sys_table_reader.h"
 #include "format/table/iceberg_reader.h"
+#include "format/table/iceberg_scan_semantics.h"
 #include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/jdbc_jni_reader.h"
 #include "format/table/max_compute_jni_reader.h"
-#include "format/table/paimon_cpp_reader.h"
 #include "format/table/paimon_jni_reader.h"
-#include "format/table/paimon_predicate_converter.h"
 #include "format/table/paimon_reader.h"
 #include "format/table/partition_column_filler.h"
 #include "format/table/remote_doris_reader.h"
 #include "format/table/transactional_hive_reader.h"
 #include "format/table/trino_connector_jni_reader.h"
 #include "format/text/text_reader.h"
-#ifdef BUILD_RUST_READERS
-#include "format/lance/lance_rust_reader.h"
-#endif
 #include "io/cache/block_file_cache_profile.h"
 #include "load/group_commit/wal/wal_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "service/backend_options.h"
 
 namespace cctz {
 class time_zone;
@@ -355,6 +354,11 @@ void FileScanner::_init_runtime_filter_partition_prune_ctxs() {
         auto impl = conjunct->root()->get_impl();
         // If impl is not null, which means this a conjuncts from runtime filter.
         auto expr = impl ? impl : conjunct->root();
+        // Preserve a safe prefix of the row-level conjunct order. Considering later predicates
+        // after an unsafe one could prune the split before the unsafe predicate is evaluated.
+        if (!expr->is_safe_to_execute_on_selected_rows()) {
+            break;
+        }
         if (_check_partition_prune_expr(expr)) {
             _runtime_filter_partition_prune_ctxs.emplace_back(conjunct);
         }
@@ -542,9 +546,11 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
             _finalize_reader_condition_cache();
             // The file may not exist because the file list is got from meta cache,
             // And the file may already be removed from storage.
-            // Just ignore not found files.
+            // Only formats without Iceberg snapshot guarantees may ignore missing files.
             Status st = _get_next_reader();
-            if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
+            if (st.is<ErrorCode::NOT_FOUND>() &&
+                can_ignore_not_found_file(_current_range,
+                                          config::ignore_not_found_file_in_external_table)) {
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_not_found_file_counter, 1);
                 continue;
@@ -576,8 +582,16 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
 
             // Read next block.
             // Some of column in block may not be filled (column not exist in file)
-            RETURN_IF_ERROR(
-                    _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof));
+            Status st = _cur_reader->get_next_block(_src_block_ptr, &read_rows, &_cur_reader_eof);
+            // Lazy open may surface NOT_FOUND on the first read; skip as above.
+            if (st.is<ErrorCode::NOT_FOUND>() &&
+                can_ignore_not_found_file(_current_range,
+                                          config::ignore_not_found_file_in_external_table)) {
+                _cur_reader_eof = true;
+                COUNTER_UPDATE(_not_found_file_counter, 1);
+                continue;
+            }
+            RETURN_IF_ERROR(st);
         }
         // use read_rows instead of _src_block_ptr->rows(), because the first column of _src_block_ptr
         // may not be filled after calling `get_next_block()`, so _src_block_ptr->rows() may return wrong result.
@@ -1041,6 +1055,7 @@ Status FileScanner::_get_next_reader() {
         // create reader for specific format
         Status init_status = Status::OK();
         TFileFormatType::type format_type = _get_current_format_type();
+        const bool is_position_deletes_sys_table = is_iceberg_position_deletes_sys_table(range);
         // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
             if (range.table_format_params.table_format_type == "paimon" &&
@@ -1078,50 +1093,11 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                const auto& paimon_params = range.table_format_params.paimon_params;
-                bool use_paimon_cpp_reader = false;
-                if (paimon_params.__isset.reader_type) {
-                    switch (paimon_params.reader_type) {
-                    case TPaimonReaderType::PAIMON_CPP:
-                        use_paimon_cpp_reader = true;
-                        break;
-                    case TPaimonReaderType::PAIMON_JNI:
-                        break;
-                    case TPaimonReaderType::PAIMON_NATIVE:
-                        return Status::InternalError(
-                                "invalid PAIMON_NATIVE reader_type for paimon FORMAT_JNI split, "
-                                "possibly caused by FE/BE protocol mismatch");
-                    default:
-                        return Status::InternalError(
-                                "unknown paimon reader_type for paimon FORMAT_JNI split, possibly "
-                                "caused by FE/BE protocol mismatch");
-                    }
-                } else {
-                    // TODO: Remove this fallback after all FE versions set TPaimonReaderType.
-                    use_paimon_cpp_reader =
-                            _state->query_options().__isset.enable_paimon_cpp_reader &&
-                            _state->query_options().enable_paimon_cpp_reader;
-                }
-                if (use_paimon_cpp_reader) {
-                    auto cpp_reader = PaimonCppReader::create_unique(_file_slot_descs, _state,
-                                                                     _profile, range, _params);
-                    if (!_is_load && !_push_down_conjuncts.empty()) {
-                        PaimonPredicateConverter predicate_converter(_file_slot_descs, _state);
-                        auto predicate = predicate_converter.build(_push_down_conjuncts);
-                        if (predicate) {
-                            cpp_reader->set_predicate(std::move(predicate));
-                        }
-                    }
-                    init_status =
-                            static_cast<GenericReader*>(cpp_reader.get())->init_reader(&jni_ctx);
-                    _cur_reader = std::move(cpp_reader);
-                } else {
-                    auto paimon_reader = PaimonJniReader::create_unique(_file_slot_descs, _state,
-                                                                        _profile, range, _params);
-                    init_status =
-                            static_cast<GenericReader*>(paimon_reader.get())->init_reader(&jni_ctx);
-                    _cur_reader = std::move(paimon_reader);
-                }
+                auto paimon_reader = PaimonJniReader::create_unique(_file_slot_descs, _state,
+                                                                    _profile, range, _params);
+                init_status =
+                        static_cast<GenericReader*>(paimon_reader.get())->init_reader(&jni_ctx);
+                _cur_reader = std::move(paimon_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "hudi") {
                 auto hudi_reader = HudiJniReader::create_unique(
@@ -1166,6 +1142,17 @@ Status FileScanner::_get_next_reader() {
             auto file_meta_cache_ptr = _should_enable_file_meta_cache()
                                                ? ExecEnv::GetInstance()->file_meta_cache()
                                                : nullptr;
+            if (is_position_deletes_sys_table) {
+                ReaderInitContext ctx;
+                _fill_base_init_context(&ctx);
+                auto reader = IcebergPositionDeleteSysTableReader::create_unique(
+                        _file_slot_descs, _state, _profile, range, _params, _io_ctx,
+                        file_meta_cache_ptr);
+                init_status = static_cast<GenericReader*>(reader.get())->init_reader(&ctx);
+                _cur_reader = std::move(reader);
+                need_to_get_parsed_schema = false;
+                break;
+            }
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -1178,6 +1165,17 @@ Status FileScanner::_get_next_reader() {
             auto file_meta_cache_ptr = _should_enable_file_meta_cache()
                                                ? ExecEnv::GetInstance()->file_meta_cache()
                                                : nullptr;
+            if (is_position_deletes_sys_table) {
+                ReaderInitContext ctx;
+                _fill_base_init_context(&ctx);
+                auto reader = IcebergPositionDeleteSysTableReader::create_unique(
+                        _file_slot_descs, _state, _profile, range, _params, _io_ctx,
+                        file_meta_cache_ptr);
+                init_status = static_cast<GenericReader*>(reader.get())->init_reader(&ctx);
+                _cur_reader = std::move(reader);
+                need_to_get_parsed_schema = false;
+                break;
+            }
             if (push_down_predicates) {
                 RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
@@ -1236,15 +1234,6 @@ Status FileScanner::_get_next_reader() {
             init_status = _cur_reader->init_reader(&wal_ctx);
             break;
         }
-        case TFileFormatType::FORMAT_NATIVE: {
-            auto reader = NativeReader::create_unique(_profile, *_params, range, _io_ctx, _state);
-            ReaderInitContext native_ctx;
-            _fill_base_init_context(&native_ctx);
-            init_status = static_cast<GenericReader*>(reader.get())->init_reader(&native_ctx);
-            _cur_reader = std::move(reader);
-            need_to_get_parsed_schema = false;
-            break;
-        }
         case TFileFormatType::FORMAT_ARROW: {
             ReaderInitContext arrow_ctx;
             _fill_base_init_context(&arrow_ctx);
@@ -1269,16 +1258,6 @@ Status FileScanner::_get_next_reader() {
             }
             break;
         }
-#ifdef BUILD_RUST_READERS
-        case TFileFormatType::FORMAT_LANCE: {
-            auto lance_reader = LanceRustReader::create_unique(_file_slot_descs, _state, _profile,
-                                                               range, _params);
-            init_status = lance_reader->init_reader();
-            _cur_reader = std::move(lance_reader);
-            need_to_get_parsed_schema = true;
-            break;
-        }
-#endif
         case TFileFormatType::FORMAT_ES_HTTP: {
             _cur_reader = EsHttpReader::create_unique(_file_slot_descs, _state, _profile, range,
                                                       *_params, _real_tuple_desc);
@@ -1300,13 +1279,13 @@ Status FileScanner::_get_next_reader() {
         COUNTER_UPDATE(_file_counter, 1);
         // The FileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
-        // So, NOT_FOUND for FileScanner is not a fail case.
-        // Will remove this after file reader refactor.
+        // Iceberg snapshot files must still fail the query if they are missing.
         if (init_status.is<END_OF_FILE>()) {
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (init_status.is<ErrorCode::NOT_FOUND>()) {
-            if (config::ignore_not_found_file_in_external_table) {
+            if (can_ignore_not_found_file(_current_range,
+                                          config::ignore_not_found_file_in_external_table)) {
                 COUNTER_UPDATE(_not_found_file_counter, 1);
                 continue;
             }
@@ -1855,7 +1834,6 @@ Status FileScanner::_init_expr_ctxes() {
 
     if (_is_load) {
         // follow desc expr map is only for load task.
-        bool has_slot_id_map = _params->__isset.dest_sid_to_src_sid_without_trans;
         int idx = 0;
         for (auto* slot_desc : _output_tuple_desc->slots()) {
             auto it = _params->expr_of_dest_slot.find(slot_desc->id());
@@ -1873,20 +1851,17 @@ Status FileScanner::_init_expr_ctxes() {
             _dest_vexpr_ctx.emplace_back(ctx);
             _dest_slot_name_to_idx[slot_desc->col_name()] = idx++;
 
-            if (has_slot_id_map) {
-                auto it1 = _params->dest_sid_to_src_sid_without_trans.find(slot_desc->id());
-                if (it1 == std::end(_params->dest_sid_to_src_sid_without_trans)) {
-                    _src_slot_descs_order_by_dest.emplace_back(nullptr);
-                } else {
-                    auto _src_slot_it = full_src_slot_map.find(it1->second);
-                    if (_src_slot_it == std::end(full_src_slot_map)) {
-                        return Status::InternalError("No src slot {} in src slot descs",
-                                                     it1->second);
-                    }
-                    _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
-                                                         full_src_index_map[_src_slot_it->first]);
-                    _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
+            auto it1 = _params->dest_sid_to_src_sid_without_trans.find(slot_desc->id());
+            if (it1 == std::end(_params->dest_sid_to_src_sid_without_trans)) {
+                _src_slot_descs_order_by_dest.emplace_back(nullptr);
+            } else {
+                auto _src_slot_it = full_src_slot_map.find(it1->second);
+                if (_src_slot_it == std::end(full_src_slot_map)) {
+                    return Status::InternalError("No src slot {} in src slot descs", it1->second);
                 }
+                _dest_slot_to_src_slot_index.emplace(_src_slot_descs_order_by_dest.size(),
+                                                     full_src_index_map[_src_slot_it->first]);
+                _src_slot_descs_order_by_dest.emplace_back(_src_slot_it->second);
             }
         }
     }
@@ -1912,25 +1887,7 @@ bool FileScanner::_should_enable_condition_cache() {
         return false;
     }
 
-    // Runtime filters are query-local dynamic predicates. Some ready RF implementations can hash
-    // their payload into get_digest(), but FileScanner cannot rely on that for all RFs reaching the
-    // native reader. In particular, ScanLocalState computes _condition_cache_digest during open(),
-    // while FileScanner may append late-arrival RFs in _process_late_arrival_conjuncts()
-    // immediately before initializing Parquet/ORC readers.
-    //
-    // Reading a weaker cache entry would be safe by itself: if a cached bitmap only represented
-    // static predicate P, false granules for P are also false for P AND RF. The unsafe part is
-    // writing. On cache miss, native readers mark survivor granules using all pushed-down
-    // predicates, including late RFs. Without a read-only cache mode, this would insert a bitmap for
-    // P AND RF under a digest that only represents P.
-    //
-    // Example:
-    //   Q1 static predicate: k = 1, late RF payload: partition_key IN ('2024-02-01')
-    //   Q2 static predicate: k = 1, late RF payload: partition_key IN ('2024-03-01')
-    // If both scans share the same file/range/digest, reusing Q1's bitmap for Q2 can skip row
-    // ranges according to the wrong RF payload. Keep RF predicate pushdown enabled for reader-side
-    // filtering, but do not persist its result in condition cache.
-    return !_contains_runtime_filter(_conjuncts) && !_contains_runtime_filter(_push_down_conjuncts);
+    return true;
 }
 
 bool FileScanner::_should_enable_condition_cache_for_load() const {
@@ -1959,6 +1916,12 @@ bool FileScanner::_should_push_down_predicates_for_query(TFileFormatType::type f
 void FileScanner::_init_reader_condition_cache() {
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
+
+    // _process_late_arrival_conjuncts() runs before the Parquet/ORC reader is initialized. Rebuild
+    // the key here so a newly arrived cache-safe RF is represented by both its semantics and its
+    // payload. If any current conjunct cannot produce a reliable digest, this becomes zero and the
+    // existing safety gate below disables condition cache.
+    _condition_cache_digest = _current_condition_cache_digest();
 
     if (!_should_enable_condition_cache() || !_cur_reader) {
         return;

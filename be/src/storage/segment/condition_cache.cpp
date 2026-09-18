@@ -38,7 +38,8 @@ bool ConditionCache::lookup(const KeyType& key, ConditionCacheHandle* handle) {
 }
 
 template <typename KeyType>
-void ConditionCache::insert(const KeyType& key, std::shared_ptr<std::vector<bool>> result) {
+void ConditionCache::insert(const KeyType& key, std::shared_ptr<std::vector<bool>> result,
+                            int64_t base_granule) {
     auto encoded_key = key.encode();
     if (encoded_key.empty()) {
         return;
@@ -46,6 +47,7 @@ void ConditionCache::insert(const KeyType& key, std::shared_ptr<std::vector<bool
     std::unique_ptr<ConditionCache::CacheValue> cache_value_ptr =
             std::make_unique<ConditionCache::CacheValue>();
     cache_value_ptr->filter_result = result;
+    cache_value_ptr->base_granule = base_granule;
 
     ConditionCacheHandle(this, LRUCachePolicy::insert(encoded_key, (void*)cache_value_ptr.release(),
                                                       result->capacity(), result->capacity(),
@@ -58,8 +60,10 @@ template bool ConditionCache::lookup<ConditionCache::CacheKey>(const CacheKey& k
 template bool ConditionCache::lookup<ConditionCache::ExternalCacheKey>(
         const ExternalCacheKey& key, ConditionCacheHandle* handle);
 template void ConditionCache::insert<ConditionCache::CacheKey>(
-        const CacheKey& key, std::shared_ptr<std::vector<bool>> filter_result);
+        const CacheKey& key, std::shared_ptr<std::vector<bool>> filter_result,
+        int64_t base_granule);
 template void ConditionCache::insert<ConditionCache::ExternalCacheKey>(
-        const ExternalCacheKey& key, std::shared_ptr<std::vector<bool>> filter_result);
+        const ExternalCacheKey& key, std::shared_ptr<std::vector<bool>> filter_result,
+        int64_t base_granule);
 
 } // namespace doris::segment_v2

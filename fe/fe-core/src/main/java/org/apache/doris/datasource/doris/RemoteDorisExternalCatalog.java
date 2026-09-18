@@ -19,10 +19,11 @@ package org.apache.doris.datasource.doris;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.log.InitCatalogLog;
 import org.apache.doris.datasource.property.constants.RemoteDorisProperties;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -72,6 +73,12 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
             throw new DdlException("Cloud mode is not supported when "
                     + RemoteDorisProperties.USE_ARROW_FLIGHT + " is false");
         }
+    }
+
+    @Override
+    protected void checkMetaCacheWeightProperties(Map<String, String> properties) {
+        CacheSpec.checkWeightProperties(properties, DorisExternalMetaCache.ENGINE,
+                DorisExternalMetaCache.ENTRY_SCHEMA, DorisExternalMetaCache.ENTRY_BACKENDS);
     }
 
     public List<String> getFeNodes() {

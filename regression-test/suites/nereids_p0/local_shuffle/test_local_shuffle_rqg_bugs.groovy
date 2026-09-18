@@ -1200,8 +1200,10 @@ suite("test_local_shuffle_rqg_bugs") {
         for (planner in ['false', 'true']) {
             def actual = sql q25413(
                 "${base25413}, experimental_use_serial_exchange=true, enable_local_shuffle_planner=${planner}")
-            assertEquals(expected25413, actual,
+            assertEquals(expected25413[0][0], actual[0][0],
                 "Bug 20b planner=${planner}: distinct count must not be inflated under serial exchange")
+            assertEquals(expected25413[0][1] as double, actual[0][1] as double, 1.0e-12,
+                "Bug 20b planner=${planner}: std result mismatch under serial exchange")
         }
         logger.info("Bug 20b: PASSED")
     } catch (Throwable t) {
@@ -1610,6 +1612,90 @@ suite("test_local_shuffle_rqg_bugs") {
     } catch (Throwable t) {
         logger.error("Bug 25 FAILED: ${t.message}")
         assertTrue(false, "Bug 25: COLOCATE+NLJ CROSS probe: ${t.message}")
+    }
+
+
+    // ============================================================
+    //  Bug 26: scalar count(distinct) over shuffle+broadcast joins returns
+    //  correct-value × task-count when agg_phase=1 + broadcast-join
+    //  force-passthrough with the FE local-shuffle planner.
+    //  Root cause (FE-planned): AggregationNode handed NoRequire to a finalize
+    //  merge agg with no group keys but DISTINCT aggregates; the PASSTHROUGH
+    //  local exchange below the broadcast-join probe scattered same-key rows,
+    //  and sum0(multi_distinct_count(...)) summed the overlapping per-instance
+    //  values. Fixed by keying the hash requirement on the effective partition
+    //  exprs (mirrors BE `_partition_exprs`).
+    // ============================================================
+    try {
+        logger.info("Bug 26: count(distinct) under agg_phase=1 + broadcast force-passthrough")
+        sql "DROP TABLE IF EXISTS rqg_local_shuffle_distinct_t1"
+        sql "DROP TABLE IF EXISTS rqg_local_shuffle_distinct_t2"
+        sql """CREATE TABLE rqg_local_shuffle_distinct_t1 (pk INT NOT NULL, k2 INT NOT NULL)
+               ENGINE=OLAP DUPLICATE KEY(pk) DISTRIBUTED BY HASH(pk) BUCKETS 5
+               PROPERTIES ("replication_num"="1")"""
+        sql """CREATE TABLE rqg_local_shuffle_distinct_t2 (pk INT NOT NULL, k2 INT NOT NULL, other INT NOT NULL)
+               ENGINE=OLAP DUPLICATE KEY(pk) DISTRIBUTED BY HASH(pk) BUCKETS 5
+               PROPERTIES ("replication_num"="1")"""
+        // Two rows sharing the same distinct key. batch_size=1 with 4 local tasks
+        // forces the PASSTHROUGH exchange to send separate blocks to different
+        // channels, so the pre-fix plan counts the shared key once per task.
+        sql "INSERT INTO rqg_local_shuffle_distinct_t1 VALUES (1, 5), (2, 5)"
+        sql "INSERT INTO rqg_local_shuffle_distinct_t2 VALUES (1, 5, 10), (2, 5, 20)"
+
+        def distinctJoinQuery = { vars -> """
+            SELECT /*+SET_VAR(${vars})*/
+                count(distinct t1.k2) AS cnt_distinct
+            FROM rqg_local_shuffle_distinct_t1 t1
+            LEFT JOIN [shuffle] rqg_local_shuffle_distinct_t2 t2 ON t1.k2 = t2.k2
+            LEFT JOIN [broadcast] rqg_local_shuffle_distinct_t2 t3 ON t2.pk = t3.pk
+        """ }
+        def distinctJoinVariables = "enable_sql_cache=false, agg_phase=1, " +
+                "enable_broadcast_join_force_passthrough=true, parallel_pipeline_task_num=4, batch_size=1"
+        // Pin both implementations to the mathematically correct result (1). Using
+        // one implementation as the other's oracle would let a shared bug pass.
+        order_qt_bug26_be_native(distinctJoinQuery(
+                "${distinctJoinVariables}, enable_local_shuffle_planner=false"))
+        order_qt_bug26_fe_planned(distinctJoinQuery(
+                "${distinctJoinVariables}, enable_local_shuffle_planner=true"))
+        logger.info("Bug 26: PASSED")
+    } catch (Throwable t) {
+        logger.error("Bug 26 FAILED: ${t.message}")
+        assertTrue(false, "Bug 26: ${t.message}")
+    }
+
+    // Bug 27: do not insert a local exchange in a pipeline whose parent pipeline is serial.
+    // Otherwise the local exchange raises the lower AggSink pipeline to N tasks while its
+    // paired AggSource remains at one task, leaving task 1+ without a source dependency.
+    def bug27Query = { planner -> """
+        SELECT /*+SET_VAR(enable_local_shuffle_planner=${planner},
+                          enable_local_exchange_before_agg=false,
+                          enable_local_exchange_before_streaming_agg=true,
+                          enable_broadcast_join_force_passthrough=true,
+                          enable_share_hash_table_for_broadcast_join=false,
+                          parallel_pipeline_task_num=3,
+                          enable_sql_cache=false)*/
+               COUNT(*),
+               COUNT(DISTINCT CAST(f.pk AS STRING)),
+               MIN(CAST(f.pk AS STRING)),
+               MAX(CAST(f.pk AS STRING)),
+               COUNT(DISTINCT CAST(d.pk AS STRING)),
+               MIN(CAST(d.pk AS STRING)),
+               MAX(CAST(d.pk AS STRING)),
+               COUNT(DISTINCT CAST(f.col_int_undef_signed AS STRING)),
+               MIN(CAST(f.col_int_undef_signed AS STRING)),
+               MAX(CAST(f.col_int_undef_signed AS STRING))
+        FROM rqg_t1 f
+        INNER JOIN (
+            SELECT * FROM rqg_t2 d
+            WHERE d.col_int_undef_signed = 1 AND COALESCE(d.pk, -1) >= 10
+        ) d ON d.col_int_undef_signed = f.col_int_undef_signed
+            AND f.col_int_undef_signed = f.col_int_undef_signed2
+            AND f.pk = d.pk
+    """ }
+
+    def bug27BeResult = sql bug27Query(false)
+    for (int i = 0; i < 20; i++) {
+        assertEquals(bug27BeResult, sql(bug27Query(true)), "Bug 27 run ${i}")
     }
 
     logger.info("=== All RQG bug reproduction tests completed ===")

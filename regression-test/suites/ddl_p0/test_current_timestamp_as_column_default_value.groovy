@@ -22,22 +22,22 @@ suite("test_current_timestamp_as_column_default_value") {
     test {
         sql """create table test_default10(a int, b varchar(100) default current_timestamp) 
         distributed by hash(a) properties('replication_num'="1");"""
-        exception "Types other than DATETIME and DATETIMEV2 cannot use current_timestamp as the default value"
+        exception "Types other than DATETIME, DATETIMEV2, TIMESTAMP_NS and TIMESTAMPTZ cannot use current_timestamp"
     }
 
     test{
         sql """alter table test_default4 add column dt varchar(100) default current_timestamp"""
-        exception "Types other than DATETIME and DATETIMEV2 cannot use current_timestamp as the default value"
+        exception "Types other than DATETIME, DATETIMEV2, TIMESTAMP_NS and TIMESTAMPTZ cannot use current_timestamp"
     }
 
     test {
         sql """create table test_default10(a int, b varchar(100) default current_timestamp) 
         distributed by hash(a) properties('replication_num'="1");"""
-        exception "Types other than DATETIME and DATETIMEV2 cannot use current_timestamp as the default value"
+        exception "Types other than DATETIME, DATETIMEV2, TIMESTAMP_NS and TIMESTAMPTZ cannot use current_timestamp"
     }
 
     test{
         sql "alter table test_default4 add column dt varchar(100) default current_timestamp"
-        exception "Types other than DATETIME and DATETIMEV2 cannot use current_timestamp as the default value"
+        exception "Types other than DATETIME, DATETIMEV2, TIMESTAMP_NS and TIMESTAMPTZ cannot use current_timestamp"
     }
 }

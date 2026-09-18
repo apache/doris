@@ -50,4 +50,31 @@ struct TQueryCacheParam {
   6: optional i64 entry_max_bytes
 
   7: optional i64 entry_max_rows
+
+  // Whether BE is allowed to serve a stale cache entry by incremental merge:
+  // when the cached version is behind the current version, BE may scan only the
+  // delta rowsets in (cached_version, current_version], produce the partial
+  // aggregation of the delta, emit it together with the cached partial blocks
+  // (the upstream merge aggregation combines both), and write the merged entry
+  // back with the new version.
+  //
+  // FE only sets this to true when all of the following hold, otherwise the
+  // "cached + delta" union would not equal the new snapshot or could not be
+  // merged safely:
+  //  - the scanned index is append-only: DUP_KEYS, or merge-on-write
+  //    UNIQUE_KEYS (BE verifies per tablet, through the delete bitmap of the
+  //    delta window, that no pre-existing key was rewritten); merge-on-read
+  //    UNIQUE resolves duplicates while reading and AGG tables merge rows in
+  //    the storage layer, so those always fall back
+  //  - the cache point aggregation does not finalize (its output is a partial
+  //    state that is always merged again by an upstream aggregation, so the
+  //    cached blocks and the delta blocks can be emitted side by side)
+  //  - the cache point aggregates the raw detail rows directly (its child is
+  //    the olap scan node); with a nested aggregation the inner finalized agg
+  //    would see only the delta rows, whose output is not a mergeable
+  //    complement of the cached snapshot
+  // BE additionally falls back to a full recompute when the delta version path
+  // cannot be captured (e.g. merged away by compaction), when the delta
+  // contains delete predicates, or when the delta rewrites history rows.
+  8: optional bool allow_incremental
 }

@@ -17,12 +17,13 @@
 
 package org.apache.doris.connector.es;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTestResult;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTestResult;
+import org.apache.doris.connector.spi.rest.ConnectorRestPassthrough;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,27 +35,27 @@ import java.util.Map;
  * Elasticsearch connector implementation.
  * Created once per catalog lifecycle.
  */
-public class EsConnector implements Connector {
+public class EsConnector implements Connector, ConnectorRestPassthrough {
 
     private static final Logger LOG = LogManager.getLogger(EsConnector.class);
 
-    private final Map<String, String> properties;
+    private final EsCatalogProperties props;
     private final ConnectorContext context;
     private volatile EsConnectorRestClient restClient;
 
     public EsConnector(Map<String, String> properties, ConnectorContext context) {
-        this.properties = EsConnectorProperties.processCompatible(properties);
+        this.props = EsCatalogProperties.of(properties);
         this.context = context;
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new EsConnectorMetadata(getOrCreateRestClient(), properties);
+        return new EsConnectorMetadata(getOrCreateRestClient(), props);
     }
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new EsScanPlanProvider(getOrCreateRestClient(), properties);
+        return new EsScanPlanProvider(getOrCreateRestClient(), props);
     }
 
     @Override
@@ -74,6 +75,15 @@ public class EsConnector implements Connector {
         // OkHttp clients are shared statics; nothing to close
     }
 
+    /**
+     * ES is the one connector fronting an HTTP source, so it serves the passthrough itself rather than through
+     * a separate object; {@code ESCatalogAction} composes the ES-shaped path.
+     */
+    @Override
+    public ConnectorRestPassthrough getRestPassthrough() {
+        return this;
+    }
+
     @Override
     public String executeRestRequest(String path, String body) {
         return getOrCreateRestClient().executePassthrough(path, body);
@@ -83,23 +93,9 @@ public class EsConnector implements Connector {
         if (restClient == null) {
             synchronized (this) {
                 if (restClient == null) {
-                    String hosts = properties.getOrDefault(
-                            EsConnectorProperties.HOSTS, "");
-                    String sslEnabled = properties.getOrDefault(
-                            EsConnectorProperties.HTTP_SSL_ENABLED,
-                            EsConnectorProperties.HTTP_SSL_ENABLED_DEFAULT);
-                    String[] hostUrls = hosts.trim().split(",");
-                    EsConnectorProperties.fillUrlsWithSchema(
-                            hostUrls, Boolean.parseBoolean(sslEnabled));
-
-                    String user = properties.getOrDefault(
-                            EsConnectorProperties.USER, "");
-                    String password = properties.getOrDefault(
-                            EsConnectorProperties.PASSWORD, "");
-                    boolean ssl = Boolean.parseBoolean(sslEnabled);
                     restClient = new EsConnectorRestClient(
-                            hostUrls, user, password, ssl,
-                            context.getHttpSecurityHook());
+                            props.getHostUrls(), props.getUser(), props.getPassword(),
+                            props.isHttpSslEnabled(), context.getHttpSecurityHook());
                 }
             }
         }

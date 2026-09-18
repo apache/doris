@@ -92,6 +92,12 @@ public class CreateIndexOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Adding secondary index is allowed for row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         if (alter) {
             return indexDef.toSql();

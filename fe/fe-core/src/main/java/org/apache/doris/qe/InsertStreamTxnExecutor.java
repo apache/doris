@@ -80,6 +80,7 @@ public class InsertStreamTxnExecutor {
             TPipelineFragmentParams tRequest = planner.plan(streamLoadTask.getId());
             tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
             tRequest.setIsMowTable(isMowTable);
+            tRequest.setEnableTso(table.enableTso());
             for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.local_params.get(0).per_node_scan_ranges
                     .entrySet()) {
                 for (TScanRangeParams scanRangeParams : entry.getValue()) {

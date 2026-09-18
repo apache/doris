@@ -18,20 +18,30 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <list>
 #include <memory>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
+#include "core/assert_cast.h"
+#include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exec/common/util.hpp"
+#include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format/orc/orc_memory_pool.h"
 #include "format/orc/vorc_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "orc/sargs/SearchArgument.hh"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
 namespace doris {
@@ -42,8 +52,51 @@ public:
 
     FileMetaCache cache;
 
-private:
+protected:
     static constexpr const char* CANNOT_PUSH_DOWN_ERROR = "can't push down";
+
+    VExprContextSPtr create_string_equal(RuntimeState* state, const RowDescriptor& row_desc,
+                                         VExprSPtr left, VExprSPtr right) {
+        TFunction fn;
+        TFunctionName fn_name;
+        fn_name.__set_db_name("");
+        fn_name.__set_function_name("eq");
+        fn.__set_name(fn_name);
+        fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        fn.__set_arg_types({create_type_desc(TYPE_STRING), create_type_desc(TYPE_STRING)});
+        fn.__set_ret_type(create_type_desc(TYPE_BOOLEAN));
+        fn.__set_has_var_args(false);
+
+        TExprNode expr_node;
+        expr_node.__set_type(create_type_desc(TYPE_BOOLEAN));
+        expr_node.__set_node_type(TExprNodeType::BINARY_PRED);
+        expr_node.__set_opcode(TExprOpcode::EQ);
+        expr_node.__set_fn(fn);
+        expr_node.__set_num_children(2);
+        expr_node.__set_is_nullable(true);
+        auto root = VectorizedFnCall::create_shared(expr_node);
+        root->add_child(std::move(left));
+        root->add_child(std::move(right));
+
+        auto context = VExprContext::create_shared(root);
+        auto status = context->prepare(state, row_desc);
+        EXPECT_TRUE(status.ok()) << status;
+        status = context->open(state);
+        EXPECT_TRUE(status.ok()) << status;
+        return context;
+    }
+
+    VExprSPtr create_string_literal(const std::string& value) {
+        TExprNode literal_node;
+        literal_node.__set_node_type(TExprNodeType::STRING_LITERAL);
+        literal_node.__set_type(create_type_desc(TYPE_STRING));
+        TStringLiteral literal;
+        literal.__set_value(value);
+        literal_node.__set_string_literal(literal);
+        literal_node.__set_is_nullable(false);
+        return VLiteral::create_shared(literal_node);
+    }
+
     std::string build_search_argument(const std::string& expr) {
         // build orc_reader for table orders
         std::vector<std::string> column_names = {
@@ -244,6 +297,144 @@ TEST_F(OrcReaderTest, set_batch_size_without_row_reader_is_safe) {
 
     EXPECT_EQ(reader->_batch_size, 128u);
     EXPECT_EQ(reader->_batch, nullptr);
+}
+
+TEST_F(OrcReaderTest, dict_filter_is_blocked_only_for_slots_in_multi_slot_conjuncts) {
+    ObjectPool object_pool;
+    DescriptorTblBuilder builder(&object_pool);
+    builder.declare_tuple()
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                               "o_orderstatus")
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                               "o_orderpriority")
+            << std::make_tuple(DataTypeFactory::instance().create_data_type(TYPE_STRING, false),
+                               "o_clerk");
+    DescriptorTbl* desc_tbl = builder.build();
+    auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
+    RowDescriptor row_desc(tuple_desc);
+
+    RuntimeState state;
+    state.set_desc_tbl(desc_tbl);
+    auto multi_slot_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[0]),
+                                VSlotRef::create_shared(tuple_desc->slots()[1]));
+    auto order_status_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[0]),
+                                create_string_literal("F"));
+    auto order_priority_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[1]),
+                                create_string_literal("5-LOW"));
+    auto clerk_conjunct =
+            create_string_equal(&state, row_desc, VSlotRef::create_shared(tuple_desc->slots()[2]),
+                                create_string_literal("Clerk#000000951"));
+
+    VExprContextSPtrs conjuncts = {multi_slot_conjunct, order_status_conjunct,
+                                   order_priority_conjunct, clerk_conjunct};
+    VExprContextSPtrs not_single_slot_filter_conjuncts = {multi_slot_conjunct};
+    std::unordered_map<int, VExprContextSPtrs> slot_id_to_filter_conjuncts = {
+            {tuple_desc->slots()[0]->id(), {order_status_conjunct}},
+            {tuple_desc->slots()[1]->id(), {order_priority_conjunct}},
+            {tuple_desc->slots()[2]->id(), {clerk_conjunct}}};
+
+    TFileScanRangeParams params;
+    params.__set_file_type(TFileType::FILE_LOCAL);
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    TFileRangeDesc range;
+    range.__set_path("./be/test/exec/test_data/orc_scanner/orders.orc");
+    range.__set_start_offset(0);
+    range.__set_size(1293);
+    RuntimeProfile profile("dict_filter_with_multi_slot_conjunct");
+    io::IOContext io_ctx;
+    auto reader = std::make_unique<OrcReader>(&profile, &state, params, range, 64, "UTC", &io_ctx,
+                                              &cache, true);
+    std::vector<std::string> column_names = {"o_orderstatus", "o_orderpriority", "o_clerk"};
+    std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
+            {"o_orderstatus", 0}, {"o_orderpriority", 1}, {"o_clerk", 2}};
+    OrcInitContext orc_ctx;
+    orc_ctx.column_names = column_names;
+    orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+    orc_ctx.tuple_descriptor = tuple_desc;
+    orc_ctx.row_descriptor = &row_desc;
+    orc_ctx.params = &params;
+    orc_ctx.range = &range;
+    orc_ctx.conjuncts = &conjuncts;
+    orc_ctx.not_single_slot_filter_conjuncts = &not_single_slot_filter_conjuncts;
+    orc_ctx.slot_id_to_filter_conjuncts = &slot_id_to_filter_conjuncts;
+
+    auto status = reader->init_reader(&orc_ctx);
+    ASSERT_TRUE(status.ok()) << status;
+
+    std::list<std::string> dict_filter_columns;
+    status = reader->fill_dict_filter_column_names(nullptr, dict_filter_columns);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(dict_filter_columns, std::list<std::string>({"o_clerk"}));
+}
+
+TEST_F(OrcReaderTest, deletion_vector_filters_rows_without_query_conjuncts) {
+    auto read_order_keys = [&](const roaring::Roaring64Map* deletion_vector,
+                               std::vector<int32_t>* order_keys) -> Status {
+        ObjectPool object_pool;
+        DescriptorTblBuilder builder(&object_pool);
+        builder.declare_tuple() << std::make_tuple(
+                DataTypeFactory::instance().create_data_type(TYPE_INT, false), "o_orderkey");
+        DescriptorTbl* desc_tbl = builder.build();
+        auto* tuple_desc = const_cast<TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
+        RowDescriptor row_desc(tuple_desc);
+
+        TFileScanRangeParams params;
+        params.__set_file_type(TFileType::FILE_LOCAL);
+        params.__set_format_type(TFileFormatType::FORMAT_ORC);
+        TFileRangeDesc range;
+        range.__set_path("./be/test/exec/test_data/orc_scanner/orders.orc");
+        range.__set_start_offset(0);
+        range.__set_size(1293);
+
+        RuntimeState state;
+        state.set_desc_tbl(desc_tbl);
+        RuntimeProfile profile("deletion_vector_without_conjuncts");
+        io::IOContext io_ctx;
+        auto reader = std::make_unique<OrcReader>(&profile, &state, params, range, 2, "UTC",
+                                                  &io_ctx, &cache, true);
+        std::vector<std::string> column_names = {"o_orderkey"};
+        std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {{"o_orderkey", 0}};
+        OrcInitContext orc_ctx;
+        orc_ctx.column_names = column_names;
+        orc_ctx.col_name_to_block_idx = &col_name_to_block_idx;
+        orc_ctx.tuple_descriptor = tuple_desc;
+        orc_ctx.row_descriptor = &row_desc;
+        orc_ctx.params = &params;
+        orc_ctx.range = &range;
+        RETURN_IF_ERROR(reader->init_reader(&orc_ctx));
+        reader->set_deletion_vector(deletion_vector);
+
+        const auto data_type = tuple_desc->slots()[0]->type();
+        Block block;
+        block.insert({data_type->create_column(), data_type, "o_orderkey"});
+        bool eof = false;
+        while (!eof) {
+            block.clear_column_data();
+            size_t read_rows = 0;
+            RETURN_IF_ERROR(reader->get_next_block(&block, &read_rows, &eof));
+            const auto values_column = remove_nullable(block.get_by_position(0).column);
+            const auto& values = assert_cast<const ColumnInt32&>(*values_column).get_data();
+            order_keys->insert(order_keys->end(), values.begin(), values.end());
+        }
+        return Status::OK();
+    };
+
+    std::vector<int32_t> all_order_keys;
+    ASSERT_TRUE(read_order_keys(nullptr, &all_order_keys).ok());
+    ASSERT_FALSE(all_order_keys.empty());
+
+    // No conjuncts are installed in OrcInitContext. A DV-only split must still enter the
+    // position-delete filtering branch and remove the row at the requested absolute position.
+    roaring::Roaring64Map deletion_vector {0};
+    std::vector<int32_t> filtered_order_keys;
+    ASSERT_TRUE(read_order_keys(&deletion_vector, &filtered_order_keys).ok());
+
+    auto expected = all_order_keys;
+    expected.erase(expected.begin());
+    EXPECT_EQ(filtered_order_keys, expected);
 }
 
 } // namespace doris

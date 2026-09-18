@@ -37,7 +37,7 @@ public:
 
     static constexpr size_t number_of_arguments = 2;
 
-    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+    DataTypePtr get_nested_return_type_impl(const DataTypes& /*arguments*/) const {
         return std::make_shared<DataTypeString>();
     }
 

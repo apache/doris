@@ -55,17 +55,33 @@ public class Column implements GsonPostProcessable {
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
-    public static final String ROWID_COL = "__DORIS_ROWID_COL__";
     public static final String GLOBAL_ROWID_COL = "__DORIS_GLOBAL_ROWID_COL__";
+    public static final String IVM_HIDDEN_COLUMN_PREFIX = HIDDEN_COLUMN_PREFIX + "IVM_";
+    public static final String IVM_ROW_ID_COL = IVM_HIDDEN_COLUMN_PREFIX + "ROW_ID_COL__";
+    public static final String IVM_AGG_COUNT_COL = IVM_HIDDEN_COLUMN_PREFIX + "AGG_COUNT_COL__";
+    public static final String IVM_DML_FACTOR_COL = IVM_HIDDEN_COLUMN_PREFIX + "DML_FACTOR_COL__";
+    public static final String IVM_DELTA_GROUP_COUNT_COL = IVM_HIDDEN_COLUMN_PREFIX + "DELTA_GROUP_COUNT_COL__";
+    // Prefix for sink-level IVM identity key hidden columns (__DORIS_IVM_KEY_).
+    public static final String IVM_KEY_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "KEY_";
+    // Prefix for union arm-index columns (__DORIS_IVM_UNION_ARM_INDEX_).
+    public static final String IVM_UNION_ARM_INDEX_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "UNION_ARM_INDEX_";
+    // Prefix for union positional key columns (__DORIS_IVM_UNION_KEY_).
+    public static final String IVM_UNION_KEY_COL_PREFIX = IVM_HIDDEN_COLUMN_PREFIX + "UNION_KEY_";
+    // Suffix for the renamed base-table row-id column (__DORIS_IVM_{n}_ROW_ID_COL__), using the
+    // standard IVM hidden-column prefix. Kept as an identity key when a cascading MV with only
+    // row-id keys is scanned under a join.
+    public static final String IVM_BASE_ROW_ID_COL_SUFFIX = "_ROW_ID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
     public static final String ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
     // For time-travel (FOR VERSION/TIME AS OF) on duplicate / mow tables with row binlog enabled.
     public static final String COMMIT_TSO_COL = "__DORIS_COMMIT_TSO_COL__";
+    public static final String ROW_LSN_COL = "__DORIS_ROW_LSN_COL__";
     // table stream columns
     public static final String STREAM_CHANGE_TYPE_COL = "__DORIS_STREAM_CHANGE_TYPE_COL__";
     public static final String STREAM_SEQ_COL = "__DORIS_STREAM_SEQUENCE_COL__";
+    public static final String STREAM_LSN_COL = "__DORIS_STREAM_LSN_COL__";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     private static final String COLUMN_ARRAY_CHILDREN = "item";
@@ -76,13 +92,15 @@ public class Column implements GsonPostProcessable {
     private static final String COLUMN_MAP_VALUE = "value";
     public static final Column STREAM_SEQ_VIRTUAL_COLUMN =
             new Column(STREAM_SEQ_COL, Type.BIGINT, false, null, true, null, false);
+    public static final Column STREAM_LSN_VIRTUAL_COLUMN =
+            new Column(STREAM_LSN_COL, Type.BIGINT, false, null, true, null, false);
     public static final Column STREAM_CHANGE_TYPE_VIRTUAL_COLUMN =
             new Column(STREAM_CHANGE_TYPE_COL, Type.STRING, false, null, true, null, false);
 
     // columns for binlog schema
     // explicit columns
+    public static final String BINLOG_TSO_COL = "__DORIS_BINLOG_TSO__";
     public static final String BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
-    public static final String BINLOG_TIMESTAMP_COL = "__DORIS_BINLOG_TIMESTAMP__";
     // implicit columns
     public static final String BINLOG_OPERATION_COL = "__DORIS_BINLOG_OP__";
     public static final String BINLOG_BEFORE_PREFIX = "__BEFORE__";
@@ -101,6 +119,11 @@ public class Column implements GsonPostProcessable {
         Column afterValueColumn = new Column(column);
         afterValueColumn.setComment("after value (" + column.getName() + ")");
         afterValueColumn.setAggregationType(AggregateType.NONE, true);
+        afterValueColumn.setIsAllowNull(true);
+        // clear default value
+        afterValueColumn.defaultValue = null;
+        afterValueColumn.defaultValueExprDef = null;
+        afterValueColumn.realDefaultValue = null;
         return afterValueColumn;
     }
 
@@ -137,6 +160,10 @@ public class Column implements GsonPostProcessable {
     private boolean isKey;
     @SerializedName(value = "isAllowNull")
     private boolean isAllowNull;
+    // Runtime-only schema change intent; do not persist it as part of the table schema.
+    private transient boolean nullableSpecified;
+    // Runtime-only schema change intent; do not persist it as part of the table schema.
+    private transient boolean commentSpecified;
     @SerializedName(value = "isAutoInc")
     private boolean isAutoInc;
 
@@ -144,6 +171,9 @@ public class Column implements GsonPostProcessable {
     private long autoIncInitValue;
     @SerializedName(value = "defaultValue")
     private String defaultValue;
+    // Request-scoped connector write-default expression. It is intentionally not persisted or rendered by
+    // DESCRIBE/SHOW CREATE; ConnectorColumnConverter sets it only on the pinned columns used by write analysis.
+    private transient String connectorDefaultValueSql;
     @SerializedName(value = "comment")
     private String comment;
     @SerializedName(value = "children")
@@ -176,6 +206,15 @@ public class Column implements GsonPostProcessable {
     private int clusterKeyId = -1;
 
     private boolean isCompoundKey = false;
+
+    // Marks a connector-reserved passthrough column (e.g. iceberg v3 row-lineage _row_id /
+    // _last_updated_sequence_number). Set by ConnectorColumnConverter from the connector-declared
+    // ConnectorColumn.reservedPassthrough(); read by engine MERGE/UPDATE and sink binding so they recognize the
+    // synthetic passthrough column generically instead of string-matching source column names. NOT persisted
+    // (no @SerializedName on purpose): it is an external-table-only marker rebuilt each load from connector
+    // metadata and must never enter an internal-table schema image; on replay it stays at its default false
+    // (mirrors the runtime-only isCompoundKey / defineExpr fields).
+    private boolean reservedPassthrough = false;
 
     @SerializedName(value = "hasOnUpdateDefaultValue")
     private boolean hasOnUpdateDefaultValue = false;
@@ -363,14 +402,18 @@ public class Column implements GsonPostProcessable {
         this.isKey = column.isKey();
         this.isCompoundKey = column.isCompoundKey();
         this.isAllowNull = column.isAllowNull();
+        this.nullableSpecified = column.isNullableSpecified();
+        this.commentSpecified = column.isCommentSpecified();
         this.isAutoInc = column.isAutoInc();
         this.defaultValue = column.getDefaultValue();
+        this.connectorDefaultValueSql = column.connectorDefaultValueSql;
         this.realDefaultValue = column.realDefaultValue;
         this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
         this.visible = column.visible;
         this.children = column.getChildren();
         this.uniqueId = column.getUniqueId();
+        this.reservedPassthrough = column.reservedPassthrough;
         this.defineExpr = column.getDefineExpr();
         this.defineName = column.getRealDefineName();
         this.hasOnUpdateDefaultValue = column.hasOnUpdateDefaultValue;
@@ -507,6 +550,10 @@ public class Column implements GsonPostProcessable {
         return !visible && aggregationType == AggregateType.NONE && nameEquals(COMMIT_TSO_COL, true);
     }
 
+    public boolean isRowLsnColumn() {
+        return !visible && aggregationType == AggregateType.NONE && nameEquals(ROW_LSN_COL, true);
+    }
+
     // now we only support BloomFilter on (same behavior with BE):
     // smallint/int/bigint/largeint
     // string/varchar/char/variant
@@ -578,6 +625,14 @@ public class Column implements GsonPostProcessable {
         return isAllowNull;
     }
 
+    public boolean isNullableSpecified() {
+        return nullableSpecified;
+    }
+
+    public boolean isCommentSpecified() {
+        return commentSpecified;
+    }
+
     public boolean isAutoInc() {
         return isAutoInc;
     }
@@ -590,6 +645,14 @@ public class Column implements GsonPostProcessable {
         this.isAllowNull = isAllowNull;
     }
 
+    public void setNullableSpecified(boolean nullableSpecified) {
+        this.nullableSpecified = nullableSpecified;
+    }
+
+    public void setCommentSpecified(boolean commentSpecified) {
+        this.commentSpecified = commentSpecified;
+    }
+
     public String getDefaultValue() {
         return this.defaultValue;
     }
@@ -599,6 +662,9 @@ public class Column implements GsonPostProcessable {
     }
 
     public String getDefaultValueSql() {
+        if (connectorDefaultValueSql != null) {
+            return connectorDefaultValueSql;
+        }
         if (defaultValue == null) {
             return null;
         }
@@ -610,6 +676,14 @@ public class Column implements GsonPostProcessable {
         } else {
             return "'" + defaultValue.replace("'", "''") + "'";
         }
+    }
+
+    public String getConnectorDefaultValueSql() {
+        return connectorDefaultValueSql;
+    }
+
+    public void setConnectorDefaultValueSql(String connectorDefaultValueSql) {
+        this.connectorDefaultValueSql = connectorDefaultValueSql;
     }
 
     public void setComment(String comment) {
@@ -980,6 +1054,14 @@ public class Column implements GsonPostProcessable {
 
     public int getUniqueId() {
         return this.uniqueId;
+    }
+
+    public boolean isReservedPassthrough() {
+        return reservedPassthrough;
+    }
+
+    public void setReservedPassthrough(boolean reservedPassthrough) {
+        this.reservedPassthrough = reservedPassthrough;
     }
 
     public long getAutoIncInitValue() {

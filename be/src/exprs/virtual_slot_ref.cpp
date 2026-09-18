@@ -222,8 +222,7 @@ bool VirtualSlotRef::equals(const VExpr& other) {
  * expression to perform the optimized search.
  * 
  * @param range_search_runtime Runtime parameters for the range search
- * @param cid_to_index_iterators Index iterators for each column
- * @param idx_to_cid Column ID mapping
+ * @param index_iterators Index iterators in read-schema order
  * @param column_iterators Data column iterators
  * @param row_bitmap Result bitmap to be updated with matching rows
  * @param ann_index_stats Performance statistics collector
@@ -231,14 +230,13 @@ bool VirtualSlotRef::equals(const VExpr& other) {
  */
 Status VirtualSlotRef::evaluate_ann_range_search(
         const segment_v2::AnnRangeSearchRuntime& range_search_runtime,
-        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-        const std::vector<ColumnId>& idx_to_cid,
+        const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         size_t rows_of_segment, roaring::Roaring& row_bitmap,
         segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
         AnnRangeSearchEvaluationResult& result) {
     return _virtual_column_expr->evaluate_ann_range_search(
-            range_search_runtime, cid_to_index_iterators, idx_to_cid, column_iterators,
-            rows_of_segment, row_bitmap, ann_index_stats, enable_result_cache, result);
+            range_search_runtime, index_iterators, column_iterators, rows_of_segment, row_bitmap,
+            ann_index_stats, enable_result_cache, result);
 }
 } // namespace doris

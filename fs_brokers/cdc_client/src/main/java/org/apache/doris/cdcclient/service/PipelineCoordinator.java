@@ -452,6 +452,9 @@ public class PipelineCoordinator {
      * <p>Heartbeat events will carry the latest offset.
      */
     public void writeRecords(WriteRecordRequest writeRecordRequest) throws Exception {
+        Preconditions.checkArgument(
+                StringUtils.isNotBlank(writeRecordRequest.getDorisUser()),
+                "Missing dorisUser; FE must send the Doris job creator's user name");
         // Extract connection parameters up front for use throughout this method
         String feAddr = writeRecordRequest.getFrontendAddress();
         String targetDb = writeRecordRequest.getTargetDb();
@@ -474,6 +477,7 @@ public class PipelineCoordinator {
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
         int heartbeatCount = 0;
+        int ddlCount = 0;
         SplitReadResult readResult = null;
         boolean hasExecuteDDL = false;
         boolean isSnapshotSplit = false;
@@ -606,7 +610,15 @@ public class PipelineCoordinator {
                     if (result.getType() == DeserializeResult.Type.SCHEMA_CHANGE) {
                         // Flush pending data before DDL
                         batchStreamLoad.forceFlush();
-                        SchemaChangeManager.executeDdls(feAddr, targetDb, token, result.getDdls());
+                        if (!CollectionUtils.isEmpty(result.getSchemaChanges())) {
+                            ddlCount += result.getSchemaChanges().size();
+                        }
+                        SchemaChangeManager.executeChanges(
+                                feAddr,
+                                targetDb,
+                                token,
+                                writeRecordRequest.getJobId(),
+                                result.getSchemaChanges());
                         hasExecuteDDL = true;
                         sourceReader.applySchemaChange(result.getUpdatedSchemas());
                         lastMessageIsHeartbeat = false;
@@ -616,7 +628,8 @@ public class PipelineCoordinator {
                         String dorisTable = targetTableMappings.getOrDefault(table, table);
                         for (String record : result.getRecords()) {
                             scannedRows++;
-                            batchStreamLoad.writeRecord(targetDb, dorisTable, record.getBytes());
+                            batchStreamLoad.writeRecord(
+                                    targetDb, dorisTable, record.getBytes(StandardCharsets.UTF_8));
                         }
                         // Mark last message as data (not heartbeat)
                         lastMessageIsHeartbeat = false;
@@ -628,8 +641,9 @@ public class PipelineCoordinator {
                 }
             }
             LOG.info(
-                    "Fetched {} records and {} heartbeats in {} ms for jobId={} taskId={}",
+                    "Fetched {} records, {} DDLs and {} heartbeats in {} ms for jobId={} taskId={}",
                     scannedRows,
+                    ddlCount,
                     heartbeatCount,
                     System.currentTimeMillis() - startTime,
                     writeRecordRequest.getJobId(),
@@ -773,6 +787,7 @@ public class PipelineCoordinator {
         batchStreamLoad.setCurrentTaskId(writeRecordRequest.getTaskId());
         batchStreamLoad.setFrontendAddress(writeRecordRequest.getFrontendAddress());
         batchStreamLoad.setToken(writeRecordRequest.getToken());
+        batchStreamLoad.setDorisUser(writeRecordRequest.getDorisUser());
         batchStreamLoad.setLoadProps(writeRecordRequest.getStreamLoadProps());
         batchStreamLoad.getLoadStatistic().clear();
         return batchStreamLoad;

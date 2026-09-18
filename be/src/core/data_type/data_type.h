@@ -38,11 +38,15 @@
 #include "core/cow.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 
 namespace doris {
 class PColumnMeta;
+class PTypeDesc;
+class PTypeNode;
+class PScalarType;
 enum PGenericType_TypeId : int;
 
 class IDataType;
@@ -164,13 +168,9 @@ public:
     [[nodiscard]] virtual UInt32 get_precision() const { return 0; }
     [[nodiscard]] virtual UInt32 get_scale() const { return 0; }
     virtual void to_protobuf(PTypeDesc* ptype, PTypeNode* node, PScalarType* scalar_type) const {}
-    void to_protobuf(PTypeDesc* ptype) const {
-        auto node = ptype->add_types();
-        node->set_type(TTypeNodeType::SCALAR);
-        auto scalar_type = node->mutable_scalar_type();
-        scalar_type->set_type(doris::to_thrift(get_primitive_type()));
-        to_protobuf(ptype, node, scalar_type);
-    }
+    // Defined in data_type.cpp: the body dereferences the protobuf types, and
+    // keeping it out of line keeps gen_cpp/types.pb.h out of this header.
+    void to_protobuf(PTypeDesc* ptype) const;
 #ifdef BE_TEST
     // only used in beut
     Status from_string(StringRef& str, IColumn* column) const {

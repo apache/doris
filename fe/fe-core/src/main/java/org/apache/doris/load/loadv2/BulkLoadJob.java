@@ -46,6 +46,8 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 
@@ -90,6 +92,9 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
     // we persist these sessionVariables due to the session is not available when replaying the job.
     @SerializedName(value = "svs")
     protected Map<String, String> sessionVariables = Maps.newHashMap();
+
+    @SerializedName(value = "lbsc")
+    private BackendSelection.SelectionHint loadBackendSelectionHint;
 
     public BulkLoadJob(EtlJobType jobType) {
         super(jobType);
@@ -138,6 +143,7 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             }
             bulkLoadJob.setComment(command.getComment());
             bulkLoadJob.setJobProperties(command.getProperties());
+            bulkLoadJob.setLoadBackendSelectionHint(BackendSelectionManager.captureLoadSelection(ctx));
             bulkLoadJob.checkAndSetDataSourceInfoByNereids(db, command.getDataDescriptions(), ctx);
             // In the construction method, there may not be table information yet
             bulkLoadJob.rebuildAuthorizationInfo();
@@ -145,6 +151,14 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
         } catch (MetaNotFoundException e) {
             throw new DdlException(e.getMessage());
         }
+    }
+
+    public void setLoadBackendSelectionHint(BackendSelection.SelectionHint hint) {
+        loadBackendSelectionHint = hint;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionHint() {
+        return loadBackendSelectionHint;
     }
 
     public void checkAndSetDataSourceInfoByNereids(Database db, List<NereidsDataDescription> dataDescriptions,
@@ -324,6 +338,20 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
 
         for (NereidsDataDescription dataDescription : command.getDataDescriptions()) {
             dataDescription.analyzeWithoutCheckPriv(db.getFullName());
+        }
+        // This replay path re-parses originStmt and skips LoadCommand.run(), which is where file
+        // paths are normalized on fresh submission. Concrete filesystems only accept their native
+        // schemes, so re-apply the same normalization (e.g. cos:// with s3.* properties -> s3://)
+        // before the paths land in BrokerFileGroup, or a pending job rescheduled after an FE
+        // restart / master failover would fail scheme validation and be cancelled.
+        BrokerDesc brokerDesc = command.getBrokerDesc();
+        if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
+            for (NereidsDataDescription dataDescription : command.getDataDescriptions()) {
+                List<String> filePaths = dataDescription.getFilePaths();
+                for (int i = 0; i < filePaths.size(); i++) {
+                    filePaths.set(i, brokerDesc.getFileLocation(filePaths.get(i)));
+                }
+            }
         }
         checkAndSetDataSourceInfoByNereids(db, command.getDataDescriptions(), ctx);
     }

@@ -37,7 +37,9 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "information_schema/schema_scanner_helper.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/client_cache.h"
 #include "util/debug_util.h"
 #include "util/threadpool.h"
@@ -69,7 +71,6 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
         try {
             rpc_client->reportExecStatus(res, req);
         } catch (const apache::thrift::transport::TTransportException& e) {
-#ifndef ADDRESS_SANITIZER
             LOG_WARNING("Transport exception from {}, reason: {}, reopening",
                         PrintThriftNetworkAddress(coor_addr), e.what());
             client_status = rpc_client.reopen(config::thrift_rpc_timeout_ms);
@@ -79,9 +80,6 @@ static Status _do_report_exec_stats_rpc(const TNetworkAddress& coor_addr,
             }
 
             rpc_client->reportExecStatus(res, req);
-#else
-            return Status::RpcError("Transport exception when report query profile, {}", e.what());
-#endif
         }
     } catch (apache::thrift::TApplicationException& e) {
         if (e.getType() == e.UNKNOWN_METHOD) {
@@ -433,13 +431,9 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
                 rpc_result[addr] = true;
             } catch (apache::thrift::transport::TTransportException& e) {
                 rpc_status = reopen_coord();
-#ifndef ADDRESS_SANITIZER
                 LOG_WARNING(
                         "[report_query_statistics] report to fe {} failed, reason:{}, try reopen.",
                         add_str, e.what());
-#else
-                std::cerr << "thrift error, reason=" << e.what();
-#endif
                 if (rpc_status.ok()) {
                     coord->reportExecStatus(res, params);
                     rpc_result[addr] = true;

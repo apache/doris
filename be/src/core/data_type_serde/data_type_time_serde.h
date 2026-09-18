@@ -47,6 +47,9 @@ public:
                                          const FormatOptions& options,
                                          const NullMap::value_type* null_map = nullptr) const final;
 
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
+
     template <typename IntDataType>
     Status from_int_batch(const typename IntDataType::ColumnType& int_col,
                           ColumnNullable& target_col) const;
@@ -69,6 +72,16 @@ public:
                                           IColumn& target_col) const;
     Status read_column_from_decoded_values(IColumn& column,
                                            const DecodedColumnView& view) const override;
+    Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                    const ParquetDecodeContext& context, size_t num_values,
+                                    ParquetMaterializationState& state) const override;
+    Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                   const ParquetDecodeContext& context) const override;
+    bool supports_parquet_raw_predicate(const ParquetDecodeContext& context) const override;
+    Status read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                      const ParquetDecodeContext& context, size_t num_values,
+                                      bool enable_strict_mode,
+                                      ParquetLogicalValueConsumer& consumer) const override;
     int get_scale() const override { return _scale; }
 
 protected:

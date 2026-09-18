@@ -61,6 +61,11 @@ public class IsTrue extends Expression
     }
 
     @Override
+    public String shapeInfo() {
+        return child().shapeInfo() + " IS TRUE";
+    }
+
+    @Override
     public String toString() {
         return child().toString() + " IS TRUE";
     }

@@ -117,9 +117,13 @@ public class ExportMgr {
         try {
             // delete existing files
             if (Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+                // Concrete filesystems only accept their native schemes; normalize legacy
+                // compatibility schemes (e.g. cos:// with s3.* properties) before crossing
+                // the plugin boundary.
+                String exportPath = job.getBrokerDesc().getFileLocation(job.getExportPath());
                 try (org.apache.doris.filesystem.FileSystem fs =
                         FileSystemFactory.getFileSystem(job.getBrokerDesc())) {
-                    fs.delete(Location.of(FileSystemUtil.extractParentDirectory(job.getExportPath())), true);
+                    fs.delete(Location.of(FileSystemUtil.extractParentDirectory(exportPath)), true);
                 } catch (java.io.IOException e) {
                     throw new UserException("Failed to delete existing files: " + e.getMessage(), e);
                 }
@@ -470,7 +474,7 @@ public class ExportMgr {
                     iter.remove();
                     Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
                     if (labelJobs != null) {
-                        labelJobs.remove(job.getLabel());
+                        labelJobs.remove(job.getLabel(), job.getId());
                         if (labelJobs.isEmpty()) {
                             dbTolabelToExportJobId.remove(job.getDbId());
                         }
@@ -481,15 +485,19 @@ public class ExportMgr {
             if (exportIdToJob.size() > Config.max_export_history_job_num) {
                 List<Map.Entry<Long, ExportJob>> jobList = new ArrayList<>(exportIdToJob.entrySet());
                 jobList.sort(Comparator.comparingLong(entry -> entry.getValue().getCreateTimeMs()));
-                while (exportIdToJob.size() > Config.max_export_history_job_num) {
-                    // Remove the oldest job
-                    Map.Entry<Long, ExportJob> oldestEntry = jobList.remove(0);
+                Iterator<Map.Entry<Long, ExportJob>> jobIterator = jobList.iterator();
+                while (exportIdToJob.size() > Config.max_export_history_job_num && jobIterator.hasNext()) {
+                    Map.Entry<Long, ExportJob> oldestEntry = jobIterator.next();
+                    ExportJob job = oldestEntry.getValue();
+                    if (job.getState() != ExportJobState.CANCELLED && job.getState() != ExportJobState.FINISHED) {
+                        continue;
+                    }
                     exportIdToJob.remove(oldestEntry.getKey());
-                    Map<String, Long> labelJobs = dbTolabelToExportJobId.get(oldestEntry.getValue().getDbId());
+                    Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
                     if (labelJobs != null) {
-                        labelJobs.remove(oldestEntry.getValue().getLabel());
+                        labelJobs.remove(job.getLabel(), job.getId());
                         if (labelJobs.isEmpty()) {
-                            dbTolabelToExportJobId.remove(oldestEntry.getValue().getDbId());
+                            dbTolabelToExportJobId.remove(job.getDbId());
                         }
                     }
                 }
@@ -511,8 +519,13 @@ public class ExportMgr {
     public void replayUpdateJobState(ExportJobStateTransfer stateTransfer) {
         writeLock();
         try {
-            LOG.info("replay update export job: {}, {}", stateTransfer.getJobId(), stateTransfer.getState());
             ExportJob job = exportIdToJob.get(stateTransfer.getJobId());
+            if (job == null) {
+                LOG.warn("ignore replay update for missing export job: {}, {}",
+                        stateTransfer.getJobId(), stateTransfer.getState());
+                return;
+            }
+            LOG.info("replay update export job: {}, {}", stateTransfer.getJobId(), stateTransfer.getState());
             job.replayExportJobState(stateTransfer.getState());
             job.setStartTimeMs(stateTransfer.getStartTimeMs());
             job.setFinishTimeMs(stateTransfer.getFinishTimeMs());

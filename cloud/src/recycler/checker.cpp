@@ -34,6 +34,7 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <unordered_map>
@@ -45,14 +46,18 @@
 #include "common/defer.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
+#include "common/rowset_segment_id.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-service/meta_service_tablet_stats.h"
 #include "meta-store/blob_message.h"
+#include "meta-store/clone_chain_reader.h"
 #include "meta-store/keys.h"
+#include "meta-store/meta_reader.h"
 #include "meta-store/txn_kv.h"
+#include "meta-store/versioned_value.h"
 #include "snapshot/snapshot_manager_factory.h"
 #ifdef ENABLE_HDFS_STORAGE_VAULT
 #include "recycler/hdfs_accessor.h"
@@ -77,6 +82,53 @@ extern bool enable_inverted_check;
 } // namespace config
 
 using namespace std::chrono;
+
+TxnErrorCode collect_pending_table_stream_drops(
+        const std::shared_ptr<TxnKv>& txn_kv, std::string_view instance_id,
+        std::unordered_map<int64_t, PendingTableStreamDrop>* pending_drops) {
+    pending_drops->clear();
+    const std::string log_key = versioned::log_key(instance_id);
+    const std::string begin_key = encode_versioned_key(log_key, Versionstamp::min());
+    const std::string end_key = encode_versioned_key(log_key, Versionstamp::max());
+    std::unique_ptr<BlobIterator> iter = blob_get_range(txn_kv, begin_key, end_key, true);
+    for (; iter->valid(); iter->next()) {
+        OperationLogPB operation_log;
+        if (!iter->parse_value(&operation_log)) {
+            LOG_WARNING("failed to parse OperationLogPB while checking Table Stream metadata")
+                    .tag("instance_id", instance_id)
+                    .tag("key", hex(iter->key()));
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+        if (!operation_log.has_drop_index() ||
+            operation_log.drop_index().object_type() != IndexObjectTypePB::TABLE_STREAM) {
+            continue;
+        }
+
+        const DropIndexLogPB& drop_index = operation_log.drop_index();
+        if (!drop_index.has_db_id() || !drop_index.has_table_id() ||
+            !drop_index.has_stream_db_id()) {
+            LOG_WARNING("Table Stream DropIndexLogPB is missing its binding")
+                    .tag("instance_id", instance_id)
+                    .tag("operation_log", operation_log.ShortDebugString());
+            return TxnErrorCode::TXN_INVALID_DATA;
+        }
+        PendingTableStreamDrop drop {.base_db_id = drop_index.db_id(),
+                                     .base_table_id = drop_index.table_id(),
+                                     .stream_db_id = drop_index.stream_db_id()};
+        for (int64_t stream_id : drop_index.index_ids()) {
+            auto [existing, inserted] = pending_drops->emplace(stream_id, drop);
+            if (!inserted && (existing->second.base_db_id != drop.base_db_id ||
+                              existing->second.base_table_id != drop.base_table_id ||
+                              existing->second.stream_db_id != drop.stream_db_id)) {
+                LOG_WARNING("conflicting pending Table Stream drops")
+                        .tag("instance_id", instance_id)
+                        .tag("stream_id", stream_id);
+                return TxnErrorCode::TXN_INVALID_DATA;
+            }
+        }
+    }
+    return iter->error_code();
+}
 
 Checker::Checker(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
     ip_port_ = std::string(butil::my_ip_cstr()) + ":" + std::to_string(config::brpc_listen_port);
@@ -280,6 +332,11 @@ int Checker::start() {
                 }
             }
 
+            log_progress("do_table_stream_check");
+            if (int ret = checker->do_table_stream_check(); ret != 0) {
+                success = false;
+            }
+
             if (config::enable_packed_file_check) {
                 log_progress("do_packed_file_check");
                 if (int ret = checker->do_packed_file_check(); ret != 0) {
@@ -470,6 +527,9 @@ InstanceChecker::InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::strin
 }
 
 int InstanceChecker::init(const InstanceInfoPB& instance) {
+    table_stream_versioned_write_ = instance.multi_version_status() == MULTI_VERSION_WRITE_ONLY ||
+                                    instance.multi_version_status() == MULTI_VERSION_READ_WRITE;
+
     int ret = init_obj_store_accessors(instance);
     if (ret != 0) {
         return ret;
@@ -651,7 +711,8 @@ int InstanceChecker::do_check() {
         }
 
         for (int i = 0; i < rs_meta.num_segments(); ++i) {
-            auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i);
+            auto segment_id = rowset_segment_id(rs_meta, i);
+            auto path = segment_path(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), segment_id);
 
             // Skip check if segment is already packed into a larger file
             const auto& index_map = rs_meta.packed_slice_locations();
@@ -714,22 +775,26 @@ int InstanceChecker::do_check() {
         }
         if (!index_ids.empty()) {
             const auto& index_map = rs_meta.packed_slice_locations();
+            const auto index_format =
+                    rs_meta.has_inverted_index_storage_format()
+                            ? rs_meta.inverted_index_storage_format()
+                            : rs_meta.tablet_schema().inverted_index_storage_format();
             for (int i = 0; i < rs_meta.num_segments(); ++i) {
+                auto segment_id = rowset_segment_id(rs_meta, i);
                 std::vector<std::string> index_path_v;
-                if (rs_meta.tablet_schema().inverted_index_storage_format() ==
-                    InvertedIndexStorageFormatPB::V1) {
+                if (index_format == InvertedIndexStorageFormatPB::V1) {
                     for (const auto& index_id : index_ids) {
                         LOG(INFO) << "check inverted index, tablet_id=" << rs_meta.tablet_id()
-                                  << " rowset_id=" << rs_meta.rowset_id_v2() << " segment_id=" << i
-                                  << " index_id=" << index_id.first
+                                  << " rowset_id=" << rs_meta.rowset_id_v2()
+                                  << " segment_id=" << segment_id << " index_id=" << index_id.first
                                   << " index_suffix_name=" << index_id.second;
-                        index_path_v.emplace_back(
-                                inverted_index_path_v1(rs_meta.tablet_id(), rs_meta.rowset_id_v2(),
-                                                       i, index_id.first, index_id.second));
+                        index_path_v.emplace_back(inverted_index_path_v1(
+                                rs_meta.tablet_id(), rs_meta.rowset_id_v2(), segment_id,
+                                index_id.first, index_id.second));
                     }
                 } else {
-                    index_path_v.emplace_back(
-                            inverted_index_path_v2(rs_meta.tablet_id(), rs_meta.rowset_id_v2(), i));
+                    index_path_v.emplace_back(inverted_index_path_v2(
+                            rs_meta.tablet_id(), rs_meta.rowset_id_v2(), segment_id));
                 }
 
                 if (std::ranges::all_of(index_path_v, [&](const auto& idx_file_path) {
@@ -794,7 +859,7 @@ int InstanceChecker::do_check() {
 int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
     // If there are multiple buckets, return the minimum lifecycle.
     int64_t min_lifecycle_days = INT64_MAX;
-    int64_t tmp_liefcycle_days = 0;
+    int64_t tmp_lifecycle_days = 0;
     for (const auto& [id, accessor] : accessor_map_) {
         if (accessor->type() != AccessorType::S3) {
             continue;
@@ -806,12 +871,12 @@ int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
             return -1;
         }
 
-        if (s3_accessor->get_life_cycle(&tmp_liefcycle_days) != 0) {
+        if (s3_accessor->get_lifecycle(&tmp_lifecycle_days) != 0) {
             return -1;
         }
 
-        if (tmp_liefcycle_days < min_lifecycle_days) {
-            min_lifecycle_days = tmp_liefcycle_days;
+        if (tmp_lifecycle_days < min_lifecycle_days) {
+            min_lifecycle_days = tmp_lifecycle_days;
         }
     }
     *lifecycle_days = min_lifecycle_days;
@@ -1581,8 +1646,8 @@ int InstanceChecker::check_inverted_index_file_storage_format_v1(
                 return -1;
             }
 
-            for (size_t i = 0; i < rs_meta.num_segments(); i++) {
-                rowset_index_cache_v1.segment_ids.insert(i);
+            for (int64_t i = 0; i < rs_meta.num_segments(); i++) {
+                rowset_index_cache_v1.segment_ids.insert(rowset_segment_id(rs_meta, i));
             }
 
             for (const auto& i : rs_meta.tablet_schema().index()) {
@@ -1682,8 +1747,8 @@ int InstanceChecker::check_inverted_index_file_storage_format_v2(
                 return -1;
             }
 
-            for (size_t i = 0; i < rs_meta.num_segments(); i++) {
-                rowset_index_cache_v2.segment_ids.insert(i);
+            for (int64_t i = 0; i < rs_meta.num_segments(); i++) {
+                rowset_index_cache_v2.segment_ids.insert(rowset_segment_id(rs_meta, i));
             }
 
             if (!it->has_next()) {
@@ -2273,6 +2338,332 @@ int InstanceChecker::scan_and_handle_kv(
         start_key = it->next_begin_key();
     }
     return ret;
+}
+
+// The check validates Offset values and the Latest/Versioned projection invariant. FE Catalog is
+// the authority for Stream existence and binding, so no MS-side Stream Mapping is checked here.
+int InstanceChecker::do_table_stream_check() {
+    struct VersionedOffset {
+        Versionstamp versionstamp;
+        TableStreamOffsetPB offset;
+    };
+
+    auto decode_components =
+            [](std::string_view key, size_t expected_size,
+               std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>>* components) {
+                if (key.empty()) {
+                    return false;
+                }
+                key.remove_prefix(1);
+                return decode_key(&key, components) == 0 && components->size() == expected_size;
+            };
+
+    auto classify_recycle_index = [&](const RecycleIndexPB* recycle_index, int64_t base_db_id,
+                                      int64_t base_table_id, int64_t stream_db_id,
+                                      int64_t stream_id) {
+        if (recycle_index == nullptr) {
+            return 0;
+        }
+        if (recycle_index->object_type() != TABLE_STREAM || !recycle_index->has_db_id() ||
+            recycle_index->db_id() != base_db_id || !recycle_index->has_table_id() ||
+            recycle_index->table_id() != base_table_id || !recycle_index->has_stream_db_id() ||
+            recycle_index->stream_db_id() != stream_db_id || !recycle_index->has_state()) {
+            LOG_WARNING("Recycle Index does not match Table Stream Offset")
+                    .tag("instance_id", instance_id_)
+                    .tag("stream_id", stream_id)
+                    .tag("recycle_index", recycle_index->ShortDebugString());
+            return 1;
+        }
+        switch (recycle_index->state()) {
+        case RecycleIndexPB::PREPARED:
+        case RecycleIndexPB::DROPPED:
+            return 0;
+        case RecycleIndexPB::RECYCLING:
+            return 2;
+        default:
+            LOG_WARNING("Recycle Index has invalid state for Table Stream Offset")
+                    .tag("instance_id", instance_id_)
+                    .tag("stream_id", stream_id)
+                    .tag("state", recycle_index->state());
+            return 1;
+        }
+    };
+
+    std::unordered_map<int64_t, std::optional<RecycleIndexPB>> recycle_indexes;
+    auto classify_cached_recycle_index = [&](int64_t base_db_id, int64_t base_table_id,
+                                             int64_t stream_db_id, int64_t stream_id) {
+        auto cached = recycle_indexes.find(stream_id);
+        if (cached == recycle_indexes.end()) {
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to create transaction for Recycle Index check")
+                        .tag("instance_id", instance_id_)
+                        .tag("stream_id", stream_id)
+                        .tag("error", err);
+                return -1;
+            }
+            std::string value;
+            err = txn->get(recycle_index_key({instance_id_, stream_id}), &value, true);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                cached = recycle_indexes.emplace(stream_id, std::nullopt).first;
+            } else if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to read Recycle Index during Table Stream Offset check")
+                        .tag("instance_id", instance_id_)
+                        .tag("stream_id", stream_id)
+                        .tag("error", err);
+                return -1;
+            } else {
+                RecycleIndexPB recycle_index;
+                if (!recycle_index.ParseFromString(value)) {
+                    LOG_WARNING("failed to parse Recycle Index during Table Stream Offset check")
+                            .tag("instance_id", instance_id_)
+                            .tag("stream_id", stream_id);
+                    return -1;
+                }
+                cached = recycle_indexes.emplace(stream_id, std::move(recycle_index)).first;
+            }
+        }
+        const RecycleIndexPB* recycle_index =
+                cached->second.has_value() ? &cached->second.value() : nullptr;
+        return classify_recycle_index(recycle_index, base_db_id, base_table_id, stream_db_id,
+                                      stream_id);
+    };
+
+    int check_ret = 0;
+    std::unordered_map<std::string, TableStreamOffsetPB> latest_offsets;
+    auto validate_offset = [&](int64_t base_db_id, int64_t base_table_id, int64_t stream_db_id,
+                               int64_t stream_id, int64_t partition_id,
+                               const TableStreamOffsetPB& offset) {
+        if (base_db_id <= 0 || base_table_id <= 0 || stream_db_id <= 0 || stream_id <= 0 ||
+            partition_id <= 0 || !offset.has_partition_id() || !offset.has_state() ||
+            !offset.has_offset_tso() || offset.partition_id() != partition_id ||
+            (offset.state() != TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING &&
+             offset.state() != TABLE_STREAM_OFFSET_CONSUMED)) {
+            LOG_WARNING("Table Stream Offset value does not match its key")
+                    .tag("instance_id", instance_id_)
+                    .tag("stream_id", stream_id)
+                    .tag("key_partition_id", partition_id)
+                    .tag("value_partition_id", offset.partition_id())
+                    .tag("state", offset.state());
+            return 1;
+        }
+
+        return classify_cached_recycle_index(base_db_id, base_table_id, stream_db_id, stream_id);
+    };
+
+    std::string begin = table_stream_offset_key({instance_id_, 0, 0, 0, 0, 0});
+    const std::string latest_end = table_stream_offset_key({instance_id_, INT64_MAX, 0, 0, 0, 0});
+    int ret = scan_and_handle_kv(
+            begin, latest_end, [&](std::string_view key, std::string_view value) {
+                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
+                if (!decode_components(key, 8, &components)) {
+                    LOG_WARNING("failed to decode Latest Stream Offset key").tag("key", hex(key));
+                    return -1;
+                }
+                TableStreamOffsetPB offset;
+                if (!offset.ParseFromArray(value.data(), value.size())) {
+                    LOG_WARNING("failed to parse Latest Stream Offset").tag("key", hex(key));
+                    return -1;
+                }
+                int64_t base_db_id = std::get<int64_t>(std::get<0>(components[3]));
+                int64_t base_table_id = std::get<int64_t>(std::get<0>(components[4]));
+                int64_t stream_db_id = std::get<int64_t>(std::get<0>(components[5]));
+                int64_t stream_id = std::get<int64_t>(std::get<0>(components[6]));
+                int64_t partition_id = std::get<int64_t>(std::get<0>(components[7]));
+                int validation = validate_offset(base_db_id, base_table_id, stream_db_id, stream_id,
+                                                 partition_id, offset);
+                if (validation == 2) {
+                    return 0;
+                }
+                if (validation != 0) {
+                    return validation;
+                }
+                latest_offsets.emplace(std::string(key), std::move(offset));
+                return 0;
+            });
+    if (ret < 0) {
+        return ret;
+    }
+    check_ret = std::max(check_ret, ret);
+    TEST_SYNC_POINT("InstanceChecker::do_table_stream_check::after_latest_scan");
+
+    std::unordered_map<std::string, VersionedOffset> versioned_offsets;
+    begin = versioned::table_stream_offset_key({instance_id_, 0, 0, 0, 0, 0});
+    const std::string versioned_end =
+            versioned::table_stream_offset_key({instance_id_, INT64_MAX, 0, 0, 0, 0});
+    ret = scan_and_handle_kv(
+            begin, versioned_end, [&](std::string_view key, std::string_view value) {
+                std::string_view logical_key = key;
+                Versionstamp versionstamp;
+                if (!decode_versioned_key(&logical_key, &versionstamp)) {
+                    LOG_WARNING("failed to decode Versioned Stream Offset versionstamp")
+                            .tag("key", hex(key));
+                    return -1;
+                }
+                std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
+                if (!decode_components(logical_key, 8, &components)) {
+                    LOG_WARNING("failed to decode Versioned Stream Offset key")
+                            .tag("key", hex(key));
+                    return -1;
+                }
+                TableStreamOffsetPB offset;
+                if (!offset.ParseFromArray(value.data(), value.size())) {
+                    LOG_WARNING("failed to parse Versioned Stream Offset").tag("key", hex(key));
+                    return -1;
+                }
+                int64_t base_db_id = std::get<int64_t>(std::get<0>(components[3]));
+                int64_t base_table_id = std::get<int64_t>(std::get<0>(components[4]));
+                int64_t stream_db_id = std::get<int64_t>(std::get<0>(components[5]));
+                int64_t stream_id = std::get<int64_t>(std::get<0>(components[6]));
+                int64_t partition_id = std::get<int64_t>(std::get<0>(components[7]));
+                int validation = validate_offset(base_db_id, base_table_id, stream_db_id, stream_id,
+                                                 partition_id, offset);
+                if (validation == 2) {
+                    return 0;
+                }
+                if (validation != 0) {
+                    return validation;
+                }
+
+                std::string latest_key =
+                        table_stream_offset_key({instance_id_, base_db_id, base_table_id,
+                                                 stream_db_id, stream_id, partition_id});
+                auto it = versioned_offsets.find(latest_key);
+                if (it == versioned_offsets.end() || it->second.versionstamp < versionstamp) {
+                    versioned_offsets[std::move(latest_key)] =
+                            VersionedOffset {versionstamp, std::move(offset)};
+                }
+                return 0;
+            });
+    if (ret < 0) {
+        return ret;
+    }
+    check_ret = std::max(check_ret, ret);
+
+    if (table_stream_versioned_write_) {
+        std::unordered_set<std::string> apparent_inconsistencies;
+        for (const auto& [key, latest] : latest_offsets) {
+            auto it = versioned_offsets.find(key);
+            if (it == versioned_offsets.end() ||
+                latest.SerializeAsString() != it->second.offset.SerializeAsString()) {
+                apparent_inconsistencies.insert(key);
+            }
+        }
+        for (const auto& entry : versioned_offsets) {
+            const std::string& key = entry.first;
+            if (!latest_offsets.contains(key)) {
+                apparent_inconsistencies.insert(key);
+            }
+        }
+
+        auto recheck_projection = [&](const std::string& latest_key) -> int {
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> components;
+            if (!decode_components(latest_key, 8, &components)) {
+                LOG_WARNING("failed to decode Latest Stream Offset key during recheck")
+                        .tag("instance_id", instance_id_)
+                        .tag("latest_key", hex(latest_key));
+                return -1;
+            }
+            int64_t base_db_id = std::get<int64_t>(std::get<0>(components[3]));
+            int64_t base_table_id = std::get<int64_t>(std::get<0>(components[4]));
+            int64_t stream_db_id = std::get<int64_t>(std::get<0>(components[5]));
+            int64_t stream_id = std::get<int64_t>(std::get<0>(components[6]));
+            int64_t partition_id = std::get<int64_t>(std::get<0>(components[7]));
+
+            std::unique_ptr<Transaction> txn;
+            TxnErrorCode err = txn_kv_->create_txn(&txn);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG_WARNING("failed to create transaction for Table Stream Offset recheck")
+                        .tag("instance_id", instance_id_)
+                        .tag("latest_key", hex(latest_key))
+                        .tag("error", err);
+                return -1;
+            }
+
+            std::string recycle_value;
+            err = txn->get(recycle_index_key({instance_id_, stream_id}), &recycle_value, true);
+            if (err == TxnErrorCode::TXN_OK) {
+                RecycleIndexPB recycle_index;
+                if (!recycle_index.ParseFromString(recycle_value)) {
+                    LOG_WARNING("failed to parse Recycle Index during Table Stream Offset recheck")
+                            .tag("instance_id", instance_id_)
+                            .tag("stream_id", stream_id);
+                    return -1;
+                }
+                int action = classify_recycle_index(&recycle_index, base_db_id, base_table_id,
+                                                    stream_db_id, stream_id);
+                if (action != 0) {
+                    return action == 2 ? 0 : action;
+                }
+            }
+            if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                LOG_WARNING("failed to read Recycle Index during Table Stream Offset recheck")
+                        .tag("instance_id", instance_id_)
+                        .tag("stream_id", stream_id)
+                        .tag("error", err);
+                return -1;
+            }
+
+            std::string latest_value;
+            const TxnErrorCode latest_err = txn->get(latest_key, &latest_value, true);
+            if (latest_err != TxnErrorCode::TXN_OK &&
+                latest_err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                LOG_WARNING("failed to read Latest Stream Offset during recheck")
+                        .tag("instance_id", instance_id_)
+                        .tag("latest_key", hex(latest_key))
+                        .tag("error", latest_err);
+                return -1;
+            }
+
+            const std::string versioned_key =
+                    versioned::table_stream_offset_key({instance_id_, base_db_id, base_table_id,
+                                                        stream_db_id, stream_id, partition_id});
+            std::string versioned_value;
+            const TxnErrorCode versioned_err =
+                    versioned_get(txn.get(), versioned_key, nullptr, &versioned_value, true);
+            if (versioned_err != TxnErrorCode::TXN_OK &&
+                versioned_err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                LOG_WARNING("failed to read Versioned Stream Offset during recheck")
+                        .tag("instance_id", instance_id_)
+                        .tag("versioned_key", hex(versioned_key))
+                        .tag("error", versioned_err);
+                return -1;
+            }
+            if (latest_err == TxnErrorCode::TXN_KEY_NOT_FOUND &&
+                versioned_err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                return 0;
+            }
+            if (latest_err == TxnErrorCode::TXN_KEY_NOT_FOUND ||
+                versioned_err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                return 1;
+            }
+
+            TableStreamOffsetPB latest_offset;
+            TableStreamOffsetPB versioned_offset;
+            if (!latest_offset.ParseFromString(latest_value) ||
+                !versioned_offset.ParseFromString(versioned_value)) {
+                return 1;
+            }
+            return latest_offset.SerializeAsString() == versioned_offset.SerializeAsString() ? 0
+                                                                                             : 1;
+        };
+
+        for (const std::string& key : apparent_inconsistencies) {
+            int recheck = recheck_projection(key);
+            if (recheck < 0) {
+                return recheck;
+            }
+            if (recheck > 0) {
+                LOG_WARNING("Latest and Versioned Stream Offset heads are inconsistent")
+                        .tag("instance_id", instance_id_)
+                        .tag("latest_key", hex(key));
+                check_ret = 1;
+            }
+        }
+    }
+
+    return check_ret;
 }
 
 int InstanceChecker::do_version_key_check() {

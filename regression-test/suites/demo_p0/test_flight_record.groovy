@@ -27,12 +27,29 @@ suite("test_flight_record", "nonConcurrent") {
         return
     }
 
+    // flightRecord starts the java flight recorder by the local jps/jcmd, so it only works when the
+    // frontend runs on the same machine as the regression runner, e.g. a local development cluster.
+    // Skip this demo when the frontend is not here, otherwise flightRecord will fail the suite
+    String feProcessName = "DorisFE"
+    boolean feOnThisMachine = false
+    try {
+        feOnThisMachine = "jps".execute().text.readLines().any { it.contains(feProcessName) }
+    } catch (Throwable t) {
+        // jps is shipped with the jdk, it doesn't exist if this machine only installs a jre
+        logger.info("Can not execute jps: ${t.getMessage()}")
+    }
+    if (!feOnThisMachine) {
+        logger.info("Process ${feProcessName} is not running on this machine, this case requires the "
+                + "frontend and the regression runner deployed together, skip test")
+        return
+    }
+
     flightRecord {
         // whether delete jfr file after callback, default is true
         cleanUp true
 
         // the process name, default is DorisFE
-        processName "DorisFE"
+        processName feProcessName
 
         // the jcmd extra config, default is empty
         extraConfig(["jdk.ObjectAllocationSample#throttle=\"100 /ns\""])

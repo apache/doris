@@ -31,8 +31,14 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/local_file_system.h"
 #include "storage/olap_common.h"
 #include "storage/olap_meta.h"
+#include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
+#include "util/slice.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -109,6 +115,86 @@ TEST_F(RowsetMetaTest, TestInit) {
     do_check(rowset_meta_3);
 }
 
+TEST_F(RowsetMetaTest, TopLevelInvertedIndexFormatOverridesEmbeddedSchemaFormat) {
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta_pb.set_rowset_id(0);
+    rowset_meta_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    rowset_meta_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    rowset_meta_pb.mutable_tablet_schema()->set_schema_version(7);
+    rowset_meta_pb.mutable_tablet_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    RowsetMeta rowset_meta;
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    ASSERT_TRUE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, rowset_meta.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    RowsetMetaPB serialized;
+    rowset_meta.to_rowset_pb(&serialized);
+    ASSERT_TRUE(serialized.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              serialized.tablet_schema().inverted_index_storage_format());
+}
+
+TEST_F(RowsetMetaTest, TopLevelInvertedIndexFormatStaysAlignedWhenSchemaChanges) {
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta_pb.set_rowset_id(0);
+    rowset_meta_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    rowset_meta_pb.mutable_tablet_schema()->set_schema_version(7);
+    rowset_meta_pb.mutable_tablet_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    RowsetMeta rowset_meta;
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    rowset_meta.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+
+    TabletSchemaPB replacement_schema;
+    replacement_schema.set_schema_version(8);
+    replacement_schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+    rowset_meta.set_tablet_schema(replacement_schema);
+
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+    RowsetMetaPB serialized;
+    rowset_meta.to_rowset_pb(&serialized);
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII, serialized.inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              serialized.tablet_schema().inverted_index_storage_format());
+}
+
+TEST_F(RowsetMetaTest, LegacyEmbeddedSchemaInvertedIndexFormatIsFallback) {
+    RowsetMetaPB rowset_meta_pb;
+    rowset_meta_pb.set_rowset_id(0);
+    rowset_meta_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    rowset_meta_pb.mutable_tablet_schema()->set_schema_version(7);
+    rowset_meta_pb.mutable_tablet_schema()->set_inverted_index_storage_format(
+            InvertedIndexStorageFormatPB::V3);
+
+    RowsetMeta rowset_meta;
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    EXPECT_FALSE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    RowsetMetaPB top_level_format_pb;
+    top_level_format_pb.set_rowset_id(0);
+    top_level_format_pb.set_rowset_id_v2("000000000000000000000000000000000000000000000001");
+    top_level_format_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    top_level_format_pb.mutable_tablet_schema()->set_schema_version(8);
+    ASSERT_TRUE(rowset_meta.init_from_pb(top_level_format_pb));
+    EXPECT_TRUE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::SNII,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+
+    ASSERT_TRUE(rowset_meta.init_from_pb(rowset_meta_pb));
+    EXPECT_FALSE(rowset_meta.has_inverted_index_storage_format());
+    EXPECT_EQ(InvertedIndexStorageFormatPB::V3,
+              rowset_meta.tablet_schema()->get_inverted_index_storage_format());
+}
+
 TEST_F(RowsetMetaTest, TestInitWithInvalidData) {
     RowsetMeta rowset_meta;
     EXPECT_FALSE(rowset_meta.init_from_json("invalid json meta data"));
@@ -122,6 +208,27 @@ TEST_F(RowsetMetaTest, TestRowsetIdInit) {
     id.init(rowset_id_str);
     // 0x100000000000000 - 0x01
     EXPECT_EQ(id.to_string(), "72057594037927935");
+}
+
+TEST_F(RowsetMetaTest, SegmentGroupsKeepRowsetOverlappingSemantics) {
+    RowsetMeta rowset_meta;
+    rowset_meta.set_version({10, 10});
+    rowset_meta.set_num_segments(5);
+    rowset_meta.set_segments_overlap(NONOVERLAPPING_WITHIN_GROUP);
+    rowset_meta.set_segment_group_sizes({2, 3});
+
+    EXPECT_TRUE(rowset_meta.is_segments_overlapping());
+    EXPECT_TRUE(rowset_meta.produced_by_compaction());
+    EXPECT_EQ(rowset_meta.get_compaction_score(), 5);
+    EXPECT_EQ(rowset_meta.get_merge_way_num(), 5);
+
+    auto rowset_meta_pb = rowset_meta.get_rowset_pb();
+    ASSERT_EQ(rowset_meta_pb.segment_group_sizes_size(), 2);
+    EXPECT_EQ(rowset_meta_pb.segment_group_sizes(0), 2);
+    EXPECT_EQ(rowset_meta_pb.segment_group_sizes(1), 3);
+
+    rowset_meta.clear_segment_group_sizes();
+    EXPECT_EQ(rowset_meta.get_rowset_pb().segment_group_sizes_size(), 0);
 }
 
 TEST_F(RowsetMetaTest, TestNumSegmentRowsSetAndGet) {
@@ -453,6 +560,225 @@ TEST_F(RowsetMetaTest, TestSegmentsKeyBoundsAggregationTruncation) {
     EXPECT_EQ(out[0].max_key(), std::string("dddd"));
     EXPECT_TRUE(rs_meta.is_segments_key_bounds_aggregated());
     EXPECT_TRUE(rs_meta.is_segments_key_bounds_truncated());
+}
+
+// is_segments_overlapping() is decided by segment count, the segments_overlap flag,
+// and whether the rowset is a singleton delta (start_version == end_version) or a
+// row-binlog rowset. For a singleton delta the ambiguous OVERLAP_UNKNOWN flag is still
+// treated as overlapping (a freshly ingested delta may have overlapping segments only
+// tagged OVERLAP_UNKNOWN). Row-binlog LMax quick merge produces non-singleton rowsets
+// whose segments overlap, but it writes segments_overlap = OVERLAPPING explicitly, so
+// it is recognized only via the explicit-OVERLAPPING branch; a row-binlog rowset left
+// as OVERLAP_UNKNOWN is NOT treated as overlapping. A plain non-singleton rowset (e.g. a
+// compaction output) keeps the original semantics and stays non-overlapping regardless
+// of the flag, so that old metadata written before the flag was always set does not
+// inflate compaction score / merge ways or degrade ordered reads after an upgrade.
+TEST_F(RowsetMetaTest, TestIsSegmentsOverlapping) {
+    auto check = [](int64_t num_segments, SegmentsOverlapPB overlap, int64_t start_version,
+                    int64_t end_version, bool is_row_binlog, bool expected) {
+        RowsetMeta rs_meta;
+        rs_meta.set_num_segments(num_segments);
+        rs_meta.set_segments_overlap(overlap);
+        rs_meta.set_version({start_version, end_version});
+        if (is_row_binlog) {
+            rs_meta.mark_row_binlog();
+        }
+        EXPECT_EQ(rs_meta.is_segments_overlapping(), expected);
+    };
+
+    // Single segment is never overlapping, regardless of the flag.
+    check(1, OVERLAPPING, 2, 2, false, false);
+    check(1, OVERLAP_UNKNOWN, 2, 2, false, false);
+
+    // Multiple segments explicitly marked NONOVERLAPPING are not overlapping.
+    check(3, NONOVERLAPPING, 2, 2, false, false);
+    check(3, NONOVERLAPPING, 2, 5, false, false);
+
+    // Singleton delta (start == end) with overlapping / unknown segments is overlapping:
+    // a freshly ingested delta may have overlapping segments only tagged OVERLAP_UNKNOWN.
+    check(3, OVERLAPPING, 2, 2, false, true);
+    check(3, OVERLAP_UNKNOWN, 2, 2, false, true);
+
+    // Plain (non row-binlog) non-singleton + OVERLAPPING keeps the original semantics: a
+    // compaction output (start < end) is treated as non-overlapping.
+    check(3, OVERLAPPING, 2, 5, false, false);
+
+    // Row-binlog non-singleton explicitly marked OVERLAPPING is overlapping: this is the
+    // row-binlog LMax quick-merge output, which sets the flag explicitly.
+    check(3, OVERLAPPING, 2, 5, true, true);
+
+    // Row-binlog non-singleton left as OVERLAP_UNKNOWN must NOT be treated as overlapping.
+    check(3, OVERLAP_UNKNOWN, 2, 5, true, false);
+
+    // Old-metadata compatibility: a plain compaction output (start < end) left as
+    // OVERLAP_UNKNOWN must stay non-overlapping to avoid inflating
+    // get_compaction_score()/get_merge_way_num() and degrading ordered reads after upgrade.
+    check(3, OVERLAP_UNKNOWN, 2, 5, false, false);
+}
+
+TEST_F(RowsetMetaTest, TestSegmentIdsAccessors) {
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+
+    // Legacy rowset (no segment_ids) falls back to contiguous ids [0, num_segments).
+    rowset_meta.set_num_segments(3);
+    EXPECT_FALSE(rowset_meta.has_segment_ids());
+    EXPECT_EQ(rowset_meta.num_segments(), 3);
+    EXPECT_EQ(rowset_meta.segment_id(0), 0);
+    EXPECT_EQ(rowset_meta.segment_id(2), 2);
+    EXPECT_EQ(rowset_meta.position_of(2), 2);
+
+    // Non-contiguous segment_ids: position <-> real id mapping.
+    rowset_meta.set_segment_ids({0, 2, 5});
+    EXPECT_TRUE(rowset_meta.has_segment_ids());
+    EXPECT_EQ(rowset_meta.num_segments(), 3);
+    EXPECT_EQ(rowset_meta.segment_id(0), 0);
+    EXPECT_EQ(rowset_meta.segment_id(1), 2);
+    EXPECT_EQ(rowset_meta.segment_id(2), 5);
+    EXPECT_EQ(rowset_meta.position_of(0), 0);
+    EXPECT_EQ(rowset_meta.position_of(2), 1);
+    EXPECT_EQ(rowset_meta.position_of(5), 2);
+}
+
+TEST_F(RowsetMetaTest, TestSegmentIdsMustBeStrictlyIncreasing) {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+
+    EXPECT_DEATH(rowset_meta.set_segment_ids({0, 2, 2}),
+                 "Check failed: segment_id > prev_segment_id");
+    EXPECT_DEATH(rowset_meta.set_segment_ids({0, 2, 1}),
+                 "Check failed: segment_id > prev_segment_id");
+    EXPECT_DEATH(rowset_meta.set_segment_ids({0, -1, 2}), "Check failed: segment_id >= 0");
+}
+
+TEST_F(RowsetMetaTest, TestSegmentMetaView) {
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+    rowset_meta.set_segment_ids({0, 2, 5});
+    rowset_meta.add_segments_file_size({10, 20, 30});
+    rowset_meta.set_num_segment_rows({100, 200, 300});
+
+    std::vector<KeyBoundsPB> key_bounds(3);
+    key_bounds[0].set_min_key("a");
+    key_bounds[0].set_max_key("b");
+    key_bounds[1].set_min_key("c");
+    key_bounds[1].set_max_key("d");
+    key_bounds[2].set_min_key("e");
+    key_bounds[2].set_max_key("f");
+    rowset_meta.set_segments_key_bounds(key_bounds);
+
+    auto seg = rowset_meta.segment(1);
+    EXPECT_EQ(seg.pos(), 1);
+    EXPECT_EQ(seg.id(), 2);
+    EXPECT_EQ(seg.ref().pos, 1);
+    EXPECT_EQ(seg.ref().id, 2);
+    EXPECT_EQ(seg.file_size(), 20);
+    ASSERT_TRUE(seg.has_num_rows());
+    EXPECT_EQ(seg.num_rows(), 200);
+    ASSERT_TRUE(seg.has_position_key_bounds());
+    EXPECT_EQ(seg.key_bounds().min_key(), "c");
+    EXPECT_EQ(seg.key_bounds().max_key(), "d");
+
+    std::vector<int64_t> segment_ids;
+    for (auto segment : rowset_meta.segments()) {
+        segment_ids.push_back(segment.id());
+    }
+    EXPECT_EQ(segment_ids, std::vector<int64_t>({0, 2, 5}));
+}
+
+TEST_F(RowsetMetaTest, TestPackedPhysicalFs) {
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+
+    // Without packed slice locations there is nothing to map, so the physical fs is returned
+    // unchanged.
+    EXPECT_EQ(rowset_meta.packed_physical_fs(), rowset_meta.physical_fs());
+
+    // Lay out a packed file the way PackedFileWriter does: the segment bytes live at a
+    // non-zero offset inside a shared object, and no object exists at the segment path.
+    const std::string packed_file_path = "./packed_file.dat";
+    const std::string padding(7, 'x');
+    const std::string segment_content = "segment-payload";
+    {
+        std::ofstream out(packed_file_path, std::ios::binary);
+        out << padding << segment_content;
+    }
+    Defer defer {[&]() { static_cast<void>(std::filesystem::remove(packed_file_path)); }};
+
+    const std::string segment_path = "./data/15673/540081_0.dat";
+    io::FileReaderSPtr reader;
+    EXPECT_FALSE(rowset_meta.physical_fs()->open_file(segment_path, &reader).ok());
+
+    rowset_meta.add_packed_slice_location(
+            segment_path, packed_file_path, cast_set<int64_t>(padding.size()),
+            cast_set<int64_t>(segment_content.size()),
+            cast_set<int64_t>(padding.size() + segment_content.size()));
+
+    // The packed-aware fs resolves the segment path to its slice, while still handing out the
+    // raw bytes (no decryption layer on top).
+    auto fs = rowset_meta.packed_physical_fs();
+    ASSERT_NE(fs, nullptr);
+    ASSERT_TRUE(fs->open_file(segment_path, &reader).ok());
+
+    // Size and offsets stay slice-relative, so callers can address the segment as if it were a
+    // standalone file.
+    EXPECT_EQ(reader->size(), segment_content.size());
+    std::string buf(segment_content.size(), '\0');
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader->read_at(0, Slice(buf.data(), buf.size()), &bytes_read).ok());
+    EXPECT_EQ(bytes_read, segment_content.size());
+    EXPECT_EQ(buf, segment_content);
+
+    // A path with no packed slice location falls through to the physical fs, so non-packed
+    // rowsets and files keep their previous behaviour.
+    io::FileReaderSPtr missing;
+    EXPECT_FALSE(fs->open_file("./data/15673/540081_1.dat", &missing).ok());
+}
+
+TEST_F(RowsetMetaTest, TestPackedPhysicalFsResolvesV2IndexFile) {
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+
+    // A V2 inverted index file is packed alongside its segment, as its own slice of the same
+    // packed object. `is_tablet_encrypted()` reads both, so both must resolve.
+    const std::string packed_file_path = "./packed_file_with_index.dat";
+    const std::string segment_content = "segment-payload";
+    const std::string index_content = "index-payload";
+    {
+        std::ofstream out(packed_file_path, std::ios::binary);
+        out << segment_content << index_content;
+    }
+    Defer defer {[&]() { static_cast<void>(std::filesystem::remove(packed_file_path)); }};
+
+    const std::string segment_path = "./data/15673/540081_0.dat";
+    const std::string index_path = "./data/15673/540081_0.idx";
+    const int64_t packed_file_size =
+            cast_set<int64_t>(segment_content.size() + index_content.size());
+    rowset_meta.add_packed_slice_location(segment_path, packed_file_path, 0,
+                                          cast_set<int64_t>(segment_content.size()),
+                                          packed_file_size);
+    rowset_meta.add_packed_slice_location(
+            index_path, packed_file_path, cast_set<int64_t>(segment_content.size()),
+            cast_set<int64_t>(index_content.size()), packed_file_size);
+
+    auto fs = rowset_meta.packed_physical_fs();
+    ASSERT_NE(fs, nullptr);
+
+    auto read_all = [&](const std::string& path, size_t expected_size) {
+        io::FileReaderSPtr reader;
+        EXPECT_TRUE(fs->open_file(path, &reader).ok());
+        EXPECT_EQ(reader->size(), expected_size);
+        std::string buf(expected_size, '\0');
+        size_t bytes_read = 0;
+        EXPECT_TRUE(reader->read_at(0, Slice(buf.data(), buf.size()), &bytes_read).ok());
+        EXPECT_EQ(bytes_read, expected_size);
+        return buf;
+    };
+
+    EXPECT_EQ(read_all(segment_path, segment_content.size()), segment_content);
+    EXPECT_EQ(read_all(index_path, index_content.size()), index_content);
 }
 
 } // namespace doris

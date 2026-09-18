@@ -22,6 +22,7 @@
 
 #include "gtest/gtest_pred_impl.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/workload_management/resource_context.h"
 
 namespace doris {
 

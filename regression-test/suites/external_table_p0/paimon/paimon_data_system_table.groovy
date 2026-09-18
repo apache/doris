@@ -146,6 +146,25 @@ suite("paimon_data_system_table", "p0,external") {
         assertJniPath("select rowkind, id[1], name[1] from ${nativeTableName}\$binlog", "${nativeTableName}\$binlog")
         assertJniPath("select rowkind, id, name from ${tableName}\$audit_log", "${tableName}\$audit_log")
         assertJniPath("select rowkind, id, name from ${nativeTableName}\$audit_log", "${nativeTableName}\$audit_log")
+        assertJniPath(
+                "select rowkind, id, name from ${tableName}\$audit_log"
+                        + "@incr('startSnapshotId'=1, 'endSnapshotId'=2)",
+                "${tableName}\$audit_log incremental")
+
+        order_qt_audit_log_incr """
+                select rowkind, id, name from ${tableName}\$audit_log
+                @incr('startSnapshotId'=1, 'endSnapshotId'=2)
+                order by id
+                """
+        order_qt_binlog_incr """
+                select rowkind, id[1], id[2], name[1], name[2] from ${tableName}\$binlog
+                @incr('startSnapshotId'=1, 'endSnapshotId'=2)
+                order by id[1]
+                """
+        qt_binlog_incr_count """
+                select count(*) from ${tableName}\$binlog
+                @incr('startSnapshotId'=1, 'endSnapshotId'=2)
+                """
 
         assertCountStarPushdown("select count(*) from ${tableName}\$binlog", "${tableName}\$binlog")
         assertCountStarPushdown("select count(*) from ${tableName}\$audit_log", "${tableName}\$audit_log")

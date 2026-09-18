@@ -21,12 +21,12 @@ PhysicalResultSink
 --------------------------------filter((supplier.s_region = 'AMERICA'))
 ----------------------------------PhysicalOlapScan[supplier]
 --------------------------PhysicalProject
-----------------------------filter(d_year IN (1997, 1998))
+----------------------------filter(dates.d_year IN (1997, 1998))
 ------------------------------PhysicalOlapScan[dates]
 ----------------------PhysicalProject
 ------------------------filter((customer.c_region = 'AMERICA'))
 --------------------------PhysicalOlapScan[customer]
 ------------------PhysicalProject
---------------------filter(p_mfgr IN ('MFGR#1', 'MFGR#2'))
+--------------------filter(part.p_mfgr IN ('MFGR#1', 'MFGR#2'))
 ----------------------PhysicalOlapScan[part]
 

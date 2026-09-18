@@ -37,6 +37,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -251,7 +252,11 @@ public class AuthenticationIntegrationRuntime {
 
         LinkedHashSet<String> grantedRoles = new LinkedHashSet<>(result.getGrantedRoles());
         grantedRoles.addAll(mappedRoles);
-        return AuthenticationOutcome.of(integration, AuthenticationResult.success(principal, grantedRoles));
+        OptionalLong credentialExpiresAtMillis = result.getCredentialExpiresAtMillis();
+        AuthenticationResult mappedResult = credentialExpiresAtMillis.isPresent()
+                ? AuthenticationResult.success(principal, grantedRoles, credentialExpiresAtMillis.getAsLong())
+                : AuthenticationResult.success(principal, grantedRoles);
+        return AuthenticationOutcome.of(integration, mappedResult);
     }
 
     private ResolvedAuthenticationPlugin resolvePluginForAuthentication(AuthenticationIntegrationMeta requestedMeta)
@@ -302,8 +307,12 @@ public class AuthenticationIntegrationRuntime {
         }
 
         if (!pluginManager.hasFactory(pluginType)) {
+            // The hint is what turns "not installed" into "installed but refused, and here is why" — a
+            // plugin refused on its declared API version never reaches factories, and the load itself does
+            // not throw as long as some other plugin directory loaded.
             throw new AuthenticationException(
-                    "No authentication plugin factory found for type: " + pluginType,
+                    "No authentication plugin factory found for type: " + pluginType
+                            + pluginManager.apiVersionRejectionHint(),
                     AuthenticationFailureType.MISCONFIGURED);
         }
     }

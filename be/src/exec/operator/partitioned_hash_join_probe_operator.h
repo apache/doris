@@ -295,4 +295,11 @@ private:
     int _repartition_max_depth = SpillRepartitioner::MAX_DEPTH;
 };
 
+/// Instantiated once in operator.cpp / join_probe_operator.cpp; suppresses per-TU
+/// implicit instantiation.
+extern template class StatefulOperatorX<PartitionedHashJoinProbeLocalState>;
+extern template class JoinProbeLocalState<PartitionedHashJoinSharedState,
+                                          PartitionedHashJoinProbeLocalState>;
+extern template class JoinProbeOperatorX<PartitionedHashJoinProbeLocalState>;
+
 } // namespace doris

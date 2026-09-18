@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "runtime/workload_management/resource_context.h"
 #include "util/uid_util.h"
 

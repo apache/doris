@@ -178,7 +178,7 @@ suite("iceberg_query_tag_branch", "p0,external") {
     def query_exception = {
         test {
             sql """ select * from tag_branch_table@branch('name'='not_exists_branch'); """
-            exception "UserException"
+            exception "can't find branch: not_exists_branch"
         }
         test {
             sql """ select * from tag_branch_table@branch('nme'='not_exists_branch'); """
@@ -186,16 +186,16 @@ suite("iceberg_query_tag_branch", "p0,external") {
         }
         test {
             sql """ select * from tag_branch_table@branch(not_exists_branch); """
-            exception "UserException"
+            exception "can't find branch: not_exists_branch"
         }
         test {
             sql """ select * from tag_branch_table for version as of 'not_exists_branch'; """
-            exception "UserException"
+            exception "can't find snapshot by tag: not_exists_branch"
         }
 
         test {
             sql """ select * from tag_branch_table@tag('name'='not_exists_tag'); """
-            exception "UserException"
+            exception "can't find snapshot by tag: not_exists_tag"
         }
         test {
             sql """ select * from tag_branch_table@tag('na'='not_exists_tag'); """
@@ -203,22 +203,22 @@ suite("iceberg_query_tag_branch", "p0,external") {
         }
         test {
             sql """ select * from tag_branch_table@tag(not_exists_tag); """
-            exception "UserException"
+            exception "can't find snapshot by tag: not_exists_tag"
         }
         test {
             sql """ select * from tag_branch_table for version as of 'not_exists_tag'; """
-            exception "UserException"
+            exception "can't find snapshot by tag: not_exists_tag"
         }
 
         // Use branch function to query tags
         test {
             sql """ select * from tag_branch_table@branch(t1) ; """
-            exception "does not have branch named t1"
+            exception "can't find branch: t1"
         }
         // Use tag function to query branch
         test {
             sql """ select * from tag_branch_table@tag(b1) ; """
-            exception "does not have tag named b1"
+            exception "can't find snapshot by tag: b1"
         }
 
         test {

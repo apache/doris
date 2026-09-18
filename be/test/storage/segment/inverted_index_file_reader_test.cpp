@@ -16,24 +16,32 @@
 // under the License.
 
 #include <CLucene.h>
+#include <errno.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "common/config.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "storage/data_dir.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/snii/snii_doris_adapter.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/debug_points.h"
 
 namespace doris::segment_v2 {
 
@@ -214,6 +222,44 @@ public:
         create_v2_file_with_null_bitmap(file_path, index_id, index_suffix, false);
     }
 
+    void create_snii_file_with_null_bitmap(const std::string& file_path, uint64_t index_id,
+                                           const std::string& index_suffix, bool has_null_bitmap) {
+        std::filesystem::path parent_path = std::filesystem::path(file_path).parent_path();
+        if (!std::filesystem::exists(parent_path)) {
+            std::filesystem::create_directories(parent_path);
+        }
+
+        io::FileWriterPtr file_writer;
+        io::FileWriterOptions opts;
+        Status st = io::global_local_filesystem()->create_file(file_path, &file_writer, &opts);
+        ASSERT_TRUE(st.ok()) << st;
+
+        snii_doris::DorisSniiFileWriter snii_file_writer(file_writer.get());
+        doris::snii::writer::SniiCompoundWriter writer(&snii_file_writer);
+        doris::snii::writer::TermPostings term;
+        term.term = "apple";
+        term.docids = {0};
+        term.freqs = {1};
+        term.positions_flat = {0};
+
+        doris::snii::writer::SniiIndexInput input;
+        input.index_id = index_id;
+        input.index_suffix = index_suffix;
+        input.config = doris::snii::format::IndexConfig::kDocsPositions;
+        input.doc_count = 2;
+        input.terms = {std::move(term)};
+        if (has_null_bitmap) {
+            input.null_docids = {1};
+        }
+
+        st = writer.add_logical_index(input);
+        ASSERT_TRUE(st.ok()) << st;
+        st = writer.finish();
+        ASSERT_TRUE(st.ok()) << st;
+        st = file_writer->close(false);
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
 private:
     StorageEngine* _engine_ref = nullptr;
     std::unique_ptr<DataDir> _data_dir = nullptr;
@@ -252,6 +298,30 @@ TEST_F(InvertedIndexFileReaderTest, TestUnknownIndexFormatError) {
     // since reading invalid data may trigger CLucene exceptions
     EXPECT_TRUE(status.msg().find("unknown inverted index format") != std::string::npos ||
                 status.msg().find("CLuceneError") != std::string::npos);
+}
+
+// A read-stage NotFound must surface as INVERTED_INDEX_FILE_NOT_FOUND so callers can downgrade.
+TEST_F(InvertedIndexFileReaderTest, TestV2ReadNotFoundReturnsFileNotFound) {
+    std::string index_path = kTestDir + "/read_not_found_index_file";
+    create_invalid_version_file(index_path + ".idx", 1);
+
+    InvertedIndexFileInfo file_info;
+    file_info.set_index_size(1024); // size known: init() skips stat, open succeeds
+
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::V2, file_info);
+
+    const auto old_enable = config::enable_debug_points;
+    config::enable_debug_points = true;
+    const std::string point = "LocalFileReader::read_at_impl.io_error";
+    DebugPoints::instance()->add_with_params(
+            point, {{"errno", std::to_string(ENOENT)}, {"sub_path", "read_not_found"}});
+    Status status = reader.init(4096);
+    DebugPoints::instance()->remove(point);
+    config::enable_debug_points = old_enable;
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
 }
 
 // Test case for V1 format file not found error
@@ -374,6 +444,57 @@ TEST_F(InvertedIndexFileReaderTest, TestHasNullV2WithSmallNullBitmap) {
     Status status = reader.has_null(&tablet_index, &res);
     EXPECT_TRUE(status.ok());
     EXPECT_FALSE(res); // Small bitmap should return false
+}
+
+// A rowset written before any index existed has no container file. The SNII
+// reader must report that as INVERTED_INDEX_FILE_NOT_FOUND, not as a bare
+// filesystem NOT_FOUND: IndexBuilder's BUILD INDEX rewrite tells "nothing to
+// inherit, build everything fresh" apart from a real IO failure by exactly that
+// code, and a plain NOT_FOUND aborts the whole build instead.
+TEST_F(InvertedIndexFileReaderTest, TestInitSniiMissingContainerReportsIndexFileNotFound) {
+    const std::string index_path = kTestDir + "/snii_absent_container";
+    InvertedIndexFileInfo file_info;
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::SNII, file_info);
+
+    const Status init_status = reader.init(4096);
+    EXPECT_TRUE(init_status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) << init_status;
+}
+
+TEST_F(InvertedIndexFileReaderTest, TestHasNullSniiWithNullBitmap) {
+    std::string index_path = kTestDir + "/has_null_snii";
+    create_snii_file_with_null_bitmap(index_path + ".idx", 1, "test", true);
+
+    InvertedIndexFileInfo file_info;
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::SNII, file_info);
+
+    Status init_status = reader.init(4096);
+    EXPECT_TRUE(init_status.ok());
+
+    MockTabletIndex tablet_index(1, "test");
+    bool res = false;
+    Status status = reader.has_null(&tablet_index, &res);
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(res);
+}
+
+TEST_F(InvertedIndexFileReaderTest, TestHasNullSniiWithoutNullBitmap) {
+    std::string index_path = kTestDir + "/has_null_snii_without_nulls";
+    create_snii_file_with_null_bitmap(index_path + ".idx", 1, "test", false);
+
+    InvertedIndexFileInfo file_info;
+    IndexFileReader reader(io::global_local_filesystem(), index_path,
+                           InvertedIndexStorageFormatPB::SNII, file_info);
+
+    Status init_status = reader.init(4096);
+    EXPECT_TRUE(init_status.ok());
+
+    MockTabletIndex tablet_index(1, "test");
+    bool res = true;
+    Status status = reader.has_null(&tablet_index, &res);
+    EXPECT_TRUE(status.ok());
+    EXPECT_FALSE(res);
 }
 
 // Test case for has_null method with V2 format stream nullptr

@@ -2747,11 +2747,8 @@ PARTITION `p599` VALUES IN (599)
    """
     sql """insert into string_min_max values (1,'name1'), (2, 'name2')"""
     sql """analyze table string_min_max with sync"""
-    explain {
-        sql("select min(name), max(name) from string_min_max")
-        contains "pushAggOp=NONE"
-    }
-    sql """set enable_pushdown_string_minmax = true"""
+    // Every string column is pushed down now, and the storage layer decides per segment whether
+    // a cut bound may answer. These bounds are short, so the zone map answers them.
     explain {
         sql("select min(name), max(name) from string_min_max")
         contains "pushAggOp=MINMAX"
@@ -2788,9 +2785,9 @@ PARTITION `p599` VALUES IN (599)
     sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
     alter_result = sql """show column stats alter_test(id)"""
     logger.info("show column alter_test(id) stats: " + alter_result)
-    assertEquals(1, alter_result.size())
+    assertEquals(0, alter_result.size())
     alter_result = sql """show column cached stats alter_test(id)"""
-    assertEquals(1, alter_result.size())
+    assertEquals(0, alter_result.size())
     sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='100', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
     alter_result = sql """show column stats alter_test(id)"""
     logger.info("show column alter_test(id) stats: " + alter_result)

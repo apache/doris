@@ -33,6 +33,7 @@
 #include "core/custom_allocator.h"
 #include "exec/sink/vtablet_finder.h"
 #include "load/channel/adaptive_random_bucket_state.h"
+#include "load/delta_writer/delta_writer_context.h"
 #include "runtime/runtime_profile.h"
 #include "util/bitmap.h"
 #include "util/uid_util.h"
@@ -47,8 +48,6 @@ class RepeatedPtrField;
 } // namespace google::protobuf
 
 namespace doris {
-class PSlaveTabletNodes;
-class PSuccessSlaveTabletNodeIds;
 class PTabletError;
 class PTabletInfo;
 class PTabletWriterOpenRequest;
@@ -125,7 +124,7 @@ public:
 protected:
     Status _init_adaptive_random_bucket_state(const PTabletWriterOpenRequest& request);
     Status _write_block_data(const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
-                             std::unordered_map<int64_t, DorisVector<uint32_t>>& tablet_to_rowidxs,
+                             std::unordered_map<int64_t, TabletAddRowsPayload>& tablet_to_rows,
                              PTabletWriterAddBlockResult* response);
     Status _write_block_data_for_adaptive_random_bucket(
             const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
@@ -147,10 +146,9 @@ protected:
     bool _is_broken_tablet(int64_t tablet_id) const;
     void _add_error_tablet(google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
                            int64_t tablet_id, Status error) const;
-    void _build_tablet_to_rowidxs(
+    void _build_tablet_to_rows(
             const PTabletWriterAddBlockRequest& request,
-            std::unordered_map<int64_t /* tablet_id */, DorisVector<uint32_t> /* row index */>*
-                    tablet_to_rowidxs);
+            std::unordered_map<int64_t /* tablet_id */, TabletAddRowsPayload>* tablet_to_rows);
     virtual void _init_profile(RuntimeProfile* profile);
 
     // id of this load channel
@@ -242,18 +240,11 @@ public:
     Status close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
                  PTabletWriterAddBlockResult* res, bool* finished) override;
 
-    Status cancel() override;
-
 private:
-    void _init_profile(RuntimeProfile* profile) override;
-
     // deal with DeltaWriter commit_txn(), add tablet to list for return.
-    void _commit_txn(DeltaWriter* writer, const PTabletWriterAddBlockRequest& req,
-                     PTabletWriterAddBlockResult* res);
+    void _commit_txn(DeltaWriter* writer, PTabletWriterAddBlockResult* res);
 
     StorageEngine& _engine;
-    bool _write_single_replica = false;
-    RuntimeProfile::Counter* _slave_replica_timer = nullptr;
 };
 
 } // namespace doris

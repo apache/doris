@@ -21,12 +21,14 @@
 
 #include <cstdint>
 #include <fstream>
+#include <string_view>
 
 #include "CLucene/store/Directory.h"
 #include "CLucene/store/FSDirectory.h"
 #include "roaring/roaring.hh"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis_factory_mgr.h"
+#include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/query/phrase_prefix_query.h"
 #include "storage/index/inverted/query/phrase_query.h"
 #include "storage/index/inverted/setting.h"
@@ -253,6 +255,25 @@ TEST_F(CustomAnalyzerTest, TokenStreamWithReaderPtr) {
     EXPECT_EQ(tokens, expected);
 
     delete token_stream;
+}
+
+Settings whitespace_tokenizer_settings() {
+    Settings settings;
+    settings.set("tokenize_on_chars", "[whitespace]");
+    return settings;
+}
+
+// "the" is a member of the built-in stop-word list, which is what default_word_set() resolves to
+// when no wordset file is installed -- the provider can no longer be handed a word list of its own.
+TEST_F(CustomAnalyzerTest, ProviderReturnsOneSharedAnalyzer) {
+    CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("char_group", whitespace_tokenizer_settings());
+    builder.add_token_filter_config("lowercase", {});
+    auto provider = std::make_shared<CustomAnalyzerProvider>(builder.build());
+
+    auto analyzer = provider->get_analyzer();
+    ASSERT_NE(analyzer, nullptr);
+    EXPECT_EQ(provider->get_analyzer(), analyzer);
 }
 
 // TEST_F(CustomAnalyzerTest, test) {

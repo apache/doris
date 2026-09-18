@@ -29,9 +29,10 @@
 #include "common/metrics/metrics.h"
 #include "common/metrics/system_metrics.h"
 #include "common/signal_handler.h"
-#include "exec/sink/autoinc_buffer.h"
 #include "load/memtable/memtable.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/binlog.h"
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_writer.h"
@@ -118,6 +119,10 @@ SharedMemtable::~SharedMemtable() {
     if (block == nullptr) {
         return;
     }
+    if (has_allocated_lsns) {
+        DCHECK(allocated_lsn_map != nullptr);
+        allocated_lsn_map->remove_segment(segment_id);
+    }
     DCHECK(memtable != nullptr);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
             memtable->resource_ctx()->memory_context()->mem_tracker()->write_tracker());
@@ -182,35 +187,12 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
 
         shared_memtable = std::make_shared<SharedMemtable>();
         shared_memtable->memtable = mem_table;
+        shared_memtable->allocated_lsn_map = group_rowset_writer->context().allocated_lsn_map;
         // Keep data/binlog segment_id allocators in sync.
-        auto segment_id = data_writer->allocate_segment_id();
-        auto binlog_segment_id = binlog_writer->allocate_segment_id();
+        auto segment_id = DORIS_TRY(data_writer->allocate_segment_id());
+        auto binlog_segment_id = DORIS_TRY(binlog_writer->allocate_segment_id());
         DCHECK_EQ(segment_id, binlog_segment_id);
         shared_memtable->segment_id = segment_id;
-
-        if (binlog_writer->context().write_binlog_opt().enable) {
-            if (_row_binlog_lsn_buffer == nullptr) {
-                std::unique_lock<std::mutex> lock(_mutex);
-                if (_row_binlog_lsn_buffer == nullptr) {
-                    if (_table_schema_param == nullptr) {
-                        return Status::InternalError<false>(
-                                "need binlog but table_schema_param is null");
-                    }
-                    _row_binlog_lsn_buffer =
-                            GlobalAutoIncBuffers::GetInstance()->get_auto_inc_buffer(
-                                    _table_schema_param->db_id(), _table_schema_param->table_id(),
-                                    kBinlogLsnAutoIncId);
-                }
-            }
-            std::shared_ptr<std::vector<int64_t>> lsn;
-            RETURN_IF_ERROR(
-                    allocate_binlog_lsn(_row_binlog_lsn_buffer, mem_table->raw_rows(), &lsn));
-            DCHECK(lsn != nullptr && !lsn->empty());
-            const_cast<RowsetWriterContext&>(binlog_writer->context())
-                    .write_binlog_opt()
-                    .write_binlog_config()
-                    .insert_seg_lsn(shared_memtable->segment_id, lsn);
-        }
 
         tasks.emplace_back(PartOfGroupMemtableFlushTask::create_shared(
                 shared_from_this(), shared_memtable, WriteRequestType::DATA, submit_task_time));
@@ -218,9 +200,9 @@ Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
                 shared_from_this(), shared_memtable, WriteRequestType::ROW_BINLOG,
                 submit_task_time));
     } else {
+        auto segment_id = DORIS_TRY(_rowset_writer->allocate_segment_id());
         tasks.emplace_back(MemtableFlushTask::create_shared(shared_from_this(), mem_table,
-                                                            _rowset_writer->allocate_segment_id(),
-                                                            submit_task_time));
+                                                            segment_id, submit_task_time));
     }
     // NOTE: we should guarantee WorkloadGroup is not deconstructed when submit memtable flush task.
     // because currently WorkloadGroup's can only be destroyed when all queries in the group is finished,
@@ -331,6 +313,15 @@ Status FlushToken::_memtable2block(MemTable* memtable, SharedMemtable* shared_me
         shared_memtable->block_status = memtable->to_block(&block);
         if (shared_memtable->block_status.ok()) {
             shared_memtable->block.reset(block.release());
+            // A non-null map is equivalent to RowsetWriterContext::need_allocated_lsn():
+            // GroupRowsetWriter::init() creates the map exactly when LSN allocation is needed.
+            const auto& lsn_map = shared_memtable->allocated_lsn_map;
+            if (lsn_map != nullptr && shared_memtable->block->rows() > 0) {
+                auto memtable_lsns = memtable->allocated_lsns();
+                DCHECK_EQ(memtable_lsns->size(), shared_memtable->block->rows());
+                lsn_map->insert_segment_allocated_lsns(shared_memtable->segment_id, memtable_lsns);
+                shared_memtable->has_allocated_lsns = true;
+            }
         }
     });
     if (!shared_memtable->block_status.ok()) {

@@ -89,7 +89,7 @@ Status LocalExchangeSinkOperatorX::prepare(RuntimeState* state) {
     if (_type == TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE ||
         _type == TLocalPartitionType::LOCAL_EXECUTION_HASH_SHUFFLE ||
         _type == TLocalPartitionType::BUCKET_HASH_SHUFFLE) {
-        RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
+        RETURN_IF_ERROR(_partitioner->prepare(state, _child->operator_row_desc_after_projection()));
         RETURN_IF_ERROR(_partitioner->open(state));
     }
 

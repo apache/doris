@@ -28,6 +28,9 @@ suite('test_warmup_table_docker', 'docker') {
         'file_cache_enter_disk_resource_limit_mode_percent=99',
         'enable_evict_file_cache_in_advance=false',
         'enable_only_warm_up_idx=true',
+        'file_cache_background_gc_interval_ms=10',
+        'file_cache_background_monitor_interval_ms=100',
+        'file_cache_background_block_lru_update_interval_ms=100',
     ]
     options.cloudMode = true
     options.beNum = 1
@@ -46,17 +49,17 @@ suite('test_warmup_table_docker', 'docker') {
         }
     }
 
-    def clearFileCacheOnAllBackends = {
+    def getBackendsByCluster = { clusterName ->
         def backends = sql """SHOW BACKENDS"""
+        return backends.findAll { it[19].contains("""\"compute_group_name\" : \"${clusterName}\"""") }
+    }
 
+    def clearFileCacheOnBackends = { backends ->
         for (be in backends) {
             def ip = be[1]
             def port = be[4]
             clearFileCache(ip, port)
         }
-
-        // clear file cache is async, wait it done
-        sleep(5000)
     }
 
     def getBrpcMetrics = {ip, port, name ->
@@ -68,6 +71,36 @@ suite('test_warmup_table_docker', 'docker') {
         } else {
             return 0
         }
+    }
+
+    def getClusterFileCacheSize = { clusterName ->
+        def backends = getBackendsByCluster(clusterName)
+        assertTrue(backends.size() > 0, "No backend found for cluster ${clusterName}")
+
+        long sum = 0
+        for (be in backends) {
+            def ip = be[1]
+            def port = be[5]
+            def size = getBrpcMetrics(ip, port, "file_cache_cache_size")
+            sum += size
+            logger.info("BE ${ip}:${port} cluster=${clusterName} file_cache_cache_size=${size}")
+        }
+        return sum
+    }
+
+    def waitClusterFileCacheCleared = { clusterName, timeoutMs = 60000, intervalMs = 1000 ->
+        long start = System.currentTimeMillis()
+        long currentSize = getClusterFileCacheSize(clusterName)
+        while (currentSize != 0 && System.currentTimeMillis() - start < timeoutMs) {
+            logger.info("Wait file cache clear for cluster ${clusterName}, current size=${currentSize}")
+            sleep(intervalMs)
+            currentSize = getClusterFileCacheSize(clusterName)
+        }
+        if (currentSize != 0) {
+            throw new RuntimeException("File cache on cluster ${clusterName} is not cleared in ${timeoutMs} ms, " +
+                    "current size=${currentSize}")
+        }
+        logger.info("File cache on cluster ${clusterName} has been cleared")
     }
 
     def updateBeConf = {cluster, key, value ->
@@ -84,12 +117,11 @@ suite('test_warmup_table_docker', 'docker') {
     docker(options) {
         def clusterName = "warmup_cluster"
 
-        // Add one cluster
-        cluster.addBackend(1, clusterName)
-
+        // rename default cluster， avoid add new cluster and stream load use wrong be
+        sql """ALTER SYSTEM RENAME COMPUTE GROUP compute_cluster ${clusterName}"""
         // Ensure we are in the cluster
         sql """use @${clusterName}"""
-        
+
         try {
             sql "set global enable_audit_plugin = false"
         } catch (Exception e) {
@@ -142,19 +174,20 @@ suite('test_warmup_table_docker', 'docker') {
         }
         sql "sync"
 
-        def backends = sql """SHOW BACKENDS"""
+        def backends = getBackendsByCluster(clusterName)
+        assertTrue(backends.size() > 0, "No backend found for cluster ${clusterName}")
         def ip = backends[0][1]
         def brpcPort = backends[0][5]
 
         sleep(3000)
-        def cache_size_after_load = getBrpcMetrics(ip, brpcPort, "cache_cache_size")
+        def cache_size_after_load = getClusterFileCacheSize(clusterName)
 
         // Clear file cache to ensure warm up actually does something
-        clearFileCacheOnAllBackends()
+        clearFileCacheOnBackends(backends)
 
-        sleep(3000)
-        def cache_size_after_clear = getBrpcMetrics(ip, brpcPort, "cache_cache_size")
-        assertEquals(cache_size_after_clear, 0)
+        waitClusterFileCacheCleared(clusterName)
+        def cache_size_after_clear = getClusterFileCacheSize(clusterName)
+        assertEquals(0, cache_size_after_clear)
 
         // Set enable_only_warm_up_idx = true
         updateBeConf(clusterName, "enable_only_warm_up_idx", "true")
@@ -184,7 +217,7 @@ suite('test_warmup_table_docker', 'docker') {
 
         assertTrue(waitJobFinished(id), "Warm up job ${id} did not finish in time")
         sleep(3000)
-        def cache_size_after_warm = getBrpcMetrics(ip, brpcPort, "cache_cache_size")
+        def cache_size_after_warm = getClusterFileCacheSize(clusterName)
 
         logger.info("Cache size after load: ${cache_size_after_load}, after clear: ${cache_size_after_clear}, after warm up: ${cache_size_after_warm}")
         assertTrue(cache_size_after_warm < cache_size_after_load);

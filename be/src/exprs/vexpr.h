@@ -174,10 +174,74 @@ public:
                                   uint8_t* __restrict result_filter_data, size_t rows,
                                   bool accept_null, bool* can_filter_all) const;
 
+    // Raw fixed-width evaluation is an optional expression capability used before a storage reader
+    // materializes a column. The capability query must validate the bound slot and logical type and
+    // remain stable for the reader lifetime. Execution receives `num_values` tightly packed,
+    // non-NULL logical values of `value_width` bytes; it ANDs decisions into the caller-owned
+    // `matches` array and must leave already rejected rows rejected. Callers handle NULL rows from
+    // definition levels because the physical value stream has no payload for them.
+    virtual bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                                 int column_id) const {
+        return false;
+    }
+    virtual Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
+                                               size_t value_width, const DataTypePtr& data_type,
+                                               int column_id, uint8_t* matches) const {
+        return Status::NotSupported("{} cannot evaluate raw fixed-width values", expr_name());
+    }
+
+    // Variable-width Parquet decoders expose `num_values` immutable, non-NULL slices rather than an
+    // IColumn. The capability query must validate the bound slot and logical type. Execution may
+    // borrow each slice only for the duration of the call and must AND its decisions into `matches`;
+    // expressions opt in only when Doris semantics are identical to comparing the decoded bytes.
+    virtual bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                                  int column_id) const {
+        return false;
+    }
+    virtual Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                                const DataTypePtr& data_type, int column_id,
+                                                uint8_t* matches) const {
+        return Status::NotSupported("{} cannot evaluate raw binary values", expr_name());
+    }
+
+    // Returns the Boolean result for a logical NULL whose payload is absent from decoder value
+    // callbacks. Most raw predicates reject NULL; dynamic predicates override this hook when
+    // their current runtime state can admit it.
+    virtual bool raw_predicate_result_for_null() const { return false; }
+
+    // Parquet NULLs have no value payload. Level-aware predicates consume the definition-level
+    // null map directly instead of forcing the reader to fabricate a nullable Doris column.
+    virtual bool can_execute_on_null_map(const DataTypePtr& data_type, int column_id) const {
+        return false;
+    }
+    virtual Status execute_on_null_map(const uint8_t* null_map, size_t num_values,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const {
+        return Status::NotSupported("{} cannot evaluate a NULL map", expr_name());
+    }
+
+    // Typed reader evaluation is an optional capability for runtime-filter wrappers. It lets a
+    // storage reader consume converted logical values without scheduling the same expression on
+    // a materialized file block afterwards.
+    virtual bool can_execute_on_reader_values(const DataTypePtr& data_type, int column_id) const {
+        return false;
+    }
+
     // `is_blockable` means this expr will be blocked in `execute` (e.g. AI Function, Remote Function)
     [[nodiscard]] virtual bool is_blockable() const {
         return std::any_of(_children.begin(), _children.end(),
                            [](VExprSPtr child) { return child->is_blockable(); });
+    }
+
+    [[nodiscard]] virtual bool is_deterministic() const {
+        return std::ranges::all_of(
+                _children, [](const VExprSPtr& child) { return child->is_deterministic(); });
+    }
+
+    [[nodiscard]] virtual bool is_safe_to_execute_on_selected_rows() const {
+        return is_deterministic() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                   return child->is_safe_to_execute_on_selected_rows();
+               });
     }
 
     // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
@@ -187,6 +251,11 @@ public:
 
     virtual ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const;
     virtual bool can_evaluate_zonemap_filter() const { return false; }
+    // Dictionary evaluation is an optional conservative pruning capability over non-NULL values.
+    // kNoMatch proves that no dictionary entry can satisfy the expression, kMayMatch means at least
+    // one entry may satisfy it (or pruning cannot currently disprove it), and kUnsupported means the
+    // context lacks a compatible binding. Capability must describe expression shape, not the
+    // current contents of a late-arriving runtime filter, because readers may cache it.
     virtual ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const;
     virtual bool can_evaluate_dictionary_filter() const { return false; }
     virtual ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const;
@@ -196,6 +265,10 @@ public:
     [[nodiscard]] virtual const std::string& get_analyzer_key() const {
         static const std::string empty;
         return empty;
+    }
+
+    [[nodiscard]] virtual const InvertedIndexAnalyzerCtx* query_analyzer_ctx() const {
+        return nullptr;
     }
 
     Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
@@ -364,8 +437,7 @@ public:
 #endif
     virtual Status evaluate_ann_range_search(
             const segment_v2::AnnRangeSearchRuntime& runtime,
-            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             size_t rows_of_segment, roaring::Roaring& row_bitmap,
             segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
@@ -543,6 +615,15 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_date_literal(date_literal);
         (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2, precision, scale));
+    } else if constexpr (T == TYPE_TIMESTAMP_NS) {
+        const auto* origin_value = reinterpret_cast<const TimeStampNsValue*>(data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMESTAMP_NS));
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         const auto* origin_value = reinterpret_cast<const TimestampTzValue*>(data);
         TDateLiteral date_literal;
@@ -633,8 +714,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_ipv6_literal(literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else if constexpr (T == TYPE_TIMEV2) {
-        // the code use for runtime filter but we dont support timev2 as predicate now
-        // so this part not used
+        // Runtime filters preserve TIMEV2's microsecond carrier and scale in the literal node.
         const auto* origin_value = reinterpret_cast<const double*>(data);
         TTimeV2Literal timev2_literal;
         timev2_literal.__set_value(*origin_value);

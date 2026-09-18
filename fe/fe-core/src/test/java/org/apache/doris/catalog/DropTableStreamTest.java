@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
@@ -25,9 +26,14 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.DropStreamCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TRow;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class DropTableStreamTest extends TestWithFeService {
 
@@ -66,6 +72,33 @@ public class DropTableStreamTest extends TestWithFeService {
         }
     }
 
+    private void createBaseTableAndStream(String tableName, String streamName) throws Exception {
+        createTable("create table test_stream." + tableName + " (k1 int, k2 int) "
+                + "unique key(k1) distributed by hash(k1) buckets 1 "
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+        createTable("create stream test_stream." + streamName + " on table test_stream." + tableName
+                + " properties('show_initial_rows' = 'true')");
+    }
+
+    private TRow getStreamMetadataRow(String streamName) {
+        List<TRow> rows = new ArrayList<>();
+        Env.getCurrentEnv().getTableStreamManager().fillTableStreamValuesMetadataResult(rows);
+        return rows.stream()
+                .filter(row -> streamName.equals(row.getColumnValue().get(1).getStringVal()))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+    }
+
+    private void assertStreamMetadataState(String streamName, String baseTableType,
+            boolean enabled, boolean stale, String staleReason) {
+        TRow row = getStreamMetadataRow(streamName);
+        Assertions.assertEquals(baseTableType, row.getColumnValue().get(9).getStringVal());
+        Assertions.assertEquals(enabled, row.getColumnValue().get(10).isBoolVal());
+        Assertions.assertEquals(stale, row.getColumnValue().get(11).isBoolVal());
+        Assertions.assertEquals(staleReason, row.getColumnValue().get(12).getStringVal());
+    }
+
     @Test
     public void testNormalDropStream() throws Exception {
         // test drop
@@ -88,6 +121,56 @@ public class DropTableStreamTest extends TestWithFeService {
         // test not exist
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown table 's3' in test_stream",
                 () -> dropStream("drop stream test_stream.s3;"));
+    }
+
+    @Test
+    public void testCloudDropRequiresForce() {
+        String previousCloudUniqueId = Config.cloud_unique_id;
+        Config.cloud_unique_id = "cloud_table_stream_ut";
+        try {
+            Exception exception = Assertions.assertThrows(Exception.class,
+                    () -> dropStream("drop stream test_stream.not_reached;"));
+            Assertions.assertTrue(exception.getMessage().contains("only supports DROP STREAM ... FORCE"));
+        } finally {
+            Config.cloud_unique_id = previousCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testStreamMetadataFollowsRecoverableBaseTable() throws Exception {
+        createBaseTableAndStream("tbl_recover", "s_recover");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        long baseTableId = db.getTableOrMetaException("tbl_recover").getId();
+
+        assertStreamMetadataState("s_recover", "OLAP", true, false, "N/A");
+
+        dropTableWithSql("drop table test_stream.tbl_recover");
+        assertStreamMetadataState("s_recover", "N/A", false, true, "Base table does not exist");
+
+        recoverTable("recover table test_stream.tbl_recover");
+        Assertions.assertEquals(baseTableId, db.getTableOrMetaException("tbl_recover").getId());
+        assertStreamMetadataState("s_recover", "OLAP", true, false, "N/A");
+    }
+
+    @Test
+    public void testStreamMetadataRejectsSameNameBaseTable() throws Exception {
+        createBaseTableAndStream("tbl_force", "s_force");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        long oldBaseTableId = db.getTableOrMetaException("tbl_force").getId();
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("s_force");
+
+        dropTableWithSql("drop table test_stream.tbl_force force");
+        Assertions.assertNull(stream.getBaseTableNullable());
+        assertStreamMetadataState("s_force", "N/A", false, true, "Base table does not exist");
+
+        createTable("create table test_stream.tbl_force (k1 int, k2 int) "
+                + "unique key(k1) distributed by hash(k1) buckets 1 "
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
+                + "'binlog.need_historical_value' = 'true')");
+
+        Assertions.assertNotEquals(oldBaseTableId, db.getTableOrMetaException("tbl_force").getId());
+        Assertions.assertNull(stream.getBaseTableNullable());
+        assertStreamMetadataState("s_force", "N/A", false, true, "Base table does not exist");
     }
 
     @Override

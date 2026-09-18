@@ -35,10 +35,10 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -55,13 +55,13 @@ public class RoutineLoadTaskSchedulerTest {
     private AgentTaskExecutor agentTaskExecutor = Mockito.mock(AgentTaskExecutor.class);
     private MockedStatic<Env> envStatic;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         envStatic = Mockito.mockStatic(Env.class);
         envStatic.when(Env::getCurrentEnv).thenReturn(env);
     }
 
-    @After
+    @AfterEach
     public void tearDown() {
         envStatic.close();
     }
@@ -131,15 +131,15 @@ public class RoutineLoadTaskSchedulerTest {
         Deencapsulation.invoke(routineLoadTaskScheduler, "handleSubmitTaskFailure",
                 routineLoadTaskInfo, "network error");
 
-        Assert.assertTrue(routineLoadJob.isRenewCalledWithWriteLock());
+        Assertions.assertTrue(routineLoadJob.isRenewCalledWithWriteLock());
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList =
                 Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
-        Assert.assertEquals(1, routineLoadTaskInfoList.size());
-        Assert.assertNotSame(routineLoadTaskInfo, routineLoadTaskInfoList.get(0));
+        Assertions.assertEquals(1, routineLoadTaskInfoList.size());
+        Assertions.assertNotSame(routineLoadTaskInfo, routineLoadTaskInfoList.get(0));
 
         LinkedBlockingDeque<RoutineLoadTaskInfo> needScheduleTasksQueue =
                 Deencapsulation.getField(routineLoadTaskScheduler, "needScheduleTasksQueue");
-        Assert.assertSame(routineLoadTaskInfoList.get(0), needScheduleTasksQueue.peek());
+        Assertions.assertSame(routineLoadTaskInfoList.get(0), needScheduleTasksQueue.peek());
     }
 
     @Test
@@ -160,10 +160,10 @@ public class RoutineLoadTaskSchedulerTest {
         Deencapsulation.invoke(routineLoadTaskScheduler, "handleSubmitTaskFailure",
                 routineLoadTaskInfo, "network error");
 
-        Assert.assertFalse(routineLoadJob.isRenewCalled());
+        Assertions.assertFalse(routineLoadJob.isRenewCalled());
         LinkedBlockingDeque<RoutineLoadTaskInfo> needScheduleTasksQueue =
                 Deencapsulation.getField(routineLoadTaskScheduler, "needScheduleTasksQueue");
-        Assert.assertTrue(needScheduleTasksQueue.isEmpty());
+        Assertions.assertTrue(needScheduleTasksQueue.isEmpty());
     }
 
     @Test
@@ -185,10 +185,10 @@ public class RoutineLoadTaskSchedulerTest {
         Deencapsulation.invoke(routineLoadTaskScheduler, "handleSubmitTaskFailure",
                 routineLoadTaskInfo, "network error");
 
-        Assert.assertFalse(routineLoadJob.isRenewCalled());
+        Assertions.assertFalse(routineLoadJob.isRenewCalled());
         LinkedBlockingDeque<RoutineLoadTaskInfo> needScheduleTasksQueue =
                 Deencapsulation.getField(routineLoadTaskScheduler, "needScheduleTasksQueue");
-        Assert.assertTrue(needScheduleTasksQueue.isEmpty());
+        Assertions.assertTrue(needScheduleTasksQueue.isEmpty());
     }
 
     private static class LockCheckingKafkaRoutineLoadJob extends KafkaRoutineLoadJob {

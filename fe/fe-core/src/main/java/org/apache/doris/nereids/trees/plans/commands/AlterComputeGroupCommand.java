@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.catalog.ComputeGroup;
+import org.apache.doris.cloud.catalog.CloudComputeGroupMeta;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -68,7 +68,7 @@ public class AlterComputeGroupCommand extends AlterCommand {
 
         CloudSystemInfoService cloudSys = ((CloudSystemInfoService) Env.getCurrentSystemInfo());
         // check compute group exist
-        ComputeGroup cg = cloudSys.getComputeGroupByName(computeGroupName);
+        CloudComputeGroupMeta cg = cloudSys.getComputeGroupByName(computeGroupName);
         if (cg == null) {
             throw new AnalysisException("Compute Group " + computeGroupName + " does not exist");
         }

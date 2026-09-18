@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Use #define private public to access private members for white-box testing
 // of SegmentIterator::_can_opt_limit_reads() and its dependent state. Mirrors
 // the convention in segment_iterator_apply_index_expr_test.cpp.
 #include "core/block/block.h"
@@ -31,11 +30,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
-#define protected public
 #include "storage/segment/segment_iterator.h"
-#undef private
-#undef protected
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -74,11 +69,8 @@ protected:
 
         _tablet_schema = std::make_shared<TabletSchema>();
         _tablet_schema->init_from_pb(schema_pb);
-        std::vector<ColumnId> read_column_ids(_tablet_schema->num_columns());
-        for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
-            read_column_ids[cid] = cid;
-        }
-        _read_schema = std::make_shared<Schema>(_tablet_schema->columns(), read_column_ids);
+        // Read schema covers all tablet columns in order, so ordinal == tablet cid.
+        _read_schema = std::make_shared<ReadSchema>(_tablet_schema->columns());
     }
 
     // Build a SegmentIterator with minimal opts for _can_opt_limit_reads() testing.
@@ -92,7 +84,7 @@ protected:
     }
 
     std::shared_ptr<TabletSchema> _tablet_schema;
-    SchemaSPtr _read_schema;
+    ReadSchemaSPtr _read_schema;
     OlapReaderStatistics _stats;
 };
 

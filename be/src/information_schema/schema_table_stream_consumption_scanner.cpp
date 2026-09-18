@@ -25,6 +25,7 @@
 #include "core/string_ref.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "information_schema/schema_helper.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/client_cache.h"

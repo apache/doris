@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -50,11 +51,13 @@ public class IndexDefinition {
     public static final int MAX_NGRAM_SIZE = 255;
     public static final int MIN_BF_SIZE = 64;
     public static final int MAX_BF_SIZE = 65535;
-
     public static final String NGRAM_SIZE_KEY = "gram_size";
     public static final String NGRAM_BF_SIZE_KEY = "bf_size";
     public static final String DEFAULT_NGRAM_SIZE = "2";
     public static final String DEFAULT_NGRAM_BF_SIZE = "256";
+    private static final double MIN_BF_FPP = 0.0001;
+    private static final double MAX_BF_FPP = 0.05;
+
     private final String name;
     private final List<String> cols;
     private final String comment;
@@ -82,6 +85,10 @@ public class IndexDefinition {
             switch (indexTypeName) {
                 case "INVERTED": {
                     this.indexType = IndexType.INVERTED;
+                    break;
+                }
+                case "BLOOMFILTER": {
+                    this.indexType = IndexType.BLOOMFILTER;
                     break;
                 }
                 case "NGRAM_BF": {
@@ -139,6 +146,31 @@ public class IndexDefinition {
     }
 
     /**
+     * Scalar column types the SNII storage format can serve with its native BKD index.
+     *
+     * <p>This mirrors {@code field_is_numeric_type} on the BE side, which is what
+     * {@code IndexColumnWriter::create} and {@code ColumnReader::_load_index} route on. A one-level
+     * ARRAY of such a type is included: the BE adapter indexes each element as its own point under
+     * the row's id, so a row matches when any of its elements does. VARIANT is excluded for the
+     * reason it always was on SNII -- there is no writer for it.
+     */
+    public static boolean isSupportSniiNumericIdxType(DataType columnType) {
+        if (columnType.isArrayType()) {
+            // One level only, matching isSupportIdxType: the BE adapter indexes an
+            // array row as several points under one row id, and a nested array has
+            // no such flattening.
+            DataType itemType = ((ArrayType) columnType).getItemType();
+            return !itemType.isArrayType() && isSupportSniiNumericIdxType(itemType);
+        }
+        if (columnType.isVariantType()) {
+            return false;
+        }
+        return columnType.isDateLikeType() || columnType.isDecimalLikeType()
+                || columnType.isIntegralType() || columnType.isBooleanType()
+                || columnType.isIPType() || columnType.isFloatLikeType();
+    }
+
+    /**
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
@@ -164,6 +196,10 @@ public class IndexDefinition {
                         "ANN index can only be used in DUP_KEYS table or UNIQUE_KEYS table with"
                                 + " merge-on-write enabled");
             }
+            if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
+                throw new AnalysisException("ANN index is not supported in index format "
+                        + invertedIndexFileStorageFormat);
+            }
             return;
         }
 
@@ -177,6 +213,20 @@ public class IndexDefinition {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
             }
+            if (indexType == IndexType.INVERTED
+                    && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                boolean isStringIndex = colType.isStringLikeType()
+                        || (colType.isArrayType()
+                            && ((ArrayType) colType).getItemType().isStringLikeType());
+                // VARIANT carries no postings itself; its extracted sub-columns are indexed
+                // under their own suffix paths and are type-checked at write time.
+                if (!isStringIndex && !colType.isVariantType()
+                        && !isSupportSniiNumericIdxType(colType)) {
+                    throw new AnalysisException(
+                            "SNII inverted index storage format does not support index on column: "
+                                    + indexColName);
+                }
+            }
 
             // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
             // when the subcolumn type changes, it may result in missing files, causing link file failure.
@@ -187,8 +237,8 @@ public class IndexDefinition {
                     (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
                         || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT)
                             && (Config.isCloudMode() || !Config.enable_inverted_index_v1_for_variant);
-
-            if (colType.isVariantType() && notSupportInvertedIndexForVariant) {
+            // Bloom filter support variant type, so skip the check for bloom filter index.
+            if (indexType != IndexType.BLOOMFILTER && colType.isVariantType() && notSupportInvertedIndexForVariant) {
                 throw new AnalysisException(colType + " is not supported in inverted index format V1,"
                         + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
                         + "or upgrade to a newer version");
@@ -231,6 +281,13 @@ public class IndexDefinition {
                 } catch (Exception ex) {
                     throw new AnalysisException("invalid ngram bf index params:" + ex.getMessage(), ex);
                 }
+            } else if (indexType == IndexType.BLOOMFILTER) {
+                Column bfColumn = new Column(indexColName, column.getType().toCatalogDataType());
+                if (!bfColumn.isSupportBloomFilter()) {
+                    throw new AnalysisException(colType + " is not supported in bloom filter index. "
+                            + "invalid column: " + indexColName);
+                }
+                validateBloomFilterProperties();
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
@@ -265,7 +322,8 @@ public class IndexDefinition {
                                 + " merge-on-write enabled");
             }
             if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
-                throw new AnalysisException("ANN index is not supported in index format V1");
+                throw new AnalysisException("ANN index is not supported in index format "
+                        + invertedIndexFileStorageFormat);
             }
             return;
         }
@@ -280,9 +338,18 @@ public class IndexDefinition {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                     + "invalid index: " + name);
             }
-
-            if (indexType == IndexType.ANN && !colType.isArrayType()) {
-                throw new AnalysisException("ANN index column must be array type");
+            if (indexType == IndexType.INVERTED
+                    && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII) {
+                boolean isStringIndex = colType.isStringType()
+                        || (colType.isArrayType()
+                            && ((org.apache.doris.catalog.ArrayType) columnType).getItemType().isStringType());
+                // Same rule as the ColumnDefinition overload above.
+                if (!isStringIndex && !colType.isVariantType()
+                        && !isSupportSniiNumericIdxType(DataType.fromCatalogType(columnType))) {
+                    throw new AnalysisException(
+                            "SNII inverted index storage format does not support index on column: "
+                                    + indexColName);
+                }
             }
 
             // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
@@ -294,8 +361,8 @@ public class IndexDefinition {
                     (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1
                     || invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.DEFAULT)
                     && (Config.isCloudMode() || !Config.enable_inverted_index_v1_for_variant);
-
-            if (colType.isVariantType() && notSupportInvertedIndexForVariant) {
+            // Bloom filter support variant type, so skip the check for bloom filter index.
+            if (indexType != IndexType.BLOOMFILTER && colType.isVariantType() && notSupportInvertedIndexForVariant) {
                 throw new AnalysisException(colType + " is not supported in inverted index format V1,"
                         + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
                         + "or upgrade to a newer version");
@@ -331,6 +398,12 @@ public class IndexDefinition {
 
                 parseAndValidateProperty(properties, NGRAM_SIZE_KEY, MIN_NGRAM_SIZE, MAX_NGRAM_SIZE);
                 parseAndValidateProperty(properties, NGRAM_BF_SIZE_KEY, MIN_BF_SIZE, MAX_BF_SIZE);
+            } else if (indexType == IndexType.BLOOMFILTER) {
+                if (!column.isSupportBloomFilter()) {
+                    throw new AnalysisException(colType + " is not supported in bloom filter index. "
+                            + "invalid column: " + indexColName);
+                }
+                validateBloomFilterProperties();
             }
         } else {
             throw new AnalysisException("Unsupported index type: " + indexType);
@@ -344,7 +417,8 @@ public class IndexDefinition {
         if (partitionNames != null) {
             partitionNames.validate();
         }
-        if (isBuildDeferred && (indexType == IndexType.INVERTED || indexType == IndexType.NGRAM_BF)) {
+        if (isBuildDeferred && (indexType == IndexType.INVERTED || indexType == IndexType.NGRAM_BF
+                || indexType == IndexType.BLOOMFILTER)) {
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("index name cannot be blank.");
             }
@@ -360,7 +434,7 @@ public class IndexDefinition {
         }
 
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
-                || indexType == IndexType.NGRAM_BF) {
+                || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             if (cols == null || cols.size() != 1) {
                 throw new AnalysisException(
                         indexType.toString() + " index can only apply to a single column.");
@@ -458,6 +532,26 @@ public class IndexDefinition {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    private void validateBloomFilterProperties() {
+        if (properties.isEmpty()) {
+            return;
+        }
+
+        if (properties.size() != 1 || !properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
+            throw new AnalysisException("BLOOMFILTER index only supports property bloom_filter_fpp");
+        }
+
+        String fpp = properties.get(PropertyAnalyzer.PROPERTIES_BF_FPP);
+        try {
+            double fppValue = Double.parseDouble(fpp);
+            if (!Double.isFinite(fppValue) || fppValue < MIN_BF_FPP || fppValue > MAX_BF_FPP) {
+                throw new AnalysisException("Bloom filter fpp should in [" + MIN_BF_FPP + ", " + MAX_BF_FPP + "]");
+            }
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Bloom filter fpp is not Double", e);
+        }
     }
 
     public boolean isAnnIndex() {

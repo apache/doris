@@ -774,6 +774,8 @@ bool ColumnStr<T>::is_valid_utf8() const {
     return true;
 }
 
+// A new instantiation here needs the matching 'extern template' declaration
+// in column_string.h (enforced by check-extern-template-pairing.py).
 template class ColumnStr<uint32_t>;
 template class ColumnStr<uint64_t>;
 } // namespace doris

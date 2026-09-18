@@ -33,7 +33,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AliasInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.statistics.ResultRow;
+import org.apache.doris.statistics.repository.ResultRow;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -61,6 +61,13 @@ import java.util.stream.Stream;
  */
 public class Utils {
     public static final boolean enableAssert;
+
+    /**
+     * Check whether two objects are non-null and have the same concrete class.
+     */
+    public static boolean isSameClass(Object left, Object right) {
+        return left != null && right != null && left.getClass() == right.getClass();
+    }
 
     static {
         boolean enabled = false;

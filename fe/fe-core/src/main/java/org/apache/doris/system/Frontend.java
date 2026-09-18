@@ -50,6 +50,7 @@ public class Frontend implements Writable {
     private String cloudUniqueId;
 
     private String version;
+    private transient String localResourceGroup = "";
 
     private int queryPort;
     private int rpcPort;
@@ -90,6 +91,10 @@ public class Frontend implements Writable {
 
     public String getVersion() {
         return version;
+    }
+
+    public String getLocalResourceGroup() {
+        return localResourceGroup;
     }
 
     public String getNodeName() {
@@ -152,6 +157,10 @@ public class Frontend implements Writable {
         this.cloudUniqueId = cloudUniqueId;
     }
 
+    public void setLocalResourceGroup(String localResourceGroup) {
+        this.localResourceGroup = localResourceGroup;
+    }
+
     public String getCloudUniqueId() {
         return cloudUniqueId;
     }
@@ -183,6 +192,9 @@ public class Frontend implements Writable {
             heartbeatErrMsg = "";
             lastStartupTime = hbResponse.getFeStartTime();
             diskInfos = hbResponse.getDiskInfos();
+            if (hbResponse.getLocalResourceGroup() != null) {
+                setLocalResourceGroup(hbResponse.getLocalResourceGroup());
+            }
             isChanged = true;
             processUUID = hbResponse.getProcessUUID();
         } else {
@@ -196,6 +208,7 @@ public class Frontend implements Writable {
                 isChanged = true;
             }
             heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
+            setLocalResourceGroup("");
         }
         return isChanged;
     }

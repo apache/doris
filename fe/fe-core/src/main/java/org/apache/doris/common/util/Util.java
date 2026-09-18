@@ -78,6 +78,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DATETIME, "datetime");
         TYPE_STRING_MAP.put(PrimitiveType.DATEV2, "datev2");
         TYPE_STRING_MAP.put(PrimitiveType.DATETIMEV2, "datetimev2");
+        TYPE_STRING_MAP.put(PrimitiveType.TIMESTAMP_NS, "timestamp_ns");
         TYPE_STRING_MAP.put(PrimitiveType.TIMESTAMPTZ, "timestamptz");
         TYPE_STRING_MAP.put(PrimitiveType.CHAR, "char(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.VARCHAR, "varchar(%d)");
@@ -430,9 +431,6 @@ public class Util {
             return TFileFormatType.FORMAT_WAL;
         } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_ARROW)) {
             return TFileFormatType.FORMAT_ARROW;
-        } else if (lowerFileFormat.equals(FileFormatConstants.FORMAT_NATIVE)) {
-            // Doris Native binary columnar format
-            return TFileFormatType.FORMAT_NATIVE;
         } else {
             return TFileFormatType.FORMAT_UNKNOWN;
         }
@@ -503,6 +501,16 @@ public class Util {
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
                 || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
+    }
+
+    public static boolean isCasePreservingFormat(String formatName) {
+        return !Strings.isNullOrEmpty(formatName)
+                && isCasePreservingFormat(getFileFormatTypeFromName(formatName));
+    }
+
+    public static boolean isCasePreservingFormat(TFileFormatType fileFormatType) {
+        return fileFormatType == TFileFormatType.FORMAT_JSON
+                || fileFormatType == TFileFormatType.FORMAT_ARROW;
     }
 
     public static void logAndThrowRuntimeException(Logger logger, String msg, Throwable e) {

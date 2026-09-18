@@ -22,11 +22,13 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
+import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.util.StreamingJobUtils;
 
-import org.junit.Assert;
-import org.junit.Test;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -37,12 +39,14 @@ import java.util.Map;
 
 public class CdcStreamTableValuedFunctionTest {
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     @Test
     public void testDeleteSignIsExcludedByDefault() throws Exception {
         List<Column> columns = getTableColumns(baseProperties());
 
-        Assert.assertEquals(1, columns.size());
-        Assert.assertEquals("id", columns.get(0).getName());
+        Assertions.assertEquals(1, columns.size());
+        Assertions.assertEquals("id", columns.get(0).getName());
     }
 
     @Test
@@ -52,11 +56,11 @@ public class CdcStreamTableValuedFunctionTest {
 
         List<Column> columns = getTableColumns(properties);
 
-        Assert.assertEquals(2, columns.size());
+        Assertions.assertEquals(2, columns.size());
         Column deleteSign = columns.get(1);
-        Assert.assertEquals(Column.DELETE_SIGN, deleteSign.getName());
-        Assert.assertEquals(PrimitiveType.TINYINT, deleteSign.getType().getPrimitiveType());
-        Assert.assertFalse(deleteSign.isAllowNull());
+        Assertions.assertEquals(Column.DELETE_SIGN, deleteSign.getName());
+        Assertions.assertEquals(PrimitiveType.TINYINT, deleteSign.getType().getPrimitiveType());
+        Assertions.assertFalse(deleteSign.isAllowNull());
     }
 
     @Test
@@ -64,10 +68,21 @@ public class CdcStreamTableValuedFunctionTest {
         Map<String, String> properties = baseProperties();
         properties.put(CdcStreamTableValuedFunction.INCLUDE_DELETE_SIGN, "invalid");
 
-        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> new CdcStreamTableValuedFunction(properties));
 
-        Assert.assertTrue(exception.getMessage().contains("include_delete_sign"));
+        Assertions.assertTrue(exception.getMessage().contains("include_delete_sign"));
+    }
+
+    @Test
+    public void testMysqlJdbcUrlIsNormalizedInPayload() throws Exception {
+        CdcStreamTableValuedFunction function = new CdcStreamTableValuedFunction(baseProperties());
+
+        FetchRecordRequest request = OBJECT_MAPPER.readValue(
+                function.getBackendConnectProperties().get("http.payload"), FetchRecordRequest.class);
+        Assertions.assertEquals("jdbc:mysql://localhost:3306/test_db?yearIsDateType=false"
+                        + "&tinyInt1isBit=false&useUnicode=true&characterEncoding=utf-8",
+                request.getConfig().get(DataSourceConfigKeys.JDBC_URL));
     }
 
     private List<Column> getTableColumns(Map<String, String> properties) throws Exception {

@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -86,6 +87,24 @@ public interface MTMVRelatedTableIf extends TableIf {
             Optional<MvccSnapshot> snapshot) throws AnalysisException;
 
     /**
+     * Loads partition snapshots in bulk when the table supports it. The compatibility default retains the
+     * original one-at-a-time behavior while retaining failures by partition name in the refresh context;
+     * plugin-driven external tables override it to reach connector batching.
+     */
+    default Map<String, MTMVSnapshotIf> getPartitionSnapshots(Set<String> partitionNames,
+            MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        Map<String, MTMVSnapshotIf> snapshots = new LinkedHashMap<>();
+        for (String partitionName : partitionNames) {
+            try {
+                snapshots.put(partitionName, getPartitionSnapshot(partitionName, context, snapshot));
+            } catch (AnalysisException e) {
+                context.recordPartitionSnapshotFailure(this, partitionName, e);
+            }
+        }
+        return snapshots;
+    }
+
+    /**
      * getTableSnapshot
      * It is best to use the version. If there is no version, use the last update time
      * If snapshots have already been obtained in bulk in the context,
@@ -115,6 +134,20 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return the newest update time(external table) or version(internal table) of the table. 0 for something wrong.
      */
     long getNewestUpdateVersionOrTime();
+
+    /**
+     * The table's newest data-update time as a genuine WALL-CLOCK epoch-millis value, used ONLY by the
+     * SqlCache eligibility "quiet window" gate ({@code CacheAnalyzer}), never for staleness. It differs from
+     * {@link #getNewestUpdateVersionOrTime()} only when that token is not epoch-millis (iceberg returns
+     * microseconds): the default returns the token unchanged, which is correct for every table whose token is
+     * already epoch-millis (olap visible version, hive last-DDL millis, paimon file-creation millis), while
+     * the plugin range-view table (iceberg) overrides it to return the connector-normalized wall-clock millis.
+     *
+     * @return the newest-update wall-clock epoch millis; {@code 0} for something wrong.
+     */
+    default long getNewestUpdateTimeMillisForCache() {
+        return getNewestUpdateVersionOrTime();
+    }
 
     /**
      * Does the current type of table allow timed triggering

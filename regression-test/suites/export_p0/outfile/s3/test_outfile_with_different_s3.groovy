@@ -22,7 +22,7 @@ suite("test_outfile_with_different_s3", "p0") {
     def outfile_to_S3 = {bucket, s3_endpoint, region, ak, sk  ->
         def outFilePath = "${bucket}/outfile_different_s3/exp_"
         // select ... into outfile ...
-        def res = sql """
+        def outfileSql = """
             SELECT * FROM ${export_table_name} t ORDER BY user_id
             INTO OUTFILE "s3://${outFilePath}"
             FORMAT AS parquet
@@ -33,7 +33,21 @@ suite("test_outfile_with_different_s3", "p0") {
                 "s3.access_key" = "${ak}"
             );
         """
-        return res[0][3]
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                def res = sql outfileSql
+                return res[0][3]
+            } catch (java.sql.SQLException e) {
+                boolean isS3Timeout = e.message?.contains("curlCode: 28")
+                        && e.message?.contains("Timeout was reached")
+                if (!isS3Timeout || attempt == 2) {
+                    throw e
+                }
+                logger.warn("OUTFILE to S3 endpoint ${s3_endpoint} timed out, retrying once")
+                sleep(5000)
+            }
+        }
+        throw new IllegalStateException("Unreachable")
     }
 
 

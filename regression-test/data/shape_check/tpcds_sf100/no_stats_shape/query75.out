@@ -22,7 +22,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------filter((item.i_category = 'Home'))
 ----------------------------PhysicalOlapScan[item]
 --------------------PhysicalProject
-----------------------filter(d_year IN (1998, 1999))
+----------------------filter(date_dim.d_year IN (1998, 1999))
 ------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------PhysicalProject
@@ -39,7 +39,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------filter((item.i_category = 'Home'))
 ----------------------------PhysicalOlapScan[item]
 --------------------PhysicalProject
-----------------------filter(d_year IN (1998, 1999))
+----------------------filter(date_dim.d_year IN (1998, 1999))
 ------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------PhysicalProject
@@ -56,14 +56,14 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------filter((item.i_category = 'Home'))
 ----------------------------PhysicalOlapScan[item]
 --------------------PhysicalProject
-----------------------filter(d_year IN (1998, 1999))
+----------------------filter(date_dim.d_year IN (1998, 1999))
 ------------------------PhysicalOlapScan[date_dim]
 --PhysicalResultSink
 ----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
 --------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN shuffle] hashCondition=((curr_yr.i_brand_id = prev_yr.i_brand_id) and (curr_yr.i_category_id = prev_yr.i_category_id) and (curr_yr.i_class_id = prev_yr.i_class_id) and (curr_yr.i_manufact_id = prev_yr.i_manufact_id)) otherCondition=(((cast(cast(sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(sales_cnt as DECIMALV3(17, 2))) < 0.900000)) build RFs:RF6 i_brand_id->i_brand_id;RF7 i_class_id->i_class_id;RF8 i_category_id->i_category_id;RF9 i_manufact_id->i_manufact_id
+------------hashJoin[INNER_JOIN shuffle] hashCondition=((curr_yr.i_brand_id = prev_yr.i_brand_id) and (curr_yr.i_category_id = prev_yr.i_category_id) and (curr_yr.i_class_id = prev_yr.i_class_id) and (curr_yr.i_manufact_id = prev_yr.i_manufact_id)) otherCondition=(((cast(cast(curr_yr.sales_cnt as DECIMALV3(17, 2)) as DECIMALV3(23, 8)) / cast(prev_yr.sales_cnt as DECIMALV3(17, 2))) < 0.900000)) build RFs:RF6 i_brand_id->i_brand_id;RF7 i_class_id->i_class_id;RF8 i_category_id->i_category_id;RF9 i_manufact_id->i_manufact_id
 --------------filter((curr_yr.d_year = 1999))
 ----------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF6 RF7 RF8 RF9
 --------------filter((prev_yr.d_year = 1998))

@@ -28,6 +28,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.utframe.TestWithFeService;
@@ -67,6 +68,10 @@ public class InternalSchemaAlterTest extends TestWithFeService {
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         Assertions.assertEquals((short) 3, olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum(),
                 tblName);
+        Assertions.assertFalse(olapTable.getTableProperty().getProperties()
+                .containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM), tblName);
+        Assertions.assertTrue(olapTable.getTableProperty().getProperties()
+                .containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION), tblName);
         for (Partition partition : olapTable.getPartitions()) {
             Assertions.assertEquals((short) 3,
                     partitionInfo.getReplicaAllocation(partition.getId()).getTotalReplicaNum());

@@ -45,8 +45,10 @@ Status RecCTESinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status RecCTESinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_child_expr, state, _child->row_desc()));
-    RETURN_IF_ERROR(VExpr::check_expr_output_type(_child_expr, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_child_expr, state, _child->operator_row_desc_after_projection()));
+    RETURN_IF_ERROR(VExpr::check_expr_output_type(_child_expr,
+                                                  _child->operator_row_desc_after_projection()));
     RETURN_IF_ERROR(VExpr::open(_child_expr, state));
     return Status::OK();
 }

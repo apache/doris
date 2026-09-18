@@ -36,9 +36,11 @@
 #include "core/column/column_nullable.h"
 #include "core/cow.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "exec/common/util.hpp"
 #include "exprs/function/ai/ai_adapter.h"
 #include "exprs/function/function.h"
 #include "runtime/query_context.h"
@@ -65,10 +67,21 @@ public:
 
     bool is_blockable() const override { return true; }
 
-    virtual Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
+    bool use_default_implementation_for_nulls() const final { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const final {
+        bool has_nullable_argument = std::ranges::any_of(
+                arguments, [](const auto& argument) { return argument->is_nullable(); });
+        DataTypePtr return_type =
+                assert_cast<const Derived&>(*this).get_nested_return_type_impl(arguments);
+        return has_nullable_argument ? make_nullable(return_type) : return_type;
+    }
+
+    using PreparedFunctionImpl::execute;
+
+    virtual Status build_prompt(const Columns& prompt_columns, size_t row_num,
                                 std::string& prompt) const {
-        const ColumnWithTypeAndName& text_column = block.get_by_position(arguments[1]);
-        StringRef text_ref = text_column.column->get_data_at(row_num);
+        StringRef text_ref = prompt_columns[0]->get_data_at(row_num);
         prompt = std::string(text_ref.data, text_ref.size);
 
         return Status::OK();
@@ -76,6 +89,13 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        if (block.get_by_position(arguments[0]).column->only_null()) {
+            block.get_by_position(result).column =
+                    block.get_by_position(result).type->create_column_const(input_rows_count,
+                                                                            Field());
+            return Status::OK();
+        }
+
         TAIResource config;
         std::shared_ptr<AIAdapter> adapter;
         if (Status status = this->_init_from_resource(context, block, arguments, config, adapter);
@@ -83,8 +103,8 @@ public:
             return status;
         }
 
-        return assert_cast<const Derived&>(*this).execute_with_adapter(
-                context, block, arguments, result, input_rows_count, config, adapter);
+        return assert_cast<const Derived&>(*this).execute(context, block, arguments, result,
+                                                          input_rows_count, config, adapter);
     }
 
 protected:
@@ -96,20 +116,6 @@ protected:
         DORIS_CHECK(query_ctx != nullptr);
 
         return query_ctx->query_options().ai_context_window_size;
-    }
-
-    // Derived classes can override this method for non-text/default behavior.
-    // The base implementation handles all string-input/string-output batchable functions.
-    Status execute_with_adapter(FunctionContext* context, Block& block,
-                                const ColumnNumbers& arguments, uint32_t result,
-                                size_t input_rows_count, const TAIResource& config,
-                                std::shared_ptr<AIAdapter>& adapter) const {
-        auto col_result = assert_cast<const Derived&>(*this).create_result_column();
-        RETURN_IF_ERROR(execute_batched_prompts(context, block, arguments, input_rows_count, config,
-                                                adapter, *col_result));
-
-        block.replace_by_position(result, std::move(col_result));
-        return Status::OK();
     }
 
     MutableColumnPtr create_result_column() const { return ColumnString::create(); }
@@ -285,19 +291,55 @@ protected:
     // Provider-reusable helper for string-returning functions.
     // Runs the common batch execution flow; derived classes only need to define how one batch of
     // string results is inserted into the final output column.
-    Status execute_batched_prompts(FunctionContext* context, Block& block,
-                                   const ColumnNumbers& arguments, size_t input_rows_count,
-                                   const TAIResource& config, std::shared_ptr<AIAdapter>& adapter,
-                                   IColumn& col_result) const {
+    Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                   uint32_t result, size_t input_rows_count, const TAIResource& config,
+                   std::shared_ptr<AIAdapter>& adapter) const {
+        Columns prompt_columns;
+        prompt_columns.reserve(arguments.size() - 1);
+        ColumnUInt8::MutablePtr result_null_map;
+        for (size_t i = 1; i < arguments.size(); ++i) {
+            const auto& argument = block.get_by_position(arguments[i]);
+            if (argument.type->is_nullable()) {
+                const auto& [column, is_const] = unpack_if_const(argument.column);
+                const auto& nullable =
+                        assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*column);
+                if (!result_null_map) {
+                    result_null_map = ColumnUInt8::create(input_rows_count, 0);
+                }
+                VectorizedUtils::update_null_map(result_null_map->get_data(),
+                                                 nullable.get_null_map_data(), is_const);
+            }
+            prompt_columns.emplace_back(
+                    argument.unnest_nullable(argument.type->is_nullable()
+                                                     ? argument.get_nullable_column_info()
+                                                     : NullableColumnInfo {},
+                                             false)
+                            .column);
+        }
+
+        if (result_null_map &&
+            !simd::contain_zero(result_null_map->get_data().data(), input_rows_count)) {
+            block.get_by_position(result).column =
+                    block.get_by_position(result).type->create_column_const(input_rows_count,
+                                                                            Field());
+            return Status::OK();
+        }
+
+        auto col_result = assert_cast<const Derived&>(*this).create_result_column();
         std::vector<std::string> batch_prompts;
         size_t current_batch_size = 2; // []
         const size_t max_batch_prompt_size =
                 static_cast<size_t>(get_ai_context_window_size(context));
+        const NullMap* null_map = result_null_map ? &result_null_map->get_data() : nullptr;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map && (*null_map)[i]) {
+                continue;
+            }
+
             std::string prompt;
             RETURN_IF_ERROR(
-                    assert_cast<const Derived&>(*this).build_prompt(block, arguments, i, prompt));
+                    assert_cast<const Derived&>(*this).build_prompt(prompt_columns, i, prompt));
 
             size_t entry_size = estimate_batch_entry_size(batch_prompts.size(), prompt);
             if (entry_size > max_batch_prompt_size) {
@@ -306,7 +348,7 @@ protected:
                     RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results,
                                                                 config, adapter, context));
                     RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                            batch_results, col_result));
+                            batch_results, *col_result));
                     batch_prompts.clear();
                     current_batch_size = 2;
                 }
@@ -317,7 +359,7 @@ protected:
                 RETURN_IF_ERROR(this->execute_batch_request(single_prompts, single_results, config,
                                                             adapter, context));
                 RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                        single_results, col_result));
+                        single_results, *col_result));
                 continue;
             }
 
@@ -328,7 +370,7 @@ protected:
                 RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results, config,
                                                             adapter, context));
                 RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(
-                        batch_results, col_result));
+                        batch_results, *col_result));
                 batch_prompts.clear();
                 current_batch_size = 2;
                 additional_size = entry_size;
@@ -343,8 +385,32 @@ protected:
             RETURN_IF_ERROR(this->execute_batch_request(batch_prompts, batch_results, config,
                                                         adapter, context));
             RETURN_IF_ERROR(assert_cast<const Derived&>(*this).append_batch_results(batch_results,
-                                                                                    col_result));
+                                                                                    *col_result));
         }
+
+        if (!result_null_map) {
+            block.replace_by_position(result, std::move(col_result));
+            return Status::OK();
+        }
+
+        if (!simd::contain_one(result_null_map->get_data().data(), input_rows_count)) {
+            block.replace_by_position(result, ColumnNullable::create(std::move(col_result),
+                                                                     std::move(result_null_map)));
+            return Status::OK();
+        }
+
+        auto nested_result = col_result->clone_empty();
+        size_t result_row = 0;
+        for (UInt8 is_null : result_null_map->get_data()) {
+            if (is_null) {
+                nested_result->insert_default();
+            } else {
+                nested_result->insert_from(*col_result, result_row++);
+            }
+        }
+
+        block.replace_by_position(result, ColumnNullable::create(std::move(nested_result),
+                                                                 std::move(result_null_map)));
         return Status::OK();
     }
 

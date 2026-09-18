@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "exec/common/hash_table/hash_table_set_probe.h"
+#include "exec/common/set_utils.h"
 #include "exec/operator/operator.h"
 #include "exec/pipeline/pipeline_task.h"
 
@@ -56,7 +57,8 @@ Status SetProbeSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, Runtime
 template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::prepare(state));
-    RETURN_IF_ERROR(VExpr::prepare(_child_exprs, state, _child->row_desc()));
+    RETURN_IF_ERROR(
+            VExpr::prepare(_child_exprs, state, _child->operator_row_desc_after_projection()));
     return VExpr::open(_child_exprs, state);
 }
 

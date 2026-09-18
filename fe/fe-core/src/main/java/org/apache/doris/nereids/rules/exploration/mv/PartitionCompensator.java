@@ -50,6 +50,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -101,7 +102,7 @@ public class PartitionCompensator {
                     rewrittenPlanUsePartitionNameSet.add(olapScan.getTable().getPartition(id).getName()));
         }
         Map<MTMVRelatedTableIf, Map<String, Set<String>>> mtmvRelatedTableIfMapMap
-                = materializationContext.calculatePartitionMappings();
+                = materializationContext.calculatePartitionMappings(queryUsedBaseTablePartitionMap);
         boolean allCompensateIsNull = true;
 
         Map<BaseTableInfo, Set<String>> mvPartitionNeedRemoveNameMap = new HashMap<>();
@@ -176,7 +177,8 @@ public class PartitionCompensator {
             Set<String> relatedBaseTablePartitions = partitionMapping.get(mvValidPartition.getName());
             if (relatedBaseTablePartitions != null) {
                 mvValidBaseTablePartitionNameSet.addAll(relatedBaseTablePartitions);
-                if (!mtmv.selectNonEmptyPartitionIds(ImmutableList.of(mvValidPartition.getId())).isEmpty()) {
+                if (!mtmv.selectNonEmptyPartitionIds(ImmutableList.of(mvValidPartition.getId()),
+                        Optional.empty()).isEmpty()) {
                     mvValidHasDataRelatedBaseTableNameSet.addAll(relatedBaseTablePartitions);
                 }
             }
@@ -198,8 +200,11 @@ public class PartitionCompensator {
                 // Base table partition maybe deleted, need not union
                 continue;
             }
-            Sets.intersection(baseTablePartitions, queryUsedBaseTablePartitionNameSet)
-                    .copyInto(baseTableNeedUnionPartitionNameSet);
+            if (!Sets.intersection(baseTablePartitions, queryUsedBaseTablePartitionNameSet).isEmpty()) {
+                // An MV partition is the atomic unit removed from the rewritten plan. If any base
+                // partition in its roll-up bucket is used by the query, compensate the whole bucket.
+                baseTableNeedUnionPartitionNameSet.addAll(baseTablePartitions);
+            }
         }
         // If related base table creates partitions or mv is created with ttl, need base table union
         Sets.difference(queryUsedBaseTablePartitionNameSet, mvValidBaseTablePartitionNameSet)
@@ -216,13 +221,6 @@ public class PartitionCompensator {
             baseTablePartitionNeedUnionNameMap = Pair.of(relatedPartitionTable, baseTableNeedUnionPartitionNameSet);
         }
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
-    }
-
-    public static boolean needUnionRewrite(
-            Pair<Map<BaseTableInfo, Set<String>>, Map<BaseColInfo, Set<String>>> invalidPartitions,
-            CascadesContext cascadesContext) {
-        return invalidPartitions != null
-                && (!invalidPartitions.key().values().isEmpty() || !invalidPartitions.value().values().isEmpty());
     }
 
     /**

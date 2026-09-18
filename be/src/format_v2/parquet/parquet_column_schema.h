@@ -16,25 +16,25 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
+#include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_type.h"
-
-namespace parquet {
-class ColumnDescriptor;
-class SchemaDescriptor;
-} // namespace parquet
 
 namespace doris::format::parquet {
 
+class NativeFieldDescriptor;
+
 enum class ParquetColumnSchemaKind {
-    PRIMITIVE, // primitive leaf -> ScalarColumnReader
-    STRUCT,    // struct -> StructColumnReader
-    LIST,      // array -> ListColumnReader
-    MAP,       // map -> MapColumnReader
+    PRIMITIVE, // physical primitive leaf
+    STRUCT,    // Parquet group with STRUCT semantics
+    LIST,      // Parquet group with LIST semantics
+    MAP,       // Parquet group with MAP semantics
+    VARIANT,   // Parquet Variant logical group
 };
 
 // ============================================================================
@@ -49,13 +49,20 @@ struct ParquetColumnSchema {
 
     DataTypePtr type = nullptr;
 
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
+    // Set only for VARIANT. The public file type is DataTypeVariantV2, while this type describes
+    // the metadata/value/typed_value STRUCT consumed by the native decoder.
+    DataTypePtr variant_physical_type = nullptr;
+
     int leaf_column_id = -1;
 
     ParquetTypeDescriptor type_descriptor {};
 
     ParquetColumnSchemaKind kind = ParquetColumnSchemaKind::PRIMITIVE;
 
-    const ::parquet::ColumnDescriptor* descriptor = nullptr;
+    // Cached during schema construction so readers created per row group do not repeatedly walk
+    // ordinary nested schemas to discover whether Variant-specific planning is needed.
+    bool contains_variant = false;
 
     // ======== Dremel Levels ========
 
@@ -74,7 +81,12 @@ struct ParquetColumnSchema {
     std::vector<std::unique_ptr<ParquetColumnSchema>> children {};
 };
 
-Status build_parquet_column_schema(const ::parquet::SchemaDescriptor& schema,
+Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
                                    std::vector<std::unique_ptr<ParquetColumnSchema>>* fields);
+
+Status apply_variant_schema_overrides(
+        const NativeFieldDescriptor& native_schema,
+        const std::vector<format::LocalColumnIndex>& variant_schema_overrides,
+        std::vector<std::unique_ptr<ParquetColumnSchema>>* fields);
 
 } // namespace doris::format::parquet

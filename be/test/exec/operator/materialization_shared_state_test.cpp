@@ -60,6 +60,8 @@ protected:
         _shared_state->rpc_struct_map[_backend_id2] = FetchRpcStruct();
         _shared_state->rpc_struct_map[_backend_id1].request.add_request_block_descs();
         _shared_state->rpc_struct_map[_backend_id2].request.add_request_block_descs();
+        _shared_state->rpc_struct_map[_backend_id1].cntl = std::make_unique<brpc::Controller>();
+        _shared_state->rpc_struct_map[_backend_id2].cntl = std::make_unique<brpc::Controller>();
     }
 
     std::shared_ptr<MaterializationSharedState> _shared_state;
@@ -68,6 +70,39 @@ protected:
     int64_t _backend_id1;
     int64_t _backend_id2;
 };
+
+TEST_F(MaterializationSharedStateTest, TestRpcFailureWithoutFetchRowsIsIgnored) {
+    auto& rpc_struct = _shared_state->rpc_struct_map[_backend_id1];
+    rpc_struct.cntl->SetFailed("injected connection failure");
+
+    Status st = _shared_state->validate_rpc_results(10);
+
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_FALSE(rpc_struct.cntl->Failed());
+}
+
+TEST_F(MaterializationSharedStateTest, TestRpcFailureWithFetchRowsFails) {
+    auto& rpc_struct = _shared_state->rpc_struct_map[_backend_id1];
+    add_request_row(rpc_struct.request.mutable_request_block_descs(0), 0, 1);
+    rpc_struct.cntl->SetFailed("injected connection failure");
+
+    Status st = _shared_state->validate_rpc_results(10);
+
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("target_backend_id:1001"), std::string::npos);
+}
+
+TEST_F(MaterializationSharedStateTest, TestNonOkResponseWithoutFetchRowsFails) {
+    auto& rpc_struct = _shared_state->rpc_struct_map[_backend_id1];
+    Status::InternalError("injected remote failure")
+            .to_protobuf(rpc_struct.response.mutable_status());
+
+    Status st = _shared_state->validate_rpc_results(10);
+
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("injected remote failure"), std::string::npos);
+    EXPECT_NE(st.to_string().find("Backend:1001"), std::string::npos);
+}
 
 TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResult) {
     // Create test columns for rowids
@@ -453,7 +488,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
     _shared_state->rpc_struct_map[_backend_id1].request.add_request_block_descs();
     _shared_state->rpc_struct_map[_backend_id2].request.add_request_block_descs();
 
-    // --- Build BE_1's response: blocks[0]=1 row (INT), blocks[1]=empty ---
+    // --- Build BE_1's response: blocks[0]=1 row (INT), no block for relation 1 ---
     {
         add_request_row(
                 _shared_state->rpc_struct_map[_backend_id1].request.mutable_request_block_descs(0),
@@ -473,8 +508,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
         ASSERT_TRUE(rel0_block.serialize(0, pb0, &us, &cs, &ct, CompressionTypePB::LZ4).ok());
         _shared_state->response_blocks[0] = rel0_block.clone_empty();
 
-        // blocks[1]: empty (BE_1 has no data for relation 1)
-        response.add_blocks();
+        // BE_1 has no data for relation 1. This also models an ignored transport failure for
+        // an empty RPC: there is no response block to deserialize for that relation.
 
         _shared_state->rpc_struct_map[_backend_id1].response = std::move(response);
     }

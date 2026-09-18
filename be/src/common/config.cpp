@@ -30,6 +30,7 @@
 #include <fstream> // IWYU pragma: keep
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -71,6 +72,9 @@ DEFINE_Int32(be_port, "9060");
 DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "8050");
+
+// Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
+DEFINE_Bool(enable_arrow_input_validation, "true");
 
 DEFINE_Int32(cdc_client_port, "9096");
 
@@ -282,6 +286,14 @@ DEFINE_mInt32(download_binlog_meta_timeout_ms, "30000");
 // the interval time(seconds) for agent report index policy to FE
 DEFINE_mInt32(report_index_policy_interval_seconds, "10");
 
+// DNS cache: throttle "use cached ip" warning to once per N failures per host.
+DEFINE_mInt32(dns_cache_log_every_n_failures, "10");
+// DNS cache: evict a hostname after this many consecutive resolution failures.
+DEFINE_mInt32(dns_cache_max_consecutive_failures, "30");
+// DNS cache: after eviction, block re-resolve attempts for this many seconds.
+// Set <= 0 to disable the negative cache (legacy behavior).
+DEFINE_mInt32(dns_cache_negative_ttl_seconds, "60");
+
 DEFINE_String(sys_log_dir, "");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
 // INFO, WARNING, ERROR, FATAL
@@ -363,6 +375,7 @@ DEFINE_mInt32(tablet_lookup_cache_stale_sweep_time_sec, "30");
 DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
+// Legacy name retained for compatibility; controls GLOBAL_ROWID_COL file-map GC.
 DEFINE_mInt32(quering_rowsets_evict_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
 DEFINE_mString(broken_storage_path, "");
@@ -464,8 +477,9 @@ DEFINE_mDouble(sparse_column_compaction_threshold_percent, "0.05");
 // Enable RLE batch Put optimization for compaction
 DEFINE_mBool(enable_rle_batch_put_optimization, "true");
 
-// If enabled, segments will be flushed column by column
-DEFINE_mBool(enable_vertical_segment_writer, "true");
+// Enable PDEP-based bit unpacking. Disable it on CPUs where PDEP is microcoded and slower than
+// the scalar implementation, such as AMD Zen+ and Zen 2.
+DEFINE_Bool(enable_bmi2_optimizations, "true");
 
 // In ordered data compaction, min segment size for input rowset
 DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
@@ -481,9 +495,6 @@ DEFINE_mInt32(binlog_compaction_task_num_per_disk, "4");
 DEFINE_mInt32(binlog_compaction_file_count_threshold, "100");
 DEFINE_mInt32(binlog_level_compaction_max_deltas, "2000");
 DEFINE_mInt64(binlog_compaction_time_threshold_seconds, "3600");
-DEFINE_mInt32(binlog_compaction_permits_percent, "30");
-DEFINE_Validator(binlog_compaction_permits_percent,
-                 [](const int config) -> bool { return config >= 1 && config <= 80; });
 DEFINE_mInt32(max_binlog_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
@@ -638,10 +649,6 @@ DEFINE_Int32(webserver_num_workers, "128");
 DEFINE_mInt32(async_reply_timeout_s, "60");
 DEFINE_Validator(async_reply_timeout_s, [](const int config) -> bool { return config >= 3; });
 
-DEFINE_Bool(enable_single_replica_load, "true");
-// Number of download workers for single replica load
-DEFINE_Int32(single_replica_load_download_num_workers, "64");
-
 // Used for mini Load. mini load data file will be removed after this time.
 DEFINE_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
@@ -683,7 +690,6 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
-DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DEFINE_mBool(enable_stream_load_record, "false");
@@ -705,7 +711,7 @@ DEFINE_mBool(enable_stream_load_commit_txn_on_be, "false");
 DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 
 // request cdc client timeout
-DEFINE_mInt32(request_cdc_client_timeout_ms, "60000");
+DEFINE_mInt32(request_cdc_client_timeout_ms, "120000");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -719,7 +725,7 @@ DEFINE_Int32(fragment_mgr_async_work_pool_queue_size, "4096");
 
 // The read size is the size of the reads sent to os.
 // There is a trade off of latency and throughout, trying to keep disks busy but
-// not introduce seeks.  The literature seems to agree that with 8 MB reads, random
+// not introduce seeks. The literature seems to agree that with 8 MB reads, random
 // io and sequential io perform similarly.
 DEFINE_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in bytes)
 
@@ -938,6 +944,10 @@ DEFINE_String(thrift_server_type_of_fe, "THREAD_POOL");
 // disable zone map index when page row is too few
 DEFINE_mInt32(zone_map_row_num_threshold, "20");
 
+// Maximum number of IN values checked exactly against a zone map. For larger sets, only the
+// IN-set min/max range is checked.
+DEFINE_mInt32(in_zonemap_point_check_threshold, "8192");
+
 // aws sdk log level
 //    Off = 0,
 //    Fatal = 1,
@@ -1071,6 +1081,10 @@ DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
 
 // Max size of parquet page header in bytes
 DEFINE_mInt32(parquet_header_max_size_mb, "1");
+// Max size of parquet file metadata in bytes
+DEFINE_mInt64(parquet_metadata_size_limit, "268435456");
+DEFINE_Validator(parquet_metadata_size_limit,
+                 [](const int64_t config) -> bool { return config > 0; });
 // Max buffer size for parquet row group
 DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
@@ -1081,6 +1095,8 @@ DEFINE_mInt32(merged_hdfs_min_io_size, "8192");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
+DEFINE_Validator(orc_natural_read_size_mb,
+                 [](const int config) -> bool { return config > 0 && config <= 1024; });
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
 DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
@@ -1198,6 +1214,11 @@ DEFINE_Validator(variant_storage_parse_mode,
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
+// ATTENTION: For test only. Keep this enabled in production.
+// Whether S3 storage write paths populate file cache while writing data to object storage.
+// Disable this for tests that need load and compaction output to bypass file cache while keeping
+// query-side file cache writes enabled.
+DEFINE_mBool(enable_file_cache_write_from_s3_file_writer, "true");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
 // format: {"path": "/path/to/file_cache", "total_size":53687091200, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}
@@ -1216,6 +1237,8 @@ DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_mBool(enable_file_cache_query_limit, "false");
+// Whether segment footer and segment metadata count toward file cache query limit.
+DEFINE_mBool(enable_file_cache_query_limit_segment_meta, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "88");
 DEFINE_mBool(enable_evict_file_cache_in_advance, "true");
@@ -1272,6 +1295,22 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
 
+// async file cache write
+DEFINE_mBool(enable_async_file_cache_write, "false");
+DEFINE_mInt32(async_file_cache_write_workers_per_disk, "16");
+// A positive value is the BE-wide queued+active task ownership limit. The successfully initialized
+// cache instances receive equal shares. -1 selects max(1 GiB, 1% of the BE memory limit) before
+// that split.
+DEFINE_mInt64(async_file_cache_write_max_pending_bytes, "-1");
+DEFINE_mBool(enable_async_file_cache_write_inflight_write_buffer_index, "true");
+DEFINE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count, "64");
+DEFINE_Validator(async_file_cache_write_workers_per_disk,
+                 [](int32_t value) { return value > 0 && value <= 128; });
+DEFINE_Validator(async_file_cache_write_max_pending_bytes,
+                 [](int64_t value) { return value == -1 || value > 0; });
+DEFINE_Validator(async_file_cache_write_inflight_write_buffer_index_shard_count,
+                 [](int32_t value) { return value > 0; });
+
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
 DEFINE_mBool(enable_write_index_searcher_cache, "false");
@@ -1298,8 +1337,66 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
+// G16-h: zstd levels for the SNII dict-block compression and the .prx window
+// auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
+// sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import
+// CPU cost inside the run-to-run variance band; zstd decode speed does not
+// depend on the level, and warm/cold benches measured no query change.
+// Write side only; segments self-describe their compression.
+// Default 3 since the all-level-3 evaluation (2026-07-11, 4 corpora): vs
+// level 9 the settled index grows only +0.6%..+6.3% (whole table
+// +0.3%..+1.9%) while import index CPU drops 17-24% and full-compaction CPU
+// 8-24%; settled cold-query latency is unchanged (interleaved A/B). The
+// delta+varint-encoded payloads are high-entropy, so level 9's extra search
+// buys almost no ratio. Raise only for size-critical deployments.
+DEFINE_mInt32(snii_dict_block_zstd_level, "3");
+DEFINE_mInt32(snii_prx_zstd_level, "3");
+// Patch C prx tiering: zstd level for the prx region of DIRECT-LOAD segments
+// only (stream/broker load, see IndexColumnWriter::set_direct_load). Inert at
+// the defaults (both levels 3); it exists for size-critical deployments that
+// RAISE snii_prx_zstd_level (e.g. 9) and still want cheap loads: compaction
+// rewrites every segment at snii_prx_zstd_level, so SETTLED data (and the
+// cold-query path over it) is unaffected by the load tier -- measured -290s
+// (httplogs) / -204s (agentlogs) of import index CPU at 3 vs 9. Same clamp
+// [3, 19]. Read at index flush like snii_prx_zstd_level (a mid-load change
+// lands on in-flight segments); the direct-load BIT itself is captured once.
+DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
+// G16-d: target SNII dict block size in bytes; 0 uses the format default
+// (64 KiB). Larger blocks compress better under the per-block zstd (the dict
+// is the dominant physical section on high-cardinality corpora) at the cost
+// of a larger fetch+decompress unit per cold dict-block miss. Write side
+// only; the block size is self-described by the on-disk directory.
+DEFINE_mInt32(snii_target_dict_block_bytes, "0");
+// SNII's index-build share of the process memory limit, as a percent -- the
+// index-build analogue of load_process_max_memory_limit_percent. Once live SNII
+// index-build memory crosses this share, the largest reclaimable posting arenas
+// are asked to spill early. Derived from the process limit rather than an
+// absolute number so it scales with the BE. Only the RECLAIMABLE population
+// counts against it: index-merge compaction charges the same observation
+// tracker but registers no spillable writer, so its bytes are excluded from the
+// comparison (its own hard reservation cap bounds them instead).
+//
+// 0 disables SNII's OWN share trigger; the process-level backstops (system
+// available memory below its warning water mark, process usage above the soft
+// limit) still apply. The share is deliberately well below those backstops so
+// SNII sheds its own memory before the global valve -- the global valve trips
+// late by design and would be a worse trigger than none. The derived share is
+// floored at four times inverted_index_ram_buffer_size so a small BE is not
+// permanently over it the moment two writers exist.
+DEFINE_mInt32(snii_index_build_max_memory_limit_percent, "10");
+// Minimum reclaimable posting-arena bytes before a G09 forced spill is honored
+// (and before a writer is eligible as a spill victim): forced spills reclaim
+// ONLY the arena, so smaller triggers cut tiny runs for near-zero relief.
+// Default 64 MiB.
+DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
+// Max spill-run files one SNII writer accumulates before its runs are
+// merge-compacted into one (bounds the k-way merge fan-in and its open fds;
+// every run is held open for the whole merge). 0 = uncapped. Default 64.
+DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
+// The kuromoji (Japanese) analyzer
+DEFINE_mBool(enable_kuromoji_analyzer, "false");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
@@ -1311,6 +1408,11 @@ DEFINE_mBool(debug_inverted_index_compaction, "false");
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // wheather index by RAM directory when base compaction
 DEFINE_mBool(inverted_index_ram_dir_enable_when_base_compaction, "true");
+// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
+// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
+// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
+// scoring (score()) on those indexes then fails.
+DEFINE_mBool(inverted_index_skip_norms_for_variant, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1329,6 +1431,8 @@ DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // Log interval when doing s3 upload task
 DEFINE_mInt32(s3_file_writer_log_interval_second, "60");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
+// When file cache is enabled, the configured bytes must be divisible by
+// file_cache_each_block_size so every non-EOF HDFS cache block is canonical.
 DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "1"); // 1MB
 
 //disable shrink memory by default
@@ -1346,6 +1450,10 @@ DEFINE_Bool(enable_feature_binlog, "false");
 
 // enable set in BitmapValue
 DEFINE_Bool(enable_set_in_bitmap_value, "true");
+
+// Enable compact integer tags in row-store JSONB. Once enabled and compact data is written,
+// rollback to code without compact row-store JSONB reader support is not safe.
+DEFINE_Bool(enable_row_store_compact_jsonb, "false");
 
 DEFINE_Int64(max_hdfs_file_handle_cache_num, "20000");
 DEFINE_Int32(max_hdfs_file_handle_cache_time_sec, "28800");
@@ -1408,6 +1516,12 @@ DEFINE_mBool(enable_mow_get_agg_by_cache, "true");
 DEFINE_mBool(enable_mow_get_agg_correctness_check_core, "false");
 DEFINE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap, "true");
 DEFINE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap, "false");
+// Remove pre-rowset delete bitmaps in [end_version, end_version] before writing aggregated delete
+// bitmaps. True: point delete; false: range delete.
+DEFINE_mBool(enable_remove_agg_pre_rowsets_delete_bitmap_by_keys, "true");
+// Remove pre-rowset delete bitmaps in [start_version, end_version). True: point delete; false:
+// range delete.
+DEFINE_mBool(enable_remove_pre_rowsets_delete_bitmap_by_keys, "true");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_String(user_files_secure_path, "${DORIS_HOME}");
@@ -1435,6 +1549,9 @@ DEFINE_mInt32(group_commit_queue_mem_limit, "67108864");
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
+// Max WAL count for one table before rejecting async group commit loads.
+// 0 means no limit.
+DEFINE_mInt32(group_commit_max_wal_num_per_table, "10");
 // Max time(ms) to wait for creating group commit plan fragment.
 // 0 means no timeout, default 2min.
 DEFINE_mInt32(group_commit_create_plan_timeout_ms, "120000");
@@ -1528,8 +1645,90 @@ DEFINE_mInt64(s3_put_token_per_second, "1000000000000000000");
 DEFINE_Validator(s3_put_token_per_second, [](int64_t config) -> bool { return config > 0; });
 
 DEFINE_mInt64(s3_put_token_limit, "0");
+// Log active S3 rate limiter every N throttled/rejected requests, 0 means no log.
+DEFINE_mInt64(s3_rate_limiter_log_interval, "1000");
+DEFINE_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 
-DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
+// CPU-aware S3 rate limiter. Effective GET/PUT requests per second =
+// requests_per_second_per_core * BE cpu cores, capped by the corresponding
+// requests_per_second_max. A negative value means unset: fall back to the legacy absolute
+// s3_{get,put}_token_* configs above. 0 disables request-rate limiting for that operation.
+DEFINE_mInt64(s3_get_requests_per_second_per_core, "-1");
+DEFINE_mInt64(s3_put_requests_per_second_per_core, "-1");
+// Hard caps for the CPU-derived GET/PUT QPS. A non-positive value means no cap.
+DEFINE_mInt64(s3_get_requests_per_second_max, "0");
+DEFINE_mInt64(s3_put_requests_per_second_max, "0");
+
+// CPU-aware S3 bandwidth limiter. Effective GET/PUT bytes/s = bytes_per_second_per_core *
+// BE cpu cores, capped by the corresponding bytes_per_second_max. A non-positive value disables
+// byte-rate limiting for that operation (there is no legacy fallback for bandwidth).
+// Note: the derived per-BE bytes/s should not be set below the single IO upper bound
+// per second (s3_write_buffer_size, 5MB by default). A single IO larger than 1 second
+// of quota only reserves 1 second worth of tokens; the excess bytes are not accounted
+// (reservation clamp in S3RateLimitGuard).
+DEFINE_mInt64(s3_get_bytes_per_second_per_core, "-1");
+DEFINE_mInt64(s3_put_bytes_per_second_per_core, "-1");
+// Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
+DEFINE_mInt64(s3_get_bytes_per_second_max, "0");
+DEFINE_mInt64(s3_put_bytes_per_second_max, "0");
+
+// Override the CPU cores used to derive the effective S3 rate limits. A non-positive value
+// means auto-detect from the cgroup cpu quota (fall back to physical cores); the control plane
+// can push a positive value via /api/update_config when resizing a serverless BE.
+DEFINE_mInt32(s3_rate_limiter_cpu_cores_override, "0");
+
+// The dir TrinoConnectorPluginLoader loads Trino's own plugins from, used verbatim. Keep the default
+// in sync with FE Config.trino_connector_plugin_dir: FE and BE load the same plugins and an operator
+// who leaves both untouched expects both to find them.
+DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/trino_plugins");
+
+// The directory BE loads its Java plugins from. Each subdirectory is one plugin, named by the
+// directory: that name is what BE addresses it by and what appears in "is not deployed".
+// It lives under plugins/ rather than lib/ because lib/ is the engine tree a package upgrade
+// replaces wholesale - a plugin deployed there would not survive one.
+DEFINE_String(jni_plugin_dir, "${DORIS_HOME}/plugins/jni");
+
+// The hadoop configuration files (core-site.xml, hdfs-site.xml, ...) that Java plugins can read.
+// A plugin's classloader deliberately cannot reach BE's own classpath, and conf/ is on that
+// classpath - so a hadoop Configuration built inside a plugin sees nothing dropped into conf/,
+// which is where it came from before plugins were isolated. This directory is the drop point that
+// replaces it, and it is a directory of its own rather than conf/ so that what BE reads and what
+// plugins read stay two separate lists. FE has always had the same directory for the XML its
+// catalogs name through hadoop.config.resources (FE config hadoop_config_dir).
+//
+// Nothing has to be here: a catalog that carries its hadoop properties explicitly needs no file.
+DEFINE_String(jni_plugin_hadoop_conf_dir, "${DORIS_HOME}/plugins/hadoop_conf");
+
+// Third-party hadoop FileSystem implementations shared by every Java plugin: JindoFS for oss://
+// and oss-hdfs://, JuiceFS for jfs://. One subdirectory per filesystem, each holding its jars.
+//
+// Shared rather than bundled into each plugin because no plugin declares them - hadoop reaches a
+// filesystem by class name out of a Configuration, so nothing links against them - and because
+// the JuiceFS Hadoop SDK is a 180 MB fat jar that would have to be copied into every plugin that
+// might read a table on it. PluginRuntime appends the jars found here to each plugin's own
+// classpath, AFTER the plugin's jars, so a plugin's own hadoop still wins; each plugin loads its
+// own copy in its own classloader, so the isolation is unchanged. This is also the directory
+// bin/start_be.sh puts on the system class path for the native libhdfs reader, which needs the
+// same jars for the same schemes - one copy on disk serves both, and both honour this config:
+// the script reads it out of be.conf by hand (the export loop there only picks up UPPERCASE
+// keys), and JvmLauncher passes it to the JVM as -Ddoris.jni.fs.dir. Every subdirectory holding
+// jars is taken, on both sides.
+//
+// Nothing has to be here: both filesystems are opt-in build flags (DISABLE_BUILD_JINDOFS=OFF,
+// DISABLE_BUILD_JUICEFS=OFF), and a build without them leaves this directory absent.
+DEFINE_String(jni_plugin_fs_dir, "${DORIS_HOME}/plugins/jni_fs");
+
+// Whether to load every deployed plugin at startup rather than on the query that first needs
+// one. Off by default: warming a plugin keeps its whole jar closure open for the life of the
+// process - one classloader per plugin, holding every jar in its directory - which is several
+// hundred file descriptors on a BE that may never read a Java table format at all. That budget
+// is shared with everything else the process opens, and on macOS a descriptor numbered past
+// FD_SETSIZE breaks every libcurl transfer, because curl is built without poll() there and its
+// select() fallback cannot name one. Turning this on buys the opposite trade: a broken
+// deployment is found in the log at startup rather than in a user's query.
+// It is not a reason to create a JVM either way: with no plugin deployed there is nothing to
+// warm, and a BE that reads no Java table format still starts without one.
+DEFINE_Bool(java_plugin_warmup, "false");
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
@@ -1556,45 +1755,15 @@ DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 /** Iceberg sink configurations **/
 DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
 
-// URI scheme to Doris file type mappings used by paimon-cpp DorisFileSystem.
-// Each entry uses the format "<scheme>=<file_type>", and file_type must be one of:
-// local, hdfs, s3, http, broker.
-DEFINE_Strings(paimon_file_system_scheme_mappings,
-               "file=local,hdfs=hdfs,viewfs=hdfs,local=hdfs,jfs=hdfs,"
-               "s3=s3,s3a=s3,s3n=s3,oss=s3,obs=s3,cos=s3,cosn=s3,gs=s3,"
-               "abfs=s3,abfss=s3,wasb=s3,wasbs=s3,http=http,https=http,"
-               "ofs=broker,gfs=broker");
-DEFINE_Validator(paimon_file_system_scheme_mappings,
-                 ([](const std::vector<std::string>& mappings) -> bool {
-                     doris::StringCaseUnorderedSet seen_schemes;
-                     static const doris::StringCaseUnorderedSet supported_types = {
-                             "local", "hdfs", "s3", "http", "broker"};
-                     for (const auto& raw_entry : mappings) {
-                         std::string_view entry = doris::trim(raw_entry);
-                         size_t separator = entry.find('=');
-                         if (separator == std::string_view::npos) {
-                             return false;
-                         }
-                         std::string scheme = std::string(doris::trim(entry.substr(0, separator)));
-                         std::string file_type =
-                                 std::string(doris::trim(entry.substr(separator + 1)));
-                         if (scheme.empty() || file_type.empty()) {
-                             return false;
-                         }
-                         if (supported_types.find(file_type) == supported_types.end()) {
-                             return false;
-                         }
-                         if (!seen_schemes.insert(scheme).second) {
-                             return false;
-                         }
-                     }
-                     return true;
-                 }));
+/** Paimon sink configurations **/
+DEFINE_mInt64(paimon_jni_writer_memory_pool_limit_bytes, "536870912"); // 512MB
+DEFINE_Validator(paimon_jni_writer_memory_pool_limit_bytes,
+                 [](int64_t bytes) -> bool { return bytes > 0; });
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
-// http scheme in S3Client to use. E.g. http or https
-DEFINE_String(s3_client_http_scheme, "http");
+// Default HTTP scheme used by S3Client when the endpoint has no scheme.
+DEFINE_String(s3_client_http_scheme, "https");
 DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
@@ -1690,6 +1859,12 @@ DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 DEFINE_mInt32(check_score_rounds_num, "1000");
 
 DEFINE_Int32(query_cache_size, "512");
+// Max number of incremental merges accumulated on one query cache entry before
+// a full recompute is forced. Each incremental merge appends the delta partial
+// blocks to the entry, so the entry gets more fragmented (and the upstream merge
+// aggregation does more work) as deltas accumulate; a periodic full recompute
+// compacts the entry back to a minimal set of blocks.
+DEFINE_mInt32(query_cache_max_incremental_merge_count, "8");
 
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
@@ -1792,6 +1967,7 @@ DEFINE_Validator(concurrency_stats_dump_interval_ms,
 DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
 
 DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
+DEFINE_mBool(enable_cloud_random_segment_id, "false");
 DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 
 // clang-format off
@@ -2183,6 +2359,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         }                                                                                          \
         TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                          \
         TYPE old_value = ref_conf_value;                                                           \
+        ref_conf_value = new_value;                                                                \
         if (RegisterConfValidator::_s_field_validator != nullptr) {                                \
             auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);        \
             if (validator != RegisterConfValidator::_s_field_validator->end() &&                   \
@@ -2192,7 +2369,6 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
-        ref_conf_value = new_value;                                                                \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \
@@ -2380,6 +2556,9 @@ std::vector<std::vector<std::string>> get_config_info() {
         // and deprecate the `sys_log_dir` config.
         if (it.first == "sys_log_dir" && config_val == "") {
             config_val = fmt::format("{}/log", std::getenv("DORIS_HOME"));
+        }
+        if (it.first == "tls_private_key_password") {
+            config_val = "******";
         }
 
         _config.emplace_back(field_it->second.type);

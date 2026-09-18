@@ -57,6 +57,9 @@ public:
     const std::string& expr_name() const override;
     const std::string& function_name() const;
     [[nodiscard]] const std::string& get_analyzer_key() const override;
+    [[nodiscard]] const InvertedIndexAnalyzerCtx* query_analyzer_ctx() const override {
+        return _analyzer_ctx.get();
+    }
 
     std::string debug_string() const override;
 
@@ -69,6 +72,7 @@ private:
 
     // Lifecycle management: holds ownership of the analyzer
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
+    segment_v2::inverted_index::AnalyzerProviderPtr _analyzer_provider;
 
     // Runtime context: holds raw pointer to analyzer and necessary runtime info
     InvertedIndexAnalyzerCtxSPtr _analyzer_ctx;

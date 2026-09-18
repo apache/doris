@@ -66,5 +66,30 @@ suite("test_array_map_function_with_column") {
 
     qt_select_7  "select *,array_map((x,y)->x+k1+k2 > y+k1*k2,c_array1,c_array2) from ${tableName} where array_count((x,y) -> k1*x>y+k2, c_array1, c_array2) > 1 order by k1;"
 
+    sql "truncate table ${tableName};"
+    sql """INSERT INTO ${tableName} values
+        (0, 10, [1,2], [1,2]),
+        (1, 20, [3], [3]),
+        (2, 30, [], []),
+        (3, 40, [7,8,9], [7,8,9]),
+        (4, NULL, [10,NULL], [10,NULL]);
+    """
+
+    sql "set short_circuit_evaluation = true;"
+    qt_select_captured_selector_if """
+        select k1, if(k1 in (1, 3, 4), array_map(x -> x + k2, c_array1), [])
+        from ${tableName}
+        order by k1
+    """
+    qt_select_captured_selector_case """
+        select k1,
+               case when k1 in (1, 3, 4)
+                    then array_map(x -> x + k2, c_array1)
+                    else array_map(x -> x - k2, c_array1)
+               end
+        from ${tableName}
+        order by k1
+    """
+
     // sql "DROP TABLE IF EXISTS ${tableName}"
 }

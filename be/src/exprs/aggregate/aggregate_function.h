@@ -45,6 +45,7 @@ namespace doris {
 class Arena;
 class IColumn;
 class IDataType;
+class QueryContext;
 
 struct AggregateFunctionAttr {
     bool is_window_function {false};

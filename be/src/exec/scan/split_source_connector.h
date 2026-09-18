@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <functional>
+#include <algorithm>
 
 #include "common/config.h"
 #include "core/custom_allocator.h"
@@ -47,14 +47,7 @@ public:
 
     virtual TFileScanRangeParams* get_params() = 0;
 
-    virtual bool all_scan_ranges_match(
-            const TFileScanRangeParams& params,
-            const std::function<bool(const TFileScanRangeParams&, const TFileRangeDesc&)>&
-                    predicate) {
-        (void)params;
-        (void)predicate;
-        return false;
-    }
+    virtual bool all_ranges_have_table_level_row_count() const { return false; }
 
 protected:
     template <typename T, typename V1 = std::vector<T>, typename V2 = std::vector<T>>
@@ -137,22 +130,17 @@ public:
                 Status::FatalError("Unreachable, params is got by file_scan_range_params_map"));
     }
 
-    bool all_scan_ranges_match(
-            const TFileScanRangeParams& params,
-            const std::function<bool(const TFileScanRangeParams&, const TFileRangeDesc&)>&
-                    predicate) override {
-        if (_scan_ranges.empty()) {
-            return false;
-        }
-        for (const auto& scan_range : _scan_ranges) {
-            const auto& file_scan_range = scan_range.scan_range.ext_scan_range.file_scan_range;
-            for (const auto& range : file_scan_range.ranges) {
-                if (!predicate(params, range)) {
-                    return false;
-                }
-            }
-        }
-        return true;
+    bool all_ranges_have_table_level_row_count() const override {
+        // Every assigned range must carry a proven count; one fallback range would still require
+        // decoding the projected carrier through the selected scanner.
+        return !_scan_ranges.empty() && std::ranges::all_of(_scan_ranges, [](const auto& params) {
+            const auto& ranges = params.scan_range.ext_scan_range.file_scan_range.ranges;
+            return !ranges.empty() && std::ranges::all_of(ranges, [](const auto& range) {
+                return range.__isset.table_format_params &&
+                       range.table_format_params.__isset.table_level_row_count &&
+                       range.table_format_params.table_level_row_count >= 0;
+            });
+        });
     }
 };
 

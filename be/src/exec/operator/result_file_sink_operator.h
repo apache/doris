@@ -88,4 +88,7 @@ private:
     std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class AsyncWriterSink<VFileResultWriter, ResultFileSinkOperatorX>;
+
 } // namespace doris

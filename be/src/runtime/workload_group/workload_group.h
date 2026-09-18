@@ -30,6 +30,7 @@
 
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "runtime/workload_group/workload_group_fwd.h"
 #include "service/backend_options.h"
 #include "util/hash_util.hpp"
 
@@ -268,8 +269,6 @@ private:
 
     std::shared_ptr<WorkloadGroupMetrics> _wg_metrics {nullptr};
 };
-
-using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;
 
 struct WorkloadGroupInfo {
     const uint64_t id = 0;

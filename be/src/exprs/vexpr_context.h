@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -56,86 +57,41 @@ class ColumnIterator;
 namespace doris {
 
 class ScoreRuntime;
+class LambdaExecutionContext;
 using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
 
 class IndexExecContext {
 public:
-    IndexExecContext(const std::vector<ColumnId>& col_ids,
-                     const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
+    IndexExecContext(const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
                      const std::vector<IndexFieldNameAndTypePair>& storage_name_and_type_vec,
                      std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
                              common_expr_index_status,
                      ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment,
                      const segment_v2::ColumnIteratorOptions& column_iter_opts)
-            : _col_ids(col_ids),
-              _index_iterators(index_iterators),
+            : _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
               _expr_index_status(common_expr_index_status),
               _score_runtime(std::move(score_runtime)),
               _segment(segment),
               _column_iter_opts(column_iter_opts) {}
 
-    segment_v2::IndexIterator* get_inverted_index_iterator_by_column_id(int column_index) const {
-        if (column_index < 0 || column_index >= _col_ids.size()) {
+    segment_v2::IndexIterator* get_inverted_index_iterator(int32_t read_ordinal) const {
+        if (read_ordinal < 0 || static_cast<size_t>(read_ordinal) >= _index_iterators.size()) {
             return nullptr;
         }
-        const auto& column_id = _col_ids[column_index];
-        if (column_id >= _index_iterators.size()) {
+        const auto& iterator = _index_iterators[read_ordinal];
+        if (!iterator) {
             return nullptr;
         }
-        if (!_index_iterators[column_id]) {
-            return nullptr;
-        }
-        return _index_iterators[column_id].get();
+        return iterator.get();
     }
 
-    segment_v2::IndexIterator* get_inverted_index_iterator_by_id(ColumnId column_id) const {
-        if (column_id >= _index_iterators.size()) {
+    const IndexFieldNameAndTypePair* get_storage_name_and_type(int32_t read_ordinal) const {
+        if (read_ordinal < 0 ||
+            static_cast<size_t>(read_ordinal) >= _storage_name_and_type.size()) {
             return nullptr;
         }
-        if (!_index_iterators[column_id]) {
-            return nullptr;
-        }
-        return _index_iterators[column_id].get();
-    }
-
-    const IndexFieldNameAndTypePair* get_storage_name_and_type_by_column_id(
-            int column_index) const {
-        if (column_index < 0 || column_index >= _col_ids.size()) {
-            return nullptr;
-        }
-        const auto& column_id = _col_ids[column_index];
-        if (column_id >= _storage_name_and_type.size()) {
-            return nullptr;
-        }
-        return &_storage_name_and_type[column_id];
-    }
-
-    const IndexFieldNameAndTypePair* get_storage_name_and_type_by_id(ColumnId column_id) const {
-        if (column_id >= _storage_name_and_type.size()) {
-            return nullptr;
-        }
-        return &_storage_name_and_type[column_id];
-    }
-
-    int column_index_by_id(ColumnId column_id) const {
-        for (int i = 0; i < _col_ids.size(); ++i) {
-            if (_col_ids[i] == column_id) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    bool get_column_id(int column_index, ColumnId* column_id) const {
-        if (column_id == nullptr) {
-            return false;
-        }
-        if (column_index < 0 || column_index >= _col_ids.size()) {
-            return false;
-        }
-        *column_id = _col_ids[column_index];
-        return true;
+        return &_storage_name_and_type[read_ordinal];
     }
 
     segment_v2::Segment* segment() const { return _segment; }
@@ -172,14 +128,10 @@ public:
         _index_result_column[expr] = std::move(column);
     }
 
-    void set_true_for_index_status(const VExpr* expr, int column_index) {
-        if (column_index < 0 || column_index >= _col_ids.size()) {
-            return;
-        }
-        const auto& column_id = _col_ids[column_index];
-        if (_expr_index_status.contains(column_id)) {
-            if (_expr_index_status[column_id].contains(expr)) {
-                _expr_index_status[column_id][expr] = true;
+    void set_true_for_index_status(const VExpr* expr, int32_t read_ordinal) {
+        if (_expr_index_status.contains(read_ordinal)) {
+            if (_expr_index_status[read_ordinal].contains(expr)) {
+                _expr_index_status[read_ordinal][expr] = true;
             }
         }
     }
@@ -210,9 +162,6 @@ public:
     }
 
 private:
-    // A reference to a vector of column IDs for the current expression's output columns.
-    const std::vector<ColumnId>& _col_ids;
-
     // A reference to a vector of unique pointers to index iterators.
     const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& _index_iterators;
 
@@ -242,7 +191,7 @@ class VExprContext {
     ENABLE_FACTORY_CREATOR(VExprContext);
 
 public:
-    VExprContext(VExprSPtr expr) : _root(std::move(expr)) {}
+    VExprContext(VExprSPtr expr);
     ~VExprContext();
     [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
     [[nodiscard]] Status open(RuntimeState* state);
@@ -266,6 +215,8 @@ public:
 
     std::shared_ptr<IndexExecContext> get_index_context() const { return _index_context; }
 
+    LambdaExecutionContext& lambda_execution_context();
+
     /// Creates a FunctionContext, and returns the index that's passed to fn_context() to
     /// retrieve the created context. Exprs that need a FunctionContext should call this in
     /// Prepare() and save the returned index. 'varargs_buffer_size', if specified, is the
@@ -282,6 +233,12 @@ public:
                             _fn_contexts.size());
         }
         return _fn_contexts[i].get();
+    }
+
+    void set_auto_partition_boundary_context() {
+        for (auto& fn_context : _fn_contexts) {
+            fn_context->set_auto_partition_boundary_context();
+        }
     }
 
     // execute expr with inverted index which column a, b has inverted indexes
@@ -350,36 +307,9 @@ public:
 
     void clone_fn_contexts(VExprContext* other);
 
-    VExprContext& operator=(const VExprContext& other) {
-        if (this == &other) {
-            return *this;
-        }
+    VExprContext& operator=(const VExprContext& other) = delete;
 
-        _root = other._root;
-        _is_clone = other._is_clone;
-        _prepared = other._prepared;
-        _opened = other._opened;
-
-        for (const auto& fn : other._fn_contexts) {
-            _fn_contexts.emplace_back(fn->clone());
-        }
-
-        _last_result_column_id = other._last_result_column_id;
-        _depth_num = other._depth_num;
-        return *this;
-    }
-
-    VExprContext& operator=(VExprContext&& other) {
-        _root = other._root;
-        other._root = nullptr;
-        _is_clone = other._is_clone;
-        _prepared = other._prepared;
-        _opened = other._opened;
-        _fn_contexts = std::move(other._fn_contexts);
-        _last_result_column_id = other._last_result_column_id;
-        _depth_num = other._depth_num;
-        return *this;
-    }
+    VExprContext& operator=(VExprContext&& other) = delete;
 
     [[nodiscard]] static size_t get_memory_usage(const VExprContextSPtrs& contexts) {
         size_t usage = 0;
@@ -393,8 +323,7 @@ public:
     void prepare_ann_range_search(const doris::VectorSearchUserParams& params);
 
     Status evaluate_ann_range_search(
-            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
-            const std::vector<ColumnId>& idx_to_cid,
+            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                     common_expr_to_slotref_map,
@@ -436,6 +365,8 @@ private:
 
     segment_v2::AnnRangeSearchRuntime _ann_range_search_runtime;
     bool _suitable_for_ann_index = true;
+
+    std::unique_ptr<LambdaExecutionContext> _lambda_execution_context;
 
     std::unique_ptr<RuntimeFilterSelectivity> _rf_selectivity =
             std::make_unique<RuntimeFilterSelectivity>();

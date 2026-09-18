@@ -31,9 +31,6 @@ namespace doris::segment_v2 {
 InvertedIndexIterator::InvertedIndexIterator() = default;
 
 std::string InvertedIndexIterator::ensure_normalized_key(const std::string& analyzer_key) {
-    // Simple normalization: lowercase, empty stays empty.
-    // Empty means "user did not specify" (auto-select mode).
-    // Non-empty means "user specified this analyzer" (exact match mode).
     return normalize_analyzer_key(analyzer_key);
 }
 
@@ -46,12 +43,13 @@ void InvertedIndexIterator::add_reader(InvertedIndexReaderType type,
     VLOG_DEBUG << "InvertedIndexIterator add_reader: type=" << static_cast<int>(type)
                << ", analyzer_key=" << analyzer_key;
 
-    const size_t entry_index = _reader_entries.size();
-    _reader_entries.push_back(
-            ReaderEntry {.type = type, .analyzer_key = std::move(analyzer_key), .reader = reader});
-
-    // Update index for O(1) lookup
-    _key_to_entries[_reader_entries.back().analyzer_key].push_back(entry_index);
+    auto status = add_inverted_index_selection_candidate(
+            InvertedIndexSelectionCandidate {.index_id = cast_set<int64_t>(reader->get_index_id()),
+                                             .reader_type = type,
+                                             .analyzer_key = std::move(analyzer_key)},
+            &_selection_candidates, &_key_to_entries);
+    DORIS_CHECK(status.ok()) << status;
+    _readers.push_back(reader);
 }
 
 Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
@@ -68,13 +66,11 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
         return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>("inverted index bypass");
     });
 
-    // analyzer_name from analyzer_ctx: what user specified in USING ANALYZER clause.
-    // Empty means "user did not specify" (BE auto-selects index).
-    // Non-empty means "user specified this analyzer" (BE exact matches).
-    const std::string& analyzer_name =
-            (i_param->analyzer_ctx != nullptr) ? i_param->analyzer_ctx->analyzer_name : "";
+    // The execution context carries reader selection separately from analyzer execution.
+    const std::string& analyzer_key =
+            (i_param->analyzer_ctx != nullptr) ? i_param->analyzer_ctx->analyzer_key : "";
     auto reader =
-            DORIS_TRY(select_best_reader(i_param->column_type, i_param->query_type, analyzer_name));
+            DORIS_TRY(select_best_reader(i_param->column_type, i_param->query_type, analyzer_key));
     if (UNLIKELY(reader == nullptr)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "inverted index reader is null");
@@ -101,6 +97,11 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 
     // Note: analyzer_ctx is now passed via i_param->analyzer_ctx
     auto execute_query = [&]() {
+        if (i_param->null_bitmap_cache_handle != nullptr) {
+            return reader->query_with_null_bitmap(
+                    _context, i_param->column_name, i_param->query_value, i_param->query_type,
+                    i_param->roaring, i_param->null_bitmap_cache_handle, i_param->analyzer_ctx);
+        }
         return reader->query(_context, i_param->column_name, i_param->query_value,
                              i_param->query_type, i_param->roaring, i_param->analyzer_ctx);
     };
@@ -122,14 +123,12 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 }
 
 Status InvertedIndexIterator::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) {
-    // For null bitmap, use any available reader (empty = auto-select)
-    auto reader = DORIS_TRY(select_best_reader(""));
+    auto reader = DORIS_TRY(select_any_reader());
     return reader->read_null_bitmap(_context, cache_handle, nullptr);
 }
 
 Result<bool> InvertedIndexIterator::has_null() {
-    // For has_null check, use any available reader (empty = auto-select)
-    auto reader = DORIS_TRY(select_best_reader(""));
+    auto reader = DORIS_TRY(select_any_reader());
     return reader->has_null();
 }
 
@@ -149,177 +148,59 @@ Status InvertedIndexIterator::try_read_from_inverted_index(const InvertedIndexRe
     return Status::OK();
 }
 
-// When multiple candidates of the preferred type exist, pick the one with
-// the smallest index_id so that the choice is deterministic regardless of
-// the order indexes appear in the rowset schema.  Different segments may
-// have different index orderings (e.g. after sequential BUILD INDEX
-// operations), and relying on iteration order would cause inconsistent
-// query results across segments.
-static const ReaderEntry* pick_preferred(const std::vector<const ReaderEntry*>& candidates,
-                                         InvertedIndexReaderType preferred_type) {
-    const ReaderEntry* best = nullptr;
-    for (const auto* entry : candidates) {
-        if (entry->type == preferred_type) {
-            if (best == nullptr || entry->reader->get_index_id() < best->reader->get_index_id()) {
-                best = entry;
-            }
-        }
-    }
-    return best;
-}
-
-static const ReaderEntry* pick_smallest_index_id(
-        const std::vector<const ReaderEntry*>& candidates) {
-    const ReaderEntry* best = candidates.front();
-    for (const auto* entry : candidates) {
-        if (entry->reader->get_index_id() < best->reader->get_index_id()) {
-            best = entry;
-        }
-    }
-    return best;
-}
-
-Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_for_text(
-        const AnalyzerMatchResult& match, InvertedIndexQueryType query_type,
-        const std::string& analyzer_key) {
-    // Bypass: explicit analyzer specified but not found
-    if (match.empty() && AnalyzerKeyMatcher::is_explicit(analyzer_key)) {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                "No inverted index reader found for analyzer '{}'. "
-                "The index for this analyzer may not be built yet.",
-                analyzer_key));
-    }
-
-    if (match.empty()) {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "No available inverted index readers for text column."));
-    }
-
-    // MATCH queries prefer FULLTEXT
-    if (is_match_query(query_type)) {
-        if (auto* best = pick_preferred(match.candidates, InvertedIndexReaderType::FULLTEXT)) {
-            return best->reader;
-        }
-    }
-
-    // EQUAL queries prefer STRING_TYPE for exact match
-    if (is_equal_query(query_type)) {
-        if (auto* best = pick_preferred(match.candidates, InvertedIndexReaderType::STRING_TYPE)) {
-            return best->reader;
-        }
-    }
-
-    // Default: smallest index_id for deterministic selection
-    return pick_smallest_index_id(match.candidates)->reader;
-}
-
-Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_for_numeric(
-        const AnalyzerMatchResult& match, InvertedIndexQueryType query_type) {
-    if (match.empty()) {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "No available inverted index readers for numeric column."));
-    }
-
-    // RANGE queries prefer BKD
-    if (is_range_query(query_type)) {
-        if (const auto* best = pick_preferred(match.candidates, InvertedIndexReaderType::BKD)) {
-            return best->reader;
-        }
-    }
-
-    // Fallback priority: BKD > STRING_TYPE > smallest index_id
-    if (const auto* best = pick_preferred(match.candidates, InvertedIndexReaderType::BKD)) {
-        return best->reader;
-    }
-    if (const auto* best = pick_preferred(match.candidates, InvertedIndexReaderType::STRING_TYPE)) {
-        return best->reader;
-    }
-
-    // Last resort: smallest index_id for deterministic selection
-    return pick_smallest_index_id(match.candidates)->reader;
-}
-
 Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         const DataTypePtr& column_type, InvertedIndexQueryType query_type,
         const std::string& analyzer_key) {
-    if (_reader_entries.empty()) {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "No available inverted index readers. Check if index is properly initialized."));
-    }
-
-    // Normalize once at entry point
     const std::string normalized_key = ensure_normalized_key(analyzer_key);
-
-    // Single reader optimization
-    if (_reader_entries.size() == 1) {
-        const auto& entry = _reader_entries.front();
-        if (AnalyzerKeyMatcher::is_explicit(normalized_key) &&
-            entry.analyzer_key != normalized_key) {
-            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                    "No inverted index reader found for analyzer '{}'. "
-                    "Available analyzer: '{}'.",
-                    normalized_key, entry.analyzer_key));
+    // The column type only disambiguates between several indexes on the same field; with a
+    // single candidate the selection is already determined. Callers that have no runtime type
+    // binding therefore leave column_type null, so resolve the leaf type only when it matters.
+    FieldType field_type = FieldType::OLAP_FIELD_TYPE_UNKNOWN;
+    if (_selection_candidates.size() > 1) {
+        if (column_type == nullptr) {
+            return ResultError(Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
+                    "column_type is required to select among {} inverted indexes",
+                    _selection_candidates.size()));
         }
-        return entry.reader;
+        field_type = get_inverted_index_leaf_field_type(column_type);
     }
-
-    // Match analyzer key using AnalyzerKeyMatcher
-    auto match = AnalyzerKeyMatcher::match(normalized_key, _reader_entries, _key_to_entries);
-
-    // Dispatch by column type
-    const auto field_type = column_type->get_storage_field_type();
-
-    if (is_string_type(field_type)) {
-        return select_for_text(match, query_type, normalized_key);
+    auto selection = select_best_inverted_index_candidate(_selection_candidates, _key_to_entries,
+                                                          field_type, query_type, normalized_key);
+    if (!selection.has_value()) {
+        return ResultError(std::move(selection.error()));
     }
+    const size_t selected = *selection;
+    DORIS_CHECK(selected < _readers.size());
+    return _readers[selected];
+}
 
-    if (is_numeric_type(field_type)) {
-        return select_for_numeric(match, query_type);
+Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_any_reader() {
+    auto selection = select_best_inverted_index_candidate(
+            _selection_candidates, _key_to_entries, FieldType::OLAP_FIELD_TYPE_UNKNOWN,
+            InvertedIndexQueryType::UNKNOWN_QUERY, "");
+    if (!selection.has_value()) {
+        return ResultError(std::move(selection.error()));
     }
-
-    // Default: return deterministic candidate or error
-    if (match.empty()) {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "No available inverted index readers for column type."));
-    }
-    return pick_smallest_index_id(match.candidates)->reader;
+    const size_t selected = *selection;
+    DORIS_CHECK(selected < _readers.size());
+    return _readers[selected];
 }
 
 Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         const std::string& analyzer_key) {
-    if (_reader_entries.empty()) {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "No available inverted index readers. Check if index is properly initialized."));
+    if (analyzer_key.empty()) {
+        return select_any_reader();
     }
-
     const std::string normalized_key = ensure_normalized_key(analyzer_key);
-
-    // Single reader optimization
-    if (_reader_entries.size() == 1) {
-        const auto& entry = _reader_entries.front();
-        if (AnalyzerKeyMatcher::is_explicit(normalized_key) &&
-            entry.analyzer_key != normalized_key) {
-            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                    "No inverted index reader found for analyzer '{}'. "
-                    "Available analyzer: '{}'.",
-                    normalized_key, entry.analyzer_key));
-        }
-        return entry.reader;
+    auto selection = select_best_inverted_index_candidate(
+            _selection_candidates, _key_to_entries, FieldType::OLAP_FIELD_TYPE_UNKNOWN,
+            InvertedIndexQueryType::UNKNOWN_QUERY, normalized_key);
+    if (!selection.has_value()) {
+        return ResultError(std::move(selection.error()));
     }
-
-    // Match and return deterministic candidate
-    auto match = AnalyzerKeyMatcher::match(normalized_key, _reader_entries, _key_to_entries);
-
-    if (match.empty()) {
-        if (AnalyzerKeyMatcher::is_explicit(normalized_key)) {
-            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                    "No inverted index reader found for analyzer '{}'.", normalized_key));
-        }
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
-                "No available inverted index readers."));
-    }
-
-    return pick_smallest_index_id(match.candidates)->reader;
+    const size_t selected = *selection;
+    DORIS_CHECK(selected < _readers.size());
+    return _readers[selected];
 }
 
 IndexReaderPtr InvertedIndexIterator::get_reader(IndexReaderType type) const {
@@ -327,9 +208,10 @@ IndexReaderPtr InvertedIndexIterator::get_reader(IndexReaderType type) const {
     if (inverted_type == nullptr) {
         return nullptr;
     }
-    for (const auto& entry : _reader_entries) {
-        if (entry.type == *inverted_type) {
-            return entry.reader;
+    for (size_t i = 0; i < _selection_candidates.size(); ++i) {
+        if (_selection_candidates[i].reader_type == *inverted_type) {
+            DORIS_CHECK(i < _readers.size());
+            return _readers[i];
         }
     }
     return nullptr;

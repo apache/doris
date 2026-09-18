@@ -16,6 +16,7 @@
 // under the License.
 import groovy.json.JsonOutput
 import org.apache.doris.regression.suite.Suite
+import org.apache.doris.regression.util.RowsetInfoUtils
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
     Suite.metaClass.repeate_stream_load_same_data = { String tableName, int loadTimes, String filePath->
@@ -213,13 +214,9 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
             logger.info("[caculate_table_data_size_through_api] tablet ID: ${tabletId}, status: " + tabletStatus.toString())
             
             for(String rowset: tabletStatus.rowsets){
-                def fields = rowset.split(" ")
-                if (fields.length == 7) {
-                    def sizeField = fields[-2]  // the last field（size）
-                    def unitField = fields[-1]   // The second to last field（unit）
-                    // 转换成 KB
-                    apiCaculateSize += translate_different_unit_to_MB(sizeField, unitField )
-                }
+                def (sizeField, unitField) = RowsetInfoUtils.dataSizeFields(rowset)
+                // 转换成 KB
+                apiCaculateSize += translate_different_unit_to_MB(sizeField, unitField)
             }
         }
         def round_size = new BigDecimal(apiCaculateSize).setScale(0, BigDecimal.ROUND_FLOOR);

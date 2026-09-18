@@ -22,7 +22,6 @@
 
 #include <chrono>
 #include <cstdint>
-#include <ranges>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -121,11 +120,13 @@ public:
         } else {
             tablet->add_not_warmed_up_rowset(output_rowset->rowset_id());
         }
-        std::ranges::copy_if(std::views::values(tablet->rowset_map()),
-                             std::back_inserter(input_rowsets), [=](const RowsetSharedPtr& rowset) {
-                                 return rowset->version().first >= start_version &&
-                                        rowset->version().first <= end_version;
-                             });
+        for (const auto& kv : tablet->rowset_map()) {
+            const auto& rowset = kv.second;
+            if (rowset->version().first >= start_version &&
+                rowset->version().first <= end_version) {
+                input_rowsets.push_back(rowset);
+            }
+        }
         if (input_rowsets.size() == 1) {
             tablet->add_rowsets({output_rowset}, true, wrlock);
         } else {

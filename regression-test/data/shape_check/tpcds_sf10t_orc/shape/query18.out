@@ -24,7 +24,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalProject
 --------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF2 RF5 RF6
 ------------------------------------------PhysicalProject
---------------------------------------------filter(c_birth_month IN (1, 4, 5, 7, 8, 9))
+--------------------------------------------filter(customer.c_birth_month IN (1, 4, 5, 7, 8, 9))
 ----------------------------------------------PhysicalOlapScan[customer] apply RFs: RF1 RF3
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[customer_demographics(cd2)]
@@ -32,7 +32,7 @@ PhysicalResultSink
 ------------------------------------filter((cd1.cd_education_status = 'Unknown') and (cd1.cd_gender = 'M'))
 --------------------------------------PhysicalOlapScan[customer_demographics(cd1)]
 ------------------------------PhysicalProject
---------------------------------filter(ca_state IN ('AL', 'AR', 'GA', 'MS', 'NC', 'TX', 'WV'))
+--------------------------------filter(customer_address.ca_state IN ('AL', 'AR', 'GA', 'MS', 'NC', 'TX', 'WV'))
 ----------------------------------PhysicalOlapScan[customer_address] apply RFs: RF4
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[item]

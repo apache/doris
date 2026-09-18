@@ -21,16 +21,16 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class SqlBlockRuleMgrTest {
-    @BeforeClass
+    @BeforeAll
     public static void setUp() {
         MetricRepo.init();
     }
@@ -38,14 +38,14 @@ public class SqlBlockRuleMgrTest {
     @Test
     public void testToInfoString() {
         SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
-        Assert.assertTrue(mgr.getNameToSqlBlockRuleMap() instanceof ConcurrentHashMap);
+        Assertions.assertTrue(mgr.getNameToSqlBlockRuleMap() instanceof ConcurrentHashMap);
         SqlBlockRule rule = new SqlBlockRule();
         mgr.getNameToSqlBlockRuleMap().put("r1", rule);
         String mgrJson = GsonUtils.GSON.toJson(mgr);
         SqlBlockRuleMgr mgrNew = GsonUtils.GSON.fromJson(mgrJson, SqlBlockRuleMgr.class);
         Map<String, SqlBlockRule> nameToSqlBlockRuleMap = mgrNew.getNameToSqlBlockRuleMap();
-        Assert.assertTrue(nameToSqlBlockRuleMap instanceof ConcurrentHashMap);
-        Assert.assertTrue(nameToSqlBlockRuleMap.containsKey("r1"));
+        Assertions.assertTrue(nameToSqlBlockRuleMap instanceof ConcurrentHashMap);
+        Assertions.assertTrue(nameToSqlBlockRuleMap.containsKey("r1"));
     }
 
     @Test
@@ -54,7 +54,7 @@ public class SqlBlockRuleMgrTest {
                 true, true, true);
         String json = GsonUtils.GSON.toJson(rule);
         SqlBlockRule roundTrip = GsonUtils.GSON.fromJson(json, SqlBlockRule.class);
-        Assert.assertTrue(roundTrip.getRequirePartitionFilter());
+        Assertions.assertTrue(roundTrip.getRequirePartitionFilter());
     }
 
     @Test
@@ -62,22 +62,22 @@ public class SqlBlockRuleMgrTest {
         SqlBlockRule enabledRule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,
                 true, true, true);
         List<String> enabledShowInfo = enabledRule.getShowInfo();
-        Assert.assertEquals(9, enabledShowInfo.size());
-        Assert.assertEquals("1", enabledShowInfo.get(8));
+        Assertions.assertEquals(9, enabledShowInfo.size());
+        Assertions.assertEquals("1", enabledShowInfo.get(8));
 
         SqlBlockRule disabledRule = new SqlBlockRule("r2", "NULL", "NULL", 0L, 0L, 0L,
                 false, true, true);
         List<String> disabledShowInfo = disabledRule.getShowInfo();
-        Assert.assertEquals("0", disabledShowInfo.get(8));
+        Assertions.assertEquals("0", disabledShowInfo.get(8));
     }
 
     @Test
     public void testConstructorPlaceRequirePartitionFilterBeforeGlobal() {
         SqlBlockRule rule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,
                 true, false, true);
-        Assert.assertTrue(rule.getRequirePartitionFilter());
-        Assert.assertFalse(rule.getGlobal());
-        Assert.assertTrue(rule.getEnable());
+        Assertions.assertTrue(rule.getRequirePartitionFilter());
+        Assertions.assertFalse(rule.getGlobal());
+        Assertions.assertTrue(rule.getEnable());
     }
 
     @Test
@@ -86,9 +86,9 @@ public class SqlBlockRuleMgrTest {
         SqlBlockRule rule = new SqlBlockRule("r1", "NULL", "NULL", 0L, 0L, 0L,
                 true, true, true);
 
-        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                 () -> mgr.checkLimitations(rule, 2L, 3L, 4L, true, false));
-        Assert.assertTrue(exception.getMessage().contains("sql hits sql block rule: r1, missing partition filter"));
+        Assertions.assertTrue(exception.getMessage().contains("sql hits sql block rule: r1, missing partition filter"));
     }
 
     @Test

@@ -23,6 +23,17 @@
 # Things will only be downloaded, unpacked and patched once.
 ################################################################
 
+# The shebang above only takes effect when this script is executed directly.
+# `sh download-thirdparty.sh` hands it to /bin/sh instead, which is dash on
+# Debian and Ubuntu and parses none of the `[[ ]]`, arrays and here-strings this
+# script is built on. It does not stop at the first of them either, it keeps
+# going and runs a mangled version of the script. Re-exec under bash so that the
+# way the script was invoked cannot decide whether the download works. Keep this
+# block POSIX, it has to be parsed by the shell that is about to be replaced.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -74,13 +85,39 @@ while [[ $# -gt 0 ]]; do
     )
 done
 if [[ "${SPEC_LIB}" != "" ]]; then
+    # Arrow builds xsimd and Brotli from their source archives.
+    if [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW '* ]]; then
+        for arrow_companion in XSIMD BROTLI; do
+            if [[ " ${SPEC_ARCHIVES[*]} " != *" ${arrow_companion} "* ]]; then
+                SPEC_ARCHIVES+=("${arrow_companion}")
+            fi
+        done
+    fi
+
+    # ARROW_ADBC_FLIGHTSQL is a companion archive of arrow_adbc rather than a
+    # package of its own: it has no build function, build_arrow_adbc() only copies
+    # the prebuilt driver out of it. Its name therefore never appears on a command
+    # line, so narrowing to the named entries alone leaves it unfetched and
+    # `build-thirdparty.sh arrow_adbc` dies on the missing source directory.
+    if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " == *' ARROW_ADBC '* ]] &&
+        [[ " ${SPEC_ARCHIVES[*]} " != *' ARROW_ADBC_FLIGHTSQL '* ]]; then
+        SPEC_ARCHIVES+=('ARROW_ADBC_FLIGHTSQL')
+    fi
     TP_ARCHIVES=("${SPEC_ARCHIVES[@]}")
     echo "Download and build specified libs only: ${TP_ARCHIVES[*]}"
 fi
 
 md5sum_bin='md5sum'
 if ! command -v "${md5sum_bin}" >/dev/null 2>&1; then
-    echo "Warn: md5sum is not installed"
+    # macOS ships BSD md5 rather than GNU md5sum. Giving up on verification there
+    # is not a neutral loss: `wget -O` creates its output file before the transfer,
+    # so a failed download leaves a 0-byte file behind, and an unverified retry
+    # then reports it as a valid cached archive and carries on.
+    md5sum_bin='md5'
+fi
+if ! command -v "${md5sum_bin}" >/dev/null 2>&1; then
+    echo "Warn: neither md5sum nor md5 is installed, archives will not be verified"
     md5sum_bin=""
 fi
 
@@ -92,13 +129,18 @@ md5sum_func() {
 
     if [[ "${md5sum_bin}" == "" ]]; then
         return 0
+    fi
+
+    # Compare the digest alone, the two tools disagree on everything around it.
+    if [[ "${md5sum_bin}" == 'md5' ]]; then
+        md5="$("${md5sum_bin}" -q "${DESC_DIR}/${FILENAME}")"
     else
-        md5="$(md5sum "${DESC_DIR}/${FILENAME}")"
-        if [[ "${md5}" != "${MD5SUM}  ${DESC_DIR}/${FILENAME}" ]]; then
-            echo "${DESC_DIR}/${FILENAME} md5sum check failed!"
-            echo -e "except-md5 ${MD5SUM} \nactual-md5 ${md5}"
-            return 1
-        fi
+        md5="$("${md5sum_bin}" "${DESC_DIR}/${FILENAME}" | awk '{ print $1 }')"
+    fi
+    if [[ "${md5}" != "${MD5SUM}" ]]; then
+        echo "${DESC_DIR}/${FILENAME} md5sum check failed!"
+        echo -e "except-md5 ${MD5SUM} \nactual-md5 ${md5}"
+        return 1
     fi
     return 0
 }
@@ -355,17 +397,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " GLOG " ]]; then
     echo "Finished patching ${GLOG_SOURCE}"
 fi
 
-# snappy patch to fix sign-compare warning
-if [[ " ${TP_ARCHIVES[*]} " =~ " SNAPPY " ]]; then
-    cd "${TP_SOURCE_DIR}/${SNAPPY_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p1 <"${TP_PATCH_DIR}/snappy-1.1.10-sign-compare.patch"
-        touch "${PATCHED_MARK}"
-    fi
-    cd -
-    echo "Finished patching ${SNAPPY_SOURCE}"
-fi
-
 # mysql patch
 if [[ " ${TP_ARCHIVES[*]} " =~ " MYSQL " ]]; then
     cd "${TP_SOURCE_DIR}/${MYSQL_SOURCE}"
@@ -438,24 +469,32 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
         fi
         cd -
     fi
-    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-17.0.0" ]]; then
+    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-24.0.0" ]]; then
         cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            # Paimon-cpp parquet patches: row-group-aware batch reader, max_row_group_size,
-            # GetBufferedSize(), int96 NANO guard, and Thrift_VERSION empty fix.
-            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-paimon.patch"
-
-            # apache-arrow-17.0.0-force-write-int96-timestamps.patch : 
-            # Introducing the parameter that forces writing int96 timestampes for compatibility with Paimon cpp. 
-            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
+            # Introducing the parameter that forces writing INT96 timestamps for
+            # compatibility with the Doris Parquet writer.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-force-write-int96-timestamps.patch"
 
             # Add Parquet LZO page decompression support used by file scanner v2.
-            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-lzo.patch"
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-lzo.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
     fi
     echo "Finished patching ${ARROW_SOURCE}"
+fi
+
+# arrow-adbc patch adds the pre-generated JNI header, so that building the JNI
+# bridge needs no Maven. See the patch header for how to regenerate it.
+if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW_ADBC " ]]; then
+    cd "${TP_SOURCE_DIR}/${ARROW_ADBC_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        patch -p1 <"${TP_PATCH_DIR}/apache-arrow-adbc-24-pregenerated-jni-header.patch"
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${ARROW_ADBC_SOURCE}"
 fi
 
 # patch librdkafka to avoid crash
@@ -487,10 +526,10 @@ fi
 # patch libunwind so Doris can force GNU libunwind to use the BE PHDR cache
 # without changing ordinary dl_iterate_phdr callers.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUNWIND " ]]; then
-    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.6.2" ]]; then
+    if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.8.3" ]]; then
         cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.6.2-doris-phdr-cache.patch"
+            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.8.3-doris-phdr-cache.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -686,22 +725,6 @@ else
     fi
 fi
 
-# patch thrift
-if [[ " ${TP_ARCHIVES[*]} " =~ " THRIFT " ]]; then
-    if [[ "${THRIFT_SOURCE}" == 'thrift-0.16.0' ]]; then
-        cd "${TP_SOURCE_DIR}/${THRIFT_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
-            for patch_file in "${TP_PATCH_DIR}"/thrift-*; do
-                echo "patch ${patch_file}"
-                patch -p1 --ignore-whitespace <"${patch_file}"
-            done
-            touch "${PATCHED_MARK}"
-        fi
-        cd -
-    fi
-    echo "Finished patching ${THRIFT_SOURCE}"
-fi
-
 # patch re2
 if [[ " ${TP_ARCHIVES[*]} " =~ " RE2 " ]]; then
     if [[ "${RE2_SOURCE}" == 're2-2021-02-02' ]]; then
@@ -729,19 +752,26 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
-# patch paimon-cpp
-if [[ " ${TP_ARCHIVES[*]} " =~ " PAIMON_CPP " ]]; then
-    cd "${TP_SOURCE_DIR}/${PAIMON_CPP_SOURCE}"
+# Apply Doris lance-c patches as one chain to the pinned release archive.
+if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
+    cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        if patch -p1 -N --batch --dry-run <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch" >/dev/null 2>&1; then
-            patch -p1 -N --batch <"${TP_PATCH_DIR}/paimon-cpp-buildutils-static-deps.patch"
-        else
-            echo "Skip paimon-cpp patch: already applied or not applicable for current source"
-        fi
+        # Apply the merged PRs first; the latest PR #73 and #79 both require Lance v11.
+        # This order keeps the upstream patches unchanged, including Cargo.lock.
+        for lance_patch in pr-74 pr-75-pr-78 pr-77 pr-73 pr-79 pr-80; do
+            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+                -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-${lance_patch}.patch"
+        done
         touch "${PATCHED_MARK}"
     fi
+    # The base marker may already exist in cached sources; apply PR #83 independently.
+    if [[ ! -f "${PATCHED_MARK}_pr83" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-pr-83.patch"
+        touch "${PATCHED_MARK}_pr83"
+    fi
     cd -
-    echo "Finished patching ${PAIMON_CPP_SOURCE}"
+    echo "Finished patching ${LANCE_C_SOURCE}"
 fi
 
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then

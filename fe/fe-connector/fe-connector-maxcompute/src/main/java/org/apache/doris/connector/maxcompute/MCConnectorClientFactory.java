@@ -25,8 +25,6 @@ import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AklessAccount;
 import com.aliyun.odps.account.AliyunAccount;
 
-import java.util.Map;
-
 /**
  * Factory for creating MaxCompute (ODPS) client instances.
  * Adapted from fe-common MCUtils — copied into plugin to avoid
@@ -37,89 +35,36 @@ public final class MCConnectorClientFactory {
     }
 
     /**
-     * Validates that required authentication properties are present.
-     */
-    public static void checkAuthProperties(Map<String, String> properties) {
-        String authType = properties.getOrDefault(
-                MCConnectorProperties.AUTH_TYPE,
-                MCConnectorProperties.DEFAULT_AUTH_TYPE);
-
-        if (authType.equalsIgnoreCase(
-                MCConnectorProperties.AUTH_TYPE_AK_SK)) {
-            if (!properties.containsKey(MCConnectorProperties.ACCESS_KEY)
-                    || !properties.containsKey(
-                            MCConnectorProperties.SECRET_KEY)) {
-                throw new RuntimeException(
-                        "Missing access key or secret key for "
-                                + "AK/SK auth type");
-            }
-        } else if (authType.equalsIgnoreCase(
-                MCConnectorProperties.AUTH_TYPE_RAM_ROLE_ARN)) {
-            if (!properties.containsKey(MCConnectorProperties.ACCESS_KEY)
-                    || !properties.containsKey(
-                            MCConnectorProperties.SECRET_KEY)
-                    || !properties.containsKey(
-                            MCConnectorProperties.RAM_ROLE_ARN)) {
-                throw new RuntimeException(
-                        "Missing access key, secret key or role arn "
-                                + "for RAM Role ARN auth type");
-            }
-        } else if (authType.equalsIgnoreCase(
-                MCConnectorProperties.AUTH_TYPE_ECS_RAM_ROLE)) {
-            if (!properties.containsKey(
-                    MCConnectorProperties.ECS_RAM_ROLE)) {
-                throw new RuntimeException(
-                        "Missing role name for ECS RAM Role auth type");
-            }
-        } else {
-            throw new RuntimeException(
-                    "Unsupported auth type: " + authType);
-        }
-    }
-
-    /**
      * Creates an Odps client based on the authentication configuration.
+     *
+     * <p>Every case below is reachable with its credentials already present: the auth type is one of
+     * three values and each one's credentials are checked when {@link MCCatalogProperties} is built, so
+     * there is no unsupported-type arm left to write here.
      */
-    public static Odps createClient(Map<String, String> properties) {
-        String authType = properties.getOrDefault(
-                MCConnectorProperties.AUTH_TYPE,
-                MCConnectorProperties.DEFAULT_AUTH_TYPE);
-
-        if (authType.equalsIgnoreCase(
-                MCConnectorProperties.AUTH_TYPE_AK_SK)) {
-            String accessKey = properties.get(
-                    MCConnectorProperties.ACCESS_KEY);
-            String secretKey = properties.get(
-                    MCConnectorProperties.SECRET_KEY);
-            Account account = new AliyunAccount(accessKey, secretKey);
-            return new Odps(account);
-        } else if (authType.equalsIgnoreCase(
-                MCConnectorProperties.AUTH_TYPE_RAM_ROLE_ARN)) {
-            String accessKey = properties.get(
-                    MCConnectorProperties.ACCESS_KEY);
-            String secretKey = properties.get(
-                    MCConnectorProperties.SECRET_KEY);
-            String roleArn = properties.get(
-                    MCConnectorProperties.RAM_ROLE_ARN);
-            RamRoleArnCredentialProvider provider =
-                    RamRoleArnCredentialProvider.builder()
-                            .credential(Credential.builder()
-                                    .accessKeyId(accessKey)
-                                    .accessKeySecret(secretKey).build())
-                            .roleArn(roleArn).build();
-            AklessAccount aklessAccount = new AklessAccount(provider);
-            return new Odps(aklessAccount);
-        } else if (authType.equalsIgnoreCase(
-                MCConnectorProperties.AUTH_TYPE_ECS_RAM_ROLE)) {
-            String roleName = properties.get(
-                    MCConnectorProperties.ECS_RAM_ROLE);
-            EcsRamRoleCredentialProvider provider =
-                    EcsRamRoleCredentialProvider.create(roleName);
-            AklessAccount aklessAccount = new AklessAccount(provider);
-            return new Odps(aklessAccount);
-        } else {
-            throw new RuntimeException(
-                    "Unsupported auth type: " + authType);
+    public static Odps createClient(MCCatalogProperties props) {
+        switch (props.getAuthType()) {
+            case AK_SK: {
+                Account account = new AliyunAccount(props.getAccessKey(), props.getSecretKey());
+                return new Odps(account);
+            }
+            case RAM_ROLE_ARN: {
+                RamRoleArnCredentialProvider provider =
+                        RamRoleArnCredentialProvider.builder()
+                                .credential(Credential.builder()
+                                        .accessKeyId(props.getAccessKey())
+                                        .accessKeySecret(props.getSecretKey()).build())
+                                .roleArn(props.getRamRoleArn()).build();
+                AklessAccount aklessAccount = new AklessAccount(provider);
+                return new Odps(aklessAccount);
+            }
+            case ECS_RAM_ROLE: {
+                EcsRamRoleCredentialProvider provider =
+                        EcsRamRoleCredentialProvider.create(props.getEcsRamRole());
+                AklessAccount aklessAccount = new AklessAccount(provider);
+                return new Odps(aklessAccount);
+            }
+            default:
+                throw new IllegalStateException("Unhandled auth type: " + props.getAuthType());
         }
     }
 }

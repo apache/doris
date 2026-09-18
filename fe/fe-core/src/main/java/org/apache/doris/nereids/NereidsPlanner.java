@@ -45,9 +45,6 @@ import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
-import org.apache.doris.nereids.metrics.event.CounterEvent;
-import org.apache.doris.nereids.minidump.MinidumpUtils;
-import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -71,6 +68,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
@@ -87,6 +85,7 @@ import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
@@ -97,7 +96,6 @@ import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
@@ -145,11 +143,6 @@ public class NereidsPlanner extends Planner {
     @Override
     public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) throws UserException {
         this.queryOptions = queryOptions;
-        if (statementContext.getConnectContext().getSessionVariable().isEnableNereidsTrace()) {
-            NereidsTracer.init();
-        } else {
-            NereidsTracer.disable();
-        }
         if (!(queryStmt instanceof LogicalPlanAdapter)) {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
         }
@@ -159,7 +152,6 @@ public class NereidsPlanner extends Planner {
         ExplainLevel explainLevel = getExplainLevel(queryStmt.getExplainOptions());
 
         LogicalPlan parsedPlan = logicalPlanAdapter.getLogicalPlan();
-        NereidsTracer.logImportantTime("EndParsePlan");
         setParsedPlan(parsedPlan);
 
         PhysicalProperties requireProperties = buildInitRequireProperties();
@@ -290,12 +282,6 @@ public class NereidsPlanner extends Planner {
     private Plan planWithoutLock(
             LogicalPlan plan, PhysicalProperties requireProperties, ExplainLevel explainLevel,
             boolean showPlanProcess) {
-        // minidump of input must be serialized first, this process ensure minidump string not null
-        try {
-            MinidumpUtils.serializeInputsToDumpFile(plan, statementContext);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
         // analyze this query, resolve column, table and function
         analyze(showAnalyzeProcess(explainLevel, showPlanProcess));
         if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -357,9 +343,6 @@ public class NereidsPlanner extends Planner {
                 || explainLevel == ExplainLevel.SHAPE_PLAN) {
             optimizedPlan = physicalPlan;
         }
-        // serialize optimized plan to dumpfile, dumpfile do not have this part means optimize failed
-        MinidumpUtils.serializeOutputToDumpFile(physicalPlan);
-        NereidsTracer.output(statementContext.getConnectContext());
         return physicalPlan;
     }
 
@@ -461,7 +444,6 @@ public class NereidsPlanner extends Planner {
         }
         statementContext.lock();
         cascadesContext.setCteContext(new CTEContext());
-        NereidsTracer.logImportantTime("EndCollectAndLockTables");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End collect and lock table");
         }
@@ -497,7 +479,6 @@ public class NereidsPlanner extends Planner {
         statementContext.getPlannerHooks().forEach(hook -> hook.beforeAnalyze(this));
         keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newAnalyzer().analyze());
         statementContext.getPlannerHooks().forEach(hook -> hook.afterAnalyze(this));
-        NereidsTracer.logImportantTime("EndAnalyzePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End analyze plan");
         }
@@ -518,7 +499,6 @@ public class NereidsPlanner extends Planner {
         keepOrShowPlanProcess(showPlanProcess, () -> {
             Rewriter.getWholeTreeRewriter(cascadesContext).execute();
         });
-        NereidsTracer.logImportantTime("EndRewritePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End rewrite plan");
         }
@@ -535,64 +515,65 @@ public class NereidsPlanner extends Planner {
         if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             return;
         }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Start pre rewrite plan by mv");
-        }
-        List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
-        Plan originalPlan = cascadesContext.getRewritePlan();
-        List<Plan> plansWhichContainMv = new ArrayList<>();
-        // because tmpPlansForMvRewrite only one, so timeout is cumulative which is ok
-        for (Plan planForRewrite : tmpPlansForMvRewrite) {
-            SessionVariable sessionVariable = cascadesContext.getConnectContext()
-                    .getSessionVariable();
-            int timeoutSecond = sessionVariable.nereidsTimeoutSecond;
-            boolean enableTimeout = sessionVariable.enableNereidsTimeout;
-            try {
-                // set mv rewrite timeout
-                sessionVariable.nereidsTimeoutSecond = PreMaterializedViewRewriter.convertMillisToCeilingSeconds(
-                                sessionVariable.materializedViewRewriteDurationThresholdMs);
-                sessionVariable.enableNereidsTimeout = true;
-                // pre rewrite
-                Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                        PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
-                Plan ruleOptimizedPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
-                        childOptContext -> {
-                            Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext).execute();
-                            return childOptContext.getRewritePlan();
-                        }, rewrittenPlan, planForRewrite, false);
-                if (ruleOptimizedPlan == null) {
-                    continue;
-                }
-                // after rbo, maybe the plan changed a lot, so we need to normalize it with original plan
-                Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
-                        ruleOptimizedPlan, originalPlan);
-                if (normalizedPlan != null) {
-                    plansWhichContainMv.add(normalizedPlan);
-                }
-            } catch (Exception e) {
-                LOG.error("pre mv rewrite in rbo rewrite fail, query id is {}",
-                        cascadesContext.getConnectContext().getQueryIdentifier(), e);
-
-            } finally {
-                sessionVariable.nereidsTimeoutSecond = timeoutSecond;
-                sessionVariable.enableNereidsTimeout = enableTimeout;
+        try {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Start pre rewrite plan by mv");
             }
-        }
-        // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
-        statementContext.getRewrittenPlansByMv().clear();
-        // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
-        this.cascadesContext.getStatementContext().setPreMvRewritten(true);
-        if (plansWhichContainMv.isEmpty()) {
-            return;
-        }
-        plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
-        NereidsTracer.logImportantTime("EndPreRewritePlanByMv");
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("End pre rewrite plan by mv");
-        }
-        if (statementContext.getConnectContext().getExecutor() != null) {
-            statementContext.getConnectContext().getExecutor().getSummaryProfile()
-                    .setNereidsPreRewriteByMvFinishTime(TimeUtils.getStartTimeMs());
+            List<Plan> tmpPlansForMvRewrite = cascadesContext.getStatementContext().getTmpPlanForMvRewrite();
+            Plan originalPlan = cascadesContext.getRewritePlan();
+            List<Plan> plansWhichContainMv = new ArrayList<>();
+            // because tmpPlansForMvRewrite only one, so timeout is cumulative which is ok
+            for (Plan planForRewrite : tmpPlansForMvRewrite) {
+                SessionVariable sessionVariable = cascadesContext.getConnectContext()
+                        .getSessionVariable();
+                int timeoutSecond = sessionVariable.nereidsTimeoutSecond;
+                boolean enableTimeout = sessionVariable.enableNereidsTimeout;
+                try {
+                    // set mv rewrite timeout
+                    sessionVariable.nereidsTimeoutSecond = PreMaterializedViewRewriter.convertMillisToCeilingSeconds(
+                                    sessionVariable.materializedViewRewriteDurationThresholdMs);
+                    sessionVariable.enableNereidsTimeout = true;
+                    // pre rewrite
+                    Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                            PreMaterializedViewRewriter::rewrite, planForRewrite, planForRewrite, true);
+                    Plan ruleOptimizedPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                            childOptContext -> {
+                                Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childOptContext).execute();
+                                return childOptContext.getRewritePlan();
+                            }, rewrittenPlan, planForRewrite, false);
+                    if (ruleOptimizedPlan == null) {
+                        continue;
+                    }
+                    // after rbo, maybe the plan changed a lot, so we need to normalize it with original plan
+                    Plan normalizedPlan = MaterializedViewUtils.normalizeSinkExpressions(
+                            ruleOptimizedPlan, originalPlan);
+                    if (normalizedPlan != null) {
+                        plansWhichContainMv.add(normalizedPlan);
+                    }
+                } catch (Exception e) {
+                    LOG.error("pre mv rewrite in rbo rewrite fail, query id is {}",
+                            cascadesContext.getConnectContext().getQueryIdentifier(), e);
+
+                } finally {
+                    sessionVariable.nereidsTimeoutSecond = timeoutSecond;
+                    sessionVariable.enableNereidsTimeout = enableTimeout;
+                }
+            }
+            // clear the rewritten plans which are tmp optimized, should be filled by full optimize later
+            statementContext.getRewrittenPlansByMv().clear();
+            // if rule-based optimized, would not be rewritten by cbo, so clear materialized hooks
+            this.cascadesContext.getStatementContext().setPreMvRewritten(true);
+            if (!plansWhichContainMv.isEmpty()) {
+                plansWhichContainMv.forEach(statementContext::addRewrittenPlanByMv);
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("End pre rewrite plan by mv");
+            }
+        } finally {
+            if (statementContext.getConnectContext().getExecutor() != null) {
+                statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                        .setNereidsPreRewriteByMvFinishTime(TimeUtils.getStartTimeMs());
+            }
         }
     }
 
@@ -617,7 +598,6 @@ public class NereidsPlanner extends Planner {
         keepOrShowPlanProcess(showPlanProcess, () -> {
             new Optimizer(cascadesContext).execute();
         });
-        NereidsTracer.logImportantTime("EndOptimizePlan");
         if (LOG.isDebugEnabled()) {
             LOG.debug("End optimize plan");
         }
@@ -668,12 +648,6 @@ public class NereidsPlanner extends Planner {
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
-        if (sessionVariable.isEnableNereidsTrace()) {
-            CounterEvent.clearCounter();
-        }
-        if (sessionVariable.isPlayNereidsDump()) {
-            return;
-        }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
@@ -805,13 +779,15 @@ public class NereidsPlanner extends Planner {
                 && cascadesContext.getConnectContext().supportHandleByFe()
                 && physicalPlan instanceof ComputeResultSet) {
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan).computeResultInFe(
-                    cascadesContext, Optional.empty(), physicalPlan.getOutput());
+                    cascadesContext, physicalPlan.getOutput());
             if (resultSet.isPresent()) {
                 notNeedBackend = true;
             }
         }
 
-        distributedPlans = new DistributePlanner(statementContext, fragments, notNeedBackend, false).plan();
+        boolean useLoadBackendSelection = physicalPlan.anyMatch(PhysicalOlapTableSink.class::isInstance);
+        distributedPlans = new DistributePlanner(
+                statementContext, fragments, notNeedBackend, false, useLoadBackendSelection).plan();
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
                     .setNereidsDistributeTime(TimeUtils.getStartTimeMs());
@@ -1194,15 +1170,30 @@ public class NereidsPlanner extends Planner {
 
         setFormatOptions();
         if (physicalPlan instanceof ComputeResultSet) {
-            Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
-                    .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
+                    .computeResultInFe(cascadesContext, physicalPlan.getOutput());
             if (resultSet.isPresent()) {
+                tryAddResultSetToSqlCache(resultSet.get());
                 return resultSet;
             }
         }
 
         return Optional.empty();
+    }
+
+    private void tryAddResultSetToSqlCache(ResultSet resultSet) {
+        if (physicalPlan instanceof PhysicalSqlCache) {
+            return;
+        }
+        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+        if (!sqlCacheContext.isPresent()
+                || !CacheAnalyzer.canUseSqlCache(statementContext.getConnectContext().getSessionVariable())) {
+            return;
+        }
+        sqlCacheContext.get().setResultSetInFe(resultSet);
+        Env.getCurrentEnv().getSqlCacheManager().tryAddFeSqlCache(
+                statementContext.getConnectContext(),
+                statementContext.getOriginStatement().originStmt);
     }
 
     private void setFormatOptions() {

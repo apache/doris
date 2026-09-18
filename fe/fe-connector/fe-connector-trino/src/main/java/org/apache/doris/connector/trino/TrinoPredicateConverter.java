@@ -17,14 +17,14 @@
 
 package org.apache.doris.connector.trino;
 
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorIsNull;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.pushdown.ConnectorOr;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -46,6 +46,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoField;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -77,7 +78,10 @@ public class TrinoPredicateConverter {
         }
         try {
             return doConvert(expr);
-        } catch (Exception e) {
+        } catch (UnsupportedOperationException e) {
+            LOG.debug("Expression is not eligible for Trino predicate pushdown: {}", e.getMessage());
+            return TupleDomain.all();
+        } catch (RuntimeException e) {
             LOG.warn("Failed to convert expression to Trino TupleDomain: {}", e.getMessage());
             return TupleDomain.all();
         }
@@ -104,17 +108,36 @@ public class TrinoPredicateConverter {
         for (ConnectorExpression child : and.getConjuncts()) {
             try {
                 result = result.intersect(doConvert(child));
-            } catch (Exception e) {
+            } catch (UnsupportedOperationException e) {
+                LOG.debug("AND child is not eligible for Trino predicate pushdown: {}", e.getMessage());
+            } catch (RuntimeException e) {
                 LOG.warn("Failed to convert AND child: {}", e.getMessage());
             }
         }
         return result;
     }
 
+    /**
+     * Folds EVERY disjunct: {@link ConnectorOr} carries a flattened N-ary list, so reading only the
+     * first two arms would silently narrow {@code a=1 OR a=2 OR a=3} down to {@code a IN (1, 2)} and
+     * lose rows the source never returns (BE re-evaluation can only remove rows, never add them back).
+     *
+     * <p>Unlike {@link #convertAnd}, a failing arm is deliberately NOT caught here: skipping an AND
+     * conjunct only widens the pushed predicate, while dropping an OR arm narrows it. Letting the
+     * failure propagate makes {@link #convert} degrade to {@code TupleDomain.all()} - no pushdown at
+     * all - which is the only safe outcome. OR is all-or-nothing, matching IcebergPredicateConverter.
+     */
     private TupleDomain<ColumnHandle> convertOr(ConnectorOr or) {
-        TupleDomain<ColumnHandle> left = doConvert(or.getDisjuncts().get(0));
-        TupleDomain<ColumnHandle> right = doConvert(or.getDisjuncts().get(1));
-        return TupleDomain.columnWiseUnion(left, right);
+        List<TupleDomain<ColumnHandle>> parts = Lists.newArrayList();
+        for (ConnectorExpression child : or.getDisjuncts()) {
+            parts.add(doConvert(child));
+        }
+        if (parts.isEmpty()) {
+            // Unreachable once ConnectorOr enforces two-or-more disjuncts, but columnWiseUnion(List)
+            // rejects an empty list, so keep the fail-safe.
+            return TupleDomain.all();
+        }
+        return TupleDomain.columnWiseUnion(parts);
     }
 
     private TupleDomain<ColumnHandle> convertComparison(ConnectorComparison cmp) {
@@ -260,7 +283,7 @@ public class TrinoPredicateConverter {
             case "CharType":
             case "VarbinaryType":
             case "VarcharType":
-                return Slices.utf8Slice(String.valueOf(value));
+                return convertStringLiteralValue(literal);
             case "DateType": {
                 if (value instanceof LocalDate) {
                     return ((LocalDate) value).toEpochDay();
@@ -287,5 +310,21 @@ public class TrinoPredicateConverter {
             return (BigDecimal) value;
         }
         return new BigDecimal(String.valueOf(value));
+    }
+
+    private Object convertStringLiteralValue(ConnectorLiteral literal) {
+        if (literal.isNull()) {
+            return null;
+        }
+        String literalType = literal.getType().getTypeName().toUpperCase(Locale.ROOT);
+        switch (literalType) {
+            case "CHAR":
+            case "VARCHAR":
+            case "STRING":
+                return Slices.utf8Slice((String) literal.getValue());
+            default:
+                throw new UnsupportedOperationException(
+                        "Cannot convert Doris literal type " + literalType + " to a Trino string type");
+        }
     }
 }

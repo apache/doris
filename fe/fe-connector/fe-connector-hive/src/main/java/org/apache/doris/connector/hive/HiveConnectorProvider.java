@@ -17,11 +17,14 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI entry point for the Hive (HMS) connector plugin.
@@ -39,5 +42,42 @@ public class HiveConnectorProvider implements ConnectorProvider {
     @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new HiveConnector(properties, context);
+    }
+
+    /**
+     * An HMS catalog has always created hive-engine tables, so {@code CREATE TABLE ... ENGINE=hive} keeps
+     * working. The name deliberately differs from {@link #getType()} and from the {@code hms} a table
+     * displays: the engine keyword and the catalog type are separate legacy vocabularies.
+     */
+    @Override
+    public Set<String> acceptedCreateTableEngineNames() {
+        return Collections.singleton("hive");
+    }
+
+    @Override
+    public boolean providesEventSource() {
+        // HiveConnector returns an HmsEventSource, and an HMS catalog must seed its event cursor even on an
+        // FE that never queries it (see MetastoreEventSyncDriver).
+        return true;
+    }
+
+    /**
+     * Binds and validates through the typed holder. ALTER validates the merged candidate while distinguishing
+     * explicitly submitted cache keys from unknown entries persisted by another connector version.
+     * {@code IllegalArgumentException} — which both halves throw — is required: it is the only type
+     * {@code PluginDrivenExternalCatalog.checkProperties} unwraps, preserving the message verbatim.
+     */
+    @Override
+    public void validateProperties(Map<String, String> properties) {
+        HiveCatalogProperties.of(properties).checkCreateTimeOnlyRules();
+    }
+
+    @Override
+    public void validatePropertiesForUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+        HiveCatalogProperties.of(candidate).checkCreateTimeOnlyRules(updatedProperties);
     }
 }

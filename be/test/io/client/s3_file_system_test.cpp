@@ -29,11 +29,14 @@
 #include <string>
 
 #include "common/config.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/obj_storage_client.h"
 #include "runtime/exec_env.h"
+#include "util/defer_op.h"
+#include "util/s3_rate_limiter_manager.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -174,11 +177,11 @@ protected:
         EXPECT_TRUE(status.ok()) << "Failed to delete test file: " << status.to_string();
     }
 
-    io::ObjStorageType convert_provider(const std::string& provider_str) {
+    io::ObjStorageProvider convert_provider(const std::string& provider_str) {
         if (provider_str == "AZURE") {
-            return io::ObjStorageType::AZURE;
+            return io::ObjStorageProvider::AZURE;
         } else {
-            return io::ObjStorageType::AWS; // Default to AWS S3
+            return io::ObjStorageProvider::AWS; // Default to AWS S3
         }
     }
 
@@ -925,9 +928,8 @@ TEST_F(S3FileSystemTest, RateLimiterGetDownloadTest) {
 
 // Test: S3 rate limiter for PUT operations - multipart upload
 TEST_F(S3FileSystemTest, RateLimiterPutMultipartTest) {
-    // Skip if using Azure provider - Azure's create_multipart_upload is a no-op and doesn't
-    // consume rate limiter quota, while S3's CreateMultipartUpload does. This causes different
-    // failure timing that makes the test assertions invalid for Azure.
+    // This test asserts the S3 provider's exact multipart request/failure sequence; Azure uses
+    // lease coordination and therefore has different failure timing.
     if (config_->get_provider() == "AZURE") {
         GTEST_SKIP() << "This test relies on S3-specific multipart upload quota consumption "
                         "behavior, not applicable for Azure";
@@ -1434,9 +1436,8 @@ TEST_F(S3FileSystemTest, RateLimiterGetDeleteDirectoryListTest) {
 
 // Test: S3 rate limiter for PUT operations - multipart upload with UploadPart failure
 TEST_F(S3FileSystemTest, RateLimiterPutMultipartUploadPartFailureTest) {
-    // Skip if using Azure provider - Azure's create_multipart_upload is a no-op and doesn't
-    // consume rate limiter quota, while S3's CreateMultipartUpload does. This causes different
-    // failure timing that makes the test assertions invalid for Azure.
+    // This test asserts the S3 provider's exact multipart request/failure sequence; Azure uses
+    // lease coordination and therefore has different failure timing.
     if (config_->get_provider() == "AZURE") {
         GTEST_SKIP() << "This test relies on S3-specific multipart upload quota consumption "
                         "behavior, not applicable for Azure";
@@ -1863,8 +1864,7 @@ TEST_F(S3FileSystemTest, RateLimiterPutDeleteDirectoryDeleteObjectsTest) {
 
 // Test: S3 CreateMultipartUpload failure - simulates error when initiating multipart upload
 TEST_F(S3FileSystemTest, CreateMultipartUploadFailureTest) {
-    // Skip if using Azure provider - SyncPoint mechanism is S3-specific
-    // Also, Azure's create_multipart_upload is a no-op that always succeeds
+    // Skip if using Azure provider because the SyncPoint mechanism is S3-specific.
     if (config_->get_provider() == "AZURE") {
         GTEST_SKIP() << "This test uses S3-specific SyncPoint mechanism and multipart semantics, "
                         "not applicable for Azure";
@@ -2456,15 +2456,21 @@ TEST_F(S3FileSystemTest, DynamicUpdateRateLimiterConfig) {
     // Save original config values
     int64_t original_get_bucket_tokens = config::s3_get_bucket_tokens;
     int64_t original_get_token_per_second = config::s3_get_token_per_second;
-    int64_t original_get_token_limit = config::s3_get_token_limit;
+    int64_t original_get_requests_per_second_per_core = config::s3_get_requests_per_second_per_core;
 
-    std::cout << "Original GET config: bucket_tokens=" << original_get_bucket_tokens
-              << ", token_per_second=" << original_get_token_per_second
-              << ", limit=" << original_get_token_limit << std::endl;
+    auto& manager = S3RateLimiterManager::instance();
+    Defer restore_configs {[&] {
+        config::s3_get_bucket_tokens = original_get_bucket_tokens;
+        config::s3_get_token_per_second = original_get_token_per_second;
+        config::s3_get_requests_per_second_per_core = original_get_requests_per_second_per_core;
+        manager.refresh();
+    }};
 
     int64_t new_s3_get_bucket_tokens_val = 50;
     int64_t new_s3_get_token_per_second_val = 1;
 
+    // Legacy configs are only effective while the per-core config is unset.
+    ASSERT_TRUE(config::set_config("s3_get_requests_per_second_per_core", "-1").ok());
     auto [success1, msg7] = config::set_config(
             "s3_get_bucket_tokens", std::to_string(new_s3_get_bucket_tokens_val), false, false);
     ASSERT_EQ(success1, 0) << "Failed to set s3_get_bucket_tokens: " << msg7;
@@ -2473,13 +2479,12 @@ TEST_F(S3FileSystemTest, DynamicUpdateRateLimiterConfig) {
                                std::to_string(new_s3_get_token_per_second_val), false, false);
     ASSERT_EQ(success2, 0) << "Failed to set s3_get_token_per_second: " << msg8;
 
-    auto st = create_client();
-    ASSERT_TRUE(st.ok());
+    // Dynamic config changes take effect through the periodic idempotent refresh.
+    manager.refresh();
 
-    // Verify restoration
-    EXPECT_EQ(S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET)->get_max_burst(),
+    EXPECT_EQ(manager.qps_limiter(S3RateLimitType::GET)->get_max_burst(),
               new_s3_get_bucket_tokens_val);
-    EXPECT_EQ(S3ClientFactory::instance().rate_limiter(S3RateLimitType::GET)->get_max_speed(),
+    EXPECT_EQ(manager.qps_limiter(S3RateLimitType::GET)->get_max_speed(),
               new_s3_get_token_per_second_val);
 }
 

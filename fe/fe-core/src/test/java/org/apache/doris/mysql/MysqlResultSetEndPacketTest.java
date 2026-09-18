@@ -19,16 +19,16 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.qe.QueryState;
 
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 
 public class MysqlResultSetEndPacketTest {
     private MysqlCapability capability;
 
-    @Before
+    @BeforeEach
     public void setUp() {
         capability = new MysqlCapability(MysqlCapability.Flag.CLIENT_PROTOCOL_41.getFlagBit());
     }
@@ -43,7 +43,7 @@ public class MysqlResultSetEndPacketTest {
         ByteBuffer buffer = serializer.toByteBuffer();
 
         // assert header: 0xFE
-        Assert.assertEquals(0xFE, MysqlProto.readInt1(buffer));
+        Assertions.assertEquals(0xFE, MysqlProto.readInt1(buffer));
     }
 
     @Test
@@ -56,25 +56,25 @@ public class MysqlResultSetEndPacketTest {
         ByteBuffer buffer = serializer.toByteBuffer();
 
         // header: 0xFE
-        Assert.assertEquals(0xFE, MysqlProto.readInt1(buffer));
+        Assertions.assertEquals(0xFE, MysqlProto.readInt1(buffer));
 
         // affected_rows: int<lenenc> = 0
-        Assert.assertEquals(0, MysqlProto.readVInt(buffer));
+        Assertions.assertEquals(0, MysqlProto.readVInt(buffer));
 
         // last_insert_id: int<lenenc> = 0
-        Assert.assertEquals(0, MysqlProto.readVInt(buffer));
+        Assertions.assertEquals(0, MysqlProto.readVInt(buffer));
 
         // status_flags: int<2> = 0
-        Assert.assertEquals(0, MysqlProto.readInt2(buffer));
+        Assertions.assertEquals(0, MysqlProto.readInt2(buffer));
 
         // warnings: int<2> = 0
-        Assert.assertEquals(0, MysqlProto.readInt2(buffer));
+        Assertions.assertEquals(0, MysqlProto.readInt2(buffer));
 
         // info: string<lenenc> (empty, length = 0)
-        Assert.assertEquals(0, MysqlProto.readVInt(buffer));
+        Assertions.assertEquals(0, MysqlProto.readVInt(buffer));
 
         // no remaining bytes
-        Assert.assertEquals(0, buffer.remaining());
+        Assertions.assertEquals(0, buffer.remaining());
     }
 
     @Test
@@ -92,8 +92,8 @@ public class MysqlResultSetEndPacketTest {
         int payloadLength = buffer.remaining();
 
         // Payload: 0xFE(1) + affected_rows(1) + last_insert_id(1) + status(2) + warnings(2) + info(1) = 8
-        Assert.assertTrue("ResultSet OK packet payload must be > 5 for isResultSetOKPacket(), got: "
-                + payloadLength, payloadLength > 5);
+        Assertions.assertTrue(payloadLength > 5, "ResultSet OK packet payload must be > 5 for isResultSetOKPacket(), got: "
+                + payloadLength);
     }
 
     @Test
@@ -111,10 +111,34 @@ public class MysqlResultSetEndPacketTest {
         int rsEndPayloadLength = rsEndSerializer.toByteBuffer().remaining();
 
         // EOF payload should be <= 5
-        Assert.assertTrue("EOF packet payload should be <= 5, got: " + eofPayloadLength,
-                eofPayloadLength <= 5);
+        Assertions.assertTrue(eofPayloadLength <= 5, "EOF packet payload should be <= 5, got: " + eofPayloadLength);
         // ResultSet OK payload should be > 5
-        Assert.assertTrue("ResultSet OK packet payload should be > 5, got: " + rsEndPayloadLength,
-                rsEndPayloadLength > 5);
+        Assertions.assertTrue(rsEndPayloadLength > 5, "ResultSet OK packet payload should be > 5, got: " + rsEndPayloadLength);
+    }
+
+    @Test
+    public void testPreservesMoreResultsStatus() {
+        QueryState state = new QueryState();
+        state.serverStatus = MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
+        MysqlSerializer serializer = MysqlSerializer.newInstance(capability);
+        new MysqlResultSetEndPacket(state).writeTo(serializer);
+
+        ByteBuffer buffer = serializer.toByteBuffer();
+        Assertions.assertEquals(0xFE, MysqlProto.readInt1(buffer));
+        Assertions.assertEquals(0, MysqlProto.readVInt(buffer));
+        Assertions.assertEquals(0, MysqlProto.readVInt(buffer));
+        Assertions.assertEquals(MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS, MysqlProto.readInt2(buffer));
+    }
+
+    @Test
+    public void testPreservesWarningCount() {
+        QueryState state = new QueryState();
+        state.setOk(0, 3, null);
+        MysqlSerializer serializer = MysqlSerializer.newInstance(capability);
+        new MysqlResultSetEndPacket(state).writeTo(serializer);
+
+        ByteBuffer buffer = serializer.toByteBuffer();
+        buffer.position(5);
+        Assertions.assertEquals(3, MysqlProto.readInt2(buffer));
     }
 }

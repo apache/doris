@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
+
 #include "storage/index/inverted/tokenizer/tokenizer.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -36,8 +39,13 @@ public:
     static constexpr int32_t DEFAULT_MAX_WORD_LEN = 255;
 
 private:
+    enum class AsciiCharClass : uint8_t { kDelimiter, kToken, kCjk, kInvalid };
+
     static constexpr int32_t MAX_TOKEN_LENGTH_LIMIT = 16383;
 
+    AsciiCharClass read_next_char_class();
+
+    std::array<AsciiCharClass, 128> _ascii_char_classes {};
     int32_t _max_token_len = 0;
 
     int32_t _buffer_index = 0;

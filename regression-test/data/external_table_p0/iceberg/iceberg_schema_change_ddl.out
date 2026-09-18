@@ -149,7 +149,7 @@ phone	text	Yes	true	\N		User phone number
 grade	double	Yes	true	\N		
 email	text	Yes	true	\N		
 address	struct<city:text,country:text>	Yes	true	\N		
-col1	double	Yes	true	\N		
+col1	double	Yes	true	\N		Updated column1 type
 col2	text	Yes	true	\N		User defined column2
 
 -- !after_no_comment --
@@ -329,4 +329,3 @@ department_id	bigint	Yes	true	\N
 2	Bob	30	9223372036854775806
 3	Charlie	22	100
 3	Charlie	22	9223372036854775805
-

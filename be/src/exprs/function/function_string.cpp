@@ -18,6 +18,7 @@
 #include <ctype.h>
 #include <math.h>
 #include <re2/stringpiece.h>
+#include <unicode/locid.h>
 #include <unicode/schriter.h>
 #include <unicode/uchar.h>
 #include <unicode/unistr.h>
@@ -37,6 +38,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/column/column.h"
+#include "core/column/column_execute_util.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/pod_array_fwd.h"
@@ -77,10 +79,6 @@ struct StringASCII {
     }
 };
 
-struct NameParseDataSize {
-    static constexpr auto name = "parse_data_size";
-};
-
 static const std::map<std::string_view, Int128> UNITS = {
         {"B", static_cast<Int128>(1)},        {"kB", static_cast<Int128>(1) << 10},
         {"MB", static_cast<Int128>(1) << 20}, {"GB", static_cast<Int128>(1) << 30},
@@ -88,24 +86,47 @@ static const std::map<std::string_view, Int128> UNITS = {
         {"EB", static_cast<Int128>(1) << 60}, {"ZB", static_cast<Int128>(1) << 70},
         {"YB", static_cast<Int128>(1) << 80}};
 
-struct ParseDataSize {
-    using ReturnType = DataTypeInt128;
-    static constexpr auto PrimitiveTypeImpl = PrimitiveType::TYPE_STRING;
-    using Type = String;
-    using ReturnColumnType = ColumnInt128;
+class FunctionStringParseDataSize : public IFunction {
+public:
+    static constexpr auto name = "parse_data_size";
+    static FunctionPtr create() { return std::make_shared<FunctionStringParseDataSize>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
-    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         PaddedPODArray<Int128>& res) {
-        auto size = offsets.size();
-        res.resize(size);
-        for (int i = 0; i < size; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            int str_size = offsets[i] - offsets[i - 1];
-            res[i] = parse_data_size(std::string_view(raw_str, str_size));
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        auto type = std::make_shared<DataTypeInt128>();
+        return arguments[0]->is_nullable() ? make_nullable(type) : type;
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto input =
+                ColumnView<TYPE_STRING>::create(block.get_by_position(arguments[0]).column);
+        auto res = ColumnInt128::create(input_rows_count, 0);
+        auto& values = res->get_data();
+        ColumnUInt8::MutablePtr null_map;
+        if (input.null_map != nullptr) {
+            null_map = ColumnUInt8::create(input_rows_count, 0);
+        }
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (input.is_null_at(i)) {
+                null_map->get_data()[i] = 1;
+                continue;
+            }
+            const auto value = input.value_at(i);
+            values[i] = parse_data_size(std::string_view(value.data, value.size));
+        }
+        if (null_map) {
+            block.replace_by_position(result,
+                                      ColumnNullable::create(std::move(res), std::move(null_map)));
+        } else {
+            block.replace_by_position(result, std::move(res));
         }
         return Status::OK();
     }
 
+private:
     static Int128 parse_data_size(const std::string_view& dataSize) {
         int digit_length = 0;
         for (char c : dataSize) {
@@ -593,7 +614,7 @@ struct TransferImpl {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toUpper();
+        unicode_str.toUpper(icu::Locale::getRoot());
         unicode_str.toUTF8String(result);
     }
 
@@ -601,7 +622,7 @@ struct TransferImpl {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toLower();
+        unicode_str.toLower(icu::Locale::getRoot());
         unicode_str.toUTF8String(result);
     }
 };
@@ -683,7 +704,7 @@ struct InitcapImpl {
         icu::StringPiece sp;
         sp.set(data, size);
         icu::UnicodeString unicode_str = icu::UnicodeString::fromUTF8(sp);
-        unicode_str.toLower();
+        unicode_str.toLower(icu::Locale::getRoot());
         icu::UnicodeString output_str;
         bool need_capitalize = true;
         icu::StringCharacterIterator iter(unicode_str);
@@ -1348,7 +1369,6 @@ template <typename LeftDataType, typename RightDataType>
 using StringFindInSetImpl = StringFunctionImpl<LeftDataType, RightDataType, FindInSetOp>;
 
 // ready for regist function
-using FunctionStringParseDataSize = FunctionUnaryToType<ParseDataSize, NameParseDataSize>;
 using FunctionStringASCII = FunctionUnaryToType<StringASCII, NameStringASCII>;
 using FunctionStringLength = FunctionUnaryToType<StringLengthImpl, NameStringLength>;
 using FunctionCrc32 = FunctionUnaryToType<Crc32Impl, NameCrc32>;

@@ -233,7 +233,7 @@ struct CastToDecimal {
     }
 
     template <typename FromCppT, typename ToCppT>
-        requires(IsDecimalNumber<ToCppT> && IsCppTypeFloat<FromCppT> && !IsDecimal128V2<ToCppT>)
+        requires(IsDecimalNumber<ToCppT> && IsCppTypeFloat<FromCppT>)
     static inline bool _from_float(const FromCppT& from, ToCppT& to, UInt32 to_precision,
                                    UInt32 to_scale,
                                    const typename ToCppT::NativeType& scale_multiplier,
@@ -246,45 +246,48 @@ struct CastToDecimal {
                                    "to decimal");
             return false;
         }
-        using DoubleType = std::conditional_t<IsDecimal256<ToCppT>, long double, double>;
-        DoubleType tmp = from * static_cast<DoubleType>(scale_multiplier);
-        if (tmp <= DoubleType(min_result) || tmp >= DoubleType(max_result)) {
+        auto overflow = [&]() {
             if (params.is_strict) {
                 params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(from, "float/double", to_precision,
                                                                to_scale);
             }
             return false;
+        };
+        // Use binary64 arithmetic for every decimal backing type. This also matches FE constant
+        // folding for halfway cases such as +/-0.15 at scale 1.
+        // Round before checking the inclusive decimal bounds. Adding 0.5 would itself round
+        // exactly representable odd integers above 2^52 to the next even integer in double.
+        const double tmp =
+                std::round(static_cast<double>(from) * static_cast<double>(scale_multiplier));
+        if (tmp < static_cast<double>(min_result) || tmp > static_cast<double>(max_result)) {
+            return overflow();
         }
-        to.value = static_cast<typename ToCppT::NativeType>(static_cast<double>(
-                from * static_cast<DoubleType>(scale_multiplier) + ((from >= 0) ? 0.5 : -0.5)));
-        return true;
-    }
 
-    template <typename FromCppT, typename ToCppT>
-        requires(IsDecimal128V2<ToCppT> && IsCppTypeFloat<FromCppT>)
-    static inline bool _from_float(const FromCppT& from, ToCppT& to, UInt32 to_precision,
-                                   UInt32 to_scale,
-                                   const typename ToCppT::NativeType& scale_multiplier,
-                                   const typename ToCppT::NativeType& min_result,
-                                   const typename ToCppT::NativeType& max_result,
-                                   CastParameters& params) {
-        if (!std::isfinite(from)) {
-            params.status = Status(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                   "Decimal convert overflow. Cannot convert infinity or NaN "
-                                   "to decimal");
-            return false;
-        }
-        using DoubleType = std::conditional_t<IsDecimal256<ToCppT>, long double, double>;
-        DoubleType tmp = from * static_cast<DoubleType>(scale_multiplier);
-        if (tmp <= DoubleType(min_result) || tmp >= DoubleType(max_result)) {
-            if (params.is_strict) {
-                params.status = DECIMAL_CONVERT_OVERFLOW_ERROR(from, "float/double", to_precision,
-                                                               to_scale);
+        using NativeType = typename ToCppT::NativeType;
+        if (to_scale > 0) {
+            // Scaling can round an out-of-range integer back inside the decimal bounds:
+            // double(10 * 10^37) is below 10^38. Check the original integer part exactly.
+            const NativeType integral_limit =
+                    DataTypeDecimal<ToCppT::PType>::get_scale_multiplier(to_precision - to_scale);
+            const auto integral = static_cast<NativeType>(from);
+            if (integral <= -integral_limit || integral >= integral_limit) {
+                return overflow();
             }
-            return false;
         }
-        to = DecimalV2Value(static_cast<typename ToCppT::NativeType>(static_cast<double>(
-                from * static_cast<DoubleType>(scale_multiplier) + ((from >= 0) ? 0.5 : -0.5))));
+        // Every supported decimal precision leaves room below the native integer limit, even when
+        // converting max_result to floating point rounds it up. Int256 reconstructs the binary64
+        // significand directly, so this also preserves every integer bit represented by tmp.
+        auto result = static_cast<NativeType>(tmp);
+        // Floating point cannot represent all decimal bounds exactly. Recheck in integer
+        // arithmetic to reject a rounded-up bound such as double(10^18 - 1) == 10^18.
+        if (result < min_result || result > max_result) {
+            return overflow();
+        }
+        if constexpr (IsDecimal128V2<ToCppT>) {
+            to = DecimalV2Value(result);
+        } else {
+            to.value = result;
+        }
         return true;
     }
 
@@ -779,6 +782,17 @@ public:
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
+
+        if constexpr (IsDataTypeDecimalV3<ToDataType>) {
+            if (to_scale == 0 && !narrow_integral) {
+                for (size_t i = 0; i < size; i++) {
+                    vec_to_data[i].value =
+                            static_cast<typename ToFieldType::NativeType>(vec_from_data[i]);
+                }
+                block.get_by_position(result).column = std::move(col_to);
+                return Status::OK();
+            }
+        }
 
         RETURN_IF_ERROR(std::visit(
                 [&](auto multiply_may_overflow, auto narrow_integral) {

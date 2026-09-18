@@ -138,6 +138,10 @@ TExprNode create_texpr_node_from(const void* data, const PrimitiveType& type, in
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATETIMEV2>(data, &node, precision, scale));
         break;
     }
+    case TYPE_TIMESTAMP_NS: {
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMESTAMP_NS>(data, &node));
+        break;
+    }
     case TYPE_DATE: {
         THROW_IF_ERROR(create_texpr_literal_node<TYPE_DATE>(data, &node));
         break;
@@ -259,6 +263,11 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
         const auto& storage = field.get<TYPE_DATETIMEV2>();
         THROW_IF_ERROR(
                 create_texpr_literal_node<TYPE_DATETIMEV2>(&storage, &node, precision, scale));
+        break;
+    }
+    case TYPE_TIMESTAMP_NS: {
+        const auto& storage = field.get<TYPE_TIMESTAMP_NS>();
+        THROW_IF_ERROR(create_texpr_literal_node<TYPE_TIMESTAMP_NS>(&storage, &node));
         break;
     }
     case TYPE_TIMESTAMPTZ: {
@@ -937,8 +946,7 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
                 auto* column_slot_ref = assert_cast<VSlotRef*>(cast_expr->get_child(0).get());
                 auto column_id = column_slot_ref->column_id();
                 const auto* storage_name_type =
-                        context->get_index_context()->get_storage_name_and_type_by_column_id(
-                                column_id);
+                        context->get_index_context()->get_storage_name_and_type(column_id);
                 auto storage_type = remove_nullable(storage_name_type->second);
                 auto target_type = remove_nullable(cast_expr->get_target_type());
                 auto origin_primitive_type = storage_type->get_primitive_type();
@@ -980,14 +988,13 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         if (child->is_slot_ref()) {
             auto* column_slot_ref = assert_cast<VSlotRef*>(child.get());
             auto column_id = column_slot_ref->column_id();
-            auto* iter = context->get_index_context()->get_inverted_index_iterator_by_column_id(
-                    column_id);
+            auto* iter = context->get_index_context()->get_inverted_index_iterator(column_id);
             //column does not have inverted index
             if (iter == nullptr) {
                 continue;
             }
             const auto* storage_name_type =
-                    context->get_index_context()->get_storage_name_and_type_by_column_id(column_id);
+                    context->get_index_context()->get_storage_name_and_type(column_id);
             if (storage_name_type == nullptr) {
                 auto err_msg = fmt::format(
                         "storage_name_type cannot be found for column {} while in {} "
@@ -1109,7 +1116,6 @@ bool VExpr::equals(const VExpr& other) {
 Status VExpr::evaluate_ann_range_search(
         const segment_v2::AnnRangeSearchRuntime& runtime,
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
-        const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
         size_t rows_of_segment, roaring::Roaring& row_bitmap, AnnIndexStats& ann_index_stats,
         bool enable_result_cache, AnnRangeSearchEvaluationResult& result) {

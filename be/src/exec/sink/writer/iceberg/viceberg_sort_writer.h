@@ -105,10 +105,19 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
 
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos) const;
+
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos,
+                                                        size_t incoming_rows,
+                                                        size_t incoming_bytes) const;
+
     // Called by the memory management system to trigger spilling data to disk
     Status trigger_spill();
 
 private:
+    void _include_spill_merge_reservation(RuntimeState* state, bool eos,
+                                          SorterReserveMemory* reservation) const;
+
     // Calculate average row size from the first non-empty block to determine
     // the optimal batch row count for spill operations
     void _update_spill_block_batch_row_count(const Block& block);

@@ -19,8 +19,10 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.TimeUtils;
@@ -72,6 +74,43 @@ public class TransactionUtil {
                     }
                 }
             }
+        }
+    }
+
+    public static long getCommitTSO(long transactionId, Database db, Set<Long> tableIds)
+            throws TransactionCommitFailedException {
+        long tso = -1L;
+        if (!Config.enable_feature_binlog) {
+            return tso;
+        }
+        if (tableIds == null || tableIds.isEmpty()) {
+            return tso;
+        }
+        boolean anyEnableTso = false;
+        for (long tableId : tableIds) {
+            Table table = db.getTableNullable(tableId);
+            if (table instanceof OlapTable && ((OlapTable) table).enableTso()) {
+                anyEnableTso = true;
+                break;
+            }
+        }
+        if (!anyEnableTso) {
+            return tso;
+        }
+        try {
+            Env env = Env.getCurrentEnv();
+            if (env == null || env.getTSOService() == null) {
+                throw new TransactionCommitFailedException("failed to get TSO for txn "
+                        + transactionId + ": TSO service is unavailable");
+            }
+            long fetched = env.getTSOService().getTSO();
+            if (fetched <= 0) {
+                throw new TransactionCommitFailedException("failed to get TSO for txn "
+                        + transactionId + ", fetched=" + fetched);
+            }
+            return fetched;
+        } catch (RuntimeException e) {
+            throw new TransactionCommitFailedException("failed to get TSO for txn " + transactionId, e);
         }
     }
 }

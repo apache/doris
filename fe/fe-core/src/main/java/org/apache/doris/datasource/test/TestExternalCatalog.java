@@ -20,8 +20,8 @@ package org.apache.doris.datasource.test;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.log.InitCatalogLog;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
