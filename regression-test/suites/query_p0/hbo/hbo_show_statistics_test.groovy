@@ -19,8 +19,9 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
     // HBO SHOW [PINNED|LEARNED] STATISTICS [FULL] [LIKE '<pattern>'] lists the hbo entries of this
     // FE: the simplified struct info by default, the canonical struct info (the fingerprint input)
     // with FULL, and LIKE matches whichever of the two columns is printed. Assertions are used
-    // instead of qt_* because the struct info carries the table visible version, which is not
-    // reproducible across runs; every query below is filtered by a struct info pattern instead.
+    // instead of qt_* because the struct info carries the recorded data state of its scans (the
+    // table visible version and the scanned rows), which is not reproducible across runs; every
+    // query below is filtered by a struct info pattern instead.
     sql "create database if not exists hbo_test;"
     sql "use hbo_test;"
 
@@ -71,7 +72,7 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         injected.add(fingerprint)
 
         // default output: the simplified struct info, which LIKE matches
-        // columns: Kind, Fingerprint, Granularity, Type, Rows, SimpleStruct, State, Detail
+        // columns: Kind, Fingerprint, LiteralMode, Type, Value, SimpleStruct, Baseline, State, Detail
         def pinnedRows = sql """ HBO SHOW PINNED STATISTICS LIKE '%hbo\\_sp\\_r%'; """
         assertEquals(1, pinnedRows.size(), pinnedRows.toString())
         assertEquals("pinned", pinnedRows[0][0].toString())
@@ -84,8 +85,15 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         assertEquals("exact", pinnedRows[0][3].toString())
         assertEquals("123456", pinnedRows[0][4].toString())
         assertEquals("F{b = 1}(S{hbo_test.hbo_sp_r})", pinnedRows[0][5].toString())
-        // the recorded visible version is still the current one, so the entry is live
-        assertEquals("live", pinnedRows[0][6].toString())
+        // the data state the entry was recorded in: what the read side compares with now
+        assertTrue(pinnedRows[0][6].toString().startsWith("internal.hbo_test.hbo_sp_r:v"), pinnedRows.toString())
+        // the recorded state is still the current one, so the entry is live
+        assertEquals("live", pinnedRows[0][7].toString())
+        // and the Detail column says when it was created, what it is compared with now, and that it
+        // was never applied by a query of this FE (last= is only filled by the read side)
+        assertTrue(pinnedRows[0][8].toString().startsWith("created="), pinnedRows[0][8].toString())
+        assertTrue(pinnedRows[0][8].toString().contains(",now=internal.hbo_test.hbo_sp_r:v"), pinnedRows[0][8].toString())
+        assertFalse(pinnedRows[0][8].toString().contains(",last="), pinnedRows[0][8].toString())
 
         // an escaped underscore only matches a literal underscore
         def escapedRows = sql """ HBO SHOW PINNED STATISTICS LIKE '%hbo\\_XX\\_r%'; """
@@ -146,13 +154,19 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         sql """ HBO DELETE STATISTICS FINGERPRINT='${aggFingerprint}'; """
         injected.remove(aggFingerprint)
 
-        // a load bumps the visible version of the table: the version recorded in the struct info is
-        // then stale, and because the fingerprint itself contains the version such an entry can
-        // never be applied to a new plan any more
+        // a load which adds 1% of the rows is a drift, not a staleness: the key of the entry does
+        // not contain any data state, so it keeps matching, and the read side still applies it
+        // (the recorded row count may move by up to Config.hbo_row_count_change_ratio)
+        def loadedFingerprint = (sql """ HBO SHOW PINNED STATISTICS LIKE '%F{b = 1}%'; """)[0][1].toString()
         sql """ insert into hbo_sp_r select number + 1000, number % 100 from numbers("number" = "10"); """
-        def staleRows = sql """ HBO SHOW PINNED STATISTICS LIKE '%F{b = 1}%'; """
-        assertEquals(1, staleRows.size(), staleRows.toString())
-        assertEquals("stale", staleRows[0][6].toString())
+        def driftedRows = sql """ HBO SHOW PINNED STATISTICS LIKE '%F{b = 1}%'; """
+        assertEquals(1, driftedRows.size(), driftedRows.toString())
+        // the fingerprint of the entry did not change, only its data state was compared with the
+        // current one and found to have moved within the tolerance
+        assertEquals(loadedFingerprint, driftedRows[0][1].toString())
+        assertEquals("drifted", driftedRows[0][7].toString())
+        assertTrue(driftedRows[0][8].toString().contains(",now=internal.hbo_test.hbo_sp_r:v3,r1010,+1.0%"),
+                driftedRows[0][8].toString())
     } finally {
         injected.each { sql """ HBO DELETE STATISTICS FINGERPRINT='${it}'; """ }
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"

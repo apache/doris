@@ -23,9 +23,10 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
     // synchronously and DELETE removes the row again.
     def prevPersist = (sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'hbo_persist_pinned_to_internal_db'; """)[0][1].toString()
     // a pinned entry must carry the struct info its fingerprint was computed from, so the pair
-    // below is self consistent (sha256 of the canonical struct info)
+    // below is self consistent (sha256 of the canonical struct info without the data state of its
+    // scans: "S{internal.hbo_test.hbo_persist_t,v1}" hashes like "S{...hbo_persist_t}")
     def structCanonical = "S{internal.hbo_test.hbo_persist_t,v1}"
-    def fingerprint = "543c7cbc00025dcfb7ead462e174640e63a791b63ce70d2d62b5f76a33208e19"
+    def fingerprint = "a155545a0c68f667b898a83f15924b8343ab4d4753c92c78050e25ef63c2575a"
     def tableName = "__internal_schema.hbo_statistics"
     try {
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "true"); """
@@ -56,9 +57,9 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
             assertEquals("join_expansion", expansionRows[0][3].toString())
             assertEquals("1000x", expansionRows[0][4].toString())
             assertEquals(condCanonical, expansionRows[0][5].toString())
-            // a condition keyed entry is always constant agnostic and has no table version state
+            // a condition keyed entry is always constant agnostic and has no data state
             assertEquals("no_literal", expansionRows[0][2].toString())
-            assertEquals("-", expansionRows[0][6].toString())
+            assertEquals("-", expansionRows[0][7].toString())
 
             // a stale clean up never removes an expansion entry: it carries no table version, so
             // even OLDER_THAN (which removes unresolvable entries) has to leave it alone

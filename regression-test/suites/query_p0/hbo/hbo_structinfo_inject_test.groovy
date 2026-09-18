@@ -50,7 +50,7 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     // distribution decision, so the effect of an injection is asserted through the annotation
     // markers (which entry the read side used) instead of through the plan shape
     def usedFilterEntry = { String text ->
-        (text =~ /\] filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=true/).find()
+        (text =~ /\] filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=live/).find()
     }
     def probeSideOf = { String text ->
         def lines = text.split("\n")
@@ -98,7 +98,7 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     // and the filter node that used the injected hbo statistics is marked
     def nodeAfter = explainText(query)
     // the injected filter entry is reported as used by its annotation line
-    assertTrue((nodeAfter =~ /\] filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=true/).find(),
+    assertTrue((nodeAfter =~ /\] filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=live/).find(),
             nodeAfter)
 
     // A filter root has two fingerprints: the exact form (literals kept, injected above) and the

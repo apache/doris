@@ -78,7 +78,7 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
         // the applied entry is reported by its annotation line (type + used marker)
         def pathologicalNode = explainText(pathological)
         assertTrue((pathologicalNode =~
-                /\] filter-on-scan\(table=[^)]*hbo_gs_r[^)]*\) type=filter_small literal_mode=no_literal fingerprint='[0-9a-f]+' struct='F\{[^']*' used=true/)
+                /\] filter-on-scan\(table=[^)]*hbo_gs_r[^)]*\) type=filter_small literal_mode=no_literal fingerprint='[0-9a-f]+' struct='F\{[^']*' used=live/)
                 .find(), pathologicalNode)
 
         // ... and skipped for the healthy one, with the guard and the entry type in the annotation
@@ -91,7 +91,7 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
                 /\] filter-on-scan\(table=[^)]*hbo_gs_r[^)]*\) type=filter_small literal_mode=no_literal/).find(),
                 healthyNode)
         assertFalse((healthyNode =~
-                /\] filter-on-scan\(table=[^)]*hbo_gs_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=true/)
+                /\] filter-on-scan\(table=[^)]*hbo_gs_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=live/)
                 .find(), healthyNode)
 
         // the entry reports the granularity that matched and its guard type
@@ -106,7 +106,7 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
         assertTrue(probeTable(healthy).contains("TABLE: hbo_test.hbo_gs_r(hbo_gs_r)"), probeTable(healthy))
         def exactNode = explainText(healthy)
         assertTrue((exactNode =~
-                /\] filter-on-scan\(table=[^)]*hbo_gs_r[^)]*\) type=exact literal_mode=no_literal fingerprint='[0-9a-f]+' struct='F\{[^']*' used=true/)
+                /\] filter-on-scan\(table=[^)]*hbo_gs_r[^)]*\) type=exact literal_mode=no_literal fingerprint='[0-9a-f]+' struct='F\{[^']*' used=live/)
                 .find(), exactNode)
     } finally {
         sql """ HBO DELETE STATISTICS FINGERPRINT='${shapeOfPathological}'; """

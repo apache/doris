@@ -88,7 +88,7 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
         assertTrue((annotation(query) =~ /expansion=exp=1000x/).find(), annotation(query))
 
         // the entry shows up in the unified HBO SHOW STATISTICS as a JOIN_EXPANSION entry:
-        // no granularity, no row count (its value is the factor) and no table version state
+        // no literal mode of its own, no row count (its value is the factor) and no data state
         def showRows = (sql """ HBO SHOW PINNED STATISTICS; """).findAll { it[1].toString() == condFingerprint }
         assertEquals(1, showRows.size(), showRows.toString())
         assertEquals("pinned", showRows[0][0].toString())
@@ -96,7 +96,7 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
         assertEquals("join_expansion", showRows[0][3].toString())
         assertEquals("1000x", showRows[0][4].toString())
         assertEquals(condCanonical, showRows[0][5].toString())
-        assertEquals("-", showRows[0][6].toString())
+        assertEquals("-", showRows[0][7].toString())
     } finally {
         sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
     }

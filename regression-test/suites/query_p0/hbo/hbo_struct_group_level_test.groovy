@@ -70,12 +70,17 @@ suite("hbo_struct_group_level_test", "nonConcurrent") {
         }
 
         // the whole three table chain is one flattened node: the conditions of both joins merged into
-        // one sorted set, the leaves sorted by their canonical form, no occurrence ordinal
+        // one sorted set, the leaves sorted by their canonical form, no occurrence ordinal. Every
+        // scan token carries the data state of its scan as an annotation (visible version and
+        // scanned rows), which is what a user copies with the struct info and what the read side
+        // compares an entry with.
+        def t1Scan = "S{internal.hbo_test.hbo_sg_t1,v2,r1000}"
+        def t2Scan = "S{internal.hbo_test.hbo_sg_t2,v2,r1000}"
+        def t3Scan = "S{internal.hbo_test.hbo_sg_t3,v2,r1000}"
         def expectedChainStruct = "J{inner,c:[" +
                 "EqualTo(col(internal.hbo_test.x.a),col(internal.hbo_test.y.a));" +
                 "EqualTo(col(internal.hbo_test.y.c),col(internal.hbo_test.z.d))]}(" +
-                "S{internal.hbo_test.hbo_sg_t1,v2};S{internal.hbo_test.hbo_sg_t2,v2};" +
-                "S{internal.hbo_test.hbo_sg_t3,v2})"
+                t1Scan + ";" + t2Scan + ";" + t3Scan + ")"
         def expectedAggStruct = "A{gb:}(" + expectedChainStruct + ")"
 
         def leftDeep = "select count(*) from hbo_sg_t1 x join hbo_sg_t2 y on x.a = y.a" +
@@ -126,6 +131,17 @@ suite("hbo_struct_group_level_test", "nonConcurrent") {
         def chainAgg = "select x.a, count(*) from hbo_sg_t1 x join hbo_sg_t2 y on x.a = y.a" +
                 " join hbo_sg_t3 z on y.c = z.d group by x.a"
         assertNotEquals(countAggStructs, aggStructsOf(explainText(chainAgg)))
+
+        // (5) the scan baseline is an annotation of the struct info, not part of its fingerprint:
+        // inserting rows changes the printed struct info of every node above the loaded table, but
+        // the fingerprints stay the same, so an injected entry keeps matching - and whether it may
+        // still be applied is decided by the read side (see hbo_row_count_drift_test)
+        def beforeLoad = rootJoinOf(explainText(leftDeep))
+        sql """ insert into hbo_sg_t1 select number + 1000, number from numbers("number" = "10"); """
+        def afterLoad = rootJoinOf(explainText(leftDeep))
+        assertEquals(beforeLoad[0], afterLoad[0])
+        assertNotEquals(beforeLoad[1], afterLoad[1])
+        assertTrue(afterLoad[1].contains("S{internal.hbo_test.hbo_sg_t1,v3,r1010}"), afterLoad[1])
     } finally {
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
     }
