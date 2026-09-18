@@ -187,10 +187,6 @@ bool is_json_format(TFileFormatType::type format_type) {
     return format_type == TFileFormatType::FORMAT_JSON;
 }
 
-bool is_native_format(TFileFormatType::type format_type) {
-    return format_type == TFileFormatType::FORMAT_NATIVE;
-}
-
 bool is_wal_format(TFileFormatType::type format_type) {
     return format_type == TFileFormatType::FORMAT_WAL;
 }
@@ -331,7 +327,7 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
     } else if (is_wal_format(format_type)) {
         return table_format_name(range) == "NotSet";
     } else if (is_csv_format(format_type) || is_text_format(format_type) ||
-               is_json_format(format_type) || is_native_format(format_type)) {
+               is_json_format(format_type)) {
         return is_supported_table_format(range);
     } else {
         LOG(WARNING) << "Unsupported file format type " << format_type << " for file scanner v2";
@@ -483,10 +479,9 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
             }
             if (_should_skip_empty(status, _should_stop || _io_ctx->should_stop)) {
                 // END_OF_FILE here means the reader discovered a valid split with no data while
-                // opening or probing it, not that the Scanner has exhausted all splits. Examples
-                // are a zero-byte CSV with an explicit schema and a Doris Native file containing
-                // only its 12-byte header. Treat it like V1's empty-file path: finish this range,
-                // discard partial reader state, and let the loop fetch the next split.
+                // opening or probing it, not that the Scanner has exhausted all splits, e.g. a
+                // zero-byte CSV with an explicit schema. Treat it like V1's empty-file path: finish
+                // this range, discard partial reader state, and let the loop fetch the next split.
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_empty_file_counter, 1);
                 _state->update_num_finished_scan_range(1);
@@ -1015,9 +1010,6 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_JSON:
         *file_format = format::FileFormat::JSON;
-        return Status::OK();
-    case TFileFormatType::FORMAT_NATIVE:
-        *file_format = format::FileFormat::NATIVE;
         return Status::OK();
     case TFileFormatType::FORMAT_ARROW:
         *file_format = format::FileFormat::ARROW;
