@@ -48,6 +48,8 @@ public:
                                   uint32_t seed, uint32_t mod);
 };
 
+// Keep the canonical byte-width dispatch together so it can be audited against zlib_crc32 below.
+// NOLINTNEXTLINE(readability-function-size)
 inline uint32_t RawValue::identity_hash(const void* v, size_t len, const PrimitiveType& type,
                                         uint32_t seed, uint32_t mod) {
     DCHECK_GT(mod, 0);

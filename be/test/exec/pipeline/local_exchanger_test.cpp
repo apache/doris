@@ -97,8 +97,11 @@ TEST_F(LocalExchangerTest, BucketShufflePartitionerHashType) {
                         .ok());
     EXPECT_NE(dynamic_cast<IdentityHashPartitioner*>(identity_op.partitioner_for_test()), nullptr);
 
+    // Mirror Thrift's i32-to-enum read to test rejection of an unknown wire value.
+    // This deliberately injects an invalid C++ enum value, not a supported hash type.
     LocalExchangeSinkOperatorX invalid_op(
             2, 0, 1, exprs, bucket_seq_to_instance_idx,
+            // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
             static_cast<TDistributionHashType::type>(std::numeric_limits<int>::max()));
     auto status = invalid_op.init(_runtime_state.get(), TLocalPartitionType::BUCKET_HASH_SHUFFLE, 1,
                                   bucket_seq_to_instance_idx);

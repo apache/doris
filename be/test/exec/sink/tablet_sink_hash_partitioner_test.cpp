@@ -374,12 +374,12 @@ TEST(TabletSinkHashPartitionerTest, IdentityBucketingModsValueByNumBuckets) {
     st = finder.find_tablets(&ctx.state, &block, cast_set<int>(block.rows()), partitions,
                              tablet_index, skip, nullptr);
     ASSERT_TRUE(st.ok()) << st.to_string();
-    EXPECT_EQ(tablet_index[0], 3u);
-    EXPECT_EQ(tablet_index[1], 0u);
-    EXPECT_EQ(tablet_index[2], 4u);
-    EXPECT_EQ(tablet_index[3], 7u);
-    EXPECT_EQ(tablet_index[4], 7u); // UINT32_MAX % 8
-    EXPECT_EQ(tablet_index[5], 0u); // (UINT32_MAX - 7) % 8
+    EXPECT_EQ(tablet_index[0], 3U);
+    EXPECT_EQ(tablet_index[1], 0U);
+    EXPECT_EQ(tablet_index[2], 4U);
+    EXPECT_EQ(tablet_index[3], 7U);
+    EXPECT_EQ(tablet_index[4], 7U); // UINT32_MAX % 8
+    EXPECT_EQ(tablet_index[5], 0U); // (UINT32_MAX - 7) % 8
 }
 
 // identity with a null distribution value falls into bucket 0 (FE/BE write the same rule).
@@ -416,8 +416,8 @@ TEST(TabletSinkHashPartitionerTest, IdentityNullGoesToBucketZero) {
     st = finder.find_tablets(&ctx.state, &block, cast_set<int>(block.rows()), partitions,
                              tablet_index, skip, nullptr);
     ASSERT_TRUE(st.ok()) << st.to_string();
-    EXPECT_EQ(tablet_index[0], 0u); // null -> 0
-    EXPECT_EQ(tablet_index[1], 4u); // 300 % 8 = 4
+    EXPECT_EQ(tablet_index[0], 0U); // null -> 0
+    EXPECT_EQ(tablet_index[1], 4U); // 300 % 8 = 4
 }
 
 // crc32 (default) must NOT collapse to value % n; guards the two branches from being swapped.

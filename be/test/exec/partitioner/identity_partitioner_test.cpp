@@ -138,9 +138,9 @@ TEST_F(IdentityPartitionerTest, NegativeValueUsesUnsignedBytes) {
     constexpr int n = 10;
     auto channels =
             run<IdentityHashPartitioner>(n, ColumnHelper::create_block<DataTypeInt32>({-1, -8}));
-    ASSERT_EQ(2u, channels.size());
-    EXPECT_EQ(5u, channels[0]); // UINT32_MAX % 10
-    EXPECT_EQ(8u, channels[1]); // (UINT32_MAX - 7) % 10
+    ASSERT_EQ(2U, channels.size());
+    EXPECT_EQ(5U, channels[0]); // UINT32_MAX % 10
+    EXPECT_EQ(8U, channels[1]); // (UINT32_MAX - 7) % 10
 }
 
 TEST_F(IdentityPartitionerTest, SupportsMultipleTypedColumns) {
@@ -150,10 +150,10 @@ TEST_F(IdentityPartitionerTest, SupportsMultipleTypedColumns) {
     block.insert(strings.get_by_position(0));
     auto channels = run<IdentityHashPartitioner>(n, std::move(block),
                                                  {make_int_slot_ref(), make_string_slot_ref()});
-    ASSERT_EQ(2u, channels.size());
-    EXPECT_EQ(64u, channels[0]); // (1 * 256 + 'A') % 257
+    ASSERT_EQ(2U, channels.size());
+    EXPECT_EQ(64U, channels[0]); // (1 * 256 + 'A') % 257
     // unsigned_le("BC") = 0x4342; append it after uint32_le(2).
-    EXPECT_EQ((2u * 256u * 256u + 0x4342u) % n, channels[1]);
+    EXPECT_EQ((2U * 256U * 256U + 0x4342U) % n, channels[1]);
 }
 
 // A null distribution value is represented by four zero bytes.
@@ -162,9 +162,9 @@ TEST_F(IdentityPartitionerTest, NullGoesToChannelZero) {
     // row 0 null -> 0; row 1 = 300 -> 300 % 8 = 4
     auto channels = run<IdentityHashPartitioner>(
             n, ColumnHelper::create_nullable_block<DataTypeInt32>({0, 300}, {1, 0}));
-    ASSERT_EQ(2u, channels.size());
-    EXPECT_EQ(0u, channels[0]);
-    EXPECT_EQ(4u, channels[1]);
+    ASSERT_EQ(2U, channels.size());
+    EXPECT_EQ(0U, channels[0]);
+    EXPECT_EQ(4U, channels[1]);
 }
 
 // Guard against the two branches being swapped: crc32 reshuffle must differ from identity for at
@@ -202,6 +202,16 @@ boost::multiprecision::cpp_int append_bytes(boost::multiprecision::cpp_int prefi
     return (prefix << (8 * size)) + suffix;
 }
 
+std::array<uint8_t, 32> make_high_bytes(size_t width, bool negative) {
+    std::array<uint8_t, 32> bytes {};
+    // Nonzero on both sides of every 4/8/16-byte boundary, including the high byte.
+    for (size_t i = 0; i < width; ++i) {
+        bytes[i] = static_cast<uint8_t>(17 + 7 * i);
+    }
+    bytes[width - 1] = negative ? 0xe3 : 0x63;
+    return bytes;
+}
+
 uint32_t bucket(const boost::multiprecision::cpp_int& value, uint32_t modulus) {
     return (value % modulus).convert_to<uint32_t>();
 }
@@ -219,15 +229,10 @@ TEST(IdentityHashTest, FixedWidthHighBytes) {
             {TYPE_DECIMAL256, 32}};
     for (auto [type, width] : types) {
         for (bool negative : {false, true}) {
-            std::array<uint8_t, 32> bytes {};
-            // Nonzero on both sides of every 4/8/16-byte boundary, including the high byte.
-            for (size_t i = 0; i < width; ++i) {
-                bytes[i] = static_cast<uint8_t>(17 + 7 * i);
-            }
-            bytes[width - 1] = negative ? 0xe3 : 0x63;
-            for (uint32_t seed : {0u, 37u, 0xfedcba98u}) {
+            auto bytes = make_high_bytes(width, negative);
+            for (uint32_t seed : {0U, 37U, 0xfedcba98U}) {
                 auto expected = append_bytes(seed, bytes.data(), width);
-                for (uint32_t modulus : {251u, 1009u, 1024u}) {
+                for (uint32_t modulus : {251U, 1009U, 1024U}) {
                     SCOPED_TRACE(::testing::Message()
                                  << "type=" << type << " width=" << width << " negative="
                                  << negative << " seed=" << seed << " modulus=" << modulus);
@@ -237,7 +242,7 @@ TEST(IdentityHashTest, FixedWidthHighBytes) {
                 }
                 // A power-of-two modulus alone cannot expose loss of high bytes. Ensure these
                 // vectors distinguish the common 2/4/8/16-byte truncations with an odd modulus.
-                for (size_t truncated : {2u, 4u, 8u, 16u}) {
+                for (size_t truncated : {2U, 4U, 8U, 16U}) {
                     if (truncated < width) {
                         auto wrong = append_bytes(seed, bytes.data(), truncated);
                         EXPECT_TRUE(bucket(expected, 251) != bucket(wrong, 251) ||
@@ -257,11 +262,11 @@ TEST(IdentityHashTest, WideColumnsWithNullTail) {
     const int64_t second = -0x123456789abcdefLL;
     const uint32_t null_bytes = 0;
     const std::string tail = "identity";
-    for (uint32_t seed : {37u, 0xfedcba98u}) {
+    for (uint32_t seed : {37U, 0xfedcba98U}) {
         auto expected = append_bytes(seed, wide.data(), wide.size());
         expected = append_bytes(expected, &second, sizeof(second));
         expected = append_bytes(expected, &null_bytes, sizeof(null_bytes));
-        for (uint32_t modulus : {251u, 1009u, 1024u}) {
+        for (uint32_t modulus : {251U, 1009U, 1024U}) {
             uint32_t hash = RawValue::identity_hash(wide.data(), wide.size(), TYPE_DECIMAL256, seed,
                                                     modulus);
             hash = RawValue::identity_hash(&second, sizeof(second), TYPE_BIGINT, hash, modulus);
@@ -278,8 +283,8 @@ TEST(IdentityHashTest, LegacyTypes) {
     auto date = VecDateTimeValue::create_from_olap_date(20260102);
     char date_buffer[64];
     const int date_length = date.to_buffer(date_buffer);
-    for (uint32_t seed : {0u, 37u, 0xfedcba98u}) {
-        for (uint32_t modulus : {251u, 1009u, 1024u}) {
+    for (uint32_t seed : {0U, 37U, 0xfedcba98U}) {
+        for (uint32_t modulus : {251U, 1009U, 1024U}) {
             EXPECT_EQ(bucket(append_bytes(seed, date_buffer, date_length), modulus),
                       RawValue::identity_hash(&date, sizeof(date), TYPE_DATE, seed, modulus));
             for (int64_t signed_integer : {123456789012LL, -123456789012LL}) {
@@ -299,7 +304,7 @@ TEST(IdentityHashTest, LegacyTypes) {
 TEST(IdentityHashTest, TimestampNsCanonicalBytes) {
     constexpr uint32_t n = 257;
     const TimeStampNsValue one_nanosecond(1);
-    EXPECT_EQ(1u, RawValue::identity_hash(&one_nanosecond, sizeof(one_nanosecond),
+    EXPECT_EQ(1U, RawValue::identity_hash(&one_nanosecond, sizeof(one_nanosecond),
                                           TYPE_TIMESTAMP_NS, 0, n));
 
     const TimeStampNsValue before_epoch(-1);
@@ -312,11 +317,11 @@ TEST(IdentityHashTest, IpCanonicalBytes) {
     constexpr uint32_t n = 257;
     IPv4 ipv4 = 0;
     ASSERT_TRUE(IPv4Value::from_string(ipv4, "1.2.3.4"));
-    EXPECT_EQ(2u, RawValue::identity_hash(&ipv4, sizeof(ipv4), TYPE_IPV4, 0, n));
+    EXPECT_EQ(2U, RawValue::identity_hash(&ipv4, sizeof(ipv4), TYPE_IPV4, 0, n));
 
     IPv6 ipv6 = 0;
     ASSERT_TRUE(IPv6Value::from_string(ipv6, "::1"));
-    EXPECT_EQ(1u, RawValue::identity_hash(&ipv6, sizeof(ipv6), TYPE_IPV6, 0, n));
+    EXPECT_EQ(1U, RawValue::identity_hash(&ipv6, sizeof(ipv6), TYPE_IPV6, 0, n));
 }
 
 } // namespace doris

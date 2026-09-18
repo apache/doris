@@ -635,7 +635,7 @@ RuntimeFilterWrapper::get_or_compute_bucket_prune_hashes(const DataTypePtr& targ
     DORIS_CHECK_EQ(primitive_type, _column_return_type);
 
     if (hash_type == TDistributionHashType::IDENTITY) {
-        std::lock_guard lock(_identity_bucket_prune_hashes_mutex);
+        std::scoped_lock lock(_identity_bucket_prune_hashes_mutex);
         if (auto it = _identity_bucket_prune_hashes.find(bucket_num);
             it != _identity_bucket_prune_hashes.end()) {
             return it->second;
