@@ -52,11 +52,13 @@ struct IndexQueryContext {
     // evaluates pushed-down conjuncts and the current candidate row bitmap is
     // small enough (config::inverted_index_candidate_pushdown_ratio), reset
     // right after. When set, an index query MAY restrict doc-list intersection
-    // and verification to this candidate set (PhraseQuery joins it into the
-    // leapfrog). A bitmap produced under a non-null candidate is PARTIAL and
-    // must never be inserted into the query cache; cache lookups stay valid
-    // (a cached full-segment bitmap intersected later is still correct). The
-    // pointee is owned by the caller and outlives the evaluation.
+    // and verification to this candidate set (a CLucene PhraseQuery joins it
+    // into its leapfrog; an SNII phrase starts its docid intersection from
+    // it). A bitmap produced under a non-null candidate is PARTIAL and must
+    // never be inserted into the query cache or shared with other scanners;
+    // cache lookups stay valid (a cached full-segment bitmap intersected later
+    // is still correct). The pointee is owned by the caller and outlives the
+    // evaluation.
     const roaring::Roaring* candidate_rows = nullptr;
 
     // ---- Reply direction: fields a READER writes and the CALLER reads back ----
@@ -78,8 +80,9 @@ struct IndexQueryContext {
     bool count_on_index_fastpath_hit = false;
 
     // Reply direction of the candidate handshake. Set by a query iff it DID
-    // join candidate_rows into its evaluation (PhraseQuery's leapfrog), i.e.
-    // its result bitmap is partial; reset by the reader before each search.
+    // join candidate_rows into its evaluation (a multi-term phrase on CLucene
+    // or SNII), i.e. its result bitmap is partial; reset by the reader before
+    // each search.
     // Only such a partial result must stay out of the query cache -- a query
     // that never consumes the candidate (MATCH_ANY/ALL, term, regexp, single
     // term phrase) still computes the full-segment bitmap and stays cacheable.

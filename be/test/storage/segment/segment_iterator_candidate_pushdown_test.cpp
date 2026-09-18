@@ -457,6 +457,26 @@ TEST_F(SegmentIteratorCandidatePushdownTest, compound_root_evaluates_without_can
     EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
 }
 
+// SEARCH combines its own leaf bitmaps (including negation) and SNII serves
+// its phrase leaves, so a SEARCH root keeps full-segment leaves like a
+// compound root does.
+TEST_F(SegmentIteratorCandidatePushdownTest, search_root_evaluates_without_candidate) {
+    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    _iter->_row_bitmap.addRange(0, 5); // 5% of 100 rows: candidate engages
+
+    auto search_expr = std::make_shared<CapturingExpr>(_iter.get());
+    search_expr->set_node_type(TExprNodeType::SEARCH_EXPR);
+    _iter->_common_expr_ctxs_push_down.push_back(make_capturing_ctx(search_expr));
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    ASSERT_TRUE(_expr->captured());
+    EXPECT_EQ(_expr->captured_candidate(), &_iter->_row_bitmap);
+    ASSERT_TRUE(search_expr->captured());
+    EXPECT_EQ(search_expr->captured_candidate(), nullptr);
+    EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
+}
+
 TEST_F(SegmentIteratorCandidatePushdownTest,
        virtual_slot_wrapped_compound_preserves_three_valued_logic) {
     config::inverted_index_candidate_pushdown_ratio = 0.3;
