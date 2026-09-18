@@ -50,6 +50,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "storage/read_time_hidden_column.h"
 #include "storage/row_cursor.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_fwd.h"
@@ -63,6 +64,22 @@
 #include "util/thrift_util.h"
 
 namespace doris {
+
+static BetaRowsetSharedPtr get_beta_rowset(RowsetSharedPtr* rowset_ptr) {
+    DORIS_CHECK(rowset_ptr != nullptr);
+    DORIS_CHECK(*rowset_ptr != nullptr);
+    return std::static_pointer_cast<BetaRowset>(*rowset_ptr);
+}
+
+static void replace_point_query_read_time_hidden_columns(
+        const std::vector<std::pair<int32_t, uint32_t>>& hidden_columns, const TabletSchema& schema,
+        const BetaRowset& rowset, MutableColumns& result_columns) {
+    for (const auto& [column_uid, position] : hidden_columns) {
+        replace_suffix_with_read_time_hidden_column(get_read_time_hidden_column(schema, column_uid),
+                                                    rowset.version(), rowset.commit_tso(), false, 1,
+                                                    *result_columns[position]);
+    }
+}
 
 class PointQueryResultBlockBuffer final : public MySQLResultBlockBuffer {
 public:
@@ -84,7 +101,7 @@ Reusable::~Reusable() = default;
 // missing_cids : the output expr columns that not in row columns cids
 static void get_missing_and_include_cids(const TabletSchema& schema,
                                          const std::vector<SlotDescriptor*>& slots,
-                                         int target_rs_column_id,
+                                         int target_rs_column_id, bool has_delete_sign,
                                          std::unordered_set<int>& missing_cids,
                                          std::unordered_set<int>& include_cids) {
     missing_cids.clear();
@@ -92,8 +109,9 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     for (auto* slot : slots) {
         missing_cids.insert(slot->col_unique_id());
     }
-    // insert delete sign column id
-    missing_cids.insert(schema.columns()[schema.delete_sign_idx()]->unique_id());
+    if (has_delete_sign) {
+        missing_cids.insert(schema.columns()[schema.delete_sign_idx()]->unique_id());
+    }
     if (target_rs_column_id == -1) {
         // no row store columns
         return;
@@ -175,6 +193,15 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
         extract_slot_ref(expr->root(), tuple_desc(), output_slot_descs);
     }
 
+    std::unordered_set<int32_t> read_time_hidden_column_uids;
+    for (const auto* slot : output_slot_descs) {
+        const int32_t column_uid = slot->col_unique_id();
+        if (get_read_time_hidden_column(schema, column_uid) != ReadTimeHiddenColumn::NONE &&
+            read_time_hidden_column_uids.insert(column_uid).second) {
+            _read_time_hidden_columns.emplace_back(column_uid, _col_uid_to_idx.at(column_uid));
+        }
+    }
+
     // get the delete sign idx in block
     if (has_delete_sign) {
         _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
@@ -184,7 +211,7 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
         const auto& column = *DORIS_TRY(schema.column(BeConsts::ROW_STORE_COL));
         _row_store_column_ids = column.unique_id();
     }
-    get_missing_and_include_cids(schema, output_slot_descs, _row_store_column_ids,
+    get_missing_and_include_cids(schema, output_slot_descs, _row_store_column_ids, has_delete_sign,
                                  _missing_col_uids, _include_col_uids);
 
     return Status::OK();
@@ -494,7 +521,9 @@ Status PointQueryExecutor::_lookup_row_key() {
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
-        if (!config::disable_storage_row_cache) {
+        // The row cache contains the physical JSONB row but not the owning rowset's version/TSO.
+        // A query projecting read-time hidden columns must resolve the rowset before decoding it.
+        if (!config::disable_storage_row_cache && !_reusable->has_read_time_hidden_columns()) {
             RowCache::CacheHandle cache_handle;
             auto hit_cache = RowCache::instance()->lookup(
                     {_tablet->tablet_id(), _row_read_ctxs[i]._primary_key}, &cache_handle);
@@ -533,6 +562,7 @@ Status PointQueryExecutor::_lookup_row_data() {
         MutableColumns& result_columns = result_columns_guard.mutable_columns();
         for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
             if (_row_read_ctxs[i]._cached_row_data.valid()) {
+                DORIS_CHECK(!_reusable->has_read_time_hidden_columns());
                 RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                         _reusable->get_data_type_serdes(),
                         _row_read_ctxs[i]._cached_row_data.data().data,
@@ -544,6 +574,7 @@ Status PointQueryExecutor::_lookup_row_data() {
             if (!_row_read_ctxs[i]._row_location.has_value()) {
                 continue;
             }
+            auto rowset = get_beta_rowset(_row_read_ctxs[i]._rowset_ptr.get());
             std::string value;
             // fill block by row store
             if (_reusable->rs_column_uid() != -1) {
@@ -576,8 +607,6 @@ Status PointQueryExecutor::_lookup_row_data() {
                 }
                 // fill missing columns by column store
                 RowLocation row_loc = _row_read_ctxs[i]._row_location.value();
-                BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
-                        _tablet->get_rowset(row_loc.rowset_id));
                 SegmentCacheHandle segment_cache;
                 io::IOContext io_ctx;
                 io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -610,6 +639,9 @@ Status PointQueryExecutor::_lookup_row_data() {
                                                                     storage_read_options, iter));
                 }
             }
+            replace_point_query_read_time_hidden_columns(_reusable->read_time_hidden_columns(),
+                                                         *_tablet->tablet_schema(), *rowset,
+                                                         result_columns);
         }
         if (result_columns.size() > _reusable->include_col_uids().size()) {
             // Padding rows for some columns that no need to output to mysql client

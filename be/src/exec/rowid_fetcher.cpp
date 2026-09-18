@@ -55,6 +55,7 @@
 #include "runtime/workload_group/workload_group_manager.h"
 #include "semaphore"
 #include "storage/olap_common.h"
+#include "storage/read_time_hidden_column.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/segment/column_reader.h"
 #include "storage/tablet/tablet_fwd.h"
@@ -77,6 +78,23 @@ void set_topn_lazy_materialization_file_cache_stats(
     pstats->set_local_io_time(stats.local_io_timer);
     pstats->set_remote_io_time(stats.remote_io_timer);
     pstats->set_write_cache_io_time(stats.write_cache_io_timer);
+}
+
+void replace_rowid_read_time_hidden_columns(const TabletSchema& schema,
+                                            const std::vector<SlotDescriptor>& slots,
+                                            const BetaRowset& rowset, size_t num_rows,
+                                            Block& result_block) {
+    auto columns_guard = result_block.mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
+    DORIS_CHECK_EQ(columns.size(), slots.size());
+    for (size_t i = 0; i < slots.size(); ++i) {
+        const auto hidden_column = get_read_time_hidden_column(schema, slots[i].col_unique_id());
+        if (hidden_column == ReadTimeHiddenColumn::NONE) {
+            continue;
+        }
+        replace_suffix_with_read_time_hidden_column(
+                hidden_column, rowset.version(), rowset.commit_tso(), false, num_rows, *columns[i]);
+    }
 }
 
 } // namespace
@@ -1049,6 +1067,8 @@ Status RowIdStorageReader::read_doris_format_row(
                     iterator_item.storage_read_options, iterator_item.iterator));
         }
     }
+    replace_rowid_read_time_hidden_columns(full_read_schema, slots, *rowset, row_ids.size(),
+                                           result_block);
     return Status::OK();
 }
 

@@ -45,6 +45,7 @@
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"
+#include "storage/read_time_hidden_column.h"
 #include "storage/row_cursor.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
@@ -607,6 +608,48 @@ TEST_F(SegmentIteratorExprZonemapTest, VersionPredicateSkipsPhysicalPageIndexes)
             assert_hidden_column_values(iter.get(), read_options, read_schema, kNumRows, kVersion));
     EXPECT_EQ(0, _stats.rows_bf_filtered);
     EXPECT_EQ(0, _stats.rows_stats_filtered);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, VersionMinMaxFallsBackFromStatisticsIterator) {
+    constexpr int64_t kVersion = 7;
+    _tablet_schema = make_version_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_version_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(kVersion, kVersion);
+    read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    EXPECT_NE(nullptr, dynamic_cast<SegmentIterator*>(iter.get()));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, ReplacesReadTimeVersionSuffix) {
+    constexpr int64_t kVersion = 7;
+    _tablet_schema = make_version_tablet_schema();
+    // TabletSchemaPB may contain the hidden column without carrying its ordinal index.
+    _tablet_schema->set_version_col_idx(-1);
+    auto column = ColumnInt64::create();
+    column->insert_value(123);
+    column->insert_value(0);
+    column->insert_value(0);
+
+    const auto hidden_column =
+            get_read_time_hidden_column(*_tablet_schema, _tablet_schema->column(1).unique_id());
+    replace_suffix_with_read_time_hidden_column(hidden_column, Version(kVersion, kVersion),
+                                                TsoRange(), false, 2, *column);
+
+    ASSERT_EQ(3, column->size());
+    EXPECT_EQ(123, column->get_element(0));
+    EXPECT_EQ(kVersion, column->get_element(1));
+    EXPECT_EQ(kVersion, column->get_element(2));
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, VersionPredicateSkipsPhysicalInvertedIndex) {

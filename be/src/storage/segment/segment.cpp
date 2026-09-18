@@ -68,6 +68,7 @@
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/read_time_hidden_column.h"
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/schema.h"
 #include "storage/segment/column_meta_accessor.h"
@@ -159,10 +160,13 @@ Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& sche
                                         const StorageReadOptions& read_options, bool* usable) {
     *usable = true;
     for (size_t ordinal = 0; ordinal < schema.num_block_columns(); ++ordinal) {
-        // The statistics iterator reads segment metadata without StorageReadOptions and therefore
-        // cannot materialize the rowset's commit_tso in place of the on-disk placeholder.
-        if (static_cast<int32_t>(ordinal) == schema.commit_tso_ordinal()) {
-            continue;
+        // VStatisticsIterator reads physical segment ZoneMaps. Read-time hidden columns contain
+        // placeholders there, so let SegmentIterator materialize their logical values instead.
+        if (segment->get_read_time_constant_value(static_cast<int32_t>(ordinal), schema,
+                                                  read_options)
+                    .has_value()) {
+            *usable = false;
+            return Status::OK();
         }
         std::shared_ptr<ColumnReader> reader;
         Status st = segment->get_column_reader(*schema.column(ordinal), &reader, read_options.stats,
@@ -421,21 +425,16 @@ bool Segment::is_tso_placeholder_col(int cid, const ReadSchema& schema,
 
 std::optional<Field> Segment::get_read_time_constant_value(
         int cid, const ReadSchema& schema, const StorageReadOptions& read_options) const {
-    if (read_options.version.first != read_options.version.second) {
-        return std::nullopt;
-    }
+    ReadTimeHiddenColumn hidden_column = ReadTimeHiddenColumn::NONE;
     if (cid == schema.version_ordinal()) {
-        return Field::create_field<TYPE_BIGINT>(read_options.version.second);
+        hidden_column = ReadTimeHiddenColumn::VERSION;
+    } else if (cid == schema.commit_tso_ordinal()) {
+        hidden_column = ReadTimeHiddenColumn::COMMIT_TSO;
+    } else if (cid == schema.tso_ordinal()) {
+        hidden_column = ReadTimeHiddenColumn::BINLOG_TSO;
     }
-    if (cid == schema.commit_tso_ordinal() && read_options.commit_tso.end_tso() != -1) {
-        return Field::create_field<TYPE_BIGINT>(read_options.commit_tso.end_tso());
-    }
-    if (is_tso_placeholder_col(cid, schema, read_options)) {
-        const Int64 commit_tso =
-                read_options.commit_tso.end_tso() == -1 ? 0 : read_options.commit_tso.end_tso();
-        return Field::create_field<TYPE_BIGINT>(commit_tso);
-    }
-    return std::nullopt;
+    return get_read_time_hidden_column_value(hidden_column, read_options.version,
+                                             read_options.commit_tso, read_options.read_row_binlog);
 }
 
 Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
