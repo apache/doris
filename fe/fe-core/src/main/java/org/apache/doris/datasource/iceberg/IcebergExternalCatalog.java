@@ -31,6 +31,7 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
+import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.iceberg.catalog.Catalog;
@@ -99,6 +100,19 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
                 -1L, ICEBERG_MANIFEST_CACHE_TTL_SECOND);
         CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY, null),
                 0L, ICEBERG_MANIFEST_CACHE_CAPACITY);
+        // Mandatory, non-configurable security rule for the driver jar the jdbc flavor loads into the
+        // FE JVM (shared with the jdbc / paimon-jdbc catalogs; see JdbcDriverUrlSecurity). Read from the
+        // raw properties and checked BEFORE the metastore-properties build below: that build also runs
+        // on catalog rebuild, which must never validate, and for the jdbc flavor it already attempts to
+        // register the driver. Key owned by IcebergJdbcMetaStoreProperties. Only the jdbc flavor loads
+        // a jar; on every other flavor the key is dead config that must not fail a catalog.
+        if ("jdbc".equalsIgnoreCase(catalogProperty.getOrDefault(ICEBERG_CATALOG_TYPE, ""))) {
+            try {
+                JdbcDriverUrlSecurity.check(catalogProperty.getOrDefault("iceberg.jdbc.driver_url", null));
+            } catch (IllegalArgumentException e) {
+                throw new DdlException(e.getMessage(), e);
+            }
+        }
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractIcebergProperties.class);
     }
 
