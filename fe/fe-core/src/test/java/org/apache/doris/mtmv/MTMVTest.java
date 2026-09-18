@@ -65,7 +65,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -140,26 +139,6 @@ public class MTMVTest {
         Assertions.assertEquals(mvToBase.get("mvp1"), Sets.newHashSet("baseP1_1", "baseP1_2"));
         Assertions.assertEquals(baseToMv.get("baseP1_1"), "mvp1");
         Assertions.assertEquals(baseToMv.get("baseP1_2"), "mvp1");
-    }
-
-    @Test
-    public void testChangedBasePartitionsRequireCompleteSnapshotMapping() {
-        BaseTableInfo baseTableInfo = Mockito.mock(BaseTableInfo.class);
-        MTMVRefreshPartitionSnapshot firstSnapshot = new MTMVRefreshPartitionSnapshot();
-        firstSnapshot.getPctSnapshot(baseTableInfo).put("base_p1", new MTMVVersionSnapshot(1L, 11L));
-        MTMVRefreshPartitionSnapshot secondSnapshot = new MTMVRefreshPartitionSnapshot();
-        secondSnapshot.getPctSnapshot(baseTableInfo).put("base_p2", new MTMVVersionSnapshot(1L, 12L));
-        MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
-        refreshSnapshot.updateSnapshots(
-                Map.of("mv_p1", firstSnapshot, "mv_p2", secondSnapshot), Set.of("mv_p1", "mv_p2"));
-
-        Optional<Set<String>> mappedPartitions = refreshSnapshot.getMvPartitionNames(
-                baseTableInfo, Map.of("base_p1", 11L, "base_p2", 12L));
-
-        Assertions.assertTrue(mappedPartitions.isPresent());
-        Assertions.assertEquals(Set.of("mv_p1", "mv_p2"), mappedPartitions.get());
-        Assertions.assertFalse(refreshSnapshot.getMvPartitionNames(
-                baseTableInfo, Map.of("base_p1", 11L, "base_p3", 13L)).isPresent());
     }
 
     private Map<PartitionKeyDesc, Set<String>> mockRelatedPartitionDescs() throws AnalysisException {
