@@ -61,10 +61,11 @@ Status RemoteSpillDataDir::ensure_ready() {
     if (!config::is_cloud_mode()) {
         return Status::InternalError("spill to s3 is only supported in cloud mode");
     }
-    std::string host = BackendOptions::get_localhost();
+    const std::string& host = BackendOptions::get_localhost();
     if (host.empty()) {
         return Status::InternalError("spill to s3 is not ready: the address of this BE is unknown");
     }
+    std::string endpoint = fmt::format("{}_{}", host, config::heartbeat_service_port);
     // The vault is resolved from what the vault refresh thread already brought in.
     auto& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
     std::string vault_id = _vault_id.empty() ? engine.default_vault_id() : _vault_id;
@@ -81,15 +82,15 @@ Status RemoteSpillDataDir::ensure_ready() {
         return Status::NotSupported("spill to s3 only supports S3 storage vaults, vault '{}' is {}",
                                     vault_id, fs->type());
     }
-    init_remote_fs(fs, std::move(host));
+    init_remote_fs(fs, std::move(endpoint));
     return Status::OK();
 }
 
-void RemoteSpillDataDir::init_remote_fs(io::FileSystemSPtr fs, std::string host) {
-    DCHECK(!host.empty());
+void RemoteSpillDataDir::init_remote_fs(io::FileSystemSPtr fs, std::string endpoint) {
+    DCHECK(!endpoint.empty());
     _fs = std::move(fs);
-    _host = std::move(host);
-    _spill_root = fmt::format("{}/{}", SPILL_DIR_PREFIX, _host);
+    _endpoint = std::move(endpoint);
+    _spill_root = fmt::format("{}/{}", SPILL_DIR_PREFIX, _endpoint);
     _ready.store(true, std::memory_order_release);
     LOG(INFO) << fmt::format(
             "remote spill store is ready, vault_id={}, fs_id={}, root={}, limit={}",

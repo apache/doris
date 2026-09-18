@@ -28,13 +28,15 @@ namespace doris {
 /// Spill store on the object storage of a cloud storage vault (spill_storage_type=s3).
 ///
 /// Object layout, relative to the vault prefix:
-///   spill/{host}/{query_id}/{spill file}/{part}
-/// {host} is the address this BE advertises (BackendOptions::get_localhost(), normally its IP),
-/// so an operator can tell from a key which BE wrote it and which query it belongs to. The
-/// layout assumes that no two live BE processes writing to the vault share an address: a
-/// query's directory is deleted as a whole when the query ends on this BE, and at startup
-/// every query directory under spill/{host}/ that no query of this process is using is taken
-/// for residue of the previous process and deleted.
+///   spill/{ip}_{port}/{query_id}/{spill file}/{part}
+/// {ip}_{port} is the address this BE advertises (BackendOptions::get_localhost(), normally its
+/// IP) and its heartbeat_service_port, the pair FE identifies a BE by, so several BEs on one
+/// host get different directories and a key tells which BE wrote it and which query it belongs
+/// to. A query's directory is deleted as a whole when the query ends on this BE, and at startup
+/// every query directory under spill/{ip}_{port}/ that no query of this process is using is
+/// taken for residue of the previous process and deleted; both assume that no other live BE
+/// writing to the vault has the same address and port (a vault shared by clusters whose
+/// addresses overlap would break that).
 ///
 /// The file system is resolved lazily by ensure_ready(): the storage vault may not be known
 /// yet when BE starts.
@@ -54,7 +56,7 @@ public:
     Status ensure_ready();
 
     /// Bind a file system directly. Used by ensure_ready() and by tests.
-    void init_remote_fs(io::FileSystemSPtr fs, std::string host);
+    void init_remote_fs(io::FileSystemSPtr fs, std::string endpoint);
 
     /// nullptr until ready.
     io::FileSystemSPtr fs() const override;
@@ -62,8 +64,8 @@ public:
     /// Object storage has no capacity to probe; only spill_s3_storage_limit_bytes applies.
     Status update_capacity() override;
 
-    /// Address in the object keys; empty until ready.
-    const std::string& host() const { return _host; }
+    /// "{ip}_{port}" in the object keys; empty until ready.
+    const std::string& endpoint() const { return _endpoint; }
     const std::string& vault_id() const { return _vault_id; }
 
 protected:
@@ -71,7 +73,7 @@ protected:
 
 private:
     std::string _vault_id;
-    std::string _host;
+    std::string _endpoint;
     std::mutex _init_mutex;
     std::atomic<bool> _ready {false};
     io::FileSystemSPtr _fs;

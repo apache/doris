@@ -94,7 +94,7 @@ public:
     /// Number of query spill directories whose deletion failed and is being retried.
     size_t pending_delete_dir_count();
 
-    /// Record that a query of this process writes under spill/{host}/{query_dir} of the remote
+    /// Record that a query of this process writes under spill/{ip}_{port}/{query_dir} of the remote
     /// store, so that the startup cleanup leaves the directory alone. Called before the first
     /// object of a spill file is written; the query's delete_query_spill_directory() removes
     /// the record.
@@ -119,7 +119,7 @@ private:
     void _retry_pending_query_spill_directories();
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
     void _remote_gc();
-    /// Delete the query directories under spill/{host}/ that the previous process of this BE
+    /// Delete the query directories under spill/{ip}_{port}/ that the previous process of this BE
     /// left behind; `done` is set when none is left. The directories are taken from one listing,
     /// the first after the store became ready, minus those registered by queries of this
     /// process; one directory is deleted per GC round.
@@ -138,7 +138,7 @@ private:
     std::optional<std::vector<std::string>> _remote_residue_dirs;
 
     std::mutex _remote_query_dirs_mutex;
-    // Query directories under spill/{host}/ written by queries of this process.
+    // Query directories under spill/{ip}_{port}/ written by queries of this process.
     std::unordered_set<std::string> _remote_query_dirs;
 
     CountDownLatch _stop_background_threads_latch;
