@@ -36,6 +36,7 @@ import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -44,6 +45,10 @@ import org.xnio.XnioIoThread;
 import org.xnio.XnioWorker;
 import org.xnio.conduits.ConduitStreamSourceChannel;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.RejectedExecutionException;
 
 public class ConnectionExceedTest {
@@ -188,6 +193,65 @@ public class ConnectionExceedTest {
             Mockito.verify(mockTokenManager).invalidateToken("test_token");
             Assertions.assertEquals(3, scheduler.getConnectionNum());
             Assertions.assertEquals(2, scheduler.getConnectPoolMgr().getFlightConnectionNum());
+        }
+    }
+
+    // Two first requests carrying the same bearer token race session creation. getConnectContext
+    // serializes creation and re-checks the peer-identity index, so exactly one ConnectContext is
+    // published for the token and every caller gets it. Without that (both build and register one, or
+    // the loser hits the created-session guard) the pool would hold a second, orphaned session, or a
+    // caller would fail. Each worker installs its own static mocks because Mockito's mockStatic is
+    // thread-local; the ConnectScheduler is the one shared instance they publish into.
+    @Test
+    @Timeout(60)
+    public void testConcurrentFirstRequestsPublishExactlyOneSessionPerToken() throws Exception {
+        ConnectScheduler scheduler = new ConnectScheduler(1000, 100);
+        Mockito.when(mockEnv.getInternalCatalog()).thenReturn(mockCatalog);
+        Mockito.when(mockCatalog.getName()).thenReturn("internal");
+        Mockito.when(mockAuth.getMaxConn(Mockito.anyString())).thenReturn(100L);
+        Mockito.when(mockEnv.getAuth()).thenReturn(mockAuth);
+        Mockito.when(mockExecuteEnv.getScheduler()).thenReturn(scheduler);
+
+        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+        FlightTokenDetails tokenDetails = new FlightTokenDetails(
+                "shared_token", "test_user",
+                System.currentTimeMillis(), System.currentTimeMillis() + 3600000,
+                userIdentity, "127.0.0.1");
+        Mockito.when(mockTokenManager.validateToken("shared_token")).thenReturn(tokenDetails);
+
+        FlightSessionsWithTokenManager manager = new FlightSessionsWithTokenManager(mockTokenManager);
+
+        int threadCount = 6;
+        CyclicBarrier barrier = new CyclicBarrier(threadCount);
+        List<ConnectContext> results = Collections.synchronizedList(new ArrayList<>());
+        List<Throwable> errors = Collections.synchronizedList(new ArrayList<>());
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < threadCount; i++) {
+            Thread t = new Thread(() -> {
+                try (MockedStatic<ExecuteEnv> execEnv = Mockito.mockStatic(ExecuteEnv.class);
+                        MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
+                    execEnv.when(ExecuteEnv::getInstance).thenReturn(mockExecuteEnv);
+                    env.when(Env::getCurrentEnv).thenReturn(mockEnv);
+                    barrier.await();
+                    results.add(manager.getConnectContext("shared_token"));
+                } catch (Throwable e) {
+                    errors.add(e);
+                }
+            });
+            threads.add(t);
+            t.start();
+        }
+        for (Thread t : threads) {
+            t.join();
+        }
+
+        Assertions.assertTrue(errors.isEmpty(), "getConnectContext threw: " + errors);
+        Assertions.assertEquals(1, scheduler.getConnectionNum(),
+                "concurrent first requests on one token must publish exactly one session");
+        ConnectContext published = scheduler.getContextWithPeerIdentity("shared_token");
+        Assertions.assertNotNull(published);
+        for (ConnectContext c : results) {
+            Assertions.assertSame(published, c, "every caller must get the one published session");
         }
     }
 }
