@@ -123,9 +123,10 @@ public abstract class MaterializationContext {
         this.enableRecordFailureDetail = parsedStatement != null && parsedStatement.isExplain()
                 && ExplainLevel.MEMO_PLAN == parsedStatement.getExplainOptions().getExplainLevel();
         // Construct materialization struct info, catch exception which may cause planner roll back
-        this.structInfo = structInfo == null
-                ? constructStructInfo(plan, originalPlan, cascadesContext).orElseGet(() -> null)
-                : structInfo;
+        this.structInfo = (structInfo == null
+                ? constructStructInfo(plan, originalPlan, cascadesContext)
+                : Optional.of(structInfo))
+                .map(info -> info.withoutRedundantMvFilters(cascadesContext)).orElse(null);
         this.available = this.structInfo != null;
         if (available) {
             this.planOutputShuttledExpressions = this.structInfo.getPlanOutputShuttledExpressions();

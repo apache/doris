@@ -19,20 +19,33 @@ package org.apache.doris.nereids.mv;
 
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
+import org.apache.doris.mtmv.MTMVRefreshSnapshot;
+import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.AsyncMaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
 
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -143,12 +156,95 @@ public class MTMVCacheTest extends SqlTestBase {
         }
     }
 
+    @Test
+    void testNondeterministicDefinitionDoesNotExportFoldedPredicates() throws Exception {
+        createFunction("create alias function mv_cache_day(int) with parameter(n) "
+                + "as dayofmonth(days_add(current_date(), n))");
+        try {
+            for (String expression : ImmutableList.of(
+                    "dayofmonth(current_date())", "dayofmonth(CURRENT_DATE)", "mv_cache_day(0)")) {
+                for (LocalDate date : ImmutableList.of(LocalDate.of(2026, 9, 9), LocalDate.of(2026, 9, 10))) {
+                    ConnectContext cacheContext = Mockito.spy(MTMVPlanUtil.createBasicMvContext(connectContext,
+                            MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE,
+                            connectContext.getSessionVariable().getAffectQueryResultInPlanVariables()));
+                    cacheContext.getSessionVariable().setTimeZone("UTC");
+                    Mockito.doReturn(date.atStartOfDay(ZoneOffset.UTC).toInstant())
+                            .when(cacheContext).getStartTimeInstant();
+                    cacheContext.setThreadLocalInfo();
+                    MTMVCache cache = MTMVCache.from("select id, score from T1 where score > " + expression,
+                            cacheContext, false, true, connectContext, false);
+                    LogicalFilter<? extends Plan> filter = cache.getOriginalFinalPlan()
+                            .<LogicalFilter<? extends Plan>>collectFirst(LogicalFilter.class::isInstance)
+                            .orElseThrow(AssertionError::new);
+                    // The same definition folds to a different bound when its cache is rebuilt tomorrow.
+                    Assertions.assertTrue(filter.getConjuncts().stream().anyMatch(predicate ->
+                                    predicate instanceof GreaterThan && predicate.child(1) instanceof Literal
+                                            && ((Literal) predicate.child(1)).getStringValue()
+                                                    .equals(Integer.toString(date.getDayOfMonth()))),
+                            cache.getOriginalFinalPlan()::treeString);
+                    Assertions.assertTrue(cache.getOutputPredicates().isEmpty(), cache.getOutputPredicates()::toString);
+                }
+            }
+        } finally {
+            connectContext.setThreadLocalInfo();
+            executeNereidsSql("drop function mv_cache_day(int)");
+        }
+    }
+
+    @ParameterizedTest(name = "throughView={0}")
+    @ValueSource(booleans = {false, true})
+    void testReplacedAliasDefinitionDoesNotExportFoldedPredicates(boolean throughView) throws Exception {
+        createFunction("create alias function mv_cache_bound(int) with parameter(n) as abs(n)");
+        try {
+            String definitionSql = "select id from T1 where id > mv_cache_bound(0)";
+            if (throughView) {
+                // View analysis must retain the alias dependency in its parent's statement.
+                createView("create view mv_cache_alias_view as " + definitionSql);
+                definitionSql = "select id from mv_cache_alias_view";
+            }
+            for (int bound : ImmutableList.of(0, 10)) {
+                if (bound == 10) {
+                    executeNereidsSql("drop function mv_cache_bound(int)");
+                    createFunction("create alias function mv_cache_bound(int) with parameter(n) as abs(n + 10)");
+                }
+                ConnectContext cacheContext = MTMVPlanUtil.createBasicMvContext(connectContext,
+                        MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE,
+                        connectContext.getSessionVariable().getAffectQueryResultInPlanVariables());
+                cacheContext.setThreadLocalInfo();
+                MTMVCache cache = MTMVCache.from(definitionSql, cacheContext, false, true, connectContext, false);
+                LogicalFilter<? extends Plan> filter = cache.getOriginalFinalPlan()
+                        .<LogicalFilter<? extends Plan>>collectFirst(LogicalFilter.class::isInstance)
+                        .orElseThrow(AssertionError::new);
+                // A rebuild binds the new deterministic body, although stored MV rows have not been refreshed.
+                Assertions.assertTrue(filter.getConjuncts().stream().anyMatch(predicate ->
+                                predicate instanceof GreaterThan && predicate.child(1) instanceof Literal
+                                        && ((Literal) predicate.child(1)).getStringValue()
+                                                .equals(Integer.toString(bound))),
+                        cache.getOriginalFinalPlan()::treeString);
+                Assertions.assertTrue(cache.getOutputPredicates().isEmpty(), cache.getOutputPredicates()::toString);
+            }
+        } finally {
+            connectContext.setThreadLocalInfo();
+            if (throughView) {
+                dropView("drop view if exists mv_cache_alias_view");
+            }
+            executeNereidsSql("drop function if exists mv_cache_bound(int)");
+        }
+    }
+
     private static class ControlledCacheMTMV extends MTMV {
         private final CountDownLatch firstBuildStarted = new CountDownLatch(1);
         private final CountDownLatch releaseFirstBuild = new CountDownLatch(1);
         private final AtomicInteger buildCount = new AtomicInteger();
-        private final MTMVCache firstCache = new MTMVCache(null, null, null, Collections.emptyList());
-        private final MTMVCache secondCache = new MTMVCache(null, null, null, Collections.emptyList());
+        private final MTMVCache firstCache = new MTMVCache(
+                null, null, null, Collections.emptyList(), Collections.emptySet());
+        private final MTMVCache secondCache = new MTMVCache(
+                null, null, null, Collections.emptyList(), Collections.emptySet());
+
+        private ControlledCacheMTMV() {
+            setStatus(new MTMVStatus(MTMVState.NORMAL, null));
+            setRefreshSnapshot(new MTMVRefreshSnapshot());
+        }
 
         @Override
         protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock,
