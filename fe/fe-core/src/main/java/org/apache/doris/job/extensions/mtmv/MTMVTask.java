@@ -553,6 +553,12 @@ public class MTMVTask extends AbstractTask {
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
             return;
         }
+        // A complete rebuild resets the stream baselines, so reconcile missing or unusable streams
+        // first. Only COMPLETE may do this: a stream baseline is global, resetting it during a
+        // partial refresh would corrupt the partitions that refresh does not touch.
+        if (mtmv.isIvm()) {
+            reconcileIvmStreams(ctx);
+        }
         executePartitionBasedRefresh(context, RefreshMode.COMPLETE, ctx);
     }
 
@@ -785,9 +791,6 @@ public class MTMVTask extends AbstractTask {
             // Persist the guard before the first baseline data transaction.
             mtmv.persistIvmBaselineGuard(refreshMode, Sets.newHashSet(needRefreshPartitions),
                     mtmvSchemaChangeVersion);
-            if (refreshMode == RefreshMode.COMPLETE) {
-                reconcileIvmStreams(ctx);
-            }
         }
         this.completedPartitions = Lists.newCopyOnWriteArrayList();
         try {
