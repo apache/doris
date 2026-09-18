@@ -58,6 +58,14 @@ suite("test_connection_quota") {
     sql "DROP USER IF EXISTS '${user}'"
     sql "CREATE USER '${user}' IDENTIFIED BY '${password}'"
     sql "GRANT SELECT_PRIV ON *.* TO '${user}'"
+    // In cloud mode a query runs on a compute group; a user with no USAGE_PRIV on one is refused with
+    // an INTERNAL error when it runs a statement (the Flight SELECT 1 below), before the pool's quota
+    // is ever reached. Grant it the way the other cloud Flight suites do (see test_auth_remote_ip).
+    if (isCloudMode()) {
+        def computeGroups = sql "SHOW COMPUTE GROUPS"
+        assertTrue(!computeGroups.isEmpty(), "cloud mode but SHOW COMPUTE GROUPS returned nothing")
+        sql "GRANT USAGE_PRIV ON COMPUTE GROUP '${computeGroups[0][0]}' TO '${user}'"
+    }
     sql "SET PROPERTY FOR '${user}' 'max_user_connections' = '${limit}'"
 
     // The connection quota is enforced per-FE, and information_schema.processlist is a cluster-wide
