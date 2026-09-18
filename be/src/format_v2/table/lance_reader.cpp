@@ -563,13 +563,27 @@ Status LanceTableReader::_validate_external_search_request() const {
             return Status::NotSupported("unsupported Lance query vector element type: {}",
                                         static_cast<int>(query_vector.element_type));
         }
-        const auto dimension = static_cast<size_t>(query_vector.dimension);
-        if (dimension > std::numeric_limits<size_t>::max() / element_width ||
-            query_vector.values.size() != dimension * element_width) {
+        const bool multi_vector = query_vector.__isset.num_vectors;
+        // The optional count distinguishes a query matrix, including a one-row matrix.
+        if (multi_vector && query_vector.num_vectors <= 0) {
             return Status::InvalidArgument(
-                    "Lance query vector byte size {} does not match dimension {} and element width "
-                    "{}",
-                    query_vector.values.size(), dimension, element_width);
+                    "Lance multi-vector queries require positive num_vectors");
+        }
+        if (multi_vector && (query_vector.element_type == TVectorElementType::UINT8 ||
+                             query_vector.element_type == TVectorElementType::INT8 ||
+                             (vector.__isset.metric && vector.metric == TVectorMetric::HAMMING))) {
+            return Status::NotSupported(
+                    "Lance multi-vector search requires floating-point vectors and l2, cosine, or "
+                    "dot");
+        }
+        const auto dimension = static_cast<size_t>(query_vector.dimension);
+        const auto count = multi_vector ? static_cast<size_t>(query_vector.num_vectors) : 1;
+        if (dimension > std::numeric_limits<size_t>::max() / count / element_width ||
+            query_vector.values.size() != dimension * count * element_width) {
+            return Status::InvalidArgument(
+                    "Lance query vector byte size {} does not match {} vectors of dimension {} and "
+                    "element width {}",
+                    query_vector.values.size(), count, dimension, element_width);
         }
         if (!vector.__isset.top_k || vector.top_k <= 0) {
             return Status::InvalidArgument("Lance vector search top_k must be positive");
@@ -580,6 +594,22 @@ Status LanceTableReader::_validate_external_search_request() const {
         if (vector.offset > UINT32_MAX_VALUE || vector.top_k > UINT32_MAX_VALUE - vector.offset) {
             return Status::InvalidArgument(
                     "Lance vector search top_k + offset exceeds uint32 range");
+        }
+        // Match FE/C API limits before constructing the per-subvector ANN plan branches.
+        constexpr int MAX_QUERY_VECTORS = 128;
+        constexpr int64_t MAX_QUERY_VECTOR_CANDIDATES = 100000;
+        const auto refine_factor =
+                request.__isset.vector_search_options &&
+                                request.vector_search_options.__isset.refine_factor
+                        ? request.vector_search_options.refine_factor
+                        : 1;
+        if (multi_vector &&
+            (query_vector.num_vectors > MAX_QUERY_VECTORS || refine_factor <= 0 ||
+             vector.top_k + vector.offset > MAX_QUERY_VECTOR_CANDIDATES / refine_factor ||
+             query_vector.num_vectors >
+                     MAX_QUERY_VECTOR_CANDIDATES / (vector.top_k + vector.offset))) {
+            return Status::InvalidArgument(
+                    "multi-vector query exceeds 128 subvectors or 100000 subvector-candidates");
         }
     } else {
         DORIS_CHECK(_search_kind == SearchKind::FULL_TEXT);
@@ -948,12 +978,19 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
     const auto& vector = request.search_query.vector_search;
     const auto& query = vector.query_vector;
     const auto dimension = static_cast<size_t>(query.dimension);
+    const auto count = query.__isset.num_vectors ? static_cast<size_t>(query.num_vectors) : 1;
+    const auto num_elements = dimension * count;
     const auto* bytes = query.values.data();
     const auto candidate_k = static_cast<uint32_t>(vector.top_k + vector.offset);
 
     const auto set_nearest = [&](const void* values, LanceDataType type) -> Status {
-        if (lance_scanner_nearest(scanner, vector.column.c_str(), values, dimension, type,
-                                  candidate_k) != 0) {
+        const int result =
+                query.__isset.num_vectors
+                        ? lance_scanner_nearest_multivector(scanner, vector.column.c_str(), values,
+                                                            dimension, count, type, candidate_k)
+                        : lance_scanner_nearest(scanner, vector.column.c_str(), values, dimension,
+                                                type, candidate_k);
+        if (result != 0) {
             return lance_error("set Lance nearest query");
         }
         return Status::OK();
@@ -961,16 +998,16 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
 
     switch (query.element_type) {
     case TVectorElementType::FLOAT16: {
-        std::vector<uint16_t> values(dimension);
-        for (size_t i = 0; i < dimension; ++i) {
+        std::vector<uint16_t> values(num_elements);
+        for (size_t i = 0; i < num_elements; ++i) {
             values[i] = LittleEndian::Load16(bytes + i * sizeof(uint16_t));
         }
         RETURN_IF_ERROR(set_nearest(values.data(), LANCE_DTYPE_FLOAT16));
         break;
     }
     case TVectorElementType::FLOAT32: {
-        std::vector<float> values(dimension);
-        for (size_t i = 0; i < dimension; ++i) {
+        std::vector<float> values(num_elements);
+        for (size_t i = 0; i < num_elements; ++i) {
             const auto bits = LittleEndian::Load32(bytes + i * sizeof(uint32_t));
             values[i] = std::bit_cast<float>(bits);
         }
@@ -978,8 +1015,8 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
         break;
     }
     case TVectorElementType::FLOAT64: {
-        std::vector<double> values(dimension);
-        for (size_t i = 0; i < dimension; ++i) {
+        std::vector<double> values(num_elements);
+        for (size_t i = 0; i < num_elements; ++i) {
             const auto bits = LittleEndian::Load64(bytes + i * sizeof(uint64_t));
             values[i] = std::bit_cast<double>(bits);
         }
@@ -987,14 +1024,14 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
         break;
     }
     case TVectorElementType::UINT8: {
-        std::vector<uint8_t> values(dimension);
-        std::memcpy(values.data(), bytes, dimension);
+        std::vector<uint8_t> values(num_elements);
+        std::memcpy(values.data(), bytes, num_elements);
         RETURN_IF_ERROR(set_nearest(values.data(), LANCE_DTYPE_UINT8));
         break;
     }
     case TVectorElementType::INT8: {
-        std::vector<int8_t> values(dimension);
-        std::memcpy(values.data(), bytes, dimension);
+        std::vector<int8_t> values(num_elements);
+        std::memcpy(values.data(), bytes, num_elements);
         RETURN_IF_ERROR(set_nearest(values.data(), LANCE_DTYPE_INT8));
         break;
     }
@@ -1003,9 +1040,14 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
                                     static_cast<int>(query.element_type));
     }
 
-    if (vector.__isset.metric && vector.metric != TVectorMetric::DEFAULT) {
+    {
+        // FE plans an omitted metric as L2; never let indexed splits choose another default.
+        const auto requested_metric =
+                !vector.__isset.metric || vector.metric == TVectorMetric::DEFAULT
+                        ? TVectorMetric::L2
+                        : vector.metric;
         LanceMetricType metric;
-        switch (vector.metric) {
+        switch (requested_metric) {
         case TVectorMetric::L2:
             metric = LANCE_METRIC_L2;
             break;
@@ -1027,6 +1069,11 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
         }
     }
 
+    // Exact refinement validates stored elements and gives indexed and unindexed candidates
+    // the same row-level score before either path truncates its results.
+    if (query.__isset.num_vectors && lance_scanner_set_refine_factor(scanner, 1) != 0) {
+        return lance_error("enable Lance multi-vector refinement");
+    }
     if (request.__isset.vector_search_options) {
         const auto& options = request.vector_search_options;
         if (options.__isset.nprobes &&

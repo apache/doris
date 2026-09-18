@@ -868,6 +868,29 @@ public class LanceScanNodeTest {
     }
 
     @Test
+    public void testMultiVectorSplitRetainsMatrixAndProtocolVersion() throws Exception {
+        TExternalSearchRequest logical = vectorSearchRequest(5, 2);
+        org.apache.doris.thrift.TSearchVector matrix = new org.apache.doris.thrift.TSearchVector()
+                .setElementType(org.apache.doris.thrift.TVectorElementType.FLOAT32)
+                .setDimension(2).setNumVectors(2).setValues(new byte[16]);
+        logical.setSchemaVersion(1);
+        logical.getSearchQuery().getVectorSearch().setQueryVector(matrix);
+        logical.getSearchQuery().getVectorSearch().unsetMetric();
+        LanceScanNode node = LanceScanNode.forExternalSearch(
+                new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), null,
+                null, -1, logical, new SessionVariable());
+        TExternalSearchRequest split = node.createSplitSearchRequest();
+        Assert.assertEquals(1, split.getSchemaVersion());
+        Assert.assertEquals(TVectorMetric.L2, split.getSearchQuery().getVectorSearch().getMetric());
+        Assert.assertEquals(matrix, split.getSearchQuery().getVectorSearch().getQueryVector());
+        Assert.assertEquals(7, split.getSearchQuery().getVectorSearch().getTopK());
+        Assert.assertEquals(0, split.getSearchQuery().getVectorSearch().getOffset());
+        TExternalSearchRequest decoded = new TExternalSearchRequest();
+        new org.apache.thrift.TDeserializer().deserialize(decoded, new org.apache.thrift.TSerializer().serialize(split));
+        Assert.assertEquals(split, decoded);
+    }
+
+    @Test
     public void testLanceSplitRejectsInvalidRangeFieldsInFrontend() {
         assertInvalidSplit(() -> LanceSplit.forFragments("s3://bucket/table.lance", 42,
                 Collections.emptyList(), 1), "Lance fragment split must contain fragments");

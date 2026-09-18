@@ -742,6 +742,10 @@ public class LanceScanNode extends FileQueryScanNode {
                 TVectorSearchParams vector = splitRequest.getSearchQuery().getVectorSearch();
                 vector.setTopK(vector.getTopK() + vector.getOffset());
                 vector.setOffset(0);
+                // A scanner must not infer a different metric from its local index coverage.
+                if (!vector.isSetMetric() || vector.getMetric() == TVectorMetric.DEFAULT) {
+                    vector.setMetric(TVectorMetric.L2);
+                }
                 break;
             case FULL_TEXT:
                 TFullTextSearchParams fullText = splitRequest.getSearchQuery().getFullTextSearch();
