@@ -410,8 +410,11 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         if (!Config.enable_cloud_replica_stale_route_clean) {
             return true;
         }
-        if (Env.getCurrentSystemInfo().getBackend(beId) == null) {
-            removeInvalidRoutes();
+        // Query-path self-check, not part of the sweep/replay chain: this always runs on whatever thread
+        // is serving the request, never the checkpoint thread, so Env.getCurrentSystemInfo() is correct here.
+        SystemInfoService systemInfo = Env.getCurrentSystemInfo();
+        if (systemInfo.getBackend(beId) == null) {
+            removeInvalidRoutes(systemInfo);
             return false;
         }
         return true;
@@ -632,13 +635,17 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
      * compute groups that currently exist -- so entries of dropped compute groups pile up forever, both
      * in FE heap and in the image (the `bes`/`be` field).
      *
+     * @param systemInfo the backend set to judge staleness against. Callers must pass the SystemInfoService
+     *                    of the same Env whose catalog this replica belongs to (the serving Env during normal
+     *                    replay/rebalancing, or the checkpoint's private Env during image generation) -- never
+     *                    resolve it internally via Env.getCurrentSystemInfo(), since that depends on which
+     *                    thread happens to be calling and would silently judge the wrong Env's replicas.
      * @return how many entries were dropped
      */
-    public int removeInvalidRoutes() {
+    public int removeInvalidRoutes(SystemInfoService systemInfo) {
         if (!Config.enable_cloud_replica_stale_route_clean || FeConstants.runningUnitTest) {
             return 0;
         }
-        SystemInfoService systemInfo = Env.getCurrentSystemInfo();
         // Remove conditionally rather than by predicate: route writers run concurrently, so comparing map
         // sizes before and after would mix their insertions into the count (and could even report a
         // negative one), and a key whose value was just rewritten to a live backend must not be dropped.
@@ -657,10 +664,8 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
                 }
             }
         }
-        // Keep a dead primary whose compute group still has a live secondary. With
-        // enable_immediate_be_assign=false that is the normal failover state, and the lazy fetch path in
-        // FrontendServiceImpl.getTabletReplicaInfos() enumerates secondaries through the primary key set,
-        // so dropping the key would hide a live secondary from the peer cache candidates.
+        // Preserve the primary marker for the normal failover state with a live secondary.
+        // Peer discovery enumerates secondaries independently: publication can race with this check.
         for (Map.Entry<String, Long> entry : primaryClusterToBackend.entrySet()) {
             if (systemInfo.getBackendByIdWithBoxedId(entry.getValue()) == null
                     && !secondaryClusterToBackends.containsKey(entry.getKey())
@@ -677,7 +682,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
     /**
      * Returns the set of compute group IDs that have primary backends for this replica.
-     * Used by lazy fetch path to also collect secondary backends per compute group.
      */
     public Set<String> getPrimaryComputeGroupIds() {
         return primaryClusterToBackend.keySet();
@@ -700,6 +704,32 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             secondaryClusterToBackends.remove(clusterId);
             return;
         }
+    }
+
+    public List<Backend> getAllSecondaryBes() {
+        List<Backend> result = new ArrayList<>();
+        SystemInfoService systemInfo = Env.getCurrentSystemInfo();
+        for (Pair<Long, Long> route : secondaryClusterToBackends.values()) {
+            Backend backend = systemInfo.getBackendByIdWithBoxedId(route.first);
+            if (backend != null) {
+                result.add(backend);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * @param systemInfo the backend set to judge staleness against -- see {@link #removeInvalidRoutes} for why
+     *                    this must come from the caller's Env rather than Env.getCurrentSystemInfo().
+     */
+    public void replayUpdateClusterToPrimaryBe(String clusterId, long beId, SystemInfoService systemInfo) {
+        // A journal queued before backend deletion can arrive after the deletion was replayed.
+        // Do not publish that route, or clear a live secondary while rejecting it.
+        if (Config.enable_cloud_replica_stale_route_clean && !FeConstants.runningUnitTest
+                && systemInfo.getBackend(beId) == null) {
+            return;
+        }
+        updateClusterToPrimaryBe(clusterId, beId);
     }
 
     public List<Backend> getAllPrimaryBes() {
@@ -752,6 +782,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         // The backends module is loaded before db/recycleBin (PersistMetaModules.MODULE_NAMES), and the
         // checkpoint thread resolves Env.getCurrentEnv() to its own Env, so the backend set read here is
         // the one belonging to the image being loaded.
-        removeInvalidRoutes();
+        removeInvalidRoutes(Env.getCurrentSystemInfo());
     }
 }

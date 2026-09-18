@@ -3871,12 +3871,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // This allows the BE to discover peer candidates across warehouses.
                         backends = cloudReplica.getAllPrimaryBes();
                         // Also collect secondary backends (may have cached data during primary failover)
-                        for (String computeGroupId : cloudReplica.getPrimaryComputeGroupIds()) {
-                            Backend secondaryBe = cloudReplica.getSecondaryBackend(computeGroupId);
-                            if (secondaryBe != null) {
-                                backends.add(secondaryBe);
-                            }
-                        }
+                        backends.addAll(cloudReplica.getAllSecondaryBes());
                     } else {
                         // On the cloud, the PrimaryBackend of a tablet
                         // indicates the BE where the tablet is stably located,

@@ -126,7 +126,7 @@ public class CloudInternalCatalogTest {
     }
 
     @Test
-    public void testReplaySingleReplicaRemovesStaleRoutes() throws Exception {
+    public void testReplaySingleReplicaDoesNotScanOtherRoutes() throws Exception {
         boolean savedClean = Config.enable_cloud_replica_stale_route_clean;
         boolean savedUnitTest = FeConstants.runningUnitTest;
         try {
@@ -140,7 +140,8 @@ public class CloudInternalCatalogTest {
             catalog.replayUpdateCloudReplica(new UpdateCloudReplicaInfo(DB_ID, TABLE_ID, PARTITION_ID, INDEX_ID,
                     60001L, 70001L, LIVE_CLUSTER_ID, LIVE_BE_ID));
 
-            Assertions.assertFalse(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
+            Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
+            Mockito.verify(replica, Mockito.never()).removeInvalidRoutes(Mockito.any());
             Assertions.assertEquals(LIVE_BE_ID, replica.getClusterPrimaryBackendId(LIVE_CLUSTER_ID));
         } finally {
             Config.enable_cloud_replica_stale_route_clean = savedClean;
@@ -149,7 +150,7 @@ public class CloudInternalCatalogTest {
     }
 
     @Test
-    public void testReplayBatchRemovesStaleRoutesWithAndWithoutReplicaIds() throws Exception {
+    public void testReplayBatchDoesNotScanOtherRoutesWithAndWithoutReplicaIds() throws Exception {
         boolean savedClean = Config.enable_cloud_replica_stale_route_clean;
         boolean savedUnitTest = FeConstants.runningUnitTest;
         try {
@@ -169,7 +170,7 @@ public class CloudInternalCatalogTest {
             catalog.replayUpdateCloudReplica(explicitReplicaIds);
 
             for (CloudReplica replica : replicas) {
-                Assertions.assertFalse(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
+                Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
                 Assertions.assertEquals(LIVE_BE_ID, replica.getClusterPrimaryBackendId(LIVE_CLUSTER_ID));
                 replica.updateClusterToPrimaryBe(STALE_CLUSTER_ID, DEAD_BE_ID);
             }
@@ -178,7 +179,8 @@ public class CloudInternalCatalogTest {
                     DB_ID, TABLE_ID, PARTITION_ID, INDEX_ID, LIVE_CLUSTER_ID, beIds, tabletIds));
 
             for (CloudReplica replica : replicas) {
-                Assertions.assertFalse(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
+                Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
+                Mockito.verify(replica, Mockito.never()).removeInvalidRoutes(Mockito.any());
                 Assertions.assertEquals(LIVE_BE_ID, replica.getClusterPrimaryBackendId(LIVE_CLUSTER_ID));
             }
         } finally {
@@ -230,6 +232,11 @@ public class CloudInternalCatalogTest {
             Assertions.assertFalse(replica.getPrimaryComputeGroupIds().contains(LIVE_CLUSTER_ID));
             Assertions.assertTrue(replica.getPrimaryComputeGroupIds().contains(STALE_CLUSTER_ID));
             Assertions.assertSame(liveBackend, replica.getSecondaryBackend(STALE_CLUSTER_ID));
+
+            // A late journal must not clear the valid fallback for this same compute group.
+            catalog.replayUpdateCloudReplica(new UpdateCloudReplicaInfo(DB_ID, TABLE_ID, PARTITION_ID, INDEX_ID,
+                    60001L, 70001L, STALE_CLUSTER_ID, DEAD_BE_ID));
+            Assertions.assertSame(liveBackend, replica.getSecondaryBackend(STALE_CLUSTER_ID));
         } finally {
             Config.enable_cloud_replica_stale_route_clean = savedClean;
             FeConstants.runningUnitTest = savedUnitTest;
@@ -237,8 +244,8 @@ public class CloudInternalCatalogTest {
     }
 
     private CloudReplica addReplayReplica(long tabletId, long replicaId) {
-        CloudReplica replica = new CloudReplica(replicaId, -1L, Replica.ReplicaState.NORMAL, 1L, 0,
-                DB_ID, TABLE_ID, PARTITION_ID, INDEX_ID, 0L);
+        CloudReplica replica = Mockito.spy(new CloudReplica(replicaId, -1L, Replica.ReplicaState.NORMAL, 1L, 0,
+                DB_ID, TABLE_ID, PARTITION_ID, INDEX_ID, 0L));
         CloudTablet tablet = new CloudTablet(tabletId);
         tablet.addReplica(replica, true);
         Mockito.when(materializedIndex.getTablet(tabletId)).thenReturn(tablet);
