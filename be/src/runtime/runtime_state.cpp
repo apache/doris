@@ -274,6 +274,11 @@ RuntimeState::~RuntimeState() {
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
     }
+    // Local states use profiles and other objects allocated in _obj_pool, also in their
+    // destructors (e.g. a spill writer closing its last part): release them first, in the order
+    // the members would be destroyed.
+    _sink_local_state.reset();
+    _op_id_to_local_state.clear();
     _obj_pool->clear();
 }
 
