@@ -390,6 +390,40 @@ Status SniiPlainT2MergePlan::write_current_term(
     return Status::OK();
 }
 
+Status SniiPlainT2MergePlan::encode_destination_norms(
+        size_t destination_segment, std::span<const uint32_t> null_docids,
+        // NOLINTNEXTLINE(readability-non-const-parameter): the vector is appended to below
+        std::vector<uint32_t>* null_docids_with_norms,
+        writer::MemoryReporter::Reservation* null_docids_with_norms_reservation) {
+    // The accumulators hold each document's summed term frequencies, saturated at 255.
+    // Keep only the documents that carry a norm, exactly like the column writer: every
+    // non-NULL document, and a NULL document that still occurs in a posting (a nullable
+    // ARRAY row can keep tokens under its NULL flag). encode_norm maps 0 to 1, matching
+    // the writer's encode_norm(len) = clamp(len, 1, 255).
+    std::vector<uint8_t>& norms = destination_encoded_norms_[destination_segment];
+    DORIS_CHECK_EQ(norms.size(), destination_segment_num_rows_[destination_segment]);
+    DORIS_CHECK(null_docids_with_norms->empty());
+    size_t kept = 0;
+    size_t next_null = 0;
+    for (size_t docid = 0; docid < norms.size(); ++docid) {
+        const uint8_t length = norms[docid];
+        if (next_null < null_docids.size() && null_docids[next_null] == docid) {
+            ++next_null;
+            if (length == 0) {
+                continue;
+            }
+            RETURN_IF_ERROR(reserve_tracked_vector(null_docids_with_norms, 1,
+                                                   null_docids_with_norms_reservation));
+            null_docids_with_norms->push_back(static_cast<uint32_t>(docid));
+        }
+        norms[kept++] = query::encode_norm(length);
+    }
+    DORIS_CHECK_EQ(next_null, null_docids.size());
+    // Shrinking keeps the capacity, so the transferred reservation still covers it.
+    norms.resize(kept);
+    return Status::OK();
+}
+
 Status SniiPlainT2MergePlan::merge_terms(
         std::span<writer::SniiStreamedIndexSession* const> sessions) {
     std::vector<std::unique_ptr<SniiSegmentTermCursor>> term_cursors;
@@ -412,15 +446,21 @@ Status SniiPlainT2MergePlan::merge_terms(
     }
 
     if (eligibility_.destination_writes_norms) {
-        // Accumulated raw lengths saturate at 255. encode_norm maps 0 to 1, matching the
-        // writer's encode_norm(len) = clamp(len, 1, 255).
         for (size_t destination_ordinal = 0; destination_ordinal < sessions.size();
              ++destination_ordinal) {
-            for (uint8_t& value : destination_encoded_norms_[destination_ordinal]) {
-                value = query::encode_norm(value);
-            }
+            // The reservation precedes the vector so the vector is freed first.
+            writer::MemoryReporter::Reservation with_norms_reservation =
+                    memory_reporter_ == nullptr ? writer::MemoryReporter::Reservation()
+                                                : memory_reporter_->make_reservation();
+            std::vector<uint32_t> null_docids_with_norms;
+            RETURN_IF_ERROR(encode_destination_norms(
+                    destination_ordinal, sessions[destination_ordinal]->null_docids(),
+                    &null_docids_with_norms,
+                    memory_reporter_ == nullptr ? nullptr : &with_norms_reservation));
             RETURN_IF_ERROR(sessions[destination_ordinal]->set_encoded_norms(
-                    take_destination_encoded_norms(destination_ordinal)));
+                    take_destination_encoded_norms(destination_ordinal),
+                    writer::TrackedNullDocids(std::move(with_norms_reservation),
+                                              std::move(null_docids_with_norms))));
         }
     }
     for (writer::SniiStreamedIndexSession* session : sessions) {

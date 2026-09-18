@@ -110,9 +110,13 @@ public:
         // the prx region compresses at snii_prx_zstd_level_direct_load;
         // compaction / schema change / ADD INDEX keep snii_prx_zstd_level.
         bool is_direct_load = false;
-        // One byte of BM25 norms per document; empty for keyword or positionless indexes.
-        // If nonempty, its size must equal doc_count, and postings retain frequencies for scoring.
+        // The index writes BM25 norms (analyzed indexes with positions, unless the norms
+        // policy turns them off); postings then retain frequencies for scoring.
+        bool write_norms = false;
+        // One encoded norm per document that carries one, in docid order: every document
+        // outside null_docids plus null_docids_with_norms. See SniiIndexInput.
         std::vector<uint8_t> encoded_norms;
+        std::vector<uint32_t> null_docids_with_norms;
     };
     Status add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
                           std::vector<uint32_t> null_docids,

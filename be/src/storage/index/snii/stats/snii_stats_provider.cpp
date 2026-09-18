@@ -66,6 +66,13 @@ Status SniiStatsProvider::open(const reader::LogicalIndexReader* idx, SniiStatsP
                 "snii_stats: norms doc count {} differs from segment doc count {}",
                 out->norms_reader_.doc_count(), sb.doc_count);
     }
+    // Every non-NULL document carries a norm; a sparse section may also cover NULL documents
+    // that produced tokens.
+    if (out->norms_reader_.present_count() < sb.indexed_doc_count) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "snii_stats: norms cover {} documents, fewer than the {} indexed documents",
+                out->norms_reader_.present_count(), sb.indexed_doc_count);
+    }
     out->has_norms_ = true;
     return Status::OK();
 }

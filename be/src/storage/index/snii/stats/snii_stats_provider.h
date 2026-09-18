@@ -30,9 +30,10 @@
 //     sum_total_term_freq).
 //   - per-term df from the term's DictEntry (resolved through the reader's
 //     lookup flow).
-//   - per-doc length normalization byte (encoded_norm) from the norms POD,
-//     lazily loaded and validated once by LogicalIndexReader, then shared by
-//     every stats provider for that cached logical index.
+//   - per-doc length normalization byte (encoded_norm) from the norms section
+//     (dense or sparse, see format/norms_pod.h), lazily loaded and validated once
+//     by LogicalIndexReader, then shared by every stats provider for that cached
+//     logical index.
 //
 // avgdl() = sum_total_term_freq / max(1, indexed_doc_count): the average document
 // length used by BM25 length normalization. The provider performs no scoring; it
@@ -59,8 +60,11 @@ public:
     // Per-term document frequency. Absent term -> *df = 0 (OK status).
     Status doc_freq(std::string_view term, uint64_t* df) const;
 
-    // 1-byte encoded doc-length norm for docid (raw byte from the norms POD).
-    // Out-of-range docid -> InvalidArgument; index without norms -> InvalidArgument.
+    // 1-byte encoded doc-length norm for docid (raw byte from the norms section).
+    // Out-of-range docid -> InvalidArgument; index without norms -> InvalidArgument;
+    // a docid without a norm in a sparse section (never one read from a posting of
+    // a valid index) -> Corruption. A sparse lookup costs O(log blocks + log block
+    // size), a dense one O(1).
     Status encoded_norm(uint32_t docid, uint8_t* out) const;
 
     bool has_norms() const { return has_norms_; }

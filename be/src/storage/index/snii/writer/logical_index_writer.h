@@ -103,11 +103,19 @@ struct SniiIndexInput {
     format::IndexConfig config = format::IndexConfig::kDocsPositions;
     uint32_t doc_count = 0;
     std::vector<uint32_t> null_docids;
-    // Per-doc 1-byte encoded norm (length doc_count); only consumed when the
-    // config has scoring. May be empty otherwise.
+    // 1-byte encoded norms of the documents that carry one, in ascending docid
+    // order: every document outside null_docids plus null_docids_with_norms
+    // (see format/norms_pod.h). Only consumed when the index writes norms; may be
+    // empty otherwise.
     std::vector<uint8_t> encoded_norms;
-    // Streaming merge sessions declare norms up front but supply them only before finish,
-    // after rebuilding them alongside postings. The writer validates their size at finalize.
+    // Ascending subset of null_docids whose documents still produced tokens and
+    // therefore carry a norm: a nullable ARRAY row can keep its nested payload
+    // under the NULL flag, and its tokens are indexed like any other row's.
+    std::vector<uint32_t> null_docids_with_norms;
+    // The index writes a norms section. Implied by a nonempty encoded_norms;
+    // required when every document is NULL (no norm to hand over). Streaming merge
+    // sessions declare norms up front but supply them only before finish, after
+    // rebuilding them alongside postings. The writer validates their size at finalize.
     bool write_norms = false;
     // G16-h: zstd levels for the dict-block whole-block compression and the
     // .prx window auto mode (both default 3 == the historical constants).
@@ -176,6 +184,7 @@ public:
     }
 
 private:
+    friend class SniiStreamedIndexSession;
     MemoryReporter::Reservation reservation_;
     std::vector<uint32_t> docids_;
 };
@@ -273,7 +282,8 @@ public:
     // and spills to a temp once it crosses the RAM cap (bounded peak RSS for a huge
     // dict). Its bytes are emitted via stream_dict_region_into below. The posting region
     // went straight to the output during build(), so it has no length accessor here --
-    // the orchestrator measures it directly. norms stays in RAM (1 byte/doc).
+    // the orchestrator measures it directly. The norms section stays in RAM (at most
+    // 1 byte/doc, see format/norms_pod.h).
     uint64_t dict_region_size() const { return dict_buf_.size(); }
     const std::vector<uint8_t>& norms_bytes() const { return norms_section_; }
     const std::vector<uint8_t>& null_bitmap_bytes() const { return null_bitmap_section_; }
@@ -359,6 +369,7 @@ private:
     SpimiTermBuffer* term_source_;           // streaming source (null => use terms_)
     uint64_t term_count_ = 0;                // distinct terms actually consumed
     const std::vector<uint8_t>& encoded_norms_;
+    const std::vector<uint32_t>& null_docids_with_norms_;
 
     uint32_t target_dict_block_bytes_;
     // G16-h: zstd levels (dict whole-block / prx auto mode), from SniiIndexInput.

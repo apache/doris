@@ -53,7 +53,9 @@ struct NullBitmapSerializationSizes {
 // On-disk layout (the whole section is framed by SectionFramer, which adds a
 // type + varint64 len + payload + fixed32 crc32c envelope):
 //   framer payload = [varint64 doc_count][varint64 roaring_size][roaring_bytes]
-// roaring_bytes is the portable CRoaring serialization (Roaring::write).
+// roaring_bytes is the portable CRoaring serialization (Roaring::write) of the
+// run-optimized bitmap. Run containers are part of the portable format, so every
+// reader (including those that predate run optimization here) decodes them.
 class NullBitmapWriter {
 public:
     NullBitmapWriter();
@@ -70,19 +72,27 @@ public:
     uint32_t null_count() const;
 
     // Conservative pre-allocation charge for constructing CRoaring from sorted
-    // docids. It includes top-level array growth and array-to-bitset conversion
-    // overlap, so the caller must retain this charge until the bitmap is destroyed.
+    // docids and run-optimizing it for serialization. It includes top-level array
+    // growth, array-to-bitset conversion overlap and the one replacement container
+    // run optimization or shrinking holds next to the container it replaces, so the
+    // caller must retain this charge until the bitmap is destroyed.
     static uint64_t build_memory_upper_bound(std::span<const uint32_t> sorted_docids);
 
-    Status serialization_sizes(uint32_t doc_count, NullBitmapSerializationSizes* out) const;
+    // Both serialization calls first convert the bitmap to its smallest container
+    // mix (runOptimize + shrinkToFit), once per batch of added docids, so the sizes
+    // reported here are the bytes finish() writes.
+    Status serialization_sizes(uint32_t doc_count, NullBitmapSerializationSizes* out);
 
     // Serializes [doc_count][roaring_size][roaring_bytes] framed by SectionFramer
     // and appends it to sink (does not clear sink). doc_count is the total number
     // of docs in the logical index (recorded so the reader can round-trip it).
-    Status finish(uint32_t doc_count, ByteSink* sink) const;
+    Status finish(uint32_t doc_count, ByteSink* sink);
 
 private:
+    void optimize_for_serialization();
+
     std::unique_ptr<roaring::Roaring> bitmap_;
+    bool optimized_ = true;
 };
 
 // Read-only view: on open, SectionFramer verifies the CRC and truncation; this

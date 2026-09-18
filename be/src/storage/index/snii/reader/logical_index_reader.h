@@ -183,11 +183,12 @@ public:
     LogicalIndexOpenMode open_mode() const { return open_mode_; }
     io::FileReader* reader() const { return reader_; }
 
-    // Returns a reader over the validated norms section. The first call reads
-    // and validates the section; later calls share the immutable reader-owned
-    // bytes. The full on-disk section is reserved in memory_usage() before this
-    // LogicalIndexReader enters the searcher cache, so lazy loading cannot make
-    // the cache under-report its eventual resident size.
+    // Returns a reader over the validated norms section (dense or sparse). The
+    // first call reads and validates the section; later calls share the immutable
+    // reader-owned bytes, which are all the reader needs. The full on-disk section
+    // is reserved in memory_usage() before this LogicalIndexReader enters the
+    // searcher cache, so lazy loading cannot make the cache under-report its
+    // eventual resident size.
     Status open_norms(format::NormsPodReader* out) const;
     // Compaction scans one source norm vector at a time. This charge matches the
     // reader's full cache accounting; release_compaction_norms() drops the loaded

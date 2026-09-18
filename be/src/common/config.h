@@ -1447,6 +1447,15 @@ DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
 // run counts across ~100 concurrent writers can exhaust the BE nofile rlimit
 // ("Too many open files" at run reopen). 0 disables the cap. Default 64.
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
+// Lets SNII write BM25 norms in the sparse layout (section type kNormsSparse), which stores a
+// norm only for the rows that carry one, whenever that is smaller than the dense layout's one
+// byte per row; mostly NULL columns and VARIANT paths shrink the most. When off, every index
+// written from then on -- load, compaction output, schema change, BUILD INDEX -- uses the legacy
+// dense layout, which BEs without sparse-norms support can read: turn it off while such BEs may
+// read newly written segments (a rolling upgrade, or before a downgrade). Segments already
+// written keep their layout until they are rewritten. Read each time a logical index is
+// finished. Reading sparse sections is always supported, whatever the value.
+DECLARE_mBool(enable_snii_sparse_norms);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 // The kuromoji (Japanese) analyzer
@@ -1462,10 +1471,11 @@ DECLARE_mBool(debug_inverted_index_compaction);
 DECLARE_mBool(inverted_index_ram_dir_enable);
 // wheather index by RAM directory when base compaction
 DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
-// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
-// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
-// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
-// scoring (score()) on those indexes then fails.
+// Norms cost one byte per segment row, including rows that hold no value for the field (SNII skips
+// those rows while enable_snii_sparse_norms is on). A segment holds one index per variant path, so
+// writing norms for them costs rows * paths bytes. Turn this on to leave norms out of every index
+// on a variant path, whatever its "norms" property says; BM25 scoring (score()) on those indexes
+// then fails.
 DECLARE_mBool(inverted_index_skip_norms_for_variant);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
