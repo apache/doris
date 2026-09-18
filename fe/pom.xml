@@ -414,7 +414,7 @@ under the License.
         <!-- Huawei IAM pulls bcprov-jdk15on 1.69, whose final 1.70 release is vulnerable to
              CVE-2023-33202. Use the compatible jdk18on line at 1.84, which also fixes
              CVE-2025-14813, CVE-2026-0636, CVE-2026-3505, CVE-2026-5588, and CVE-2026-5598. -->
-        <bcprov-jdk18on.version>1.84</bcprov-jdk18on.version>
+        <bcprov-jdk18on.version>1.85</bcprov-jdk18on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
