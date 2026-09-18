@@ -133,6 +133,41 @@ static void append_table_stream_commit_size_error(TxnErrorCode err, std::string&
     }
 }
 
+// Reads the fence through the commit transaction so a concurrent fence update causes a conflict.
+// Allows commits without a TSO or a persisted fence, and rejects a commit at or below the fence.
+static bool check_txn_commit_tso_fence(Transaction* txn, const std::string& instance_id,
+                                       int64_t commit_tso, CommitTxnResponse* response,
+                                       MetaServiceCode& code, std::string& msg) {
+    if (commit_tso <= 0) {
+        return true;
+    }
+
+    std::string value;
+    TxnErrorCode err = txn->get(txn_tso_fence_key({instance_id}), &value);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return true;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to read TSO fence, err={}", err);
+        return false;
+    }
+
+    TxnTsoFencePB fence;
+    if (!fence.ParseFromString(value) || !fence.has_fence_tso() || fence.fence_tso() <= 0) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = "failed to parse TSO fence";
+        return false;
+    }
+    if (commit_tso <= fence.fence_tso()) {
+        response->set_tso_fence(fence.fence_tso());
+        code = MetaServiceCode::TXN_COMMIT_TSO_EXPIRED;
+        msg = fmt::format("commit TSO {} is fenced by {}", commit_tso, fence.fence_tso());
+        return false;
+    }
+    return true;
+}
+
 class TableStreamUpdateTxnContext {
 public:
     TableStreamUpdateTxnContext(Transaction* txn, const std::string& instance_id,
@@ -1917,6 +1952,12 @@ void MetaServiceImpl::commit_txn_immediately(
             return;
         }
 
+        if (request->enable_check_commit_tso_fence() && config::enable_check_commit_tso_fence &&
+            txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
+            !check_txn_commit_tso_fence(txn.get(), instance_id, commit_tso, response, code, msg)) {
+            return;
+        }
+
         MultiVersionStatus table_stream_multi_version_status =
                 MultiVersionStatus::MULTI_VERSION_DISABLED;
         if (!request->table_stream_updates().empty()) {
@@ -2777,6 +2818,12 @@ void MetaServiceImpl::commit_txn_eventually(
             return;
         }
 
+        if (request->enable_check_commit_tso_fence() && config::enable_check_commit_tso_fence &&
+            txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
+            !check_txn_commit_tso_fence(txn.get(), instance_id, commit_tso, response, code, msg)) {
+            return;
+        }
+
         auto now_time = system_clock::now();
         uint64_t commit_time = duration_cast<milliseconds>(now_time.time_since_epoch()).count();
         if ((txn_info.prepare_time() + txn_info.timeout_ms()) < commit_time) {
@@ -3174,6 +3221,12 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             msg = ss.str();
             LOG(INFO) << msg;
             response->mutable_txn_info()->CopyFrom(txn_info);
+            return;
+        }
+
+        if (request->enable_check_commit_tso_fence() && config::enable_check_commit_tso_fence &&
+            txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED &&
+            !check_txn_commit_tso_fence(txn.get(), instance_id, commit_tso, response, code, msg)) {
             return;
         }
 
@@ -4842,6 +4895,69 @@ void MetaServiceImpl::get_prepare_txn_by_coordinator(
     LOG(INFO) << "get_prepare_txn_by_coordinator: scanned_count=" << scanned_count
               << " matched_count=" << result_count
               << " scan_by_running_key=" << scan_by_running_key;
+}
+
+void MetaServiceImpl::advance_tso_fence(::google::protobuf::RpcController* controller,
+                                        const AdvanceTsoFenceRequest* request,
+                                        AdvanceTsoFenceResponse* response,
+                                        ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(advance_tso_fence, get, put);
+    if (!request->has_proposed_fence_tso() || request->proposed_fence_tso() <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "invalid proposed TSO fence";
+        return;
+    }
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cannot find instance_id for TSO fence";
+        return;
+    }
+    RPC_RATE_LIMIT(advance_tso_fence)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create TSO fence transaction";
+        return;
+    }
+
+    const std::string key = txn_tso_fence_key({instance_id});
+    std::string value;
+    err = txn->get(key, &value);
+    int64_t current_fence_tso = 0;
+    if (err == TxnErrorCode::TXN_OK) {
+        TxnTsoFencePB fence;
+        if (!fence.ParseFromString(value) || !fence.has_fence_tso() || fence.fence_tso() <= 0) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse TSO fence";
+            return;
+        }
+        current_fence_tso = fence.fence_tso();
+    } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = "failed to read TSO fence";
+        return;
+    }
+
+    const int64_t effective_fence_tso = std::max(current_fence_tso, request->proposed_fence_tso());
+    if (effective_fence_tso > current_fence_tso) {
+        TxnTsoFencePB fence;
+        fence.set_fence_tso(effective_fence_tso);
+        if (!fence.SerializeToString(&value)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "failed to serialize TSO fence";
+            return;
+        }
+        txn->put(key, value);
+        err = txn->commit();
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            msg = "failed to commit TSO fence";
+            return;
+        }
+    }
+    response->set_tso_fence(effective_fence_tso);
 }
 
 void MetaServiceImpl::check_txn_conflict(::google::protobuf::RpcController* controller,

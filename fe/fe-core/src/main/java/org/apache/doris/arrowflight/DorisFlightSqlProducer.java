@@ -24,11 +24,14 @@ import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
@@ -44,6 +47,7 @@ import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.CloseSessionRequest;
 import org.apache.arrow.flight.CloseSessionResult;
 import org.apache.arrow.flight.Criteria;
+import org.apache.arrow.flight.ErrorFlightMetadata;
 import org.apache.arrow.flight.FlightConstants;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightEndpoint;
@@ -322,10 +326,21 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     + connectContext.getState().getErrorMessage();
             connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
             LOG.error(errMsg, e);
-            throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
+            throw queryFailure(connectContext.getState(), errMsg, e);
         } finally {
             connectContext.setCommand(MysqlCommand.COM_SLEEP);
         }
+    }
+
+    static FlightRuntimeException queryFailure(QueryState state, String message, Throwable cause) {
+        if (IncrWindowNotReadyException.isWindowError(state.getErrorCode())) {
+            ErrorFlightMetadata metadata = new ErrorFlightMetadata();
+            metadata.insert("doris-error-code", Integer.toString(state.getErrorCode().getCode()));
+            metadata.insert("doris-error-name", state.getErrorCode().name());
+            return CallStatus.UNAVAILABLE.withDescription(message).withCause(cause)
+                    .withMetadata(metadata).toRuntimeException();
+        }
+        return CallStatus.INTERNAL.withDescription(message).withCause(cause).toRuntimeException();
     }
 
     @Override
@@ -336,11 +351,18 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
                     () -> executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(),
                             descriptor));
-        } catch (FlightRuntimeException e) {
-            // Already carries the status meant for the client, e.g. UNAVAILABLE from the session's
-            // command lock; wrapping it as INTERNAL would hide that.
-            throw e;
         } catch (Throwable e) {
+            if (e instanceof FlightRuntimeException) {
+                FlightRuntimeException flightError = (FlightRuntimeException) e;
+                ErrorFlightMetadata metadata = flightError.status().metadata();
+                if (metadata.containsKey("doris-error-code")) {
+                    String code = metadata.get("doris-error-code");
+                    if (Integer.toString(ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode()).equals(code)
+                            || Integer.toString(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT.getCode()).equals(code)) {
+                        throw flightError;
+                    }
+                }
+            }
             String errMsg = "get flight info statement failed, " + e.getMessage();
             LOG.error(errMsg, e);
             throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();

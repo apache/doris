@@ -314,6 +314,9 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_TSO_CLOCK_UPDATED;
     public static LongCounterMetric COUNTER_TSO_CLOCK_UPDATE_FAILED;
     public static LongCounterMetric COUNTER_TSO_CLOCK_GET_SUCCESS;
+    public static LongCounterMetric COUNTER_TSO_STATE_PERSISTED;
+    public static LongCounterMetric COUNTER_TSO_STATE_PERSIST_FAILED;
+    public static Histogram HISTO_TSO_STATE_PERSIST_LATENCY;
 
     private static Map<Pair<EtlJobType, JobState>, Long> loadJobNum = Maps.newHashMap();
 
@@ -1173,6 +1176,14 @@ public final class MetricRepo {
         COUNTER_TSO_CLOCK_GET_SUCCESS = new LongCounterMetric("tso_clock_get_success", MetricUnit.NOUNIT,
                 "counter of tso clock get success");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_CLOCK_GET_SUCCESS);
+        COUNTER_TSO_STATE_PERSISTED = new LongCounterMetric("tso_state_persisted", MetricUnit.NOUNIT,
+                "successful combined committed TSO and window journal writes");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_STATE_PERSISTED);
+        COUNTER_TSO_STATE_PERSIST_FAILED = new LongCounterMetric("tso_state_persist_failed", MetricUnit.NOUNIT,
+                "failed TSO state journal writes");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_TSO_STATE_PERSIST_FAILED);
+        HISTO_TSO_STATE_PERSIST_LATENCY = METRIC_REGISTER.histogram("tso_state_persist_latency_ms");
+        Env.getCurrentEnv().getTSOService().registerMetrics();
 
         // init system metrics
         initSystemMetrics();

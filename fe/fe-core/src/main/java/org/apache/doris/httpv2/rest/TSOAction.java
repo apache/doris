@@ -87,7 +87,7 @@ public class TSOAction extends RestBaseController {
 
             // Prepare response data with detailed TSO information
             Map<String, Object> result = Maps.newHashMap();
-            result.put("window_end_physical_time", statusSnapshot.getWindowEndPhysicalTime());
+            result.put("window_end_physical_time", statusSnapshot.getWindowEndPhysicalTimeMs());
             result.put("current_tso", currentTso);
             result.put("current_tso_physical_time", TSOTimestamp.extractPhysicalTime(currentTso));
             result.put("current_tso_logical_counter", TSOTimestamp.extractLogicalCounter(currentTso));
