@@ -163,7 +163,7 @@ public class CloudPartition extends Partition {
         return getVisibleVersionFromMs(false);
     }
 
-    private long getVisibleVersionFromMs(boolean waitForPendingTxns) {
+    public long getVisibleVersionFromMs(boolean waitForPendingTxns) {
         long cacheEpoch = versionCacheEpoch.get();
         if (LOG.isDebugEnabled()) {
             LOG.debug("getVisibleVersionFromMs use CloudPartition {}, waitForPendingTxns: {}",

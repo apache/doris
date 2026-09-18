@@ -77,6 +77,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
@@ -1069,6 +1071,37 @@ public class CloudGlobalTransactionMgrTest {
             FakeEnv.setEnv(masterEnv);
             ClientPool.frontendVersionPool = originalPool;
             Config.cloud_enable_version_syncer = syncEnabled;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testNonBatchPartitionVersionsBypassCache(boolean waitForPendingTxns) throws Exception {
+        boolean previousBatch = Config.calc_delete_bitmap_get_versions_in_batch;
+        boolean previousWait = Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns;
+        useVersionCaches();
+        CloudPartition partition = addCloudPartition(1000);
+        try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
+            Config.calc_delete_bitmap_get_versions_in_batch = false;
+            Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns = waitForPendingTxns;
+            Assertions.assertEquals(2, partition.getVisibleVersion());
+            versions.verifyNoInteractions();
+            versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenAnswer(invocation -> {
+                Cloud.GetVersionRequest request = invocation.getArgument(0);
+                Assertions.assertFalse(request.getBatchMode());
+                Assertions.assertEquals(partition.getId(), request.getPartitionId());
+                Assertions.assertEquals(waitForPendingTxns, request.getWaitForPendingTxn());
+                return partitionVersion(4);
+            });
+            Method getVersions = CloudGlobalTransactionMgr.class.getDeclaredMethod("getPartitionVersions", Map.class);
+            getVersions.setAccessible(true);
+            Assertions.assertEquals(Map.of(partition.getId(), 5L),
+                    getVersions.invoke(masterTransMgr, Map.of(partition.getId(), partition)));
+            Assertions.assertEquals(4, partition.getCachedVisibleVersion());
+            versions.verify(() -> VersionHelper.getVersionFromMeta(Mockito.any()));
+        } finally {
+            Config.calc_delete_bitmap_get_versions_in_batch = previousBatch;
+            Config.calc_delete_bitmap_get_versions_waiting_for_pending_txns = previousWait;
         }
     }
 
