@@ -101,6 +101,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
                     auditEvent.spillWriteBytesToLocalStorage = queryStats.spill_write_bytes_to_local_storage;
                     auditEvent.spillReadBytesFromLocalStorage = queryStats.spill_read_bytes_from_local_storage;
+                    auditEvent.spillWriteBytesToRemoteStorage = queryStats.spill_write_bytes_to_remote_storage;
+                    auditEvent.spillReadBytesFromRemoteStorage = queryStats.spill_read_bytes_from_remote_storage;
                 }
                 boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
                 if (!ret) {
@@ -383,6 +385,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                 + srcStats.spill_write_bytes_to_local_storage);
         dst.setSpillReadBytesFromLocalStorage(dst.spill_read_bytes_from_local_storage
                 + srcStats.spill_read_bytes_from_local_storage);
+        dst.setSpillWriteBytesToRemoteStorage(dst.spill_write_bytes_to_remote_storage
+                + srcStats.spill_write_bytes_to_remote_storage);
+        dst.setSpillReadBytesFromRemoteStorage(dst.spill_read_bytes_from_remote_storage
+                + srcStats.spill_read_bytes_from_remote_storage);
         dst.setBytesWriteIntoCache(dst.bytes_write_into_cache + srcStats.bytes_write_into_cache);
     }
 

@@ -134,16 +134,34 @@ suite("test_show_data_warehouse") {
         sql """ DROP DATABASE IF EXISTS ${db1Name}; """
         result = sql """show data properties("entire_warehouse"="true")"""
         assertTrue(result.size() > 0)
+        long sumDataSize = 0
+        long totalDataSize = -1
+        int spillRows = 0
         for (row : result) {
-            // |DBName|DataSize|RecycleSize|BinlogSize|RemoteSpillSize|
-            assertEquals(5, row.size())
+            // |DBName|DataSize|RecycleSize|BinlogSize|
+            assertEquals(4, row.size())
             if (row[0].toString().equalsIgnoreCase("total")) {
                 assertTrue(row[2].toInteger() > 0)
-                // spill bytes currently held in object storage; 0 unless spill_storage_type=s3
-                assertTrue(row[4].toLong() >= 0)
-            } else {
-                assertEquals("0", row[4].toString())
+                totalDataSize = row[1].toLong()
+                continue
             }
+            if (row[0].toString() == "__remote_spill__") {
+                // spill bytes currently held in object storage; 0 unless spill_storage_type=s3
+                spillRows++
+                assertTrue(row[1].toLong() >= 0)
+                assertEquals("0", row[2].toString())
+                assertEquals("0", row[3].toString())
+            }
+            sumDataSize += row[1].toLong()
+        }
+        // The spill row is listed on its own and counted in the total, in cloud mode only.
+        assertEquals(isCloudMode() ? 1 : 0, spillRows)
+        assertEquals(sumDataSize, totalDataSize)
+
+        // Restricted to databases: no spill row.
+        result = sql """ show data properties("entire_warehouse"="true","db_names"="${db2Name}"); """
+        for (row : result) {
+            assertTrue(row[0].toString() != "__remote_spill__")
         }
     } finally {
         sql """ DROP DATABASE IF EXISTS ${db1Name} FORCE;"""

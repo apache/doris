@@ -17,15 +17,19 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.plugin.AuditEvent;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 public class AuditLoaderTest {
 
@@ -115,6 +119,34 @@ public class AuditLoaderTest {
         Assertions.assertEquals(count(clean, col), count(evil, col), "injected 0x1F must not add columns");
         // The forged tokens survive only as inert text, never as framing bytes.
         Assertions.assertTrue(evil.toString().contains("DROP TABLE finance.ledger"));
+    }
+
+    // The loader writes the columns positionally against the "columns" header built from
+    // AUDIT_SCHEMA: every column must be present, and a value must land under its own name.
+    @Test
+    public void testRowMatchesAuditSchema() {
+        AuditLoader auditLoader = new AuditLoader();
+        StringBuilder buffer = new StringBuilder();
+        Deencapsulation.invoke(auditLoader, "fillLogBuffer",
+                new AuditEvent.AuditEventBuilder()
+                        .setSpillWriteBytesToLocalStorage(11L)
+                        .setSpillReadBytesFromLocalStorage(12L)
+                        .setSpillWriteBytesToRemoteStorage(13L)
+                        .setSpillReadBytesFromRemoteStorage(14L)
+                        .setStmt("select 1").build(),
+                buffer);
+        String row = buffer.toString();
+        Assertions.assertEquals(AuditLoader.AUDIT_TABLE_LINE_DELIMITER, row.charAt(row.length() - 1));
+        String[] fields = row.substring(0, row.length() - 1)
+                .split(String.valueOf(AuditLoader.AUDIT_TABLE_COL_SEPARATOR), -1);
+        List<String> columns = InternalSchema.AUDIT_SCHEMA.stream().map(ColumnDef::getName)
+                .collect(Collectors.toList());
+        Assertions.assertEquals(columns.size(), fields.length);
+        Assertions.assertEquals("11", fields[columns.indexOf("spill_write_bytes_from_local_storage")]);
+        Assertions.assertEquals("12", fields[columns.indexOf("spill_read_bytes_from_local_storage")]);
+        Assertions.assertEquals("13", fields[columns.indexOf("spill_write_bytes_to_remote_storage")]);
+        Assertions.assertEquals("14", fields[columns.indexOf("spill_read_bytes_from_remote_storage")]);
+        Assertions.assertEquals("select 1", fields[columns.indexOf("stmt")]);
     }
 
     // The sanitizer must be a no-op for ordinary statements: no data loss, no mutation.

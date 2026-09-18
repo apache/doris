@@ -89,17 +89,19 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("BinlogSize", ScalarType.createVarchar(30)))
                     .build();
 
-    // RemoteSpillSize: bytes of query spill currently held in object storage (cloud mode,
-    // spill_storage_type=s3), as last polled from the BEs. Spill is not attributable to a
-    // database, so the value is reported on the total row only.
     private static final ShowResultSetMetaData SHOW_WAREHOUSE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("DBName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("DataSize", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RecycleSize", ScalarType.createVarchar(20)))
                     .addColumn(new Column("BinlogSize", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("RemoteSpillSize", ScalarType.createVarchar(20)))
                     .build();
+
+    // Row of the entire-warehouse listing that carries the query spill currently held in object
+    // storage (cloud mode, spill_storage_type=s3). Spill is not attributable to a database; it gets
+    // its own row and is included in the total. A user database name has to start with a letter,
+    // so this name cannot collide with one.
+    private static final String REMOTE_SPILL_ROW_NAME = "__remote_spill__";
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
             ShowResultSetMetaData.builder()
@@ -597,13 +599,10 @@ public class ShowDataCommand extends ShowCommand {
      * missing or stale value is reported instead of being shown as zero.
      */
     private long getRemoteSpillSize() throws AnalysisException {
-        if (!Config.isCloudMode()) {
-            return 0L;
-        }
         return ((CloudTabletStatMgr) Env.getCurrentEnv().getTabletStatMgr()).getRemoteSpillBytes();
     }
 
-    // |DBName|DataSize|RecycleSize|BinlogSize|RemoteSpillSize|
+    // |DBName|DataSize|RecycleSize|BinlogSize|
     private boolean getDbStatsByProperties() throws AnalysisException {
         if (properties == null) {
             return false;
@@ -634,8 +633,7 @@ public class ShowDataCommand extends ShowCommand {
                     }
                     Long recycleSize = dbToRecycleSize.getOrDefault(db.getId(), Pair.of(0L, 0L)).first;
                     List<String> result = Arrays.asList(db.getName(),
-                            String.valueOf(pair.getValue()), String.valueOf(recycleSize), String.valueOf(binlogSize),
-                            "0");
+                            String.valueOf(pair.getValue()), String.valueOf(recycleSize), String.valueOf(binlogSize));
                     totalRows.add(result);
                     total += pair.getValue();
                     totalBinlogSize += binlogSize;
@@ -646,7 +644,7 @@ public class ShowDataCommand extends ShowCommand {
                 // Append left database in recycle bin
                 for (Map.Entry<Long, Pair<Long, Long>> entry : dbToRecycleSize.entrySet()) {
                     List<String> result = Arrays.asList("NULL:" + entry.getKey(),
-                            "0", String.valueOf(entry.getValue().first), "0", "0");
+                            "0", String.valueOf(entry.getValue().first), "0");
                     totalRows.add(result);
                     totalRecycleSize += entry.getValue().first;
                 }
@@ -668,16 +666,21 @@ public class ShowDataCommand extends ShowCommand {
                     Long recycleSize = dbToRecycleSize.getOrDefault(db.getId(), Pair.of(0L, 0L)).first;
                     Long dataSize = dbToDataSize.getOrDefault(databaseName, 0L);
                     List<String> result = Arrays.asList(db.getName(), String.valueOf(dataSize),
-                            String.valueOf(recycleSize), String.valueOf(binlogSize), "0");
+                            String.valueOf(recycleSize), String.valueOf(binlogSize));
                     totalRows.add(result);
                     total += dataSize;
                     totalBinlogSize += binlogSize;
                     totalRecycleSize += recycleSize;
                 }
             }
-            long remoteSpillSize = getRemoteSpillSize();
+            // The spill row belongs to the whole warehouse, not to a list of databases.
+            if (dbList == null && Config.isCloudMode()) {
+                long remoteSpillSize = getRemoteSpillSize();
+                totalRows.add(Arrays.asList(REMOTE_SPILL_ROW_NAME, String.valueOf(remoteSpillSize), "0", "0"));
+                total += remoteSpillSize;
+            }
             List<String> result = Arrays.asList("total", String.valueOf(total), String.valueOf(totalRecycleSize),
-                    String.valueOf(totalBinlogSize), String.valueOf(remoteSpillSize));
+                    String.valueOf(totalBinlogSize));
             totalRows.add(result);
             return true;
         }

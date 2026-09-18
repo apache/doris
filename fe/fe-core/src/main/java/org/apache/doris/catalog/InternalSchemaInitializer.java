@@ -363,6 +363,8 @@ public class InternalSchemaInitializer extends Thread {
          *   `shuffle_send_bytes` bigint NULL COMMENT "",
          *   `spill_write_bytes_from_local_storage` bigint NULL COMMENT "",
          *   `spill_read_bytes_from_local_storage` bigint NULL COMMENT "",
+         *   `spill_write_bytes_to_remote_storage` bigint NULL COMMENT "",
+         *   `spill_read_bytes_from_remote_storage` bigint NULL COMMENT "",
          *   `scan_bytes_from_local_storage` bigint NULL COMMENT "",
          *   `scan_bytes_from_remote_storage` bigint NULL COMMENT "",
          *   `parse_time_ms` int NULL COMMENT "",
