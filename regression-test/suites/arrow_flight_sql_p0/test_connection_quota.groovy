@@ -76,7 +76,10 @@ suite("test_connection_quota") {
     // and count only that FE's own connections (fetch_all_fe_for_system_table = false). Without this the
     // MySQL connections, the Flight sessions and the counting query need not land on the same FE and the
     // count never settles (build 1049514).
-    def feMysqlUrl = (context.config.jdbcUrl =~ /^(jdbc:mysql:\/\/)[^\/:@]+(:\d+.*)$/).replaceFirst("\$1${host}\$2")
+    def jdbcMatcher = (context.config.jdbcUrl =~ /^(jdbc:mysql:\/\/)[^\/:@]+(:\d+.*)$/)
+    assertTrue(jdbcMatcher.matches(),
+            "cannot derive the Flight FE's MySQL url from jdbcUrl: ${context.config.jdbcUrl}")
+    def feMysqlUrl = jdbcMatcher.replaceFirst("\$1${host}\$2")
     def allocator = new RootAllocator()
     def client = FlightClient.builder(allocator, Location.forGrpcInsecure(host, port)).build()
     def flight = new FlightSqlClient(client)
@@ -88,6 +91,19 @@ suite("test_connection_quota") {
         // is exactly the MySQL connections and Flight sessions this suite opened there.
         countConn = DriverManager.getConnection(feMysqlUrl, context.config.jdbcUser, context.config.jdbcPassword)
         countConn.createStatement().withCloseable { it.execute("SET fetch_all_fe_for_system_table = false") }
+        // The anchoring above assumes the FE reached at feMysqlUrl is the one serving the configured
+        // Flight endpoint (its host, jdbcUrl's query port). Assert it here -- otherwise the suite would
+        // fail later at the quota checks with a confusing pool-pointing error -- by comparing this FE's
+        // own arrow_flight_sql_port to the configured Flight port. forward_to_master keeps SHOW FRONTEND
+        // CONFIG reporting this FE rather than the master.
+        countConn.createStatement().withCloseable { it.execute("SET forward_to_master = false") }
+        countConn.createStatement().withCloseable { st ->
+            def rs = st.executeQuery("SHOW FRONTEND CONFIG LIKE 'arrow_flight_sql_port'")
+            assertTrue(rs.next(), "SHOW FRONTEND CONFIG returned no arrow_flight_sql_port")
+            assertEquals(port as String, rs.getString("Value"),
+                    "the FE reached at ${feMysqlUrl} does not serve the Flight endpoint on port ${port}; "
+                            + "this suite needs MySQL, Flight and the count query on the same FE")
+        }
         // The user's connections as that FE's pool sees them: MySQL connections and Flight sessions alike.
         def connectionsOf = {
             def st = countConn.createStatement()
