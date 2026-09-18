@@ -28,6 +28,10 @@
 #include "storage/index/snii/query/query_profile.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 // phrase_query -- MATCH_PHRASE: return the sorted docid set in which the terms
 // occur consecutively (for some i, every term k appears at position pos+k in
 // the same doc). It first builds the docid conjunction with docs-only posting
@@ -37,10 +41,6 @@
 //   3. for each surviving doc, check that some position p exists with
 //      term[0]@p, term[1]@p+1, ... term[n-1]@p+(n-1).
 // An empty term list -> empty result. Any term absent -> empty result.
-namespace roaring {
-class Roaring;
-} // namespace roaring
-
 namespace doris::snii::query {
 
 struct PhraseMatch {

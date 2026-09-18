@@ -773,13 +773,21 @@ Status emit_exact_phrase_streaming_positions(const std::vector<size_t>& phrase_p
     return Status::OK();
 }
 
-// candidate_prefilter (optional): an ascending docid set the phrase must ALSO
-// lie in. When provided, the leading-term conjunction is intersected with it so
-// only docs in the prefilter get their positions read. Docs outside the
-// prefilter cannot contribute (the caller guarantees the final answer is a
-// subset), so this is result-preserving while cutting the position decode --
-// used by phrase-prefix to restrict the huge leading-phrase candidate set to
-// the docs that also carry some tail expansion.
+// Candidate restrictions: a prefilter bounds the leading-term conjunction so
+// only its docs get their positions read; a filter drops non-candidates from the
+// conjunction result. Docs outside the restriction cannot contribute (the caller
+// guarantees the final answer is a subset), so both are result-preserving.
+// Phrase-prefix prefilters with the docs that also carry some tail expansion.
+
+constexpr uint64_t kCandidateFilterDfRatio = 8;
+
+uint32_t min_plan_df(const std::vector<TermPlan>& plans) {
+    uint32_t min_df = std::numeric_limits<uint32_t>::max();
+    for (const TermPlan& plan : plans) {
+        min_df = std::min(min_df, plan.df);
+    }
+    return min_df;
+}
 
 } // namespace
 CandidateRestriction restrict_to_candidates(const roaring::Roaring* candidates, uint32_t min_df,
@@ -795,12 +803,10 @@ CandidateRestriction restrict_to_candidates(const roaring::Roaring* candidates, 
     return {.prefilter = storage};
 }
 
-uint32_t min_plan_df(const std::vector<TermPlan>& plans) {
-    uint32_t min_df = std::numeric_limits<uint32_t>::max();
-    for (const TermPlan& plan : plans) {
-        min_df = std::min(min_df, plan.df);
-    }
-    return min_df;
+void retain_candidates(const roaring::Roaring& candidates, std::vector<uint32_t>* docids) {
+    roaring::BulkContext context;
+    std::erase_if(*docids,
+                  [&](uint32_t docid) { return !candidates.containsBulk(context, docid); });
 }
 
 Status build_phrase_execution_state(const LogicalIndexReader& idx, io::BatchRangeFetcher* round1,
@@ -817,7 +823,7 @@ Status build_phrase_execution_state(const LogicalIndexReader& idx, io::BatchRang
     state->owners.clear();
     state->candidates.clear();
     std::vector<DocidSource> doc_sources;
-    DCHECK(candidates.prefilter == nullptr || candidates.filter == nullptr);
+    DORIS_CHECK(candidates.prefilter == nullptr || candidates.filter == nullptr);
     if (candidates.prefilter != nullptr) {
         if (candidates.prefilter->empty()) {
             return Status::OK();
@@ -829,9 +835,9 @@ Status build_phrase_execution_state(const LogicalIndexReader& idx, io::BatchRang
                                                                &state->candidates, &doc_sources));
     }
     if (candidates.filter != nullptr) {
-        // Every term's chunks now cover more docs than the filtered candidates.
-        std::erase_if(state->candidates,
-                      [&](uint32_t docid) { return !candidates.filter->contains(docid); });
+        // The filter dropped docs these chunks still hold, so no source holds the final
+        // candidates.
+        retain_candidates(*candidates.filter, &state->candidates);
         for (DocidSource& source : doc_sources) {
             source.docids_are_final_candidates = false;
         }
@@ -948,7 +954,7 @@ Status internal::execute_resolved_phrase_plan(const LogicalIndexReader& idx,
         RETURN_IF_ERROR(internal::read_docid_posting(idx, term.entry, term.frq_base, term.prx_base,
                                                      docids));
         if (candidates != nullptr) {
-            std::erase_if(*docids, [&](uint32_t docid) { return !candidates->contains(docid); });
+            retain_candidates(*candidates, docids);
         }
         return Status::OK();
     }

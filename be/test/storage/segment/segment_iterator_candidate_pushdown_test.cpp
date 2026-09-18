@@ -477,6 +477,44 @@ TEST_F(SegmentIteratorCandidatePushdownTest, search_root_evaluates_without_candi
     EXPECT_EQ(_iter->_index_query_context->candidate_rows, nullptr);
 }
 
+// A SEARCH below another root still combines its own leaves, so the whole root
+// is evaluated without the candidate.
+TEST_F(SegmentIteratorCandidatePushdownTest, nested_search_evaluates_without_candidate) {
+    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    _iter->_row_bitmap.addRange(0, 5); // 5% of 100 rows: candidate engages
+
+    auto search_child = std::make_shared<CapturingExpr>(_iter.get());
+    search_child->set_node_type(TExprNodeType::SEARCH_EXPR);
+    auto function_root = std::make_shared<CapturingExpr>(_iter.get());
+    function_root->set_node_type(TExprNodeType::FUNCTION_CALL);
+    function_root->add_child(search_child);
+    _iter->_common_expr_ctxs_push_down.push_back(make_capturing_ctx(function_root));
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    ASSERT_TRUE(_expr->captured());
+    EXPECT_EQ(_expr->captured_candidate(), &_iter->_row_bitmap);
+    ASSERT_TRUE(function_root->captured());
+    EXPECT_EQ(function_root->captured_candidate(), nullptr);
+}
+
+TEST_F(SegmentIteratorCandidatePushdownTest, nested_compound_evaluates_without_candidate) {
+    config::inverted_index_candidate_pushdown_ratio = 0.3;
+    _iter->_row_bitmap.addRange(0, 5); // 5% of 100 rows: candidate engages
+
+    auto compound_child = std::make_shared<CapturingExpr>(_iter.get());
+    compound_child->set_node_type(TExprNodeType::COMPOUND_PRED);
+    auto function_root = std::make_shared<CapturingExpr>(_iter.get());
+    function_root->set_node_type(TExprNodeType::FUNCTION_CALL);
+    function_root->add_child(compound_child);
+    _iter->_common_expr_ctxs_push_down.push_back(make_capturing_ctx(function_root));
+
+    ASSERT_TRUE(_iter->_get_row_ranges_by_column_conditions().ok());
+
+    ASSERT_TRUE(function_root->captured());
+    EXPECT_EQ(function_root->captured_candidate(), nullptr);
+}
+
 TEST_F(SegmentIteratorCandidatePushdownTest,
        virtual_slot_wrapped_compound_preserves_three_valued_logic) {
     config::inverted_index_candidate_pushdown_ratio = 0.3;
