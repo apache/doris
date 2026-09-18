@@ -34,11 +34,12 @@ import java.util.Set;
  * simplified string is only meant to help a user locate an entry, so it drops everything that
  * cannot be told apart at a glance and keeps the shape:
  * <ul>
- *   <li>scan: {@code S{internal.hbo_test.t,v2}} becomes {@code S{hbo_test.t}} - the catalog is
- *       dropped (except for non internal catalogs, which are kept because they identify the table),
- *       the table visible version is dropped (it stays part of the fingerprint), the pruned
- *       partition count is kept ({@code ,p1/2}) and a {@code #k} suffix is added only when the same
- *       table appears more than once in the struct;</li>
+ *   <li>scan: {@code S{internal.hbo_test.t,v2,r1000}} becomes {@code S{hbo_test.t}} - the catalog
+ *       is dropped (except for non internal catalogs, which are kept because they identify the
+ *       table), the data state of the scan is dropped (the visible version and the scanned rows,
+ *       which only annotate the entry and never take part in its fingerprint), the pruned partition
+ *       count is kept ({@code ,p1/2}) and a {@code #k} suffix is added only when the same table
+ *       appears more than once in the struct;</li>
  *   <li>filter: predicates are written with operator symbols ({@code col(internal.hbo_test.x.b) =
  *       lit(1:INT)} becomes {@code x.b = 1}), {@code ;} means AND, {@code |} means OR, literals are
  *       written as their value (or as {@code *} for the constant agnostic granularity), and a
@@ -312,10 +313,16 @@ public final class SimpleStructInfo {
         return parts;
     }
 
-    /** The scan token without its visible version: what makes two scan tokens interchangeable. */
+    /**
+     * The scan token without its baseline (visible version, scanned rows): what makes two scan
+     * tokens interchangeable. The partition count is kept, because it says which part of the table
+     * the entry was measured on.
+     */
     private static String scanToken(String header) {
-        String[] parts = header.split(",");
-        return parts.length > 1 && parts[1].startsWith("p") ? parts[0] + "," + parts[1] : parts[0];
+        HboScanDescriptor descriptor = HboScanDescriptor.parse(header);
+        return descriptor.isPartitionSelectionComplete() ? descriptor.getTable()
+                : descriptor.getTable() + ",p" + descriptor.getSelectedPartitions()
+                        + "/" + descriptor.getTotalPartitions();
     }
 
     private static String tableName(String header) {

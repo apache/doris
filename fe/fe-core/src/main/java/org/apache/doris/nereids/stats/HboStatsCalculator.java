@@ -218,25 +218,34 @@ public class HboStatsCalculator extends StatsCalculator {
      * Apply a pinned entry for the given plan node: exact filter form, then constant agnostic form
      * (join / aggregation only have the latter). Returns null when no entry applies.
      *
+     * <p>The fingerprint of an entry does not contain the data state of its tables any more, so an
+     * entry keeps matching while a table grows; whether it may be used is decided here, by comparing
+     * the baseline the entry was recorded with against the data state of this query
+     * (see {@link HboStructFreshness}): an entry whose data moved by more than
+     * {@code Config.hbo_row_count_change_ratio} is skipped, so the query falls back to the optimizer
+     * estimation instead of applying a row count which no longer describes the data.
+     *
      * @param guardInputStats filter input statistics, required to evaluate the FILTER_SMALL guard
      *                        of a filter node (null for join / aggregation)
      */
     private Statistics applyPinnedStats(AbstractPlan planNode, Statistics delegateStats,
             Statistics guardInputStats) {
         for (GroupStructInfo.LiteralMode mode : FILTER_LOOKUP_MODES) {
-            Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(planNode, mode);
-            if (!fingerprint.isPresent()) {
+            Optional<GroupStructInfo> structInfoOpt = GroupStructInfo.structInfoOfPlanNode(planNode, null, mode);
+            if (!structInfoOpt.isPresent()) {
                 continue;
             }
+            GroupStructInfo structInfo = structInfoOpt.get();
+            String fingerprint = structInfo.getFingerprint();
             Optional<HboPlanStatisticsManager.PinnedHboStatistics> pinnedOpt = Env.getCurrentEnv()
-                    .getHboPlanStatisticsManager().getPinnedPlanStatistics(fingerprint.get());
+                    .getHboPlanStatisticsManager().getPinnedPlanStatistics(fingerprint);
             if (!pinnedOpt.isPresent()) {
                 continue;
             }
             HboPlanStatisticsManager.PinnedHboStatistics pinned = pinnedOpt.get();
             // report which kind of injected entry matched (and, for FILTER_SMALL, why it was
             // skipped) through the explain annotation
-            recordPinnedEntryType(fingerprint.get(), pinned.getType(),
+            recordPinnedEntryType(fingerprint, pinned.getType(),
                     mode == GroupStructInfo.LiteralMode.NO_LITERAL ? "no_literal" : "with_literal");
             if (pinned.getType() == HboPlanStatisticsManager.PinnedType.FILTER_SMALL
                     && guardInputStats != null
@@ -244,9 +253,19 @@ public class HboStatsCalculator extends StatsCalculator {
                             guardInputStats.getRowCount())) {
                 // the estimate is not in the pathological regime this entry was injected for:
                 // skip it (and try the coarser granularity / learned matching instead)
-                recordGuardSkip(fingerprint.get(), delegateStats.getRowCount(), guardInputStats.getRowCount());
+                recordGuardSkip(fingerprint, delegateStats.getRowCount(), guardInputStats.getRowCount());
                 continue;
             }
+            HboStructFreshness freshness = HboStructFreshness.between(
+                    pinned.getStructCanonical(), structInfo.getCanonicalString());
+            if (freshness.isStale()) {
+                // the data this entry was measured on moved too far (or its state cannot be
+                // verified any more): do not apply the recorded row count, keep looking
+                recordPinnedSkip(fingerprint, freshness.getSummary());
+                continue;
+            }
+            recordPinnedApplyState(fingerprint, freshness.getSummary());
+            pinned.recordUse(freshness);
             return delegateStats.withRowCountAndHboFlag(pinned.getRows());
         }
         return null;
@@ -314,6 +333,26 @@ public class HboStatsCalculator extends StatsCalculator {
         HboPlanInfoProvider provider = Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider();
         provider.putPinnedGuardSkip(DebugUtil.printId(cascadesContext.getConnectContext().queryId()),
                 fingerprint, "filterSmallGuard(E=" + (long) estimatedRows + ",I=" + (long) inputRows + ")");
+    }
+
+    /** Record (per query) that a pinned entry was rejected because its data moved too far. */
+    private void recordPinnedSkip(String fingerprint, String reason) {
+        String queryId = currentQueryId();
+        if (queryId == null) {
+            return;
+        }
+        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                .putPinnedGuardSkip(queryId, fingerprint, reason);
+    }
+
+    /** Record (per query) the data state verdict with which a pinned entry was applied. */
+    private void recordPinnedApplyState(String fingerprint, String state) {
+        String queryId = currentQueryId();
+        if (queryId == null) {
+            return;
+        }
+        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                .putPinnedApplyState(queryId, fingerprint, state);
     }
 
 }

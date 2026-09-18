@@ -61,6 +61,9 @@ public class HboPlanInfoProvider {
     private volatile Cache<String, Map<String, String>> pinnedEntryTypeCache;
     // per query: fingerprint -> the literal mode of the struct info which matched it
     private volatile Cache<String, Map<String, String>> pinnedLiteralModeCache;
+    // per query: fingerprint -> how the pinned entry of that fingerprint was applied
+    // (live / drifted(...) / unknown), the read side's data state verdict
+    private volatile Cache<String, Map<String, String>> pinnedApplyStateCache;
 
     /**
      * Hbo plan info provider.
@@ -97,6 +100,9 @@ public class HboPlanInfoProvider {
                 Config.hbo_plan_info_cache_num,
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
+        pinnedApplyStateCache = buildHboPinnedGuardSkipCache(
+                Config.hbo_pinned_stats_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second);
     }
 
     private static Cache<String, Map<Integer, String>> buildHboNodeIdToFingerprintCache(
@@ -251,6 +257,26 @@ public class HboPlanInfoProvider {
     public Map<String, String> getPinnedEntryType(String queryId) {
         Map<String, String> types = pinnedEntryTypeCache.getIfPresent(queryId);
         return types == null ? Collections.emptyMap() : types;
+    }
+
+    /**
+     * Record how the pinned entry of {@code fingerprint} was applied for this query: the data state
+     * verdict of the read side ({@code live}, {@code drifted(...)} or {@code unknown}). An entry
+     * which was rejected is reported through {@link #putPinnedGuardSkip} instead.
+     */
+    public void putPinnedApplyState(String queryId, String fingerprint, String state) {
+        Map<String, String> states = pinnedApplyStateCache.getIfPresent(queryId);
+        if (states == null) {
+            states = new HashMap<>();
+            pinnedApplyStateCache.put(queryId, states);
+        }
+        states.put(fingerprint, state);
+    }
+
+    /** How the pinned entries of a query were applied, keyed by hbo fingerprint. */
+    public Map<String, String> getPinnedApplyState(String queryId) {
+        Map<String, String> states = pinnedApplyStateCache.getIfPresent(queryId);
+        return states == null ? Collections.emptyMap() : states;
     }
 
     /** Record that a pinned join expansion entry was applied for the given query. */

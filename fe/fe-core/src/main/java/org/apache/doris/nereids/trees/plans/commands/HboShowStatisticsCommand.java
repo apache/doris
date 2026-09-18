@@ -95,8 +95,9 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 .addColumn(new Column("Value", ScalarType.createVarchar(32)))
                 .addColumn(new Column(fullStructInfo ? "StructInfo" : "SimpleStruct",
                         ScalarType.createVarchar(65533)))
+                .addColumn(new Column("Baseline", ScalarType.createVarchar(512)))
                 .addColumn(new Column("State", ScalarType.createVarchar(16)))
-                .addColumn(new Column("Detail", ScalarType.createVarchar(64)))
+                .addColumn(new Column("Detail", ScalarType.createVarchar(512)))
                 .build();
     }
 
@@ -118,6 +119,10 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 if (!matches(pattern, pinned.getStructCanonical(), structInfo)) {
                     continue;
                 }
+                // an expansion entry is keyed by join conditions, so it is not tied to any data
+                // state and can not go stale
+                HboStructFreshness freshness = pinned.isExpansion()
+                        ? null : HboStructFreshness.of(pinned.getStructCanonical());
                 List<String> row = new ArrayList<>();
                 row.add(SCOPE_PINNED);
                 row.add(pinned.getFingerprint());
@@ -128,12 +133,10 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 row.add(pinned.isExpansion()
                         ? trimDouble(pinned.getExpansion()) + "x" : String.valueOf(pinned.getRows()));
                 row.add(structInfo);
-                // an expansion entry is keyed by join conditions, so it is not tied to any table
-                // version and can not go stale
-                row.add(pinned.isExpansion() ? "-"
-                        : HboStructFreshness.of(pinned.getStructCanonical()).getState());
-                row.add(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.ofInstant(
-                        Instant.ofEpochMilli(pinned.getCreateTime()), ZoneId.systemDefault())));
+                row.add(freshness == null ? "-" : freshness.getRecorded());
+                row.add(freshness == null ? "-" : freshness.getState());
+                row.add(pinnedDetail(pinned.getCreateTime(),
+                        freshness == null ? null : freshness.getLiveDetail(), pinned.getLastUse()));
                 rows.add(row);
             }
         }
@@ -159,9 +162,12 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 row.add("-");
                 row.add(rowsText);
                 row.add(structInfo.isEmpty() ? "-" : structInfo);
-                row.add(canonical.map(HboStructFreshness::of)
-                        .map(HboStructFreshness::getState).orElse(HboStructFreshness.STATE_UNKNOWN));
-                row.add("runs=" + recentRuns.size());
+                HboStructFreshness freshness = canonical.map(HboStructFreshness::of).orElse(null);
+                row.add(freshness == null ? "-" : freshness.getRecorded());
+                row.add(freshness == null ? HboStructFreshness.STATE_UNKNOWN : freshness.getState());
+                row.add(freshness == null || freshness.getLive().isEmpty()
+                        ? "runs=" + recentRuns.size()
+                        : "runs=" + recentRuns.size() + " now=" + freshness.getLiveDetail());
                 rows.add(row);
             }
         }
@@ -185,6 +191,26 @@ public class HboShowStatisticsCommand extends ShowCommand {
         return visitor.visitCommand(this, context);
     }
 
+    /**
+     * The Detail column: when the entry was created, the data state it is compared with now, and
+     * when a query of this FE last applied it (with the state it was applied in). The {@code last}
+     * part is the only one which comes from the read side: it describes what the entry was actually
+     * applied against, while {@code now} is read from the catalog here (see
+     * {@link HboStructFreshness} for why the two can differ).
+     */
+    private static String pinnedDetail(long createTime, String liveDetail, String lastUse) {
+        StringBuilder detail = new StringBuilder("created=").append(
+                TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.ofInstant(
+                        Instant.ofEpochMilli(createTime), ZoneId.systemDefault())));
+        if (liveDetail != null && !liveDetail.isEmpty() && !"-".equals(liveDetail)) {
+            detail.append(",now=").append(liveDetail);
+        }
+        if (lastUse != null && !lastUse.isEmpty()) {
+            detail.append(",last=").append(lastUse);
+        }
+        return detail.toString();
+    }
+
     private String displayedStructInfo(String canonicalStructInfo) {
         return fullStructInfo ? canonicalStructInfo : SimpleStructInfo.render(canonicalStructInfo);
     }
@@ -201,17 +227,17 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 && pattern.matcher(displayedStructInfo).matches();
     }
 
-    /**
-     * Translate a SQL LIKE pattern into an equivalent regex ('%' matches any sequence, '_' matches
-     * a single character, a backslash escapes the next character, which is needed because table and
-     * column names in a struct info contain underscores), anchored by the caller via matches().
-     */
     /** Render a fan-out factor without a trailing {@code .0}. */
     private static String trimDouble(double value) {
         return value == Math.floor(value) && !Double.isInfinite(value)
                 ? String.valueOf((long) value) : String.valueOf(value);
     }
 
+    /**
+     * Translate a SQL LIKE pattern into an equivalent regex ('%' matches any sequence, '_' matches
+     * a single character, a backslash escapes the next character, which is needed because table and
+     * column names in a struct info contain underscores), anchored by the caller via matches().
+     */
     private static Pattern compileLikePattern(String like) {
         if (like == null) {
             return null;

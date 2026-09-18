@@ -41,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -73,14 +74,22 @@ import java.util.stream.Collectors;
  *
  * <p>What the canonical form keeps:
  * <ul>
- *   <li>for each scan: table qualifier, pruned partition count and the table visible version (so
- *       that data changes invalidate the fingerprint instead of reusing a stale row count);</li>
+ *   <li>for each scan: the table qualifier and - as an annotation only - the data state of the scan
+ *       (its visible version, the rows it reads and how many of the table partitions it selects,
+ *       see {@link HboScanDescriptor});</li>
  *   <li>for filter / join / aggregate: the normalized predicates / join conditions / grouping keys,
  *       i.e. the structural pattern only (slot and expression ids are stripped by
  *       {@link #normalizeExpression}).</li>
  * </ul>
  * The string contains no per-query identifier, so it is reproducible across runs and queries for
  * structurally identical sub trees, and its sha256 is used as the HBO cache key (fingerprint).
+ *
+ * <p>The sha256 is taken over the canonical string <b>without</b> the scan baselines
+ * ({@link #stripScanBaseline}): a hbo key identifies a plan pattern and the relation it reads, not a
+ * data state, so an entry whose table simply keeps growing stays matchable instead of silently never
+ * matching again. Whether an entry may still be applied is decided on the read side, by comparing
+ * the baseline of the entry with the data state of the current query (see
+ * {@link HboStructFreshness}).
  *
  * <p>The descriptor is derived from the group's logical expression and its child groups (memo level
  * traversal, with a visited set to guard shared sub graphs such as CTE). Groups whose content is not
@@ -234,7 +243,7 @@ public class GroupStructInfo {
             }
             String canonicalString = sb.toString();
             String fingerprint = Hashing.sha256()
-                    .hashString(canonicalString, StandardCharsets.UTF_8).toString();
+                    .hashString(stripScanBaseline(canonicalString), StandardCharsets.UTF_8).toString();
             return new GroupStructInfo(true, canonicalString, fingerprint);
         } catch (RuntimeException e) {
             // memo content not supported by the simplified struct info: treat as invalid and
@@ -332,7 +341,10 @@ public class GroupStructInfo {
         if (!ctx.valid) {
             return;
         }
-        leaves.sort(String::compareTo);
+        // the leaves are ordered by their fingerprint input (the canonical form without the scan
+        // baselines): the order is part of the fingerprint, so it must not depend on a data state
+        // which the fingerprint deliberately ignores
+        leaves.sort(Comparator.comparing(GroupStructInfo::stripScanBaseline));
         sb.append("J{inner,c:[").append(String.join(SEP, conditions)).append("]}(");
         sb.append(String.join(SEP, leaves)).append(")");
     }
@@ -397,22 +409,43 @@ public class GroupStructInfo {
 
     private static void appendScan(LogicalOlapScan scan, StringBuilder sb, Ctx ctx) {
         try {
-            String fullName = scan.getTable().getNameWithFullQualifiers();
-            String partitions = "";
-            int partitionCount = scan.getTable().getPartitionNames().size();
-            if (scan.getSelectedPartitionIds().size() != partitionCount) {
-                partitions = ",p" + scan.getSelectedPartitionIds().size() + "/" + partitionCount;
-            }
-            long version = scan.getTable().getVisibleVersion();
-            // No occurrence ordinal: an occurrence is identified by the aliases used in the
-            // conditions of the enclosing operators, and two occurrences with the same table,
-            // partition selection and version are interchangeable.
-            sb.append("S{").append(fullName).append(partitions).append(",v").append(version).append("}");
+            // the scan token is the table plus the data state of the scan (baseline); the baseline
+            // is stripped before hashing, so it annotates the entry instead of keying it
+            sb.append("S{").append(HboScanDescriptor.of(scan).render()).append("}");
         } catch (org.apache.doris.rpc.RpcException e) {
             // table version may not be available (e.g. cloud rpc failure): mark invalid and fall back
             LOG.debug("failed to get visible version for scan {}", scan.getTable().getNameWithFullQualifiers(), e);
             invalid(ctx);
         }
+    }
+
+    /**
+     * The fingerprint input of a canonical string: every scan token is reduced to its table
+     * ({@code S{db.t,v3,r1000,p1/5}} becomes {@code S{db.t}}), i.e. the recorded data state of the
+     * scan - visible version, scanned rows and pruned partition count - is dropped.
+     *
+     * <p>A hbo key therefore survives a data load: the entry stays matchable and the read side
+     * decides, from the baseline the entry carries, whether the injected row count still applies
+     * (see {@link HboStructFreshness}). The baseline stays in the printed canonical string, so the
+     * user copies it with the {@code struct=} value of EXPLAIN.
+     */
+    public static String stripScanBaseline(String canonicalString) {
+        StringBuilder sb = new StringBuilder(canonicalString.length());
+        int index = 0;
+        while (true) {
+            int start = HboScanDescriptor.nextScanTokenStart(canonicalString, index);
+            int end = start < 0 ? -1 : canonicalString.indexOf('}', start);
+            if (end < 0) {
+                sb.append(canonicalString, index, canonicalString.length());
+                break;
+            }
+            String header = canonicalString.substring(start + 2, end);
+            int comma = header.indexOf(',');
+            sb.append(canonicalString, index, start).append("S{")
+                    .append(comma < 0 ? header : header.substring(0, comma)).append('}');
+            index = end + 1;
+        }
+        return sb.toString();
     }
 
     private static void appendChild(GroupExpression ge, int index, StringBuilder sb, Ctx ctx) {

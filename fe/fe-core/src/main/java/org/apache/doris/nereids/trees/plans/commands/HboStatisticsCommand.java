@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.stats.GroupStructInfo;
-import org.apache.doris.nereids.stats.HboPlanStatisticsManager.LiteralMode;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
+import org.apache.doris.nereids.stats.HboPlanStatisticsManager.LiteralMode;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager.PinnedType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -279,9 +279,16 @@ public class HboStatisticsCommand extends Command {
                 + ", copy the struct= value of the target node from EXPLAIN");
     }
 
+    /**
+     * Whether {@code structCanonical} is the struct info the fingerprint was taken from. The scan
+     * baselines (the data state printed inside every scan token) are ignored, exactly like the
+     * fingerprint computation does, so a struct info which was copied before the data moved still
+     * matches its fingerprint - and it then records that older state as the baseline of the entry
+     * (see {@link GroupStructInfo#stripScanBaseline}).
+     */
     private static boolean isFingerprintOf(String targetFingerprint, String structCanonical) {
         return targetFingerprint.equals(Hashing.sha256()
-                .hashString(structCanonical, StandardCharsets.UTF_8).toString());
+                .hashString(GroupStructInfo.stripScanBaseline(structCanonical), StandardCharsets.UTF_8).toString());
     }
 
     private void validateFingerprint(String targetFingerprint) throws AnalysisException {

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
@@ -29,10 +30,10 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -103,11 +104,6 @@ public class HboPlanStatisticsManager {
         }
     }
 
-    /**
-     * Which literal mode produced the fingerprint a pinned entry is keyed by. It is unknown at
-     * injection time (the statement only carries the fingerprint) and is bound lazily to the mode
-     * that actually matched on the first application, purely for diagnostics / {@code HBO SHOW}.
-     */
     /**
      * Which struct info an entry is keyed by: {@link #WITH_LITERAL} carries the literal values
      * ({@code lit(1:INT)}, only that constant matches), {@link #NO_LITERAL} has every literal
@@ -303,21 +299,24 @@ public class HboPlanStatisticsManager {
     }
 
     /**
-     * Remove every pinned entry which can never be applied again: the fingerprint of an entry
-     * contains the visible version of the tables it was collected from, so once a table version
-     * moved on (or the table was dropped) the entry stops matching and only keeps a cache slot.
+     * Remove every pinned entry which can never be applied again: an entry records the data state it
+     * was measured in (the baseline of the scans of its struct info), and once a table moved beyond
+     * {@code Config.hbo_row_count_change_ratio} (or was dropped) the entry is not applied any more
+     * (see {@link HboStructFreshness}); it only keeps a cache slot until it is removed here. Entries
+     * which are merely {@code drifted} (the data moved, but within the tolerance) are kept: they are
+     * still applied.
      *
      * @param olderThanMillis when non negative, entries whose state cannot be determined (their
-     *                        struct info does not resolve to existing tables) are removed as well,
-     *                        but only when they are older than this many milliseconds; a negative
-     *                        value keeps them
+     *                        struct info records no comparable state, e.g. it prunes partitions or
+     *                        does not resolve to existing tables) are removed as well, but only when
+     *                        they are older than this many milliseconds; a negative value keeps them
      * @return the number of removed entries
      */
     public int deleteStalePinnedPlanStatistics(long olderThanMillis) {
         long now = System.currentTimeMillis();
         int removed = 0;
         for (PinnedHboStatistics pinned : getAllPinnedPlanStatistics().values()) {
-            // an expansion entry is keyed by join conditions and carries no table version, so it can
+            // an expansion entry is keyed by join conditions and carries no data state, so it can
             // neither go stale nor be judged by age: OLDER_THAN must not silently drop it
             if (pinned.isExpansion()) {
                 continue;
@@ -416,6 +415,10 @@ public class HboPlanStatisticsManager {
         private final long createTime;
         // which struct info this entry is keyed by; decided at injection time and persisted
         private final LiteralMode literalMode;
+        // when a query last applied this entry, and the data state it was applied in; diagnostics
+        // only (shown by HBO SHOW STATISTICS), so it is deliberately not persisted: it is not part
+        // of the entry, it only tells the user whether the entry is still in use
+        private volatile String lastUse = "";
 
         PinnedHboStatistics(String fingerprint, long rows, PinnedType type, String structCanonical,
                 double expansion, LiteralMode literalMode, long createTime) {
@@ -431,6 +434,21 @@ public class HboPlanStatisticsManager {
         /** True when this entry carries a join fan-out factor instead of a row count. */
         public boolean isExpansion() {
             return type == PinnedType.JOIN_EXPANSION;
+        }
+
+        /**
+         * Remember that a query applied this entry, together with the data state the read side saw
+         * when it did (e.g. {@code drifted}, {@code live}). Unlike {@link #getCreateTime()} this is
+         * in-memory only: it describes the usage of this FE since it started.
+         */
+        void recordUse(HboStructFreshness freshness) {
+            this.lastUse = TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now())
+                    + " " + freshness.getSummary();
+        }
+
+        /** When a query of this FE last applied this entry (empty when it was never applied here). */
+        public String getLastUse() {
+            return lastUse;
         }
 
         /** The join fan-out factor of an {@link PinnedType#JOIN_EXPANSION} entry. */

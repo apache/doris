@@ -54,6 +54,7 @@ import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter
 import org.apache.doris.nereids.stats.GroupStructInfo;
 import org.apache.doris.nereids.stats.HboJoinConditions;
 import org.apache.doris.nereids.stats.HboPlanInfoProvider;
+import org.apache.doris.nereids.stats.HboScanDescriptor;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -61,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
@@ -96,6 +98,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
@@ -1356,9 +1359,13 @@ public class NereidsPlanner extends Planner {
         collectPlanNodes(physicalPlan, nodes);
         nodes.sort((a, b) -> Integer.compare(a.getId(), b.getId()));
         Map<String, String> guardSkips = Collections.emptyMap();
+        Map<String, String> applyStates = Collections.emptyMap();
         if (ConnectContext.get() != null) {
-            guardSkips = Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
-                    .getPinnedGuardSkip(DebugUtil.printId(ConnectContext.get().queryId()));
+            HboPlanInfoProvider provider = Env.getCurrentEnv().getHboPlanStatisticsManager()
+                    .getHboPlanInfoProvider();
+            String queryId = DebugUtil.printId(ConnectContext.get().queryId());
+            guardSkips = provider.getPinnedGuardSkip(queryId);
+            applyStates = provider.getPinnedApplyState(queryId);
         }
         for (AbstractPlan node : nodes) {
             String kind;
@@ -1395,30 +1402,71 @@ public class NereidsPlanner extends Planner {
                 // that constant matches) and the constant agnostic form (every constant of the
                 // predicate shape matches), so both are printed as separate injectable entries
                 appendHboEntryLine(sb, node.getId(), kind, "with_literal", rowCountType, fingerprint, struct,
-                        guardSkips, appliedModes, expansion, false);
+                        guardSkips, applyStates, appliedModes, expansion, false);
                 Object noLiteralFingerprint = node.getMutableState(MutableState.KEY_HBO_FP_NO_LITERAL).orElse(null);
                 if (noLiteralFingerprint != null && !noLiteralFingerprint.equals(fingerprint)) {
                     appendHboEntryLine(sb, node.getId(), kind, "no_literal", rowCountType, noLiteralFingerprint,
-                            GroupStructInfo.toNoLiteral(String.valueOf(struct)), guardSkips, appliedModes,
-                            expansion, false);
+                            GroupStructInfo.toNoLiteral(String.valueOf(struct)), guardSkips, applyStates,
+                            appliedModes, expansion, false);
                 }
             } else {
                 // a join / aggregation entry only has the constant agnostic form
                 appendHboEntryLine(sb, node.getId(), kind, "no_literal", rowCountType, fingerprint, struct,
-                        guardSkips, appliedModes, expansion, false);
+                        guardSkips, applyStates, appliedModes, expansion, false);
             }
             if (condFingerprint != null && cond != null) {
                 // the join condition key of this node: an expansion entry, kept in the same table and
                 // listed like any other entry of this node
                 appendHboEntryLine(sb, node.getId(), kind, "no_literal", "join_expansion", condFingerprint,
-                        cond, guardSkips, appliedModes, expansion, true);
+                        cond, guardSkips, applyStates, appliedModes, expansion, true);
             }
         }
         if (sb.toString().indexOf("fingerprint=") < 0) {
             sb.append("  (no hbo fingerprint attached; check that the plan went through the "
                     + "planner attach step)\n");
         }
+        appendHboScanBaselines(sb);
         return sb.toString();
+    }
+
+    /**
+     * Append the data state of every olap scan of the plan which just got its hbo annotations: the
+     * numbers a hbo entry is judged by (see {@link HboScanDescriptor}). They are what the read side
+     * compares with the baseline an entry records, so they explain here why an entry applied
+     * ({@code used=live} / {@code used=drifted(...)}) or was rejected ({@code skipped=stale(...)}),
+     * and what a new injection would be measured on.
+     */
+    private void appendHboScanBaselines(StringBuilder sb) {
+        List<AbstractPlan> nodes = new ArrayList<>();
+        collectPlanNodes(physicalPlan, nodes);
+        List<AbstractPlan> scans = new ArrayList<>();
+        for (AbstractPlan node : nodes) {
+            if (node instanceof PhysicalOlapScan) {
+                scans.add(node);
+            }
+        }
+        if (scans.isEmpty()) {
+            return;
+        }
+        scans.sort((a, b) -> Integer.compare(a.getId(), b.getId()));
+        sb.append("\nHBO table baselines (data state of this query, one line per scan):\n");
+        for (AbstractPlan scan : scans) {
+            sb.append("  [").append(scan.getId()).append("] ").append(scanName(scan));
+            try {
+                HboScanDescriptor descriptor = HboScanDescriptor.of((OlapScan) scan);
+                sb.append(" rows=").append(descriptor.hasScanRows()
+                                ? String.valueOf(descriptor.getScanRows()) : "-")
+                        .append(" version=").append(descriptor.hasVisibleVersion()
+                                ? String.valueOf(descriptor.getVisibleVersion()) : "-")
+                        .append(" partitions=").append(descriptor.getSelectedPartitions())
+                        .append('/').append(descriptor.getTotalPartitions());
+            } catch (RpcException e) {
+                // the data state of a scan whose version is not readable is reported as unknown
+                // instead of failing the explain statement
+                sb.append(" rows=- version=- partitions=-");
+            }
+            sb.append("\n");
+        }
     }
 
     /**
@@ -1428,16 +1476,23 @@ public class NereidsPlanner extends Planner {
      */
     private void appendHboEntryLine(StringBuilder sb, int nodeId, String kind, String literalMode,
             String type, Object fingerprint, Object struct, Map<String, String> guardSkips,
-            Map<String, String> appliedModes, Object expansion, boolean expansionLine) {
+            Map<String, String> applyStates, Map<String, String> appliedModes, Object expansion,
+            boolean expansionLine) {
         String key = String.valueOf(fingerprint);
         sb.append("  [").append(nodeId).append("] ").append(kind)
                 .append(" type=").append(type)
                 .append(" literal_mode=").append(literalMode)
                 .append(" fingerprint='").append(key).append("'")
                 .append(" struct='").append(struct).append("'");
+        // the entry was rejected (its data moved too far, or its guard failed), or it was applied
+        // with the data state the read side saw (live / drifted / unknown); a learned entry has no
+        // state of its own and is only reported as used
         String skipReason = guardSkips.get(key);
+        String applyState = applyStates.get(key);
         if (skipReason != null) {
             sb.append(" skipped=").append(skipReason);
+        } else if (applyState != null) {
+            sb.append(" used=").append(applyState);
         } else if (literalMode.equals(appliedModes.get(key))) {
             sb.append(" used=true");
         }

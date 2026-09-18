@@ -2349,6 +2349,19 @@ public class Config extends ConfigBase {
             + "pinned entries.")
     public static double hbo_filter_small_ratio = 0.001;
 
+    /**
+     * Tolerance of a hbo entry against data growth. A hbo key no longer contains the visible version
+     * or the row count of its tables, so an entry keeps matching while a table grows; the read side
+     * applies an entry while the row count of the data it was measured on changed by at most this
+     * ratio (|now - recorded| / recorded). Beyond it the entry is not applied and the query falls
+     * back to the optimizer estimation. A non-positive value disables the tolerance, i.e. an entry
+     * is only applied while the recorded data state is exactly the current one. Hot mutable.
+     */
+    @ConfField(mutable = true, description = "The default setting is 0.1. Relative row count change of the data "
+            + "an injected HBO entry was measured on, up to which the entry may still be applied; 0 or "
+            + "less means the recorded data state has to match exactly.")
+    public static double hbo_row_count_change_ratio = 0.1;
+
     @ConfField(description = "The default setting is 5000. Maximum number of manually injected "
             + "(pinned) hbo statistics entries kept per FE; exceeding the limit evicts the least "
             + "recently used entry; a non-positive value disables the bound (unbounded). Takes "

@@ -31,15 +31,18 @@ import org.apache.logging.log4j.Logger;
 /**
  * Manual hbo statistics clean up:
  * <pre>
- *   HBO DELETE STALE STATISTICS;                     -- entries whose tables moved on
- *   HBO DELETE STALE STATISTICS OLDER_THAN 3600;     -- ... and unresolvable ones older than 1h
+ *   HBO DELETE STALE STATISTICS;                     -- entries whose data moved beyond the tolerance
+ *   HBO DELETE STALE STATISTICS OLDER_THAN 3600;     -- ... and unjudgeable ones older than 1h
  * </pre>
- * A hbo fingerprint contains the visible version of every table of its struct info, so a new load
- * (or a dropped table) makes an entry unmatchable: it can never be applied again and is only kept
- * alive by the cache. Such entries are removed here, together with - when {@code OLDER_THAN} is
- * given - the entries whose struct info cannot be resolved any more (e.g. the entry was written by
- * another cluster). Pinned entries only: learned entries are keyed by an internally generated
- * fingerprint and carry no table version.
+ * A hbo key does not contain any data state, so an entry stays matchable while a table grows; what
+ * makes it useless is the read side verdict on the baseline the entry recorded
+ * (see {@link org.apache.doris.nereids.stats.HboStructFreshness}): an entry whose data moved by more
+ * than {@code Config.hbo_row_count_change_ratio} is not applied any more and is removed here,
+ * together with - when {@code OLDER_THAN} is given - the entries which cannot be judged at all
+ * (their recorded state does not resolve to existing tables, they prune partitions so their rows
+ * cannot be compared with a whole table, or they record no state). Entries which are merely
+ * {@code drifted} are kept: they are still applied. Pinned entries only: learned entries are keyed
+ * by an internally generated fingerprint and carry no recorded state of their own.
  */
 public class HboDeleteStaleStatisticsCommand extends Command {
     private static final Logger LOG = LogManager.getLogger(HboDeleteStaleStatisticsCommand.class);
