@@ -4320,7 +4320,7 @@ void write_multi_stripe_orc_sarg_types_file(const std::string& file_path) {
 
 void write_multi_stripe_orc_timestamp_instant_sarg_file(
         const std::string& file_path, int64_t first_timestamp_second = 0,
-        int64_t second_timestamp_second = 1609459200) {
+        int64_t second_timestamp_second = 1609459200, int64_t nanoseconds = 123000000) {
     auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
             "struct<timestamp_instant_col:timestamp with local time zone,payload:string>"));
 
@@ -4342,7 +4342,7 @@ void write_multi_stripe_orc_timestamp_instant_sarg_file(
         payloads.reserve(ROWS_PER_STRIPE);
         for (int64_t row = 0; row < ROWS_PER_STRIPE; ++row) {
             timestamp_batch.data[row] = first_timestamp_second + row;
-            timestamp_batch.nanoseconds[row] = 123000000;
+            timestamp_batch.nanoseconds[row] = nanoseconds;
             payloads.push_back(std::string(2048, static_cast<char>('a' + row % 26)));
             set_string_value(payload_batch, row, payloads.back());
         }
@@ -4941,7 +4941,7 @@ TEST_F(NewOrcReaderTest, AggregatePushdownUsesPrunedStripes) {
 TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxMatchesScanInSessionTimezone) {
     const auto multi_stripe_file_path = (_test_dir / "aggregate_timestamp_timezone.orc").string();
     write_two_stripe_constant_timestamp_file(multi_stripe_file_path, 1609430400, 1609434000,
-                                             "Asia/Shanghai");
+                                             "Asia/Shanghai", 123456789);
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_timezone("Asia/Shanghai");
@@ -4976,8 +4976,8 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxMatchesScanInSessionTim
     ASSERT_EQ(scan_rows, 400);
     ASSERT_TRUE(scan_min.has_value());
     ASSERT_TRUE(scan_max.has_value());
-    EXPECT_EQ(*scan_min, make_datetime_v2(2021, 1, 1, 0, 0, 0, 123000));
-    EXPECT_EQ(*scan_max, make_datetime_v2(2021, 1, 1, 1, 0, 0, 123000));
+    EXPECT_EQ(*scan_min, make_datetime_v2(2021, 1, 1, 0, 0, 0, 123456));
+    EXPECT_EQ(*scan_max, make_datetime_v2(2021, 1, 1, 1, 0, 0, 123456));
 
     auto reader = create_reader_for_path(multi_stripe_file_path);
     ASSERT_TRUE(reader->init(&state).ok());
@@ -5111,6 +5111,37 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxMatchesNegativeRowDecod
     EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATETIMEV2>(), expected);
 }
 
+TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxFallsBackWithoutExactNanosTails) {
+    const auto assert_fallback = [&](std::string_view file_name, bool timestamp_instant) {
+        const auto file_path = (_test_dir / file_name).string();
+        if (timestamp_instant) {
+            write_multi_stripe_orc_timestamp_instant_sarg_file(file_path);
+        } else {
+            write_two_stripe_constant_timestamp_file(file_path, 1, 2);
+        }
+
+        auto reader = create_reader_for_path(file_path, nullptr, nullptr, std::nullopt,
+                                             timestamp_instant);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("+00:00");
+        EXPECT_TRUE(reader->init(&state).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {field_projection(0)};
+        EXPECT_TRUE(reader->open(request).ok());
+
+        format::FileAggregateRequest aggregate_request;
+        aggregate_request.agg_type = TPushAggOp::type::MINMAX;
+        aggregate_request.columns.push_back(
+                {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(0))});
+        format::FileAggregateResult aggregate_result;
+        const auto status = reader->get_aggregate_result(aggregate_request, &aggregate_result);
+        EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    };
+
+    assert_fallback("aggregate_timestamp_no_nanos_tail.orc", false);
+    assert_fallback("aggregate_timestamp_instant_no_nanos_tail.orc", true);
+}
+
 TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxRejectsNamedTimezone) {
     const auto multi_stripe_file_path = (_test_dir / "aggregate_timestamp_dst_fold.orc").string();
     // 2021-11-07 08:30Z and 09:00Z straddle the America/Los_Angeles fall-back transition.
@@ -5137,7 +5168,8 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxRejectsNamedTimezone) {
 
 TEST_F(NewOrcReaderTest, AggregatePushdownTimestampInstantMinMaxUsesTimestampTzWhenMapped) {
     const auto multi_stripe_file_path = (_test_dir / "aggregate_timestamp_instant_tz.orc").string();
-    write_multi_stripe_orc_timestamp_instant_sarg_file(multi_stripe_file_path);
+    write_multi_stripe_orc_timestamp_instant_sarg_file(multi_stripe_file_path, 0, 1609459200,
+                                                       123456789);
 
     auto reader =
             create_reader_for_path(multi_stripe_file_path, nullptr, nullptr, std::nullopt, true);
@@ -5169,10 +5201,10 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampInstantMinMaxUsesTimestampTzW
     ASSERT_EQ(aggregate_result.columns[0].max_value.get_type(), TYPE_TIMESTAMPTZ);
     EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_TIMESTAMPTZ>().to_string(
                       state.timezone_obj(), 6),
-              "1970-01-01 08:00:00.123000+08:00");
+              "1970-01-01 08:00:00.123456+08:00");
     EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_TIMESTAMPTZ>().to_string(
                       state.timezone_obj(), 6),
-              "2021-01-01 08:03:19.123000+08:00");
+              "2021-01-01 08:03:19.123456+08:00");
 }
 
 TEST_F(NewOrcReaderTest, AggregatePushdownCharMinMaxTrimsTrailingSpaces) {
@@ -10628,6 +10660,43 @@ TEST_F(NewOrcReaderTest, TimestampSargMillisecondBoundsNeverPruneMatches) {
     const auto not_in = scan_rows("not_in", TExprOpcode::INVALID_OPCODE, 111001, true);
     EXPECT_EQ(not_in.first, 200);
     EXPECT_EQ(not_in.second, 0);
+}
+
+TEST_F(NewOrcReaderTest, TimestampSargExactEpochPrunesNegativeStripe) {
+    const auto file_path = (_test_dir / "timestamp_sarg_exact_epoch.orc").string();
+    write_two_stripe_constant_timestamp_file(file_path, -2, 0, "GMT", 789);
+    ASSERT_EQ(get_orc_stripe_count(file_path), 2);
+
+    auto reader = create_reader_for_path(file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("+00:00");
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInExpr<TYPE_DATETIMEV2>>(
+                    0, remove_nullable(schema[0].type),
+                    std::vector<Field> {
+                            Field::create_field<TYPE_DATETIMEV2>(make_datetime_v2(1970, 1, 1))},
+                    "timestamp_col")));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    bool eof = false;
+    size_t result_rows = 0;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        result_rows += rows;
+    }
+    EXPECT_EQ(result_rows, 200);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
+    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
 }
 
 TEST_F(NewOrcReaderTest, NegativeTimestampTruncationBypassesUnsafeSarg) {

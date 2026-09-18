@@ -533,6 +533,13 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
         !timestamp_statistics->hasMaximum()) {
         return false;
     }
+    // ORC substitutes these conservative tails when ORC-611 nanos fields are absent. The public
+    // statistics API cannot distinguish those sentinels from equal serialized values, so fall
+    // back to a row scan rather than expose an inexact bound as an exact aggregate result.
+    if (timestamp_statistics->getMinimumNanos() == 0 ||
+        timestamp_statistics->getMaximumNanos() == 999999) {
+        return false;
+    }
     const auto min_endpoint =
             std::pair(timestamp_statistics->getMinimum(), timestamp_statistics->getMinimumNanos());
     const auto max_endpoint =

@@ -984,9 +984,8 @@ std::optional<OrcSargComparisonLiteral> make_comparison_literal_for_sarg(
     if (column.predicate_type == ::orc::PredicateDataType::TIMESTAMP) {
         const auto timestamp = literal->getTimestamp();
         // ORC reconstructs negative timestamp statistics with truncating division, which can
-        // produce a non-canonical nanos component. The exact epoch is unsafe too because its
-        // half-up lower bound is -500ns. Leave these predicates to Doris row filtering.
-        if (timestamp.second < 0 || (timestamp.second == 0 && timestamp.nanos == 0)) {
+        // produce a non-canonical nanos component. Leave negative timestamps to row filtering.
+        if (timestamp.second < 0) {
             return std::nullopt;
         }
     }
@@ -1066,7 +1065,7 @@ std::optional<std::vector<::orc::Literal>> make_in_literals_for_sarg(
         }
         if (column.predicate_type == ::orc::PredicateDataType::TIMESTAMP) {
             const auto timestamp = literal->getTimestamp();
-            if (timestamp.second < 0 || (timestamp.second == 0 && timestamp.nanos == 0)) {
+            if (timestamp.second < 0) {
                 return std::nullopt;
             }
         }
