@@ -35,7 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.VolatileExpression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -214,8 +214,16 @@ import java.util.Set;
  *   0), so its aggregation is built on the outer side (the plan of 3. with the count of the
  *   marker) and the rewrite keeps the apply, whose correlation filter pairs every outer row with
  *   the aggregation of its own key; the rule which converts the IN into a join then compares the
- *   outer expression with the first column of that aggregation. A grouped aggregate has no value
- *   for an empty domain, so the subquery of
+ *   outer expression with the first column of that aggregation. That row is needed for every
+ *   aggregate, whatever value it returns for an empty input: the aggregation of the inner side has
+ *   no group for an outer row without a match, and the comparison which the rewrite of the IN builds
+ *   reads the rows of the domain of one outer row, so the null which the left outer join keeps for it
+ *   is not the value of its empty domain for the IN. The not in of
+ *
+ *       select t1.c1 from t1 where t1.c1 not in (select sum(t2.c2) from t2 where t2.c1 = t1.c1)
+ *
+ *   returns true for the outer rows without a match instead of the null which the sum of the empty
+ *   domain produces. A grouped aggregate has no value for an empty domain, so the subquery of
  *
  *       select t1.c1 from t1 where t1.c1 in (select count(*) from t2
  *           where t2.c1 = t1.c1 group by t2.c2)
@@ -230,8 +238,8 @@ import java.util.Set;
  *                     +-- t2
  * - scalar exposes the value of the aggregation as the value of the subquery. The left outer join
  *   which pairs an outer row with the aggregation of its own key returns null for the outer rows
- *   whose domain is empty, which is the value of those outer rows only for the aggregates whose
- *   value for an empty input the rewrite knows (see returnsNullForAnEmptyInput): the subquery of
+ *   whose domain is empty, which is the value of those outer rows for the aggregates whose value
+ *   for an empty input the rewrite reads that way (see keepsTheValueOfAnEmptyDomain): the subquery of
  *
  *       select t1.c1, (select max(t2.c2) from t2 where t2.c1 = t1.c1) from t1
  *
@@ -257,12 +265,12 @@ import java.util.Set;
  * no row: every equality predicate with a group by, the global aggregates whose HAVING clause
  * rejects the empty input (or whose value for the empty input is the null which the left outer
  * join keeps), the grouped IN subqueries, and the scalar subqueries of the aggregates whose empty
- * value the rewrite knows. It is built on the outer side for the subqueries whose domain is
- * several groups of the aggregation (a non-equality predicate, whatever the subquery type and the
- * aggregate are), and for the subqueries which need the row of an empty correlated domain (a
- * global aggregate whose HAVING clause may hold for the empty input, an IN subquery which
- * compares the value of a global aggregate, an EXISTS subquery which keeps nodes above its
- * aggregation, a scalar subquery whose empty value is not the null of the join).
+ * value the rewrite reads from that null. It is built on the outer side for the subqueries whose
+ * domain is several groups of the aggregation (a non-equality predicate, whatever the subquery type
+ * and the aggregate are), and for the subqueries which need the row of an empty correlated domain (a
+ * global aggregate whose HAVING clause may hold for the empty input, an IN subquery which compares
+ * the value of a global aggregate, an EXISTS subquery which keeps nodes above its aggregation, a
+ * scalar subquery whose empty value is not the null of the join).
  *
  * Keeping the aggregation on the inner side in the cases of the outer side returns a wrong result,
  * which is why the rewrite of the outer side has to exist. The subquery of
@@ -753,7 +761,8 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     /**
      * Whether one of the aggregates of the aggregation returns a value of its own for an empty
      * input (the count 0 or the empty array of an array_agg, for example), instead of the null
-     * which the nullable aggregations return for it.
+     * which the other aggregations return for it (see keepsTheValueOfAnEmptyDomain: an aggregate
+     * whose result is nullable, a UDAF included, has no value of its own which the rewrite reads).
      */
     private static boolean returnsAValueForAnEmptyInput(LogicalAggregate<?> aggregate) {
         for (NamedExpression output : aggregate.getOutputExpressions()) {
@@ -1235,13 +1244,13 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // A global aggregation returns a row for the outer rows of an empty correlated domain as
             // well: the left outer join of the original rewrite keeps a null for the output of the
             // subquery of those rows, which is the value of the aggregation of that domain (see
-            // returnsNullForAnEmptyInput), but a HAVING clause decides on the row of the empty
+            // keepsTheValueOfAnEmptyDomain), but a HAVING clause decides on the row of the empty
             // domain instead, and a row of the empty domain exists whatever its predicate says. The
             // aggregation of the domain is built on the outer side for those subqueries as well.
             if (predicates.hasHaving()) {
                 return havingMayHoldWithEmptyInput(agg, predicates.havingConjuncts());
             }
-            return !returnsNullForAnEmptyInput(agg);
+            return !keepsTheValueOfAnEmptyDomain(agg);
         }
         if (apply.isExist() && !predicates.hasHaving()) {
             // an EXISTS/NOT EXISTS subquery without a HAVING clause only depends on the existence of
@@ -1270,6 +1279,14 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // group
             return false;
         }
+        // The IN subqueries and the EXISTS/NOT EXISTS subqueries which have a HAVING clause: the
+        // row which a global aggregate returns for an empty correlated domain exists for every
+        // outer row, so it has to be produced whenever a HAVING clause may hold for it. An IN
+        // subquery without a HAVING clause needs that row as well, whatever the value which the
+        // aggregate returns for an empty input is: the conversion of the IN into a join reports the
+        // null of the inner side (the sum of an empty domain, for example) like a domain without a
+        // row, which turns the not in of an outer row without a match into true instead of the
+        // unknown which the null of the empty domain produces.
         return havingMayHoldWithEmptyInput(agg, predicates.havingConjuncts());
     }
 
@@ -1318,32 +1335,45 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      *   array_agg, ...) with an nvl on that value, and the nvl turns the null of the join into the
      *   value of the aggregation of the empty domain. The count(*)/any_value wrapper which it adds
      *   around the select list of a scalar subquery is not part of the value: its any_value is null
-     *   for the rows of the join, which is the value of the empty domain.
+     *   for the rows of the join, which is the value of the empty domain;
      *
-     * An aggregate of any other kind is not known to return a null for an empty input, so the
-     * subquery instead needs the aggregation of its domain on the outer side. For example the max
-     * of the subquery of
+     * - an aggregate which is neither of those (a UDAF, whose value for an empty input is written
+     *   in the UDAF itself) keeps the null of the join as well: SubqueryToApply adds an nvl for the
+     *   aggregates above alone (see addNvlForScalarSubqueryOutput), so no value of a UDAF replaces
+     *   the null which the join reports for it.
+     *
+     * An aggregate which declares a not null result without being wrapped by that nvl (an agg_state
+     * combinator, see UnionCombinator) has a value of its own for an empty input instead, so the
+     * aggregation of the subquery has to be built on the outer side for it. For example the max of
+     * the subquery of
      *
      *     select t1.c1, (select max(t2.c2) from t2 where t2.c1 = t1.c1) from t1
      *
      * keeps the aggregation on the inner side (the null which the left outer join of
      * ScalarApplyToJoin keeps for the outer rows without a group is the value of the empty
-     * domain), and so does the count of the subquery of
+     * domain), and so do the count of the subquery of
      *
      *     select t1.c1, (select count(*) from t2 where t2.c1 = t1.c1) from t1
      *
      * (SubqueryToApply wraps that count as ifnull(count(*), 0) in the projection of the left outer
-     * join, which turns the null of the join into the count 0 of the empty domain), while the
-     * subquery of select t1.c1, (select my_udaf(t2.c2) from t2 where t2.c1 = t1.c1) from t1 is
-     * aggregated on the outer side when my_udaf is a JavaUDAF, whose value for an empty input
-     * this rewrite does not know.
+     * join, which turns the null of the join into the count 0 of the empty domain) and the UDAF of
+     * the subquery of
+     *
+     *     select t1.c1, (select my_udaf(t2.c2) from t2 where t2.c1 = t1.c1) from t1
+     *
+     * (SubqueryToApply adds no nvl for a UDAF, so the null of the join is the value which the
+     * subquery exposes for the empty domain).
      */
-    private static boolean returnsNullForAnEmptyInput(LogicalAggregate<?> aggregate) {
+    private static boolean keepsTheValueOfAnEmptyDomain(LogicalAggregate<?> aggregate) {
         Set<AggregateFunction> functions = Sets.newLinkedHashSet();
         for (NamedExpression output : aggregate.getOutputExpressions()) {
             functions.addAll(output.collect(AggregateFunction.class::isInstance));
         }
-        return functions.stream().allMatch(function -> function instanceof AlwaysNullable
+        // the null of the join is the value of the empty domain for every aggregate whose result is
+        // nullable, and SubqueryToApply repairs it for the aggregates which return a value of their
+        // own for an empty input; only the aggregates which declare a not null result without such
+        // a repair need the value of their own, which the aggregation of the outer side produces
+        return functions.stream().allMatch(function -> !(function instanceof AlwaysNotNullable)
                 || function instanceof NotNullableAggregateFunction);
     }
 
@@ -1895,7 +1925,17 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // these aggregations return null for an empty input
             return new NullLiteral(function.getDataType());
         }
-        // only the aggregations above are known to return a fixed value for an empty input
+        if (!(function instanceof AlwaysNotNullable)) {
+            // the other aggregations whose result is nullable return null for an empty input as
+            // well: the UDAFs (whose value for an empty input is written in the UDAF itself, which
+            // the rewrite reads like the rest of the engine does, see
+            // keepsTheValueOfAnEmptyDomain) and the aggregations which declare no not null result
+            // (group_concat, any_value, ...)
+            return new NullLiteral(function.getDataType());
+        }
+        // the aggregations which declare a not null result are the ones whose value for an empty
+        // input may be a value of its own (the count 0 above, the empty array of an array_agg, ...),
+        // which the rewrite cannot read
         return null;
     }
 
