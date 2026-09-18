@@ -7189,14 +7189,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitHboSetStatistics(DorisParser.HboSetStatisticsContext ctx) {
         return visitHboSetStatisticsWords(ctx.hbo, ctx.scope, ctx.statistics, ctx.value, null,
                 ctx.fingerprintWord, ctx.fingerprint, ctx.structCanonical, ctx.literalModeWord,
-                ctx.literalMode);
+                ctx.literalMode, ctx.trailingLiteralModeWord, ctx.trailingLiteralMode);
     }
 
     @Override
     public LogicalPlan visitHboSetStatisticsTyped(DorisParser.HboSetStatisticsTypedContext ctx) {
         return visitHboSetStatisticsWords(ctx.hbo, ctx.scope, ctx.statistics, ctx.value, ctx.typeName,
                 ctx.fingerprintWord, ctx.fingerprint, ctx.structCanonical, ctx.literalModeWord,
-                ctx.literalMode);
+                ctx.literalMode, ctx.trailingLiteralModeWord, ctx.trailingLiteralMode);
     }
 
     /** Shared handling of the two HBO SET [scope] STATISTICS alternatives (with / without TYPE). */
@@ -7210,11 +7210,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             org.antlr.v4.runtime.Token fingerprint,
             org.antlr.v4.runtime.Token structCanonical,
             org.antlr.v4.runtime.ParserRuleContext literalModeWord,
-            org.antlr.v4.runtime.ParserRuleContext literalMode) {
+            org.antlr.v4.runtime.ParserRuleContext literalMode,
+            org.antlr.v4.runtime.ParserRuleContext trailingLiteralModeWord,
+            org.antlr.v4.runtime.ParserRuleContext trailingLiteralMode) {
         checkHboStatementWords(hboWord, statisticsWord);
         checkHboWord(fingerprintWord, "FINGERPRINT");
-        if (literalModeWord != null) {
-            checkHboWord(literalModeWord, "LITERAL_MODE");
+        // LITERAL_MODE may be written before FINGERPRINT or after STRUCT, but only once
+        if (literalModeWord != null && trailingLiteralModeWord != null) {
+            throw new ParseException("LITERAL_MODE is given twice in hbo set statistics statement");
+        }
+        org.antlr.v4.runtime.ParserRuleContext modeWord =
+                literalModeWord == null ? trailingLiteralModeWord : literalModeWord;
+        org.antlr.v4.runtime.ParserRuleContext mode =
+                literalModeWord == null ? trailingLiteralMode : literalMode;
+        if (modeWord != null) {
+            checkHboWord(modeWord, "LITERAL_MODE");
         }
         double parsedValue;
         try {
@@ -7228,7 +7238,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 parsedValue,
                 typeWord == null ? null : typeWord.getText(),
                 structCanonical == null ? "" : stripQuotes(structCanonical.getText()),
-                literalMode == null ? null : literalMode.getText());
+                mode == null ? null : mode.getText());
     }
 
     @Override

@@ -1395,23 +1395,23 @@ public class NereidsPlanner extends Planner {
                 // that constant matches) and the constant agnostic form (every constant of the
                 // predicate shape matches), so both are printed as separate injectable entries
                 appendHboEntryLine(sb, node.getId(), kind, "with_literal", rowCountType, fingerprint, struct,
-                        guardSkips, appliedModes, expansion);
+                        guardSkips, appliedModes, expansion, false);
                 Object noLiteralFingerprint = node.getMutableState(MutableState.KEY_HBO_FP_NO_LITERAL).orElse(null);
                 if (noLiteralFingerprint != null && !noLiteralFingerprint.equals(fingerprint)) {
                     appendHboEntryLine(sb, node.getId(), kind, "no_literal", rowCountType, noLiteralFingerprint,
                             GroupStructInfo.toNoLiteral(String.valueOf(struct)), guardSkips, appliedModes,
-                            expansion);
+                            expansion, false);
                 }
             } else {
                 // a join / aggregation entry only has the constant agnostic form
                 appendHboEntryLine(sb, node.getId(), kind, "no_literal", rowCountType, fingerprint, struct,
-                        guardSkips, appliedModes, expansion);
+                        guardSkips, appliedModes, expansion, false);
             }
             if (condFingerprint != null && cond != null) {
                 // the join condition key of this node: an expansion entry, kept in the same table and
                 // listed like any other entry of this node
                 appendHboEntryLine(sb, node.getId(), kind, "no_literal", "join_expansion", condFingerprint,
-                        cond, guardSkips, appliedModes, expansion);
+                        cond, guardSkips, appliedModes, expansion, true);
             }
         }
         if (sb.toString().indexOf("fingerprint=") < 0) {
@@ -1428,7 +1428,7 @@ public class NereidsPlanner extends Planner {
      */
     private void appendHboEntryLine(StringBuilder sb, int nodeId, String kind, String literalMode,
             String type, Object fingerprint, Object struct, Map<String, String> guardSkips,
-            Map<String, String> appliedModes, Object expansion) {
+            Map<String, String> appliedModes, Object expansion, boolean expansionLine) {
         String key = String.valueOf(fingerprint);
         sb.append("  [").append(nodeId).append("] ").append(kind)
                 .append(" type=").append(type)
@@ -1441,7 +1441,7 @@ public class NereidsPlanner extends Planner {
         } else if (literalMode.equals(appliedModes.get(key))) {
             sb.append(" used=true");
         }
-        if (expansion != null) {
+        if (expansion != null && expansionLine) {
             sb.append(" expansion=").append(expansion);
         }
         sb.append("\n");

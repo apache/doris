@@ -147,14 +147,16 @@ hboStatement
     : hbo=identifier SET scope=identifier? statistics=identifier
           VALUE EQ value=(INTEGER_VALUE | DECIMAL_VALUE)
           TYPE EQ typeName=identifier
+          (literalModeWord=hboWord EQ literalMode=identifier)?
           fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL
           (STRUCT EQ structCanonical=STRING_LITERAL)?
-          (literalModeWord=hboWord EQ literalMode=identifier)?          #hboSetStatisticsTyped
+          (trailingLiteralModeWord=hboWord EQ trailingLiteralMode=identifier)?   #hboSetStatisticsTyped
     | hbo=identifier SET scope=identifier? statistics=identifier
           VALUE EQ value=(INTEGER_VALUE | DECIMAL_VALUE)
+          (literalModeWord=hboWord EQ literalMode=identifier)?
           fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL
           (STRUCT EQ structCanonical=STRING_LITERAL)?
-          (literalModeWord=hboWord EQ literalMode=identifier)?          #hboSetStatistics
+          (trailingLiteralModeWord=hboWord EQ trailingLiteralMode=identifier)?   #hboSetStatistics
     | hbo=identifier DELETE staleWord=identifier statistics=identifier
           (olderWord=identifier olderThan=INTEGER_VALUE)?               #hboDeleteStaleStatistics
     | hbo=identifier DELETE scope=identifier? statistics=identifier

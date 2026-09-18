@@ -36,6 +36,10 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     sql "set show_hbo_fingerprint=true;"
     sql "set enable_sql_cache=false;"
     sql "set enable_query_cache=false;"
+    // the cleanup in the finally block needs both fingerprints, and a def inside the try block is
+    // not visible there
+    def fingerprint = null
+    def shapeFingerprint = null
     try {
 
     def query = "select * from hbo_si_t join hbo_si_r on hbo_si_t.a = hbo_si_r.a where hbo_si_r.b = 1"
@@ -63,7 +67,7 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     // extract the filter-on-scan fingerprint of R from the annotations
     def matcher = (beforeText =~ /filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) type=\w+ literal_mode=with_literal fingerprint='([0-9a-f]+)'/)
     assertTrue(matcher.find(), "no filter-on-scan fingerprint annotation found for hbo_si_r:\n" + beforeText)
-    def fingerprint = matcher.group(1)
+    fingerprint = matcher.group(1)
     log.info("filter(hbo_si_r) fingerprint: " + fingerprint)
     // the struct info printed for the same node is what HBO SET STATISTICS is labelled with
     def structMatcher = (beforeText =~
@@ -106,7 +110,7 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     def shapeMatcher = (beforeText =~
             /filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) type=\w+ literal_mode=no_literal fingerprint='([0-9a-f]+)'/)
     assertTrue(shapeMatcher.find(), "no agnostic fingerprint annotation found:\n" + beforeText)
-    def shapeFingerprint = shapeMatcher.group(1)
+    shapeFingerprint = shapeMatcher.group(1)
     sql """ HBO DELETE STATISTICS FINGERPRINT='${fingerprint}'; """
     // the struct info of the exact form is accepted for the constant agnostic fingerprint too:
     // the literals of the pasted struct info are wildcarded before the check
@@ -116,8 +120,13 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     assertTrue(shapeText.contains("TABLE: hbo_test.hbo_si_r(hbo_si_r)"), shapeText)
 
     } finally {
-        sql """ HBO DELETE STATISTICS FINGERPRINT='${fingerprint}'; """
-        sql """ HBO DELETE STATISTICS FINGERPRINT='${shapeFingerprint}'; """
+        // a failure before the fingerprints were read must not fail the cleanup with 'null'
+        if (fingerprint != null) {
+            sql """ HBO DELETE STATISTICS FINGERPRINT='${fingerprint}'; """
+        }
+        if (shapeFingerprint != null) {
+            sql """ HBO DELETE STATISTICS FINGERPRINT='${shapeFingerprint}'; """
+        }
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
     }
 }

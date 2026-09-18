@@ -271,7 +271,8 @@ public class HboStatisticsCommand extends Command {
             return canonical;
         }
         throw new AnalysisException("hbo statistics STRUCT does not match the fingerprint " + targetFingerprint
-                + " for LITERAL_MODE=" + literalMode + ", copy the struct= value of the target node from EXPLAIN");
+                + " for LITERAL_MODE=" + literalMode.name().toLowerCase(java.util.Locale.ROOT)
+                + ", copy the struct= value of the target node from EXPLAIN");
     }
 
     private static boolean isFingerprintOf(String targetFingerprint, String structCanonical) {
