@@ -855,7 +855,7 @@ def test_array_mv():
     index_name = 'err_idx'
     # order by array
     sql = 'select k1, a4 from %s order by k1, a4' % table_name
-    msg = "must use with specific function"
+    msg = "must use with specific function, and don't support filter or group by."
     util.assert_return(False, msg, client.create_materialized_view, table_name, index_name, sql, is_wait=True)
     # group by array
     sql = 'select k1, a5 from %s group by k1, a5' % table_name

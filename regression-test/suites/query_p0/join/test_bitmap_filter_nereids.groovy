@@ -70,7 +70,7 @@ suite("test_bitmap_filter_nereids") {
 
     test {
         sql "select k1, count(*) from test_query_db.bigtable b1 group by k1 having k1 in (select k2 from bitmap_table_nereids b2) order by k1;"
-        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function in this context"
+        exception "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't support filter"
     }
 
     sql "set ignore_storage_data_distribution=false"

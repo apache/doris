@@ -738,7 +738,7 @@ def test_create_agg_mv_failed():
     util.assert_return(False, msg, client.create_materialized_view, agg_tb, 'mv1_agg_type', sql)
 
     sql = 'select k2 ,k1, k13 from %s group by k2, k1, k13' % agg_tb
-    msg = "must use with specific function"
+    msg = "must use with specific function, and don't support filter"
     util.assert_return(False, msg, client.create_materialized_view, agg_tb, 'mv1', sql)
 
     sql = 'select k2 ,k1, k3 from %s where k3 > 0 group by k2, k1, k3' % agg_tb
