@@ -50,6 +50,7 @@
 #include "exec/common/stringop_substring.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/rowid_fetcher.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exec/scan/scan_node.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
@@ -533,9 +534,11 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
         if (_cur_reader == nullptr || _cur_reader_eof) {
             // The file may not exist because the file list is got from meta cache,
             // And the file may already be removed from storage.
-            // Just ignore not found files.
+            // Only formats without Iceberg snapshot guarantees may ignore missing files.
             Status st = _get_next_reader();
-            if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_file_in_external_table) {
+            if (st.is<ErrorCode::NOT_FOUND>() &&
+                can_ignore_not_found_file(_current_range,
+                                          config::ignore_not_found_file_in_external_table)) {
                 _cur_reader_eof = true;
                 COUNTER_UPDATE(_not_found_file_counter, 1);
                 continue;
@@ -1296,13 +1299,13 @@ Status FileScanner::_get_next_reader() {
         COUNTER_UPDATE(_file_counter, 1);
         // The FileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
-        // So, NOT_FOUND for FileScanner is not a fail case.
-        // Will remove this after file reader refactor.
+        // Iceberg snapshot files must still fail the query if they are missing.
         if (init_status.is<END_OF_FILE>()) {
             COUNTER_UPDATE(_empty_file_counter, 1);
             continue;
         } else if (init_status.is<ErrorCode::NOT_FOUND>()) {
-            if (config::ignore_not_found_file_in_external_table) {
+            if (can_ignore_not_found_file(_current_range,
+                                          config::ignore_not_found_file_in_external_table)) {
                 COUNTER_UPDATE(_not_found_file_counter, 1);
                 continue;
             }

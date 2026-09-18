@@ -46,6 +46,7 @@
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/access_path_parser.h"
 #include "exec/scan/file_scan_io_context.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vruntimefilter_wrapper.h"
@@ -555,7 +556,10 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
                 _table_reader->set_batch_size(_predict_reader_batch_rows());
             }
             const auto status = _table_reader->get_block(block, eof);
-            if (_should_skip_not_found(status, config::ignore_not_found_file_in_external_table)) {
+            if (_should_skip_not_found(
+                        status,
+                        can_ignore_not_found_file(
+                                _current_range, config::ignore_not_found_file_in_external_table))) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
                 COUNTER_UPDATE(_not_found_file_counter, 1);
                 RETURN_IF_ERROR(_complete_current_split());
@@ -643,7 +647,10 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
         RETURN_IF_ERROR(_generate_partition_values(_current_range, &partition_values));
         const auto status =
                 _prepare_table_reader_split(_current_range, std::move(partition_values));
-        if (_should_skip_not_found(status, config::ignore_not_found_file_in_external_table)) {
+        if (_should_skip_not_found(
+                    status,
+                    can_ignore_not_found_file(_current_range,
+                                              config::ignore_not_found_file_in_external_table))) {
             RETURN_IF_ERROR(_table_reader->abort_split());
             COUNTER_UPDATE(_not_found_file_counter, 1);
             RETURN_IF_ERROR(_complete_current_split());
@@ -672,7 +679,9 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             const auto split_status = _table_reader->build_physical_splits(
                     _current_split, &generated_splits, &was_split);
             const auto ignored_split_status = _classify_ignored_split_status(
-                    split_status, config::ignore_not_found_file_in_external_table,
+                    split_status,
+                    can_ignore_not_found_file(_current_range,
+                                              config::ignore_not_found_file_in_external_table),
                     _should_stop || _io_ctx->should_stop);
             if (ignored_split_status == IgnoredSplitStatus::NOT_FOUND) {
                 RETURN_IF_ERROR(_table_reader->abort_split());
