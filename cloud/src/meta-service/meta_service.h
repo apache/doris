@@ -247,15 +247,6 @@ public:
                           const GetTabletStatsRequest* request, GetTabletStatsResponse* response,
                           ::google::protobuf::Closure* done) override;
 
-    void report_spill_stats(::google::protobuf::RpcController* controller,
-                            const ReportSpillStatsRequest* request,
-                            ReportSpillStatsResponse* response,
-                            ::google::protobuf::Closure* done) override;
-
-    void get_spill_stats(::google::protobuf::RpcController* controller,
-                         const GetSpillStatsRequest* request, GetSpillStatsResponse* response,
-                         ::google::protobuf::Closure* done) override;
-
     void start_tablet_job(::google::protobuf::RpcController* controller,
                           const StartTabletJobRequest* request, StartTabletJobResponse* response,
                           ::google::protobuf::Closure* done) override;
@@ -782,19 +773,6 @@ public:
                           const GetTabletStatsRequest* request, GetTabletStatsResponse* response,
                           ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_tablet_stats, controller, request, response, done);
-    }
-
-    void report_spill_stats(::google::protobuf::RpcController* controller,
-                            const ReportSpillStatsRequest* request,
-                            ReportSpillStatsResponse* response,
-                            ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::report_spill_stats, controller, request, response, done);
-    }
-
-    void get_spill_stats(::google::protobuf::RpcController* controller,
-                         const GetSpillStatsRequest* request, GetSpillStatsResponse* response,
-                         ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::get_spill_stats, controller, request, response, done);
     }
 
     void start_tablet_job(::google::protobuf::RpcController* controller,

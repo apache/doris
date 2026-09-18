@@ -445,10 +445,6 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" tablet_id={}", req.tablet_id());
     } else if constexpr (is_any_v<Request, UpdatePackedFileInfoRequest>) {
         return fmt::format(" packed_file_path={}", req.packed_file_path());
-    } else if constexpr (is_any_v<Request, ReportSpillStatsRequest>) {
-        return fmt::format(" backend_id={} boot_id={} report_seq={} remote_spill_bytes={}",
-                           req.stats().backend_id(), req.stats().boot_id(),
-                           req.stats().report_seq(), req.stats().remote_spill_bytes());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -1898,29 +1894,6 @@ Status CloudMetaMgr::finish_restore_job(const int64_t tablet_id, bool is_complet
                      {
                              .host_limiters = host_level_ms_rpc_rate_limiters_,
                              .backpressure_handler = ms_backpressure_handler_,
-                     });
-}
-
-Status CloudMetaMgr::report_spill_stats(int64_t backend_id, int64_t boot_id, int64_t report_seq,
-                                        int64_t remote_spill_bytes) {
-    ReportSpillStatsRequest req;
-    ReportSpillStatsResponse resp;
-    req.set_cloud_unique_id(config::cloud_unique_id);
-    auto* stats = req.mutable_stats();
-    stats->set_cloud_unique_id(config::cloud_unique_id);
-    stats->set_backend_id(backend_id);
-    stats->set_boot_id(boot_id);
-    stats->set_report_seq(report_seq);
-    stats->set_remote_spill_bytes(remote_spill_bytes);
-    return retry_rpc(MetaServiceRPC::REPORT_SPILL_STATS, req, &resp,
-                     &MetaService_Stub::report_spill_stats,
-                     {
-                             .host_limiters = host_level_ms_rpc_rate_limiters_,
-                             .backpressure_handler = ms_backpressure_handler_,
-                             // At most 2 attempts (<= 2 * meta_service_brpc_timeout_ms): the
-                             // periodic report is re-issued a minute later anyway, and the
-                             // final report on shutdown must not stall the exit.
-                             .max_retry_times = 1,
                      });
 }
 

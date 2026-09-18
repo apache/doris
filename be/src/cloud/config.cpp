@@ -216,7 +216,6 @@ DEFINE_mInt32(ms_rpc_qps_commit_txn, "-1");
 DEFINE_mInt32(ms_rpc_qps_abort_txn, "-1");
 DEFINE_mInt32(ms_rpc_qps_precommit_txn, "-1");
 DEFINE_mInt32(ms_rpc_qps_get_obj_store_info, "-1");
-DEFINE_mInt32(ms_rpc_qps_report_spill_stats, "-1");
 DEFINE_mInt32(ms_rpc_qps_start_tablet_job, "-1");
 DEFINE_mInt32(ms_rpc_qps_finish_tablet_job, "-1");
 DEFINE_mInt32(ms_rpc_qps_get_delete_bitmap, "-1");

@@ -90,7 +90,7 @@ public class ShowDataCommand extends ShowCommand {
                     .build();
 
     // RemoteSpillSize: bytes of query spill currently held in object storage (cloud mode,
-    // spill_storage_type=s3), as last reported by the BEs. Spill is not attributable to a
+    // spill_storage_type=s3), as last polled from the BEs. Spill is not attributable to a
     // database, so the value is reported on the total row only.
     private static final ShowResultSetMetaData SHOW_WAREHOUSE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
@@ -592,9 +592,9 @@ public class ShowDataCommand extends ShowCommand {
     }
 
     /**
-     * Bytes of query spill currently held in object storage, summed over the BEs of the instance,
-     * as periodically fetched from meta-service by CloudTabletStatMgr on every FE. This is a
-     * billing input, so a missing or stale value is reported instead of being shown as zero.
+     * Bytes of query spill currently held in object storage, summed over the alive BEs as
+     * periodically polled by CloudTabletStatMgr on every FE. This is a billing input, so a
+     * missing or stale value is reported instead of being shown as zero.
      */
     private long getRemoteSpillSize() throws AnalysisException {
         if (!Config.isCloudMode()) {
