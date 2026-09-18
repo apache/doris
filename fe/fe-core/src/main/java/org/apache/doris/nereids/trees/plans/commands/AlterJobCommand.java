@@ -41,6 +41,7 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -277,11 +278,19 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
     }
 
     private void validateProps(StreamingInsertJob streamingJob) throws AnalysisException {
-        StreamingJobProperties jobProperties = new StreamingJobProperties(properties);
-        jobProperties.validate();
-        if (jobProperties.getOffsetProperty() != null) {
-            streamingJob.validateAlterOffset(jobProperties.getOffsetProperty());
-            streamingJob.validateOffset(jobProperties.getOffsetProperty());
+        StreamingJobProperties originJobProperties =
+                new StreamingJobProperties(streamingJob.getProperties());
+        Map<String, String> mergedProperties = new HashMap<>(streamingJob.getProperties());
+        mergedProperties.putAll(properties);
+        StreamingJobProperties updatedJobProperties = new StreamingJobProperties(mergedProperties);
+        updatedJobProperties.validate();
+        if (!originJobProperties.getS3IngestionMode().equals(updatedJobProperties.getS3IngestionMode())) {
+            throw new AnalysisException("s3.ingestion_mode cannot be altered");
+        }
+        String offset = properties.get(StreamingJobProperties.OFFSET_PROPERTY);
+        if (offset != null) {
+            streamingJob.validateAlterOffset(offset);
+            streamingJob.validateOffset(offset);
         }
     }
 

@@ -19,6 +19,7 @@ package org.apache.doris.job.extensions.insert.streaming;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.exception.JobException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -62,5 +63,13 @@ public class StreamingInsertJobStatusTransitionTest {
 
         Assertions.assertFalse(job.updateJobStatusIfCurrent(JobStatus.PENDING, JobStatus.RUNNING));
         Assertions.assertEquals(JobStatus.STOPPED, job.getJobStatus());
+    }
+
+    @Test
+    public void testFinishedStatusCannotBeOverwritten() {
+        StreamingInsertJob job = newJob(JobStatus.FINISHED);
+
+        Assertions.assertThrows(JobException.class, () -> job.updateJobStatus(JobStatus.PAUSED));
+        Assertions.assertEquals(JobStatus.FINISHED, job.getJobStatus());
     }
 }
