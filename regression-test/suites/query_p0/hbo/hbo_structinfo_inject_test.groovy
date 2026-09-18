@@ -67,7 +67,7 @@ suite("hbo_structinfo_inject_test", "nonConcurrent") {
     log.info("filter(hbo_si_r) fingerprint: " + fingerprint)
     // the struct info printed for the same node is what HBO SET STATISTICS is labelled with
     def structMatcher = (beforeText =~
-            /kind=filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) fingerprint='[0-9a-f]+' fingerprintNoLiteral='[0-9a-f]+' struct='([^']*)'/)
+            /filter-on-scan\(table=[^)]*hbo_si_r[^)]*\) type=\w+ literal_mode=with_literal fingerprint='[0-9a-f]+' struct='([^']*)'/)
     assertTrue(structMatcher.find(), "no filter struct info annotation found:\n" + beforeText)
     def filterStruct = structMatcher.group(1)
 

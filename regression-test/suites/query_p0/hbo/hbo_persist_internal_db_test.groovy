@@ -56,8 +56,8 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
             assertEquals("join_expansion", expansionRows[0][3].toString())
             assertEquals("1000x", expansionRows[0][4].toString())
             assertEquals(condCanonical, expansionRows[0][5].toString())
-            // no granularity and no table version state for a condition keyed entry
-            assertEquals("-", expansionRows[0][2].toString())
+            // a condition keyed entry is always constant agnostic and has no table version state
+            assertEquals("no_literal", expansionRows[0][2].toString())
             assertEquals("-", expansionRows[0][6].toString())
 
             // a stale clean up never removes an expansion entry: it carries no table version, so

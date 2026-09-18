@@ -64,7 +64,7 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         }
         test {
             sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${fakeFingerprint}' STRUCT='${structCanonical}'; """
-            exception "hbo statistics STRUCT does not match the fingerprint ${fakeFingerprint}, copy the struct= value of the target node from EXPLAIN"
+            exception "hbo statistics STRUCT does not match the fingerprint ${fakeFingerprint} for LITERAL_MODE=no_literal, copy the struct= value of the target node from EXPLAIN"
         }
         sql """ HBO SET STATISTICS VALUE=123456 LITERAL_MODE=WITH_LITERAL FINGERPRINT='${fingerprint}'
                 STRUCT='${structCanonical}'; """

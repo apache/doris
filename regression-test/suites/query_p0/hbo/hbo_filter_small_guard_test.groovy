@@ -84,7 +84,8 @@ suite("hbo_filter_small_guard_test", "nonConcurrent") {
         // ... and skipped for the healthy one, with the guard and the entry type in the annotation
         assertTrue(probeTable(healthy).contains("TABLE: hbo_test.hbo_gs_t(hbo_gs_t)"), probeTable(healthy))
         def healthyText = explainText(healthy)
-        assertTrue((healthyText =~ /type=filter_small skipped=filterSmallGuard\(E=\d+,I=\d+\)/).find(), healthyText)
+        assertTrue((healthyText =~ /type=filter_small literal_mode=no_literal[^\n]*skipped=filterSmallGuard\(E=\d+,I=\d+\)/).find(),
+                healthyText)
         def healthyNode = explainText(healthy)
         assertTrue((healthyNode =~
                 /\] filter-on-scan\(table=[^)]*hbo_gs_r[^)]*\) type=filter_small literal_mode=no_literal/).find(),

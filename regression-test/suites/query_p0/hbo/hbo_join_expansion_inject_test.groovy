@@ -112,7 +112,8 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
                 STRUCT='${condCanonical}'; """
         def semiQuery = "select * from hbo_je_t1 where hbo_je_t1.a in (select a from hbo_je_t2)"
         def semiText = annotation(semiQuery)
-        assertTrue(semiText.contains("condFingerprint='" + condFingerprint + "'"), semiText)
+        assertTrue(semiText.contains("type=join_expansion literal_mode=no_literal fingerprint='"
+                + condFingerprint + "'"), semiText)
         assertTrue((semiText =~ /expansion=skipped=left_semi_join-join-never-expands/).find(), semiText)
     } finally {
         sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
@@ -122,18 +123,13 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
     try {
         sql """ HBO SET STATISTICS VALUE=0.1 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
                 STRUCT='${condCanonical}'; """
-        def reduced = physicalPlan()
-        def lines = reduced.split("\n")
-        def joinIdx = lines.findIndexOf { it.contains("PhysicalHashJoin[") && it.contains("INNER_JOIN") }
-        assertTrue(joinIdx >= 0, reduced)
-        def statsOf = { String line ->
-            def m = (line =~ /stats=\(?hbo\)?([0-9][0-9,\.]*)/)
-            assertTrue(m.find(), "no stats in: " + line)
-            m.group(1).replace(",", "").toDouble()
-        }
-        double joinStats = statsOf(lines[joinIdx])
-        double leftStats = statsOf(lines[joinIdx + 1])
-        assertEquals(leftStats * 0.1, joinStats, 1.0, reduced)
+        // the applied entry reports the inputs and the resulting estimate, so the relation between
+        // the factor and the left input can be checked directly
+        def marker = (annotation(query) =~ /expansion=exp=0\.1x \(left=([0-9\.]+),right=([0-9\.]+),est=([0-9\.]+)\)/)
+        assertTrue(marker.find(), annotation(query))
+        double leftRows = marker.group(1).toDouble()
+        double estimated = marker.group(3).toDouble()
+        assertEquals(leftRows * 0.1, estimated, 1.0, annotation(query))
         assertTrue((annotation(query) =~ /expansion=exp=0\.1x/).find(), annotation(query))
     } finally {
         sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
