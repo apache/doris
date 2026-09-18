@@ -457,6 +457,11 @@ public interface PaimonCatalogOps {
                 fileStoreTable.newScan();
                 fileStoreTable = PaimonTableDecorators.unwrapToFallbackOrBase(fileStoreTable);
             }
+            // Catalog query authorization normally runs in scan.plan(), independently of the
+            // privilege wrapper's SELECT check. Preserve it without planning any file splits.
+            if (options.queryAuthEnabled()) {
+                fileStoreTable.catalogEnvironment().tableQueryAuth(options).auth(null);
+            }
             Snapshot snapshot = TimeTravelUtil.tryTravelOrLatest(fileStoreTable);
             // Old snapshot versions can omit totalRecordCount; an empty table has no snapshot.
             return snapshot == null || snapshot.totalRecordCount() == null

@@ -21,6 +21,8 @@ import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.SeekableInputStream;
@@ -29,9 +31,11 @@ import org.apache.paimon.privilege.PrivilegeChecker;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaManager;
+import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
+import org.apache.paimon.table.TableSnapshot;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchTableWrite;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
@@ -48,6 +52,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -202,6 +207,58 @@ public class PaimonCatalogRowCountTest {
         Assertions.assertTrue(selectChecks.get() >= 2);
         denySelect.set(true);
         Assertions.assertThrows(SecurityException.class, () -> ops.rowCount(privileged));
+    }
+
+    @Test
+    public void catalogQueryAuthorizationControlsSnapshotStatistics() throws Exception {
+        FileStoreTable base = newTable("query_auth", false,
+                Collections.singletonMap("query-auth.enabled", "true"), new ManifestGuardFileIO());
+        snapshot(base, 1, 10L);
+        Identifier identifier = Identifier.create("db", "t");
+        AtomicInteger authCalls = new AtomicInteger();
+        AtomicBoolean denyQuery = new AtomicBoolean();
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(), base.location()) {
+            @Override
+            public List<String> authTableQuery(Identifier requested, List<String> select) {
+                Assertions.assertEquals(identifier, requested);
+                Assertions.assertNull(select, "Statistics must preserve the old all-column authorization");
+                authCalls.incrementAndGet();
+                if (denyQuery.get()) {
+                    throw new Catalog.TableNoPermissionException(requested);
+                }
+                return Collections.emptyList();
+            }
+
+            @Override
+            public Optional<TableSnapshot> loadSnapshot(Identifier requested) {
+                return Optional.of(new TableSnapshot(base.snapshotManager().snapshot(1L), 0L, 0L, 0L, 0L));
+            }
+        }) {
+            // Like a REST-loaded table, this has a catalog loader but no privilege wrapper.
+            CatalogEnvironment environment = new CatalogEnvironment(
+                    identifier, null, () -> catalog, null, null, false);
+            FileStoreTable table = FileStoreTableFactory.create(
+                    base.fileIO(), base.location(), base.schema(), environment);
+            PaimonConnectorMetadata metadata = metadata();
+            PaimonTableHandle handle = handle(table);
+            ConnectorMvccSnapshot pinned = ConnectorMvccSnapshot.builder()
+                    .snapshotId(1L).property("scan.snapshot-id", "1").build();
+
+            Assertions.assertEquals(10L, metadata.getTableStatistics(null, handle).get().getRowCount());
+            Assertions.assertEquals(10L, metadata.getTableStatistics(null, handle, pinned).get().getRowCount());
+            Assertions.assertEquals(2, authCalls.get());
+
+            denyQuery.set(true);
+            RuntimeException denied = Assertions.assertThrows(RuntimeException.class, () -> ops.rowCount(table));
+            Assertions.assertInstanceOf(Catalog.TableNoPermissionException.class, denied.getCause());
+            Assertions.assertFalse(metadata.getTableStatistics(null, handle).isPresent());
+            Assertions.assertFalse(metadata.getTableStatistics(null, handle, pinned).isPresent());
+            Assertions.assertEquals(5, authCalls.get());
+
+            FileStoreTable disabled = table.copy(Collections.singletonMap("query-auth.enabled", "false"));
+            Assertions.assertEquals(10L, ops.rowCount(disabled));
+            Assertions.assertEquals(5, authCalls.get(), "Disabled query authorization must not contact the catalog");
+        }
     }
 
     @Test
