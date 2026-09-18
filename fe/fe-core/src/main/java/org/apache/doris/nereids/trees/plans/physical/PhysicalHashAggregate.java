@@ -191,7 +191,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public String toString() {
         TopnPushInfo topnPushInfo = (TopnPushInfo) getMutableState(
                 MutableState.KEY_PUSH_TOPN_TO_AGG).orElse(null);
-        return withHboExplainInfo(Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]"
+        return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]"
                 + getGroupIdWithPrefix(),
                 "stats", statistics,
                 "aggPhase", aggregateParam.aggPhase,
@@ -202,7 +202,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 "partitionExpr", partitionExpressions,
                 "topnFilter", topnPushInfo != null,
                 "topnPushDown", getMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG).isPresent()
-        ));
+        );
     }
 
     /**

@@ -1376,53 +1376,75 @@ public class NereidsPlanner extends Planner {
                 continue;
             }
             Object fingerprint = node.getMutableState(MutableState.KEY_HBO_FP).orElse(null);
-            if (fingerprint == null) {
+            Object struct = node.getMutableState(MutableState.KEY_HBO_STRUCT).orElse(null);
+            if (fingerprint == null || struct == null) {
                 continue;
             }
-            // the fingerprint / struct / condition values are quoted so that they can be copied
-            // straight into HBO SET STATISTICS (which takes them as string literals)
-            sb.append("  [").append(node.getId()).append("] kind=").append(kind)
-                    .append(" fingerprint='").append(fingerprint).append("'");
-            Object noLiteralFingerprint = node.getMutableState(MutableState.KEY_HBO_FP_NO_LITERAL).orElse(null);
-            if (noLiteralFingerprint != null && !noLiteralFingerprint.equals(fingerprint)) {
-                sb.append(" fingerprintNoLiteral='").append(noLiteralFingerprint).append("'");
-            }
-            Object struct = node.getMutableState(MutableState.KEY_HBO_STRUCT).orElse(null);
-            if (struct != null) {
-                sb.append(" struct='").append(struct).append("'");
-            }
-            Object hboType = node.getMutableState(MutableState.KEY_HBO_TYPE).orElse(null);
-            if (hboType != null) {
-                sb.append(" type=").append(hboType);
-            }
-            Object condFingerprint = node.getMutableState(MutableState.KEY_HBO_COND_FP).orElse(null);
-            if (condFingerprint != null) {
-                sb.append(" condFingerprint='").append(condFingerprint).append("'");
-            }
-            Object cond = node.getMutableState(MutableState.KEY_HBO_COND).orElse(null);
-            if (cond != null) {
-                sb.append(" cond='").append(cond).append("'");
-            }
+            Object appliedType = node.getMutableState(MutableState.KEY_HBO_TYPE).orElse(null);
             Object expansion = node.getMutableState(MutableState.KEY_HBO_EXPANSION).orElse(null);
-            if (expansion != null) {
-                sb.append(" expansion=").append(expansion);
+            Object condFingerprint = node.getMutableState(MutableState.KEY_HBO_COND_FP).orElse(null);
+            Object cond = node.getMutableState(MutableState.KEY_HBO_COND).orElse(null);
+            Map<String, String> appliedModes = ConnectContext.get() == null ? Collections.emptyMap()
+                    : Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                            .getPinnedLiteralMode(DebugUtil.printId(ConnectContext.get().queryId()));
+            // the type of the row count entry, as the read side saw it (exact unless a guarded entry
+            // was considered for this node)
+            String rowCountType = appliedType == null ? "exact" : String.valueOf(appliedType);
+            if (node instanceof PhysicalFilter) {
+                // a filter root can be keyed in both literal modes: the literal carrying form (only
+                // that constant matches) and the constant agnostic form (every constant of the
+                // predicate shape matches), so both are printed as separate injectable entries
+                appendHboEntryLine(sb, node.getId(), kind, "with_literal", rowCountType, fingerprint, struct,
+                        guardSkips, appliedModes, expansion);
+                Object noLiteralFingerprint = node.getMutableState(MutableState.KEY_HBO_FP_NO_LITERAL).orElse(null);
+                if (noLiteralFingerprint != null && !noLiteralFingerprint.equals(fingerprint)) {
+                    appendHboEntryLine(sb, node.getId(), kind, "no_literal", rowCountType, noLiteralFingerprint,
+                            GroupStructInfo.toNoLiteral(String.valueOf(struct)), guardSkips, appliedModes,
+                            expansion);
+                }
+            } else {
+                // a join / aggregation entry only has the constant agnostic form
+                appendHboEntryLine(sb, node.getId(), kind, "no_literal", rowCountType, fingerprint, struct,
+                        guardSkips, appliedModes, expansion);
             }
-            // a FILTER_SMALL entry can be skipped under either granularity (the exact form or the
-            // constant agnostic form), so both fingerprints are consulted
-            String skipReason = guardSkips.get(fingerprint.toString());
-            if (skipReason == null && noLiteralFingerprint != null) {
-                skipReason = guardSkips.get(noLiteralFingerprint.toString());
+            if (condFingerprint != null && cond != null) {
+                // the join condition key of this node: an expansion entry, kept in the same table and
+                // listed like any other entry of this node
+                appendHboEntryLine(sb, node.getId(), kind, "no_literal", "join_expansion", condFingerprint,
+                        cond, guardSkips, appliedModes, expansion);
             }
-            if (skipReason != null) {
-                sb.append(" skipped=").append(skipReason);
-            }
-            sb.append("\n");
         }
-        if (sb.toString().indexOf("kind=") < 0) {
+        if (sb.toString().indexOf("fingerprint=") < 0) {
             sb.append("  (no hbo fingerprint attached; check that the plan went through the "
                     + "planner attach step)\n");
         }
         return sb.toString();
+    }
+
+    /**
+     * Append one injectable hbo entry of a node. The parameters are printed with the spelling
+     * {@code HBO SET STATISTICS} uses (quoted values), so the line can be copied as it is, and the
+     * line of the entry which was actually used (or skipped by its guard) is marked.
+     */
+    private void appendHboEntryLine(StringBuilder sb, int nodeId, String kind, String literalMode,
+            String type, Object fingerprint, Object struct, Map<String, String> guardSkips,
+            Map<String, String> appliedModes, Object expansion) {
+        String key = String.valueOf(fingerprint);
+        sb.append("  [").append(nodeId).append("] ").append(kind)
+                .append(" type=").append(type)
+                .append(" literal_mode=").append(literalMode)
+                .append(" fingerprint='").append(key).append("'")
+                .append(" struct='").append(struct).append("'");
+        String skipReason = guardSkips.get(key);
+        if (skipReason != null) {
+            sb.append(" skipped=").append(skipReason);
+        } else if (literalMode.equals(appliedModes.get(key))) {
+            sb.append(" used=true");
+        }
+        if (expansion != null) {
+            sb.append(" expansion=").append(expansion);
+        }
+        sb.append("\n");
     }
 
     private static void collectPlanNodes(Plan plan, List<AbstractPlan> nodes) {

@@ -42,11 +42,12 @@ suite("hbo_delete_stale_statistics_test", "nonConcurrent") {
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "true"); """
         def text = (sql """ explain select * from hbo_ds_r where b = 1 """).flatten().join("\n")
         def matcher = (text =~
-                /kind=filter-on-scan\(table=[^)]*hbo_ds_r[^)]*\) fingerprint='([0-9a-f]+)' fingerprintNoLiteral='[0-9a-f]+' struct='([^']*)'/)
+                /filter-on-scan\(table=[^)]*hbo_ds_r[^)]*\) type=\w+ literal_mode=with_literal fingerprint='([0-9a-f]+)' struct='([^']*)'/)
         assertTrue(matcher.find(), "no filter annotation found:\n" + text)
         def fingerprint = matcher.group(1)
         def structCanonical = matcher.group(2)
-        sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${fingerprint}' STRUCT='${structCanonical}'; """
+        sql """ HBO SET STATISTICS VALUE=123456 LITERAL_MODE=WITH_LITERAL FINGERPRINT='${fingerprint}'
+                STRUCT='${structCanonical}'; """
         injected.add(fingerprint)
 
         // the creation time of a persisted entry is a datetime, like the other internal tables

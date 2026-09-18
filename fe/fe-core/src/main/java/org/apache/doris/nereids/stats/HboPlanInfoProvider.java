@@ -59,6 +59,8 @@ public class HboPlanInfoProvider {
     private volatile Cache<String, Map<String, String>> pinnedGuardSkipCache;
     private volatile Cache<String, Map<String, String>> pinnedExpansionAppliedCache;
     private volatile Cache<String, Map<String, String>> pinnedEntryTypeCache;
+    // per query: fingerprint -> the literal mode of the struct info which matched it
+    private volatile Cache<String, Map<String, String>> pinnedLiteralModeCache;
 
     /**
      * Hbo plan info provider.
@@ -88,6 +90,9 @@ public class HboPlanInfoProvider {
                 Config.hbo_plan_info_cache_num,
                 Config.expire_hbo_plan_info_cache_in_fe_second
         );
+        pinnedLiteralModeCache = buildHboPinnedGuardSkipCache(
+                Config.hbo_pinned_stats_cache_num,
+                Config.expire_hbo_plan_info_cache_in_fe_second);
         pinnedEntryTypeCache = buildHboPinnedGuardSkipCache(
                 Config.hbo_plan_info_cache_num,
                 Config.expire_hbo_plan_info_cache_in_fe_second
@@ -229,6 +234,20 @@ public class HboPlanInfoProvider {
     }
 
     /** Matched pinned entry types of a query, keyed by hbo fingerprint. */
+    public void putPinnedLiteralMode(String queryId, String fingerprint, String literalMode) {
+        Map<String, String> modes = pinnedLiteralModeCache.getIfPresent(queryId);
+        if (modes == null) {
+            modes = new ConcurrentHashMap<>();
+            pinnedLiteralModeCache.put(queryId, modes);
+        }
+        modes.put(fingerprint, literalMode);
+    }
+
+    public Map<String, String> getPinnedLiteralMode(String queryId) {
+        Map<String, String> modes = pinnedLiteralModeCache.getIfPresent(queryId);
+        return modes == null ? Collections.emptyMap() : modes;
+    }
+
     public Map<String, String> getPinnedEntryType(String queryId) {
         Map<String, String> types = pinnedEntryTypeCache.getIfPresent(queryId);
         return types == null ? Collections.emptyMap() : types;

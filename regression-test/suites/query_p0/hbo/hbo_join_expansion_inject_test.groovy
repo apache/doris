@@ -64,7 +64,9 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
 
     // the condition fingerprint of the (t1.a = t2.a) join comes from the explain annotation
     def condCanonical = "JE{EqualTo(col(internal.hbo_test.hbo_je_t1.a),col(internal.hbo_test.hbo_je_t2.a))}"
-    def matcher = (annotation(query) =~ /condFingerprint='([0-9a-f]+)' cond='JE\{EqualTo\(col\(internal\.hbo_test\.hbo_je_t1\.a\),col\(internal\.hbo_test\.hbo_je_t2\.a\)\)\}'/)
+    // the expansion entry of the join is listed as its own line of the annotation block
+    def matcher = (annotation(query) =~
+            /\] join type=join_expansion literal_mode=no_literal fingerprint='([0-9a-f]+)' struct='JE\{EqualTo\(col\(internal\.hbo_test\.hbo_je_t1\.a\),col\(internal\.hbo_test\.hbo_je_t2\.a\)\)\}'/)
     assertTrue(matcher.find(), "no condition fingerprint annotation:\n" + annotation(query))
     def condFingerprint = matcher.group(1)
     log.info("(t1.a = t2.a) condition fingerprint: ${condFingerprint}")
@@ -90,7 +92,7 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
         def showRows = (sql """ HBO SHOW PINNED STATISTICS; """).findAll { it[1].toString() == condFingerprint }
         assertEquals(1, showRows.size(), showRows.toString())
         assertEquals("pinned", showRows[0][0].toString())
-        assertEquals("-", showRows[0][2].toString())
+        assertEquals("no_literal", showRows[0][2].toString())
         assertEquals("join_expansion", showRows[0][3].toString())
         assertEquals("1000x", showRows[0][4].toString())
         assertEquals(condCanonical, showRows[0][5].toString())
@@ -116,11 +118,32 @@ suite("hbo_join_expansion_inject_test", "nonConcurrent") {
         sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
     }
 
-    // value validation: the expansion factor is a fan-out multiplier, so it must be >= 1
-    test {
-        sql """ HBO SET STATISTICS VALUE=0.5 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
+    // a factor below 1 means the join filters: 0.1 keeps 10% of the left input of the join node
+    try {
+        sql """ HBO SET STATISTICS VALUE=0.1 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
                 STRUCT='${condCanonical}'; """
-        exception "hbo join expansion must be greater than or equal to 1: 0.5"
+        def reduced = physicalPlan()
+        def lines = reduced.split("\n")
+        def joinIdx = lines.findIndexOf { it.contains("PhysicalHashJoin[") && it.contains("INNER_JOIN") }
+        assertTrue(joinIdx >= 0, reduced)
+        def statsOf = { String line ->
+            def m = (line =~ /stats=\(?hbo\)?([0-9][0-9,\.]*)/)
+            assertTrue(m.find(), "no stats in: " + line)
+            m.group(1).replace(",", "").toDouble()
+        }
+        double joinStats = statsOf(lines[joinIdx])
+        double leftStats = statsOf(lines[joinIdx + 1])
+        assertEquals(leftStats * 0.1, joinStats, 1.0, reduced)
+        assertTrue((annotation(query) =~ /expansion=exp=0\.1x/).find(), annotation(query))
+    } finally {
+        sql """ HBO DELETE STATISTICS FINGERPRINT='${condFingerprint}'; """
+    }
+
+    // value validation: the factor is a multiplier, so it must be positive
+    test {
+        sql """ HBO SET STATISTICS VALUE=0 TYPE=JOIN_EXPANSION FINGERPRINT='${condFingerprint}'
+                STRUCT='${condCanonical}'; """
+        exception "hbo join expansion must be greater than 0"
     }
     test {
         sql """ HBO SET STATISTICS VALUE=2 TYPE=JOIN_EXPANSION FINGERPRINT='not-a-fingerprint'

@@ -31,13 +31,13 @@ suite("hbo_persist_internal_db_test", "nonConcurrent") {
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_persist_pinned_to_internal_db" = "true"); """
         try {
             // SET persists the pinned entry (including its stats type) into the internal table
-            sql """ HBO SET STATISTICS VALUE=123456 TYPE=FILTER_SMALL FINGERPRINT='${fingerprint}' STRUCT='${structCanonical}'; """
-            qt_set_persisted """ SELECT fingerprint, row_count, stats_type, fingerprint_kind, struct_info
+            sql """ HBO SET STATISTICS VALUE=123456 TYPE=EXACT FINGERPRINT='${fingerprint}' STRUCT='${structCanonical}'; """
+            qt_set_persisted """ SELECT fingerprint, row_count, stats_type, literal_mode, struct_info
                 FROM ${tableName} WHERE fingerprint = '${fingerprint}'; """
 
             // DELETE removes the row from the internal table
             sql """ HBO DELETE STATISTICS FINGERPRINT='${fingerprint}'; """
-            qt_delete_cleared """ SELECT fingerprint, row_count, stats_type, fingerprint_kind, struct_info
+            qt_delete_cleared """ SELECT fingerprint, row_count, stats_type, literal_mode, struct_info
                 FROM ${tableName} WHERE fingerprint = '${fingerprint}'; """
 
             // a join expansion entry is the same kind of entry as a pinned row count - it lives in

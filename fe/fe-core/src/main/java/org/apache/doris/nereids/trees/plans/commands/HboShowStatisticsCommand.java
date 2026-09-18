@@ -90,7 +90,7 @@ public class HboShowStatisticsCommand extends ShowCommand {
         this.metaData = ShowResultSetMetaData.builder()
                 .addColumn(new Column("Kind", ScalarType.createVarchar(16)))
                 .addColumn(new Column("Fingerprint", ScalarType.createVarchar(64)))
-                .addColumn(new Column("Granularity", ScalarType.createVarchar(16)))
+                .addColumn(new Column("LiteralMode", ScalarType.createVarchar(16)))
                 .addColumn(new Column("Type", ScalarType.createVarchar(16)))
                 .addColumn(new Column("Value", ScalarType.createVarchar(32)))
                 .addColumn(new Column(fullStructInfo ? "StructInfo" : "SimpleStruct",
@@ -121,9 +121,7 @@ public class HboShowStatisticsCommand extends ShowCommand {
                 List<String> row = new ArrayList<>();
                 row.add(SCOPE_PINNED);
                 row.add(pinned.getFingerprint());
-                // the literal mode is only known once the entry matched a plan node; an expansion
-                // entry never matches a sub tree, so it has no granularity
-                row.add(pinned.isExpansion() ? "-" : pinned.getFingerprintKind().name().toLowerCase(Locale.ROOT));
+                row.add(pinned.getLiteralMode().name().toLowerCase(Locale.ROOT));
                 row.add(pinned.getType().name().toLowerCase(Locale.ROOT));
                 // a JOIN_EXPANSION entry carries a fan-out factor instead of a row count; the x
                 // suffix keeps the two readable in one column

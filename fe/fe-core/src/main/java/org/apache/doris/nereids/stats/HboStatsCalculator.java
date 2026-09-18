@@ -143,7 +143,9 @@ public class HboStatsCalculator extends StatsCalculator {
         double leftRows = groupExpression.childStatistics(0).getRowCount();
         double rightRows = groupExpression.childStatistics(1).getRowCount();
         double expansion = expansionOpt.get().getExpansion();
-        double estimated = expansion * Math.max(leftRows, rightRows);
+        // the factor is relative to the left input of this node: 0.1 means "the join keeps 10% of
+        // the left input", 1000 means "it fans out to 1000 times the left input"
+        double estimated = expansion * leftRows;
         // an equi join can never produce more rows than the cartesian product of its inputs
         estimated = Math.min(estimated, leftRows * rightRows);
         // outer joins can not produce fewer rows than their preserved side
@@ -234,7 +236,8 @@ public class HboStatsCalculator extends StatsCalculator {
             HboPlanStatisticsManager.PinnedHboStatistics pinned = pinnedOpt.get();
             // report which kind of injected entry matched (and, for FILTER_SMALL, why it was
             // skipped) through the explain annotation
-            recordPinnedEntryType(fingerprint.get(), pinned.getType());
+            recordPinnedEntryType(fingerprint.get(), pinned.getType(),
+                    mode == GroupStructInfo.LiteralMode.NO_LITERAL ? "no_literal" : "with_literal");
             if (pinned.getType() == HboPlanStatisticsManager.PinnedType.FILTER_SMALL
                     && guardInputStats != null
                     && !isExtremeSmallFilterEstimate(delegateStats.getRowCount(),
@@ -244,9 +247,6 @@ public class HboStatsCalculator extends StatsCalculator {
                 recordGuardSkip(fingerprint.get(), delegateStats.getRowCount(), guardInputStats.getRowCount());
                 continue;
             }
-            pinned.bindFingerprintKind(mode == GroupStructInfo.LiteralMode.NO_LITERAL
-                    ? HboPlanStatisticsManager.FingerprintKind.NO_LITERAL
-                    : HboPlanStatisticsManager.FingerprintKind.WITH_LITERAL);
             return delegateStats.withRowCountAndHboFlag(pinned.getRows());
         }
         return null;
@@ -284,13 +284,16 @@ public class HboStatsCalculator extends StatsCalculator {
     }
 
     /** Record (per query) that a FILTER_SMALL entry was skipped, for the explain annotation. */
-    private void recordPinnedEntryType(String fingerprint, HboPlanStatisticsManager.PinnedType type) {
+    private void recordPinnedEntryType(String fingerprint, HboPlanStatisticsManager.PinnedType type,
+            String literalMode) {
         String queryId = currentQueryId();
         if (queryId == null) {
             return;
         }
         Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
                 .putPinnedEntryType(queryId, fingerprint, type.name().toLowerCase(Locale.ROOT));
+        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                .putPinnedLiteralMode(queryId, fingerprint, literalMode);
     }
 
     private void recordGuardSkip(String fingerprint, double estimatedRows, double inputRows) {

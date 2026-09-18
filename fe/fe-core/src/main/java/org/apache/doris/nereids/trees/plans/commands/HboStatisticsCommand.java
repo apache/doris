@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.stats.GroupStructInfo;
+import org.apache.doris.nereids.stats.HboPlanStatisticsManager.LiteralMode;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager.PinnedType;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -71,6 +72,8 @@ public class HboStatisticsCommand extends Command {
     private final double value;
     private final PinnedType type;
     private final String structCanonical;
+    // which struct info the entry is keyed by (WITH_LITERAL / NO_LITERAL), null means "derive"
+    private final String literalModeName;
 
     /**
      * HboStatisticsCommand
@@ -80,9 +83,11 @@ public class HboStatisticsCommand extends Command {
      * @param value injected output row count, or the fan-out factor for JOIN_EXPANSION
      * @param typeName optional EXACT / FILTER_SMALL, null means EXACT
      * @param structCanonical optional human-readable simplified struct info canonical string
+     * @param literalModeName optional WITH_LITERAL / NO_LITERAL, null means the constant agnostic
+     *                        (NO_LITERAL) form, which is also what the struct is folded to
      */
     public HboStatisticsCommand(Op op, String scopeName, String fingerprint, double value,
-            String typeName, String structCanonical) {
+            String typeName, String structCanonical, String literalModeName) {
         super(PlanType.HBO_STATISTICS_COMMAND);
         this.op = op;
         this.scope = parseScope(scopeName);
@@ -92,6 +97,7 @@ public class HboStatisticsCommand extends Command {
         this.value = value;
         this.type = typeName == null ? PinnedType.EXACT : PinnedType.fromName(typeName);
         this.structCanonical = structCanonical == null ? "" : structCanonical;
+        this.literalModeName = literalModeName;
     }
 
     @Override
@@ -112,31 +118,37 @@ public class HboStatisticsCommand extends Command {
             // a learned entry only carries the row count; the other types are pinned-only concepts
             throw new AnalysisException("TYPE is not supported for hbo learned statistics");
         }
+        if (scope == Scope.LEARNED && literalModeName != null) {
+            throw new AnalysisException("LITERAL_MODE is not supported for hbo learned statistics");
+        }
         if (op == Op.SET) {
+            LiteralMode literalMode = resolveLiteralMode(literalModeName);
             // a pinned entry is only displayable when it carries its struct info, and a struct info
             // which does not belong to the fingerprint would make the SHOW output misleading
-            validateStructCanonical(fingerprint, structCanonical, scope != Scope.LEARNED);
+            String canonical = validateStructCanonical(fingerprint, structCanonical, type, literalMode,
+                    scope != Scope.LEARNED);
             if (type == PinnedType.JOIN_EXPANSION) {
-                if (value < 1) {
+                // a fan-out factor: >= 1 means the join expands, < 1 means it filters (0.1 keeps 10%
+                // of the left input), so only zero and negative values are meaningless
+                if (value <= 0) {
                     throw new AnalysisException(
-                            "hbo join expansion must be greater than or equal to 1: " + value);
+                            "hbo join expansion must be greater than 0: " + value);
                 }
             } else if (value < 0 || value != Math.floor(value)) {
                 // the VALUE of every other type is a row count
                 throw new AnalysisException("hbo statistics VALUE must be a non-negative integer"
                         + " for type " + type + ": " + value);
             }
+            if (scope == Scope.LEARNED) {
+                hboManager.putLearnedPlanStatistics(fingerprint, (long) value, structCanonical);
+            } else if (type == PinnedType.JOIN_EXPANSION) {
+                hboManager.putPinnedExpansionStatistics(fingerprint, value, canonical);
+            } else {
+                hboManager.putPinnedPlanStatistics(fingerprint, (long) value, type, canonical, literalMode);
+            }
+            return;
         }
         switch (op) {
-            case SET:
-                if (scope == Scope.LEARNED) {
-                    hboManager.putLearnedPlanStatistics(fingerprint, (long) value, structCanonical);
-                } else if (type == PinnedType.JOIN_EXPANSION) {
-                    hboManager.putPinnedExpansionStatistics(fingerprint, value, structCanonical);
-                } else {
-                    hboManager.putPinnedPlanStatistics(fingerprint, (long) value, type, structCanonical);
-                }
-                break;
             case DELETE:
                 if (scope == Scope.LEARNED) {
                     hboManager.removeLearnedPlanStatistics(fingerprint);
@@ -147,6 +159,30 @@ public class HboStatisticsCommand extends Command {
             default:
                 throw new IllegalStateException("unexpected hbo statistics op: " + op);
         }
+    }
+
+    /**
+     * Which struct info the entry is keyed by. An explicit LITERAL_MODE wins (the pasted struct is
+     * folded accordingly); the default is the constant agnostic form, because that is the key the
+     * join / aggregation read paths use and it makes a filter injection survive a constant change.
+     */
+    private static LiteralMode resolveLiteralMode(String modeName) throws AnalysisException {
+        if (modeName == null) {
+            return LiteralMode.NO_LITERAL;
+        }
+        for (LiteralMode mode : LiteralMode.values()) {
+            if (mode.name().equalsIgnoreCase(modeName)) {
+                return mode;
+            }
+        }
+        throw new AnalysisException(
+                "invalid hbo statistics LITERAL_MODE, expect WITH_LITERAL or NO_LITERAL: " + modeName);
+    }
+
+    /** The canonical the entry is keyed by: the pasted struct, folded for the agnostic mode. */
+    private static String canonicalFor(String structCanonical, LiteralMode literalMode) {
+        return literalMode == LiteralMode.NO_LITERAL
+                ? GroupStructInfo.toNoLiteral(structCanonical) : structCanonical;
     }
 
     @Override
@@ -203,21 +239,39 @@ public class HboStatisticsCommand extends Command {
      * @param required whether a missing struct info is an error (pinned entries are displayed by
      *                 {@code HBO SHOW STATISTICS}, so they must carry one)
      */
-    private void validateStructCanonical(String targetFingerprint, String structCanonical, boolean required)
-            throws AnalysisException {
+    private String validateStructCanonical(String targetFingerprint, String structCanonical, PinnedType type,
+            LiteralMode literalMode, boolean required) throws AnalysisException {
         if (structCanonical.isEmpty()) {
             if (required) {
                 throw new AnalysisException("hbo statistics STRUCT is required,"
                         + " copy the struct= value of the target node from EXPLAIN");
             }
-            return;
+            return "";
         }
-        if (isFingerprintOf(targetFingerprint, structCanonical)
-                || isFingerprintOf(targetFingerprint, GroupStructInfo.toNoLiteral(structCanonical))) {
-            return;
+        // the type decides which struct info the entry can be keyed by at all
+        if (type == PinnedType.JOIN_EXPANSION && !structCanonical.startsWith("JE{")) {
+            throw new AnalysisException("TYPE=JOIN_EXPANSION is keyed by the join conditions,"
+                    + " its STRUCT must be the condition canonical: STRUCT='JE{...}'");
+        }
+        if (type == PinnedType.FILTER_SMALL && !structCanonical.startsWith("F{")) {
+            throw new AnalysisException("TYPE=FILTER_SMALL can only guard a filter entry,"
+                    + " its STRUCT must be a filter root: STRUCT='F{...}(...)'");
+        }
+        if (type != PinnedType.JOIN_EXPANSION && literalMode == LiteralMode.WITH_LITERAL
+                && (structCanonical.startsWith("J{") || structCanonical.startsWith("A{"))) {
+            throw new AnalysisException("a join / aggregation entry has no literal carrying form"
+                    + " (their canonical is always constant agnostic), use LITERAL_MODE=NO_LITERAL");
+        }
+        if (type == PinnedType.JOIN_EXPANSION && literalMode == LiteralMode.WITH_LITERAL) {
+            throw new AnalysisException("a join expansion entry is keyed by the constant agnostic"
+                    + " condition canonical, use LITERAL_MODE=NO_LITERAL");
+        }
+        String canonical = canonicalFor(structCanonical, literalMode);
+        if (isFingerprintOf(targetFingerprint, canonical)) {
+            return canonical;
         }
         throw new AnalysisException("hbo statistics STRUCT does not match the fingerprint " + targetFingerprint
-                + ", copy the struct= value of the target node from EXPLAIN");
+                + " for LITERAL_MODE=" + literalMode + ", copy the struct= value of the target node from EXPLAIN");
     }
 
     private static boolean isFingerprintOf(String targetFingerprint, String structCanonical) {

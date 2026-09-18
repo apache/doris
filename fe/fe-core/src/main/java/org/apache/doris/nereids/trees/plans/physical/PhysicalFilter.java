@@ -80,11 +80,11 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public String toString() {
-        return withHboExplainInfo(Utils.toSqlString("PhysicalFilter[" + id.asInt() + "]"
+        return Utils.toSqlString("PhysicalFilter[" + id.asInt() + "]"
                 + getGroupIdWithPrefix(),
                 "stats", statistics,
                 "predicates", getPredicate()
-        ));
+        );
     }
 
     @Override

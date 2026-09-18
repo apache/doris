@@ -281,8 +281,8 @@ public abstract class AbstractPhysicalJoin<
             args.add("RFs");
             args.add(runtimeFilters.stream().map(rf -> rf.toString() + " ").collect(Collectors.toList()));
         }
-        return withHboExplainInfo(Utils.toSqlString(this.getClass().getSimpleName() + "[" + id.asInt() + "]"
-                + getGroupIdWithPrefix(), args.toArray()));
+        return Utils.toSqlString(this.getClass().getSimpleName() + "[" + id.asInt() + "]"
+                + getGroupIdWithPrefix(), args.toArray());
     }
 
     /**

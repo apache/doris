@@ -108,8 +108,14 @@ public class HboPlanStatisticsManager {
      * injection time (the statement only carries the fingerprint) and is bound lazily to the mode
      * that actually matched on the first application, purely for diagnostics / {@code HBO SHOW}.
      */
-    public enum FingerprintKind {
-        UNKNOWN,
+    /**
+     * Which struct info an entry is keyed by: {@link #WITH_LITERAL} carries the literal values
+     * ({@code lit(1:INT)}, only that constant matches), {@link #NO_LITERAL} has every literal
+     * replaced by {@code lit(*)} (every constant of the same predicate shape matches). It is
+     * decided when the entry is injected (see {@code HBO SET STATISTICS ... LITERAL_MODE}) and
+     * persisted, so it is known without ever applying the entry.
+     */
+    public enum LiteralMode {
         WITH_LITERAL,
         NO_LITERAL
     }
@@ -173,7 +179,7 @@ public class HboPlanStatisticsManager {
      * @param structCanonical optional human-readable simplified struct info canonical string
      */
     public void putPinnedPlanStatistics(String fingerprint, long rows, String structCanonical) {
-        putPinnedPlanStatistics(fingerprint, rows, PinnedType.EXACT, structCanonical);
+        putPinnedPlanStatistics(fingerprint, rows, PinnedType.EXACT, structCanonical, LiteralMode.NO_LITERAL);
     }
 
     /**
@@ -181,8 +187,9 @@ public class HboPlanStatisticsManager {
      * @param type how the injected row count is applied (unconditional vs filter-small guard)
      * @param structCanonical optional human-readable simplified struct info canonical string
      */
-    public void putPinnedPlanStatistics(String fingerprint, long rows, PinnedType type, String structCanonical) {
-        putPinnedStatistics(fingerprint, rows, type, structCanonical, 0);
+    public void putPinnedPlanStatistics(String fingerprint, long rows, PinnedType type, String structCanonical,
+            LiteralMode literalMode) {
+        putPinnedStatistics(fingerprint, rows, type, structCanonical, 0, literalMode);
     }
 
     /**
@@ -191,13 +198,14 @@ public class HboPlanStatisticsManager {
      * @param expansion fan-out factor, only for {@link PinnedType#JOIN_EXPANSION} entries
      */
     private void putPinnedStatistics(String fingerprint, long rows, PinnedType type, String structCanonical,
-            double expansion) {
+            double expansion, LiteralMode literalMode) {
         // LRU bounded by Config.hbo_pinned_stats_cache_num; pinned entries are otherwise never
         // expired automatically and are only removed by HBO DELETE STATISTICS or eviction
         long createTimeMs = System.currentTimeMillis();
         synchronized (pinnedLoadLock) {
             pinnedPlanStatistics.put(fingerprint,
-                    new PinnedHboStatistics(fingerprint, rows, type, structCanonical, expansion, createTimeMs));
+                    new PinnedHboStatistics(fingerprint, rows, type, structCanonical, expansion, literalMode,
+                            createTimeMs));
             // a SET after a failed DELETE re-creates the entry: drop the deletion intent so a
             // pending load does not skip the re-created row
             pendingLoadTombstones.remove(fingerprint);
@@ -206,7 +214,8 @@ public class HboPlanStatisticsManager {
             // and, when the best-effort writes succeed, the stored row matches the last memory
             // writer (a failed write only logs a warning and may reappear after a FE restart)
             if (persistenceEnabled()) {
-                HboStatisticsStore.persist(fingerprint, rows, type, structCanonical, expansion, createTimeMs);
+                HboStatisticsStore.persist(fingerprint, rows, type, structCanonical, expansion, literalMode,
+                        createTimeMs);
             }
         }
     }
@@ -252,7 +261,9 @@ public class HboPlanStatisticsManager {
      * @param condCanonical the canonical equality-condition set the factor was measured for
      */
     public void putPinnedExpansionStatistics(String fingerprint, double expansion, String condCanonical) {
-        putPinnedStatistics(fingerprint, 0, PinnedType.JOIN_EXPANSION, condCanonical, expansion);
+        // a condition key never carries a literal by itself: it is the constant agnostic form
+        putPinnedStatistics(fingerprint, 0, PinnedType.JOIN_EXPANSION, condCanonical, expansion,
+                LiteralMode.NO_LITERAL);
     }
 
     /**
@@ -403,16 +414,17 @@ public class HboPlanStatisticsManager {
         // fan-out factor of a PinnedType.JOIN_EXPANSION entry, 0 for a row count entry
         private final double expansion;
         private final long createTime;
-        // which literal mode matched this entry; bound lazily on first application (diagnostics)
-        private volatile FingerprintKind fingerprintKind = FingerprintKind.UNKNOWN;
+        // which struct info this entry is keyed by; decided at injection time and persisted
+        private final LiteralMode literalMode;
 
         PinnedHboStatistics(String fingerprint, long rows, PinnedType type, String structCanonical,
-                double expansion, long createTime) {
+                double expansion, LiteralMode literalMode, long createTime) {
             this.fingerprint = fingerprint;
             this.rows = rows;
             this.type = type == null ? PinnedType.EXACT : type;
             this.structCanonical = structCanonical == null ? "" : structCanonical;
             this.expansion = expansion;
+            this.literalMode = literalMode == null ? LiteralMode.NO_LITERAL : literalMode;
             this.createTime = createTime;
         }
 
@@ -426,15 +438,9 @@ public class HboPlanStatisticsManager {
             return expansion;
         }
 
-        /** Bind the fingerprint kind observed on the first successful application (idempotent). */
-        public void bindFingerprintKind(FingerprintKind kind) {
-            if (fingerprintKind == FingerprintKind.UNKNOWN && kind != null) {
-                fingerprintKind = kind;
-            }
-        }
-
-        public FingerprintKind getFingerprintKind() {
-            return fingerprintKind;
+        /** Which struct info this entry is keyed by. */
+        public LiteralMode getLiteralMode() {
+            return literalMode;
         }
 
         public PinnedType getType() {

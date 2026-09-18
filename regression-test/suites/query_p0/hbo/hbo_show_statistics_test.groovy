@@ -47,11 +47,14 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         def fakeFingerprint = "f" * 64
         def filterText = explainText("select * from hbo_sp_r where b = 1")
         def matcher = (filterText =~
-                /kind=filter-on-scan\(table=[^)]*hbo_sp_r[^)]*\) fingerprint='([0-9a-f]+)' fingerprintNoLiteral='([0-9a-f]+)' struct='([^']*)'/)
-        assertTrue(matcher.find(), "no filter-on-scan annotation found:\n" + filterText)
+                /filter-on-scan\(table=[^)]*hbo_sp_r[^)]*\) type=\w+ literal_mode=with_literal fingerprint='([0-9a-f]+)' struct='([^']*)'/)
+        assertTrue(matcher.find(), "no literal filter annotation found:\n" + filterText)
+        def agnosticMatcher = (filterText =~
+                /filter-on-scan\(table=[^)]*hbo_sp_r[^)]*\) type=\w+ literal_mode=no_literal fingerprint='([0-9a-f]+)' struct='([^']*)'/)
+        assertTrue(agnosticMatcher.find(), "no agnostic filter annotation found:\n" + filterText)
         def fingerprint = matcher.group(1)
-        def noLiteralFingerprint = matcher.group(2)
-        def structCanonical = matcher.group(3)
+        def noLiteralFingerprint = agnosticMatcher.group(1)
+        def structCanonical = matcher.group(2)
 
         // a pinned entry must be labelled with the struct info of the node it was taken from: a
         // missing struct info, or one which does not belong to the fingerprint, is rejected
@@ -63,7 +66,8 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
             sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${fakeFingerprint}' STRUCT='${structCanonical}'; """
             exception "hbo statistics STRUCT does not match the fingerprint ${fakeFingerprint}, copy the struct= value of the target node from EXPLAIN"
         }
-        sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${fingerprint}' STRUCT='${structCanonical}'; """
+        sql """ HBO SET STATISTICS VALUE=123456 LITERAL_MODE=WITH_LITERAL FINGERPRINT='${fingerprint}'
+                STRUCT='${structCanonical}'; """
         injected.add(fingerprint)
 
         // default output: the simplified struct info, which LIKE matches
@@ -74,7 +78,9 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         assertEquals(fingerprint, pinnedRows[0][1].toString())
         // the granularity is unknown until the entry matched a plan node; the type comes from the
         // statement (default EXACT)
-        assertEquals("unknown", pinnedRows[0][2].toString())
+        // the literal mode is decided when the entry is injected (and persisted), so it is known
+        // before the entry ever matched a plan node
+        assertEquals("with_literal", pinnedRows[0][2].toString())
         assertEquals("exact", pinnedRows[0][3].toString())
         assertEquals("123456", pinnedRows[0][4].toString())
         assertEquals("F{b = 1}(S{hbo_test.hbo_sp_r})", pinnedRows[0][5].toString())
@@ -95,19 +101,25 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
 
         // the constant agnostic fingerprint of the same node accepts the same struct info: the
         // literals of the pasted canonical form are wildcarded before the check
-        sql """ HBO SET STATISTICS VALUE=123456 FINGERPRINT='${noLiteralFingerprint}' STRUCT='${structCanonical}'; """
-        assertEquals(2, sql(""" HBO SHOW PINNED STATISTICS LIKE '%F{b = 1}%'; """).size())
+        // the constant agnostic entry accepts the same struct info: the literals are folded, so the
+        // entry is keyed by the shape of the predicate and shows the wildcarded struct
+        sql """ HBO SET STATISTICS VALUE=123456 LITERAL_MODE=NO_LITERAL FINGERPRINT='${noLiteralFingerprint}'
+                STRUCT='${structCanonical}'; """
+        assertEquals(1, sql(""" HBO SHOW PINNED STATISTICS LIKE '%F{b = 1}%'; """).size())
+        assertEquals(1, sql(""" HBO SHOW PINNED STATISTICS LIKE '%F{b = *}%'; """).size())
         sql """ HBO DELETE STATISTICS FINGERPRINT='${noLiteralFingerprint}'; """
 
         // join entry: the simplified form keeps only the leaves of the chain (no join type, no join
         // condition), the aggregation entry keeps only its grouping keys and its child
         def joinText = explainText("select * from hbo_sp_t x join hbo_sp_r y on x.a = y.a")
-        def joinMatcher = (joinText =~ /kind=join fingerprint='([0-9a-f]+)' struct='([^']*)' condFingerprint=/)
+        def joinMatcher = (joinText =~
+                /\] join type=exact literal_mode=no_literal fingerprint='([0-9a-f]+)' struct='(J\{[^']*)'/)
         assertTrue(joinMatcher.find(), "no join annotation found:\n" + joinText)
         def joinFingerprint = joinMatcher.group(1)
         def joinStructCanonical = joinMatcher.group(2)
         def aggText = explainText("select x.a, count(*) from hbo_sp_t x join hbo_sp_r y on x.a = y.a group by x.a")
-        def aggMatcher = (aggText =~ /kind=aggregation fingerprint='([0-9a-f]+)' struct='([^']*)'/)
+        def aggMatcher = (aggText =~
+                /\] aggregation type=exact literal_mode=no_literal fingerprint='([0-9a-f]+)' struct='(A\{[^']*)'/)
         assertTrue(aggMatcher.find(), "no aggregation annotation found:\n" + aggText)
         def aggFingerprint = aggMatcher.group(1)
         def aggStructCanonical = aggMatcher.group(2)

@@ -7188,13 +7188,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitHboSetStatistics(DorisParser.HboSetStatisticsContext ctx) {
         return visitHboSetStatisticsWords(ctx.hbo, ctx.scope, ctx.statistics, ctx.value, null,
-                ctx.fingerprintWord, ctx.fingerprint, ctx.structCanonical);
+                ctx.fingerprintWord, ctx.fingerprint, ctx.structCanonical, ctx.literalModeWord,
+                ctx.literalMode);
     }
 
     @Override
     public LogicalPlan visitHboSetStatisticsTyped(DorisParser.HboSetStatisticsTypedContext ctx) {
         return visitHboSetStatisticsWords(ctx.hbo, ctx.scope, ctx.statistics, ctx.value, ctx.typeName,
-                ctx.fingerprintWord, ctx.fingerprint, ctx.structCanonical);
+                ctx.fingerprintWord, ctx.fingerprint, ctx.structCanonical, ctx.literalModeWord,
+                ctx.literalMode);
     }
 
     /** Shared handling of the two HBO SET [scope] STATISTICS alternatives (with / without TYPE). */
@@ -7206,9 +7208,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             org.antlr.v4.runtime.ParserRuleContext typeWord,
             org.antlr.v4.runtime.ParserRuleContext fingerprintWord,
             org.antlr.v4.runtime.Token fingerprint,
-            org.antlr.v4.runtime.Token structCanonical) {
+            org.antlr.v4.runtime.Token structCanonical,
+            org.antlr.v4.runtime.ParserRuleContext literalModeWord,
+            org.antlr.v4.runtime.ParserRuleContext literalMode) {
         checkHboStatementWords(hboWord, statisticsWord);
         checkHboWord(fingerprintWord, "FINGERPRINT");
+        if (literalModeWord != null) {
+            checkHboWord(literalModeWord, "LITERAL_MODE");
+        }
         double parsedValue;
         try {
             parsedValue = Double.parseDouble(value.getText());
@@ -7220,7 +7227,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 stripQuotes(fingerprint.getText()),
                 parsedValue,
                 typeWord == null ? null : typeWord.getText(),
-                structCanonical == null ? "" : stripQuotes(structCanonical.getText()));
+                structCanonical == null ? "" : stripQuotes(structCanonical.getText()),
+                literalMode == null ? null : literalMode.getText());
     }
 
     @Override
@@ -7246,7 +7254,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         checkHboWord(ctx.fingerprintWord, "FINGERPRINT");
         return new HboStatisticsCommand(HboStatisticsCommand.Op.DELETE,
                 ctx.scope == null ? null : ctx.scope.getText(),
-                stripQuotes(ctx.fingerprint.getText()), 0, null, "");
+                stripQuotes(ctx.fingerprint.getText()), 0, null, "", null);
     }
 
     @Override

@@ -2373,10 +2373,10 @@ public class Config extends ConfigBase {
      * DELETE once the table is reachable. A FE never refreshes entries SET by other FEs during
      * its lifetime.
      */
-    @ConfField(mutable = true, description = "The default setting is false. When true, HBO SET/DELETE STATISTICS "
+    @ConfField(mutable = true, description = "The default setting is true. When true, HBO SET/DELETE STATISTICS "
             + "entries are persisted into __internal_schema.hbo_statistics and reloaded after FE "
             + "restart.")
-    public static boolean hbo_persist_pinned_to_internal_db = false;
+    public static boolean hbo_persist_pinned_to_internal_db = true;
 
     /**
      * Maximum number of events to poll in each RPC.

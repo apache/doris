@@ -40,13 +40,14 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
     def firstFragment = { String text -> text.substring(0, text.indexOf("PLAN FRAGMENT 1")) }
     def probeTable = { firstFragment(explainText()) }
     def filterFingerprint = {
-        def matcher = (explainText() =~ /kind=filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) fingerprint='([0-9a-f]+)'/)
+        def matcher = (explainText() =~
+                /filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) type=\w+ literal_mode=with_literal fingerprint='([0-9a-f]+)'/)
         assertTrue(matcher.find(), "no filter fingerprint: " + explainText())
         matcher.group(1)
     }
     def filterStruct = {
         def matcher = (explainText() =~
-                /kind=filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) fingerprint='[0-9a-f]+' fingerprintNoLiteral='[0-9a-f]+' struct='([^']*)'/)
+                /filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) type=\w+ literal_mode=with_literal fingerprint='[0-9a-f]+' struct='([^']*)'/)
         assertTrue(matcher.find(), "no filter struct info: " + explainText())
         matcher.group(1)
     }
@@ -70,8 +71,9 @@ suite("hbo_learned_injection_test", "nonConcurrent") {
         def afterText = explainText()
         assertTrue(firstFragment(afterText).contains("TABLE: hbo_test.hbo_li_r(hbo_li_r)"), afterText)
         // the learned hit is reported by the node level marker of the physical plan
-        def nodeAfter = (sql """ explain physical plan ${query} """).flatten().join("\n")
-        assertTrue((nodeAfter =~ /PhysicalFilter\[\d+\].*hboUsed=true/).find(), nodeAfter)
+        def nodeAfter = explainText()
+        assertTrue((nodeAfter =~ /\] filter-on-scan\(table=[^)]*hbo_li_r[^)]*\) type=\w+ literal_mode=\w+ fingerprint='[0-9a-f]+' struct='F\{[^']*' used=true/).find(),
+                nodeAfter)
     } finally {
         sql """ HBO DELETE LEARNED STATISTICS FINGERPRINT='${fingerprint}'; """
     }
