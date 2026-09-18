@@ -19,6 +19,8 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.ExpressionEvaluator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Decode;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Encode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
@@ -27,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -96,8 +99,70 @@ class StringArithmeticTest {
         assertUrlDecodeValue("%EF%BF%BD", "�");
     }
 
+    @Test
+    void testEncodeFoldsSupportedCharsets() {
+        assertEncodeValue("A", "US-ASCII", new byte[] {0x41});
+        assertEncodeValue("é", "ISO-8859-1", new byte[] {(byte) 0xE9});
+        assertEncodeValue("中", "UTF-8", new byte[] {(byte) 0xE4, (byte) 0xB8, (byte) 0xAD});
+        assertEncodeValue("中", "UTF-16BE", new byte[] {0x4E, 0x2D});
+        assertEncodeValue("中", "UTF-16LE", new byte[] {0x2D, 0x4E});
+        assertEncodeValue("中", "utf-16", new byte[] {(byte) 0xFE, (byte) 0xFF, 0x4E, 0x2D});
+        assertEncodeValue("😀", "UTF-16BE", new byte[] {(byte) 0xD8, 0x3D, (byte) 0xDE, 0x00});
+        assertEncodeValue("", "UTF-16", new byte[] {});
+    }
+
+    @Test
+    void testDecodeFoldsSupportedCharsets() {
+        assertDecodeValue(new byte[] {0x41}, "US-ASCII", "A");
+        assertDecodeValue(new byte[] {(byte) 0xE9}, "ISO-8859-1", "é");
+        assertDecodeValue(new byte[] {(byte) 0xE4, (byte) 0xB8, (byte) 0xAD}, "UTF-8", "中");
+        assertDecodeValue(new byte[] {0x4E, 0x2D}, "UTF-16BE", "中");
+        assertDecodeValue(new byte[] {0x2D, 0x4E}, "UTF-16LE", "中");
+        assertDecodeValue(new byte[] {(byte) 0xFE, (byte) 0xFF, 0x4E, 0x2D}, "UTF-16", "中");
+        assertDecodeValue(new byte[] {(byte) 0xFF, (byte) 0xFE, 0x2D, 0x4E}, "utf-16", "中");
+        assertDecodeValue(new byte[] {0x4E, 0x2D}, "UTF-16", "中");
+        assertDecodeValue(new byte[] {(byte) 0xFE, (byte) 0xFF}, "UTF-16", "");
+        assertDecodeValue(new byte[] {(byte) 0xD8, 0x3D, (byte) 0xDE, 0x00}, "UTF-16BE", "😀");
+        assertDecodeValue(new byte[] {}, "UTF-16", "");
+    }
+
+    @Test
+    void testInvalidCharacterConversionDoesNotFold() {
+        Encode unmappable = new Encode(new StringLiteral("中"), new StringLiteral("US-ASCII"));
+        Decode malformed = new Decode(new VarBinaryLiteral(new byte[] {(byte) 0xE4, (byte) 0xB8}),
+                new StringLiteral("UTF-8"));
+        Encode unsupported = new Encode(new StringLiteral("text"), new StringLiteral("GBK"));
+
+        Assertions.assertSame(unmappable, ExpressionEvaluator.INSTANCE.eval(unmappable));
+        Assertions.assertSame(malformed, ExpressionEvaluator.INSTANCE.eval(malformed));
+        Assertions.assertSame(unsupported, ExpressionEvaluator.INSTANCE.eval(unsupported));
+    }
+
+    @Test
+    void testUnicodeCaseFoldedCharacterSetDoesNotFold() {
+        String unicodeCaseFoldedCharset = "U\u017F-ASCII"; // U+017F LATIN SMALL LETTER LONG S
+        Encode encode = new Encode(new StringLiteral("A"), new StringLiteral(unicodeCaseFoldedCharset));
+        Decode decode = new Decode(new VarBinaryLiteral(new byte[] {0x41}),
+                new StringLiteral(unicodeCaseFoldedCharset));
+
+        Assertions.assertSame(encode, ExpressionEvaluator.INSTANCE.eval(encode));
+        Assertions.assertSame(decode, ExpressionEvaluator.INSTANCE.eval(decode));
+    }
+
     private void assertUrlDecodeValue(String encoded, String expected) {
         Expression result = ExpressionEvaluator.INSTANCE.eval(new UrlDecode(new StringLiteral(encoded)));
+        Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
+    }
+
+    private void assertEncodeValue(String value, String characterSet, byte[] expected) {
+        Expression result = ExpressionEvaluator.INSTANCE.eval(
+                new Encode(new StringLiteral(value), new StringLiteral(characterSet)));
+        Assertions.assertArrayEquals(expected, (byte[]) ((VarBinaryLiteral) result).getValue());
+    }
+
+    private void assertDecodeValue(byte[] value, String characterSet, String expected) {
+        Expression result = ExpressionEvaluator.INSTANCE.eval(
+                new Decode(new VarBinaryLiteral(value), new StringLiteral(characterSet)));
         Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
     }
 

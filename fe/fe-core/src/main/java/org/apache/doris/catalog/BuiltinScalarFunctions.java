@@ -183,6 +183,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Decode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DecodeAsVarchar;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DeduplicateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
@@ -200,6 +201,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Dsqrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.E;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Elt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Encode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsBigInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsLargeInt;
@@ -778,6 +780,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(DaysDiff.class, "days_diff"),
             scalar(DaysSub.class, "days_sub", "date_sub", "subdate"),
             scalar(Dceil.class, "dceil"),
+            scalar(Decode.class, "decode"),
             scalar(DecodeAsVarchar.class, "decode_as_varchar"),
             scalar(DeduplicateMap.class, "deduplicate_map"),
             scalar(Degrees.class, "degrees"),
@@ -797,6 +800,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ElementAt.class, "element_at", "struct_element"),
             scalar(Elt.class, "elt"),
             scalar(Embed.class, "embed"),
+            scalar(Encode.class, "encode"),
             scalar(EncodeAsSmallInt.class, "encode_as_smallint"),
             scalar(EncodeAsInt.class, "encode_as_int"),
             scalar(EncodeAsBigInt.class, "encode_as_bigint"),
