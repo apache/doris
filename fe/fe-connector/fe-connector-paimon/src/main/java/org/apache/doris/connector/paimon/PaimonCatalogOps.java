@@ -480,9 +480,8 @@ public interface PaimonCatalogOps {
                 fileStoreTable.catalogEnvironment().tableQueryAuth(options).auth(null);
             }
             Snapshot snapshot = TimeTravelUtil.tryTravelOrLatest(fileStoreTable);
-            // Old snapshot versions can omit totalRecordCount; an empty table has no snapshot.
-            return snapshot == null || snapshot.totalRecordCount() == null
-                    ? -1 : snapshot.totalRecordCount();
+            // An empty table has no snapshot. Paimon 1.4 exposes totalRecordCount as a primitive long.
+            return snapshot == null ? -1 : snapshot.totalRecordCount();
         }
 
         @Override
