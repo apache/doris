@@ -140,9 +140,10 @@ class StringArithmeticTest {
 
     @Test
     void testUnicodeCaseFoldedCharacterSetDoesNotFold() {
-        Encode encode = new Encode(new StringLiteral("A"), new StringLiteral("U\u017F-ASCII"));
+        String unicodeCaseFoldedCharset = "U\u017F-ASCII"; // U+017F LATIN SMALL LETTER LONG S
+        Encode encode = new Encode(new StringLiteral("A"), new StringLiteral(unicodeCaseFoldedCharset));
         Decode decode = new Decode(new VarBinaryLiteral(new byte[] {0x41}),
-                new StringLiteral("U\u017F-ASCII"));
+                new StringLiteral(unicodeCaseFoldedCharset));
 
         Assertions.assertSame(encode, ExpressionEvaluator.INSTANCE.eval(encode));
         Assertions.assertSame(decode, ExpressionEvaluator.INSTANCE.eval(decode));
