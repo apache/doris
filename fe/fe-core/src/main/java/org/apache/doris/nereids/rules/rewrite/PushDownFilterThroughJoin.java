@@ -162,7 +162,7 @@ public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
         if (!(predicate instanceof EqualTo)) {
             return false;
         }
-        if (predicate.containsVolatileExpression()) {
+        if (predicate.containsVolatileOrNoneMovableExpression()) {
             return false;
         }
 
