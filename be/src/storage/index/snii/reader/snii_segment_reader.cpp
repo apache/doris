@@ -353,6 +353,17 @@ Status SniiSegmentReader::section_refs_for_index(uint64_t index_id, std::string_
     if (out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("segment: null section refs out");
     }
+    format::CoreMetadata core;
+    RETURN_IF_ERROR(core_metadata_for_index(index_id, suffix, &core));
+    *out = core.section_refs;
+    return Status::OK();
+}
+
+Status SniiSegmentReader::core_metadata_for_index(uint64_t index_id, std::string_view suffix,
+                                                  format::CoreMetadata* const out) const {
+    if (out == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("segment: null core metadata out");
+    }
     if (reader_ == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("segment: not opened");
     }
@@ -364,7 +375,7 @@ Status SniiSegmentReader::section_refs_for_index(uint64_t index_id, std::string_
                                      &core_bytes));
     format::CoreMetadata core;
     RETURN_IF_ERROR(format::decode_core_metadata(Slice(core_bytes), &core));
-    *out = core.section_refs;
+    *out = core;
     return Status::OK();
 }
 

@@ -103,6 +103,11 @@ public:
 
     uint32_t n_logical_indexes() const { return static_cast<uint32_t>(directory_.size()); }
 
+    // Every directory entry, text inverted and blob kinds alike, in directory order.
+    const std::vector<format::LogicalIndexMetadataRef>& logical_indexes() const {
+        return directory_.entries();
+    }
+
     Status index_exists(uint64_t index_id, std::string_view suffix, bool* const exists) const;
 
     // Loads the adjacent Core/STI/DBD group for (index_id, suffix) and builds a
@@ -111,6 +116,10 @@ public:
                       LogicalIndexOpenMode open_mode = LogicalIndexOpenMode::kQuery) const;
     Status section_refs_for_index(uint64_t index_id, std::string_view suffix,
                                   format::SectionRefs* const out) const;
+    // Reads only the CoreMetadata blob of a text inverted index. Absent index -> NotFound;
+    // a blob entry -> Unsupported.
+    Status core_metadata_for_index(uint64_t index_id, std::string_view suffix,
+                                   format::CoreMetadata* const out) const;
 
     // Looks up a BLOB logical index entry (kind != kInverted) and exposes its
     // validated directory entry (kind + named-file table). Absent -> NotFound;
