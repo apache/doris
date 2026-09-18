@@ -53,6 +53,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "core/column/column.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "core/value/decimalv2_value.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -2386,6 +2387,196 @@ TEST_F(ParquetExprTest, test_bloom_filter_reused_after_first_load) {
 
     EXPECT_TRUE(eq_pred.evaluate_and(&stat));
     EXPECT_EQ(2, loader_calls);
+}
+
+namespace {
+
+std::string encode_i64(int64_t v) {
+    return std::string(reinterpret_cast<const char*>(&v), sizeof(v));
+}
+
+// #pragma pack(1) ParquetInt96 is {int64 lo (nanos in day); int32 hi (days from julian epoch)}.
+std::string encode_int96(int64_t nanos_in_day, int32_t julian_day) {
+    std::string out;
+    out.append(reinterpret_cast<const char*>(&nanos_in_day), sizeof(nanos_in_day));
+    out.append(reinterpret_cast<const char*>(&julian_day), sizeof(julian_day));
+    return out;
+}
+
+enum class TsUnit { kMillis, kMicros, kNanos, kNone };
+
+FieldSchema make_int64_utc_timestamp_schema(bool adjusted_to_utc, TsUnit u = TsUnit::kMicros) {
+    FieldSchema fs;
+    fs.parquet_schema.__set_type(tparquet::Type::INT64);
+    tparquet::TimeUnit unit;
+    switch (u) {
+    case TsUnit::kMillis: {
+        tparquet::MilliSeconds ms;
+        unit.__set_MILLIS(ms);
+        break;
+    }
+    case TsUnit::kMicros: {
+        tparquet::MicroSeconds us;
+        unit.__set_MICROS(us);
+        break;
+    }
+    case TsUnit::kNanos: {
+        tparquet::NanoSeconds ns;
+        unit.__set_NANOS(ns);
+        break;
+    }
+    case TsUnit::kNone:
+        // Present but empty union: a malformed file whose unit is not one we recognize.
+        break;
+    }
+    tparquet::TimestampType ts;
+    ts.__set_isAdjustedToUTC(adjusted_to_utc);
+    ts.__set_unit(unit);
+    tparquet::LogicalType lt;
+    lt.__set_TIMESTAMP(ts);
+    fs.parquet_schema.__set_logicalType(lt);
+    fs.data_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+    return fs;
+}
+
+FieldSchema make_int64_converted_ts_schema(tparquet::ConvertedType::type ct) {
+    FieldSchema fs;
+    fs.parquet_schema.__set_type(tparquet::Type::INT64);
+    fs.parquet_schema.__set_converted_type(ct);
+    fs.data_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+    return fs;
+}
+
+} // namespace
+
+// An adjusted-to-UTC timestamp whose min/max straddle a backward clock transition is not a usable
+// bound: an interior instant can map outside the converted civil range. New York falls back at
+// 2021-11-07 06:00 UTC.
+TEST_F(ParquetExprTest, ParseMinMaxRejectsTimestampRangeCrossingClockRollback) {
+    cctz::time_zone ny;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &ny));
+    auto schema = make_int64_utc_timestamp_schema(/*adjusted_to_utc=*/true);
+    constexpr int64_t kUsPerSec = 1000000;
+
+    auto parse = [&](int64_t min_sec, int64_t max_sec, const cctz::time_zone& tz) {
+        Field min_field;
+        Field max_field;
+        return ParquetPredicate::parse_min_max_value(&schema, encode_i64(min_sec * kUsPerSec),
+                                                     encode_i64(max_sec * kUsPerSec), tz,
+                                                     &min_field, &max_field);
+    };
+
+    // 05:30 .. 06:30 UTC crosses the 06:00 UTC rollback.
+    EXPECT_FALSE(parse(1636263000, 1636266600, ny).ok());
+    // Noon that day, no transition in range.
+    EXPECT_TRUE(parse(1636286400, 1636290000, ny).ok());
+    // Spring-forward on 2021-03-14 07:00 UTC must not be rejected for crossing the gap.
+    EXPECT_TRUE(parse(1615703400, 1615707000, ny).ok());
+    // The same rollback range is fine when the timestamp is displayed in UTC (not adjusted).
+    auto utc_schema = make_int64_utc_timestamp_schema(/*adjusted_to_utc=*/false);
+    Field lo;
+    Field hi;
+    EXPECT_TRUE(
+            ParquetPredicate::parse_min_max_value(&utc_schema, encode_i64(1636263000 * kUsPerSec),
+                                                  encode_i64(1636266600 * kUsPerSec), ny, &lo, &hi)
+                    .ok());
+
+    // A raw-inverted interval must be rejected even when both endpoints floor to the same second:
+    // 1.5s and 1.0s both floor to second 1, but the published [min, max] is inverted.
+    Field a;
+    Field b;
+    EXPECT_FALSE(ParquetPredicate::parse_min_max_value(&schema, encode_i64(1500000),
+                                                       encode_i64(1000000), ny, &a, &b)
+                         .ok());
+}
+
+// Cover the unit and provenance branches of the timestamp fence: MILLIS/NANOS units, the legacy
+// converted_type annotations, and an adjusted timestamp whose TimeUnit is not recognized (which
+// must be rejected rather than trusted, because the converter still applies the session timezone).
+TEST_F(ParquetExprTest, ParseMinMaxTimestampUnitAndProvenanceCoverage) {
+    cctz::time_zone ny;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &ny));
+    // 05:30..06:30 UTC crosses the New York rollback; noon..13:00 does not.
+    constexpr int64_t kRollbackMinSec = 1636263000;
+    constexpr int64_t kRollbackMaxSec = 1636266600;
+    constexpr int64_t kSafeMinSec = 1636286400;
+    constexpr int64_t kSafeMaxSec = 1636290000;
+
+    auto parse = [&](const FieldSchema& fs, int64_t raw_min, int64_t raw_max) {
+        Field lo;
+        Field hi;
+        return ParquetPredicate::parse_min_max_value(&fs, encode_i64(raw_min), encode_i64(raw_max),
+                                                     ny, &lo, &hi);
+    };
+
+    auto millis = make_int64_utc_timestamp_schema(true, TsUnit::kMillis);
+    EXPECT_FALSE(parse(millis, kRollbackMinSec * 1000, kRollbackMaxSec * 1000).ok());
+    EXPECT_TRUE(parse(millis, kSafeMinSec * 1000, kSafeMaxSec * 1000).ok());
+
+    auto nanos = make_int64_utc_timestamp_schema(true, TsUnit::kNanos);
+    EXPECT_FALSE(parse(nanos, kRollbackMinSec * 1000000000, kRollbackMaxSec * 1000000000).ok());
+    EXPECT_TRUE(parse(nanos, kSafeMinSec * 1000000000, kSafeMaxSec * 1000000000).ok());
+
+    auto conv_millis = make_int64_converted_ts_schema(tparquet::ConvertedType::TIMESTAMP_MILLIS);
+    EXPECT_FALSE(parse(conv_millis, kRollbackMinSec * 1000, kRollbackMaxSec * 1000).ok());
+    auto conv_micros = make_int64_converted_ts_schema(tparquet::ConvertedType::TIMESTAMP_MICROS);
+    EXPECT_TRUE(parse(conv_micros, kSafeMinSec * 1000000, kSafeMaxSec * 1000000).ok());
+
+    // Adjusted, but the TimeUnit union is empty: the converter would still map to DATETIMEV2 and
+    // apply the timezone, so a transition-free-looking raw range must not be trusted.
+    auto unknown_unit = make_int64_utc_timestamp_schema(true, TsUnit::kNone);
+    EXPECT_FALSE(parse(unknown_unit, kSafeMinSec, kSafeMaxSec).ok());
+}
+
+// A wrong-width statistic must be rejected before the decode reads it, so a short value cannot be
+// read out of bounds and an oversized INT96 cannot overrun the destination buffer.
+TEST_F(ParquetExprTest, ParseMinMaxRejectsMalformedStatWidth) {
+    Field lo;
+    Field hi;
+
+    auto int64_ts = make_int64_utc_timestamp_schema(true);
+    // 4 bytes where an INT64 needs 8.
+    EXPECT_FALSE(ParquetPredicate::parse_min_max_value(&int64_ts, std::string(4, '\0'),
+                                                       encode_i64(0), cctz::utc_time_zone(), &lo,
+                                                       &hi)
+                         .ok());
+
+    FieldSchema int96;
+    int96.parquet_schema.__set_type(tparquet::Type::INT96);
+    int96.data_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+    // 11 bytes where an INT96 needs exactly 12.
+    EXPECT_FALSE(ParquetPredicate::parse_min_max_value(&int96, std::string(11, '\0'),
+                                                       std::string(11, '\0'), cctz::utc_time_zone(),
+                                                       &lo, &hi)
+                         .ok());
+}
+
+// INT96 stats are only trustworthy when min == max (PARQUET-1065). This is the page-index path,
+// which does not go through read_column_stats.
+TEST_F(ParquetExprTest, ParseMinMaxAppliesInt96SingletonRule) {
+    FieldSchema fs;
+    fs.parquet_schema.__set_type(tparquet::Type::INT96);
+    fs.data_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+
+    const int32_t julian_2021_11_07 = ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS + 18938;
+    const int64_t noon_nanos = 12L * 3600 * 1000000000;
+    auto a = encode_int96(noon_nanos, julian_2021_11_07);
+    auto b = encode_int96(13L * 3600 * 1000000000, julian_2021_11_07);
+    // One nanosecond apart decodes to the same DATETIMEV2 microsecond, so this pair proves the rule
+    // compares raw bytes rather than the decoded value.
+    auto a_plus_1ns = encode_int96(noon_nanos + 1, julian_2021_11_07);
+
+    Field min_field;
+    Field max_field;
+    EXPECT_TRUE(ParquetPredicate::parse_min_max_value(&fs, a, a, cctz::utc_time_zone(), &min_field,
+                                                      &max_field)
+                        .ok());
+    EXPECT_FALSE(ParquetPredicate::parse_min_max_value(&fs, a, b, cctz::utc_time_zone(), &min_field,
+                                                       &max_field)
+                         .ok());
+    EXPECT_FALSE(ParquetPredicate::parse_min_max_value(&fs, a, a_plus_1ns, cctz::utc_time_zone(),
+                                                       &min_field, &max_field)
+                         .ok());
 }
 
 } // namespace doris

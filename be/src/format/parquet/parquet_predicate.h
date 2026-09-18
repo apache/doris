@@ -32,6 +32,7 @@
 #include "format/parquet/parquet_column_convert.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/schema_desc.h"
+#include "format_v2/timestamp_statistics.h"
 #include "io/fs/file_reader.h"
 #include "storage/olap_scan_common.h"
 #include "storage/segment/row_ranges.h"
@@ -211,11 +212,116 @@ public:
         RowRange row_group_range;
     };
 
+    // An adjusted-to-UTC INT64 timestamp mapped to DATETIMEV2 is displayed in local civil time, so
+    // its converted min/max are only a usable bound when the UTC interval contains no backward
+    // clock transition. Mirror the unit/adjust derivation in TimestampConverter::init and defer the
+    // transition check to the shared v2 helper. Returns true (usable) for anything that is not such
+    // a timestamp: a non-adjusted timestamp is shown in UTC (no transitions), and INT96 is handled
+    // by its own singleton rule before this is reached.
+    static bool physical_stat_width_ok(const FieldSchema* col_schema, const std::string& value) {
+        switch (col_schema->parquet_schema.type) {
+        case tparquet::Type::type::BOOLEAN:
+            return value.size() == 1;
+        case tparquet::Type::type::INT32:
+        case tparquet::Type::type::FLOAT:
+            return value.size() == 4;
+        case tparquet::Type::type::INT64:
+        case tparquet::Type::type::DOUBLE:
+            return value.size() == 8;
+        case tparquet::Type::type::INT96:
+            return value.size() == sizeof(ParquetInt96);
+        case tparquet::Type::type::FIXED_LEN_BYTE_ARRAY:
+            return col_schema->parquet_schema.type_length > 0 &&
+                   value.size() == static_cast<size_t>(col_schema->parquet_schema.type_length);
+        case tparquet::Type::type::BYTE_ARRAY:
+            // A variable-length physical value; the string decode path is length-agnostic.
+            return true;
+        default:
+            return true;
+        }
+    }
+
+    // An INT64 timestamp's converted min/max is only a usable pruning bound when the interval is not
+    // corrupt (raw min <= raw max) and, for an adjusted-to-UTC value shown as DATETIMEV2, the UTC
+    // interval crosses no backward clock transition (converting to local civil time is not monotonic
+    // across a fall-back). TIMESTAMPTZ keeps UTC ordering, and a non-adjusted value is shown in UTC,
+    // so both only need the inversion check. Defers the transition test to the shared v2 helper.
+    // INT96 is handled by its own raw singleton rule before this is reached.
+    static bool int64_timestamp_range_is_usable(const FieldSchema* col_schema,
+                                                const std::string& encoded_min,
+                                                const std::string& encoded_max,
+                                                const cctz::time_zone& ctz,
+                                                PrimitiveType logical_prim_type) {
+        if (col_schema->parquet_schema.type != tparquet::Type::type::INT64) {
+            return true;
+        }
+        if (encoded_min.size() < sizeof(int64_t) || encoded_max.size() < sizeof(int64_t)) {
+            return false;
+        }
+        const auto raw_min = *reinterpret_cast<const int64_t*>(encoded_min.data());
+        const auto raw_max = *reinterpret_cast<const int64_t*>(encoded_max.data());
+        // Check the raw interval before flooring: two values in the same second can still be
+        // inverted (e.g. MICROS 1_500_000 vs 1_000_000 both floor to second 1), and every caller
+        // trusts the published [min, max] as an ordered interval.
+        if (raw_min > raw_max) {
+            return false;
+        }
+        // TIMESTAMPTZ preserves the UTC ordering, so the inversion check above is all it needs.
+        if (logical_prim_type != TYPE_DATETIMEV2) {
+            return true;
+        }
+        const auto& schema = col_schema->parquet_schema;
+        bool adjusted = false;
+        int64_t units_per_second = 0;
+        if (schema.__isset.logicalType && schema.logicalType.__isset.TIMESTAMP) {
+            const auto& ts = schema.logicalType.TIMESTAMP;
+            adjusted = ts.isAdjustedToUTC;
+            if (ts.unit.__isset.MILLIS) {
+                units_per_second = 1000;
+            } else if (ts.unit.__isset.MICROS) {
+                units_per_second = 1000000;
+            } else if (ts.unit.__isset.NANOS) {
+                units_per_second = 1000000000;
+            }
+        } else if (schema.__isset.converted_type) {
+            // Legacy TIMESTAMP_MILLIS / TIMESTAMP_MICROS carry instant (UTC-normalized) semantics.
+            if (schema.converted_type == tparquet::ConvertedType::TIMESTAMP_MILLIS) {
+                adjusted = true;
+                units_per_second = 1000;
+            } else if (schema.converted_type == tparquet::ConvertedType::TIMESTAMP_MICROS) {
+                adjusted = true;
+                units_per_second = 1000000;
+            }
+        }
+        // A non-adjusted timestamp is shown in UTC (the converter uses UTC0, which has no
+        // transitions), so it is monotonic and usable.
+        if (!adjusted) {
+            return true;
+        }
+        // Adjusted, but the TimeUnit is absent/unrecognized: the converter still maps it to
+        // DATETIMEV2 and applies the session timezone, so the transition risk remains. Without a
+        // unit the raw range cannot be floored to seconds, so reject conservatively.
+        if (units_per_second == 0) {
+            return false;
+        }
+        return format::utc_timestamp_range_is_monotonic(
+                format::floor_epoch_seconds(raw_min, units_per_second),
+                format::floor_epoch_seconds(raw_max, units_per_second), ctz);
+    }
+
     // The encoded Parquet min-max value is parsed into `fields`;
     // Can be used in row groups and page index statistics.
     static Status parse_min_max_value(const FieldSchema* col_schema, const std::string& encoded_min,
                                       const std::string& encoded_max, const cctz::time_zone& ctz,
                                       Field* min_field, Field* max_field) {
+        // The statistics bytes are caller-controlled (from an external file), while the decode below
+        // reinterprets a fixed-width physical value or memcpys into a fixed-size buffer under
+        // release-disabled DCHECKs. Reject a wrong-width bound up front so a short value cannot be
+        // read out of bounds and an oversized one cannot overrun the destination.
+        if (!physical_stat_width_ok(col_schema, encoded_min) ||
+            !physical_stat_width_ok(col_schema, encoded_max)) {
+            return Status::DataQualityError("parquet min/max statistics have an unexpected width");
+        }
         auto logical_data_type = remove_nullable(col_schema->data_type);
         auto converter = parquet::PhysicalToLogicalConverter::get_converter(
                 col_schema, logical_data_type, logical_data_type, &ctz);
@@ -339,19 +445,29 @@ public:
             if (std::signbit(max_value) != 0 && max_value == -0.0F) {
                 max_value = 0.0F;
             }
-        } else if (col_schema->parquet_schema.type == tparquet::Type::type::INT96 ||
-                   logical_prim_type == TYPE_DATETIMEV2) {
-            auto min_value = min_field->get<TYPE_DATETIMEV2>();
-            auto max_value = min_field->get<TYPE_DATETIMEV2>();
-
+        } else if (col_schema->parquet_schema.type == tparquet::Type::type::INT96) {
             // From Trino: Parquet INT96 timestamp values were compared incorrectly
             // for the purposes of producing statistics by older parquet writers,
             // so PARQUET-1065 deprecated them. The result is that any writer that produced stats
             // was producing unusable incorrect values, except the special case where min == max
             // and an incorrect ordering would not be material to the result.
             // PARQUET-1026 made binary stats available and valid in that special case.
-            if (min_value != max_value) {
+            //
+            // Compare the raw encoded bounds rather than the converted values: the footer path
+            // rejects unequal INT96 stats in read_column_stats, but the page-index path reaches
+            // here without that check.
+            if (encoded_min != encoded_max) {
                 return Status::DataQualityError("invalid min/max value");
+            }
+        } else if (logical_prim_type == TYPE_DATETIMEV2 || logical_prim_type == TYPE_TIMESTAMPTZ) {
+            // An adjusted-to-UTC timestamp is stored as a UTC instant and converted to local civil
+            // time above. That conversion is not monotonic across a backward clock transition, so a
+            // range that crosses one is not a usable bound (an interior instant can map outside the
+            // converted [min, max]); a raw-inverted interval is likewise unusable. Reject and let
+            // the caller fall back to no pruning.
+            if (!int64_timestamp_range_is_usable(col_schema, encoded_min, encoded_max, ctz,
+                                                 logical_prim_type)) {
+                return Status::DataQualityError("timestamp min/max is not a usable pruning bound");
             }
         }
 
