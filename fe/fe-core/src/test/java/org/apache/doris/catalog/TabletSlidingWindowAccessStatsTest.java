@@ -18,207 +18,325 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.thrift.TActiveTabletStat;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
-
-/**
- * Unit tests for TabletSlidingWindowAccessStatsTest sliding window logic.
- *
- * <p>We use reflection to test the private static inner class SlidingWindowCounter,
- * focusing on time-window counting, bucket expiration, cleanup and cache invalidation.
- */
 public class TabletSlidingWindowAccessStatsTest {
+    private boolean originalEnabled;
+    private TabletSlidingWindowAccessStats stats;
 
-    private static class CounterHarness {
-        private final Object counter;
-        private final Method add;
-        private final Method getCount;
-        private final Method cleanup;
-        private final Method hasRecentActivity;
-        private final Method getLastAccessTime;
+    @BeforeEach
+    public void setUp() {
+        originalEnabled = Config.enable_active_tablet_sliding_window_access_stats;
+        Config.enable_active_tablet_sliding_window_access_stats = true;
+        stats = new TabletSlidingWindowAccessStats();
+    }
 
-        CounterHarness(int numBuckets) throws Exception {
-            Class<?> clazz = Class.forName(
-                    "org.apache.doris.catalog.TabletSlidingWindowAccessStats$SlidingWindowCounter");
-            Constructor<?> ctor = clazz.getDeclaredConstructor(int.class);
-            ctor.setAccessible(true);
-            this.counter = ctor.newInstance(numBuckets);
+    @AfterEach
+    public void tearDown() {
+        Config.enable_active_tablet_sliding_window_access_stats = originalEnabled;
+    }
 
-            this.add = clazz.getDeclaredMethod("add", long.class, long.class, int.class);
-            this.add.setAccessible(true);
-            this.getCount = clazz.getDeclaredMethod("getCount", long.class, long.class, long.class, int.class);
-            this.getCount.setAccessible(true);
-            this.cleanup = clazz.getDeclaredMethod("cleanup", long.class, long.class);
-            this.cleanup.setAccessible(true);
-            this.hasRecentActivity = clazz.getDeclaredMethod("hasRecentActivity", long.class, long.class);
-            this.hasRecentActivity.setAccessible(true);
-            this.getLastAccessTime = clazz.getDeclaredMethod("getLastAccessTime");
-            this.getLastAccessTime.setAccessible(true);
+    @Test
+    public void testUpdateFromReportProvidesAccessInfo() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L,
+                Collections.singletonList(queryStat(10L, 12L, now - 100L, 60_000L)),
+                Collections.singletonList(loadStat(10L, 3L, now - 200L, 60_000L)));
+
+        TabletSlidingWindowAccessStats.AccessStatsResult result = stats.getAccessInfo(10L);
+        Assertions.assertNotNull(result);
+        Assertions.assertEquals(15L, result.accessCount);
+        Assertions.assertEquals(now - 100L, result.lastAccessTime);
+        Assertions.assertEquals(12.0, result.scanRate);
+        Assertions.assertEquals(3.0, result.loadRate);
+    }
+
+    // A report carries only the tablets that saw traffic since the previous one. Dropping the
+    // rest would shrink "active" to a single report interval, which in a cluster reporting
+    // every second means a tablet is active for one second after it stops being queried.
+    @Test
+    public void testTabletsMissingFromTheNextReportStayActive() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(10L, 12L, now, 60_000L)),
+                Collections.emptyList());
+        // Next report: tablet 10 saw no traffic, tablet 20 did.
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(20L, 7L, now, 60_000L)),
+                Collections.emptyList());
+
+        Assertions.assertEquals(12L, stats.getAccessInfo(10L).accessCount);
+        Assertions.assertEquals(7L, stats.getAccessInfo(20L).accessCount);
+        Assertions.assertEquals(2L, stats.getActiveIdsInWindow());
+        Assertions.assertEquals(19L, stats.getRecentAccessCountInWindow());
+    }
+
+    // A repeated tablet takes the fresh values, it is not accumulated across reports.
+    @Test
+    public void testRepeatedTabletTakesTheLatestReport() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(10L, 12L, now - 1_000L, 60_000L)),
+                Collections.emptyList());
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(10L, 7L, now, 60_000L)),
+                Collections.emptyList());
+
+        Assertions.assertEquals(7L, stats.getAccessInfo(10L).accessCount);
+        Assertions.assertEquals(now, stats.getAccessInfo(10L).lastAccessTime);
+        Assertions.assertEquals(1L, stats.getActiveIdsInWindow());
+    }
+
+    // Equal rates fall through to the tie-break, and the tie-break runs in the same direction
+    // as the rate: most recently touched wins.
+    @Test
+    public void testEqualRatesPreferTheMostRecentlyTouched() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L, List.of(
+                queryStat(10L, 10L, now - 1_000L, 60_000L),
+                queryStat(20L, 10L, now, 60_000L)), Collections.emptyList());
+
+        List<TabletSlidingWindowAccessStats.AccessStatsResult> top = stats.getTopNActive(1);
+        Assertions.assertEquals(1, top.size());
+        Assertions.assertEquals(20L, top.get(0).id);
+    }
+
+    // The half-and-half budget is a floor, not a cap: whichever dimension has fewer candidates
+    // hands its unused share to the other, and when both are short everything is returned.
+    @Test
+    public void testTopNQuotaSpillsToTheOtherDimension() {
+        long now = System.currentTimeMillis();
+
+        // Only queries: the load half is handed over, so all 8 query tablets fit in topN=8.
+        TabletSlidingWindowAccessStats queryOnly = new TabletSlidingWindowAccessStats();
+        queryOnly.updateFromReport(1L, queryStats(8, now), Collections.emptyList());
+        Assertions.assertEquals(8, queryOnly.getTopNActive(8).size());
+
+        // Only loads: mirror image.
+        TabletSlidingWindowAccessStats loadOnly = new TabletSlidingWindowAccessStats();
+        loadOnly.updateFromReport(1L, Collections.emptyList(), loadStats(8, now));
+        Assertions.assertEquals(8, loadOnly.getTopNActive(8).size());
+
+        // Both below topN/2: nothing to spill, every candidate is returned and topN is not met.
+        TabletSlidingWindowAccessStats bothShort = new TabletSlidingWindowAccessStats();
+        bothShort.updateFromReport(1L, queryStats(2, now), loadStats(3, now));
+        Assertions.assertEquals(5, bothShort.getTopNActive(20).size());
+    }
+
+    @Test
+    public void testTopNFillsBudgetWhenQueryAndLoadOverlap() {
+        long now = System.currentTimeMillis();
+        List<TActiveTabletStat> queries = new ArrayList<>();
+        List<TActiveTabletStat> loads = new ArrayList<>();
+        for (long id = 1; id <= 4; id++) {
+            queries.add(queryStat(id, 10L - id, now, 60_000L));
+            loads.add(loadStat(id, 10L - id, now, 60_000L));
         }
+        stats.updateFromReport(1L, queries, loads);
 
-        void add(long currentTimeMs, long bucketSizeMs, int numBuckets) throws Exception {
-            add.invoke(counter, currentTimeMs, bucketSizeMs, numBuckets);
-        }
+        List<TabletSlidingWindowAccessStats.AccessStatsResult> top = stats.getTopNActive(4);
+        Assertions.assertEquals(4, top.size());
+        Assertions.assertEquals(Set.of(1L, 2L, 3L, 4L),
+                top.stream().map(r -> r.id).collect(Collectors.toSet()));
+    }
 
-        long getCount(long currentTimeMs, long timeWindowMs, long bucketSizeMs, int numBuckets) throws Exception {
-            Object v = getCount.invoke(counter, currentTimeMs, timeWindowMs, bucketSizeMs, numBuckets);
-            return (long) v;
-        }
-
-        void cleanup(long currentTimeMs, long timeWindowMs) throws Exception {
-            cleanup.invoke(counter, currentTimeMs, timeWindowMs);
-        }
-
-        boolean hasRecentActivity(long currentTimeMs, long timeWindowMs) throws Exception {
-            Object v = hasRecentActivity.invoke(counter, currentTimeMs, timeWindowMs);
-            return (boolean) v;
-        }
-
-        long getLastAccessTime() throws Exception {
-            Object v = getLastAccessTime.invoke(counter);
-            return (long) v;
+    @Test
+    public void testTopNQuotaBoundaries() {
+        long now = System.currentTimeMillis();
+        // topN, query candidates, load candidates, selected queries, selected loads.
+        int[][] cases = {{10, 100, 100, 5, 5}, {10, 2, 100, 2, 8},
+                {10, 100, 2, 8, 2}, {10, 2, 3, 2, 3}, {1, 2, 2, 0, 1}};
+        for (int[] testCase : cases) {
+            TabletSlidingWindowAccessStats candidateStats = new TabletSlidingWindowAccessStats();
+            candidateStats.updateFromReport(1L, queryStats(testCase[1], now), loadStats(testCase[2], now));
+            List<TabletSlidingWindowAccessStats.AccessStatsResult> top = candidateStats.getTopNActive(testCase[0]);
+            Assertions.assertEquals(testCase[3] + testCase[4], top.size());
+            Assertions.assertEquals(testCase[3], top.stream().filter(r -> r.scanRate > 0).count());
+            Assertions.assertEquals(testCase[4], top.stream().filter(r -> r.loadRate > 0).count());
         }
     }
 
     @Test
-    public void testAddAndGetCountWithinWindow() throws Exception {
-        int numBuckets = 5;
-        long bucketSizeMs = 1000L;
-        long timeWindowMs = 5000L;
-        long base = 10_000L; // avoid 0 (bucket timestamp 0 is treated as "unset" in getCount)
-
-        CounterHarness c = new CounterHarness(numBuckets);
-        c.add(base, bucketSizeMs, numBuckets);
-        c.add(base + 1000L, bucketSizeMs, numBuckets);
-        c.add(base + 2000L, bucketSizeMs, numBuckets);
-
-        Assertions.assertEquals(base + 2000L, c.getLastAccessTime());
-        Assertions.assertTrue(c.hasRecentActivity(base + 2000L, timeWindowMs));
-
-        long cnt = c.getCount(base + 2000L, timeWindowMs, bucketSizeMs, numBuckets);
-        Assertions.assertEquals(3L, cnt);
-
-        // Cached result (same timestamp) should be consistent
-        long cnt2 = c.getCount(base + 2000L, timeWindowMs, bucketSizeMs, numBuckets);
-        Assertions.assertEquals(3L, cnt2);
-
-        // add() should invalidate cachedTotalCount
-        c.add(base + 2500L, bucketSizeMs, numBuckets);
-        long cnt3 = c.getCount(base + 2500L, timeWindowMs, bucketSizeMs, numBuckets);
-        Assertions.assertEquals(4L, cnt3);
-    }
-
-    @Test
-    public void testWindowExpiresOldBuckets() throws Exception {
-        int numBuckets = 5;
-        long bucketSizeMs = 1000L;
-        long timeWindowMs = 5000L;
-        long base = 20_000L;
-
-        CounterHarness c = new CounterHarness(numBuckets);
-        c.add(base, bucketSizeMs, numBuckets);
-        c.add(base + 1000L, bucketSizeMs, numBuckets);
-        c.add(base + 2000L, bucketSizeMs, numBuckets);
-
-        // At base + 6000, window start is base + 1000 => count should be 2 (1000 and 2000 buckets)
-        long cnt1 = c.getCount(base + 6000L, timeWindowMs, bucketSizeMs, numBuckets);
-        Assertions.assertEquals(2L, cnt1);
-
-        // At base + 7000, window start is base + 2000 => count should be 1 (2000 bucket)
-        long cnt2 = c.getCount(base + 7000L, timeWindowMs, bucketSizeMs, numBuckets);
-        Assertions.assertEquals(1L, cnt2);
-
-        // recent activity should still be true (lastAccessTime=base+2000 within 5000ms of base+7000? exactly 5000ms)
-        Assertions.assertTrue(c.hasRecentActivity(base + 7000L, timeWindowMs));
-    }
-
-    @Test
-    public void testCleanupRemovesExpiredBuckets() throws Exception {
-        int numBuckets = 5;
-        long bucketSizeMs = 1000L;
-        long timeWindowMs = 5000L;
-        long base = 30_000L;
-
-        CounterHarness c = new CounterHarness(numBuckets);
-        c.add(base, bucketSizeMs, numBuckets);
-        c.add(base + 1000L, bucketSizeMs, numBuckets);
-        c.add(base + 2000L, bucketSizeMs, numBuckets);
-
-        // cleanup at base + 7000: windowStart=base+2000, so base/base+1000 buckets should be cleared
-        c.cleanup(base + 7000L, timeWindowMs);
-        long cnt = c.getCount(base + 7000L, timeWindowMs, bucketSizeMs, numBuckets);
-        Assertions.assertEquals(1L, cnt);
-    }
-
-    @Test
-    public void testBucketWrapAroundResetsExpiredBucket() throws Exception {
-        int numBuckets = 5;
-        long bucketSizeMs = 1000L;
-        long timeWindowMs = 5000L;
-        long base = 40_000L;
-
-        CounterHarness c = new CounterHarness(numBuckets);
-        // bucket index wraps every numBuckets * bucketSizeMs (5s here)
-        c.add(base, bucketSizeMs, numBuckets);            // idx = 0
-        c.add(base + 5000L, bucketSizeMs, numBuckets);    // idx = 0 again, should reset old bucket
-
-        // With current implementation, the old "base" bucket is overwritten, so only 1 remains.
-        long cnt = c.getCount(base + 5000L, timeWindowMs, bucketSizeMs, numBuckets);
-        Assertions.assertEquals(1L, cnt);
-    }
-
-    @Test
-    public void testTimeWindowLessThanBucketSizeStillUsesValidBucketCount() throws Exception {
-        long originWindowSecond = Config.active_tablet_sliding_window_time_window_second;
-        boolean originEnabled = Config.enable_active_tablet_sliding_window_access_stats;
+    public void testReadsExpireStatsWithoutAnotherReportAndReclaimBackend() {
+        long originalWindow = Config.active_tablet_sliding_window_time_window_second;
         try {
-            Config.active_tablet_sliding_window_time_window_second = 59L;
-            Config.enable_active_tablet_sliding_window_access_stats = false;
+            Config.active_tablet_sliding_window_time_window_second = 600;
+            long now = System.currentTimeMillis();
+            stats.updateFromReport(1L, List.of(queryStat(10L, 1_000L, now - 120_000L, 60_000L)),
+                    Collections.emptyList());
+            stats.updateFromReport(2L, List.of(queryStat(10L, 7L, now, 60_000L),
+                    queryStat(20L, 900L, now - 120_000L, 60_000L)), Collections.emptyList());
+            Assertions.assertEquals(1_000L, stats.getAccessInfo(10L).accessCount);
+            Assertions.assertNotNull(stats.getAccessInfo(20L));
 
-            TabletSlidingWindowAccessStats stats = new TabletSlidingWindowAccessStats();
-            Field numBucketsField = TabletSlidingWindowAccessStats.class.getDeclaredField("numBuckets");
-            numBucketsField.setAccessible(true);
-            int numBuckets = (int) numBucketsField.get(stats);
-            Assertions.assertEquals(1, numBuckets);
-
-            // No ArithmeticException should be thrown by modulo numBuckets path.
-            stats.recordAccess(123L);
+            // Move the window past old accesses without delivering another report or sleeping.
+            Config.active_tablet_sliding_window_time_window_second = 60;
+            Assertions.assertEquals(7L, stats.getAccessInfo(10L).accessCount);
+            Assertions.assertNull(stats.getAccessInfo(20L));
+            List<TabletSlidingWindowAccessStats.AccessStatsResult> top = stats.getTopNActive(4);
+            Assertions.assertEquals(1, top.size());
+            Assertions.assertEquals(10L, top.get(0).id);
+            Assertions.assertEquals(7.0, top.get(0).scanRate);
+            Assertions.assertEquals(1L, stats.getActiveIdsInWindow());
+            Assertions.assertEquals(7L, stats.getRecentAccessCountInWindow());
+            Assertions.assertTrue(stats.getStatsSummary().contains("beCount=1,"));
         } finally {
-            Config.active_tablet_sliding_window_time_window_second = originWindowSecond;
-            Config.enable_active_tablet_sliding_window_access_stats = originEnabled;
+            Config.active_tablet_sliding_window_time_window_second = originalWindow;
+        }
+    }
+
+    // Retention ends at active_tablet_sliding_window_time_window_second.
+    @Test
+    public void testEntriesAgeOutOfTheWindow() {
+        long windowMs = Config.active_tablet_sliding_window_time_window_second * 1000L;
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L,
+                Collections.singletonList(queryStat(10L, 12L, now - windowMs - 60_000L, 60_000L)),
+                Collections.emptyList());
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(20L, 7L, now, 60_000L)),
+                Collections.emptyList());
+
+        Assertions.assertNull(stats.getAccessInfo(10L));
+        Assertions.assertEquals(1L, stats.getActiveIdsInWindow());
+    }
+
+    // Retention is bounded, so a backend with a churning hot set cannot grow FE memory for a
+    // whole window. The oldest entries go first.
+    @Test
+    public void testRetentionIsCappedByTopnKeepingTheNewest() {
+        int originalTopn = Config.cloud_active_partition_scheduling_topn;
+        Config.cloud_active_partition_scheduling_topn = 2;
+        try {
+            long now = System.currentTimeMillis();
+            stats.updateFromReport(1L, List.of(
+                    queryStat(1L, 1L, now - 3_000L, 60_000L),
+                    queryStat(2L, 1L, now - 2_000L, 60_000L)), Collections.emptyList());
+            stats.updateFromReport(1L,
+                    Collections.singletonList(queryStat(3L, 1L, now, 60_000L)), Collections.emptyList());
+
+            Assertions.assertEquals(2L, stats.getActiveIdsInWindow());
+            Assertions.assertNull(stats.getAccessInfo(1L));
+            Assertions.assertNotNull(stats.getAccessInfo(2L));
+            Assertions.assertNotNull(stats.getAccessInfo(3L));
+        } finally {
+            Config.cloud_active_partition_scheduling_topn = originalTopn;
         }
     }
 
     @Test
-    public void testTopNComparatorOrdersByAccessCountThenLastAccessTimeDesc() throws Exception {
-        Field f = TabletSlidingWindowAccessStats.class.getDeclaredField("TOPN_ACTIVE_COMPARATOR");
-        f.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Comparator<TabletSlidingWindowAccessStats.AccessStatsResult> cmp =
-                (Comparator<TabletSlidingWindowAccessStats.AccessStatsResult>) f.get(null);
+    public void testTopNReservesCapacityForLoadTablets() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L, List.of(
+                queryStat(1L, 1_000L, now - 1L, 60_000L),
+                queryStat(2L, 900L, now - 2L, 60_000L),
+                queryStat(3L, 800L, now - 3L, 60_000L),
+                queryStat(4L, 700L, now - 4L, 60_000L)), List.of(
+                loadStat(101L, 10L, now - 101L, 60_000L),
+                loadStat(102L, 9L, now - 102L, 60_000L),
+                loadStat(103L, 8L, now - 103L, 60_000L),
+                loadStat(104L, 7L, now - 104L, 60_000L)));
 
-        List<TabletSlidingWindowAccessStats.AccessStatsResult> results = new ArrayList<>();
-        results.add(new TabletSlidingWindowAccessStats.AccessStatsResult(1L, 1L, 200L));
-        results.add(new TabletSlidingWindowAccessStats.AccessStatsResult(2L, 10L, 100L));
-        results.add(new TabletSlidingWindowAccessStats.AccessStatsResult(3L, 10L, 300L));
-        results.add(new TabletSlidingWindowAccessStats.AccessStatsResult(4L, 2L, 400L));
+        Set<Long> ids = stats.getTopNActive(4).stream().map(r -> r.id).collect(Collectors.toSet());
+        Assertions.assertEquals(Set.of(1L, 2L, 101L, 102L), ids);
+    }
 
-        results.sort(cmp);
+    @Test
+    public void testTopNSortsByRateInsteadOfRawDeltaAcrossBackends() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(1L, 100L, now - 1L, 120_000L)),
+                Collections.emptyList());
+        stats.updateFromReport(2L, Collections.singletonList(queryStat(2L, 75L, now - 2L, 60_000L)),
+                Collections.emptyList());
 
-        // accessCount desc => 10 first, then 2, then 1
-        // tie-breaker lastAccessTime desc => id=3 (300) before id=2 (100)
-        Assertions.assertEquals(3L, results.get(0).id);
-        Assertions.assertEquals(2L, results.get(1).id);
-        Assertions.assertEquals(4L, results.get(2).id);
-        Assertions.assertEquals(1L, results.get(3).id);
+        List<TabletSlidingWindowAccessStats.AccessStatsResult> results = stats.getTopNActive(2);
+        Assertions.assertEquals(2L, results.get(0).id);
+        Assertions.assertEquals(1L, results.get(1).id);
+    }
+
+    @Test
+    public void testReplicaStatsAreMergedByMax() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L,
+                Collections.singletonList(queryStat(10L, 10L, now - 100L, 60_000L)),
+                Collections.singletonList(loadStat(10L, 2L, now - 300L, 60_000L)));
+        stats.updateFromReport(2L,
+                Collections.singletonList(queryStat(10L, 20L, now - 200L, 60_000L)),
+                Collections.singletonList(loadStat(10L, 1L, now - 400L, 60_000L)));
+
+        TabletSlidingWindowAccessStats.AccessStatsResult result = stats.getTopNActive(2).get(0);
+        Assertions.assertEquals(21L, result.accessCount);
+        Assertions.assertEquals(now - 100L, result.lastAccessTime);
+        Assertions.assertEquals(20.0, result.scanRate);
+        Assertions.assertEquals(2.0, result.loadRate);
+        Assertions.assertEquals(21L, stats.getRecentAccessCountInWindow());
+        Assertions.assertEquals(1L, stats.getActiveIdsInWindow());
+    }
+
+    @Test
+    public void testRemoveBackendRemovesItsSnapshot() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(10L, 1L, now - 100L, 60_000L)),
+                Collections.emptyList());
+
+        stats.removeBackend(1L);
+
+        Assertions.assertNull(stats.getAccessInfo(10L));
+        Assertions.assertTrue(stats.getTopNActive(10).isEmpty());
+    }
+
+    @Test
+    public void testDisabledStatsReturnEmptyValues() {
+        long now = System.currentTimeMillis();
+        stats.updateFromReport(1L, Collections.singletonList(queryStat(10L, 1L, now - 100L, 60_000L)),
+                Collections.emptyList());
+        Config.enable_active_tablet_sliding_window_access_stats = false;
+
+        Assertions.assertNull(stats.getAccessInfo(10L));
+        Assertions.assertTrue(stats.getTopNActive(10).isEmpty());
+        Assertions.assertEquals(0L, stats.getRecentAccessCountInWindow());
+        Assertions.assertEquals(0L, stats.getActiveIdsInWindow());
+        Assertions.assertEquals(0L, stats.getTotalAccessCount());
+        Assertions.assertEquals("Active tablet sliding window access stats is disabled", stats.getStatsSummary());
+    }
+
+    private static List<TActiveTabletStat> queryStats(int count, long lastAccessTime) {
+        List<TActiveTabletStat> stats = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            stats.add(queryStat(1_000L + i, 10L + i, lastAccessTime, 60_000L));
+        }
+        return stats;
+    }
+
+    private static List<TActiveTabletStat> loadStats(int count, long lastAccessTime) {
+        List<TActiveTabletStat> stats = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            stats.add(loadStat(2_000L + i, 10L + i, lastAccessTime, 60_000L));
+        }
+        return stats;
+    }
+
+    private static TActiveTabletStat queryStat(long tabletId, long delta, long lastAccessTime, long windowMs) {
+        TActiveTabletStat stat = new TActiveTabletStat();
+        stat.setTabletId(tabletId);
+        stat.setScanCountDelta(delta);
+        stat.setLastQueryTimeMs(lastAccessTime);
+        stat.setDeltaWindowMs(windowMs);
+        return stat;
+    }
+
+    private static TActiveTabletStat loadStat(long tabletId, long delta, long lastAccessTime, long windowMs) {
+        TActiveTabletStat stat = new TActiveTabletStat();
+        stat.setTabletId(tabletId);
+        stat.setLoadCountDelta(delta);
+        stat.setLastLoadTimeMs(lastAccessTime);
+        stat.setDeltaWindowMs(windowMs);
+        return stat;
     }
 }
