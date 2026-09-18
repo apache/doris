@@ -3919,13 +3919,13 @@ TEST(RecyclerTest, recycle_expired_spill_objects) {
     ASSERT_EQ(recycler.init(), 0);
     auto accessor = recycler.accessor_map_.begin()->second;
 
-    // Spill objects of two BEs that never came back ("spill/{host}/{query_id}/..."), plus
+    // Spill objects of two BEs that never came back ("spill/{ip}_{port}/{query_id}/..."), plus
     // regular data and a key that only shares the first letters of the spill prefix.
     const std::vector<std::string> spill_keys = {
-            "spill/10.0.0.1/q1/sort-1-0-1/0",
-            "spill/10.0.0.1/q1/sort-1-0-1/1",
-            "spill/10.0.0.1/q2/agg-1-0-1/0",
-            "spill/10.0.0.2/q3/sort-1-0-1/0",
+            "spill/10.0.0.1_9050/q1/sort-1-0-1/0",
+            "spill/10.0.0.1_9050/q1/sort-1-0-1/1",
+            "spill/10.0.0.1_9050/q2/agg-1-0-1/0",
+            "spill/10.0.0.2_9050/q3/sort-1-0-1/0",
     };
     for (const auto& key : spill_keys) {
         ASSERT_EQ(accessor->put_file(key, "spill"), 0);
@@ -5084,7 +5084,7 @@ TEST(RecyclerTest, recycle_deleted_instance_with_orphan_tmp_rowset) {
     // Spill objects left by a BE: not referenced by any rowset. The vault may be shared and the
     // keys do not name the instance, so they go through the expiration-based sweep; the mock
     // accessor ignores the expiration time and deletes them.
-    const std::string spill_key = "spill/10.0.0.1/q1/sort-1-0-1/0";
+    const std::string spill_key = "spill/10.0.0.1_9050/q1/sort-1-0-1/0";
     ASSERT_EQ(accessor->put_file(spill_key, "spill"), 0);
 
     // Verify the data file exists
