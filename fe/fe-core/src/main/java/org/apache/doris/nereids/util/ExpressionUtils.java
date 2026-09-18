@@ -68,12 +68,14 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -1171,6 +1173,15 @@ public class ExpressionUtils {
         if (expression instanceof EqualTo) {
             if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
                 builder.put((Slot) expression.child(0), expression.child(1));
+            } else {
+                // length(str_col)=0 => str_col=''
+                if (expression.child(0) instanceof Length
+                        && expression.child(1).equals(new IntegerLiteral(0))) {
+                    Length len = (Length) expression.child(0);
+                    if (len.child() instanceof Slot && len.child().getDataType().isStringLikeType()) {
+                        builder.put((Slot) len.child(), new StringLiteral(""));
+                    }
+                }
             }
         }
         return builder.build();
