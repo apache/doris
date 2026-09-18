@@ -1800,6 +1800,26 @@ std::pair<MetaServiceCode, std::string> get_partition_versions(
     return {MetaServiceCode::OK, ""};
 }
 
+static void check_commit_txn_partition_count(const CommitTxnRequest* request,
+                                             CommitTxnResponse* response) {
+    int64_t num_partitions = response->partition_ids_size();
+    if (!request->has_num_partitions() || request->num_partitions() == num_partitions) {
+        return;
+    }
+    LOG(WARNING) << "commit txn partition count mismatch, txn_id=" << request->txn_id()
+                 << " table_ids="
+                 << fmt::format("[{}]", fmt::join(response->txn_info().table_ids(), ", "))
+                 << " expected_partitions=" << request->num_partitions()
+                 << " actual_partitions=" << num_partitions;
+    // A retry may scan only partitions left by a concurrent lazy committer.
+    // Empty both version lists and table stats to trigger FE cache invalidation.
+    response->clear_table_ids();
+    response->clear_partition_ids();
+    response->clear_versions();
+    response->clear_table_stats();
+    response->clear_version_update_time_ms();
+}
+
 /**
  * 0. Extract txn_id from request
  * 1. Get db id from TxnKv with txn_id
@@ -2457,6 +2477,7 @@ void MetaServiceImpl::commit_txn_immediately(
             }
         }
         response->mutable_txn_info()->CopyFrom(txn_info);
+        check_commit_txn_partition_count(request, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::finish", &code);
         break;
     } while (true);
@@ -3078,6 +3099,7 @@ void MetaServiceImpl::commit_txn_eventually(
         // txn set visible for fe callback
         txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
         response->mutable_txn_info()->CopyFrom(txn_info);
+        check_commit_txn_partition_count(request, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::finish", &code, &txn_id);
         break;
     } while (true);
@@ -3688,6 +3710,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         }
 
         response->mutable_txn_info()->CopyFrom(txn_info);
+        check_commit_txn_partition_count(request, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_with_sub_txn::finish", &code);
         break;
     } while (true);
@@ -3795,6 +3818,8 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
               << " tmp_rowsets_meta.size=" << tmp_rowsets_meta.size();
     code = MetaServiceCode::OK;
     msg.clear();
+    // Discard version results from a failed immediate attempt before lazy fallback.
+    response->Clear();
     commit_txn_eventually(request, response, code, msg, instance_id, db_id, tmp_rowsets_meta,
                           stats);
 }

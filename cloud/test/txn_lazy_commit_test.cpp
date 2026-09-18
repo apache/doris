@@ -1801,6 +1801,395 @@ TEST_F(ImmediateCommitTmpRowsetTest, ConcurrentTmpDeleteCausesRealCommitConflict
     check_status(TxnStatusPB::TXN_STATUS_PREPARED);
 }
 
+// Partition-count checks use multiple tablets per partition independently of the
+// stale-tmp-rowset tests above. Six rowsets describe two partitions, not six.
+class CommitTxnPartitionCountTest : public testing::Test {
+protected:
+    static constexpr int64_t DB_ID = 92001;
+    static constexpr int64_t TABLE_ID = 92002;
+    static constexpr int64_t INDEX_ID = 92003;
+    static constexpr int64_t PARTITION_ID = 92004;
+    static constexpr int64_t TABLET_ID = 92100;
+    static constexpr int TABLETS_PER_PARTITION = 3;
+
+    void SetUp() override {
+        config::txn_lazy_commit_rowsets_thresold = TABLETS_PER_PARTITION;
+        config::enable_cloud_parallel_txn_lazy_commit = true;
+        config::parallel_txn_lazy_commit_num_threads = 2;
+        config::cloud_txn_lazy_commit_fuzzy_possibility = 0;
+        kv_ = get_fdb_txn_kv();
+        service_ = get_meta_service(kv_, true);
+        sp_->enable_processing();
+
+        BeginTxnRequest begin;
+        begin.set_cloud_unique_id("test_cloud_unique_id");
+        auto* info = begin.mutable_txn_info();
+        info->set_db_id(DB_ID);
+        info->set_label("commit_partition_count");
+        info->add_table_ids(TABLE_ID);
+        info->set_timeout_ms(60000);
+        BeginTxnResponse response;
+        brpc::Controller controller;
+        service_->begin_txn(&controller, &begin, &response, nullptr);
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        request_.set_cloud_unique_id("test_cloud_unique_id");
+        request_.set_db_id(DB_ID);
+        request_.set_txn_id(response.txn_id());
+        request_.set_is_2pc(false);
+        request_.set_enable_txn_lazy_commit(false);
+        request_.set_num_partitions(2);
+
+        add_partition(0);
+        add_partition(1);
+    }
+
+    void TearDown() override {
+        service_.reset();
+        sp_->clear_all_call_backs();
+        sp_->clear_trace();
+        sp_->disable_processing();
+        config::txn_lazy_commit_rowsets_thresold = old_threshold_;
+        config::enable_cloud_parallel_txn_lazy_commit = old_parallel_;
+        config::parallel_txn_lazy_commit_num_threads = old_parallel_threads_;
+        config::cloud_txn_lazy_commit_fuzzy_possibility = old_fuzzy_;
+    }
+
+    static int64_t tablet_id(int partition, int tablet) {
+        return TABLET_ID + partition * TABLETS_PER_PARTITION + tablet;
+    }
+
+    void add_partition(int partition) {
+        for (int tablet = 0; tablet < TABLETS_PER_PARTITION; ++tablet) {
+            create_tablet_with_db_id(service_.get(), DB_ID, TABLE_ID, INDEX_ID,
+                                     PARTITION_ID + partition, tablet_id(partition, tablet));
+        }
+    }
+
+    void write_tmp_rowset(const RowsetMetaCloudPB& rowset) {
+        CreateRowsetResponse response;
+        prepare_rowset(service_.get(), rowset, response);
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        commit_rowset(service_.get(), rowset, response);
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    }
+
+    void write_data_rowsets(int partition, int tablet_count = TABLETS_PER_PARTITION) {
+        for (int tablet = 0; tablet < tablet_count; ++tablet) {
+            auto rowset = create_rowset(request_.txn_id(), tablet_id(partition, tablet), INDEX_ID,
+                                        PARTITION_ID + partition);
+            rowset.set_num_rows(7 + tablet);
+            rowset.set_num_segments(1);
+            rowset.set_data_disk_size(100);
+            write_tmp_rowset(rowset);
+            rowsets_.push_back(std::move(rowset));
+        }
+    }
+
+    void add_sub_txn() {
+        BeginSubTxnRequest begin;
+        begin.set_cloud_unique_id("test_cloud_unique_id");
+        begin.set_txn_id(request_.txn_id());
+        begin.set_sub_txn_num(0);
+        begin.set_db_id(DB_ID);
+        begin.set_label("partition_count_sub_txn");
+        begin.add_table_ids(TABLE_ID);
+        BeginSubTxnResponse response;
+        brpc::Controller controller;
+        service_->begin_sub_txn(&controller, &begin, &response, nullptr);
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(response.has_sub_txn_id());
+
+        // The second sub-transaction writes all three tablets of A again.
+        // Nine rowsets still describe two distinct partitions, with A=3, B=2.
+        for (int tablet = 0; tablet < TABLETS_PER_PARTITION; ++tablet) {
+            auto rowset = create_rowset(response.sub_txn_id(), tablet_id(0, tablet), INDEX_ID,
+                                        PARTITION_ID);
+            rowset.set_num_rows(10 + tablet);
+            write_tmp_rowset(rowset);
+            sub_txn_rowsets_.push_back(std::move(rowset));
+        }
+        request_.set_is_txn_load(true);
+        for (int64_t id : {request_.txn_id(), response.sub_txn_id()}) {
+            auto* sub_txn = request_.add_sub_txn_infos();
+            sub_txn->set_sub_txn_id(id);
+            sub_txn->set_table_id(TABLE_ID);
+        }
+    }
+
+    CommitTxnResponse commit() {
+        brpc::Controller controller;
+        CommitTxnResponse response;
+        service_->commit_txn(&controller, &request_, &response, nullptr);
+        return response;
+    }
+
+    void check_complete_response(const CommitTxnResponse& response,
+                                 const std::map<int64_t, int64_t>& expected_versions) {
+        ASSERT_EQ(response.table_ids_size(), expected_versions.size());
+        ASSERT_EQ(response.partition_ids_size(), expected_versions.size());
+        ASSERT_EQ(response.versions_size(), expected_versions.size());
+        std::map<int64_t, int64_t> versions;
+        for (int i = 0; i < response.partition_ids_size(); ++i) {
+            EXPECT_EQ(response.table_ids(i), TABLE_ID);
+            versions.emplace(response.partition_ids(i), response.versions(i));
+        }
+        EXPECT_EQ(versions, expected_versions);
+        ASSERT_EQ(response.table_stats_size(), 1);
+        EXPECT_EQ(response.table_stats(0).table_id(), TABLE_ID);
+    }
+
+    void check_empty_response(const CommitTxnResponse& response) {
+        EXPECT_EQ(response.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+        ASSERT_EQ(response.txn_info().table_ids_size(), 1);
+        EXPECT_EQ(response.txn_info().table_ids(0), TABLE_ID);
+        EXPECT_EQ(response.table_ids_size(), 0);
+        EXPECT_EQ(response.partition_ids_size(), 0);
+        EXPECT_EQ(response.versions_size(), 0);
+        EXPECT_EQ(response.table_stats_size(), 0);
+        EXPECT_FALSE(response.has_version_update_time_ms());
+    }
+
+    void check_partition_version(int partition, int64_t expected_version) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(partition_version_key(
+                                   {mock_instance, DB_ID, TABLE_ID, PARTITION_ID + partition}),
+                           &value),
+                  TxnErrorCode::TXN_OK);
+        VersionPB version;
+        ASSERT_TRUE(version.ParseFromString(value));
+        EXPECT_EQ(version.version(), expected_version);
+        EXPECT_EQ(version.pending_txn_ids_size(), 0);
+        for (int tablet = 0; tablet < TABLETS_PER_PARTITION; ++tablet) {
+            check_rowset_meta_not_exist(txn, tablet_id(partition, tablet), expected_version + 1);
+        }
+    }
+
+    void check_rowsets(const std::vector<RowsetMetaCloudPB>& rowsets, int64_t version) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (const auto& rowset : rowsets) {
+            SCOPED_TRACE(rowset.tablet_id());
+            std::string value;
+            ASSERT_EQ(
+                    txn->get(meta_rowset_key({mock_instance, rowset.tablet_id(), version}), &value),
+                    TxnErrorCode::TXN_OK);
+            RowsetMetaCloudPB published;
+            ASSERT_TRUE(published.ParseFromString(value));
+            EXPECT_EQ(published.rowset_id_v2(), rowset.rowset_id_v2());
+            EXPECT_EQ(published.start_version(), version);
+            EXPECT_EQ(published.end_version(), version);
+            EXPECT_EQ(published.num_rows(), rowset.num_rows());
+            check_tmp_rowset_not_exist(txn, rowset.tablet_id(), rowset.txn_id());
+        }
+    }
+
+    std::shared_ptr<TxnKv> kv_;
+    std::unique_ptr<MetaServiceProxy> service_;
+    SyncPoint* sp_ = SyncPoint::get_instance();
+    CommitTxnRequest request_;
+    std::vector<RowsetMetaCloudPB> rowsets_;
+    std::vector<RowsetMetaCloudPB> sub_txn_rowsets_;
+
+private:
+    const int32_t old_threshold_ = config::txn_lazy_commit_rowsets_thresold;
+    const bool old_parallel_ = config::enable_cloud_parallel_txn_lazy_commit;
+    const int32_t old_parallel_threads_ = config::parallel_txn_lazy_commit_num_threads;
+    const int32_t old_fuzzy_ = config::cloud_txn_lazy_commit_fuzzy_possibility;
+};
+
+TEST_F(CommitTxnPartitionCountTest, EmptyRowsetsKeepCompletePartitionVersions) {
+    // A has two data rowsets and one skipped empty bucket; B has three data
+    // rowsets. C has three persisted zero-row rowsets. All three count once.
+    write_data_rowsets(0, 2);
+    write_data_rowsets(1);
+    add_partition(2);
+    for (int tablet = 0; tablet < TABLETS_PER_PARTITION; ++tablet) {
+        auto rowset =
+                create_rowset(request_.txn_id(), tablet_id(2, tablet), INDEX_ID, PARTITION_ID + 2);
+        ASSERT_EQ(rowset.num_rows(), 0);
+        write_tmp_rowset(rowset);
+        rowsets_.push_back(std::move(rowset));
+    }
+
+    request_.set_num_partitions(3);
+    auto response = commit();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_FALSE(response.is_lazy_commit());
+    check_complete_response(response,
+                            {{PARTITION_ID, 2}, {PARTITION_ID + 1, 2}, {PARTITION_ID + 2, 2}});
+    for (int partition = 0; partition < 3; ++partition) {
+        check_partition_version(partition, 2);
+    }
+    check_rowsets(rowsets_, 2);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+    check_tmp_rowset_not_exist(txn, tablet_id(0, 2), request_.txn_id());
+    check_rowset_meta_not_exist(txn, tablet_id(0, 2), 2);
+}
+
+TEST_F(CommitTxnPartitionCountTest, PartitionCountMismatchClearsImmediateVersions) {
+    write_data_rowsets(0);
+    write_data_rowsets(1);
+    // BE may report an entirely filtered partition with three tablets even
+    // though none of their writers stored tmp metadata. Its version stays 1.
+    add_partition(2);
+    const auto empty_partition_key =
+            partition_version_key({mock_instance, DB_ID, TABLE_ID, PARTITION_ID + 2});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string value;
+    ASSERT_EQ(txn->get(empty_partition_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    txn.reset();
+
+    request_.set_num_partitions(3);
+    auto response = commit();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_FALSE(response.is_lazy_commit());
+    check_empty_response(response);
+    check_partition_version(0, 2);
+    check_partition_version(1, 2);
+    check_rowsets(rowsets_, 2);
+
+    ASSERT_EQ(kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(txn->get(empty_partition_key, &value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    for (int tablet = 0; tablet < TABLETS_PER_PARTITION; ++tablet) {
+        check_tmp_rowset_not_exist(txn, tablet_id(2, tablet), request_.txn_id());
+        check_rowset_meta_not_exist(txn, tablet_id(2, tablet), 2);
+    }
+}
+
+TEST_F(CommitTxnPartitionCountTest, LazyRetryAfterPartialCleanupReturnsVisible) {
+    write_data_rowsets(0);
+    write_data_rowsets(1);
+    // Keep both requests on the lazy path even when only partition B remains.
+    config::txn_lazy_commit_rowsets_thresold = 0;
+    request_.set_enable_txn_lazy_commit(true);
+    LazyCommitGates gates;
+    sp_->set_call_back("TxnLazyCommitter::commit", [&](auto&& args) {
+        int64_t partition = *try_any_cast<int64_t*>(args[0]);
+        std::unique_lock lock(gates.mutex);
+        ++gates.partitions_entered;
+        gates.cv.notify_all();
+        gates.wait(lock, [&] {
+            return gates.partitions_entered == 2 &&
+                   (partition == PARTITION_ID || gates.release_last);
+        });
+    });
+    sp_->set_call_back("TxnLazyCommitTask::commit_partition::finish", [&](auto&& args) {
+        if (*try_any_cast<int64_t*>(args[0]) == PARTITION_ID) {
+            std::lock_guard lock(gates.mutex);
+            gates.first_finished = true;
+            gates.cv.notify_all();
+        }
+    });
+
+    CommitTxnResponse original_response;
+    std::thread original([&] { original_response = commit(); });
+    DORIS_CLOUD_DEFER {
+        {
+            std::lock_guard lock(gates.mutex);
+            gates.stop = true;
+            gates.cv.notify_all();
+        }
+        if (original.joinable()) original.join();
+        sp_->clear_all_call_backs();
+    };
+    {
+        std::unique_lock lock(gates.mutex);
+        ASSERT_TRUE(gates.wait(lock, [&] { return gates.first_finished; }));
+        ASSERT_EQ(gates.partitions_entered, 2);
+    }
+    std::vector<std::pair<std::string, RowsetMetaCloudPB>> remaining;
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string message;
+    scan_tmp_rowset(mock_instance, request_.txn_id(), kv_, code, message, &remaining, nullptr);
+    ASSERT_EQ(code, MetaServiceCode::OK);
+    ASSERT_EQ(remaining.size(), TABLETS_PER_PARTITION);
+    for (int tablet = 0; tablet < TABLETS_PER_PARTITION; ++tablet) {
+        EXPECT_EQ(remaining[tablet].first,
+                  meta_rowset_tmp_key({mock_instance, request_.txn_id(), tablet_id(1, tablet)}));
+        EXPECT_EQ(remaining[tablet].second.partition_id(), PARTITION_ID + 1);
+    }
+
+    // Retry scans only B, sees its pending txn and waits for the original lazy
+    // task. Once B finishes, retry rebuilds its transaction and reads VISIBLE.
+    int lazy_attempts = 0;
+    int pending_waits = 0;
+    sp_->set_call_back("commit_txn_eventually:begin", [&](auto&&) { ++lazy_attempts; });
+    sp_->set_call_back("commit_txn_immediately:begin",
+                       [&](auto&&) { ADD_FAILURE() << "retry must stay on the lazy path"; });
+    sp_->set_call_back("commit_txn_eventually::advance_last_pending_txn_id", [&](auto&& args) {
+        EXPECT_EQ(*try_any_cast<int64_t*>(args[0]), request_.txn_id());
+        ++pending_waits;
+        gates.release(true);
+    });
+    auto response = commit();
+    original.join();
+    EXPECT_GT(lazy_attempts, 0);
+    EXPECT_EQ(pending_waits, 1);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_TRUE(response.is_lazy_commit());
+    // The already-visible return precedes the first-phase flag assignment.
+    // Its absent optional bool reads as false, allowing FE cache invalidation.
+    EXPECT_FALSE(response.has_is_lazy_commit_incomplete());
+    EXPECT_FALSE(response.is_lazy_commit_incomplete());
+    check_empty_response(response);
+    ASSERT_EQ(original_response.status().code(), MetaServiceCode::OK);
+    EXPECT_TRUE(original_response.is_lazy_commit());
+    EXPECT_FALSE(original_response.is_lazy_commit_incomplete());
+    check_complete_response(original_response, {{PARTITION_ID, 2}, {PARTITION_ID + 1, 2}});
+    check_partition_version(0, 2);
+    check_partition_version(1, 2);
+    check_rowsets(rowsets_, 2);
+}
+
+TEST_F(CommitTxnPartitionCountTest, PartitionCountMismatchClearsLazyVersions) {
+    write_data_rowsets(0);
+    write_data_rowsets(1);
+    request_.set_enable_txn_lazy_commit(true);
+    request_.set_num_partitions(3);
+    auto response = commit();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(response.is_lazy_commit());
+    ASSERT_FALSE(response.is_lazy_commit_incomplete());
+    check_empty_response(response);
+    check_partition_version(0, 2);
+    check_partition_version(1, 2);
+    check_rowsets(rowsets_, 2);
+}
+
+TEST_F(CommitTxnPartitionCountTest, SubTxnCommitKeepsCompletePartitionVersions) {
+    write_data_rowsets(0);
+    write_data_rowsets(1);
+    add_sub_txn();
+    auto response = commit();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(response.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+    check_complete_response(response, {{PARTITION_ID, 3}, {PARTITION_ID + 1, 2}});
+    check_partition_version(0, 3);
+    check_partition_version(1, 2);
+    check_rowsets(rowsets_, 2);
+    check_rowsets(sub_txn_rowsets_, 3);
+}
+
+TEST_F(CommitTxnPartitionCountTest, SubTxnCountMismatchClearsVersions) {
+    write_data_rowsets(0);
+    write_data_rowsets(1);
+    add_sub_txn();
+    // Summing the two sub-transactions' partition counts gives three, but MS
+    // must compare the two distinct partitions, regardless of their nine rowsets.
+    request_.set_num_partitions(3);
+    auto response = commit();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    check_empty_response(response);
+    check_partition_version(0, 3);
+    check_partition_version(1, 2);
+    check_rowsets(rowsets_, 2);
+    check_rowsets(sub_txn_rowsets_, 3);
+}
+
 TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
     auto txn_kv = get_mem_txn_kv();
 
@@ -2040,12 +2429,24 @@ TEST(TxnLazyCommitTest, FallThroughCommitTxnEventuallyTest) {
         req.set_txn_id(txn_id);
         req.set_is_2pc(false);
         req.set_enable_txn_lazy_commit(true);
+        req.set_num_partitions(1);
         CommitTxnResponse res;
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.ShortDebugString();
         ASSERT_TRUE(commit_txn_immediatelly_hit);
         ASSERT_TRUE(commit_txn_eventually_finish_hit);
+        // The failed immediate attempt already populated its response. Lazy
+        // fallback must return only its own complete, non-duplicated versions.
+        ASSERT_TRUE(res.is_lazy_commit());
+        ASSERT_FALSE(res.is_lazy_commit_incomplete());
+        ASSERT_EQ(res.partition_ids_size(), 1);
+        EXPECT_EQ(res.partition_ids(0), partition_id);
+        ASSERT_EQ(res.table_ids_size(), 1);
+        EXPECT_EQ(res.table_ids(0), table_id);
+        ASSERT_EQ(res.versions_size(), 1);
+        EXPECT_EQ(res.versions(0), 2);
+        EXPECT_EQ(res.table_stats_size(), 1);
     }
 
     {
