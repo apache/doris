@@ -202,6 +202,37 @@ private:
     std::string _name = "mock_increment";
 };
 
+class MockPositiveExpr final : public VExpr {
+public:
+    MockPositiveExpr(DataTypePtr type) : VExpr(type, false), _type(std::move(type)) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        ColumnPtr input;
+        RETURN_IF_ERROR(get_child(0)->execute_column(context, block, selector, count, input));
+        const IColumn* data = input.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(data)) {
+            data = &nullable->get_nested_column();
+        }
+        const auto& values = assert_cast<const ColumnInt32&>(*data);
+        auto result = ColumnUInt8::create();
+        result->reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            result->insert_value(values.get_element(i) > 0);
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    DataTypePtr execute_type(const Block* /*block*/) const override { return _type; }
+
+private:
+    DataTypePtr _type;
+    std::string _name = "mock_positive";
+};
+
 class MockBatchSizeExpr final : public VExpr {
 public:
     MockBatchSizeExpr(DataTypePtr type, std::vector<size_t>* observed_batch_sizes)
@@ -711,6 +742,50 @@ TEST(ArrayMapFunctionTest, IdentityLambdaSharesNestedInputColumn) {
 
     const auto& result_array = assert_cast<const ColumnArray&>(*result);
     EXPECT_EQ(result_array.get_data_ptr().get(), nested_input);
+}
+
+TEST(ArrayFilterFunctionTest, NullableSecondaryLambdaArrayPropagatesToResult) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto bool_type = std::make_shared<DataTypeUInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto nullable_array_int_type = std::make_shared<DataTypeNullable>(array_int_type);
+    auto array_bool_type = std::make_shared<DataTypeArray>(make_nullable(bool_type));
+    auto nullable_array_bool_type = std::make_shared<DataTypeNullable>(array_bool_type);
+
+    auto filter = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, 2, "array_filter"));
+    filter->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{1, 2}, {3, 4}}),
+                                                       array_int_type, "source"));
+
+    auto map = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_bool_type, 3));
+    auto lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(bool_type, {"x", "y"}));
+    auto body = std::make_shared<MockPositiveExpr>(bool_type);
+    body->add_child(VColumnRef::create_shared(make_column_ref_node(1, "y", int_type)));
+    lambda->add_child(body);
+    map->add_child(lambda);
+    map->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{1, 2}, {3, 4}}),
+                                                    array_int_type, "source"));
+    map->add_child(std::make_shared<MockColumnExpr>(
+            make_nullable_int_array_column({{100, 101}, {10, 0}}, {1, 0}), nullable_array_int_type,
+            "secondary"));
+    filter->add_child(map);
+
+    VExprContext context(filter);
+    open_expr(filter, &context);
+
+    Block block;
+    ColumnPtr result;
+    auto status = filter->execute_column(&context, &block, nullptr, 2, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+    EXPECT_EQ(nullable_result.get_null_map_data(), ColumnUInt8::Container({1, 0}));
+    const auto& result_array = assert_cast<const ColumnArray&>(nullable_result.get_nested_column());
+    EXPECT_EQ(result_array.get_offsets(), ColumnArray::Offsets64({0, 1}));
+    const auto& values = assert_cast<const ColumnInt32&>(
+            assert_cast<const ColumnNullable&>(*result_array.get_data_ptr()).get_nested_column());
+    EXPECT_EQ(values.get_data(), ColumnInt32::Container({3}));
 }
 
 TEST(ArrayMapFunctionTest, LambdaWithConstantCaptureUsesNestedColumnDirectly) {
