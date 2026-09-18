@@ -1745,6 +1745,89 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testRustReaderSelectionRequiresFileScannerV2() throws Exception {
+        // The V1 FileScanner explicitly rejects PAIMON_RUST, so a rust request may
+        // only be encoded when enable_file_scanner_v2 is on; with V2 disabled the
+        // split falls back to JNI so the selected scanner can consume it.
+        for (boolean scannerV2 : Arrays.asList(true, false)) {
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = scannerV2;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                    0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                    0, Collections.emptyList(), Collections.emptyList(),
+                    Collections.emptyMap(), null));
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+            Mockito.when(externalTable.getDbName()).thenReturn("db");
+            Mockito.when(externalTable.getName()).thenReturn("t");
+            node.setSource(source);
+            // The rust gate and schema serialization use doInitialize's cached
+            // getProcessedTable() result, not the raw source table.
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("rust_gate.parquet")));
+
+            Assert.assertEquals(scannerV2 ? TPaimonReaderType.PAIMON_RUST : TPaimonReaderType.PAIMON_JNI,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testRustSchemaJsonShipsProcessedTableRelationOptions() throws Exception {
+        // Relation options such as t@options('read.batch-size'='1') are applied by
+        // getProcessedTable(); the JNI reader serializes that effective table, and the
+        // rust reader rebuilds its table from the shipped schema JSON, deriving its
+        // read batch size from the schema options. Only the processed table's schema
+        // carries the override here, and source.getPaimonTable() is deliberately left
+        // unstubbed (it returns null): if the serialization ever regresses to the raw
+        // cached table, the rust gate falls back to JNI and this test fails.
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+
+        // The processed table: the relation override is merged into its schema.
+        FileStoreTable processed = Mockito.mock(FileStoreTable.class);
+        Mockito.when(processed.schema()).thenReturn(new TableSchema(
+                0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                0, Collections.emptyList(), Collections.emptyList(),
+                ImmutableMap.of("read.batch-size", "1"), null));
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(externalTable.getDbName()).thenReturn("db");
+        Mockito.when(externalTable.getName()).thenReturn("t");
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "processedTable", processed);
+        setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(createDataSplit("relation_options.parquet")));
+
+        org.apache.doris.thrift.TPaimonFileDesc fileDesc =
+                rangeDesc.getTableFormatParams().getPaimonParams();
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST, fileDesc.getReaderType());
+        TableSchema shipped = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                fileDesc.getPaimonTableSchemaJson(), TableSchema.class);
+        Assert.assertEquals("1", shipped.options().get("read.batch-size"));
+    }
+
+    @Test
     public void testGetFieldIndexMatchesMixedCaseColumns() {
         List<String> fieldNames = Arrays.asList("data", "mIxEd_COL", "PART");
 
@@ -1954,5 +2037,125 @@ public class PaimonScanNodeTest {
         Mockito.when(dataSplit.convertToRawFiles()).thenReturn(Optional.empty());
         Mockito.when(dataSplit.deletionFiles()).thenReturn(Optional.empty());
         return dataSplit;
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsIncrementalScans() throws Exception {
+        // Incremental scans (t@incr with incremental-between-scan-mode in
+        // delta / changelog / diff) must stay on the JNI path: this wire
+        // format carries only an ordinary DataSplit and the rust reader
+        // invokes TableRead::to_arrow, but paimon 1.4 marks incremental splits
+        // as streaming (which the pinned rust deserializer rejects), diff
+        // requires a separate IncrementalPlan, and ordinary primary-key reads
+        // can merge versions instead of returning the changes. All three scan
+        // modes ride the same incr param type, so the gate excludes
+        // scanParams.incrementalRead() wholesale.
+        for (String mode : Arrays.asList("delta", "changelog", "diff")) {
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            node.setScanParams(new TableScanParams("incr",
+                    ImmutableMap.of("incremental-between", "5,10",
+                            "incremental-between-scan-mode", mode),
+                    null));
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_CREDENTIALS_PROVIDER_TYPE", "DEFAULT"));
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("incremental.parquet")));
+            Assert.assertEquals("scan mode " + mode, TPaimonReaderType.PAIMON_JNI,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsAmbientCredentialProviderModes() throws Exception {
+        // The rust S3 bridge maps static credentials, anonymous access
+        // (AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS -> s3.anonymous) and
+        // assume-role (AWS_ROLE_ARN / AWS_EXTERNAL_ID -> s3.assumed.role.*),
+        // but the ambient JVM provider chains (ENV, SYSTEM_PROPERTIES,
+        // WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) have no paimon-rust
+        // equivalent — rust would sign with whatever the ambient chain
+        // resolves to. Those modes must fall back to JNI before the split is
+        // encoded; DEFAULT and ANONYMOUS stay eligible.
+        for (String mode : Arrays.asList("ENV", "SYSTEM_PROPERTIES", "WEB_IDENTITY",
+                "CONTAINER", "INSTANCE_PROFILE")) {
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_CREDENTIALS_PROVIDER_TYPE", mode));
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("provider_env.parquet")));
+            Assert.assertEquals("mode " + mode, TPaimonReaderType.PAIMON_JNI,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testRustReaderSelectionAcceptsAnonymousAndDefaultProviderModes() throws Exception {
+        // ANONYMOUS and DEFAULT are translatable by the rust S3 bridge
+        // (s3.anonymous / static credentials), so the rust reader stays
+        // eligible for them. ANONYMOUS on an oss:// warehouse is the
+        // exception: the rust OSS FileIO parser has no skip-signature
+        // switch, so those catalogs fall back to JNI.
+        for (String[] shape : new String[][] {
+                {"ANONYMOUS", "s3://warehouse/wh", "PAIMON_RUST"},
+                {"DEFAULT", "s3://warehouse/wh", "PAIMON_RUST"},
+                {"ANONYMOUS", "oss://warehouse/wh", "PAIMON_JNI"}}) {
+            String mode = shape[0];
+            String location = shape[1];
+            TPaimonReaderType expected =
+                    TPaimonReaderType.valueOf(shape[2]);
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            Mockito.when(source.getTableLocation()).thenReturn(location);
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            if (expected == TPaimonReaderType.PAIMON_RUST) {
+                // Only the rust path serializes the schema and the table
+                // identity; the JNI iterations must not leave unused stubs.
+                Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+                Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                        0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0, Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyMap(), null));
+                Mockito.when(externalTable.getDbName()).thenReturn("db");
+                Mockito.when(externalTable.getName()).thenReturn("t");
+            }
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_CREDENTIALS_PROVIDER_TYPE", mode));
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("provider_ok.parquet")));
+            Assert.assertEquals("mode " + mode + " on " + location, expected,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
     }
 }

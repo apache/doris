@@ -2169,6 +2169,202 @@ build_lance_c() {
     fi
 }
 
+# paimon-rust
+build_paimon_rust() {
+    check_if_source_exist "${PAIMON_RUST_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${PAIMON_RUST_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+
+    local cargo_bin="${PAIMON_RUST_CARGO:-${CARGO:-cargo}}"
+    if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
+        echo "cargo is required to build paimon-rust. Install Rust 1.91.0 or set PAIMON_RUST_CARGO."
+        exit 1
+    fi
+
+    local required_rust_version="1.91.0"
+    local cargo_env=(
+        "CARGO_BUILD_JOBS=${PARALLEL}"
+        "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
+    )
+    if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
+        if ! rustup toolchain list | grep -Eq '^1\.91\.0([[:space:]-]|$)'; then
+            rustup toolchain install "${required_rust_version}" --profile minimal
+        fi
+        cargo_env+=("RUSTUP_TOOLCHAIN=${required_rust_version}")
+    fi
+
+    local cargo_version
+    if ! cargo_version="$(env "${cargo_env[@]}" "${cargo_bin}" --version | awk '{print $2}')"; then
+        echo "failed to get cargo version for paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+    if [[ "${cargo_version}" != "${required_rust_version}" ]]; then
+        echo "paimon-rust requires Rust/Cargo ${required_rust_version}, but found ${cargo_version}."
+        echo "Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
+        exit 1
+    fi
+
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
+    fi
+
+    # paimon-vindex-core 0.4.0 uses the unstable `stdarch_neon_f16` intrinsics
+    # (vcvt_f32_f16 / vreinterpret_f16_u16) in its aarch64 NEON fast path, which
+    # do not compile on stable Rust. On aarch64/arm64, replace the registry
+    # crate with a patched path source so the build succeeds. The patch swaps
+    # the unstable f16->f32 NEON convert for a stable scalar conversion; the
+    # rest of the NEON accumulation is left untouched. x86_64 and other arches
+    # are unaffected and keep using the pristine registry crate.
+    if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+        local vindex_override="${PWD}/.doris-vindex-override"
+        local vindex_crate
+        vindex_crate="$(find "${CARGO_HOME:-$HOME/.cargo}/registry/cache" \
+            -type f -name 'paimon-vindex-core-0.4.0.crate' 2>/dev/null | head -n1)"
+        if [[ -z "${vindex_crate}" ]]; then
+            # Ensure the .crate is downloaded into the registry cache first.
+            local fetch_args=(fetch)
+            if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+                fetch_args+=(--offline)
+            fi
+            env "${cargo_env[@]}" "${cargo_bin}" "${fetch_args[@]}"
+            vindex_crate="$(find "${CARGO_HOME:-$HOME/.cargo}/registry/cache" \
+                -type f -name 'paimon-vindex-core-0.4.0.crate' 2>/dev/null | head -n1)"
+        fi
+        if [[ -z "${vindex_crate}" ]]; then
+            echo "failed to locate paimon-vindex-core-0.4.0.crate in the cargo registry cache"
+            exit 1
+        fi
+        # Verify the cached crate against the workspace Cargo.lock checksum
+        # before extraction. The cache lookup picks an ambient file by name,
+        # and once the [patch.crates-io] path override is applied, cargo
+        # build --locked no longer authenticates those bytes — without this
+        # check a stale or poisoned same-named cache (e.g. from another
+        # registry mirror) would enter libpaimon_c.a, and identical Doris
+        # sources could produce different artifacts. Iterate the candidates
+        # (multiple registries may cache the crate) and use the one whose
+        # sha256 matches the lock; fail when none does.
+        local vindex_checksum
+        vindex_checksum="$(awk '
+            $0 == "[[package]]" { in_pkg = 1; name = ""; version = ""; checksum = ""; next }
+            in_pkg && $1 == "name" { gsub(/[",]/, "", $3); name = $3 }
+            in_pkg && $1 == "version" { gsub(/[",]/, "", $3); version = $3 }
+            in_pkg && $1 == "checksum" { gsub(/[",]/, "", $3); checksum = $3 }
+            in_pkg && $0 == "" {
+                if (name == "paimon-vindex-core" && version == "0.4.0" && checksum != "") { print checksum; found = 1; exit }
+                in_pkg = 0
+            }
+            END {
+                if (!found && in_pkg && name == "paimon-vindex-core" && version == "0.4.0" && checksum != "") { print checksum }
+            }
+        ' Cargo.lock)"
+        if [[ -z "${vindex_checksum}" ]]; then
+            echo "failed to read the paimon-vindex-core 0.4.0 checksum from Cargo.lock"
+            exit 1
+        fi
+        local vindex_verified=""
+        local candidate
+        while IFS= read -r candidate; do
+            local candidate_sum
+            if command -v sha256sum >/dev/null 2>&1; then
+                candidate_sum="$(sha256sum "${candidate}" | awk '{print $1}')"
+            else
+                candidate_sum="$(shasum -a 256 "${candidate}" | awk '{print $1}')"
+            fi
+            if [[ "${candidate_sum}" == "${vindex_checksum}" ]]; then
+                vindex_verified="${candidate}"
+                break
+            fi
+        done < <(find "${CARGO_HOME:-$HOME/.cargo}/registry/cache" \
+            -type f -name 'paimon-vindex-core-0.4.0.crate' 2>/dev/null)
+        if [[ -z "${vindex_verified}" ]]; then
+            echo "no paimon-vindex-core-0.4.0.crate in the cargo registry cache matches"
+            echo "the Cargo.lock checksum ${vindex_checksum}; refusing to build from"
+            echo "unverified bytes (the aarch64 patch overrides the crate with a path"
+            echo "dependency, which cargo build --locked cannot authenticate)"
+            exit 1
+        fi
+        vindex_crate="${vindex_verified}"
+        rm -rf "${vindex_override}"
+        mkdir -p "${vindex_override}"
+        tar xzf "${vindex_crate}" -C "${vindex_override}" --strip-components=1
+        (cd "${vindex_override}" && \
+            patch -p1 -s <"${TP_PATCH_DIR}/paimon-vindex-core-0.4.0-aarch64-stable.patch")
+        # Inject the [patch.crates-io] override into the workspace manifest.
+        # Idempotent: skip if a previous run already injected it.
+        if ! grep -q "DORIS_PATCHED_VINDEX" Cargo.toml; then
+            cat >>Cargo.toml <<'EOF'
+
+# DORIS_PATCHED_VINDEX: override the registry crate with a build that compiles
+# on stable Rust for aarch64 (avoids the unstable stdarch_neon_f16 intrinsics).
+[patch.crates-io]
+paimon-vindex-core = { path = ".doris-vindex-override" }
+EOF
+        fi
+        # Record the path source in Cargo.lock so --locked stays satisfied.
+        env "${cargo_env[@]}" "${cargo_bin}" update \
+            -p paimon-vindex-core --offline
+    fi
+
+    local cargo_args=(build --release --locked -p paimon-c --features paimon/storage-hdfs)
+    if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+        cargo_args+=(--offline)
+    fi
+    env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
+
+    # Generate the C header from the Rust extern "C" surface via cbindgen.
+    # cbindgen is a pinned, Doris-controlled input: an unpinned "current"
+    # release would regenerate paimon.h differently between builds. The
+    # pinned version installs under a Doris-controlled --root and its
+    # resolved absolute path is invoked directly (a custom CARGO_HOME does
+    # not necessarily put cargo-installed binaries on PATH). Offline builds
+    # pass --offline to the install command, exactly like the fetch/build
+    # handling above — cargo fails on a missing local crate cache instead
+    # of reaching for the network.
+    local cbindgen_version="0.29.4"
+    local cbindgen_bin="${PAIMON_RUST_CBINDGEN:-}"
+    if [[ -z "${cbindgen_bin}" ]]; then
+        local cbindgen_root="${TP_SOURCE_DIR}/.doris-cbindgen-${cbindgen_version}"
+        cbindgen_bin="${cbindgen_root}/bin/cbindgen"
+        if [[ ! -x "${cbindgen_bin}" ]]; then
+            local cbindgen_install_args=(install cbindgen
+                --version "${cbindgen_version}" --locked --root "${cbindgen_root}")
+            if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+                cbindgen_install_args+=(--offline)
+            fi
+            echo "cbindgen not found; installing pinned ${cbindgen_version} via cargo install ..."
+            env "${cargo_env[@]}" "${cargo_bin}" "${cbindgen_install_args[@]}"
+        fi
+    elif [[ ! -x "${cbindgen_bin}" ]]; then
+        echo "PAIMON_RUST_CBINDGEN=${cbindgen_bin} is not an executable file."
+        exit 1
+    fi
+    # Write a temporary cbindgen.toml so the generated header carries our
+    # include-guard / cpp-compat settings without touching the upstream tree.
+    local cbindgen_toml="${BUILD_DIR}/cbindgen.toml"
+    mkdir -p "${BUILD_DIR}"
+    cat >"${cbindgen_toml}" <<'EOF'
+language = "C"
+include_guard = "PAIMON_C_H"
+pragma_once = true
+cpp_compat = true
+EOF
+    env "${cargo_env[@]}" "${cbindgen_bin}" bindings/c \
+        --config "${cbindgen_toml}" \
+        --output "${BUILD_DIR}/release/paimon.h"
+
+    mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
+    rm -rf "${TP_INSTALL_DIR}/include/paimon_rust"
+    mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust"
+    cp -v "${BUILD_DIR}/release/paimon.h" "${TP_INSTALL_DIR}/include/paimon_rust/"
+    cp -v "${BUILD_DIR}/release/libpaimon_c.a" "${TP_INSTALL_DIR}/lib64/"
+
+    if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
+        strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/libpaimon_c.a"
+    fi
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         jindofs
@@ -2245,6 +2441,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         brotli
         icu
         pugixml
+        paimon_rust
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
@@ -2345,6 +2542,7 @@ cleanup_package_source() {
         juicefs)         src_var="JUICEFS_SOURCE" ;;
         pugixml)         src_var="PUGIXML_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
+        paimon_rust)     src_var="PAIMON_RUST_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
         xml2)            src_var="XML2_SOURCE" ;;

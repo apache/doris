@@ -66,6 +66,7 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
@@ -411,10 +412,102 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
+            // use jni reader / paimon-cpp reader / paimon-rust reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            // A logical DataSplit may span multiple files, so keep it intact for the JNI reader.
-            fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
-            fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
+            // paimon-cpp and paimon-rust both consume Paimon native binary serialization,
+            // which only supports DataSplit. Any other split type falls back to JNI.
+            boolean nativeSplit = split instanceof DataSplit;
+            // paimon-rust additionally requires (a) FileScannerV2: the V1 FileScanner
+            // explicitly rejects PAIMON_RUST, so with enable_file_scanner_v2 disabled
+            // the split falls back to JNI instead of encoding a rust request that the
+            // selected scanner cannot consume, and (b) a FileStoreTable: BE opens the
+            // table via paimon_table_from_schema_json, which needs the resolved
+            // TableSchema that only FileStoreTable exposes via schema(). If the table
+            // is not a FileStoreTable (e.g. a sys table backed by DataSplit), we cannot
+            // ship a schema JSON, so fall back to CPP / JNI rather than sending an
+            // incomplete PAIMON_RUST request that BE would reject.
+            //
+            // Serialize the same effective table that planning and the JNI reader use.
+            // Relation options such as t@options('read.batch-size'='1') are applied by
+            // getProcessedTable() (doInitialize caches it in processedTable), and the
+            // rust reader derives its read batch size from the schema options — the raw
+            // cached table would silently drop the override. Copies, delegates and
+            // fallback wrappers of getProcessedTable() are still FileStoreTable, so the
+            // instanceof gate keeps its semantics.
+            Table paimonTable = processedTable;
+            // The paimon-rust S3 bridge maps static credentials, anonymous
+            // access (AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS -> s3.anonymous)
+            // and assume-role (AWS_ROLE_ARN / AWS_EXTERNAL_ID ->
+            // s3.assumed.role.*), but the remaining credential-provider modes
+            // are ambient JVM provider chains (ENV, SYSTEM_PROPERTIES,
+            // WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) with no paimon-rust
+            // equivalent — rust would silently sign with whatever the ambient
+            // chain resolves to. Gate those modes away from the rust reader
+            // here so the configured provider is honored via the JNI path.
+            boolean providerModeTranslatable = true;
+            String providerType = backendStorageProperties == null
+                    ? null : backendStorageProperties.get("AWS_CREDENTIALS_PROVIDER_TYPE");
+            if (providerType != null) {
+                String mode = providerType.trim().toUpperCase(Locale.ROOT);
+                providerModeTranslatable = mode.equals("DEFAULT")
+                        || mode.equals("ANONYMOUS");
+                // The rust OSS FileIO parser (oss:// warehouses) has no
+                // skip-signature switch, so an anonymous OSS catalog cannot be
+                // served by the rust reader either — fall back to JNI.
+                if (mode.equals("ANONYMOUS")) {
+                    String location = source.getTableLocation();
+                    if (location != null && location.startsWith("oss://")) {
+                        providerModeTranslatable = false;
+                    }
+                }
+            }
+            // Incremental scans (binlog / changelog / delta / diff) must stay
+            // on the JNI path: this wire format carries only an ordinary
+            // DataSplit and the rust reader invokes TableRead::to_arrow, but
+            // paimon 1.4 marks incremental splits as streaming (which the
+            // pinned rust deserializer rejects), diff requires a separate
+            // IncrementalPlan instead of an ordinary plan, and ordinary
+            // primary-key reads can merge versions rather than return the
+            // changes — until the C ABI transports the mode and plan, the
+            // rust reader cannot express any of these.
+            TableScanParams incrementalParams = getScanParams();
+            boolean isIncremental = incrementalParams != null && incrementalParams.incrementalRead();
+            boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
+                    && sessionVariable.enableFileScannerV2 && nativeSplit && !isIncremental
+                    && providerModeTranslatable
+                    && paimonTable instanceof FileStoreTable;
+            if (canUseRust) {
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
+                fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
+            } else {
+                // A logical DataSplit may span multiple files, so keep it intact for the JNI reader.
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
+                fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
+            }
+            // Set table location for paimon-cpp / paimon-rust reader
+            String tableLocation = source.getTableLocation();
+            if (tableLocation != null) {
+                fileDesc.setPaimonTable(tableLocation);
+            }
+            // paimon-rust reader opens tables via paimon_table_from_schema_json:
+            // ship db/table + resolved TableSchema JSON + non-default branch.
+            if (canUseRust) {
+                ExternalTable extTable = source.getExternalTable();
+                fileDesc.setDbName(extTable.getDbName());
+                fileDesc.setTableName(extTable.getName());
+
+                // No catalog / warehouse needed. FE ships the resolved TableSchema JSON
+                // and the branch (null-if-main; matches upstream paimon commit 742da63)
+                // so BE can skip a schema-file round trip. The FileStoreTable cast is
+                // safe here because canUseRust gates on it above.
+                TableSchema tableSchema = ((FileStoreTable) paimonTable).schema();
+                fileDesc.setPaimonTableSchemaJson(PaimonUtil.encodeTableSchemaToJson(tableSchema));
+
+                String branch = CoreOptions.branch(tableSchema.options());
+                if (!Identifier.DEFAULT_MAIN_BRANCH.equals(branch)) {
+                    fileDesc.setPaimonBranch(branch);
+                }
+            }
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader
