@@ -195,16 +195,18 @@ public final class UnionDataTraitUtils {
     private static List<List<Integer>> refineByConstantRow(List<List<Integer>> equalGroups,
             List<NamedExpression> row, Optional<ExpressionRewriteContext> context, int outputSize) {
         List<Optional<Literal>> literals = new ArrayList<>(outputSize);
+        List<Optional<ConstantValueKey>> valueKeys = new ArrayList<>(outputSize);
         for (NamedExpression expression : row) {
-            literals.add(foldConstant(unwrapAlias(expression), context));
+            Optional<Literal> literal = foldConstant(unwrapAlias(expression), context);
+            literals.add(literal);
+            valueKeys.add(literal.flatMap(UnionDataTraitUtils::constantValueKey));
         }
 
         List<List<Integer>> refinedGroups = new ArrayList<>();
         for (List<Integer> equalGroup : equalGroups) {
             Map<ConstantValueKey, List<Integer>> ordinalsByValue = new LinkedHashMap<>();
             for (int outputIndex : equalGroup) {
-                Optional<ConstantValueKey> key = literals.get(outputIndex).flatMap(
-                        UnionDataTraitUtils::constantValueKey);
+                Optional<ConstantValueKey> key = valueKeys.get(outputIndex);
                 key.ifPresent(valueKey -> ordinalsByValue
                         .computeIfAbsent(valueKey, ignored -> new ArrayList<>()).add(outputIndex));
             }
@@ -212,7 +214,8 @@ public final class UnionDataTraitUtils {
                 if (sameValueOrdinals.size() <= 1) {
                     continue;
                 }
-                refinedGroups.addAll(splitByProvenEquality(sameValueOrdinals, row, context));
+                refinedGroups.addAll(splitByProvenEquality(
+                        sameValueOrdinals, row, literals, valueKeys, context));
             }
         }
         return refinedGroups;
@@ -223,32 +226,50 @@ public final class UnionDataTraitUtils {
      *
      * <p>Each bucket position starts in its own disjoint-set component. This method evaluates every
      * unordered pair of output ordinals and merges their components only when null-safe comparison
-     * folds to {@code TRUE}. Evaluating all pairs makes the result independent of ordinal order and
-     * preserves a compatible subgroup even when another member, such as an ARRAY-typed NULL, cannot
-     * be coerced with it. Connected pairs may share a component because proven value equality is
-     * transitive; singleton components are omitted because they publish no output equality.
+     * folds to {@code TRUE}. Pairs whose roots are already equal are skipped, and proof results are
+     * cached by folded literal value and type so repeated compatible or incompatible pairs do not
+     * repeat coercion and folding. Evaluating the remaining pairs makes the result independent of
+     * ordinal order and preserves a compatible subgroup even when another member, such as an
+     * ARRAY-typed NULL, cannot be coerced with it. Connected pairs may share a component because
+     * proven value equality is transitive; singleton components are omitted because they publish no
+     * output equality.
      *
      * @param sameValueOrdinals output ordinals that share one normalized constant-value key
      * @param row constant expressions in union output-ordinal order
+     * @param literals folded literals in union output-ordinal order
+     * @param valueKeys normalized keys for the folded literals in union output-ordinal order
      * @param context optional rewrite context used for coercion and constant evaluation
      * @return non-singleton ordinal components connected by proven null-safe equality pairs
      */
     private static List<List<Integer>> splitByProvenEquality(List<Integer> sameValueOrdinals,
-            List<NamedExpression> row, Optional<ExpressionRewriteContext> context) {
+            List<NamedExpression> row, List<Optional<Literal>> literals,
+            List<Optional<ConstantValueKey>> valueKeys, Optional<ExpressionRewriteContext> context) {
         int[] parents = new int[sameValueOrdinals.size()];
         for (int i = 0; i < parents.length; i++) {
             parents[i] = i;
         }
+        Map<ConstantComparisonKey, Boolean> proofCache = new HashMap<>();
 
         for (int left = 0; left < sameValueOrdinals.size(); left++) {
             for (int right = left + 1; right < sameValueOrdinals.size(); right++) {
-                if (isNullSafeEqualInConstantRow(
-                        row, sameValueOrdinals.get(left), sameValueOrdinals.get(right), context)) {
-                    int leftRoot = findRoot(parents, left);
-                    int rightRoot = findRoot(parents, right);
-                    if (leftRoot != rightRoot) {
-                        parents[rightRoot] = leftRoot;
-                    }
+                int leftRoot = findRoot(parents, left);
+                int rightRoot = findRoot(parents, right);
+                if (leftRoot == rightRoot) {
+                    continue;
+                }
+
+                int leftOrdinal = sameValueOrdinals.get(left);
+                int rightOrdinal = sameValueOrdinals.get(right);
+                ConstantComparisonKey comparisonKey = new ConstantComparisonKey(
+                        new LiteralSignature(literals.get(leftOrdinal).get(), valueKeys.get(leftOrdinal).get()),
+                        new LiteralSignature(literals.get(rightOrdinal).get(), valueKeys.get(rightOrdinal).get()));
+                Boolean equal = proofCache.get(comparisonKey);
+                if (equal == null) {
+                    equal = isNullSafeEqualInConstantRow(row, leftOrdinal, rightOrdinal, context);
+                    proofCache.put(comparisonKey, equal);
+                }
+                if (equal) {
+                    parents[rightRoot] = leftRoot;
                 }
             }
         }
@@ -486,6 +507,70 @@ public final class UnionDataTraitUtils {
         @Override
         public int hashCode() {
             return Objects.hash(family, value);
+        }
+    }
+
+    /**
+     * Folded literal signature used to reuse a null-safe equality proof within one constant row.
+     */
+    private static final class LiteralSignature {
+        private final Class<?> literalClass;
+        private final Object dataType;
+        private final ConstantValueKey valueKey;
+
+        private LiteralSignature(Literal literal, ConstantValueKey valueKey) {
+            this.literalClass = literal.getClass();
+            this.dataType = literal.getDataType();
+            this.valueKey = valueKey;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof LiteralSignature)) {
+                return false;
+            }
+            LiteralSignature that = (LiteralSignature) object;
+            return literalClass.equals(that.literalClass)
+                    && Objects.equals(dataType, that.dataType)
+                    && valueKey.equals(that.valueKey);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(literalClass, dataType, valueKey);
+        }
+    }
+
+    /**
+     * Ordered pair of folded literal signatures used as a cache key for a comparison proof.
+     */
+    private static final class ConstantComparisonKey {
+        private final LiteralSignature left;
+        private final LiteralSignature right;
+
+        private ConstantComparisonKey(LiteralSignature left, LiteralSignature right) {
+            this.left = left;
+            this.right = right;
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (this == object) {
+                return true;
+            }
+            if (!(object instanceof ConstantComparisonKey)) {
+                return false;
+            }
+            ConstantComparisonKey that = (ConstantComparisonKey) object;
+            return left.equals(that.left) && right.equals(that.right);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(left, right);
         }
     }
 }

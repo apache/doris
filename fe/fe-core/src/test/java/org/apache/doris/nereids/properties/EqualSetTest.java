@@ -163,6 +163,28 @@ class EqualSetTest extends TestWithFeService {
         assertUnionEqualPair(compatibleValuesFirst, 0, 1, false);
     }
 
+    @Test
+    void testWideConstantUnionReusesComparisonProofs() {
+        int columnCount = 256;
+        StringBuilder sql = new StringBuilder("select ");
+        appendNullIntColumns(sql, columnCount);
+        sql.append(" union all select ");
+        appendNullIntColumns(sql, columnCount);
+
+        LogicalUnion union = analyzeLogicalUnion(sql.toString());
+        Assertions.assertTrue(union.getLogicalProperties().getTrait().isNullSafeEqual(
+                union.getOutput().get(0), union.getOutput().get(columnCount - 1)));
+    }
+
+    private void appendNullIntColumns(StringBuilder sql, int columnCount) {
+        for (int column = 0; column < columnCount; column++) {
+            if (column > 0) {
+                sql.append(", ");
+            }
+            sql.append("cast(null as int)");
+        }
+    }
+
     private void assertUnionEqualPair(String sql, int leftIndex, int rightIndex, boolean expected) {
         assertUnionEqualPair(sql, analyzeLogicalUnion(sql), leftIndex, rightIndex, expected);
     }
