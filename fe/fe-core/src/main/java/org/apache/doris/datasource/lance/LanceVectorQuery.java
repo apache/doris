@@ -84,23 +84,7 @@ public final class LanceVectorQuery {
     public static TSearchVector parseAndEncodeQueryVector(Field field, String json)
             throws AnalysisException {
         boolean multiVector = field.getType().getTypeID() == ArrowType.ArrowTypeID.List;
-        Field vectorField = field;
-        if (multiVector) {
-            if (hasExtension(field) || field.getDictionary() != null || field.getChildren().size() != 1) {
-                throw unsupportedVectorType(field);
-            }
-            vectorField = field.getChildren().get(0);
-            // Lance's multi-vector distance kernels do not consult inner validity bitmaps.
-            if (vectorField.isNullable() || vectorField.getChildren().size() != 1) {
-                throw new AnalysisException("Lance multi-vector columns require non-nullable subvectors");
-            }
-        }
-        VectorEncodingSpec encodingSpec = analyzeVectorField(vectorField);
-        if (multiVector && encodingSpec.elementType != TVectorElementType.FLOAT16
-                && encodingSpec.elementType != TVectorElementType.FLOAT32
-                && encodingSpec.elementType != TVectorElementType.FLOAT64) {
-            throw unsupportedVectorType(field);
-        }
+        VectorEncodingSpec encodingSpec = analyzeQueryVectorField(field);
         JsonArray values = parseQueryVector(json, field, multiVector ? -1 : encodingSpec.dimension);
         int numVectors = multiVector ? values.size() : 1;
         if (multiVector) {
@@ -135,6 +119,32 @@ public final class LanceVectorQuery {
             query.setNumVectors(numVectors);
         }
         return query;
+    }
+
+    public static void validateVectorField(Field field) throws AnalysisException {
+        analyzeQueryVectorField(field);
+    }
+
+    private static VectorEncodingSpec analyzeQueryVectorField(Field field) throws AnalysisException {
+        boolean multiVector = field.getType().getTypeID() == ArrowType.ArrowTypeID.List;
+        Field vectorField = field;
+        if (multiVector) {
+            if (hasExtension(field) || field.getDictionary() != null || field.getChildren().size() != 1) {
+                throw unsupportedVectorType(field);
+            }
+            vectorField = field.getChildren().get(0);
+            // Lance's multi-vector distance kernels do not consult inner validity bitmaps.
+            if (vectorField.isNullable() || vectorField.getChildren().size() != 1) {
+                throw new AnalysisException("Lance multi-vector columns require non-nullable subvectors");
+            }
+        }
+        VectorEncodingSpec encodingSpec = analyzeVectorField(vectorField);
+        if (multiVector && encodingSpec.elementType != TVectorElementType.FLOAT16
+                && encodingSpec.elementType != TVectorElementType.FLOAT32
+                && encodingSpec.elementType != TVectorElementType.FLOAT64) {
+            throw unsupportedVectorType(field);
+        }
+        return encodingSpec;
     }
 
     private static VectorEncodingSpec analyzeVectorField(Field field) throws AnalysisException {

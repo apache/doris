@@ -291,6 +291,11 @@ public class ConnectContext {
     @Setter
     private ByteBuffer prepareExecuteBuffer;
 
+    // Snapshot of cached types omitted by the current COM_STMT_EXECUTE packet.
+    @Getter
+    @Setter
+    private int[] prepareExecuteTypeCodes;
+
     // Whether the current COM_STMT_EXECUTE requested a server-side read-only cursor.
     private boolean cursorFetchRequested;
 
