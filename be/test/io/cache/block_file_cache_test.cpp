@@ -3848,6 +3848,89 @@ TEST_F(BlockFileCacheTest, remove_directly) {
     }
 }
 
+TEST_F(BlockFileCacheTest, test_evict_metrics_only_count_downloaded_blocks) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+
+    const auto original_enable_evict_in_advance = config::enable_evict_file_cache_in_advance;
+    Defer restore_evict_in_advance {
+            [&] { config::enable_evict_file_cache_in_advance = original_enable_evict_in_advance; }};
+    config::enable_evict_file_cache_in_advance = false;
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    const auto downloaded_key = io::BlockFileCache::hash("downloaded-key");
+    const auto empty_key = io::BlockFileCache::hash("empty-key");
+
+    {
+        auto holder = cache.get_or_set(downloaded_key, 0, 5, context);
+        ASSERT_EQ(holder.file_blocks.size(), 1);
+        ASSERT_TRUE(holder.file_blocks.front()->get_or_set_downloader() ==
+                    io::FileBlock::get_caller_id());
+        download(holder.file_blocks.front());
+    }
+    EXPECT_EQ(cache._cur_cache_size, 5);
+    const auto before_downloaded_remove = cache.get_stats_unsafe();
+    const auto before_downloaded_queue_evict_size =
+            cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]->get_value();
+    cache.remove_if_cached(downloaded_key);
+    const auto after_downloaded_remove = cache.get_stats_unsafe();
+    EXPECT_EQ(after_downloaded_remove.at("total_removed_size") -
+                      before_downloaded_remove.at("total_removed_size"),
+              5);
+    EXPECT_EQ(cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]
+                              ->get_value() -
+                      before_downloaded_queue_evict_size,
+              5);
+    EXPECT_EQ(cache._cur_cache_size, 0);
+
+    const auto before_empty_remove = cache.get_stats_unsafe();
+    const auto before_empty_queue_evict_size =
+            cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]->get_value();
+    {
+        auto holder = cache.get_or_set(empty_key, 0, 5, context);
+        ASSERT_EQ(holder.file_blocks.size(), 1);
+        EXPECT_EQ(holder.file_blocks.front()->state(), io::FileBlock::State::EMPTY);
+        EXPECT_EQ(cache._cur_cache_size, 5);
+    }
+    const auto after_empty_remove = cache.get_stats_unsafe();
+    EXPECT_EQ(after_empty_remove.at("total_removed_size"),
+              before_empty_remove.at("total_removed_size"));
+    EXPECT_EQ(
+            cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]->get_value(),
+            before_empty_queue_evict_size);
+    EXPECT_EQ(cache._cur_cache_size, 0);
+
+    EXPECT_EQ(after_downloaded_remove.at("evict_not_downloaded_size"),
+              before_downloaded_remove.at("evict_not_downloaded_size"));
+    EXPECT_EQ(after_downloaded_remove.at("evict_not_downloaded_num"),
+              before_downloaded_remove.at("evict_not_downloaded_num"));
+    EXPECT_EQ(after_empty_remove.at("evict_not_downloaded_size") -
+                      before_empty_remove.at("evict_not_downloaded_size"),
+              5);
+    EXPECT_EQ(after_empty_remove.at("evict_not_downloaded_num") -
+                      before_empty_remove.at("evict_not_downloaded_num"),
+              1);
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
 TEST_F(BlockFileCacheTest, late_holder_remove_skips_missing_cache_cell) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
@@ -8082,6 +8165,14 @@ TEST_F(BlockFileCacheTest, evict_in_advance) {
     settings.capacity = 10000000;
     settings.max_file_block_size = 100000;
     settings.max_query_cache_size = 30;
+
+    const auto original_enable_evict_in_advance = config::enable_evict_file_cache_in_advance;
+    const auto original_evict_in_advance_batch_bytes =
+            config::file_cache_evict_in_advance_batch_bytes;
+    Defer restore_evict_in_advance_config {[&] {
+        config::enable_evict_file_cache_in_advance = original_enable_evict_in_advance;
+        config::file_cache_evict_in_advance_batch_bytes = original_evict_in_advance_batch_bytes;
+    }};
 
     size_t limit = 1000000;
     size_t cache_max = 10000000;
