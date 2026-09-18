@@ -126,7 +126,18 @@ suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
                 """select id from t_decimal_cast where cast(amount as decimal(10,1)) is not null order by id""",
                 // Cast-induced NULL: CAST('5' AS INT) is 5, not NULL.
                 """select id from t_cast_null where cast(s as int) is null order by id""",
-                """select id from t_cast_null where cast(s as int) = 5 order by id"""
+                """select id from t_cast_null where cast(s as int) = 5 order by id""",
+                // IN / NOT IN with a casted list value. FE folds the
+                // list-value cast at plan time (even with
+                // debug_skip_fold_constant) and aligns the column with a
+                // column-side cast instead, so both readers correctly keep
+                // everything in the residual here. The un-folded shape — the
+                // cast still inside the IN list — is covered by the
+                // PaimonRustPredicateConverterTest unit tests, where the
+                // converter rejects any casted IN-list child (FE's
+                // doInPredicate parity).
+                """select id from t_decimal_cast where amount in (cast(1.24 as decimal(10,1)), 1.30) order by id""",
+                """select id from t_decimal_cast where amount not in (cast(1.24 as decimal(10,1))) order by id"""
         ]
         def expectedResults = [
                 [[1], [2]],
@@ -135,7 +146,9 @@ suite("test_paimon_rust_reader_cast_predicates", "p0,external,paimon") {
                 [[4]],
                 [[1], [2], [3]],
                 [[2]],
-                [[1]]
+                [[1]],
+                [[2], [3]],
+                [[1], [3]]
         ]
         // Representative scale-cast query reused for the reader-path checks.
         String scaleCastQuery = testQueries[0]

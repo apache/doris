@@ -18,7 +18,6 @@
 #include "format_v2/table/paimon_rust_table_reader.h"
 
 #include <algorithm>
-#include <string_view>
 #include <utility>
 
 #include "arrow/c/abi.h"
@@ -115,23 +114,18 @@ std::string consume_error(paimon_error* err) {
     return "code=" + std::to_string(owned->code) + ", msg=" + msg;
 }
 
-// Render storage options for diagnostics. Values of sensitive keys (secret /
-// password / token / access key) are masked so credentials never hit the log.
+// Render storage option KEYS for diagnostics. Values are never rendered:
+// credential keys arrive under many spellings and cases (AWS_SECRET_KEY,
+// AWS_TOKEN, fs.oss.accessKeySecret, s3.secret-key, ...), and a key-name
+// blocklist that misses one alias leaks the value into the INFO log, so
+// only the key names are printed at all.
 std::string format_options(const std::map<std::string, std::string>& options) {
     std::string out;
     for (const auto& kv : options) {
         if (!out.empty()) {
             out += ", ";
         }
-        std::string_view key = kv.first;
-        const bool sensitive = key.find("secret") != std::string_view::npos ||
-                               key.find("password") != std::string_view::npos ||
-                               key.find("token") != std::string_view::npos ||
-                               key.find("access.key") != std::string_view::npos ||
-                               key.find("access-key") != std::string_view::npos;
         out += kv.first;
-        out += '=';
-        out += sensitive ? "***" : kv.second;
     }
     return out;
 }
@@ -300,6 +294,25 @@ Status PaimonRustTableReader::abort_split() {
     }
     return format::TableReader::abort_split();
 }
+
+#ifdef BE_TEST
+std::string PaimonRustTableReader::TEST_format_options(
+        const std::map<std::string, std::string>& options) {
+    return format_options(options);
+}
+
+std::map<std::string, std::string> PaimonRustTableReader::TEST_build_options(
+        TFileScanRangeParams* scan_params, const TFileRangeDesc& range) {
+    TFileScanRangeParams* previous_params = _scan_params;
+    TFileRangeDesc previous_range = _current_range;
+    _scan_params = scan_params;
+    _current_range = range;
+    std::map<std::string, std::string> options = _build_options();
+    _scan_params = previous_params;
+    _current_range = std::move(previous_range);
+    return options;
+}
+#endif
 
 Status PaimonRustTableReader::close() {
     {
@@ -757,22 +770,57 @@ std::map<std::string, std::string> PaimonRustTableReader::_build_options() const
         }
     };
 
-    // The pinned paimon-rust FileIO reads paimon-java's `s3.*` option family
-    // (io/storage_s3.rs normalizes the `fs.s3a.`/`s3a.`/`s3.` prefixes and the
-    // `s3.access.key`/`s3.path.style.access` aliases): s3.access-key,
-    // s3.secret-key, s3.session.token, s3.endpoint, s3.region and
-    // s3.path-style-access. `fs.s3a.*` keys therefore pass through natively,
-    // but the FE's storage-properties channel delivers the vended S3 config
-    // under the AWS_* / use_path_style aliases, which the crate does not read,
-    // and the OSS configs use their own fs.oss.* names — so remap both to the
-    // s3.* family. Without this the rust S3 FileIO builds with an empty region
-    // ("ConfigInvalid ... region is missing") and never connects.
+    // The pinned paimon-rust storage dispatcher selects the parser from the
+    // table path's URI scheme (io/storage.rs): `oss://` tables read the OSS
+    // parser, which requires fs.oss.endpoint / fs.oss.accessKeyId /
+    // fs.oss.accessKeySecret (plus optional fs.oss.securityToken for STS);
+    // `s3://` tables read the S3 parser, whose family is paimon-java's
+    // s3.* keys (s3.access-key, s3.secret-key, s3.session.token, s3.endpoint,
+    // s3.region, s3.path-style-access, normalized from the fs.s3a. / s3a. /
+    // s3. prefixes). The FE's storage-properties channel delivers both
+    // protocols' credentials under the AWS_* / use_path_style aliases, so map
+    // them to the key family the table's scheme actually dispatches to —
+    // mapping everything to s3.* would leave OSS catalogs failing to open
+    // ("Missing required OSS config: fs.oss.endpoint").
+    const std::string table_path = _resolve_table_path(_current_range).value_or("");
+    const bool is_oss = table_path.rfind("oss://", 0) == 0;
+    if (is_oss) {
+        // The OSS parser reads only the four fs.oss.* keys (and retry
+        // settings); native fs.oss.* options pass through untouched. It has
+        // no region / anonymous / assume-role handling, so nothing else is
+        // mapped for this scheme.
+        copy_if_missing("AWS_ENDPOINT", "fs.oss.endpoint");
+        copy_if_missing("AWS_ACCESS_KEY", "fs.oss.accessKeyId");
+        copy_if_missing("AWS_SECRET_KEY", "fs.oss.accessKeySecret");
+        copy_if_missing("AWS_TOKEN", "fs.oss.securityToken");
+        return options;
+    }
     copy_if_missing("AWS_ACCESS_KEY", "s3.access-key");
     copy_if_missing("AWS_SECRET_KEY", "s3.secret-key");
     copy_if_missing("AWS_TOKEN", "s3.session.token");
     copy_if_missing("AWS_ENDPOINT", "s3.endpoint");
     copy_if_missing("AWS_REGION", "s3.region");
     copy_if_missing("use_path_style", "s3.path-style-access");
+    // Authentication modes: the FE storage-properties channel marks anonymous
+    // access with AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS (emitted when no
+    // static credentials are configured) and assume-role with
+    // AWS_ROLE_ARN / AWS_EXTERNAL_ID (from the s3.role_arn / s3.external_id
+    // catalog properties). The crate reads s3.anonymous (skip_signature) and
+    // the s3.assumed.role.* family, so map both; without these, anonymous
+    // catalogs would consult the ambient credential chain and role-only
+    // catalogs would never assume the requested role. The remaining provider
+    // modes are ambient JVM credential chains (ENV, SYSTEM_PROPERTIES,
+    // WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) with no paimon-rust
+    // equivalent — the FE gates those away from the rust reader before the
+    // split is encoded.
+    if (options.contains("AWS_CREDENTIALS_PROVIDER_TYPE") &&
+        options.at("AWS_CREDENTIALS_PROVIDER_TYPE") == "ANONYMOUS") {
+        options["s3.anonymous"] = "true";
+    }
+    copy_if_missing("AWS_ROLE_ARN", "s3.assumed.role.arn");
+    copy_if_missing("AWS_EXTERNAL_ID", "s3.assumed.role.externalId");
+    // OSS-shaped options on an S3 warehouse (cross-protocol alias): map them
+    // to the s3.* family as well.
     copy_if_missing("fs.oss.accessKeyId", "s3.access-key");
     copy_if_missing("fs.oss.accessKeySecret", "s3.secret-key");
     copy_if_missing("fs.oss.sessionToken", "s3.session.token");

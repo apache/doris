@@ -59,9 +59,13 @@ namespace doris {
 // it to `paimon_read_builder_with_filter` (which consumes it) or release it via
 // `paimon_predicate_free`.
 //
-// Conversion is best effort: any conjunct that cannot be represented is dropped
-// (the engine still re-applies the full conjunct list to the scanned block), so
-// a partial filter only ever prunes a superset and never changes results.
+// Conversion preserves a safe prefix: conjuncts that are not safe to execute
+// on selected rows (assert_true(...), failing casts — anything that must keep
+// raising on rows a later pushed predicate could prune) stop the pushdown, so
+// no conjunct after them is pushed either; safe conjuncts that cannot be
+// represented are skipped (the engine still re-applies the full conjunct list
+// to the scanned block), so a partial filter only ever prunes a superset and
+// never changes results.
 class PaimonRustPredicateConverter {
 public:
     // Resolve fields by column name from the supplied registry. FileScannerV2
