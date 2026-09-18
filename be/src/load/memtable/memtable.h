@@ -22,7 +22,6 @@
 
 #include <cstdint>
 #include <cstring>
-#include <functional>
 #include <memory>
 #include <vector>
 
@@ -275,8 +274,10 @@ private:
     //return number of same keys
     size_t _sort();
     Status _sort_by_cluster_keys();
-    void _sort_one_column(DorisVector<std::shared_ptr<RowInBlock>>& row_in_blocks, Tie& tie,
-                          std::function<int(RowInBlock*, RowInBlock*)> cmp);
+    template <typename RowRef, typename RowPosGetter>
+    size_t _sort_rows(DorisVector<RowRef>& rows, RowPosGetter&& get_row_pos);
+    template <typename RowRef, typename Comparator>
+    void _sort_one_column(DorisVector<RowRef>& rows, Tie& tie, Comparator&& cmp);
     template <bool is_final>
     void _finalize_one_row(RowInBlock* row, MutableBlock& mutable_block, int row_pos);
     void _init_row_for_agg(RowInBlock* row, MutableBlock& mutable_block);
@@ -302,6 +303,14 @@ private:
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<size_t> _offsets_of_aggregate_states;
     size_t _total_size_of_aggregate_states;
+    // DUP_KEYS only needs a permutation of source row positions for sorting. A uint32_t vector
+    // avoids one shared_ptr, one RowInBlock, and one allocation/control block per input.
+    std::unique_ptr<DorisVector<uint32_t>> _duplicate_key_row_positions;
+    // Optional row-binlog LSNs remain indexed by the original DUP_KEYS row position. Output uses
+    // the sorted position vector to apply the identical permutation to rows and their LSNs.
+    std::unique_ptr<DorisVector<int64_t>> _duplicate_key_allocated_lsns;
+    // Only UNIQUE_KEYS and AGG_KEYS use RowInBlock. Those models still need per-row aggregation
+    // state and, when enabled, the allocated LSN stored in RowInBlock.
     std::unique_ptr<DorisVector<std::shared_ptr<RowInBlock>>> _row_in_blocks;
 
     size_t _num_columns;
