@@ -280,6 +280,13 @@ void parse_phrase_slop(std::string* query, InvertedIndexQueryInfo* query_info) {
     *query = query->substr(0, last_space_pos);
 }
 
+// Multi-term phrases verify positions per document, so only they gain from restricting the
+// docid intersection to the scan candidates; every other query computes the full segment.
+bool consumes_candidates(InvertedIndexQueryType query_type, size_t term_count) {
+    return term_count > 1 && (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
+                              query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
+}
+
 std::shared_ptr<roaring::Roaring> docids_to_bitmap(const std::vector<uint32_t>& docids) {
     auto result = std::make_shared<roaring::Roaring>();
     if (!docids.empty()) {
@@ -338,15 +345,19 @@ Status run_query_single_flight(
     return Status::OK();
 }
 
+// Keep every query type's dispatch to the SNII executors in one switch.
+// NOLINTNEXTLINE(readability-function-size)
 Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logical_reader,
                           InvertedIndexQueryType query_type,
                           const InvertedIndexQueryInfo& query_info, std::string_view search_str,
                           const std::vector<std::string>& terms, int32_t max_expansions,
                           bool collect_phrase_frequency, SniiQueryExecutionResult* result,
-                          ::doris::snii::query::QueryProfile* profile) {
+                          ::doris::snii::query::QueryProfile* profile,
+                          const roaring::Roaring* candidates) {
     result->bitmap = std::make_shared<roaring::Roaring>();
     result->phrase_matches.clear();
     DORIS_CHECK(!collect_phrase_frequency || uses_phrase_frequency_scoring(query_type, query_info));
+    DORIS_CHECK(candidates == nullptr || consumes_candidates(query_type, terms.size()));
     RoaringDocIdSink sink(result->bitmap.get());
     std::vector<uint32_t> docids;
     bool emitted_to_sink = false;
@@ -376,11 +387,13 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                              ? ::doris::snii::query::phrase_query_with_frequencies(
                                        logical_reader, terms, &result->phrase_matches, profile,
                                        {.slop = static_cast<uint32_t>(query_info.slop),
-                                        .ordered = query_info.ordered})
+                                        .ordered = query_info.ordered,
+                                        .candidates = candidates})
                              : ::doris::snii::query::phrase_query(
                                        logical_reader, terms, &docids, profile,
                                        {.slop = static_cast<uint32_t>(query_info.slop),
-                                        .ordered = query_info.ordered});
+                                        .ordered = query_info.ordered,
+                                        .candidates = candidates});
         }
         break;
     case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
@@ -389,12 +402,14 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                                                         max_expansions);
             emitted_to_sink = true;
         } else {
-            status = collect_phrase_frequency
-                             ? ::doris::snii::query::phrase_prefix_query_with_frequencies(
-                                       logical_reader, terms, &result->phrase_matches, profile,
-                                       max_expansions)
-                             : ::doris::snii::query::phrase_prefix_query(
-                                       logical_reader, terms, &docids, profile, max_expansions);
+            status =
+                    collect_phrase_frequency
+                            ? ::doris::snii::query::phrase_prefix_query_with_frequencies(
+                                      logical_reader, terms, &result->phrase_matches, profile,
+                                      {.max_expansions = max_expansions, .candidates = candidates})
+                            : ::doris::snii::query::phrase_prefix_query(
+                                      logical_reader, terms, &docids, profile,
+                                      {.max_expansions = max_expansions, .candidates = candidates});
         }
         break;
     case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
@@ -570,6 +585,8 @@ Status SniiIndexReader::query_with_null_bitmap(
                   analyzer_ctx);
 }
 
+// Keep the cache, count-only, candidate and single-flight decisions in one linear path.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::string& column_name,
                                const Field& query_value, InvertedIndexQueryType query_type,
                                std::shared_ptr<roaring::Roaring>& bit_map,
@@ -591,6 +608,9 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
         context->stats->inverted_index_query_timer = query_ns_before + exclusive_query_ns;
     });
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
+    // Fresh per-search reply: only the query about to run decides whether its result is
+    // candidate-restricted.
+    context->candidate_rows_consumed = false;
     const std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
     const auto finish_query =
             [&](const ::doris::snii::reader::LogicalIndexReader* reader) -> Status {
@@ -699,6 +719,19 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
         }
     }
 
+    // A multi-term phrase restricted to the scan candidates produces a partial bitmap. It stays
+    // out of the result cache and single-flight, which both serve the full-segment query.
+    const bool consume_candidates =
+            context->candidate_rows != nullptr && consumes_candidates(query_type, terms.size());
+    context->candidate_rows_consumed = consume_candidates;
+    const SniiQueryBitmapRequest request {
+            .query_type = query_type,
+            .query_info = execution_query_info,
+            .search_str = search_str,
+            .max_expansions = max_expansions,
+            .logical_reader = logical_reader,
+            .candidates = consume_candidates ? context->candidate_rows : nullptr};
+
     // Under a cold cache, parallel scanners _lazy_init the same segment concurrently and each
     // would otherwise miss the searcher/query caches and redundantly open + decode this segment's
     // index. Collapse identical concurrent queries into one shared execution (see SingleFlight).
@@ -712,14 +745,9 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
                     ? &phrase_matches
                     : nullptr;
     Status single_flight_status;
-    if (!allow_result_cache) {
-        single_flight_status = _compute_query_bitmap(context,
-                                                     {.query_type = query_type,
-                                                      .query_info = execution_query_info,
-                                                      .search_str = search_str,
-                                                      .max_expansions = max_expansions,
-                                                      .logical_reader = logical_reader},
-                                                     &terms, &result_bitmap, phrase_matches_out);
+    if (!allow_result_cache || consume_candidates) {
+        single_flight_status =
+                _compute_query_bitmap(context, request, &terms, &result_bitmap, phrase_matches_out);
     } else {
         DORIS_CHECK(phrase_matches_out == nullptr);
         single_flight_status = run_query_single_flight(
@@ -730,13 +758,7 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
                 _single_flight_leader_before_compute_opaque,
 #endif
                 [&](std::shared_ptr<roaring::Roaring>* out) {
-                    auto status = _compute_query_bitmap(context,
-                                                        {.query_type = query_type,
-                                                         .query_info = execution_query_info,
-                                                         .search_str = search_str,
-                                                         .max_expansions = max_expansions,
-                                                         .logical_reader = logical_reader},
-                                                        &terms, out, nullptr);
+                    auto status = _compute_query_bitmap(context, request, &terms, out, nullptr);
                     if (status.ok()) {
                         insert_query_cache(context, cache, cache_key, *out, &cache_handler,
                                            allow_result_cache);
@@ -810,14 +832,15 @@ Status SniiIndexReader::_compute_query_bitmap(
                                   query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
     if (needs_prx_profile) {
         ::doris::snii::SniiPrxExecutionProfileScope execution_profile(*context->stats);
-        const Status execution_status = execute_snii_query(
-                *logical_reader, query_type, query_info, search_str, *terms, max_expansions,
-                phrase_matches != nullptr, &query_result, execution_profile.profile());
+        const Status execution_status =
+                execute_snii_query(*logical_reader, query_type, query_info, search_str, *terms,
+                                   max_expansions, phrase_matches != nullptr, &query_result,
+                                   execution_profile.profile(), request.candidates);
         RETURN_IF_ERROR(execution_status);
     } else {
         RETURN_IF_ERROR(execute_snii_query(*logical_reader, query_type, query_info, search_str,
                                            *terms, max_expansions, phrase_matches != nullptr,
-                                           &query_result, nullptr));
+                                           &query_result, nullptr, request.candidates));
     }
     *out = std::move(query_result.bitmap);
     if (phrase_matches != nullptr) {

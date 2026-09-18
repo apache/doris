@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/check.h"
+#include "roaring/roaring.hh"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -79,7 +80,11 @@ Status phrase_query_impl(const LogicalIndexReader& idx, const std::vector<std::s
     }
     if (terms.size() == 1) {
         DORIS_CHECK(matches == nullptr);
-        return term_query(idx, terms.front(), docids);
+        RETURN_IF_ERROR(term_query(idx, terms.front(), docids));
+        if (options.candidates != nullptr) {
+            retain_candidates(*options.candidates, docids);
+        }
+        return Status::OK();
     }
     if (!idx.has_positions()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
@@ -102,7 +107,8 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
                                 const std::vector<std::string>& terms,
                                 std::vector<uint32_t>* const docids, int32_t max_expansions,
                                 format::PrxDecodeContext* decode_context,
-                                std::vector<PhraseMatch>* matches) {
+                                std::vector<PhraseMatch>* matches,
+                                const roaring::Roaring* candidates) {
     if (docids == nullptr && matches == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("phrase_prefix_query: null out");
     }
@@ -117,7 +123,11 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
     }
     if (terms.size() == 1) {
         DORIS_CHECK(matches == nullptr);
-        return prefix_query(idx, terms.front(), docids, max_expansions);
+        RETURN_IF_ERROR(prefix_query(idx, terms.front(), docids, max_expansions));
+        if (candidates != nullptr) {
+            retain_candidates(*candidates, docids);
+        }
+        return Status::OK();
     }
     std::vector<ResolvedQueryTerm> exact_terms;
     exact_terms.reserve(terms.size() - 1);
@@ -156,7 +166,7 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
     DORIS_CHECK_LE(terms.size() - 1, static_cast<size_t>(std::numeric_limits<uint32_t>::max()));
     return execute_resolved_phrase_prefix_terms(idx, std::move(exact_plan), std::move(tail_terms),
                                                 static_cast<uint32_t>(terms.size() - 1), docids,
-                                                decode_context, matches);
+                                                decode_context, matches, candidates);
 }
 
 } // namespace doris::snii::query::phrase_impl

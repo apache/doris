@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/check.h"
+#include "roaring/roaring.hh"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -206,7 +207,7 @@ Status collect_single_term_expected_tail_positions(std::vector<PosSource>& srcs,
 Status collect_expected_tail_positions(const LogicalIndexReader& idx,
                                        internal::ResolvedPhrasePlan exact_plan,
                                        uint32_t tail_position_offset, ExpectedTailPositionSet* out,
-                                       const std::vector<uint32_t>* candidate_prefilter,
+                                       CandidateRestriction candidates,
                                        format::PrxDecodeContext* observer_context,
                                        bool preserve_first_clause_multiplicity) {
     out->clear();
@@ -217,7 +218,7 @@ Status collect_expected_tail_positions(const LogicalIndexReader& idx,
                                                   /*need_positions=*/false));
 
     PhraseExecutionState state;
-    RETURN_IF_ERROR(build_phrase_execution_state(idx, &round1, &plans, &state, candidate_prefilter,
+    RETURN_IF_ERROR(build_phrase_execution_state(idx, &round1, &plans, &state, candidates,
                                                  observer_context,
                                                  PhraseCandidateMetric::kPrefixLeading));
     if (state.candidates.empty()) {
@@ -493,12 +494,56 @@ Status collect_merged_tail_matches(const LogicalIndexReader& idx,
     return Status::OK();
 }
 
+// Picks how the leading phrase of a multi-tail prefix query is restricted. A tail union much
+// smaller than the leading candidate set prefilters it; otherwise scan candidates, when present,
+// restrict it directly. The union is kept whenever the unrestricted query would use it, so scan
+// candidates never make the leading phrase costlier; they can also enable it, since they bound
+// the leading positions to decode.
+Status restrict_prefix_leading_phrase(const LogicalIndexReader& idx,
+                                      const internal::ResolvedPhrasePlan& exact_plan,
+                                      const std::vector<ResolvedQueryTerm>& tail_terms,
+                                      const roaring::Roaring* candidates,
+                                      std::vector<uint32_t>* storage,
+                                      CandidateRestriction* restriction) {
+    uint32_t min_lead_df = std::numeric_limits<uint32_t>::max();
+    for (const ResolvedQueryTerm& term : exact_plan.unique_terms) {
+        min_lead_df = std::min(min_lead_df, term.entry.df);
+    }
+    uint64_t tail_df_sum = 0;
+    for (const ResolvedQueryTerm& tail : tail_terms) {
+        tail_df_sum += tail.entry.df;
+    }
+    const bool union_pays_off_unrestricted =
+            min_lead_df >= prefix_leading_prefilter_min_df(
+                                   idx, exact_plan.phrase_plan_index.size() == 1) &&
+            tail_df_sum <= min_lead_df / kPrefixLeadingToTailDfRatio;
+    const uint64_t lead_bound =
+            candidates == nullptr ? 0 : std::min<uint64_t>(min_lead_df, candidates->cardinality());
+    const bool union_pays_off_restricted = lead_bound >= kMinPrefixLeadingPrefilterMinDf &&
+                                           tail_df_sum <= lead_bound / kPrefixLeadingToTailDfRatio;
+    if (!union_pays_off_unrestricted && !union_pays_off_restricted) {
+        *restriction = restrict_to_candidates(candidates, min_lead_df, storage);
+        return Status::OK();
+    }
+    std::vector<internal::ResolvedDocidPosting> tail_postings;
+    tail_postings.reserve(tail_terms.size());
+    for (const ResolvedQueryTerm& tail : tail_terms) {
+        tail_postings.push_back({tail.entry, tail.frq_base, tail.prx_base});
+    }
+    RETURN_IF_ERROR(internal::build_docid_union(idx, tail_postings, storage));
+    if (candidates != nullptr) {
+        retain_candidates(*candidates, storage);
+    }
+    *restriction = {.prefilter = storage};
+    return Status::OK();
+}
+
 } // namespace
 Status execute_resolved_phrase_prefix_terms(
         const LogicalIndexReader& idx, internal::ResolvedPhrasePlan exact_plan,
         std::vector<ResolvedQueryTerm> tail_terms, uint32_t tail_position_offset,
         std::vector<uint32_t>* docids, format::PrxDecodeContext* decode_context,
-        std::vector<PhraseMatch>* matches, const std::vector<uint32_t>* candidate_prefilter) {
+        std::vector<PhraseMatch>* matches, const roaring::Roaring* candidates) {
     DORIS_CHECK(docids != nullptr || matches != nullptr);
     if (tail_terms.empty()) {
         return Status::OK();
@@ -510,8 +555,8 @@ Status execute_resolved_phrase_prefix_terms(
             const auto& tail = tail_terms.front();
             RETURN_IF_ERROR(internal::read_docid_posting(idx, tail.entry, tail.frq_base,
                                                          tail.prx_base, docids));
-            if (candidate_prefilter != nullptr) {
-                *docids = internal::intersect_sorted(*docids, *candidate_prefilter);
+            if (candidates != nullptr) {
+                retain_candidates(*candidates, docids);
             }
             return Status::OK();
         }
@@ -521,8 +566,8 @@ Status execute_resolved_phrase_prefix_terms(
             tail_postings.push_back({tail.entry, tail.frq_base, tail.prx_base});
         }
         RETURN_IF_ERROR(internal::build_docid_union(idx, tail_postings, docids));
-        if (candidate_prefilter != nullptr) {
-            *docids = internal::intersect_sorted(*docids, *candidate_prefilter);
+        if (candidates != nullptr) {
+            retain_candidates(*candidates, docids);
         }
         return Status::OK();
     }
@@ -536,50 +581,21 @@ Status execute_resolved_phrase_prefix_terms(
         append_resolved_phrase_clause(std::move(tail_terms.front()), tail_position_offset,
                                       &exact_plan);
         return internal::execute_resolved_phrase_plan(
-                idx, std::move(exact_plan), docids, decode_context, matches, candidate_prefilter,
+                idx, std::move(exact_plan), docids, decode_context, matches, candidates,
                 internal::ExactPhrasePositionAccess::kMaterializedOnly);
     }
 
-    uint32_t min_lead_df = std::numeric_limits<uint32_t>::max();
-    for (const ResolvedQueryTerm& term : exact_plan.unique_terms) {
-        min_lead_df = std::min(min_lead_df, term.entry.df);
-    }
-    uint64_t tail_df_sum = 0;
-    for (const ResolvedQueryTerm& tail : tail_terms) {
-        tail_df_sum += tail.entry.df;
-    }
-    const std::vector<uint32_t>* prefilter = candidate_prefilter;
-    std::vector<uint32_t> tail_union;
-    std::vector<uint32_t> combined_prefilter;
-    const bool allow_segment_relative_prefilter =
-            candidate_prefilter == nullptr && exact_plan.phrase_plan_index.size() == 1;
-    const uint32_t leading_prefilter_min_df =
-            prefix_leading_prefilter_min_df(idx, allow_segment_relative_prefilter);
-    if (min_lead_df >= leading_prefilter_min_df &&
-        tail_df_sum <= static_cast<uint64_t>(min_lead_df) / kPrefixLeadingToTailDfRatio) {
-        std::vector<internal::ResolvedDocidPosting> tail_postings;
-        tail_postings.reserve(tail_terms.size());
-        for (const ResolvedQueryTerm& tail : tail_terms) {
-            tail_postings.push_back({tail.entry, tail.frq_base, tail.prx_base});
-        }
-        RETURN_IF_ERROR(internal::build_docid_union(idx, tail_postings, &tail_union));
-        if (tail_union.empty()) {
-            return Status::OK();
-        }
-        if (candidate_prefilter == nullptr) {
-            prefilter = &tail_union;
-        } else {
-            combined_prefilter = internal::intersect_sorted(*candidate_prefilter, tail_union);
-            if (combined_prefilter.empty()) {
-                return Status::OK();
-            }
-            prefilter = &combined_prefilter;
-        }
+    std::vector<uint32_t> prefilter_docids;
+    CandidateRestriction restriction;
+    RETURN_IF_ERROR(restrict_prefix_leading_phrase(idx, exact_plan, tail_terms, candidates,
+                                                   &prefilter_docids, &restriction));
+    if (restriction.prefilter != nullptr && restriction.prefilter->empty()) {
+        return Status::OK();
     }
 
     ExpectedTailPositionSet expected;
     RETURN_IF_ERROR(collect_expected_tail_positions(idx, std::move(exact_plan),
-                                                    tail_position_offset, &expected, prefilter,
+                                                    tail_position_offset, &expected, restriction,
                                                     decode_context, matches != nullptr));
     if (expected.docs.empty()) {
         return Status::OK();

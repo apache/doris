@@ -347,6 +347,25 @@ private:
     PosChunkDecoder decoder_;
 };
 
+// How scan candidates restrict a phrase. `prefilter` (ascending docids) drives the docid
+// intersection; `filter` drops non-candidates from the intersection before positions are read.
+// At most one is set.
+struct CandidateRestriction {
+    const std::vector<uint32_t>* prefilter = nullptr;
+    const roaring::Roaring* filter = nullptr;
+};
+
+// A candidate set within 8x of the rarest term (`min_df`) drives the intersection and is
+// materialized into `storage`, so windows and positions are read for candidates only. A far
+// larger one filters the intersection result instead, so a rare phrase never pays for every
+// candidate.
+CandidateRestriction restrict_to_candidates(const roaring::Roaring* candidates, uint32_t min_df,
+                                            std::vector<uint32_t>* storage);
+
+// Drops every docid of `docids` that is not a candidate; ascending docids keep the bulk
+// probe fast.
+void retain_candidates(const roaring::Roaring& candidates, std::vector<uint32_t>* docids);
+
 enum class PhraseCandidateMetric : uint8_t {
     kExact,
     kPrefixLeading,
@@ -354,7 +373,7 @@ enum class PhraseCandidateMetric : uint8_t {
 
 Status build_phrase_execution_state(const LogicalIndexReader& idx, io::BatchRangeFetcher* round1,
                                     std::vector<TermPlan>* plans, PhraseExecutionState* state,
-                                    const std::vector<uint32_t>* candidate_prefilter,
+                                    CandidateRestriction candidates,
                                     format::PrxDecodeContext* observer_context,
                                     PhraseCandidateMetric candidate_metric);
 
@@ -369,8 +388,7 @@ Status execute_resolved_phrase_prefix_terms(
         const LogicalIndexReader& idx, internal::ResolvedPhrasePlan exact_plan,
         std::vector<ResolvedQueryTerm> tail_terms, uint32_t tail_position_offset,
         std::vector<uint32_t>* docids, format::PrxDecodeContext* decode_context,
-        std::vector<PhraseMatch>* matches = nullptr,
-        const std::vector<uint32_t>* candidate_prefilter = nullptr);
+        std::vector<PhraseMatch>* matches = nullptr, const roaring::Roaring* candidates = nullptr);
 
 Status phrase_query_impl(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
                          std::vector<uint32_t>* const docids,
@@ -381,7 +399,8 @@ Status phrase_prefix_query_impl(const LogicalIndexReader& idx,
                                 const std::vector<std::string>& terms,
                                 std::vector<uint32_t>* const docids, int32_t max_expansions,
                                 format::PrxDecodeContext* decode_context,
-                                std::vector<PhraseMatch>* matches = nullptr);
+                                std::vector<PhraseMatch>* matches = nullptr,
+                                const roaring::Roaring* candidates = nullptr);
 
 } // namespace doris::snii::query::phrase_impl
 

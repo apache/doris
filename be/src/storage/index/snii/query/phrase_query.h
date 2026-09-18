@@ -28,6 +28,10 @@
 #include "storage/index/snii/query/query_profile.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 // phrase_query -- MATCH_PHRASE: return the sorted docid set in which the terms
 // occur consecutively (for some i, every term k appears at position pos+k in
 // the same doc). It first builds the docid conjunction with docs-only posting
@@ -49,6 +53,9 @@ struct PhraseMatch {
 struct PhraseQueryOptions {
     uint32_t slop = 0;
     bool ordered = false;
+    // Optional scan candidate docids. The result is then exactly the unrestricted result
+    // intersected with them, and position verification only visits candidates.
+    const roaring::Roaring* candidates = nullptr;
 };
 
 Status phrase_query(const reader::LogicalIndexReader& idx, const std::vector<std::string>& terms,
@@ -68,6 +75,12 @@ Status phrase_query_with_frequencies(const reader::LogicalIndexReader& idx,
                                      QueryProfile* profile = nullptr,
                                      const PhraseQueryOptions& options = {});
 
+struct PhrasePrefixQueryOptions {
+    int32_t max_expansions = 0;
+    // Restricts the result the way PhraseQueryOptions::candidates does.
+    const roaring::Roaring* candidates = nullptr;
+};
+
 // phrase_prefix_query -- MATCH_PHRASE_PREFIX: the last item in `terms` is a
 // term prefix and preceding items are exact terms. For example {"quick", "bro"}
 // matches "quick brown" and "quick bronze". Empty terms -> empty result.
@@ -78,6 +91,10 @@ Status phrase_prefix_query(const reader::LogicalIndexReader& idx,
                            const std::vector<std::string>& terms,
                            std::vector<uint32_t>* const docids, QueryProfile* profile,
                            int32_t max_expansions = 0);
+Status phrase_prefix_query(const reader::LogicalIndexReader& idx,
+                           const std::vector<std::string>& terms,
+                           std::vector<uint32_t>* const docids, QueryProfile* profile,
+                           const PhrasePrefixQueryOptions& options);
 
 // Scoring-only multi-term entry point. Tail expansions are one logical phrase
 // clause, so each phrase start contributes at most once even when several
@@ -87,5 +104,10 @@ Status phrase_prefix_query_with_frequencies(const reader::LogicalIndexReader& id
                                             std::vector<PhraseMatch>* matches,
                                             QueryProfile* profile = nullptr,
                                             int32_t max_expansions = 0);
+Status phrase_prefix_query_with_frequencies(const reader::LogicalIndexReader& idx,
+                                            const std::vector<std::string>& terms,
+                                            std::vector<PhraseMatch>* matches,
+                                            QueryProfile* profile,
+                                            const PhrasePrefixQueryOptions& options);
 
 } // namespace doris::snii::query
