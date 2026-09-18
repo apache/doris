@@ -30,14 +30,15 @@ import java.util.Optional;
 public class LogicalEsScanToPhysicalEsScan extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalEsScan().then(esScan ->
-            new PhysicalEsScan(
+        return logicalEsScan().then(esScan -> new PhysicalEsScan(
                 esScan.getRelationId(),
                 esScan.getTable(),
                 esScan.getQualifier(),
                 DistributionSpecAny.INSTANCE,
                 Optional.empty(),
-                esScan.getLogicalProperties())
-        ).toRule(RuleType.LOGICAL_ES_SCAN_TO_PHYSICAL_ES_SCAN_RULE);
+                esScan.getLogicalProperties(),
+                null,
+                null,
+                esScan.getTableAlias())).toRule(RuleType.LOGICAL_ES_SCAN_TO_PHYSICAL_ES_SCAN_RULE);
     }
 }

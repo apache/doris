@@ -20,17 +20,17 @@ PhysicalResultSink
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((c.c_customer_sk = s.ss_customer_sk)) otherCondition=() build RFs:RF1 c_customer_sk->[ss_customer_sk]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1 RF2 RF3
+----------------------------------------PhysicalOlapScan[store_sales(s)] apply RFs: RF1 RF2 RF3
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((a.ca_address_sk = c.c_current_addr_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[customer] apply RFs: RF0
+--------------------------------------------PhysicalOlapScan[customer(c)] apply RFs: RF0
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[customer_address]
+--------------------------------------------PhysicalOlapScan[customer_address(a)]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4
+------------------------------------PhysicalOlapScan[date_dim(d)] apply RFs: RF4
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[item] apply RFs: RF5
+--------------------------------PhysicalOlapScan[item(i)] apply RFs: RF5
 --------------------------PhysicalAssertNumRows
 ----------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------hashAgg[GLOBAL]
@@ -43,5 +43,5 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[item]
+------------------------------PhysicalOlapScan[item(j)]
 
