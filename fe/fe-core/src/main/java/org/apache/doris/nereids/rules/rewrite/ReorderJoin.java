@@ -163,7 +163,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             join = (LogicalJoin<?, ?>) plan;
         }
 
-        if (join.isMarkJoin() || join.getJoinType().isAsofJoin()) {
+        if (join.isMarkJoin() || join.getJoinType().isAsofJoin()
+                || join.getExpressions().stream().anyMatch(Expression::containsVolatileExpression)) {
             return plan;
         }
 

@@ -38,7 +38,7 @@ public class CollectFilterAboveConsumer extends OneRewriteRuleFactory {
             LogicalCTEConsumer cteConsumer = filter.child();
             Set<Expression> exprs = filter.getConjuncts();
             for (Expression expr : exprs) {
-                if (expr.containsVolatileExpression()) {
+                if (expr.containsVolatileOrNoneMovableExpression()) {
                     continue;
                 }
                 Expression rewrittenExpr = expr.rewriteUp(e -> {
