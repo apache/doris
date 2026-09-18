@@ -156,7 +156,11 @@ suite("test_storage_format_snii", "p0, nonConcurrent") {
     sql """
         INSERT INTO test_storage_format_snii_char VALUES
           (1, 'abc'),
-          (2, 'xyz');
+          (2, 'xyz'),
+          (3, UNHEX('610062')),
+          (4, 'a'),
+          (5, UNHEX('0078')),
+          (6, NULL);
     """
     sql "sync"
 
@@ -165,6 +169,11 @@ suite("test_storage_format_snii", "p0, nonConcurrent") {
         WHERE value = 'abc'
         ORDER BY id
     """
+
+    order_qt_char_embedded_nul_data "SELECT id, HEX(value), LENGTH(value) FROM test_storage_format_snii_char ORDER BY id"
+    order_qt_char_embedded_nul_equal "SELECT id FROM test_storage_format_snii_char WHERE value = UNHEX('610062') ORDER BY id"
+    order_qt_char_embedded_nul_not_equal "SELECT id FROM test_storage_format_snii_char WHERE value != 'a' ORDER BY id"
+    qt_char_embedded_nul_count "SELECT COUNT(*) FROM test_storage_format_snii_char WHERE value = UNHEX('610062')"
 
     sql """
         CREATE TABLE test_storage_format_snii_array_char (
@@ -186,7 +195,10 @@ suite("test_storage_format_snii", "p0, nonConcurrent") {
     sql """
         INSERT INTO test_storage_format_snii_array_char VALUES
           (1, ['abc', 'xyz']),
-          (2, ['def']);
+          (2, ['def']),
+          (3, ARRAY(UNHEX('610062'), 'a')),
+          (4, ARRAY(UNHEX('0078'), NULL)),
+          (5, NULL);
     """
     sql "sync"
 
@@ -195,6 +207,9 @@ suite("test_storage_format_snii", "p0, nonConcurrent") {
         WHERE array_contains(chars, 'xyz')
         ORDER BY id
     """
+
+    order_qt_array_char_embedded_nul "SELECT id FROM test_storage_format_snii_array_char WHERE array_contains(chars, UNHEX('610062')) ORDER BY id"
+    order_qt_array_char_leading_nul "SELECT id FROM test_storage_format_snii_array_char WHERE array_contains(chars, UNHEX('0078')) ORDER BY id"
 
     def wait_for_latest_schema_change_finish = { table_name, timeout_ms ->
         def delta_time = 1000

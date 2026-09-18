@@ -20,6 +20,7 @@
 #include <cstring>
 #include <vector>
 
+#include "core/string_ref.h"
 #include "storage/cache/page_cache.h"
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h" // BinaryPlainV1Entry, write_binary_plain_v1_output
 #include "storage/segment/encoding_info.h"
@@ -50,8 +51,8 @@ namespace segment_v2 {
  *     passes are independent and the data is touched exactly once. This is the win vs
  *     V2 (which chases a length pointer per entry). Used for all non-CHAR binary types
  *     (VARCHAR/STRING/JSONB/VARIANT/HLL/BITMAP/QUANTILE_STATE/AGG_STATE).
- *   - IS_CHAR=true: each entry is strnlen'd to drop the trailing '\0' padding that CHAR
- *     values carry on disk, then the V1 page is built from the logical lengths. Selected
+ *   - IS_CHAR=true: each entry is trimmed at the end to drop the trailing '\0' padding that CHAR
+ *     values carry on disk, preserving embedded NULs. The V1 page uses these lengths. Selected
  *     for (CHAR, PLAIN_ENCODING_V3) on read (e.g. the CHAR dictionary word page).
  */
 template <bool IS_CHAR>
@@ -87,7 +88,7 @@ struct BinaryPlainPageV3PreDecoder : public DataPagePreDecoder {
         const uint8_t* lengths_limit = trailer_ptr;
 
         if constexpr (IS_CHAR) {
-            // ---- CHAR path: strnlen each entry to strip trailing '\0' padding. ----
+            // ---- CHAR path: strip only trailing padding, not embedded NULs. ----
             // Walk the contiguous data block in lockstep with the length block:
             // entry i starts at data_begin + running_raw and is `len` bytes wide.
             const uint8_t* ptr = lengths_ptr;
@@ -114,7 +115,9 @@ struct BinaryPlainPageV3PreDecoder : public DataPagePreDecoder {
                 }
                 const uint8_t* entry_data = data_begin + running_raw;
                 uint32_t out_len = static_cast<uint32_t>(
-                        strnlen(reinterpret_cast<const char*>(entry_data), len));
+                        StringRef(reinterpret_cast<const char*>(entry_data), len)
+                                .trim_tail_padding_zero()
+                                .size);
                 entries.push_back({entry_data, out_len});
                 total_out_len += out_len;
                 running_raw += len;

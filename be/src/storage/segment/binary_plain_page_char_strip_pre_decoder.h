@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include <cstring>
 #include <vector>
 
+#include "core/string_ref.h"
 #include "storage/cache/page_cache.h"
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h" // BinaryPlainV1Entry, write_binary_plain_v1_output
 #include "storage/segment/encoding_info.h"
@@ -30,7 +30,7 @@ namespace doris::segment_v2 {
 // Pre-decoder for BinaryPlainPage (V1) data pages of CHAR columns.
 //
 // Segments store CHAR(N) zero-padded to N bytes (the on-disk format). The
-// pre-decoder strnlens each slice once at page load time, then rewrites the
+// pre-decoder trims only trailing zero padding once at page load time, then rewrites the
 // page as a tight V1 layout (no trailing '\0' bytes, adjusted offsets) before
 // it is placed in the page cache, so the compute layer reads unpadded CHAR.
 //
@@ -67,7 +67,7 @@ struct BinaryPlainPageCharStripPreDecoder : public DataPagePreDecoder {
         }
         const auto* offsets_in = reinterpret_cast<const uint8_t*>(&data[offsets_pos]);
 
-        // Step 2: scan entries, strnlen-ing each to drop trailing '\0' padding.
+        // Step 2: strip only trailing padding; embedded NULs are part of the CHAR value.
         std::vector<BinaryPlainV1Entry> entries;
         entries.reserve(num_elems);
         uint32_t total_out_len = 0;
@@ -83,7 +83,8 @@ struct BinaryPlainPageCharStripPreDecoder : public DataPagePreDecoder {
                         i, start, end, offsets_pos, file_path);
             }
             uint32_t raw_size = end - start;
-            uint32_t out_len = static_cast<uint32_t>(strnlen(data.data + start, raw_size));
+            uint32_t out_len = static_cast<uint32_t>(
+                    StringRef(data.data + start, raw_size).trim_tail_padding_zero().size);
             entries.push_back({reinterpret_cast<const uint8_t*>(data.data + start), out_len});
             total_out_len += out_len;
         }

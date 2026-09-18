@@ -20,6 +20,7 @@
 #include <cstring>
 #include <vector>
 
+#include "core/string_ref.h"
 #include "storage/cache/page_cache.h"
 #include "storage/segment/encoding_info.h"
 #include "util/coding.h"
@@ -28,7 +29,7 @@ namespace doris {
 namespace segment_v2 {
 
 // One source entry feeding the V1 output writer. Variants differ only in how
-// `out_len` is derived from the raw input length (raw, strnlen'd, etc.).
+// `out_len` is derived from the raw input length (raw, padding-stripped, etc.).
 struct BinaryPlainV1Entry {
     const uint8_t* start;
     uint32_t out_len;
@@ -107,8 +108,8 @@ inline Status write_binary_plain_v1_output(const std::vector<BinaryPlainV1Entry>
  *   6. write num_elems trailer
  *   7. copy tail (footer + null map) and publish output params
  *
- * IS_CHAR=true picks the strnlen transform in step 2, so CHAR pages emit
- * unpadded slices to the cached page. IS_CHAR=false keeps raw V2 lengths.
+ * IS_CHAR=true trims only trailing zero padding in step 2, so CHAR pages emit
+ * unpadded slices while preserving embedded NULs. IS_CHAR=false keeps raw V2 lengths.
  * The branch is `if constexpr` — compile-time dispatched, no overhead.
  */
 template <bool IS_CHAR>
@@ -135,7 +136,9 @@ struct BinaryPlainPageV2PreDecoder : public DataPagePreDecoder {
             uint32_t out_len;
             if constexpr (IS_CHAR) {
                 out_len = static_cast<uint32_t>(
-                        strnlen(reinterpret_cast<const char*>(data_start), raw_len));
+                        StringRef(reinterpret_cast<const char*>(data_start), raw_len)
+                                .trim_tail_padding_zero()
+                                .size);
             } else {
                 out_len = raw_len;
             }
@@ -173,7 +176,7 @@ private:
 
     // Step 2 helper: decode one varint length and validate the entry bounds.
     // The scan loop in decode() / overrides walks the input with this helper
-    // and decides what `out_len` to record (raw_len here, strnlen'd in the
+    // and decides what `out_len` to record (raw_len here, trailing padding stripped in the
     // CHAR variant).
     static inline Status decode_one(const uint8_t* ptr, const uint8_t* limit,
                                     const std::string& file_path, uint32_t i,

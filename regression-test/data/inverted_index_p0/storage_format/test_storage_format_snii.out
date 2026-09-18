@@ -36,8 +36,34 @@
 -- !char_equal --
 1
 
+-- !char_embedded_nul_data --
+1	616263	3
+2	78797A	3
+3	610062	3
+4	61	1
+5	0078	2
+6	\N	\N
+
+-- !char_embedded_nul_equal --
+3
+
+-- !char_embedded_nul_not_equal --
+1
+2
+3
+5
+
+-- !char_embedded_nul_count --
+1
+
 -- !array_char_contains --
 1
+
+-- !array_char_embedded_nul --
+3
+
+-- !array_char_leading_nul --
+4
 
 -- !build_index_already_complete --
 5

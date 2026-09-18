@@ -82,8 +82,8 @@ public:
     // Build the Slices fed to the builder. For CHAR, pad every value to a fixed declared
     // length with trailing '\0' (as OlapColumnDataConvertorChar does) so the IS_CHAR read path
     // is exercised; `backing` owns the padded bytes and must outlive the returned Slices.
-    // Decoded values must still equal the logical src_strings (callers must not pass embedded
-    // '\0' in CHAR inputs).
+    // Decoded values must still equal the logical src_strings (CHAR inputs may contain
+    // embedded NULs, but must not end in NULs that are indistinguishable from padding).
     template <FieldType Type>
     std::vector<Slice> make_input_slices(const std::vector<std::string>& src_strings,
                                          std::vector<std::string>& backing) {
@@ -333,7 +333,7 @@ TEST_F(BinaryPlainPageV3Test, TestTrailingEmptyValue) {
     test_encode_decode_page<FieldType::OLAP_FIELD_TYPE_VARCHAR>({""});
     test_encode_decode_page<FieldType::OLAP_FIELD_TYPE_VARCHAR>({"", "", ""});
     // CHAR values are padded to a fixed length, so an empty tail value is all '\0' and the
-    // IS_CHAR pre-decoder must strnlen it back to length 0 — the sentinel must still land
+    // IS_CHAR pre-decoder must trim it back to length 0 — the sentinel must still land
     // exactly at data_block_size.
     test_encode_decode_page<FieldType::OLAP_FIELD_TYPE_CHAR>({"x", "", "yz", ""});
 }
@@ -354,7 +354,8 @@ TEST_F(BinaryPlainPageV3Test, TestSeekChar) {
     test_seek_in_page<FieldType::OLAP_FIELD_TYPE_CHAR>({"a", "bb", "", "dddd", "e", "ffffff"});
 }
 TEST_F(BinaryPlainPageV3Test, TestReadByRowidsChar) {
-    test_read_by_rowids<FieldType::OLAP_FIELD_TYPE_CHAR>({"first", "", "third", "fourth", "fifth"});
+    test_read_by_rowids<FieldType::OLAP_FIELD_TYPE_CHAR>(
+            {std::string("a\0b", 3), "", std::string("\0x", 2), "fourth", "fifth"});
 }
 
 // Aggregate binary types (HLL/BITMAP/QUANTILE_STATE/AGG_STATE) default to plain V3 in V3
@@ -388,7 +389,8 @@ std::vector<std::string> make_padded_char_backing(const std::vector<std::string>
 // pre-decoder strips the trailing '\0' padding on read so the decoded value is logical.
 TEST_F(BinaryPlainPageV3Test, TestCharBuilderKeepsPaddingStrippedOnRead) {
     constexpr size_t kPaddedLen = 10; // CHAR(10)
-    const std::vector<std::string> logical = {"Hi", "", "abcdefghij", "x", "中文"};
+    const std::vector<std::string> logical = {
+            "Hi", "", "abcdefghij", std::string("a\0b", 3), std::string("\0x", 2), "中文"};
 
     // Backing store must outlive the Slices that point into it.
     std::vector<std::string> padded = make_padded_char_backing(logical, kPaddedLen);
@@ -436,7 +438,8 @@ TEST_F(BinaryPlainPageV3Test, TestCharBuilderKeepsPaddingStrippedOnRead) {
 // path selects BinaryPlainPageV3PreDecoder<true> via EncodingInfo::get(CHAR, V3).
 TEST_F(BinaryPlainPageV3Test, TestCharPreDecoderStripsPaddingOnRead) {
     constexpr size_t kPaddedLen = 12; // CHAR(12)
-    const std::vector<std::string> logical = {"hi", "", "abcdefghijkl", "x", "中文"};
+    const std::vector<std::string> logical = {
+            "hi", "", "abcdefghijkl", std::string("a\0\0b", 4), std::string("\0x", 2), "中文"};
 
     std::vector<std::string> padded = make_padded_char_backing(logical, kPaddedLen);
     std::vector<Slice> slices;

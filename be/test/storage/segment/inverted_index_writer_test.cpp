@@ -1681,7 +1681,8 @@ TEST_F(InvertedIndexWriterTest, SniiCharKeywordUsesLogicalValue) {
     column.set_length(10);
     column.set_is_nullable(false);
 
-    std::string padded_value = "abc";
+    const std::string logical_value("a\0b", 3);
+    std::string padded_value = logical_value;
     padded_value.resize(column.length(), '\0');
     std::unique_ptr<IndexFileReader> file_reader;
     std::unique_ptr<snii::reader::LogicalIndexReader> logical;
@@ -1694,7 +1695,7 @@ TEST_F(InvertedIndexWriterTest, SniiCharKeywordUsesLogicalValue) {
             &file_reader, &logical);
 
     std::vector<uint32_t> docids;
-    ASSERT_TRUE(snii::query::term_query(*logical, "abc", &docids).ok());
+    ASSERT_TRUE(snii::query::term_query(*logical, logical_value, &docids).ok());
     EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
     ASSERT_TRUE(snii::query::term_query(*logical, padded_value, &docids).ok());
     EXPECT_TRUE(docids.empty());
@@ -1713,7 +1714,8 @@ TEST_F(InvertedIndexWriterTest, SniiArrayCharKeywordUsesLogicalValue) {
     item_column.set_is_nullable(false);
     array_column.add_sub_column(item_column);
 
-    std::vector<std::string> padded_values {"abc", "xyz"};
+    const std::string logical_value("\0xy", 3);
+    std::vector<std::string> padded_values {"abc", logical_value};
     std::vector<Slice> values;
     values.reserve(padded_values.size());
     for (auto& value : padded_values) {
@@ -1737,7 +1739,7 @@ TEST_F(InvertedIndexWriterTest, SniiArrayCharKeywordUsesLogicalValue) {
     std::vector<uint32_t> docids;
     ASSERT_TRUE(snii::query::term_query(*logical, "abc", &docids).ok());
     EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
-    ASSERT_TRUE(snii::query::term_query(*logical, "xyz", &docids).ok());
+    ASSERT_TRUE(snii::query::term_query(*logical, logical_value, &docids).ok());
     EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
 }
 

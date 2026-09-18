@@ -2537,7 +2537,7 @@ Status StringFileColumnIterator::set_access_paths(
     // recorded in dict word info / page headers is always the padded length
     // (e.g. 25 for CHAR(25)) — never the logical length expected by length().
     // Recovering the logical length requires scanning the chars buffer with
-    // strnlen() (shrink_padding_chars), which OFFSET_ONLY by definition skips.
+    // trim_tail_padding_zero(), which OFFSET_ONLY by definition skips.
     // There is no partial-benefit path: any optimization that still produces
     // the correct length() result must read the chars buffer in full.
     //

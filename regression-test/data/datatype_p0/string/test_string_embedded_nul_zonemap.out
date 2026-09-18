@@ -35,6 +35,24 @@
 -- !inside_varchar_minmax --
 610062	610062
 
+-- !inside_char_data --
+32	3	3	610062	610062
+
+-- !inside_char_oracle --
+32	32	0
+
+-- !inside_char_gt --
+32
+
+-- !inside_char_ne --
+32
+
+-- !inside_char_le --
+0
+
+-- !inside_char_minmax --
+610062	610062
+
 -- !trailing_string_data --
 32	2	2	6100	6100
 
