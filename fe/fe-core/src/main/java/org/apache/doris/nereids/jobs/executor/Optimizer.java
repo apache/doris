@@ -23,6 +23,8 @@ import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.stats.MemoStatsAndCostRecomputer;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -99,6 +101,19 @@ public class Optimizer {
         // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        /*
+         * Re-estimate logical row counts and rebuild physical costs for the entire memo,
+         * then reconstruct the lowest-cost plan table for every group.
+         *
+         * This is called after DPHyp join enumeration which copies projected join
+         * alternatives into the memo.  DPHyp's own cost model is a lightweight
+         * heuristic; once all alternatives are in place the memo needs a full
+         * bottom-up statistics refresh so that the subsequent cascades optimization
+         * phase (OptimizeGroupJob) sees accurate row counts and costs.
+         */
+        MemoStatsAndCostRecomputer.recompute(root, PhysicalProperties.ANY, cascadesContext,
+                MemoStatsAndCostRecomputer.LogicalExpressionRowCountSyncPolicy
+                        .KEEP_INDIVIDUAL_EXPRESSION_ROW_COUNT);
     }
 
     private SessionVariable getSessionVariable() {
