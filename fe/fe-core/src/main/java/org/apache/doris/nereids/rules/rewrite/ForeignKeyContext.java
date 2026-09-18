@@ -33,11 +33,13 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -51,8 +53,8 @@ import java.util.stream.Collectors;
  */
 public class ForeignKeyContext {
     Set<Map<QualifiedColumn, QualifiedColumn>> constraints = new HashSet<>();
-    Set<QualifiedColumn> foreignKeys = new HashSet<>();
-    Set<QualifiedColumn> primaryKeys = new HashSet<>();
+    Set<Set<QualifiedColumn>> declaredPrimaryKeys = new HashSet<>();
+    Set<Set<Slot>> activePrimaryKeys = new HashSet<>();
     Map<Slot, QualifiedColumn> slotToColumn = new HashMap<>();
     Map<Slot, Set<Expression>> slotWithPredicates = new HashMap<>();
 
@@ -64,8 +66,9 @@ public class ForeignKeyContext {
             @Override
             public Void visit(Plan plan, ForeignKeyContext context) {
                 super.visit(plan, context);
-                // always expire primary key except filter, project and join.
-                // always keep foreign key alive
+                // Operators without a dedicated proof-preserving visitor invalidate primary keys
+                // in their output. Filters and projects preserve the proof; joins, limits, and
+                // other operators expire it. Foreign-key metadata always remains available.
                 context.expirePrimaryKey(plan);
                 return null;
             }
@@ -76,10 +79,7 @@ public class ForeignKeyContext {
                     TableIf table = ((LogicalCatalogRelation) relation).getTable();
                     context.putAllForeignKeys(table);
                     context.putAllPrimaryKeys(table);
-                    relation.getOutput().stream()
-                            .filter(SlotReference.class::isInstance)
-                            .map(SlotReference.class::cast)
-                            .forEach(slot -> context.putSlot(slot, table));
+                    context.putSlots((LogicalCatalogRelation) relation, table);
                 }
                 return null;
             }
@@ -119,7 +119,6 @@ public class ForeignKeyContext {
                             entry -> new QualifiedColumn(
                                     referencedTable, referencedTable.getColumn(entry.getValue()))));
             constraints.add(constraint);
-            foreignKeys.addAll(constraint.keySet());
         }
     }
 
@@ -131,32 +130,81 @@ public class ForeignKeyContext {
         for (PrimaryKeyConstraint c : Env.getCurrentEnv().getConstraintManager()
                 .getPrimaryKeyConstraints(tableNameInfo)) {
             Set<QualifiedColumn> primaryKey = c.getPrimaryKeys(table).stream()
-                    .map(column -> new QualifiedColumn(table, column)).collect(Collectors.toSet());
-            primaryKeys.addAll(primaryKey);
+                    .map(column -> new QualifiedColumn(table, column))
+                    .collect(ImmutableSet.toImmutableSet());
+            declaredPrimaryKeys.add(primaryKey);
         }
     }
 
     public boolean isForeignKey(Set<Slot> key) {
-        return foreignKeys.containsAll(
-                key.stream().map(s -> slotToColumn.get(s)).collect(Collectors.toSet()));
+        Set<QualifiedColumn> columns = key.stream()
+                .map(slotToColumn::get)
+                .collect(Collectors.toSet());
+        return !key.isEmpty() && !columns.contains(null)
+                && constraints.stream().anyMatch(constraint -> constraint.keySet().equals(columns));
     }
 
     public boolean isPrimaryKey(Set<Slot> key) {
-        return primaryKeys.containsAll(
-                key.stream().map(s -> slotToColumn.get(s)).collect(Collectors.toSet()));
+        return !key.isEmpty() && activePrimaryKeys.contains(key);
     }
 
-    void putSlot(SlotReference slot, TableIf table) {
-        if (!slot.getOriginalColumn().isPresent()) {
-            return;
+    void putSlots(LogicalCatalogRelation relation, TableIf table) {
+        Map<QualifiedColumn, Slot> columnToSlot = new HashMap<>();
+        for (Slot slot : relation.getOutput()) {
+            if (!(slot instanceof SlotReference) || !((SlotReference) slot).getOriginalColumn().isPresent()) {
+                continue;
+            }
+            Column column = ((SlotReference) slot).getOriginalColumn().get();
+            QualifiedColumn qualifiedColumn = new QualifiedColumn(table, column);
+            slotToColumn.put(slot, qualifiedColumn);
+            columnToSlot.put(qualifiedColumn, slot);
         }
-        Column c = slot.getOriginalColumn().get();
-        slotToColumn.put(slot, new QualifiedColumn(table, c));
+
+        for (Set<QualifiedColumn> declaredPrimaryKey : declaredPrimaryKeys) {
+            if (!columnToSlot.keySet().containsAll(declaredPrimaryKey)) {
+                continue;
+            }
+            Set<Slot> primaryKey = declaredPrimaryKey.stream()
+                    .map(columnToSlot::get)
+                    .collect(ImmutableSet.toImmutableSet());
+            if (canActivatePrimaryKey(relation, primaryKey)) {
+                activePrimaryKeys.add(primaryKey);
+            }
+        }
+    }
+
+    private boolean canActivatePrimaryKey(LogicalCatalogRelation relation, Set<Slot> primaryKey) {
+        if (!relation.getLogicalProperties().getTrait().isUnique(primaryKey)) {
+            return false;
+        }
+        if (!(relation instanceof LogicalOlapScan)) {
+            return true;
+        }
+        LogicalOlapScan scan = (LogicalOlapScan) relation;
+        return new HashSet<>(scan.getSelectedPartitionIds()).equals(
+                        new HashSet<>(scan.getTable().getPartitionIds()))
+                && scan.getSelectedTabletIds().isEmpty()
+                && !scan.getTableSample().isPresent()
+                && !scan.isDirectMvScan();
     }
 
     void putAlias(Slot newSlot, Slot originSlot) {
         if (slotToColumn.containsKey(originSlot)) {
             slotToColumn.put(newSlot, slotToColumn.get(originSlot));
+            Set<Set<Slot>> aliasedPrimaryKeys = activePrimaryKeys.stream()
+                    .filter(primaryKey -> primaryKey.contains(originSlot))
+                    .map(primaryKey -> primaryKey.stream()
+                            .map(slot -> slot.equals(originSlot) ? newSlot : slot)
+                            .collect(ImmutableSet.toImmutableSet()))
+                    .collect(Collectors.toSet());
+            activePrimaryKeys.addAll(aliasedPrimaryKeys);
+            if (slotWithPredicates.containsKey(originSlot)) {
+                Set<Expression> aliasPredicates = slotWithPredicates.get(originSlot).stream()
+                        .map(predicate -> predicate.rewriteUp(expression -> expression.equals(originSlot)
+                                ? newSlot : expression))
+                        .collect(Collectors.toSet());
+                slotWithPredicates.put(newSlot, aliasPredicates);
+            }
         }
     }
 
@@ -185,10 +233,7 @@ public class ForeignKeyContext {
     }
 
     private void expirePrimaryKey(Plan plan) {
-        plan.getOutput().stream()
-                .filter(slotToColumn::containsKey)
-                .map(s -> slotToColumn.get(s))
-                .forEach(primaryKeys::remove);
+        activePrimaryKeys.removeIf(primaryKey -> primaryKey.stream().anyMatch(plan.getOutputSet()::contains));
     }
 
     /**

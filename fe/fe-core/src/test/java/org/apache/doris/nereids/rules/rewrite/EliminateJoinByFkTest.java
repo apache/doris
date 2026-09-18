@@ -74,6 +74,31 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                         + ")\n"
                         + "UNIQUE KEY(id1)\n"
                         + "DISTRIBUTED BY HASH(id1) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS self_ref (\n"
+                        + "    id int not null,\n"
+                        + "    parent_id int not null\n"
+                        + ")\n"
+                        + "UNIQUE KEY(id)\n"
+                        + "PARTITION BY RANGE(id) (\n"
+                        + "    PARTITION p1 VALUES LESS THAN (2),\n"
+                        + "    PARTITION p2 VALUES LESS THAN (MAXVALUE)\n"
+                        + ")\n"
+                        + "DISTRIBUTED BY HASH(id) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS composite_pri (\n"
+                        + "    a int not null,\n"
+                        + "    b int not null\n"
+                        + ")\n"
+                        + "UNIQUE KEY(a, b)\n"
+                        + "DISTRIBUTED BY HASH(a) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS composite_foreign (\n"
+                        + "    fa int not null,\n"
+                        + "    fb int not null\n"
+                        + ")\n"
+                        + "DUPLICATE KEY(fa, fb)\n"
+                        + "DISTRIBUTED BY HASH(fa) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
         addConstraint("Alter table pri add constraint pk primary key (id1)");
@@ -82,6 +107,12 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 + "references pri(id1)");
         addConstraint("Alter table foreign_null add constraint f_not_null foreign key (id3)\n"
                 + "references pri(id1)");
+        addConstraint("Alter table self_ref add constraint self_pk primary key (id)");
+        addConstraint("Alter table self_ref add constraint self_fk foreign key (parent_id)\n"
+                + "references self_ref(id)");
+        addConstraint("Alter table composite_pri add constraint composite_pk primary key (a, b)");
+        addConstraint("Alter table composite_foreign add constraint composite_fk foreign key (fa, fb)\n"
+                + "references composite_pri(a, b)");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
@@ -110,6 +141,147 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .analyze(sql)
                 .rewrite()
                 .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyPlainPrimaryCanEliminateJoin() {
+        String sql = "select f.parent_id from self_ref p "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyLimitedPrimaryKeepsJoin() {
+        String sql = "select f.parent_id from "
+                + "(select id from self_ref order by id limit 1) p "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+
+        sql = "select f.parent_id from self_ref f inner join "
+                + "(select id from self_ref order by id limit 1) p "
+                + "on f.parent_id = p.id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+
+        sql = "select f.parent_id from "
+                + "(select id as pk from (select id from self_ref order by id limit 1) limited_primary) p "
+                + "inner join self_ref f on p.pk = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyProjectAliasKeepsPrimaryKeyActive() {
+        String sql = "select f.parent_id from (select id as pk from self_ref) p "
+                + "inner join self_ref f on p.pk = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyProjectAliasPreservesHiddenFilter() {
+        String sql = "select f.parent_id from "
+                + "(select id as pk from self_ref where parent_id = 1) p "
+                + "inner join self_ref f on p.pk = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testRestrictedPrimaryScanKeepsJoin() {
+        String sql = "select f.parent_id from self_ref partition(p1) p "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+
+        sql = "select f.parent_id from self_ref p tablesample(1 rows) "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testDuplicateProducingPrimaryScanKeepsJoin() {
+        boolean saved = connectContext.getSessionVariable().skipStorageEngineMerge;
+        connectContext.getSessionVariable().skipStorageEngineMerge = true;
+        try {
+            String sql = "select f.parent_id from self_ref p "
+                    + "inner join self_ref f on p.id = f.parent_id";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalJoin())
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().skipStorageEngineMerge = saved;
+        }
+    }
+
+    @Test
+    void testCompositePrimaryKeyRequiresCompleteKey() {
+        String sql = "select f.fa from composite_pri p "
+                + "inner join composite_foreign f on p.a = f.fa";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
+                .printlnTree();
+
+        sql = "select f.fa from composite_pri p inner join composite_foreign f "
+                + "on p.a = f.fa and p.b = f.fb";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyCompatibleFilterKeepsPrimaryKeyActive() {
+        String sql = "select f.parent_id from self_ref p "
+                + "inner join self_ref f on p.id = f.parent_id where p.id = 1";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin())
+                .printlnTree();
+    }
+
+    @Test
+    void testSelfForeignKeyUnmatchedPrimaryFilterKeepsJoin() {
+        String sql = "select f.parent_id from (select id from self_ref where parent_id = 1) p "
+                + "inner join self_ref f on p.id = f.parent_id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin())
                 .printlnTree();
     }
 
