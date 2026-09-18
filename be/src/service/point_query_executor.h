@@ -98,6 +98,12 @@ public:
 
     const std::unordered_set<int32_t> include_col_uids() const { return _include_col_uids; }
 
+    const std::vector<std::pair<int32_t, uint32_t>>& read_time_hidden_columns() const {
+        return _read_time_hidden_columns;
+    }
+
+    bool has_read_time_hidden_columns() const { return !_read_time_hidden_columns.empty(); }
+
     RuntimeState* runtime_state() { return _runtime_state.get(); }
 
     // delete sign idx in block
@@ -121,6 +127,8 @@ private:
     std::unordered_set<int32_t> _missing_col_uids;
     // included cids in rowstore(column group)
     std::unordered_set<int32_t> _include_col_uids;
+    // projected read-time hidden column unique id and its position in the result block
+    std::vector<std::pair<int32_t, uint32_t>> _read_time_hidden_columns;
     // delete sign idx in block
     int32_t _delete_sign_idx = -1;
 };
