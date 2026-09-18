@@ -27,6 +27,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -62,8 +63,10 @@ import org.apache.doris.thrift.TCloudVersionInfo;
 import org.apache.doris.thrift.TFrontendSyncCloudVersionRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
@@ -245,6 +248,127 @@ public class CloudGlobalTransactionMgrTest {
                     .getTableOrMetaException(CatalogTestUtil.testTableId1);
             masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
                     transactionId, null, null);
+            ArgumentCaptor<Cloud.CommitTxnRequest> request = ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
+            Mockito.verify(mockProxy).commitTxn(request.capture());
+            // 2PC and other callers without tablet commit info cannot supply an expected count.
+            Assertions.assertFalse(request.getValue().hasNumPartitions());
+        }
+    }
+
+    @Test
+    public void testCommitTransactionWritesMultiplePartitionsOfOneTable() throws Exception {
+        CloudPartition first = addCloudPartition(1000);
+        OlapTable table = getCloudTable(first);
+        CloudPartition second = addCloudPartition(table, 1002);
+        CloudPartition untouched = addCloudPartition(table, 1003);
+        // A normal load writes two tablets in each of two partitions of one table.
+        // The third partition exists in the catalog but is not part of the load.
+        addCommitTablet(1100, first, 10, false);
+        addCommitTablet(1101, first, 10, false);
+        addCommitTablet(1200, second, 10, false);
+        addCommitTablet(1201, second, 10, false);
+        addCommitTablet(1300, untouched, 10, false);
+        addCommitTablet(1301, untouched, 10, false);
+        List<TabletCommitInfo> infos = List.of(new TabletCommitInfo(1100, 1), new TabletCommitInfo(1101, 1),
+                new TabletCommitInfo(1200, 1), new TabletCommitInfo(1201, 1));
+        CommitTxnResponse response = CommitTxnResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                .setTxnInfo(buildTxnInfo(100).toBuilder().clearTableIds().addTableIds(table.getId())
+                        .setStatus(Cloud.TxnStatusPB.TXN_STATUS_VISIBLE).setCommitTso(400))
+                .addTableIds(table.getId()).addPartitionIds(first.getId()).addVersions(3)
+                .addTableIds(table.getId()).addPartitionIds(second.getId()).addVersions(3)
+                .setVersionUpdateTimeMs(40)
+                .addTableStats(Cloud.TableStatsPB.newBuilder().setTableId(table.getId()).setTableVersion(3))
+                .build();
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.commitTxn(Mockito.any())).thenReturn(response);
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1,
+                    List.of(table), 100, infos, null);
+            ArgumentCaptor<Cloud.CommitTxnRequest> request = ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
+            Mockito.verify(proxy).commitTxn(request.capture());
+            Assertions.assertEquals(3, table.getPartitions().size());
+            Assertions.assertTrue(request.getValue().hasNumPartitions());
+            Assertions.assertEquals(2, request.getValue().getNumPartitions());
+            for (CloudPartition partition : List.of(first, second)) {
+                Assertions.assertEquals(3, partition.getCachedVisibleVersion());
+                Assertions.assertEquals(40, partition.getVisibleVersionTime());
+                Assertions.assertEquals(400, partition.getTso());
+            }
+            Assertions.assertEquals(2, untouched.getCachedVisibleVersion());
+            Assertions.assertEquals(20, untouched.getVisibleVersionTime());
+            Assertions.assertEquals(200, untouched.getTso());
+            Assertions.assertEquals(3, table.getCachedTableVersion());
+        }
+    }
+
+    @Test
+    public void testCommitRequestCountsDistinctPartitions() throws Exception {
+        CloudPartition first = addCloudPartition(1000);
+        CloudPartition second = addCloudPartition(2000);
+        addCommitTablet(1100, first, 10, false);
+        addCommitTablet(1101, first, 11, false); // materialized index
+        addCommitTablet(1102, first, 12, true);  // row binlog index
+        addCommitTablet(1103, first, 10, false); // empty bucket, reported even if its rowset is skipped
+        addCommitTablet(2100, second, 20, false);
+        addCommitTablet(2101, second, 20, false);
+        List<TabletCommitInfo> infos = List.of(new TabletCommitInfo(1100, 1), new TabletCommitInfo(1100, 2),
+                new TabletCommitInfo(1101, 1), new TabletCommitInfo(1102, 1),
+                new TabletCommitInfo(1103, 1), new TabletCommitInfo(2100, 1), new TabletCommitInfo(2101, 1));
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.commitTxn(Mockito.any()))
+                    .thenReturn(visibleRetry(List.of(first.getTableId(), second.getTableId())));
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1,
+                    List.of(getCloudTable(first), getCloudTable(second)), 100, infos, null);
+            ArgumentCaptor<Cloud.CommitTxnRequest> request = ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
+            Mockito.verify(proxy).commitTxn(request.capture());
+            Assertions.assertTrue(request.getValue().hasNumPartitions());
+            Assertions.assertEquals(2, request.getValue().getNumPartitions());
+
+            // A dropped tablet no longer maps to a partition, so its count is unknown.
+            masterEnv.getTabletInvertedIndex().deleteTablet(1102);
+            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1,
+                    List.of(getCloudTable(first), getCloudTable(second)), 100, infos, null);
+            Mockito.verify(proxy, Mockito.times(2)).commitTxn(request.capture());
+            Assertions.assertFalse(request.getValue().hasNumPartitions());
+        }
+    }
+
+    @Test
+    public void testSubTxnCommitCountsDistinctPartitionsAcrossSubTxns() throws Exception {
+        CloudPartition partition = addCloudPartition(1000);
+        OlapTable table = getCloudTable(partition);
+        addCommitTablet(1100, partition, 10, false);
+        addCommitTablet(1101, partition, 11, true);
+        CloudPartition second = addCloudPartition(table, 1002);
+        addCommitTablet(1200, second, 10, false);
+        addCommitTablet(1201, second, 10, false);
+        // The first sub-transaction writes both partitions; the second writes
+        // the first partition again. Count their union, not 2 + 1 partitions.
+        List<SubTransactionState> subTxns = List.of(
+                new SubTransactionState(100, table,
+                        List.of(new TTabletCommitInfo(1100, 1), new TTabletCommitInfo(1101, 1),
+                                new TTabletCommitInfo(1200, 1), new TTabletCommitInfo(1201, 1)),
+                        SubTransactionState.SubTransactionType.INSERT),
+                new SubTransactionState(101, table,
+                        List.of(new TTabletCommitInfo(1100, 1), new TTabletCommitInfo(1101, 1)),
+                        SubTransactionState.SubTransactionType.INSERT));
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.commitTxn(Mockito.any())).thenReturn(visibleRetry(List.of(table.getId())));
+            Assertions.assertTrue(masterTransMgr.commitAndPublishTransaction(
+                    masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1),
+                    100, subTxns, 10_000));
+            ArgumentCaptor<Cloud.CommitTxnRequest> request = ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
+            Mockito.verify(proxy).commitTxn(request.capture());
+            Assertions.assertTrue(request.getValue().getIsTxnLoad());
+            Assertions.assertEquals(2, request.getValue().getSubTxnInfosCount());
+            Assertions.assertTrue(request.getValue().hasNumPartitions());
+            Assertions.assertEquals(2, request.getValue().getNumPartitions());
         }
     }
 
@@ -309,6 +433,9 @@ public class CloudGlobalTransactionMgrTest {
                     ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
             Mockito.verify(mockProxy).commitTxn(requestCaptor.capture());
             Assertions.assertTrue(requestCaptor.getValue().hasCommitTso());
+            // A known empty load sends zero, unlike missing tablet commit info.
+            Assertions.assertTrue(requestCaptor.getValue().hasNumPartitions());
+            Assertions.assertEquals(0, requestCaptor.getValue().getNumPartitions());
             Assertions.assertEquals(2, requestCaptor.getValue().getTableStreamUpdatesCount());
             Assertions.assertEquals(identity, requestCaptor.getValue().getTableStreamUpdates(0).getIdentity());
             Assertions.assertEquals(partitionUpdate,
@@ -686,7 +813,12 @@ public class CloudGlobalTransactionMgrTest {
         CloudPartition second = addCloudPartition(2000);
         OlapTable firstTable = getCloudTable(first);
         OlapTable secondTable = getCloudTable(second);
-        CommitTxnResponse response = visibleRetry(List.of(first.getTableId(), second.getTableId()));
+        // A lazy retry that waited for publication returns only txn_info and
+        // is_lazy_commit=true; the absent incomplete flag defaults to false.
+        CommitTxnResponse response = visibleRetry(List.of(first.getTableId(), second.getTableId()))
+                .toBuilder().setIsLazyCommit(true).build();
+        Assertions.assertFalse(response.hasIsLazyCommitIncomplete());
+        Assertions.assertFalse(response.getIsLazyCommitIncomplete());
         try (MockedStatic<VersionHelper> versions = mockVersionHelper()) {
             versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenReturn(partitionVersion(4));
             masterTransMgr.afterCommitTxnResp(response, null, List.of());
@@ -992,15 +1124,24 @@ public class CloudGlobalTransactionMgrTest {
         }
     }
 
+    private void addCommitTablet(long tabletId, CloudPartition partition, long indexId, boolean rowBinlog) {
+        masterEnv.getTabletInvertedIndex().addTablet(tabletId, new TabletMeta(CatalogTestUtil.testDbId1,
+                partition.getTableId(), partition.getId(), indexId, 0, TStorageMedium.HDD, rowBinlog));
+    }
+
     private CloudPartition addCloudPartition(long tableId) throws Exception {
         OlapTable table = new OlapTable(tableId, "version_cache_" + tableId, List.of(), KeysType.DUP_KEYS,
                 new PartitionInfo(), new RandomDistributionInfo(1));
-        CloudPartition partition = new CloudPartition(tableId + 1, "p1", new MaterializedIndex(),
-                new RandomDistributionInfo(1), CatalogTestUtil.testDbId1, tableId);
-        partition.setCachedVisibleVersion(2, 20, 200);
-        table.addPartition(partition);
         table.setCachedTableVersion(2);
         masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1).registerTable(table);
+        return addCloudPartition(table, tableId + 1);
+    }
+
+    private CloudPartition addCloudPartition(OlapTable table, long partitionId) {
+        CloudPartition partition = new CloudPartition(partitionId, "p" + partitionId, new MaterializedIndex(),
+                new RandomDistributionInfo(1), CatalogTestUtil.testDbId1, table.getId());
+        partition.setCachedVisibleVersion(2, 20, 200);
+        table.addPartition(partition);
         return partition;
     }
 
