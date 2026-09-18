@@ -86,9 +86,6 @@ SpillFileWriter::~SpillFileWriter() {
 }
 
 Status SpillFileWriter::_open_next_part(const std::shared_ptr<SpillFile>& spill_file) {
-    // Confirm parts whose upload has finished meanwhile; surfaces upload errors early.
-    RETURN_IF_ERROR(_reap_closing_parts(/*block=*/false, spill_file));
-
     auto fs = _data_dir->fs();
     if (fs == nullptr) {
         return Status::InternalError("spill store {} is not ready", _data_dir->path());
@@ -178,98 +175,49 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
         }
     }
 
-    // Issue a non-blocking close so that the upload of this part overlaps with the next
-    // one. The part is confirmed later by _reap_closing_parts(), which also reconciles
-    // the upload budget, so it is queued even when something above failed.
-    ClosingPart part;
-    part.path = _current_part_path;
-    part.part_index = _current_part_index;
-    part.part_bytes = _part_written_bytes;
-    part.ledger = std::move(_part_ledger);
-    part.stats = std::move(_part_stats);
-    part.close_status = status.ok() ? _file_writer->close(/*non_block=*/true) : status;
-    part.writer = std::move(_file_writer);
-    _closing_parts.emplace_back(std::move(part));
-
-    // Advance to next part
-    ++_current_part_index;
-    _part_written_blocks = 0;
-    _part_written_bytes = 0;
-    _part_max_sub_block_size = 0;
-    _part_meta.clear();
-
-    return status;
-}
-
-Status SpillFileWriter::_reap_closing_parts(bool block,
-                                            const std::shared_ptr<SpillFile>& spill_file) {
-    Status first_error;
-    while (!_closing_parts.empty()) {
-        auto& part = _closing_parts.front();
-        Status st = part.close_status;
-        if (st.ok()) {
-            st = part.writer->try_finish_close();
-            if (st.is<ErrorCode::NEED_SEND_AGAIN>()) {
-                if (!block) {
-                    break;
-                }
-                st = part.writer->close();
-            } else if (st.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
-                // Writers without an async close protocol (local files) finished the work
-                // in close(true); close() only flips the state.
-                st = part.writer->state() == io::FileWriter::State::CLOSED ? Status::OK()
-                                                                           : part.writer->close();
-            }
-        }
-        st = _finish_part(part, spill_file, st);
-        _closing_parts.erase(_closing_parts.begin());
-        if (!st.ok() && first_error.ok()) {
-            first_error = st;
-            if (!block) {
-                break;
-            }
-        }
+    // Close synchronously. Spilling already runs on an IO thread that blocks on every
+    // append, and with the default part size the wait at a part boundary (the tail of the
+    // uploads plus one CompleteMultipartUpload) is negligible against the part itself, so
+    // overlapping it with the next part is not worth an async close pipeline.
+    std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
+    MultipartUploadId upload = _multipart_upload_id(writer.get());
+    if (status.ok()) {
+        status = writer->close();
     }
-    return first_error;
-}
-
-Status SpillFileWriter::_finish_part(ClosingPart& part,
-                                     const std::shared_ptr<SpillFile>& spill_file,
-                                     Status close_status) {
-    MultipartUploadId upload = _multipart_upload_id(part.writer.get());
-    if (!close_status.ok() && part.writer != nullptr &&
-        part.writer->state() != io::FileWriter::State::CLOSED) {
-        // The part never reached a final state (footer failed, or close(true) could not be
-        // issued). Destroying the writer waits for every in-flight upload, so the ledger below
-        // is complete afterwards. close() is not used for this: on a cancelled query it would
-        // be refused by the upload gate right away and drain nothing.
-        part.writer.reset();
+    if (!status.ok() && writer->state() != io::FileWriter::State::CLOSED) {
+        // The part never reached a final state (the footer append failed). Destroying the
+        // writer waits for every in-flight upload, so the ledger below is complete
+        // afterwards. close() is not used for this: on a cancelled query it would be refused
+        // by the upload gate right away and drain nothing.
+        writer.reset();
     }
 
     // Budget: everything the gate took for this part but the upload callback never gave
     // back (buffers that failed before their upload started) is released here. The writer is
     // in its final state at this point, so every callback that will ever fire has fired.
-    if (_budget != nullptr && part.ledger != nullptr) {
-        int64_t remaining = part.ledger->acquired.load() - part.ledger->released.load();
+    if (_budget != nullptr && _part_ledger != nullptr) {
+        int64_t remaining = _part_ledger->acquired.load() - _part_ledger->released.load();
         DCHECK_GE(remaining, 0) << "upload callback released more than acquired, part="
-                                << part.path;
+                                << _current_part_path;
         if (remaining > 0) {
             _budget->release(remaining);
         }
         if (_remote_upload_wait_timer != nullptr) {
-            COUNTER_UPDATE(_remote_upload_wait_timer, part.ledger->wait_ns.load());
+            COUNTER_UPDATE(_remote_upload_wait_timer, _part_ledger->wait_ns.load());
         }
     }
 
-    if (part.stats != nullptr) {
-        int64_t requests = part.stats->total_requests();
-        int64_t data_requests = part.stats->put_object_requests + part.stats->upload_part_requests;
-        int64_t uploaded_bytes = part.stats->uploaded_bytes;
+    // Remote only: _part_stats is created together with the upload budget.
+    if (_part_stats != nullptr) {
+        int64_t requests = _part_stats->total_requests();
+        int64_t data_requests =
+                _part_stats->put_object_requests + _part_stats->upload_part_requests;
+        int64_t uploaded_bytes = _part_stats->uploaded_bytes;
         if (_remote_write_requests != nullptr) {
             COUNTER_UPDATE(_remote_write_requests, requests);
             COUNTER_UPDATE(_remote_upload_part_requests, data_requests);
             COUNTER_UPDATE(_remote_upload_bytes, uploaded_bytes);
-            COUNTER_UPDATE(_remote_upload_timer, part.stats->request_time_ns.load());
+            COUNTER_UPDATE(_remote_upload_timer, _part_stats->request_time_ns.load());
         }
         if (_resource_ctx) {
             _resource_ctx->io_context()->update_spill_remote_write_requests(requests);
@@ -278,15 +226,23 @@ Status SpillFileWriter::_finish_part(ClosingPart& part,
                                                                             data_requests);
     }
 
-    if (!close_status.ok()) {
-        LOG(WARNING) << "failed to close spill part " << part.path << ": " << close_status;
+    if (!status.ok()) {
+        LOG(WARNING) << "failed to close spill part " << _current_part_path << ": " << status;
         _abort_multipart_upload(upload);
-        return close_status;
+    } else if (spill_file) {
+        spill_file->add_part(_part_written_bytes);
     }
-    if (spill_file) {
-        spill_file->add_part(part.part_bytes);
-    }
-    return Status::OK();
+
+    // Advance to next part
+    ++_current_part_index;
+    _part_written_blocks = 0;
+    _part_written_bytes = 0;
+    _part_max_sub_block_size = 0;
+    _part_meta.clear();
+    _part_ledger.reset();
+    _part_stats.reset();
+
+    return status;
 }
 
 SpillFileWriter::MultipartUploadId SpillFileWriter::_multipart_upload_id(io::FileWriter* writer) {
@@ -366,16 +322,10 @@ Status SpillFileWriter::close() {
     _closed = true;
 
     auto spill_file = _spill_file_wptr.lock();
-    Status status = _close_current_part(spill_file);
-    // Always drain the closing parts so that budget and statistics are reconciled even
-    // when the current part failed.
-    Status reap_status = _reap_closing_parts(/*block=*/true, spill_file);
-    if (status.ok()) {
-        status = reap_status;
-    }
-    RETURN_IF_ERROR(status);
+    // Reconciles budget and statistics of the last part even when it fails.
+    RETURN_IF_ERROR(_close_current_part(spill_file));
 
-    // Injected after the drain: a failed close must never strand budget or parts.
+    // Injected after the last part is reconciled: a failed close must never strand budget.
     DBUG_EXECUTE_IF("fault_inject::spill_file::spill_eof", {
         return Status::Error<INTERNAL_ERROR>("fault_inject spill_file spill_eof failed");
     });
