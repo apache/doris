@@ -51,7 +51,9 @@ class SniiRewriteSnapshot;
 //                            target_dict_block_bytes
 //   for each logical index, in add order:
 //     [norms POD]            NormsPodWriter::finish (scoring only; else absent)
-//     [null bitmap POD]      NullBitmapWriter::finish (when nulls exist)
+//     [null bitmap POD]      NullBitmapWriter::finish (when nulls exist and no earlier index
+//                            with the same suffix wrote the same bitmap; such an index
+//                            references that region instead, see write_index_aux_sections)
 //   for each logical index, in add order:
 //     [Core metadata][SampledTermIndex blob][DICT block directory blob]
 //   [metadata directory]     raw SniiMetadataDirectoryPB bytes
@@ -73,7 +75,9 @@ class SniiRewriteSnapshot;
 //   - SectionRefs in each Core metadata record ABSOLUTE file offset+length of
 //     that index's posting, DICT, norms, null-bitmap, and BSBF regions. Absent
 //     regions are (0,0); a present-but-empty posting region (all-INLINE index)
-//     is (off, 0).
+//     is (off, 0). Indexes with the same suffix and byte-identical null bitmaps
+//     reference one shared null-bitmap region; every other region belongs to
+//     exactly one index.
 //   - DictBlockDirectory entries record each DICT block's ABSOLUTE file offset +
 //     length.
 //   - A windowed/slim pod_ref entry's absolute .frq offset =
@@ -258,6 +262,16 @@ private:
         size_t dict_block_directory_length = 0;
     };
 
+    // A null-bitmap section this writer appended: the suffix of the index that wrote
+    // it, a 128-bit hash of its framed bytes, and where they landed.
+    struct WrittenNullBitmap {
+        std::string index_suffix;
+        uint64_t hash_low64 = 0;
+        uint64_t hash_high64 = 0;
+        uint64_t offset = 0;
+        uint64_t length = 0;
+    };
+
     // One registered blob logical index awaiting finish(). cold/hot refs are
     // resolved as the corresponding bytes stream out during finish().
     struct PendingBlobIndex {
@@ -278,6 +292,8 @@ private:
     // [posting][dict] pair and fills its placement. Keeping one index's sections
     // contiguous is what makes a single-index cold query touch one cache block instead
     // of three; the previous layout grouped these by section type across all indexes.
+    // The one exception is a null bitmap already written for the same suffix, which
+    // is referenced rather than written again (see the .cpp).
     Status write_index_aux_sections(LogicalIndexWriter& writer, Placement& placement);
     Status write_tail();
     Status append(const std::vector<uint8_t>& bytes);
@@ -331,6 +347,9 @@ private:
     // Blob logical indexes registered by add_blob_index(), in add order. Their
     // bytes stream out during finish() only.
     std::vector<PendingBlobIndex> blobs_;
+    // The last null bitmap appended (length 0 until the first one): the region the next
+    // index on the same suffix references when its bitmap is identical.
+    WrittenNullBitmap last_null_bitmap_;
     // inherit() ran successfully. Distinct from inherited_ being non-empty: a
     // rewrite may drop every old index and still copy the bootstrap header.
     bool inherited_prefix_ = false;

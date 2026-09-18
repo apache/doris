@@ -18,6 +18,7 @@
 #include "storage/index/snii/writer/snii_compound_writer.h"
 
 #include <fmt/format.h>
+#include <xxhash.h>
 
 #include <algorithm>
 #include <utility>
@@ -501,9 +502,33 @@ Status SniiCompoundWriter::write_index_aux_sections(LogicalIndexWriter& writer,
         writer.release_norms_bytes();
     }
     if (writer.has_null_bitmap()) {
-        placement.null_off = out_->bytes_written();
-        RETURN_IF_ERROR(append(writer.null_bitmap_bytes()));
-        placement.null_len = out_->bytes_written() - placement.null_off;
+        // A VARIANT column copies each index definition to every subcolumn, and all
+        // definitions on one subcolumn are written back to back under the same suffix
+        // with the same NULL rows, so they produce byte-identical bitmaps. When this
+        // bitmap equals the last one written and carries the same suffix, point this
+        // index at that region instead of storing the bytes again. Region references
+        // are absolute, so the format is unchanged; the bitmap records the doc count, so
+        // equal bytes also mean an equal document domain.
+        //
+        // The earlier bitmap's bytes were released as soon as they reached the file, so
+        // a 128-bit hash plus the length stands in for comparing the bytes themselves.
+        const std::vector<uint8_t>& bytes = writer.null_bitmap_bytes();
+        const XXH128_hash_t hash = XXH3_128bits(bytes.data(), bytes.size());
+        WrittenNullBitmap& last = last_null_bitmap_;
+        if (last.length == bytes.size() && last.hash_low64 == hash.low64 &&
+            last.hash_high64 == hash.high64 && last.index_suffix == writer.index_suffix()) {
+            placement.null_off = last.offset;
+            placement.null_len = last.length;
+        } else {
+            placement.null_off = out_->bytes_written();
+            RETURN_IF_ERROR(append(bytes));
+            placement.null_len = out_->bytes_written() - placement.null_off;
+            last = {.index_suffix = writer.index_suffix(),
+                    .hash_low64 = hash.low64,
+                    .hash_high64 = hash.high64,
+                    .offset = placement.null_off,
+                    .length = placement.null_len};
+        }
         writer.release_null_bitmap_bytes();
     }
     if (writer.has_bsbf()) {
