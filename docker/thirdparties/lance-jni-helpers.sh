@@ -66,6 +66,51 @@ lance_jni_download() (
     exit 1
 )
 
+lance_jni_extract_verified() (
+    set -eo pipefail
+    local archive="$1"
+    local destination="$2"
+    local digest
+    gzip -dc "${archive}" > "${destination}"
+    digest=$(sha256sum "${destination}" | awk '{print $1}')
+    if [[ "${digest}" != "${LANCE_JNI_LIBRARY_SHA256}" ]]; then
+        echo "ERROR: Lance JNI library SHA256 mismatch: expected ${LANCE_JNI_LIBRARY_SHA256}, got ${digest}" >&2
+        exit 1
+    fi
+)
+
+# Prepare the native library under src/test/resources so it survives Maven auto-clean.
+# Maven copies it to test-classes, which Surefire searches before dependency JARs.
+lance_jni_prepare_test_resources() (
+    set -eo pipefail
+    local test_resources="$1"
+    local thirdparty_dir="$2"
+    local lance_version="$3"
+    local target_system="$4"
+    local target_arch="$5"
+    if [[ "${target_system}" != "Linux" || "${target_arch}" != "x86_64" ]]; then
+        exit 0
+    fi
+    if [[ "${lance_version}" != "${LANCE_JNI_VERSION}" ]]; then
+        echo "ERROR: Lance Java version ${lance_version} does not match JNI version ${LANCE_JNI_VERSION}" >&2
+        exit 1
+    fi
+
+    local resource_dir="${test_resources}/nativelib/linux-x86-64"
+    local library="${resource_dir}/liblance_jni.so"
+    local archive work_dir
+    if [[ -f "${library}" ]] && [[ "$(sha256sum "${library}" | awk '{print $1}')" == "${LANCE_JNI_LIBRARY_SHA256}" ]]; then
+        exit 0
+    fi
+    archive=$(lance_jni_download "${thirdparty_dir}/installed/lance-jni")
+    mkdir -p "${resource_dir}"
+    work_dir=$(mktemp -d "${resource_dir}/.lance-jni.XXXXXX")
+    trap 'rm -rf -- "${work_dir}"' EXIT
+    lance_jni_extract_verified "${archive}" "${work_dir}/liblance_jni.so"
+    mv -f "${work_dir}/liblance_jni.so" "${library}"
+    echo "Prepared Lance JNI test resource: ${library} (SHA256: ${LANCE_JNI_LIBRARY_SHA256})"
+)
+
 lance_jni_replace() (
     set -eo pipefail
     local output_dir="$1"
@@ -95,12 +140,8 @@ lance_jni_replace() (
     work_dir=$(mktemp -d "${output_dir}/fe/lib/.lance-jni.XXXXXX")
     trap 'rm -rf -- "${work_dir}"' EXIT
     mkdir -p "${work_dir}/$(dirname "${entry}")"
-    gzip -dc "${archive}" > "${work_dir}/${entry}"
-    source_hash=$(sha256sum "${work_dir}/${entry}" | awk '{print $1}')
-    if [[ "${source_hash}" != "${LANCE_JNI_LIBRARY_SHA256}" ]]; then
-        echo "ERROR: Lance JNI library SHA256 mismatch: expected ${LANCE_JNI_LIBRARY_SHA256}, got ${source_hash}" >&2
-        exit 1
-    fi
+    lance_jni_extract_verified "${archive}" "${work_dir}/${entry}"
+    source_hash="${LANCE_JNI_LIBRARY_SHA256}"
     # Preserve the Maven cache and only replace the output JAR after verification.
     cp -p "${target_jar}" "${work_dir}/lance-core.jar"
     (
