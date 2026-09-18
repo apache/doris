@@ -25,6 +25,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewAggregateRule.AggregateExpressionRewriteContext.ExpressionRewriteMode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
@@ -569,7 +570,8 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         Plan rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                 childContext -> {
                     Rewriter.getCteChildrenRewriter(childContext,
-                            ImmutableList.of(Rewriter.topDown(new EliminateGroupByKey()))).execute();
+                            ImmutableList.of(Rewriter.custom(
+                                    RuleType.ELIMINATE_GROUP_BY_KEY, EliminateGroupByKey::new))).execute();
                     return childContext.getRewritePlan();
                 }, viewProject, viewProject, false);
 
