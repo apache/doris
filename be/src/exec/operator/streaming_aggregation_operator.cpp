@@ -290,8 +290,8 @@ bool StreamingAggLocalState::_should_not_do_pre_agg(size_t rows) {
     auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
     bool ret_flag = false;
     const auto spill_streaming_agg_mem_limit = p._spill_streaming_agg_mem_limit;
-    const bool used_too_much_memory =
-            spill_streaming_agg_mem_limit > 0 && _memory_usage() > spill_streaming_agg_mem_limit;
+    const bool used_too_much_memory = spill_streaming_agg_mem_limit > 0 &&
+                                      _memory_usage() >= spill_streaming_agg_mem_limit;
     std::visit(
             Overload {
                     [&](std::monostate& arg) {
@@ -954,15 +954,13 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         _aggregate_evaluators.push_back(evaluator);
     }
 
-    if (state->enable_spill()) {
-        // If spill enabled, the streaming agg should not occupy too much memory.
-        _spill_streaming_agg_mem_limit =
-                state->query_options().__isset.spill_streaming_agg_mem_limit
-                        ? state->query_options().spill_streaming_agg_mem_limit
-                        : 0;
-    } else {
-        _spill_streaming_agg_mem_limit = 0;
-    }
+    // Streaming aggregation does not spill itself. Apply its memory limit independently of
+    // whether spill is enabled for the query. The limit is checked before processing each block,
+    // so memory can exceed it by at most the allocations made while processing one block.
+    _spill_streaming_agg_mem_limit =
+            state->query_options().__isset.spill_streaming_agg_mem_limit
+                    ? state->query_options().spill_streaming_agg_mem_limit
+                    : 0;
 
     const auto& agg_functions = tnode.agg_node.aggregate_functions;
     auto is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),

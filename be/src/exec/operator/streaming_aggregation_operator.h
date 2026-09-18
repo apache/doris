@@ -265,8 +265,8 @@ private:
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
 
-    /// When spilling is enabled, the streaming agg should not occupy too much memory.
-    size_t _spill_streaming_agg_mem_limit;
+    /// Streaming aggregation switches to pass-through mode after reaching this memory limit.
+    size_t _spill_streaming_agg_mem_limit = 0;
     // group by k1,k2
     VExprContextSPtrs _probe_expr_ctxs;
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
