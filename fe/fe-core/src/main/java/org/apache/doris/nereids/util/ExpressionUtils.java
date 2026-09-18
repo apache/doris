@@ -1207,9 +1207,63 @@ public class ExpressionUtils {
         return expression instanceof Slot;
     }
 
-    // if the input is unique, the output of agg is unique, too
+    private static boolean isInjectiveAggArgument(Expression expression) {
+        if (expression instanceof Slot) {
+            return true;
+        }
+        if (!(expression instanceof Cast)) {
+            return false;
+        }
+        Cast cast = (Cast) expression;
+        DataType source = cast.child().getDataType();
+        DataType target = cast.getDataType();
+        // Bounded character casts may truncate to the declared length. Treat every non-identity
+        // conversion to CHAR/VARCHAR conservatively, including analyzer-generated casts.
+        return (source.equals(target) || (!target.isCharType() && !target.isVarcharType()))
+                && !Cast.castNullable(false, source, target)
+                && isInjectiveTypeConversion(source, target)
+                && isInjectiveAggArgument(cast.child());
+    }
+
+    /**
+     * Whether an aggregate preserves uniqueness for a group containing exactly one row.
+     *
+     * <p>Checking the aggregate kind and its input slots is not sufficient. An aggregate argument
+     * may contain a non-injective expression, and the aggregate return type may also collapse
+     * distinct argument values. Prove injectivity through both the argument expression and the
+     * one-row argument-to-result type conversion.
+     */
     public static boolean isInjectiveAgg(Expression agg) {
-        return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
+        if (!(agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min)) {
+            return false;
+        }
+        Expression argument = agg.child(0);
+        return isInjectiveAggArgument(argument)
+                && isInjectiveTypeConversion(argument.getDataType(), agg.getDataType());
+    }
+
+    /**
+     * Whether a type conversion preserves every source value. Data types provide the general
+     * proof; the floating-point cases below supplement it with the exact integer ranges of IEEE
+     * 754 binary32 and binary64.
+     */
+    private static boolean isInjectiveTypeConversion(DataType source, DataType target) {
+        if (source.isInjectiveCastTo(target)) {
+            return true;
+        }
+        if (source.isIntegralType()) {
+            if (target.isFloatType()) {
+                return source.width() <= Short.BYTES;
+            }
+            if (target.isDoubleType()) {
+                return source.width() <= Integer.BYTES;
+            }
+            return false;
+        }
+        if (source.isFloatType()) {
+            return target.isDoubleType();
+        }
+        return false;
     }
 
     /**
