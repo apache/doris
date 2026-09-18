@@ -138,6 +138,16 @@ class StringArithmeticTest {
         Assertions.assertSame(unsupported, ExpressionEvaluator.INSTANCE.eval(unsupported));
     }
 
+    @Test
+    void testUnicodeCaseFoldedCharacterSetDoesNotFold() {
+        Encode encode = new Encode(new StringLiteral("A"), new StringLiteral("U\u017F-ASCII"));
+        Decode decode = new Decode(new VarBinaryLiteral(new byte[] {0x41}),
+                new StringLiteral("U\u017F-ASCII"));
+
+        Assertions.assertSame(encode, ExpressionEvaluator.INSTANCE.eval(encode));
+        Assertions.assertSame(decode, ExpressionEvaluator.INSTANCE.eval(decode));
+    }
+
     private void assertUrlDecodeValue(String encoded, String expected) {
         Expression result = ExpressionEvaluator.INSTANCE.eval(new UrlDecode(new StringLiteral(encoded)));
         Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());

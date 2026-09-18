@@ -73,6 +73,8 @@ import java.util.regex.Pattern;
  */
 public class StringArithmetic {
     private static final long MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS = 16L * 1024L * 1024L;
+    private static final List<String> SUPPORTED_CHARACTER_SETS = ImmutableList.of(
+            "US-ASCII", "ISO-8859-1", "UTF-8", "UTF-16BE", "UTF-16LE", "UTF-16");
 
     private static Literal castStringLikeLiteral(StringLikeLiteral first, String value) {
         if (first instanceof StringLiteral) {
@@ -1191,30 +1193,28 @@ public class StringArithmetic {
     }
 
     private static Charset supportedCharacterSet(String name) {
-        String canonicalName;
-        switch (name.toUpperCase(Locale.ROOT)) {
-            case "US-ASCII":
-                canonicalName = "US-ASCII";
-                break;
-            case "ISO-8859-1":
-                canonicalName = "ISO-8859-1";
-                break;
-            case "UTF-8":
-                canonicalName = "UTF-8";
-                break;
-            case "UTF-16BE":
-                canonicalName = "UTF-16BE";
-                break;
-            case "UTF-16LE":
-                canonicalName = "UTF-16LE";
-                break;
-            case "UTF-16":
-                canonicalName = "UTF-16";
-                break;
-            default:
-                throw new IllegalArgumentException("Unsupported character set: " + name);
+        for (String supportedCharacterSet : SUPPORTED_CHARACTER_SETS) {
+            if (equalsIgnoreAsciiCase(name, supportedCharacterSet)) {
+                return Charset.forName(supportedCharacterSet);
+            }
         }
-        return Charset.forName(canonicalName);
+        throw new IllegalArgumentException("Unsupported character set: " + name);
+    }
+
+    private static boolean equalsIgnoreAsciiCase(String value, String expected) {
+        if (value.length() != expected.length()) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char current = value.charAt(i);
+            if (current >= 'a' && current <= 'z') {
+                current -= 'a' - 'A';
+            }
+            if (current != expected.charAt(i)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

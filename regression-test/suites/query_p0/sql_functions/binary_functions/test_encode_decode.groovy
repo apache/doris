@@ -70,4 +70,16 @@ suite("test_encode_decode") {
         sql "select decode(X'E4B8', 'UTF-8')"
         exception "Character conversion using 'UTF-8' failed"
     }
+
+    test {
+        sql "select encode('A', 'Uſ-ASCII')"
+        exception "Unsupported character set"
+    }
+
+    sql "insert into test_encode_decode values (13, 'A', unhex('41'), 'Uſ-ASCII')"
+
+    test {
+        sql "select encode(plain_text, charset) from test_encode_decode where id = 13"
+        exception "Unsupported character set"
+    }
 }
