@@ -24,7 +24,7 @@ suite("test_lance_multivector_coverage", "p0,external") {
     String endpoint = "http://${context.config.otherConfigs.get('externalEnvIp')}:${context.config.otherConfigs.get('iceberg_minio_port')}"
     def saved = [:]
     for (String variable : ["batch_size", "topn_lazy_materialization_threshold", "enable_file_scanner_v2",
-                            "enable_sql_cache", "enable_query_cache"]) {
+                            "enable_lance_lazy_materialization", "enable_sql_cache", "enable_query_cache"]) {
         // Experimental variables are omitted by SHOW VARIABLES under their unprefixed names.
         saved[variable] = (sql "SELECT @@session.${variable}")[0][0]
     }
@@ -68,6 +68,11 @@ suite("test_lance_multivector_coverage", "p0,external") {
             "use_index"="${indexed}", "nprobes"="4", "refine_factor"="64",
             "top_k"="${k}", "offset"="${offset}"${predicate})"""
     }
+    def setLazyMaterialization = { boolean enabled ->
+        // Lance has its own switch; use the opposite generic threshold to verify their independence.
+        sql "SET topn_lazy_materialization_threshold = ${enabled ? -1 : 1024}"
+        sql "SET enable_lance_lazy_materialization = ${enabled}"
+    }
     try {
         sql "DROP CATALOG IF EXISTS ${catalog}"
         sql """CREATE CATALOG ${catalog} PROPERTIES (
@@ -93,8 +98,8 @@ suite("test_lance_multivector_coverage", "p0,external") {
                             .sort { a, b -> a[1] <=> b[1] ?: a[0] <=> b[0] }
                     String tvf = source("multivector_dimensions", column, q, metric, false, 10, 0, null)
                     // Both normal and row-ID materialization must return the original nested payload.
-                    for (int threshold : [-1, 1024]) {
-                        sql "SET topn_lazy_materialization_threshold = ${threshold}"
+                    for (boolean lazyMaterialization : [false, true]) {
+                        setLazyMaterialization(lazyMaterialization)
                         def rows = sql "SELECT row_id, CAST(${column} AS STRING), _distance FROM ${tvf} ORDER BY _distance, row_id"
                         assertEquals(4, rows.size())
                         rows.eachWithIndex { row, i ->
@@ -137,8 +142,8 @@ suite("test_lance_multivector_coverage", "p0,external") {
                         String tvf = source(table, "vectors", query, "cosine", indexed, 13, offset,
                                 filtered ? "row_id % 5 = 0" : null)
                         def expected = ranked(filtered).drop(offset).take(13)
-                        for (int threshold : [-1, 1024]) {
-                            sql "SET topn_lazy_materialization_threshold = ${threshold}"
+                        for (boolean lazyMaterialization : [false, true]) {
+                            setLazyMaterialization(lazyMaterialization)
                             String statement = "SELECT row_id, CAST(vectors AS STRING), label, note, _distance FROM ${tvf} ORDER BY _distance, row_id"
                             explain {
                                 sql "verbose ${statement}"
@@ -147,11 +152,12 @@ suite("test_lance_multivector_coverage", "p0,external") {
                                 contains "lanceSearchIndexSegments=${indexed ? 2 : 0}"
                                 contains "lanceSearchUnindexedFragments=${indexed ? 1 : 3}"
                                 if (indexed) contains "lanceSearchIndexFragments=2"
-                                if (threshold > 0) {
+                                if (lazyMaterialization) {
                                     contains "VMaterializeNode"
                                     contains "__DORIS_GLOBAL_ROWID_COL__vector_search"
                                 } else {
                                     notContains "VMaterializeNode"
+                                    notContains "__DORIS_GLOBAL_ROWID_COL__vector_search"
                                 }
                             }
                             // Probe all partitions and overfetch this frozen small fixture before exact
