@@ -315,6 +315,11 @@ private:
 
     DorisCallOnce<Status> _create_column_meta_once_call;
 
+    // Guards `_footer_pb`: it is rebound by `_get_segment_footer()` from query/compaction
+    // threads while `get_metadata_size()` reads it from the memory maintenance thread;
+    // an unsynchronized rebind concurrent with `lock()` races on the weak_ptr and its
+    // control block.
+    mutable std::mutex _footer_pb_lock;
     std::weak_ptr<SegmentFooterPB> _footer_pb;
 
     // Cached raw_data_bytes per column unique id, populated once in _create_column_meta().
