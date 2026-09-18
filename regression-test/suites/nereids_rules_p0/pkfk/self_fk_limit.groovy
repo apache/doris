@@ -26,6 +26,10 @@ suite("self_fk_limit") {
             id int not null,
             parent_id int not null
         ) unique key(id)
+        partition by range(id) (
+            partition p1 values less than (2),
+            partition p2 values less than (MAXVALUE)
+        )
         distributed by hash(id) buckets 1
         properties("replication_num" = "1")
     """
@@ -55,6 +59,65 @@ suite("self_fk_limit") {
         """
         notContains "INNER_JOIN"
     }
+
+    explain {
+        sql """
+            shape plan
+            select f.parent_id
+            from (select id as pk from self_fk_limit where parent_id = 1) p
+            inner join self_fk_limit f on p.pk = f.parent_id
+        """
+        contains "INNER_JOIN"
+    }
+
+    explain {
+        sql """
+            shape plan
+            select f.parent_id
+            from self_fk_limit partition(p1) p
+            inner join self_fk_limit f on p.id = f.parent_id
+        """
+        contains "INNER_JOIN"
+    }
+
+    explain {
+        sql """
+            shape plan
+            select f.parent_id
+            from self_fk_limit p tablesample(1 rows)
+            inner join self_fk_limit f on p.id = f.parent_id
+        """
+        contains "INNER_JOIN"
+    }
+
+    try {
+        sql "set skip_storage_engine_merge = true"
+        explain {
+            sql """
+                shape plan
+                select f.parent_id
+                from self_fk_limit p
+                inner join self_fk_limit f on p.id = f.parent_id
+            """
+            contains "INNER_JOIN"
+        }
+    } finally {
+        sql "set skip_storage_engine_merge = false"
+    }
+
+    order_qt_alias_hidden_filter """
+        select f.parent_id
+        from (select id as pk from self_fk_limit where parent_id = 1) p
+        inner join self_fk_limit f on p.pk = f.parent_id
+        order by f.parent_id
+    """
+
+    order_qt_partition_primary """
+        select f.parent_id
+        from self_fk_limit partition(p1) p
+        inner join self_fk_limit f on p.id = f.parent_id
+        order by f.parent_id
+    """
 
     order_qt_limited_primary """
         select f.parent_id
