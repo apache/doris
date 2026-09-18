@@ -22,6 +22,7 @@
 #include <fmt/core.h>
 
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 #include "common/config.h"
@@ -41,12 +42,7 @@
 
 namespace doris {
 
-// This number represents the number of days from 0000-01-01 to 1970-01-01.
-static constexpr int32_t date_threshold = 719528;
-
 namespace {
-
-constexpr int32_t DORIS_DATE_EPOCH_DAYNR = 719528;
 
 Status decode_date_orc_values(const DataTypeSerDe& serde, IColumn& column,
                               const OrcDecodedColumnView& orc_view) {
@@ -64,22 +60,44 @@ Status decode_date_orc_values(const DataTypeSerDe& serde, IColumn& column,
             orc_serde_utils::orc_decode_row_count(orc_view.rows, orc_view.selected_rows);
     std::vector<int32_t> date_values;
     date_values.resize(output_rows);
-    auto& date_dict = date_day_offset_dict::get();
     for (size_t row = 0; row < output_rows; ++row) {
         const auto source_row = orc_serde_utils::orc_source_row_at(row, orc_view.selected_rows);
-        const auto date = date_dict[cast_set<int>(orc_batch->data[source_row])];
-        date_values[row] = cast_set<int32_t>(date.daynr() - DORIS_DATE_EPOCH_DAYNR);
+        // The payload of a null slot is undefined, so it is zeroed rather than range-checked;
+        // `read_column_from_decoded_values` never decodes it.
+        if (view.null_map != nullptr && view.null_map[row] != 0) {
+            date_values[row] = 0;
+            continue;
+        }
+        // ORC DATE is days since 1970-01-01 in the proleptic Gregorian calendar, the same encoding
+        // `decode_epoch_days()` expects, but ORC hands it over in an int64 batch. Reject a value
+        // that does not fit the int32 view here, while the real file value is still available for
+        // the message, instead of narrowing it blindly.
+        const int64_t file_days = orc_batch->data[source_row];
+        if (file_days < std::numeric_limits<int32_t>::min() ||
+            file_days > std::numeric_limits<int32_t>::max()) {
+            return Status::DataQualityError(
+                    "DATE value {} is outside the Doris DATE range (0000-01-01..9999-12-31, "
+                    "0000-02-29 excluded)",
+                    file_days);
+        }
+        date_values[row] = static_cast<int32_t>(file_days);
     }
     view.values = reinterpret_cast<const uint8_t*>(date_values.data());
     RETURN_IF_ERROR(orc_serde_utils::read_decoded_values(serde, column, &view));
     return Status::OK();
 }
 
-Status decode_parquet_date(int32_t encoded_date, DateV2Value<DateV2ValueType>* value) {
+// Shared by every "days since 1970-01-01" source: Parquet, ORC and Arrow date32/date64. The
+// message must therefore not name one format, and it carries the value so a broken file can be
+// identified without re-reading it.
+Status decode_epoch_days(int64_t encoded_date, DateV2Value<DateV2ValueType>* value) {
     DORIS_CHECK(value != nullptr);
-    const int64_t day_number = static_cast<int64_t>(encoded_date) + date_threshold;
-    if (day_number < 0 || !value->get_date_from_daynr(static_cast<uint64_t>(day_number))) {
-        return Status::DataQualityError("Parquet DATE value is out of range");
+    const int64_t day_number = epoch_days_to_daynr(encoded_date);
+    if (day_number == 0 || !value->get_date_from_daynr(static_cast<uint64_t>(day_number))) {
+        return Status::DataQualityError(
+                "DATE value {} is outside the Doris DATE range (0000-01-01..9999-12-31, "
+                "0000-02-29 excluded)",
+                encoded_date);
     }
     return Status::OK();
 }
@@ -99,7 +117,7 @@ public:
         _data.resize(old_size + num_values);
         for (size_t row = 0; row < num_values; ++row) {
             DateV2Value<DateV2ValueType> value;
-            const auto status = decode_parquet_date(
+            const auto status = decode_epoch_days(
                     unaligned_load<int32_t>(values + row * sizeof(int32_t)), &value);
             if (!status.ok()) {
                 if (_state != nullptr && _state->mark_conversion_failure(old_size + row)) {
@@ -216,13 +234,12 @@ Status DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const N
     const auto& col_data = static_cast<const ColumnDateV2&>(column).get_data();
     auto& date32_builder = assert_cast<arrow::Date32Builder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
-        auto daynr = col_data[i].daynr() - date_threshold;
         if (null_map && (*null_map)[i]) {
             RETURN_IF_ERROR(checkArrowStatus(date32_builder.AppendNull(), column, *array_builder));
         } else {
-            RETURN_IF_ERROR(
-                    checkArrowStatus(date32_builder.Append(cast_set<int, int64_t, false>(daynr)),
-                                     column, *array_builder));
+            RETURN_IF_ERROR(checkArrowStatus(
+                    date32_builder.Append(daynr_to_epoch_days(col_data[i].daynr())), column,
+                    *array_builder));
         }
     }
     return Status::OK();
@@ -257,10 +274,9 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
                         "Arrow Date64 value must contain whole days: row={}, milliseconds={}",
                         value_i, milliseconds);
             }
-            const int64_t daynr = milliseconds / MILLISECONDS_PER_DAY + date_threshold;
             DateV2Value<DateV2ValueType> value;
-            if (daynr <= 0 || daynr > DATE_MAX_DAYNR ||
-                !value.get_date_from_daynr(static_cast<uint64_t>(daynr))) {
+            if (const auto status = decode_epoch_days(milliseconds / MILLISECONDS_PER_DAY, &value);
+                !status.ok()) {
                 return Status::InvalidArgument(
                         "Arrow Date64 value is outside the Doris DATE range: "
                         "row={}, milliseconds={}",
@@ -281,7 +297,11 @@ Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow:
             auto date_value = unaligned_load<int32_t>(raw_byte_ptr);
 
             DateV2Value<DateV2ValueType> v;
-            v.get_date_from_daynr(date_value + date_threshold);
+            if (const auto status = decode_epoch_days(date_value, &v); !status.ok()) {
+                return Status::InvalidArgument(
+                        "Arrow Date32 value is outside the Doris DATE range: row={}, days={}",
+                        value_i, date_value);
+            }
             col_data.emplace_back(v);
         }
     } else {
@@ -309,7 +329,7 @@ Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
             continue;
         }
         DateV2Value<DateV2ValueType> date_v2;
-        const auto status = decode_parquet_date(values[row], &date_v2);
+        const auto status = decode_epoch_days(values[row], &date_v2);
         if (!status.ok()) {
             // Decoded values back both metadata conversion and native materialization. Preserve
             // strict errors while allowing nullable non-strict scans to mark only the bad row.
@@ -401,7 +421,7 @@ Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, con
         if (cur_batch->notNull[row_id] == 0) {
             continue;
         }
-        cur_batch->data[row_id] = col_data[row_id].daynr() - date_threshold;
+        cur_batch->data[row_id] = daynr_to_epoch_days(col_data[row_id].daynr());
     }
     cur_batch->numElements = end - start;
     return Status::OK();

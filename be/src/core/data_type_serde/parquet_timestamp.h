@@ -33,14 +33,35 @@ struct ParquetInt96Timestamp {
 #pragma pack()
 static_assert(sizeof(ParquetInt96Timestamp) == 12);
 
-inline constexpr int64_t MIN_DORIS_TIMESTAMP_MICROS = -62135596800000000LL;
-inline constexpr int64_t MAX_DORIS_TIMESTAMP_MICROS = 253402300799999999LL;
+// Doris DATETIMEV2 and TIMESTAMPTZ both start at 0000-01-01 00:00:00 (`MIN_DATE_V2`) and end at
+// 9999-12-31 23:59:59.999999. Parquet timestamps count from 1970-01-01 in the proleptic Gregorian
+// calendar, where year 0 IS a leap year, so 0000-01-01 is 366 days below 0001-01-01 rather than
+// 365. Pinning the lower bound at 0001-01-01 made the reader stricter than the type it
+// materializes into: every year-zero value Doris itself writes came back as a conversion failure.
+inline constexpr int64_t MIN_DORIS_TIMESTAMP_MICROS = -62167219200000000LL; // 0000-01-01 00:00:00
+inline constexpr int64_t MAX_DORIS_TIMESTAMP_MICROS =
+        253402300799999999LL; // 9999-12-31 23:59:59.999999
+
+// A UTC-adjusted Parquet timestamp is an instant, not a civil value: which Doris DATETIME it
+// becomes depends on the reader's timezone, so the raw instant must not be measured against the
+// civil range. A local 0001-01-01 00:00:00 in Asia/Shanghai is an instant *below* the civil
+// minimum, and a local 9999-12-31 23:59:59 in America/New_York is one *above* the maximum; both
+// are representable and must survive. What stays here is only a coarse guard keeping the value in
+// the domain where the cctz conversion and the narrowing to a `uint16_t` year behave. No timezone
+// offset has ever exceeded 16 hours, so one day of slack admits every instant that can still land
+// inside the civil range. The exact range is enforced per target type after the conversion:
+// `epoch_days_to_daynr()` for a civil timestamp, `is_valid_date()` for an instant.
+inline constexpr int64_t DORIS_TIMESTAMP_OFFSET_SLACK_MICROS = 86400000000LL;
+inline constexpr int64_t MIN_DORIS_INSTANT_MICROS =
+        MIN_DORIS_TIMESTAMP_MICROS - DORIS_TIMESTAMP_OFFSET_SLACK_MICROS;
+inline constexpr int64_t MAX_DORIS_INSTANT_MICROS =
+        MAX_DORIS_TIMESTAMP_MICROS + DORIS_TIMESTAMP_OFFSET_SLACK_MICROS;
 
 inline Status validate_parquet_timestamp_micros(int64_t timestamp_micros) {
-    if (timestamp_micros < MIN_DORIS_TIMESTAMP_MICROS ||
-        timestamp_micros > MAX_DORIS_TIMESTAMP_MICROS) {
+    if (timestamp_micros < MIN_DORIS_INSTANT_MICROS ||
+        timestamp_micros > MAX_DORIS_INSTANT_MICROS) {
         return Status::DataQualityError(
-                "Parquet timestamp is outside the Doris 0001-9999 range: micros={}",
+                "Parquet timestamp is outside the Doris 0000-9999 range: micros={}",
                 timestamp_micros);
     }
     return Status::OK();
@@ -83,10 +104,10 @@ inline Status parquet_int96_timestamp_micros(const ParquetInt96Timestamp& value,
     const __int128 days = static_cast<int64_t>(value.julian_day) - JULIAN_EPOCH_OFFSET_DAYS;
     const __int128 timestamp_micros =
             days * MICROS_IN_DAY + value.nanos_of_day / NANOS_PER_MICROSECOND;
-    if (timestamp_micros < MIN_DORIS_TIMESTAMP_MICROS ||
-        timestamp_micros > MAX_DORIS_TIMESTAMP_MICROS) {
+    if (timestamp_micros < MIN_DORIS_INSTANT_MICROS ||
+        timestamp_micros > MAX_DORIS_INSTANT_MICROS) {
         return Status::DataQualityError(
-                "Parquet INT96 timestamp is outside the Doris 0001-9999 range");
+                "Parquet INT96 timestamp is outside the Doris 0000-9999 range");
     }
     *result = static_cast<int64_t>(timestamp_micros);
     return Status::OK();
