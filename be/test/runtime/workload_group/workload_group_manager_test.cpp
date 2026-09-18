@@ -41,6 +41,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "storage/olap_define.h"
+#include "storage/options.h"
 #include "testutil/mock/mock_query_task_controller.h"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
