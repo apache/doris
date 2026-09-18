@@ -41,6 +41,7 @@
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
+#include "storage/iterator/vgeneric_iterators.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
@@ -629,6 +630,30 @@ TEST_F(SegmentIteratorExprZonemapTest, VersionMinMaxFallsBackFromStatisticsItera
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_NE(nullptr, iter);
     EXPECT_NE(nullptr, dynamic_cast<SegmentIterator*>(iter.get()));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, CommitTsoMinMaxUsesStatisticsIterator) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    _tablet_schema = make_commit_tso_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_commit_tso_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(7, 7);
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+    read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    ASSERT_NE(nullptr, dynamic_cast<VStatisticsIterator*>(iter.get()));
+    ASSERT_NO_FATAL_FAILURE(
+            assert_hidden_column_values(iter.get(), read_options, read_schema, 2, kCommitTso));
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, ReplacesReadTimeVersionSuffix) {

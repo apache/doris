@@ -92,6 +92,20 @@ namespace doris::segment_v2 {
 
 namespace {
 
+std::optional<Field> get_read_time_constant_reader_value(const TabletColumn& column,
+                                                         const StorageReadOptions& read_options) {
+    if (read_options.tablet_schema == nullptr) {
+        return std::nullopt;
+    }
+    const auto column_type =
+            get_read_time_hidden_column_type(*read_options.tablet_schema, column.unique_id());
+    if (column_type != ReadTimeHiddenColumnType::COMMIT_TSO) {
+        return std::nullopt;
+    }
+    return get_read_time_hidden_column_value(column_type, read_options.version,
+                                             read_options.commit_tso, read_options.read_row_binlog);
+}
+
 Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
                                      const StorageReadOptions& read_options,
                                      const VExprContextSPtrs& conjuncts, ZoneMapEvalContext* ctx) {
@@ -160,11 +174,16 @@ Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& sche
                                         const StorageReadOptions& read_options, bool* usable) {
     *usable = true;
     for (size_t ordinal = 0; ordinal < schema.num_block_columns(); ++ordinal) {
-        // VStatisticsIterator reads physical segment ZoneMaps. Read-time hidden columns contain
-        // placeholders there, so let SegmentIterator materialize their logical values instead.
+        // VStatisticsIterator can consume a read-time constant when new_column_iterator creates a
+        // ConstantColumnReader for it. Other read-time hidden columns still need SegmentIterator
+        // because their column readers expose physical placeholder ZoneMaps.
         if (segment->get_read_time_constant_value(static_cast<int32_t>(ordinal), schema,
                                                   read_options)
                     .has_value()) {
+            if (get_read_time_constant_reader_value(*schema.column(ordinal), read_options)
+                        .has_value()) {
+                continue;
+            }
             *usable = false;
             return Status::OK();
         }
@@ -960,14 +979,7 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     // commit_tso == -1 means it is not assigned yet (before publish); keep the on-disk value then.
     // Some internal read paths (e.g. MOW partial-update row fetch) build a bare StorageReadOptions
     // without tablet_schema, so guard it.
-    std::optional<Field> const_value;
-    if (opt->tablet_schema != nullptr && opt->version.first == opt->version.second &&
-        opt->commit_tso.end_tso() != -1) {
-        int32_t tso_idx = opt->tablet_schema->commit_tso_col_idx();
-        if (tso_idx != -1 && opt->tablet_schema->column(tso_idx).unique_id() == unique_id) {
-            const_value = Field::create_field<TYPE_BIGINT>(opt->commit_tso.end_tso());
-        }
-    }
+    auto const_value = get_read_time_constant_reader_value(tablet_column, *opt);
 
     // init iterator by unique id
     std::shared_ptr<ColumnReader> reader;
