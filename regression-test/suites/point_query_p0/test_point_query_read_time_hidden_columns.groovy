@@ -84,5 +84,81 @@ suite("test_point_query_read_time_hidden_columns") {
         from point_query_hidden_full_row_store
     """
 
+    sql "set topn_lazy_materialization_threshold = 1024"
+
+    sql "drop table if exists hidden_version_topn_column_store"
+    sql """
+        create table hidden_version_topn_column_store (
+            k int,
+            sort_key int,
+            payload varchar(32)
+        ) unique key(k)
+        distributed by hash(k) buckets 1
+        properties (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    // Each insert creates a singleton rowset at versions 2 and 3. The sort keys interleave
+    // the rowsets in the lazy-fetch request, exercising per-batch replacement and scattering.
+    sql "insert into hidden_version_topn_column_store values (1, 1, 'first-1'), (3, 3, 'first-3')"
+    sql "insert into hidden_version_topn_column_store values (2, 2, 'second-2'), (4, 4, 'second-4')"
+
+    explain {
+        sql """
+            shape plan
+            select k, payload, __DORIS_VERSION_COL__
+            from hidden_version_topn_column_store
+            order by sort_key
+            limit 4
+        """
+        contains("PhysicalLazyMaterialize")
+    }
+    qt_topn_column_store_versions """
+        select k, payload, __DORIS_VERSION_COL__
+        from hidden_version_topn_column_store
+        order by sort_key
+        limit 4
+    """
+
+    sql "drop table if exists hidden_version_topn_row_store"
+    sql """
+        create table hidden_version_topn_row_store (
+            k int,
+            sort_key int,
+            payload varchar(32)
+        ) unique key(k)
+        distributed by hash(k) buckets 1
+        properties (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true",
+            "light_schema_change" = "true",
+            "store_row_column" = "true",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    // Repeat the interleaved rowset fetch through the full row-store materialization path.
+    sql "insert into hidden_version_topn_row_store values (1, 1, 'first-1'), (3, 3, 'first-3')"
+    sql "insert into hidden_version_topn_row_store values (2, 2, 'second-2'), (4, 4, 'second-4')"
+
+    explain {
+        sql """
+            shape plan
+            select k, payload, __DORIS_VERSION_COL__
+            from hidden_version_topn_row_store
+            order by sort_key
+            limit 4
+        """
+        contains("PhysicalLazyMaterialize")
+    }
+    qt_topn_row_store_versions """
+        select k, payload, __DORIS_VERSION_COL__
+        from hidden_version_topn_row_store
+        order by sort_key
+        limit 4
+    """
+
     sql "set show_hidden_columns = false"
 }
