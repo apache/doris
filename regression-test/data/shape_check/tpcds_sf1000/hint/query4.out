@@ -58,7 +58,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_c_secyear.customer_id)) otherCondition=((if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL) > if((year_total > 0.000000), (cast(year_total as DECIMALV3(38, 16)) / year_total), NULL))) build RFs:RF6 customer_id->[customer_id,customer_id,customer_id]
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((t_s_firstyear.customer_id = t_c_firstyear.customer_id)) otherCondition=() build RFs:RF5 customer_id->[customer_id,customer_id]
---------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((t_s_secyear.customer_id = t_s_firstyear.customer_id)) otherCondition=() build RFs:RF4 customer_id->[customer_id]
+--------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((t_s_secyear.customer_id = t_s_firstyear.customer_id)) otherCondition=() build RFs:RF4 customer_id->[customer_id,customer_id,customer_id]
 ----------------------------PhysicalProject
 ------------------------------filter((t_s_secyear.dyear = 2000) and (t_s_secyear.sale_type = 's'))
 --------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF4 RF5 RF6
@@ -67,10 +67,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF5 RF6
 --------------------------PhysicalProject
 ----------------------------filter((t_c_firstyear.dyear = 1999) and (t_c_firstyear.sale_type = 'c') and (t_c_firstyear.year_total > 0.000000))
-------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF6
+------------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF4 RF6
 ----------------------PhysicalProject
 ------------------------filter((t_c_secyear.dyear = 2000) and (t_c_secyear.sale_type = 'c'))
---------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF4
 
 Hint log:
 Used: leading(t_w_secyear { t_w_firstyear { t_s_secyear t_s_firstyear t_c_firstyear t_c_secyear } } )

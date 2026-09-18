@@ -99,6 +99,9 @@ public final class RuntimeFilter {
 
     private boolean singleEq = false;
 
+    // Per-filter wait time in ms. -1 means use query-level default. 0 means non-blocking.
+    private int waitTimeMs = -1;
+
     /**
      * Internal representation of a runtime filter target.
      */
@@ -261,7 +264,7 @@ public final class RuntimeFilter {
         }
         tFilter.setOptRemoteRf(hasRemoteTargets);
         tFilter.setBloomFilterSizeCalculatedByNdv(bloomFilterSizeCalculatedByNdv);
-        if (builderNode instanceof HashJoinNode) {
+        if (exprOrder >= 0 && builderNode instanceof HashJoinNode) {
             HashJoinNode join = (HashJoinNode) builderNode;
             BinaryPredicate eq = join.getEqJoinConjuncts().get(exprOrder);
             if (eq.getOp().equals(BinaryPredicate.Operator.EQ_FOR_NULL)) {
@@ -272,6 +275,9 @@ public final class RuntimeFilter {
         } else if (builderNode instanceof SetOperationNode) {
             tFilter.setNullAware(true);
         }
+        if (waitTimeMs >= 0) {
+            tFilter.setWaitTimeMs(waitTimeMs);
+        }
         return tFilter;
     }
 
@@ -281,6 +287,14 @@ public final class RuntimeFilter {
 
     public boolean hasTargets() {
         return !targets.isEmpty();
+    }
+
+    public int getWaitTimeMs() {
+        return waitTimeMs;
+    }
+
+    public void setWaitTimeMs(int waitTimeMs) {
+        this.waitTimeMs = waitTimeMs;
     }
 
     public Expr getSrcExpr() {
