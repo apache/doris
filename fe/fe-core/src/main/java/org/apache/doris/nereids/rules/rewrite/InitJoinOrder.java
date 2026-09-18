@@ -85,9 +85,10 @@ public class InitJoinOrder extends OneRewriteRuleFactory {
                 right.accept(derive, new DeriveContext());
             }
 
-            // requires "left.getStats().getRowCount() > 0" to avoid dead loop when negative row count is estimated.
+            // requires "left.getStats().getRowCount() >= 0" to avoid dead loop when negative
+            // row count is estimated.
             if (left.getStats().getRowCount() < right.getStats().getRowCount() * SWAP_THRESHOLD
-                    && left.getStats().getRowCount() > 0) {
+                    && left.getStats().getRowCount() >= 0) {
                 // Use swap() to properly handle ASOF JOIN MATCH_CONDITION commutation
                 return join.swap();
             }
