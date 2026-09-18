@@ -136,8 +136,9 @@ public class AuthorizationPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing authorization plugin API version resource");
             version.load(in);
         }
-        // First published surface of this family.
-        Assertions.assertEquals("1.0", version.getProperty("api.version"));
+        // 1.0 was the first published surface of this family; 2.0 added AccessAction.PROXY (the privilege
+        // behind SU), a constant a plugin built against 1.x has never seen.
+        Assertions.assertEquals("2.0", version.getProperty("api.version"));
     }
 
     @Test

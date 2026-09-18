@@ -77,6 +77,7 @@ import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -91,10 +92,12 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -539,6 +542,21 @@ public abstract class ConnectProcessor {
         auditAfterExec(origStmt, parsedStmt, statistics, true);
     }
 
+    /**
+     * Install the SU narrowing a forwarded statement carries (is_su_user + current_roles) on this
+     * proxy session, so every privilege check on the master resolves the same narrowed role set the
+     * origin FE would. Fail closed: a switched session that carries no role list narrows to the
+     * empty set (the information_schema/mysql baseline only), never to the target's full roles.
+     */
+    @VisibleForTesting
+    static void applyForwardedSessionNarrowing(ConnectContext ctx, TMasterOpRequest request) {
+        if (!request.isSetIsSuUser() || !request.isIsSuUser()) {
+            return;
+        }
+        Set<String> roles = request.isSetCurrentRoles() ? request.getCurrentRoles() : Collections.emptySet();
+        ctx.setSessionRoleOverride(roles);
+    }
+
     public TMasterOpResult proxyExecute(TMasterOpRequest request) throws TException {
         ctx.setDatabase(request.db);
         ctx.setEnv(Env.getCurrentEnv());
@@ -555,6 +573,7 @@ public abstract class ConnectProcessor {
         } else {
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.user, "%"));
         }
+        applyForwardedSessionNarrowing(ctx, request);
         if (request.isFoldConstantByBe()) {
             ctx.getSessionVariable().setEnableFoldConstantByBe(request.foldConstantByBe);
         }

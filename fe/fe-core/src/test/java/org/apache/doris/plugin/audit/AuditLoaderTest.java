@@ -17,15 +17,19 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.plugin.AuditEvent;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 public class AuditLoaderTest {
 
@@ -115,6 +119,27 @@ public class AuditLoaderTest {
         Assertions.assertEquals(count(clean, col), count(evil, col), "injected 0x1F must not add columns");
         // The forged tokens survive only as inert text, never as framing bytes.
         Assertions.assertTrue(evil.toString().contains("DROP TABLE finance.ledger"));
+    }
+
+    // The row carries exactly one field per audit_log column, in InternalSchema.AUDIT_SCHEMA order
+    // (the loader's `columns` header maps by that order), and the account that authenticated the
+    // connection rides right beside the effective user.
+    @Test
+    public void testAuthenticatedUserRidesBesideUser() {
+        AuditLoader auditLoader = new AuditLoader();
+        StringBuilder buffer = new StringBuilder();
+        Deencapsulation.invoke(auditLoader, "fillLogBuffer",
+                new AuditEvent.AuditEventBuilder()
+                        .setClientIp("10.0.0.9").setUser("alice").setAuthenticatedUser("svc_gateway")
+                        .setDb("sales").setStmt("select 1").build(),
+                buffer);
+        List<String> names = InternalSchema.AUDIT_SCHEMA.stream().map(ColumnDef::getName)
+                .collect(Collectors.toList());
+        String[] fields = buffer.toString().split(String.valueOf(AuditLoader.AUDIT_TABLE_COL_SEPARATOR), -1);
+        Assertions.assertEquals(names.size(), fields.length, "one field per audit_log column");
+        Assertions.assertEquals(names.indexOf("user") + 1, names.indexOf("authenticated_user"));
+        Assertions.assertEquals("alice", fields[names.indexOf("user")]);
+        Assertions.assertEquals("svc_gateway", fields[names.indexOf("authenticated_user")]);
     }
 
     // The sanitizer must be a no-op for ordinary statements: no data loss, no mutation.

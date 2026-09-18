@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionIsNarrowed;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
@@ -177,6 +178,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Not.class, this::visitNot),
                 matches(Database.class, this::visitDatabase),
                 matches(CurrentUser.class, this::visitCurrentUser),
+                matches(SessionIsNarrowed.class, this::visitSessionIsNarrowed),
                 matches(CurrentCatalog.class, this::visitCurrentCatalog),
                 matches(User.class, this::visitUser),
                 matches(ConnectionId.class, this::visitConnectionId),
@@ -391,6 +393,12 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         String res = context.cascadesContext.getConnectContext().getCurrentUserIdentity().toString();
         return new VarcharLiteral(res);
+    }
+
+    @Override
+    public Expression visitSessionIsNarrowed(SessionIsNarrowed fn, ExpressionRewriteContext context) {
+        ConnectContext cctx = context.cascadesContext.getConnectContext();
+        return BooleanLiteral.of(cctx != null && cctx.getSessionRoleOverride() != null);
     }
 
     @Override

@@ -934,6 +934,9 @@ grantRevokeStatement
         identifierOrTextOrAsterisk FROM (userIdentify | ROLE identifierOrText)              #revokeResourcePrivilege
     | REVOKE privilegeList ON multipartIdentifierOrAsterisk
         FROM (userIdentify | ROLE identifierOrText)                                         #revokeTablePrivilege
+    | SU userIdentify WITH ROLES LEFT_PAREN
+        roles+=identifierOrText (COMMA roles+=identifierOrText)* RIGHT_PAREN
+        (WORKLOAD GROUP wg=identifierOrText)?                                               #suUser
     ;
 
 privilege
@@ -2597,6 +2600,7 @@ nonReserved
     | STREAMING
     | STRING
     | STRUCT
+    | SU
     | SUBJECT
     | SUBSTR
     | SUBSTRING

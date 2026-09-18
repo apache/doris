@@ -140,8 +140,9 @@ public class GrantTablePrivilegeCommand extends Command implements ForwardWithSy
         Privilege.checkIncorrectPrivilege(Privilege.notBelongToTablePrivileges, privileges);
         // Rule 2
         if (tblPattern.getPrivLevel() != Auth.PrivLevel.GLOBAL && (privileges.contains(Privilege.ADMIN_PRIV)
-                || privileges.contains(Privilege.NODE_PRIV))) {
-            throw new AnalysisException("ADMIN_PRIV and NODE_PRIV can only be granted/revoke on/from *.*.*");
+                || privileges.contains(Privilege.NODE_PRIV) || privileges.contains(Privilege.PROXY_PRIV))) {
+            throw new AnalysisException(
+                    "ADMIN_PRIV, NODE_PRIV and PROXY_PRIV can only be granted/revoke on/from *.*.*");
         }
 
         // Rule 3
