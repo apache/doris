@@ -63,4 +63,31 @@ suite("test_lexicographic_range_partition") {
     qt_unexpanded_lower_suffix "SELECT v FROM lexicographic_range_partition WHERE k1=1 AND k2=11 AND k3=50"
     qt_unexpanded_upper_suffix "SELECT v FROM lexicographic_range_partition WHERE k1=100 AND k2=19 AND k3=250"
     qt_unexpanded_upper_equal_prefix "SELECT v FROM lexicographic_range_partition WHERE k1=100 AND k2=20 AND k3=199"
+
+    sql "DROP TABLE IF EXISTS lexicographic_range_not_date_in"
+    sql """
+        CREATE TABLE lexicographic_range_not_date_in (
+            k1 INT NOT NULL,
+            k2 INT NOT NULL,
+            k3 DATE NOT NULL,
+            v INT NOT NULL
+        )
+        DUPLICATE KEY(k1, k2, k3)
+        PARTITION BY RANGE(k1, k2, k3) (
+            PARTITION p_target VALUES [("1", "10", "2020-01-01"), ("2", "20", "2020-01-04"))
+        )
+        DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql "INSERT INTO lexicographic_range_not_date_in VALUES (1, 11, '2020-01-01', 42)"
+
+    // The Date-IN rewrite creates NOT(OR(day ranges)). Default-only k2 ranges must not leak into
+    // that predicate tree, otherwise NOT turns the valid partition into an empty set.
+    sql "SET partition_pruning_expand_threshold=200"
+    def negatedDateInQuery = """
+        SELECT v FROM lexicographic_range_not_date_in
+        WHERE NOT(DATE(k3) IN ('2020-01-02', '2020-01-03'))
+    """
+    assertTargetPartition(negatedDateInQuery)
+    qt_negated_multi_date_in negatedDateInQuery
 }

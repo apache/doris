@@ -37,8 +37,10 @@ import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -56,6 +58,7 @@ import com.google.common.collect.Range;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -416,6 +419,79 @@ public class PartitionPrunerTest extends TestWithFeService {
             assertRangeTuplePruned(partitionItem, slots, expandThreshold, true, 4, 20, 200, 2000);
             assertRangeTuplePruned(partitionItem, slots, expandThreshold, true, 4, 20, 200, 2001);
         }
+    }
+
+    /**
+     * A range copied only from the partition projection must not become part of a predicate result.
+     *
+     * <p>This is the reduced tree produced by the Date-IN partition-pruning rewrite for
+     * {@code NOT(date(c) IN (day2, day3))}. For expanded {@code a = 1}, the predicate constrains only
+     * {@code c}; injecting the default {@code b >= 10} range would let {@code NOT} complement it and
+     * incorrectly turn the entire partition into false.
+     */
+    @Test
+    public void testNotDoesNotComplementDefaultOnlySuffixRange()
+            throws AnalysisException, InvocationTargetException, IllegalAccessException {
+        List<Column> columns = ImmutableList.of(
+                new Column("a", PrimitiveType.INT),
+                new Column("b", PrimitiveType.INT),
+                new Column("c", PrimitiveType.INT));
+        List<Slot> slots = ImmutableList.of(slotA, slotB, slotC);
+        RangePartitionItem partitionItem = createRangePartitionItem(
+                columns, new int[] {1, 10, 1}, new int[] {2, 20, 4});
+        Expression predicate = new Not(new Or(
+                new And(new GreaterThanEqual(slotC, Literal.of(2)), new LessThan(slotC, Literal.of(3))),
+                new And(new GreaterThanEqual(slotC, Literal.of(3)), new LessThan(slotC, Literal.of(4)))));
+        OneRangePartitionEvaluator<String> evaluator = new OneRangePartitionEvaluator<>(
+                "p1", slots, partitionItem, cascadesContext, 200);
+
+        Pair<Boolean, Boolean> result =
+                (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, evaluator);
+
+        Assertions.assertFalse(result.first);
+    }
+
+    /**
+     * Invalid expander/evaluator states fail in fe_debug but conservatively keep the partition in production.
+     */
+    @Test
+    public void testInvalidConstInputUsesFeDebugPolicy() throws Exception {
+        List<Column> columns = ImmutableList.of(
+                new Column("a", PrimitiveType.INT),
+                new Column("b", PrimitiveType.INT));
+        List<Slot> slots = ImmutableList.of(slotA, slotB);
+        RangePartitionItem partitionItem = createRangePartitionItem(
+                columns, new int[] {1, 10}, new int[] {1, 20});
+        Expression predicate = new EqualTo(slotA, Literal.of(2));
+        boolean oldFeDebug = connectContext.getSessionVariable().feDebug;
+        try {
+            connectContext.getSessionVariable().feDebug = false;
+            OneRangePartitionEvaluator<String> productionEvaluator =
+                    createEvaluatorWithNonLiteralConstInput(partitionItem, slots);
+            Pair<Boolean, Boolean> productionResult = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(
+                    null, predicate, productionEvaluator);
+            Assertions.assertFalse(productionResult.first);
+
+            connectContext.getSessionVariable().feDebug = true;
+            OneRangePartitionEvaluator<String> debugEvaluator =
+                    createEvaluatorWithNonLiteralConstInput(partitionItem, slots);
+            InvocationTargetException exception = Assertions.assertThrows(InvocationTargetException.class,
+                    () -> canBePrunedOutMethod.invoke(null, predicate, debugEvaluator));
+            Assertions.assertInstanceOf(
+                    org.apache.doris.nereids.exceptions.AnalysisException.class, exception.getCause());
+        } finally {
+            connectContext.getSessionVariable().feDebug = oldFeDebug;
+        }
+    }
+
+    private OneRangePartitionEvaluator<String> createEvaluatorWithNonLiteralConstInput(
+            RangePartitionItem partitionItem, List<Slot> slots) throws ReflectiveOperationException {
+        OneRangePartitionEvaluator<String> evaluator = new OneRangePartitionEvaluator<>(
+                "p1", slots, partitionItem, cascadesContext, 200);
+        Field inputsField = OneRangePartitionEvaluator.class.getDeclaredField("inputs");
+        inputsField.setAccessible(true);
+        inputsField.set(evaluator, ImmutableList.of(ImmutableList.of(slotA, slotB)));
+        return evaluator;
     }
 
     /**

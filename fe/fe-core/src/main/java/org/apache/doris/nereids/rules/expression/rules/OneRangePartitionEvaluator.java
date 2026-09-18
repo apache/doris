@@ -23,7 +23,6 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.OneRangePartitionEvaluator.EvaluateRangeInput;
 import org.apache.doris.nereids.rules.expression.rules.OneRangePartitionEvaluator.EvaluateRangeResult;
@@ -52,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -91,8 +91,26 @@ public class OneRangePartitionEvaluator<K>
     // whether the Expression in partition range may be null.
     private final Map<Expression, Boolean> partitionSlotContainsNull;
     private final Map<Slot, PartitionSlotType> slotToType;
+    // An impossible expander/evaluator state makes pruning unsafe. Production keeps the partition;
+    // fe_debug throws at the point where the broken invariant is observed.
+    private boolean disablePruning;
 
-    /** OneRangePartitionEvaluator */
+    /**
+     * Create an evaluator for one RANGE partition.
+     *
+     * <p>The constructor converts the tuple endpoints to Nereids literals, classifies every
+     * partition coordinate as {@code CONST}, {@code RANGE}, or {@code OTHER}, and expands the
+     * enumerable prefix up to {@code expandThreshold}. It also records whether each coordinate can
+     * contain NULL so expression evaluation can fold null-sensitive predicates safely. An unknown
+     * coordinate type violates the expander/evaluator contract: fe_debug reports it immediately,
+     * while production marks this evaluator as non-prunable.
+     *
+     * @param partitionIdent identifier returned when this partition must be scanned
+     * @param partitionSlots partition-key slots in lexicographic order
+     * @param partitionItem inclusive-lower/exclusive-upper RANGE partition definition
+     * @param cascadesContext planner context used by expression rewrite rules
+     * @param expandThreshold maximum number of enumerable values expanded from the partition range
+     */
     public OneRangePartitionEvaluator(K partitionIdent, List<Slot> partitionSlots,
             RangePartitionItem partitionItem, CascadesContext cascadesContext, int expandThreshold) {
         this.partitionIdent = partitionIdent;
@@ -138,7 +156,10 @@ public class OneRangePartitionEvaluator<K>
                         maybeNull = true;
                         break;
                     default:
-                        throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
+                        disablePruningOnInvalidState(
+                                "Unknown partition slot type while deriving nullability: " + partitionSlotType);
+                        maybeNull = true;
+                        break;
                 }
                 partitionSlotContainsNull.put(slot, maybeNull);
             }
@@ -169,12 +190,28 @@ public class OneRangePartitionEvaluator<K>
         }
     }
 
+    /**
+     * Evaluate a partition predicate under one projected input row.
+     *
+     * <p>The projected ranges seed expression evaluation and are then narrowed by the predicate.
+     * If input construction or range refinement discovers an invalid internal state, returning any
+     * folded result could incorrectly remove data. In production this method therefore returns the
+     * original predicate, which {@link PartitionPruner} treats as unknown and keeps the partition.
+     * In fe_debug the invalid state is thrown before this fallback is reached.
+     *
+     * @param expression partition predicate to simplify
+     * @param currentInputs replacement expression and projected range for every partition slot
+     * @return the simplified predicate, or {@code expression} when pruning has been disabled
+     */
     @Override
     public Expression evaluate(Expression expression, Map<Slot, PartitionSlotInput> currentInputs) {
+        if (disablePruning) {
+            return expression;
+        }
         Map<Expression, ColumnRange> defaultColumnRanges = currentInputs.values().iterator().next().columnRanges;
         Map<Expression, ColumnRange> rangeMap = new HashMap<>(defaultColumnRanges);
         EvaluateRangeResult result = expression.accept(this, new EvaluateRangeInput(currentInputs, rangeMap));
-        return result.result;
+        return disablePruning ? expression : result.result;
     }
 
     @Override
@@ -549,9 +586,12 @@ public class OneRangePartitionEvaluator<K>
      * returns immediately after that coordinate because once it may differ from the endpoint, later
      * coordinates are lexicographically unconstrained.
      *
-     * <p>Constant folding can remove a slot from {@code context.columnRanges}. In that case the method
-     * reads the projected partition range from {@code defaultColumnRanges} so the omitted coordinate
-     * can still participate in prefix comparison.
+     * <p>Constant folding can remove an expanded {@code RANGE} slot from {@code context.columnRanges}.
+     * For that slot only, the method reads the singleton from {@code defaultColumnRanges} so the
+     * omitted equal-prefix coordinate can still participate in prefix comparison. A missing
+     * {@code OTHER} slot is different: its default range describes only the partition boundary, not
+     * the predicate. Adding it to the predicate result would let {@code NOT} complement a synthetic
+     * range and could incorrectly prune the partition, so a missing {@code OTHER} stops refinement.
      *
      * @param context result of merging all conjunct ranges
      * @param partitionBound lower or upper endpoint of the composite partition
@@ -572,15 +612,16 @@ public class OneRangePartitionEvaluator<K>
         for (int i = 0; i < partitionSlotTypes.size(); i++) {
             PartitionSlotType partitionSlotType = partitionSlotTypes.get(i);
             Slot slot = partitionSlots.get(i);
-            ColumnRange columnRange = context.columnRanges.containsKey(slot)
-                    ? context.columnRanges.get(slot) : defaultColumnRanges.get(slot);
-            if (columnRange == null) {
-                return context;
-            }
+            ColumnRange columnRange = context.columnRanges.get(slot);
             switch (partitionSlotType) {
                 case CONST: continue;
                 case RANGE:
-                    if (!columnRange.isSingleton()) {
+                    // Expanded RANGE literals can disappear after constant folding. Recover only this
+                    // equal-prefix coordinate from the partition projection.
+                    if (columnRange == null) {
+                        columnRange = defaultColumnRanges.get(slot);
+                    }
+                    if (columnRange == null || !columnRange.isSingleton()) {
                         return context;
                     }
                     boundState.observeLiteral(columnRange.getLowerBound().getValue(), i);
@@ -589,6 +630,12 @@ public class OneRangePartitionEvaluator<K>
                     }
                     continue;
                 case OTHER:
+                    // Do not expose a default-only partition range to the predicate tree. In
+                    // particular, visitNot() must never complement a range that the predicate did
+                    // not contribute.
+                    if (columnRange == null) {
+                        return context;
+                    }
                     if (columnRange.isSingleton()
                             && columnRange.getLowerBound().getValue().equals(partitionBound.get(i))
                             && i + 1 < partitionSlots.size()) {
@@ -601,6 +648,9 @@ public class OneRangePartitionEvaluator<K>
                             ? new EvaluateRangeResult(BooleanLiteral.FALSE, newRanges, context.childrenResult)
                             : new EvaluateRangeResult(context.result, newRanges, context.childrenResult);
                 default:
+                    disablePruningOnInvalidState(
+                            "Unknown partition slot type while refining a lexicographic bound: "
+                                    + partitionSlotType);
                     return context;
             }
         }
@@ -781,6 +831,10 @@ public class OneRangePartitionEvaluator<K>
      * their generated input. Expression evaluation can therefore recover ranges for slots that were
      * replaced by literals and removed by constant folding.
      *
+     * <p>A {@code CONST} coordinate must have been expanded to a literal. If it is not, the input is
+     * structurally invalid: fe_debug throws, while production makes the coordinate unbounded and
+     * disables pruning for the whole evaluator so planning can continue without dropping data.
+     *
      * @return one slot-to-input map for each Cartesian-product row produced by range expansion
      */
     private List<Map<Slot, PartitionSlotInput>> commonComputeOnePartitionInputs() {
@@ -812,8 +866,16 @@ public class OneRangePartitionEvaluator<K>
                             slotRange = upperState.constrainFirstUnresolvedColumn(slotRange, i);
                             break;
                         case CONST:
+                            disablePruningOnInvalidState("CONST partition input must be a literal: slot="
+                                    + partitionSlot + ", expression=" + expression);
+                            slotRange = ColumnRange.all();
+                            lowerState.diverge();
+                            upperState.diverge();
+                            break;
                         default:
-                            // A CONST input should always be a literal. Keep an unexpected shape conservative.
+                            disablePruningOnInvalidState(
+                                    "Unknown partition slot type while building evaluator inputs: "
+                                            + partitionSlotType);
                             slotRange = ColumnRange.all();
                             lowerState.diverge();
                             upperState.diverge();
@@ -827,6 +889,20 @@ public class OneRangePartitionEvaluator<K>
             onePartitionInputs.add(slotPartitionSlotInputMap);
         }
         return onePartitionInputs;
+    }
+
+    /**
+     * Handle a state that violates the contract between {@link PartitionRangeExpander} and this evaluator.
+     *
+     * <p>Tests and debugging sessions set {@code fe_debug=true}, so they fail immediately and expose
+     * the broken invariant. Production planning must remain available: after logging the problem,
+     * evaluation returns the original predicate for this partition, which conservatively keeps it.
+     *
+     * @param message description of the invalid state
+     */
+    private void disablePruningOnInvalidState(String message) {
+        SessionVariable.throwAnalysisExceptionWhenFeDebug(message);
+        disablePruning = true;
     }
 
     /** Describes whether the coordinates already consumed are still equal to an endpoint prefix. */
