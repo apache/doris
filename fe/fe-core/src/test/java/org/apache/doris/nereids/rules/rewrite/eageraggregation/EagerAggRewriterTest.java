@@ -312,11 +312,11 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     void testNotPushCountCaseWhenWithElseToNullableSideViaProject() {
         // When CASE WHEN has an ELSE clause (e.g. CASE WHEN cond THEN -121 ELSE 2 END),
         // NormalizeAggregate extracts if(cond, -121, 2) into a Project as a slot,
-        // so the aggregate becomes count(#slot). At the agg level, containsNullToNonNull=false
-        // because count(#slot) contains no If/CaseWhen.
+        // so the aggregate becomes count(#slot). At the aggregate level, the unsafe expression
+        // is hidden behind the projected slot.
         //
-        // EagerAggRewriter must recheck containsNullToNonNull after substituting through the
-        // Project (in createContextFromProject), otherwise count(if(cond, -121, 2))
+        // EagerAggRewriter must evaluate the argument after substituting through the Project;
+        // otherwise count(if(cond, -121, 2))
         // is incorrectly pushed to the nullable side of an outer join.
         //
         // On null-extended rows: if(NULL_cond, -121, 2) = 2 (ELSE branch), count(2) = 1.
@@ -515,7 +515,7 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
             PushDownAggContext context = new PushDownAggContext(
                     Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(),
                     planChecker.getCascadesContext(),
-                    true, false, false, new BilateralState(), false, true, false);
+                    true, false, new BilateralState(), false, true, false);
 
             Plan rewritten = relation.accept(new EagerAggRewriter(), context);
 
@@ -613,8 +613,8 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     }
 
     // =========================================================================
-    // NullToNonNullFunction safety guard tests:
-    // Agg functions wrapping expressions that convert NULL to non-NULL values
+    // Exact NULL-input safety tests:
+    // Aggregate arguments that convert NULL to non-NULL values
     // (IsNull, NullSafeEqual, COALESCE, NVL, NULL_OR_EMPTY, NOT_NULL_OR_EMPTY)
     // must NOT be pushed to the nullable side of outer joins. Null-extended rows
     // would produce non-NULL values at the top level, but the pre-aggregation
@@ -806,10 +806,8 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
 
     @Test
     void testNotPushAlwaysNotNullableToNullableSideOfOuterJoin() {
-        // count(array(col)): Array is AlwaysNotNullable (not NullToNonNullFunction),
-        // but it still converts NULL input to non-NULL output (array(NULL) → [NULL]),
-        // so it must be caught by the AlwaysNotNullable fallback branch in
-        // NullToNonNullFunction.canConvertNullToNonNull().
+        // count(array(col)): array(NULL) returns the non-NULL value [NULL], so exact
+        // NULL-input evaluation must reject pushing it to a null-generating side.
         // Pushing pre-agg under the nullable side would miss null-extended row contributions.
         connectContext.getSessionVariable().setEagerAggregationMode(1);
         connectContext.getSessionVariable().setDisableJoinReorder(true);
@@ -840,6 +838,27 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                     .analyze(sql)
                     .rewrite()
                     .matches(logicalAggregate(logicalProject(logicalJoin(logicalAggregate(), any()))))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testPushExpressionThatEvaluatesToNullToNullableSideOfOuterJoin() {
+        // The nested ADD/IS NULL expression contains a function that can return non-NULL for NULL
+        // input, but the complete aggregate argument still evaluates to NULL on null-extended rows.
+        // It is therefore safe to aggregate before the join.
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select max(t2.id2 + cast(t2.id2 is null as int)), t1.id1"
+                    + " from t1 left join t2 on t1.id1 = t2.id2 group by t1.id1";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .matches(logicalJoin(any(), logicalAggregate()))
                     .printlnTree();
         } finally {
             connectContext.getSessionVariable().setEagerAggregationMode(0);
@@ -942,7 +961,7 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
         CascadesContext cascadesContext = PlanChecker.from(connectContext).analyze("select * from t1")
                 .getCascadesContext();
         PushDownAggContext context = new PushDownAggContext(Collections.emptyList(), Collections.emptyList(),
-                Collections.emptyMap(), cascadesContext, true, false, false, new BilateralState(), true, false, false);
+                Collections.emptyMap(), cascadesContext, true, false, new BilateralState(), true, false, false);
         SlotReference leftCountSlot = new SlotReference("leftCnt", BigIntType.INSTANCE, false);
         SlotReference rightCountSlot = new SlotReference("rightCnt", BigIntType.INSTANCE, false);
 
