@@ -2236,6 +2236,56 @@ build_paimon_rust() {
             echo "failed to locate paimon-vindex-core-0.4.0.crate in the cargo registry cache"
             exit 1
         fi
+        # Verify the cached crate against the workspace Cargo.lock checksum
+        # before extraction. The cache lookup picks an ambient file by name,
+        # and once the [patch.crates-io] path override is applied, cargo
+        # build --locked no longer authenticates those bytes — without this
+        # check a stale or poisoned same-named cache (e.g. from another
+        # registry mirror) would enter libpaimon_c.a, and identical Doris
+        # sources could produce different artifacts. Iterate the candidates
+        # (multiple registries may cache the crate) and use the one whose
+        # sha256 matches the lock; fail when none does.
+        local vindex_checksum
+        vindex_checksum="$(awk '
+            $0 == "[[package]]" { in_pkg = 1; name = ""; version = ""; checksum = ""; next }
+            in_pkg && $1 == "name" { gsub(/[",]/, "", $3); name = $3 }
+            in_pkg && $1 == "version" { gsub(/[",]/, "", $3); version = $3 }
+            in_pkg && $1 == "checksum" { gsub(/[",]/, "", $3); checksum = $3 }
+            in_pkg && $0 == "" {
+                if (name == "paimon-vindex-core" && version == "0.4.0" && checksum != "") { print checksum; found = 1; exit }
+                in_pkg = 0
+            }
+            END {
+                if (!found && in_pkg && name == "paimon-vindex-core" && version == "0.4.0" && checksum != "") { print checksum }
+            }
+        ' Cargo.lock)"
+        if [[ -z "${vindex_checksum}" ]]; then
+            echo "failed to read the paimon-vindex-core 0.4.0 checksum from Cargo.lock"
+            exit 1
+        fi
+        local vindex_verified=""
+        local candidate
+        while IFS= read -r candidate; do
+            local candidate_sum
+            if command -v sha256sum >/dev/null 2>&1; then
+                candidate_sum="$(sha256sum "${candidate}" | awk '{print $1}')"
+            else
+                candidate_sum="$(shasum -a 256 "${candidate}" | awk '{print $1}')"
+            fi
+            if [[ "${candidate_sum}" == "${vindex_checksum}" ]]; then
+                vindex_verified="${candidate}"
+                break
+            fi
+        done < <(find "${CARGO_HOME:-$HOME/.cargo}/registry/cache" \
+            -type f -name 'paimon-vindex-core-0.4.0.crate' 2>/dev/null)
+        if [[ -z "${vindex_verified}" ]]; then
+            echo "no paimon-vindex-core-0.4.0.crate in the cargo registry cache matches"
+            echo "the Cargo.lock checksum ${vindex_checksum}; refusing to build from"
+            echo "unverified bytes (the aarch64 patch overrides the crate with a path"
+            echo "dependency, which cargo build --locked cannot authenticate)"
+            exit 1
+        fi
+        vindex_crate="${vindex_verified}"
         rm -rf "${vindex_override}"
         mkdir -p "${vindex_override}"
         tar xzf "${vindex_crate}" -C "${vindex_override}" --strip-components=1
@@ -2264,12 +2314,31 @@ EOF
     env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
 
     # Generate the C header from the Rust extern "C" surface via cbindgen.
-    # Auto-install cbindgen if it's not already on PATH.
-    local cbindgen_bin="${PAIMON_RUST_CBINDGEN:-cbindgen}"
-    if ! command -v "${cbindgen_bin}" >/dev/null 2>&1; then
-        echo "cbindgen not found; installing via cargo install ..."
-        env "${cargo_env[@]}" "${cargo_bin}" install cbindgen --locked
-        cbindgen_bin="cbindgen"
+    # cbindgen is a pinned, Doris-controlled input: an unpinned "current"
+    # release would regenerate paimon.h differently between builds. The
+    # pinned version installs under a Doris-controlled --root and its
+    # resolved absolute path is invoked directly (a custom CARGO_HOME does
+    # not necessarily put cargo-installed binaries on PATH). Offline builds
+    # pass --offline to the install command, exactly like the fetch/build
+    # handling above — cargo fails on a missing local crate cache instead
+    # of reaching for the network.
+    local cbindgen_version="0.29.4"
+    local cbindgen_bin="${PAIMON_RUST_CBINDGEN:-}"
+    if [[ -z "${cbindgen_bin}" ]]; then
+        local cbindgen_root="${TP_SOURCE_DIR}/.doris-cbindgen-${cbindgen_version}"
+        cbindgen_bin="${cbindgen_root}/bin/cbindgen"
+        if [[ ! -x "${cbindgen_bin}" ]]; then
+            local cbindgen_install_args=(install cbindgen
+                --version "${cbindgen_version}" --locked --root "${cbindgen_root}")
+            if [[ "$(echo "${PAIMON_RUST_CARGO_OFFLINE}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+                cbindgen_install_args+=(--offline)
+            fi
+            echo "cbindgen not found; installing pinned ${cbindgen_version} via cargo install ..."
+            env "${cargo_env[@]}" "${cargo_bin}" "${cbindgen_install_args[@]}"
+        fi
+    elif [[ ! -x "${cbindgen_bin}" ]]; then
+        echo "PAIMON_RUST_CBINDGEN=${cbindgen_bin} is not an executable file."
+        exit 1
     fi
     # Write a temporary cbindgen.toml so the generated header carries our
     # include-guard / cpp-compat settings without touching the upstream tree.

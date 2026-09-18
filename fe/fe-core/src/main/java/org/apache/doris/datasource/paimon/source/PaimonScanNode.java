@@ -435,8 +435,46 @@ public class PaimonScanNode extends FileQueryScanNode {
             // fallback wrappers of getProcessedTable() are still FileStoreTable, so the
             // instanceof gate keeps its semantics.
             Table paimonTable = processedTable;
+            // The paimon-rust S3 bridge maps static credentials, anonymous
+            // access (AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS -> s3.anonymous)
+            // and assume-role (AWS_ROLE_ARN / AWS_EXTERNAL_ID ->
+            // s3.assumed.role.*), but the remaining credential-provider modes
+            // are ambient JVM provider chains (ENV, SYSTEM_PROPERTIES,
+            // WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) with no paimon-rust
+            // equivalent — rust would silently sign with whatever the ambient
+            // chain resolves to. Gate those modes away from the rust reader
+            // here so the configured provider is honored via the JNI path.
+            boolean providerModeTranslatable = true;
+            String providerType = backendStorageProperties == null
+                    ? null : backendStorageProperties.get("AWS_CREDENTIALS_PROVIDER_TYPE");
+            if (providerType != null) {
+                String mode = providerType.trim().toUpperCase(Locale.ROOT);
+                providerModeTranslatable = mode.equals("DEFAULT")
+                        || mode.equals("ANONYMOUS");
+                // The rust OSS FileIO parser (oss:// warehouses) has no
+                // skip-signature switch, so an anonymous OSS catalog cannot be
+                // served by the rust reader either — fall back to JNI.
+                if (mode.equals("ANONYMOUS")) {
+                    String location = source.getTableLocation();
+                    if (location != null && location.startsWith("oss://")) {
+                        providerModeTranslatable = false;
+                    }
+                }
+            }
+            // Incremental scans (binlog / changelog / delta / diff) must stay
+            // on the JNI path: this wire format carries only an ordinary
+            // DataSplit and the rust reader invokes TableRead::to_arrow, but
+            // paimon 1.4 marks incremental splits as streaming (which the
+            // pinned rust deserializer rejects), diff requires a separate
+            // IncrementalPlan instead of an ordinary plan, and ordinary
+            // primary-key reads can merge versions rather than return the
+            // changes — until the C ABI transports the mode and plan, the
+            // rust reader cannot express any of these.
+            TableScanParams incrementalParams = getScanParams();
+            boolean isIncremental = incrementalParams != null && incrementalParams.incrementalRead();
             boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
-                    && sessionVariable.enableFileScannerV2 && nativeSplit
+                    && sessionVariable.enableFileScannerV2 && nativeSplit && !isIncremental
+                    && providerModeTranslatable
                     && paimonTable instanceof FileStoreTable;
             if (canUseRust) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);

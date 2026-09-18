@@ -64,6 +64,15 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
     // by the PaimonRustPredicateConverterTest unit tests; this suite exercises
     // the full equality and runtime-filter-join pushdown chains with the
     // precision the plan can actually deliver.
+    // ---- NaN differential on DOUBLE (total-ordering semantics) ----
+    // t_nan is created below: Doris defines NaN as equal to itself and
+    // greater than every finite value, but the pinned rust evaluator compares
+    // doubles with f64::partial_cmp (IEEE: NaN unordered, NaN != NaN), so the
+    // rust converter must NOT push DOUBLE predicates — a pushed `d > 1.0`
+    // would drop the stored NaN row Doris retains, and rows pruned by the
+    // rust filter cannot be recovered by the residual. The JNI path is
+    // unaffected: paimon-java's CompareUtils compares through Double.compareTo,
+    // which matches Doris's total ordering.
     spark_paimon_multi """
         SET spark.sql.timestampType=TIMESTAMP_NTZ;
         CREATE DATABASE IF NOT EXISTS paimon.${dbName};
@@ -89,6 +98,13 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         INSERT INTO paimon.${dbName}.t_frac_ts_dim VALUES
             (1, TIMESTAMP '2024-01-01 00:00:00.123456'),
             (2, TIMESTAMP '2024-01-02 00:00:00.999999');
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_nan;
+        CREATE TABLE paimon.${dbName}.t_nan (
+            id INT, d DOUBLE
+        ) USING paimon;
+        INSERT INTO paimon.${dbName}.t_nan VALUES
+            (1, 1.5), (2, CAST('NaN' AS DOUBLE)), (3, NULL);
     """
 
     // The s3.region property is required: paimon-rust's S3 client rejects a
@@ -187,14 +203,23 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
                 // explain check above); runtime_filter_wait_infinitely
                 // guarantees the filter has arrived before the split opens.
                 """select p.id from t_frac_ts p join (select ts from t_frac_ts_dim limit 10) d
-                     on p.ts = d.ts order by p.id"""
+                     on p.ts = d.ts order by p.id""",
+                // NaN total-ordering differential (see the t_nan setup): NaN
+                // is greater than every finite value, so `d > 1.0` keeps the
+                // NaN row and `d < 2.0` does not; `d = 'NaN'` matches it.
+                """select id from t_nan where d > 1.0 order by id""",
+                """select id from t_nan where d < 2.0 order by id""",
+                """select id from t_nan where d = cast('NaN' as double) order by id"""
         ]
         def expectedResults = [
                 [[1, 1], [null, null]],
                 [[1, 1], [1, 2]],
                 [[null, null]],
                 [[2]],
-                [[1], [3]]
+                [[1], [3]],
+                [[1], [2]],
+                [[1]],
+                [[2]]
         ]
         // Representative converter query reused for the reader-path checks.
         String pushdownQuery = testQueries[3]
