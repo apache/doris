@@ -21,8 +21,10 @@
 #include "core/column/column_struct.h"
 
 #include <functional>
+#include <vector>
 
 #include "core/assert_cast.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/primitive_type.h"
 #include "core/typeid_cast.h"
 #include "exec/sort/sort_block.h"
@@ -218,24 +220,92 @@ void ColumnStruct::update_hash_with_value(size_t n, SipHash& hash) const {
     }
 }
 
+namespace {
+
+// Invoke `func(run_start, run_end)` for every maximal run of rows in [start, end) that are not
+// NULL according to `null_data`. An all-zero mask yields the single run [start, end), so the
+// masked and unmasked range paths produce identical hashes and the same number of calls.
+template <typename Func>
+void for_each_non_null_run(const uint8_t* __restrict null_data, size_t start, size_t end,
+                           Func&& func) {
+    size_t i = start;
+    while (i < end) {
+        while (i < end && null_data[i] != 0) {
+            ++i;
+        }
+        size_t run_start = i;
+        while (i < end && null_data[i] == 0) {
+            ++i;
+        }
+        if (run_start < i) {
+            func(run_start, i);
+        }
+    }
+}
+
+// Batch-hash every row through the field columns, then restore the rows that are NULL at the
+// outer level. Surviving rows keep each field's batch hash contract (which may differ from the
+// single/range contract, e.g. the width of a NULL default), and the field columns are still
+// called once per column instead of once per row.
+template <typename HashType, typename Func>
+void batch_hash_skipping_null_rows(HashType* __restrict hashes, size_t rows,
+                                   const uint8_t* __restrict null_data, Func&& hash_all_rows) {
+    DorisVector<HashType> saved(hashes, hashes + rows);
+    hash_all_rows();
+    for (size_t i = 0; i < rows; ++i) {
+        if (null_data[i] != 0) {
+            hashes[i] = saved[i];
+        }
+    }
+}
+
+} // namespace
+
+// `null_data` is the null map of an outer Nullable wrapping this struct. A NULL struct row
+// may still carry arbitrary payload in the field columns (e.g. produced by IF/CASE), so those
+// rows must be skipped here rather than hashed by their hidden payload. The field columns are
+// hashed with a null `null_data` because their own NULL semantics are handled by themselves.
 void ColumnStruct::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                             const uint8_t* __restrict null_data) const {
-    for (const auto& column : columns) {
-        column->update_xxHash_with_value(start, end, hash, nullptr);
+    if (null_data) {
+        for (const auto& column : columns) {
+            for_each_non_null_run(null_data, start, end, [&](size_t run_start, size_t run_end) {
+                column->update_xxHash_with_value(run_start, run_end, hash, nullptr);
+            });
+        }
+    } else {
+        for (const auto& column : columns) {
+            column->update_xxHash_with_value(start, end, hash, nullptr);
+        }
     }
 }
 
 void ColumnStruct::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                          const uint8_t* __restrict null_data) const {
-    for (const auto& column : columns) {
-        column->update_crc_with_value(start, end, hash, nullptr);
+    if (null_data) {
+        for (const auto& column : columns) {
+            for_each_non_null_run(null_data, start, end, [&](size_t run_start, size_t run_end) {
+                column->update_crc_with_value(run_start, run_end, hash, nullptr);
+            });
+        }
+    } else {
+        for (const auto& column : columns) {
+            column->update_crc_with_value(start, end, hash, nullptr);
+        }
     }
 }
 
 void ColumnStruct::update_hashes_with_value(uint64_t* __restrict hashes,
                                             const uint8_t* __restrict null_data) const {
-    for (const auto& column : columns) {
-        column->update_hashes_with_value(hashes, null_data);
+    auto hash_all_rows = [&]() {
+        for (const auto& column : columns) {
+            column->update_hashes_with_value(hashes, nullptr);
+        }
+    };
+    if (null_data) {
+        batch_hash_skipping_null_rows(hashes, size(), null_data, hash_all_rows);
+    } else {
+        hash_all_rows();
     }
 }
 
@@ -259,15 +329,30 @@ void ColumnStruct::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveTy
 
 void ColumnStruct::update_crc32c_batch(uint32_t* __restrict hashes,
                                        const uint8_t* __restrict null_map) const {
-    for (const auto& column : columns) {
-        column->update_crc32c_batch(hashes, nullptr);
+    auto hash_all_rows = [&]() {
+        for (const auto& column : columns) {
+            column->update_crc32c_batch(hashes, nullptr);
+        }
+    };
+    if (null_map) {
+        batch_hash_skipping_null_rows(hashes, size(), null_map, hash_all_rows);
+    } else {
+        hash_all_rows();
     }
 }
 
 void ColumnStruct::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                                         const uint8_t* __restrict null_map) const {
-    for (const auto& column : columns) {
-        column->update_crc32c_single(start, end, hash, nullptr);
+    if (null_map) {
+        for (const auto& column : columns) {
+            for_each_non_null_run(null_map, start, end, [&](size_t run_start, size_t run_end) {
+                column->update_crc32c_single(run_start, run_end, hash, nullptr);
+            });
+        }
+    } else {
+        for (const auto& column : columns) {
+            column->update_crc32c_single(start, end, hash, nullptr);
+        }
     }
 }
 
