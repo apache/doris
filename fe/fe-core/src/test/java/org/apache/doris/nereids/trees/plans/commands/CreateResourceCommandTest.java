@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -125,6 +126,8 @@ public class CreateResourceCommandTest extends TestWithFeService {
                     UserIdentity.createAnalyzedUserIdentWithIp("root", "10.0.%"));
             AnalysisException exception = Assertions.assertThrows(
                     AnalysisException.class, () -> createResourceInfo("ai").validate());
+            Assertions.assertEquals(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    exception.getMysqlErrorCode());
             Assertions.assertEquals("errCode = 2, detailMessage = "
                             + "Current user does not have permission to create AI resources",
                     exception.getMessage());

@@ -81,7 +81,8 @@ public class CreateResourceInfo {
         if (resourceType == ResourceType.AI && !"*".equals(Config.ai_resource_allowed_user)) {
             UserIdentity allowedUser = UserIdentity.fromString(Config.ai_resource_allowed_user);
             if (!ConnectContext.get().getCurrentUserIdentity().equals(allowedUser)) {
-                throw new AnalysisException("Current user does not have permission to create AI resources");
+                throw new AnalysisException("Current user does not have permission to create AI resources",
+                        ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR);
             }
         }
     }
