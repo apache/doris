@@ -17,13 +17,9 @@
 
 #pragma once
 
-#include <fmt/format.h>
-
 #include <atomic>
-#include <cstdint>
 #include <mutex>
 #include <string>
-#include <string_view>
 
 #include "exec/spill/spill_data_dir.h"
 
@@ -32,27 +28,20 @@ namespace doris {
 /// Spill store on the object storage of a cloud storage vault (spill_storage_type=s3).
 ///
 /// Object layout, relative to the vault prefix:
-///   spill/{instance_id}/{backend_id}/data/{boot_id}/{query_id}/...   spill data of one boot
-///   spill/{instance_id}/{backend_id}/boots/{boot_id}                  empty marker per boot
-/// A storage vault can be shared by several instances (snapshot clones, rollback heirs), and
-/// backend ids are allocated per FE cluster, so the instance id is the first component: the
-/// meta-service recycler of one instance only ever touches spill/{its instance id}/. Within an
-/// instance backend_id is FE-assigned and unique per BE (cloud_unique_id is not: every BE added
-/// by one ADD BACKEND statement shares it), so no two live processes ever share a prefix. Every
-/// object written by this process lives under the current boot_id, so objects under another
-/// boot_id always belong to a dead process and can be deleted at startup without racing with
-/// running queries; the boots directory lets that cleanup discover generations without listing
-/// the data.
+///   spill/{host}/{query_id}/{spill file}/{part}
+/// {host} is the address this BE advertises (BackendOptions::get_localhost(), normally its IP),
+/// so an operator can tell from a key which BE wrote it and which query it belongs to. The
+/// layout assumes that no two live BE processes writing to the vault share an address: a
+/// query's directory is deleted as a whole when the query ends on this BE, and at startup
+/// every query directory under spill/{host}/ that no query of this process is using is taken
+/// for residue of the previous process and deleted.
 ///
-/// The file system and the object key root are resolved lazily by ensure_ready(): the storage
-/// vault, the backend id (FE heartbeat) and the instance id (one meta-service GetInstance call,
-/// bounded to 2 attempts and not repeated for a minute after a failure) may not be available
-/// when BE starts.
+/// The file system is resolved lazily by ensure_ready(): the storage vault may not be known
+/// yet when BE starts.
 class RemoteSpillDataDir final : public SpillDataDir {
 public:
     /// @param vault_id  storage vault id, empty means the default vault of the instance.
-    /// @param boot_id   boot generation of this BE process.
-    RemoteSpillDataDir(std::string vault_id, int64_t boot_id);
+    explicit RemoteSpillDataDir(std::string vault_id);
 
     Status init() override;
 
@@ -61,11 +50,11 @@ public:
     bool ready() const override { return _ready.load(std::memory_order_acquire); }
 
     /// Resolve the storage vault file system and bind it. Idempotent and thread safe. Returns
-    /// an error while the backend id or the storage vault is not available yet.
+    /// an error while the storage vault is not available yet.
     Status ensure_ready();
 
     /// Bind a file system directly. Used by ensure_ready() and by tests.
-    void init_remote_fs(io::FileSystemSPtr fs, std::string instance_id, int64_t backend_id);
+    void init_remote_fs(io::FileSystemSPtr fs, std::string host);
 
     /// nullptr until ready.
     io::FileSystemSPtr fs() const override;
@@ -73,44 +62,19 @@ public:
     /// Object storage has no capacity to probe; only spill_s3_storage_limit_bytes applies.
     Status update_capacity() override;
 
-    /// Key prefix shared by all boot generations of this BE, spill/{instance_id}/{backend_id}.
-    const std::string& get_remote_be_root() const { return _remote_be_root; }
-    /// spill/{instance_id}/{backend_id}/data/{boot_id} — the data of one boot generation.
-    std::string get_remote_boot_data_path(std::string_view boot_id) const {
-        return fmt::format("{}/data/{}", _remote_be_root, boot_id);
-    }
-    /// spill/{instance_id}/{backend_id}/boots/{boot_id} — an empty marker object written once the store is
-    /// ready and refreshed daily by the GC thread. The meta-service recycler deletes markers
-    /// like any other spill object once they are older than spill_objects_expire_time_second
-    /// (> 1 day by contract); the daily refresh keeps the marker of a live process alive, and a
-    /// generation whose marker is gone (crash before the first GC round, TTL misconfigured) is
-    /// only reclaimed by that recycler.
-    std::string get_remote_boot_marker_path(std::string_view boot_id) const {
-        return fmt::format("{}/boots/{}", _remote_be_root, boot_id);
-    }
-    std::string get_remote_boots_path() const { return fmt::format("{}/boots", _remote_be_root); }
-
-    int64_t backend_id() const { return _backend_id; }
-    int64_t boot_id() const { return _boot_id; }
+    /// Address in the object keys; empty until ready.
+    const std::string& host() const { return _host; }
     const std::string& vault_id() const { return _vault_id; }
-    const std::string& instance_id() const { return _instance_id; }
 
 protected:
     bool _reach_limit_unlocked(int64_t incoming_data_size) override;
 
 private:
     std::string _vault_id;
-    int64_t _boot_id = 0;
-    int64_t _backend_id = 0;
-    std::string _instance_id;
+    std::string _host;
     std::mutex _init_mutex;
-    // Guarded by _init_mutex: after a failed GetInstance, ensure_ready() returns the error
-    // without a new RPC until this time (measured from the end of the failed RPC).
-    int64_t _instance_id_retry_after_ms = 0;
-    Status _instance_id_error;
     std::atomic<bool> _ready {false};
     io::FileSystemSPtr _fs;
-    std::string _remote_be_root;
 };
 
 } // namespace doris

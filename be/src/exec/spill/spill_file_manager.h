@@ -20,8 +20,10 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/metrics/metrics.h"
@@ -83,13 +85,20 @@ public:
 
     SpillRemoteUploadBudget* remote_upload_budget() { return _remote_upload_budget.get(); }
 
-    /// True while objects of previous boot generations of this BE still wait to be deleted.
+    /// True while query directories left behind by the previous process of this BE still wait
+    /// to be deleted.
     bool remote_startup_cleanup_pending() const {
         return _remote_startup_cleanup_pending.load(std::memory_order_acquire);
     }
 
     /// Number of query spill directories whose deletion failed and is being retried.
     size_t pending_delete_dir_count();
+
+    /// Record that a query of this process writes under spill/{host}/{query_dir} of the remote
+    /// store, so that the startup cleanup leaves the directory alone. Called before the first
+    /// object of a spill file is written; the query's delete_query_spill_directory() removes
+    /// the record.
+    void register_remote_query_dir(const std::string& query_dir);
 
     /// Bytes of spill data this process currently holds in object storage (bytes reserved for
     /// parts still being uploaded included); 0 without a remote store. Served to the FEs through
@@ -110,10 +119,10 @@ private:
     void _retry_pending_query_spill_directories();
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
     void _remote_gc();
-    /// Write the boot marker of the current generation (see get_remote_boot_marker_path).
-    Status _remote_write_boot_marker();
-    /// Delete the data of one other boot generation; `done` is set when none is left. Bounded
-    /// work per GC round: one listing of the boots directory and one generation.
+    /// Delete the query directories under spill/{host}/ that the previous process of this BE
+    /// left behind; `done` is set when none is left. The directories are taken from one listing,
+    /// the first after the store became ready, minus those registered by queries of this
+    /// process; one directory is deleted per GC round.
     Status _remote_startup_cleanup(bool* done);
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
@@ -123,9 +132,14 @@ private:
 
     std::shared_ptr<SpillRemoteUploadBudget> _remote_upload_budget;
     std::atomic<bool> _remote_startup_cleanup_pending {false};
-    std::atomic<bool> _remote_boot_marker_pending {false};
-    int64_t _remote_boot_marker_rounds = 0;
     int64_t _remote_not_ready_rounds = 0;
+    // GC thread only: directories left behind by the previous process, not yet deleted; empty
+    // optional until the first listing.
+    std::optional<std::vector<std::string>> _remote_residue_dirs;
+
+    std::mutex _remote_query_dirs_mutex;
+    // Query directories under spill/{host}/ written by queries of this process.
+    std::unordered_set<std::string> _remote_query_dirs;
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;

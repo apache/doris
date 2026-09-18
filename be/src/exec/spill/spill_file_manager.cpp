@@ -37,7 +37,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
-#include "service/backend_options.h"
 #include "util/debug_points.h"
 #include "util/pretty_printer.h"
 #include "util/time.h"
@@ -103,10 +102,8 @@ Status SpillFileManager::init() {
             std::make_shared<SpillRemoteUploadBudget>(config::spill_s3_max_inflight_upload_bytes);
 
     if (_remote_store != nullptr) {
-        // Objects of previous boot generations are deleted by the GC thread once the store
-        // is ready. Nothing here may touch meta-service: BE has not received the FE
-        // heartbeat yet, so the backend id and the storage vault may be unavailable.
-        _remote_boot_marker_pending.store(true, std::memory_order_release);
+        // Query directories left behind by the previous process are deleted by the GC thread
+        // once the store is ready; the storage vault may not be known yet at this point.
         _remote_startup_cleanup_pending.store(true, std::memory_order_release);
     }
     for (auto* store : _local_stores) {
@@ -303,8 +300,17 @@ void SpillFileManager::delete_spill_file(SpillFileSPtr spill_file) {
     spill_file->gc();
 }
 
+void SpillFileManager::register_remote_query_dir(const std::string& query_dir) {
+    std::lock_guard lock(_remote_query_dirs_mutex);
+    _remote_query_dirs.emplace(query_dir);
+}
+
 void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
                                                     SpillDataDir* data_dir) {
+    if (data_dir != nullptr && data_dir == _remote_store) {
+        std::lock_guard lock(_remote_query_dirs_mutex);
+        _remote_query_dirs.erase(query_id);
+    }
     PendingQuerySpillDirectory pending_directory {
             .query_dir = data_dir->get_spill_data_path(query_id),
             .data_dir = data_dir,
@@ -443,8 +449,7 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
 void SpillFileManager::_remote_gc() {
     if (!_remote_store->ready()) {
         // Retry about once a minute at the default 2s GC interval. ensure_ready() reads what
-        // the vault refresh thread and the FE heartbeat already brought in, plus one bounded
-        // meta-service call for the instance id.
+        // the vault refresh thread already brought in.
         if (_remote_not_ready_rounds++ % 30 != 0) {
             return;
         }
@@ -454,51 +459,17 @@ void SpillFileManager::_remote_gc() {
             return;
         }
     }
-    if (BackendOptions::get_backend_id() != _remote_store->backend_id()) {
-        // DROP + ADD BACKEND of a live node hands it a new id. The store keeps the id it was
-        // bound with (objects and stats of this process stay consistent); the new id takes
-        // effect at the next restart, and the objects under the old id are left to the
-        // meta-service recycler.
-        LOG_EVERY_T(WARNING, 3600) << "backend id changed from " << _remote_store->backend_id()
-                                   << " to " << BackendOptions::get_backend_id()
-                                   << " while the remote spill store is bound; restart the BE to "
-                                      "spill under the new id";
-    }
-    // Refresh the boot marker about once a day so that the recycler's age-based sweep never
-    // removes the marker of a live process (see get_remote_boot_marker_path).
-    const int64_t marker_refresh_rounds = std::max<int64_t>(
-            1, 24LL * 3600 * 1000 / std::max<int32_t>(1, config::spill_gc_interval_ms));
-    if (++_remote_boot_marker_rounds % marker_refresh_rounds == 0) {
-        _remote_boot_marker_pending.store(true, std::memory_order_release);
-    }
-    if (_remote_boot_marker_pending.load(std::memory_order_acquire)) {
-        auto st = _remote_write_boot_marker();
-        if (!st.ok()) {
-            LOG_EVERY_T(WARNING, 60) << "failed to write the spill boot marker, will retry: " << st;
-            return;
-        }
-        _remote_boot_marker_pending.store(false, std::memory_order_release);
-    }
     if (!remote_startup_cleanup_pending()) {
         return;
     }
     bool done = false;
     auto st = _remote_startup_cleanup(&done);
     if (!st.ok()) {
-        LOG_EVERY_T(WARNING, 60) << "failed to clean up spill objects of previous boots, will "
-                                    "retry: "
-                                 << st;
+        LOG_EVERY_T(WARNING, 60)
+                << "failed to clean up spill objects of the previous process, will retry: " << st;
     } else if (done) {
         _remote_startup_cleanup_pending.store(false, std::memory_order_release);
     }
-}
-
-Status SpillFileManager::_remote_write_boot_marker() {
-    io::FileWriterPtr writer;
-    RETURN_IF_ERROR(_remote_store->fs()->create_file(
-            _remote_store->get_remote_boot_marker_path(std::to_string(_remote_store->boot_id())),
-            &writer));
-    return writer->close();
 }
 
 int64_t SpillFileManager::remote_spill_data_bytes() {
@@ -507,37 +478,53 @@ int64_t SpillFileManager::remote_spill_data_bytes() {
 
 Status SpillFileManager::_remote_startup_cleanup(bool* done) {
     auto fs = _remote_store->fs();
-    const auto current_boot_id = std::to_string(_remote_store->boot_id());
-
-    MonotonicStopWatch watch;
-    watch.start();
-    // One marker object per boot generation of this BE; the listing is tiny even when a lot
-    // of spill data is left behind. Only other generations are deleted; the current one is
-    // being written by running queries.
-    std::vector<io::FileInfo> markers;
-    bool exists = false;
-    RETURN_IF_ERROR(fs->list(_remote_store->get_remote_boots_path(), true, &markers, &exists));
-    std::set<std::string> old_generations;
-    for (const auto& marker : markers) {
-        if (marker.is_file && !marker.file_name.empty() && marker.file_name != current_boot_id) {
-            old_generations.emplace(marker.file_name);
+    const std::string root = _remote_store->get_spill_data_path();
+    if (!_remote_residue_dirs.has_value()) {
+        // One listing, the first after the store became ready: the residue is fixed then, so
+        // the cleanup never chases directories created later. Every part of a spill file is
+        // one object of up to spill_file_part_size_bytes, so the listing stays small.
+        std::vector<io::FileInfo> files;
+        bool exists = false;
+        RETURN_IF_ERROR(fs->list(root, true, &files, &exists));
+        std::set<std::string> dirs;
+        for (const auto& file : files) {
+            auto pos = file.file_name.find('/');
+            if (pos != std::string::npos && pos > 0) {
+                dirs.emplace(file.file_name.substr(0, pos));
+            }
         }
+        // A query registers its directory before its first object is written, so a directory
+        // that already had objects and belongs to a query of this process is registered by now.
+        std::vector<std::string> residue;
+        {
+            std::lock_guard lock(_remote_query_dirs_mutex);
+            for (const auto& dir : dirs) {
+                if (!_remote_query_dirs.contains(dir)) {
+                    residue.emplace_back(dir);
+                }
+            }
+        }
+        LOG(INFO) << fmt::format(
+                "found {} spill query directories left behind by the previous process under {}",
+                residue.size(), root);
+        _remote_residue_dirs = std::move(residue);
     }
-    if (old_generations.empty()) {
+    auto& residue = *_remote_residue_dirs;
+    if (residue.empty()) {
         *done = true;
         return Status::OK();
     }
-    // One generation per GC round keeps the GC thread responsive; the rest wait for the next
-    // round. The marker goes last so that a failed data deletion is retried.
-    const auto& generation = *old_generations.begin();
-    RETURN_IF_ERROR(fs->delete_directory(_remote_store->get_remote_boot_data_path(generation)));
-    RETURN_IF_ERROR(fs->delete_file(_remote_store->get_remote_boot_marker_path(generation)));
-    *done = old_generations.size() == 1;
+    // One directory per GC round keeps the GC thread responsive.
+    MonotonicStopWatch watch;
+    watch.start();
+    const std::string dir = residue.back();
+    RETURN_IF_ERROR(fs->delete_directory(fmt::format("{}/{}", root, dir)));
+    residue.pop_back();
+    *done = residue.empty();
     LOG(INFO) << fmt::format(
-            "cleaned up spill objects of a previous boot, be_root={}, current_boot_id={}, "
-            "deleted_generation={}, remaining_generations={}, cost={}",
-            _remote_store->get_remote_be_root(), current_boot_id, generation,
-            old_generations.size() - 1, PrettyPrinter::print(watch.elapsed_time(), TUnit::TIME_NS));
+            "deleted spill query directory {}/{} left behind by the previous process, "
+            "remaining={}, cost={}",
+            root, dir, residue.size(), PrettyPrinter::print(watch.elapsed_time(), TUnit::TIME_NS));
     return Status::OK();
 }
 

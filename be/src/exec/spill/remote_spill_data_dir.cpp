@@ -21,7 +21,6 @@
 
 #include <utility>
 
-#include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/config.h"
@@ -33,28 +32,23 @@
 #include "storage/olap_define.h"
 #include "storage/storage_policy.h"
 #include "util/pretty_printer.h"
-#include "util/time.h"
 
 namespace doris {
 
-RemoteSpillDataDir::RemoteSpillDataDir(std::string vault_id, int64_t boot_id)
+RemoteSpillDataDir::RemoteSpillDataDir(std::string vault_id)
         : SpillDataDir(fmt::format("s3:{}", vault_id.empty() ? "default" : vault_id),
                        /*spill_root=*/"",
                        fmt::format("s3:{}", vault_id.empty() ? "default" : vault_id),
                        /*capacity_bytes=*/0, TStorageMedium::S3),
-          _vault_id(std::move(vault_id)),
-          _boot_id(boot_id) {}
+          _vault_id(std::move(vault_id)) {}
 
 Status RemoteSpillDataDir::init() {
     RETURN_IF_ERROR(update_capacity());
-    LOG(INFO) << fmt::format("remote spill store registered, vault_id={}, boot_id={}, limit={}",
-                             _vault_id.empty() ? "<default>" : _vault_id, _boot_id,
+    LOG(INFO) << fmt::format("remote spill store registered, vault_id={}, limit={}",
+                             _vault_id.empty() ? "<default>" : _vault_id,
                              PrettyPrinter::print_bytes(_spill_data_limit_bytes));
     return Status::OK();
 }
-
-// After a failed GetInstance, ensure_ready() fails fast for this long without a new RPC.
-constexpr int64_t kInstanceIdRetryIntervalMs = 60 * 1000;
 
 Status RemoteSpillDataDir::ensure_ready() {
     if (ready()) {
@@ -67,16 +61,11 @@ Status RemoteSpillDataDir::ensure_ready() {
     if (!config::is_cloud_mode()) {
         return Status::InternalError("spill to s3 is only supported in cloud mode");
     }
-    int64_t backend_id = BackendOptions::get_backend_id();
-    if (backend_id <= 0) {
-        return Status::InternalError(
-                "spill to s3 is not ready: backend id is unknown, waiting for FE heartbeat");
+    std::string host = BackendOptions::get_localhost();
+    if (host.empty()) {
+        return Status::InternalError("spill to s3 is not ready: the address of this BE is unknown");
     }
-    // The vault is resolved from what the refresh thread already brought in; the instance id
-    // needs one GetInstance RPC (2 attempts, up to ~2 * meta_service_brpc_timeout_ms). Callers
-    // retry on failure, but a failed RPC is not repeated for a minute (the cadence of the GC
-    // thread's probe): every caller waits on _init_mutex, so re-running the RPC for each of them
-    // would keep the mutex busy for the whole outage.
+    // The vault is resolved from what the vault refresh thread already brought in.
     auto& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
     std::string vault_id = _vault_id.empty() ? engine.default_vault_id() : _vault_id;
     io::RemoteFileSystemSPtr fs =
@@ -92,29 +81,15 @@ Status RemoteSpillDataDir::ensure_ready() {
         return Status::NotSupported("spill to s3 only supports S3 storage vaults, vault '{}' is {}",
                                     vault_id, fs->type());
     }
-    if (MonotonicMillis() < _instance_id_retry_after_ms) {
-        return _instance_id_error;
-    }
-    std::string instance_id;
-    Status st = engine.meta_mgr().get_instance_id(&instance_id);
-    if (!st.ok()) {
-        _instance_id_error = st;
-        // Measured from the end of the failed RPC, so the window is never consumed by the RPC.
-        _instance_id_retry_after_ms = MonotonicMillis() + kInstanceIdRetryIntervalMs;
-        return st;
-    }
-    init_remote_fs(fs, std::move(instance_id), backend_id);
+    init_remote_fs(fs, std::move(host));
     return Status::OK();
 }
 
-void RemoteSpillDataDir::init_remote_fs(io::FileSystemSPtr fs, std::string instance_id,
-                                        int64_t backend_id) {
-    DCHECK(!instance_id.empty());
+void RemoteSpillDataDir::init_remote_fs(io::FileSystemSPtr fs, std::string host) {
+    DCHECK(!host.empty());
     _fs = std::move(fs);
-    _instance_id = std::move(instance_id);
-    _backend_id = backend_id;
-    _remote_be_root = fmt::format("{}/{}/{}", SPILL_DIR_PREFIX, _instance_id, backend_id);
-    _spill_root = get_remote_boot_data_path(std::to_string(_boot_id));
+    _host = std::move(host);
+    _spill_root = fmt::format("{}/{}", SPILL_DIR_PREFIX, _host);
     _ready.store(true, std::memory_order_release);
     LOG(INFO) << fmt::format(
             "remote spill store is ready, vault_id={}, fs_id={}, root={}, limit={}",

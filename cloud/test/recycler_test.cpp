@@ -3919,16 +3919,17 @@ TEST(RecyclerTest, recycle_expired_spill_objects) {
     ASSERT_EQ(recycler.init(), 0);
     auto accessor = recycler.accessor_map_.begin()->second;
 
-    // Spill objects (data + boot markers) of a BE of this instance that never came back, spill
-    // of another instance sharing the vault, plus regular data; only the first group may go.
-    const std::string mine = fmt::format("spill/{}/10001", instance_id);
-    const std::string other = "spill/other_instance/10001";
-    ASSERT_EQ(accessor->put_file(mine + "/boots/1000", ""), 0);
-    ASSERT_EQ(accessor->put_file(mine + "/data/1000/q1/sort-1-0-1/0", "spill"), 0);
-    ASSERT_EQ(accessor->put_file(mine + "/data/1000/q1/sort-1-0-1/1", "spill"), 0);
-    ASSERT_EQ(accessor->put_file(mine + "/data/1001/q2/agg-1-0-1/0", "spill"), 0);
-    ASSERT_EQ(accessor->put_file(other + "/boots/1000", ""), 0);
-    ASSERT_EQ(accessor->put_file(other + "/data/1000/q1/sort-1-0-1/0", "spill"), 0);
+    // Spill objects of two BEs that never came back ("spill/{host}/{query_id}/..."), plus
+    // regular data and a key that only shares the first letters of the spill prefix.
+    const std::vector<std::string> spill_keys = {
+            "spill/10.0.0.1/q1/sort-1-0-1/0",
+            "spill/10.0.0.1/q1/sort-1-0-1/1",
+            "spill/10.0.0.1/q2/agg-1-0-1/0",
+            "spill/10.0.0.2/q3/sort-1-0-1/0",
+    };
+    for (const auto& key : spill_keys) {
+        ASSERT_EQ(accessor->put_file(key, "spill"), 0);
+    }
     ASSERT_EQ(accessor->put_file("data/10001/rowset_0.dat", "data"), 0);
     ASSERT_EQ(accessor->put_file("spillover/not_spill", "data"), 0);
 
@@ -3936,18 +3937,16 @@ TEST(RecyclerTest, recycle_expired_spill_objects) {
     auto saved_ttl = config::spill_objects_expire_time_second;
     config::spill_objects_expire_time_second = 0;
     ASSERT_EQ(recycler.recycle_expired_spill_objects(), 0);
-    EXPECT_EQ(accessor->exists(mine + "/boots/1000"), 0);
-    EXPECT_EQ(accessor->exists(mine + "/data/1000/q1/sort-1-0-1/0"), 0);
+    for (const auto& key : spill_keys) {
+        EXPECT_EQ(accessor->exists(key), 0) << key;
+    }
     config::spill_objects_expire_time_second = saved_ttl;
 
     // The mock accessor ignores the expiration time, so this only verifies prefix scoping.
     ASSERT_EQ(recycler.recycle_expired_spill_objects(), 0);
-    EXPECT_NE(accessor->exists(mine + "/boots/1000"), 0);
-    EXPECT_NE(accessor->exists(mine + "/data/1000/q1/sort-1-0-1/0"), 0);
-    EXPECT_NE(accessor->exists(mine + "/data/1000/q1/sort-1-0-1/1"), 0);
-    EXPECT_NE(accessor->exists(mine + "/data/1001/q2/agg-1-0-1/0"), 0);
-    EXPECT_EQ(accessor->exists(other + "/boots/1000"), 0);
-    EXPECT_EQ(accessor->exists(other + "/data/1000/q1/sort-1-0-1/0"), 0);
+    for (const auto& key : spill_keys) {
+        EXPECT_NE(accessor->exists(key), 0) << key;
+    }
     EXPECT_EQ(accessor->exists("data/10001/rowset_0.dat"), 0);
     EXPECT_EQ(accessor->exists("spillover/not_spill"), 0);
 }
@@ -5082,14 +5081,11 @@ TEST(RecyclerTest, recycle_deleted_instance_with_orphan_tmp_rowset) {
     schema.set_schema_version(0);
     auto rowset = create_rowset("orphan_tmp_rowset_test", tablet_id, index_id, 2, schema, txn_id);
     ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false));
-    // Spill objects left by a BE of the instance: not referenced by any rowset, must go too.
-    // The vault is shared: spill of another instance under the same accessor must survive.
-    const std::string my_spill = fmt::format("spill/{}/10001", instance_id);
-    const std::string other_spill = "spill/other_instance/10001";
-    ASSERT_EQ(accessor->put_file(my_spill + "/boots/1000", ""), 0);
-    ASSERT_EQ(accessor->put_file(my_spill + "/data/1000/q1/sort-1-0-1/0", "spill"), 0);
-    ASSERT_EQ(accessor->put_file(other_spill + "/boots/1000", ""), 0);
-    ASSERT_EQ(accessor->put_file(other_spill + "/data/1000/q1/sort-1-0-1/0", "spill"), 0);
+    // Spill objects left by a BE: not referenced by any rowset. The vault may be shared and the
+    // keys do not name the instance, so they go through the expiration-based sweep; the mock
+    // accessor ignores the expiration time and deletes them.
+    const std::string spill_key = "spill/10.0.0.1/q1/sort-1-0-1/0";
+    ASSERT_EQ(accessor->put_file(spill_key, "spill"), 0);
 
     // Verify the data file exists
     {
@@ -5112,19 +5108,15 @@ TEST(RecyclerTest, recycle_deleted_instance_with_orphan_tmp_rowset) {
     // Recycle deleted instance
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
 
-    // All data files of this instance, including its spill objects, must be deleted; the other
-    // instance's spill in the shared vault must be untouched.
+    // All data files of this instance, including the spill objects, must be deleted.
     {
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
         for (auto file = list_iter->next(); file; file = list_iter->next()) {
-            EXPECT_EQ(file->path.rfind(other_spill, 0), 0) << "unexpected survivor: " << file->path;
+            ADD_FAILURE() << "unexpected survivor: " << file->path;
         }
     }
-    EXPECT_NE(accessor->exists(my_spill + "/boots/1000"), 0);
-    EXPECT_NE(accessor->exists(my_spill + "/data/1000/q1/sort-1-0-1/0"), 0);
-    EXPECT_EQ(accessor->exists(other_spill + "/boots/1000"), 0);
-    EXPECT_EQ(accessor->exists(other_spill + "/data/1000/q1/sort-1-0-1/0"), 0);
+    EXPECT_NE(accessor->exists(spill_key), 0);
 
     // All ref_count keys must be cleaned up
     {
