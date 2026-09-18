@@ -34,8 +34,10 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -625,15 +627,44 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // the aggregate (for example the outputs [c1] and [c1, c2] which wrap an aggregate
         // computing count(*) as c1, random() as c2), and a projection which hides one of the keys
         // makes the apply unresolvable
-        Set<Slot> keysToExpose = newCorrelationFilter.stream()
+        Set<Slot> keysToExpose = keySlots.stream()
+                .map(NamedExpression::toSlot).collect(ImmutableSet.toImmutableSet());
+        // The outputs of the top aggregate are exposed by the projections above that aggregate
+        // alone, because the projections below it cannot produce them: the aggregate which defines
+        // them sits above those projections. The predicates which were pulled into the apply read
+        // the outputs of the top aggregate as well (for example the max(c) <= t1.c1 of the HAVING
+        // clause), and the projection below the top aggregate has to carry the keys alone. For
+        // example the subquery of
+        //
+        //     select t1.c1 from t1 where t1.c1 in (select max(c) from (select count(*) as c from t2
+        //         where t2.c1 = t1.c1 group by t2.c2) x having max(c) <= t1.c1)
+        //
+        // reaches the rewrite with the plan
+        //
+        //     Apply(correlationFilter=[(max(c) <= t1.c1)])
+        //       |-- t1
+        //       +-- Project([max(c)])                                 [the select list]
+        //             +-- Aggregate(group by [], output [max(c) as max(c)])
+        //                   +-- Project([c])                         [the projection below the
+        //                         +-- Aggregate(group by [t2.c2],     aggregate which defines
+        //                               output [t2.c2, count(*) as c]) max(c)]
+        //                               +-- Filter(t2.c1 = t1.c1)
+        //                                     +-- t2
+        //
+        // and appending max(c) to the projection of the count (the projection below the aggregate
+        // which defines it) would make that projection read a slot which its child cannot produce,
+        // so the plan would be rejected by the slot check of the rewrite.
+        Set<Slot> outputsOfTheTopAggregation = newCorrelationFilter.stream()
                 .flatMap(conjunct -> conjunct.getInputSlots().stream())
                 .filter(slot -> newAggregations.get(aggregation.topAggregation()).getOutput().contains(slot))
+                .filter(slot -> !keysToExpose.contains(slot))
                 .collect(ImmutableSet.toImmutableSet());
         return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryType(), apply.isNot(),
                 apply.getCompareExpr(), apply.getTypeCoercionExpr(),
                 ExpressionUtils.optionalAnd(newCorrelationFilter), apply.getMarkJoinSlotReference(),
                 apply.isNeedAddSubOutputToProjects(), apply.isMarkJoinSlotNotNull(), apply.left(),
-                rebuildTheAggregationChain(apply.right(), aggregation, newAggregations, keysToExpose));
+                rebuildTheAggregationChain(apply.right(), aggregation, newAggregations, keysToExpose,
+                        outputsOfTheTopAggregation));
     }
 
     /**
@@ -740,6 +771,11 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * keys. The walk stops at the deepest aggregate: its rewritten version already reads the rows of
      * the filter below it (see pullUpCorrelatedFilter).
      *
+     * The projections below the top aggregate only expose the keys, while the projections above it
+     * expose the outputs of the top aggregate as well: the aggregate which defines those outputs
+     * sits above the projections below it, so they cannot produce them. The outputs to expose are
+     * therefore dropped as soon as the walk reaches the top aggregate.
+     *
      * For example the plan of the example of TheAggregation is rewritten into
      *
      *     Apply(correlationFilter=[t2.c1 = t1.c1])
@@ -753,12 +789,15 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      *                                     +-- t2
      */
     private static Plan rebuildTheAggregationChain(Plan plan, TheAggregation aggregation,
-            Map<LogicalAggregate<?>, Plan> newAggregations, Set<Slot> keysToExpose) {
+            Map<LogicalAggregate<?>, Plan> newAggregations, Set<Slot> keysToExpose,
+            Set<Slot> outputsOfTheTopAggregation) {
         Plan replacement = newAggregations.get(plan);
         if (plan == aggregation.domainAggregation()) {
             return replacement;
         }
-        Plan child = rebuildTheAggregationChain(plan.child(0), aggregation, newAggregations, keysToExpose);
+        // the nodes below the top aggregate cannot produce its outputs, so they only carry the keys
+        Plan child = rebuildTheAggregationChain(plan.child(0), aggregation, newAggregations, keysToExpose,
+                plan == aggregation.topAggregation() ? ImmutableSet.of() : outputsOfTheTopAggregation);
         if (replacement != null) {
             return replacement.withChildren(child);
         }
@@ -773,6 +812,12 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             for (Slot key : keysToExpose) {
                 if (!exposed.contains(key)) {
                     projects.add(key);
+                    added = true;
+                }
+            }
+            for (Slot output : outputsOfTheTopAggregation) {
+                if (!exposed.contains(output)) {
+                    projects.add(output);
                     added = true;
                 }
             }
@@ -1517,19 +1562,41 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // an empty correlated domain.
         boolean keepEmptyDomain = agg.getGroupByExpressions().isEmpty();
         Slot matchMarker = null;
+        // The left outer join below reports the columns of the side which it fills with nulls as
+        // nullable (see JoinUtils.getJoinOutput): the expressions above it have to read the nullable
+        // versions of those columns, because a reference to a not-nullable column of the inner side
+        // reaches the join from below it and makes AdjustNullable convert that reference, and that
+        // conversion is reported as an error while fe_debug is set. For example the subquery of
+        //
+        //     select * from t1 where t1.k1 =
+        //         (select sum(k1) from t3 where t1.k1 != t3.v1 and t3.v2 = 2)
+        //
+        // aggregates k1 of t3, a column which is declared not null, and the row which the left outer
+        // join keeps for an empty correlated domain turns the aggregation of the subquery into
+        // sum(if(marker, k1, null)), whose argument has to be the nullable k1 which that join
+        // produces:
+        //
+        //     Aggregate(group by [key.k1], output [sum(if(marker, k1, null)) AS sum(k1), key.k1])
+        //       +-- LEFT OUTER JOIN (t3.v1 != key.k1 AND t3.v2 = 2)    [keeps the empty domain]
+        //             |-- Aggregate(group by [t1.k1], output [t1.k1])
+        //             |     +-- t1
+        //             +-- Project([true AS marker, t3.k1, t3.k2, t3.k3, t3.v1, t3.v2])
+        //                   +-- Filter(t3.v2 = 2)
+        //                         +-- t3
+        Map<Expression, Expression> nullableInnerSlots = Maps.newHashMap();
         if (keepEmptyDomain) {
             Alias marker = new Alias(BooleanLiteral.TRUE, CORRELATION_MATCH_MARKER);
-            // The column is null for the rows which the left outer join keeps for an empty
-            // correlated domain, so the join reports it as a nullable column (see
-            // JoinUtils.getJoinOutput, which makes the slots of the side which a left outer join
-            // may fill with nulls nullable), and the aggregates above the join which read it have
-            // to use that nullable slot: a reference to the not-nullable slot of the projection
-            // below the join makes AdjustNullable convert it (and that conversion is reported as an
-            // error while fe_debug is set).
+            // the marker is null for the rows which the left outer join keeps for an empty
+            // correlated domain, so the join reports it as a nullable column for the same reason
             matchMarker = marker.toSlot().withNullable(true);
             List<NamedExpression> projects = Lists.newArrayList(marker);
             projects.addAll(inner.getOutput());
             inner = new LogicalProject<>(projects, inner);
+            for (Slot slot : inner.getOutput()) {
+                if (!slot.nullable()) {
+                    nullableInnerSlots.put(slot, slot.withNullable(true));
+                }
+            }
         }
 
         List<Expression> domainConjuncts = predicates.domainPredicates().stream()
@@ -1559,12 +1626,19 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             }
         }
         Map<Expression, Expression> compensated = guardAggregateArguments(aggregates, matchMarker);
+        if (compensated == null) {
+            // an aggregate of the subquery cannot be guarded, so the aggregation of the outer side
+            // cannot tell the row which was kept for an empty correlated domain apart (see
+            // guardAggregateArguments)
+            return null;
+        }
 
         List<Expression> newGroupBy = Lists.newArrayList(slotToKey.values());
         newGroupBy.addAll(agg.getGroupByExpressions());
         List<NamedExpression> newOutputs = Lists.newArrayList();
         for (NamedExpression output : agg.getOutputExpressions()) {
-            newOutputs.add((NamedExpression) ExpressionUtils.replace(output, compensated));
+            newOutputs.add((NamedExpression) ExpressionUtils.replace(
+                    ExpressionUtils.replace(output, compensated), nullableInnerSlots));
         }
         // the keys are appended after the outputs of the subquery: the first column of the output is
         // the value which an IN subquery compares (eg. the count which k in (select count(*) ...)
@@ -1580,7 +1654,11 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // the whole chain, whose aggregates are the ones their columns belong to)
         Set<Expression> movedPredicates = Sets.newLinkedHashSet();
         for (Expression conjunct : predicates.pulledPredicates()) {
-            movedPredicates.add(ExpressionUtils.replace(ExpressionUtils.replace(conjunct, compensated), slotToKey));
+            // the predicates which were pulled into the apply are evaluated above the join as well, so
+            // they read the columns of the inner side through the nullable slots of the join
+            movedPredicates.add(ExpressionUtils.replace(
+                    ExpressionUtils.replace(ExpressionUtils.replace(conjunct, compensated), slotToKey),
+                    nullableInnerSlots));
         }
         Map<LogicalAggregate<?>, Plan> newAggregations = new IdentityHashMap<>();
         for (LogicalAggregate<?> aggregate : aggregation.aggregationChain()) {
@@ -1601,7 +1679,11 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // the correlation key of one outer row
         Set<Slot> keysToExpose = keyExpressions.stream().map(NamedExpression::toSlot)
                 .collect(ImmutableSet.toImmutableSet());
-        Plan newRight = rebuildTheAggregationChain(apply.right(), aggregation, newAggregations, keysToExpose);
+        // the predicates of the apply are evaluated on the nodes above the aggregation of the
+        // subquery, which produce the outputs of that aggregation themselves, so no output of it has
+        // to be appended to the projections below them
+        Plan newRight = rebuildTheAggregationChain(apply.right(), aggregation, newAggregations, keysToExpose,
+                ImmutableSet.of());
         if (!movedPredicates.isEmpty() && !aggregation.onlyTheAggregationOfTheDomain()) {
             newRight = new LogicalFilter<>(movedPredicates, newRight);
         }
@@ -1664,6 +1746,23 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * its distinct flag, because the null of the kept row must not be counted as a value. For
      * example count(*) becomes count(marker) and sum(1) becomes sum(if(marker, 1, null)), which
      * returns null for the row which was kept for an empty domain.
+     *
+     * An argument which controls the aggregate instead of providing the values to aggregate is kept
+     * as it is, because the guard makes the aggregate illegal: the second argument of topn_array is
+     * the number of values to keep and has to stay a positive literal. Whether an argument controls
+     * the aggregate or provides values is decided by the checks which the aggregate runs after the
+     * rewrite and before the type coercion (see isLegalWithTheGuardedArgument). For example the
+     * subquery of
+     *
+     *     select (select topn_array(i.v, 2) from i where i.k < o.k) from o
+     *
+     * is rewritten to topn_array(if(marker, i.v, null), 2): the first argument is null for the row
+     * which was kept for an empty domain, so topn_array ignores that row and returns the value of an
+     * empty input (that is the contract of NullIgnoringAggregateFunction), while the guarded form
+     * topn_array(if(marker, i.v, null), if(marker, 2, null)) is rejected by the check of
+     * topn_array, which requires the number of values to keep to be a literal. An aggregate whose
+     * every argument controls it cannot be given an argument which is null for the kept row, so the
+     * caller does not rewrite it.
      */
     private static Map<Expression, Expression> guardAggregateArguments(
             Set<AggregateFunction> aggregates, Slot matchMarker) {
@@ -1674,12 +1773,52 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 continue;
             }
             List<Expression> arguments = Lists.newArrayListWithCapacity(function.arity());
-            for (Expression argument : function.getArguments()) {
-                arguments.add(new If(matchMarker, argument, new NullLiteral(argument.getDataType())));
+            boolean ignoresTheKeptRow = false;
+            for (int index = 0; index < function.arity(); index++) {
+                Expression argument = function.getArgument(index);
+                Expression guarded = new If(matchMarker, argument,
+                        new NullLiteral(argument.getDataType()));
+                if (isLegalWithTheGuardedArgument(function, index, guarded)) {
+                    arguments.add(guarded);
+                    ignoresTheKeptRow = true;
+                } else {
+                    // the argument controls the aggregate: the guard would make the aggregate
+                    // illegal, so the argument is kept and the arguments which provide the values
+                    // to aggregate make the kept row invisible
+                    arguments.add(argument);
+                }
+            }
+            if (!ignoresTheKeptRow) {
+                // every argument of the aggregate controls it, so the aggregate cannot tell the row
+                // which was kept for an empty correlated domain from a row of the inner side
+                return null;
             }
             replace.put(function, function.withChildren(arguments));
         }
         return replace;
+    }
+
+    /**
+     * Whether the aggregate stays legal when the argument at the given position is replaced by its
+     * guarded version (see guardAggregateArguments). An aggregate rejects a guarded argument when
+     * that argument controls it instead of providing the values to aggregate: topn_array requires
+     * the number of values to keep to be a literal (see checkLegalityAfterRewrite of TopNArray),
+     * and bitmap_union_int requires its arguments to be constants (see
+     * checkLegalityBeforeTypeCoercion of BitmapUnionInt).
+     */
+    private static boolean isLegalWithTheGuardedArgument(
+            AggregateFunction function, int position, Expression guardedArgument) {
+        List<Expression> arguments = Lists.newArrayList(function.getArguments());
+        arguments.set(position, guardedArgument);
+        try {
+            AggregateFunction guarded = (AggregateFunction) function.withChildren(arguments);
+            guarded.checkLegalityBeforeTypeCoercion();
+            guarded.checkLegalityAfterRewrite();
+            return true;
+        } catch (AnalysisException e) {
+            // the check of the aggregate does not accept the guarded argument
+            return false;
+        }
     }
 
     /**
@@ -1906,7 +2045,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             return null;
         }
         for (Expression expression : plan.getExpressions()) {
-            if (expression.containsVolatileExpression()) {
+            if (containsVolatileExpression(expression)) {
                 return null;
             }
         }
@@ -1925,10 +2064,51 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         return volatileSlots;
     }
 
-    /** whether one of the expressions is volatile, directly or through one of the given slots */
+    /**
+     * Whether one of the expressions is volatile, directly or through one of the given slots.
+     */
     private static boolean usesVolatile(Collection<? extends Expression> expressions, Set<Slot> volatileSlots) {
-        return expressions.stream().anyMatch(expression -> expression.containsVolatileExpression()
+        return expressions.stream().anyMatch(expression -> containsVolatileExpression(expression)
                 || expression.getInputSlots().stream().anyMatch(volatileSlots::contains));
+    }
+
+    /**
+     * Whether the expression contains a volatile expression, at any level of it.
+     *
+     * A UDF is reported as a volatile expression, because the planner cannot see the code of the
+     * function (see Udf, which extends VolatileExpression), and a UDF does not restrict this
+     * rewrite: a UDF which is declared volatile would otherwise forbid the rewrite of every
+     * subquery which calls it. For example the subquery of
+     *
+     *     select t1.c1 from t1 where exists (select x.c2 from (select count(*) as c,
+     *         my_udf(count(*)) as c2 from t2 where t2.c1 = t1.c1 having count(*) = 0) x
+     *         where x.c2 < 0)
+     *
+     * reaches the check with the plan
+     *
+     *     Apply(exists)
+     *       |-- t1
+     *       +-- Filter(x.c2 < 0)
+     *             +-- Project([count(*) as c, my_udf(count(*)) as c2])
+     *                   +-- Filter(count(*) = 0)
+     *                         +-- Aggregate(group by [], output [count(*) as c])
+     *                               +-- Filter(t2.c1 = t1.c1)
+     *                                     +-- t2
+     *
+     * whose filter above the HAVING clause reads the column of the UDF, and the subquery is
+     * rewritten (the UDF is evaluated once for every correlation key).
+     *
+     * The other volatile expressions still restrict the rewrite (random, uuid and the others), for
+     * example the subquery of
+     *
+     *     select t1.c1 from t1 where exists (select count(*) from t2 where t2.c1 = t1.c1
+     *         and random() < 0.5 having count(*) = 0)
+     */
+    private static boolean containsVolatileExpression(Expression expression) {
+        return expression.containsType(VolatileExpression.class)
+                && expression.anyMatch(node -> node instanceof VolatileExpression
+                        && !(node instanceof Udf)
+                        && ((VolatileExpression) node).isVolatile());
     }
 
     /**

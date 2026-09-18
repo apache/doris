@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -32,14 +35,19 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -51,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -260,7 +269,8 @@ class UnCorrelatedApplyAggregateFilterTest {
 
     @Test
     public void testFilterAboveTheHavingClauseIsKept() {
-        Plan rewritten = rewriteWithFilterAboveHaving(false);
+        Plan rewritten = rewriteWithFilterAboveHaving(
+                count -> new Add(count, new BigIntLiteral(1)));
         // the filter above the HAVING clause reads the projection of the select list, so it has to
         // survive the rewrite with that projection
         Assertions.assertTrue(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty());
@@ -283,7 +293,20 @@ class UnCorrelatedApplyAggregateFilterTest {
     public void testFilterOverAVolatileAliasAboveTheHavingClauseIsRejected() {
         // the filter above the HAVING clause reads a volatile column of the projection of the select
         // list: two outer rows with the same correlation key would share its evaluation
-        Assertions.assertThrows(AnalysisException.class, () -> rewriteWithFilterAboveHaving(true));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> rewriteWithFilterAboveHaving(count -> new Random()));
+    }
+
+    @Test
+    public void testFilterOverAUdfAboveTheHavingClauseIsAccepted() {
+        // a UDF is reported as a volatile expression, because the planner cannot see the code of the
+        // function (see Udf, which extends VolatileExpression), but it does not restrict the
+        // rewrite: the UDF which a subquery calls is evaluated once for every correlation key
+        Plan rewritten = rewriteWithFilterAboveHaving(count -> javaUdf(count));
+        Assertions.assertTrue(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty());
+        List<LogicalJoin> joins = rewritten.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertTrue(joins.stream().anyMatch(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN),
+                "the subquery which calls the UDF has to be rewritten");
     }
 
     @Test
@@ -313,9 +336,10 @@ class UnCorrelatedApplyAggregateFilterTest {
      *     L exists (select x.c from (select count(*) c, c2 from R where r1 = x having count(*) = 0)
      *         x where x.c2 < 0)
      *
-     * where c2 is a volatile expression or a deterministic one, and apply the rule.
+     * where c2 is the expression which the parameter builds (a volatile expression, a deterministic
+     * one or a UDF), and apply the rule.
      */
-    private Plan rewriteWithFilterAboveHaving(boolean overVolatileAlias) {
+    private Plan rewriteWithFilterAboveHaving(Function<Slot, Expression> aboveTheHaving) {
         LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
         Slot x = left.getOutput().get(0); // t1.id
         LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
@@ -327,9 +351,7 @@ class UnCorrelatedApplyAggregateFilterTest {
                 new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(count), where);
         LogicalFilter<LogicalAggregate<LogicalFilter<LogicalOlapScan>>> having = new LogicalFilter<>(
                 ImmutableSet.of(new EqualTo(count.toSlot(), new BigIntLiteral(0))), agg);
-        Alias projected = overVolatileAlias
-                ? new Alias(new Random(), "c2")
-                : new Alias(new Add(count.toSlot(), new BigIntLiteral(1)), "c2");
+        Alias projected = new Alias(aboveTheHaving.apply(count.toSlot()), "c2");
         Plan projection = new LogicalProject<>(ImmutableList.of(count.toSlot(), projected), having);
         Plan filterAboveHaving = new LogicalFilter<>(
                 ImmutableSet.of(new LessThan(projected.toSlot(), new BigIntLiteral(0))), projection);
@@ -337,7 +359,20 @@ class UnCorrelatedApplyAggregateFilterTest {
                 new LogicalApply<>(ImmutableList.of(x), LogicalApply.SubQueryType.EXITS_SUBQUERY, false,
                         Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, false,
                         left, filterAboveHaving);
+        return applyTheRule(apply);
+    }
 
+    /** a UDF whose volatility makes it a volatile expression for the planner */
+    private static JavaUdf javaUdf(Expression argument) {
+        return new JavaUdf("java_fn", 1, "db1", org.apache.doris.catalog.Function.BinaryType.JAVA_UDF,
+                FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+                NullableMode.ALWAYS_NULLABLE, FunctionVolatility.VOLATILE,
+                Udf.createVolatileIdentity(FunctionVolatility.VOLATILE),
+                null, "evaluate", null, null, "", false, 360, argument);
+    }
+
+    /** apply the rule which matches an apply on top of a filtered aggregation to the given plan */
+    private static Plan applyTheRule(LogicalApply<?, ?> apply) {
         ConnectContext connectContext = new ConnectContext();
         Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules().get(0);
         List<Plan> transformed = rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply));
@@ -927,5 +962,173 @@ class UnCorrelatedApplyAggregateFilterTest {
         List<Plan> transformed = rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply));
         Assertions.assertEquals(1, transformed.size());
         return transformed.get(0);
+    }
+
+    @Test
+    public void testHavingWhichReadsTheOutputOfTheAggregateAboveTheAggregation() {
+        // x in (select max(c) from (select count(*) c from R where r1 = x group by r2) y
+        //     having max(c) <= x)
+        // the HAVING clause was pulled into the apply and reads max(c), the output of the aggregate
+        // above the aggregation of the count: the projections below that aggregate cannot produce
+        // it, so they may only expose the correlation key
+        Plan rewritten = rewriteTheNestedAggregationOfAnInSubquery();
+        assertEveryProjectIsResolvable(rewritten);
+        assertJoinConditionsResolvable(rewritten);
+        List<Expression> correlationFilter = new ArrayList<>();
+        List<LogicalApply<?, ?>> applies = rewritten.collectToList(LogicalApply.class::isInstance);
+        for (LogicalApply<?, ?> apply : applies) {
+            apply.getCorrelationFilter().map(ExpressionUtils::extractConjunction)
+                    .ifPresent(correlationFilter::addAll);
+        }
+        Assertions.assertTrue(correlationFilter.stream()
+                        .flatMap(conjunct -> conjunct.getInputSlots().stream())
+                        .anyMatch(slot -> "m".equals(slot.getName())),
+                "the HAVING clause of the subquery has to stay in the correlation filter of the apply");
+    }
+
+    @Test
+    public void testControlArgumentOfTheAggregationIsNotGuarded() {
+        // select (select topn_array(r1, 2) from R where r1 < x) from L
+        // the number of values which topn_array keeps controls the aggregate: the guard of the row
+        // which is kept for an empty correlated domain turns it into an if expression, which the
+        // check of topn_array rejects, so the argument stays a literal while the values which the
+        // aggregate aggregates are guarded
+        Plan rewritten = rewriteAGlobalAggregation(LessThan::new,
+                LogicalApply.SubQueryType.SCALAR_SUBQUERY, r1 -> new TopNArray(r1, new BigIntLiteral(2)));
+        List<TopNArray> aggregates = new ArrayList<>();
+        List<LogicalAggregate<?>> aggregations = rewritten.collectToList(LogicalAggregate.class::isInstance);
+        for (LogicalAggregate<?> aggregate : aggregations) {
+            for (NamedExpression output : aggregate.getOutputExpressions()) {
+                aggregates.addAll(ExpressionUtils.<TopNArray>collectAll(ImmutableList.of(output),
+                        TopNArray.class::isInstance));
+            }
+        }
+        Assertions.assertEquals(1, aggregates.size(), "the aggregation of the subquery has to be kept");
+        Assertions.assertTrue(aggregates.get(0).child(0) instanceof If,
+                "the values which the aggregate aggregates have to be guarded");
+        Assertions.assertEquals(new BigIntLiteral(2), aggregates.get(0).child(1),
+                "the number of values to keep controls the aggregate and has to stay a literal");
+    }
+
+    @Test
+    public void testTheAggregationAboveTheJoinWhichKeepsTheEmptyDomainReadsTheSlotsOfTheJoin() {
+        // the left outer join which keeps the empty correlated domain fills the columns of its inner
+        // side with nulls, so the join reports them as nullable (see JoinUtils.getJoinOutput) and the
+        // aggregation above it has to read the slots which the join produces: the gender of the inner
+        // table, a column which is declared not null, becomes the nullable gender of the join inside
+        // sum(if(marker, gender, null)), because a reference to the not-nullable column makes
+        // AdjustNullable convert it (and that conversion is reported as an error while fe_debug is
+        // set)
+        LogicalOlapScan innerScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
+                PlanConstructor.student, ImmutableList.of("db"));
+        Slot gender = innerScan.getOutput().get(1); // student.gender, a column which is not nullable
+        Assertions.assertFalse(gender.nullable(), "the column of the inner side has to be not nullable");
+        Plan rewritten = rewriteAGlobalAggregation(LessThan::new, LogicalApply.SubQueryType.SCALAR_SUBQUERY,
+                ignored -> new Sum(gender), innerScan);
+
+        List<LogicalJoin> joins = rewritten.collectToList(LogicalJoin.class::isInstance);
+        LogicalJoin<?, ?> joinWhichKeepsTheEmptyDomain = joins.stream()
+                .filter(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
+                .findFirst().get();
+        List<Slot> joinOutput = joinWhichKeepsTheEmptyDomain.getOutput();
+        List<Slot> columnsOfTheInnerSide = new ArrayList<>();
+        List<LogicalAggregate> aggregates = rewritten.collectToList(LogicalAggregate.class::isInstance);
+        for (LogicalAggregate<?> aggregate : aggregates) {
+            for (NamedExpression output : aggregate.getOutputExpressions()) {
+                for (Slot slot : output.getInputSlots()) {
+                    if (joinOutput.stream().anyMatch(joinSlot -> joinSlot.getExprId().equals(slot.getExprId()))) {
+                        columnsOfTheInnerSide.add(slot);
+                    }
+                }
+            }
+        }
+        Assertions.assertFalse(columnsOfTheInnerSide.isEmpty(),
+                "the aggregation has to read a column of the inner side");
+        Assertions.assertTrue(joinOutput.containsAll(columnsOfTheInnerSide),
+                "the aggregation above the join has to read the slots which the join produces: "
+                        + columnsOfTheInnerSide);
+    }
+
+    /** whether every projection of the plan only reads columns which its child produces */
+    private static void assertEveryProjectIsResolvable(Plan plan) {
+        for (LogicalProject<?> project : plan.<LogicalProject>collectToList(LogicalProject.class::isInstance)) {
+            List<Slot> available = project.child().getOutput();
+            for (NamedExpression expression : project.getProjects()) {
+                Assertions.assertTrue(available.containsAll(expression.getInputSlots()),
+                        "the projection " + expression + " has to be resolvable by its child");
+            }
+        }
+    }
+
+    /**
+     * build the plan of
+     *
+     *     L in (select max(c) from (select count(*) c from R where r1 = x group by r2) y
+     *         having max(c) <= x)
+     *
+     * and apply the rule: the correlation filter of the apply is the HAVING clause which was pulled
+     * up, and it reads the output of the aggregate above the aggregation of the count.
+     */
+    private static Plan rewriteTheNestedAggregationOfAnInSubquery() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+        Slot r2 = right.getOutput().get(1); // t2.name
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Alias count = new Alias(new Count(), "c");
+        List<Expression> groupBy = ImmutableList.of(r2);
+        List<NamedExpression> outputs = ImmutableList.of(r2, count);
+        Plan aggregationOfTheCount = new LogicalAggregate<>(groupBy, outputs, where);
+        Plan projectionOfTheCount = new LogicalProject<>(ImmutableList.of(count.toSlot()), aggregationOfTheCount);
+        Alias max = new Alias(new Max(count.toSlot()), "m");
+        Plan aggregationOfTheMax =
+                new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(max), projectionOfTheCount);
+        Plan projectionOfTheSelectList = new LogicalProject<>(ImmutableList.of(max.toSlot()), aggregationOfTheMax);
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x),
+                LogicalApply.SubQueryType.IN_SUBQUERY, false, Optional.of(x), Optional.empty(),
+                Optional.of(new LessThanEqual(max.toSlot(), x)), Optional.empty(), false, false,
+                left, projectionOfTheSelectList);
+        return applyTheRule(apply);
+    }
+
+    /**
+     * build the plan of
+     *
+     *     L (select [aggregationFunction] from R where [predicate(r1, x)])
+     *
+     * and apply the rule which matches an apply on top of a filtered global aggregation.
+     */
+    private static Plan rewriteAGlobalAggregation(BiFunction<Slot, Slot, Expression> predicate,
+            LogicalApply.SubQueryType subQueryType, Function<Slot, AggregateFunction> aggregationFunction) {
+        return rewriteAGlobalAggregation(predicate, subQueryType, aggregationFunction,
+                PlanConstructor.newLogicalOlapScan(1, "t2", 1));
+    }
+
+    /**
+     * build the plan of
+     *
+     *     L (select [aggregationFunction] from R where [predicate(r1, x)])
+     *
+     * over the given inner scan and apply the rule which matches an apply on top of a filtered
+     * global aggregation.
+     */
+    private static Plan rewriteAGlobalAggregation(BiFunction<Slot, Slot, Expression> predicate,
+            LogicalApply.SubQueryType subQueryType, Function<Slot, AggregateFunction> aggregationFunction,
+            LogicalOlapScan innerScan) {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        Slot r1 = innerScan.getOutput().get(0); // the first column of the inner scan
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(
+                ImmutableSet.of(predicate.apply(r1, x)), innerScan);
+        Alias value = new Alias(aggregationFunction.apply(r1), "c");
+        Plan subquery = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(value), where);
+        boolean outputUsedInOuterScope = subQueryType == LogicalApply.SubQueryType.SCALAR_SUBQUERY;
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x), subQueryType,
+                false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                outputUsedInOuterScope, false, left, subquery);
+        return applyTheRule(apply);
     }
 }
