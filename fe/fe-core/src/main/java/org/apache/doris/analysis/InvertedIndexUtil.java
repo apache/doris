@@ -361,9 +361,19 @@ public class InvertedIndexUtil {
         if (name == null || name.isEmpty()) {
             return;
         }
+        properties.put(key, resolveAnalyzerName(name));
+    }
+
+    /** Resolve built-in names and retain the stored spelling of custom policies. */
+    public static String resolveAnalyzerName(String name) {
         String trimmedName = name.trim();
+        // Match the BE writer's case-sensitive built-in dispatch before policy lookup.
+        if (IndexPolicy.BUILTIN_ANALYZERS.contains(trimmedName)
+                || IndexPolicy.BUILTIN_NORMALIZERS.contains(trimmedName)) {
+            return trimmedName;
+        }
         IndexPolicy policy = Env.getCurrentEnv().getIndexPolicyMgr().getPolicyByName(trimmedName);
-        properties.put(key, policy == null ? trimmedName.toLowerCase(Locale.ROOT) : policy.getName());
+        return policy == null ? trimmedName.toLowerCase(Locale.ROOT) : policy.getName();
     }
 
     private static void checkAnalyzerName(String analyzerName, PrimitiveType colType) throws AnalysisException {
@@ -435,17 +445,18 @@ public class InvertedIndexUtil {
                     buildAnalyzerIdentity(properties));
         }
 
+        String resolvedAnalyzer = resolveAnalyzerName(normalizedAnalyzer);
         String preferredAnalyzer = InvertedIndexProperties.getPreferredAnalyzer(properties);
         if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
-            return normalizedAnalyzer.equalsIgnoreCase(preferredAnalyzer);
+            return resolvedAnalyzer.equals(resolveAnalyzerName(preferredAnalyzer));
         }
 
         String parser = InvertedIndexProperties.getInvertedIndexParser(properties);
         if (Strings.isNullOrEmpty(parser)) {
-            return normalizedAnalyzer.equalsIgnoreCase("default")
-                    || normalizedAnalyzer.equalsIgnoreCase(INVERTED_INDEX_PARSER_NONE);
+            return resolvedAnalyzer.equals("default")
+                    || resolvedAnalyzer.equals(INVERTED_INDEX_PARSER_NONE);
         }
-        return normalizedAnalyzer.equalsIgnoreCase(parser);
+        return resolvedAnalyzer.equals(parser.trim().toLowerCase(Locale.ROOT));
     }
 
     public static String getAnalyzerIdentity(Index index) {

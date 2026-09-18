@@ -640,6 +640,45 @@ TEST_F(PinyinFilterTest, TestWordDelimiterPreservesIKSourceOffsets) {
     EXPECT_EQ(filter->next(&token), nullptr);
 }
 
+TEST_F(PinyinFilterTest, TestWordDelimiterPreservesPlainTokenizerOffsetsAfterReset) {
+    for (const std::string tokenizer_type : {"keyword", "standard"}) {
+        SCOPED_TRACE(tokenizer_type);
+        const bool keyword = tokenizer_type == "keyword";
+        const std::string text = keyword ? "liu-de" : "LiuDe";
+        auto tokenizer = createTokenizer(tokenizer_type, text);
+
+        WordDelimiterFilterFactory delimiter_factory;
+        delimiter_factory.initialize({});
+        auto delimiter = delimiter_factory.create(tokenizer);
+
+        Settings settings;
+        settings.set("keep_first_letter", "false");
+        settings.set("keep_full_pinyin", "false");
+        settings.set("keep_original", "false");
+        settings.set("keep_none_chinese", "true");
+        settings.set("none_chinese_pinyin_tokenize", "true");
+        settings.set("ignore_pinyin_offset", "false");
+        PinyinFilterFactory pinyin_factory;
+        pinyin_factory.initialize(settings);
+        auto filter = pinyin_factory.create(delimiter);
+
+        Token token;
+        assertToken(filter, &token, "liu", 0, 3);
+        assertToken(filter, &token, "de", keyword ? 4 : 3, keyword ? 6 : 5);
+        assertEndOfTokens(filter, &token);
+
+        const std::string reset_text = keyword ? "de-liu" : "DeLiu";
+        auto reset_reader = std::make_shared<lucene::util::SStringReader<char>>();
+        reset_reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
+        tokenizer->set_reader(reset_reader);
+        filter->reset();
+
+        assertToken(filter, &token, "de", 0, 2);
+        assertToken(filter, &token, "liu", keyword ? 3 : 2, keyword ? 6 : 5);
+        assertEndOfTokens(filter, &token);
+    }
+}
+
 TEST_F(PinyinFilterTest, TestTokenFilter_StandardAnalyzer_FullPinyin) {
     std::unordered_map<std::string, std::string> config;
     config["keep_first_letter"] = "false";

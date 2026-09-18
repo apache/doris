@@ -113,17 +113,17 @@ TEST_F(InvertedIndexIteratorTest, EnsureNormalizedKey_EmptyInput) {
 }
 
 TEST_F(InvertedIndexIteratorTest, EnsureNormalizedKey_Uppercase) {
-    EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key("CHINESE"), "chinese");
+    EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key("CHINESE"), "CHINESE");
 }
 
 TEST_F(InvertedIndexIteratorTest, EnsureNormalizedKey_MixedCase) {
-    EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key("ChInEsE"), "chinese");
+    EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key("ChInEsE"), "ChInEsE");
 }
 
 TEST_F(InvertedIndexIteratorTest, EnsureNormalizedKey_NonEmptyString) {
-    // Non-empty strings are normalized to lowercase
+    // Non-empty keys retain the resolved policy's spelling.
     EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key("__default__"), "__default__");
-    EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key("NONE"), "none");
+    EXPECT_EQ(InvertedIndexIterator::ensure_normalized_key("NONE"), "NONE");
 }
 
 // add_reader tests
@@ -167,6 +167,35 @@ TEST_F(InvertedIndexIteratorTest, AddReader_MultipleReadersWithDifferentKeys) {
     auto result3 = iterator.select_best_reader("");
     EXPECT_TRUE(result3.has_value());
     // Don't assert specific reader - fallback mode returns first available
+}
+
+TEST_F(InvertedIndexIteratorTest, SelectBestReaderPreservesCaseDistinctLegacyAnalyzerKeys) {
+    for (const std::string legacy_name : {"IK", "Legacy"}) {
+        SCOPED_TRACE(legacy_name);
+        const std::string lowercase_name = legacy_name == "IK" ? "ik" : "legacy";
+        auto legacy_reader = MockInvertedIndexReader::create({{"analyzer", legacy_name}}, 2);
+        auto lowercase_reader = MockInvertedIndexReader::create({{"analyzer", lowercase_name}}, 1);
+        auto column_type = std::make_shared<DataTypeString>();
+
+        for (const bool legacy_first : {true, false}) {
+            SCOPED_TRACE(legacy_first);
+            InvertedIndexIterator iterator;
+            iterator.add_reader(InvertedIndexReaderType::FULLTEXT,
+                                legacy_first ? legacy_reader : lowercase_reader);
+            iterator.add_reader(InvertedIndexReaderType::FULLTEXT,
+                                legacy_first ? lowercase_reader : legacy_reader);
+
+            const auto legacy = iterator.select_best_reader(
+                    column_type, InvertedIndexQueryType::MATCH_ANY_QUERY, legacy_name);
+            ASSERT_TRUE(legacy.has_value()) << legacy.error();
+            EXPECT_EQ(*legacy, legacy_reader);
+
+            const auto lowercase = iterator.select_best_reader(
+                    column_type, InvertedIndexQueryType::MATCH_ANY_QUERY, lowercase_name);
+            ASSERT_TRUE(lowercase.has_value()) << lowercase.error();
+            EXPECT_EQ(*lowercase, lowercase_reader);
+        }
+    }
 }
 
 TEST_F(InvertedIndexIteratorTest, AddReader_DuplicateIndexIdFails) {
@@ -365,14 +394,17 @@ TEST_F(InvertedIndexIteratorTest, EdgeCase_EmptyAnalyzerKeyQuery) {
     EXPECT_EQ(result.value(), reader);
 }
 
-TEST_F(InvertedIndexIteratorTest, EdgeCase_CaseInsensitiveQuery) {
+TEST_F(InvertedIndexIteratorTest, EdgeCase_CaseDistinctKeyDoesNotFallBackToBuiltin) {
     InvertedIndexIterator iterator;
     auto reader = create_mock_reader("chinese");
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader);
 
     auto result = iterator.select_best_reader("CHINESE");
-    EXPECT_TRUE(result.has_value());
-    EXPECT_EQ(result.value(), reader);
+    EXPECT_FALSE(result.has_value());
+
+    auto builtin = iterator.select_best_reader("chinese");
+    ASSERT_TRUE(builtin.has_value());
+    EXPECT_EQ(*builtin, reader);
 }
 
 TEST_F(InvertedIndexIteratorTest, EdgeCase_GetReaderByType) {

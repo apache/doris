@@ -62,12 +62,13 @@ protected:
 
     void set_source_byte_offsets(std::string_view term, int32_t source_start) {
         _source_byte_offsets.clear();
-        const auto* char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
-        if (!_source_byte_offsets_enabled || char_filter == nullptr) {
+        if (!_source_byte_offsets_enabled) {
             return;
         }
 
-        const int32_t corrected_start = char_filter->correct_offset(source_start);
+        const auto* char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
+        const int32_t corrected_start =
+                char_filter == nullptr ? source_start : char_filter->correct_offset(source_start);
         _source_byte_offsets.push_back(0);
         const char* data = term.data();
         const auto length = static_cast<int32_t>(term.size());
@@ -79,8 +80,10 @@ protected:
                 _source_byte_offsets.clear();
                 return;
             }
-            _source_byte_offsets.push_back(char_filter->correct_offset(source_start + offset) -
-                                           corrected_start);
+            _source_byte_offsets.push_back(
+                    char_filter == nullptr
+                            ? offset
+                            : char_filter->correct_offset(source_start + offset) - corrected_start);
         }
     }
 
