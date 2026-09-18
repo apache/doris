@@ -24,6 +24,7 @@
 
 #include "core/arena.h"
 #include "core/assert_cast.h"
+#include "core/auxiliary_data_set.h"
 #include "core/column/column.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -42,9 +43,10 @@ public:
     using Container = PaddedPODArray<doris::StringView>;
 
 private:
-    ColumnVarbinary() = default;
-    ColumnVarbinary(const size_t n) : _data(n) {}
+    ColumnVarbinary() { reset_to_new_local_storage(); }
+    ColumnVarbinary(const size_t n) : _data(n) { reset_to_new_local_storage(); }
     ColumnVarbinary(const ColumnVarbinary& src) {
+        reset_to_new_local_storage();
         _data.reserve(src._data.size());
         for (const auto& value : src._data) {
             insert_data(value.data(), value.size());
@@ -60,12 +62,17 @@ public:
 
     Container& get_data() { return _data; }
 
+    // Keep payloads alive after copying non-inline StringView metadata from another column.
+    void add_auxiliary_owners_from(const ColumnVarbinary& other) {
+        _auxiliary_data.add_owners_from(other._auxiliary_data);
+    }
+
     // Notice: after this buffer maybe have some useless data
     void resize(size_t n) override { _data.resize(n); }
 
     void clear() override {
         _data.clear();
-        _arena.clear();
+        reset_to_new_local_storage();
     }
 
     Field operator[](size_t n) const override {
@@ -78,7 +85,10 @@ public:
 
     StringRef get_data_at(size_t n) const override { return _data[n].to_string_ref(); }
 
-    char* alloc(size_t length) { return _arena.alloc(length); }
+    char* alloc(size_t length) {
+        DCHECK(_arena != nullptr);
+        return _arena->alloc(length);
+    }
 
     void insert(const Field& x) override {
         const auto& value = x.get<TYPE_VARBINARY>();
@@ -105,7 +115,8 @@ public:
     }
 
     void insert_to_buffer(const char* pos, size_t length) {
-        const char* dst = _arena.insert(pos, length);
+        DCHECK(_arena != nullptr);
+        const char* dst = _arena->insert(pos, length);
         _data.push_back(doris::StringView(dst, cast_set<uint32_t>(length)));
     }
 
@@ -145,11 +156,18 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
-    size_t allocated_bytes() const override { return _data.allocated_bytes() + _arena.size(); }
+    // TODO: AuxiliaryDataSet currently keeps borrowed payload owners alive but
+    // does not charge their memory here. If Block-level memory accounting needs
+    // to include borrowed payloads, add owner-level accounting with de-duplication.
+    size_t allocated_bytes() const override {
+        DCHECK(_arena != nullptr);
+        return _data.allocated_bytes() + _arena->size();
+    }
 
     size_t byte_size() const override {
+        DCHECK(_arena != nullptr);
         size_t bytes = _data.size() * sizeof(doris::StringView);
-        return bytes + _arena.used_size();
+        return bytes + _arena->used_size();
     }
 
     bool has_enough_capacity(const IColumn& src) const override {
@@ -193,7 +211,14 @@ public:
                      EqualRange& range, bool last_column) const override;
 
 private:
+    void reset_to_new_local_storage() {
+        auto new_arena = std::make_shared<Arena>();
+        _auxiliary_data.clear();
+        _arena = _auxiliary_data.add_owner(std::move(new_arena));
+    }
+
     Container _data;
-    Arena _arena;
+    Arena* _arena = nullptr;
+    AuxiliaryDataSet _auxiliary_data;
 };
 } // namespace doris
