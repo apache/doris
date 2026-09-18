@@ -47,7 +47,9 @@ Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(uint64_t index_doc_
     if (!has_positions || !has_norms) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
                 "SNII scoring requires positions and norms; this segment was written without "
-                "norms -- rebuild the index or wait for compaction to rewrite it"));
+                "positions or without norms. Norms are left out when the index sets \"norms\" = "
+                "\"false\" or, for a variant path, when inverted_index_skip_norms_for_variant is "
+                "on"));
     }
     return SniiScoringSegmentStats {.doc_count = index_doc_count,
                                     .token_count = sum_total_term_freq};
@@ -251,7 +253,7 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
 
             ::doris::snii::reader::DictBlockCache dict_block_cache;
             for (const auto& logical_term_bytes : collect_info.unique_terms) {
-                // SNII 的 term 键就是分词后的原始字节，没有任何转义或版本。
+                // SNII term keys are the raw analyzed bytes, with no escaping or version prefix.
                 const std::string& physical_term = logical_term_bytes;
                 const auto logical_term =
                         segment_v2::inverted_index::StringHelper::to_wstring(logical_term_bytes);
@@ -313,8 +315,22 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
         index_reader = index_searcher->getReader();
 #endif
         total_segment_docs = std::max(total_segment_docs, index_reader->maxDoc());
-        _total_num_tokens[ws_field_name] +=
-                index_reader->sumTotalTermFreq(ws_field_name.c_str()).value_or(0);
+        // BM25 on an analyzed index needs the record length of every row, and CLucene keeps
+        // them, together with the field's token count, in the norms. A segment written without
+        // norms would feed a zero avgdl, or rank its rows as zero-length documents next to the
+        // segments that have norms, so refuse to score the collection, as SNII does. An index
+        // that is not analyzed never writes norms and is left as it is.
+        const auto token_count = index_reader->sumTotalTermFreq(ws_field_name.c_str());
+        if (!token_count.has_value() &&
+            segment_v2::inverted_index::InvertedIndexAnalyzer::should_analyzer(
+                    collect_info.index_meta->properties())) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "BM25 scoring requires norms, but segment {} was written without norms for "
+                    "field {}. Norms are left out when the index sets \"norms\" = \"false\" or, "
+                    "for a variant path, when inverted_index_skip_norms_for_variant is on",
+                    seg_path, StringHelper::to_string(ws_field_name));
+        }
+        _total_num_tokens[ws_field_name] += token_count.value_or(0);
 
         for (const auto& logical_term_bytes : collect_info.unique_terms) {
             const auto logical_term =

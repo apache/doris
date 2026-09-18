@@ -206,7 +206,7 @@ void WriteCorpus(const Corpus& c, const std::string& path, int prx_zstd_level = 
     in.index_suffix = "body";
     in.config = doris::snii::format::IndexConfig::kDocsPositions;
     in.doc_count = static_cast<uint32_t>(c.docs.size());
-    // 分词 + 带位置的索引一律带 norms（A2），这样才能打分。
+    // Analyzed indexes with positions always include norms (A2) to enable scoring.
     in.encoded_norms.assign(c.docs.size(), 1);
     in.terms = buf.finalize_sorted();
     in.target_dict_block_bytes = 512;

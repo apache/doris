@@ -363,8 +363,8 @@ Status MergedPostingRuns::select_run(ActivePostingChunk* active, size_t max_docs
                               : std::span<const uint32_t> {};
 
     if (!destination_doc_lengths_.empty()) {
-        // 重建 norms：每篇文档的长度 = 该文档在所有 term 上的词频之和（与 writer 的
-        // 词元计数逐字节一致，见 SniiIndexColumnWriter），按 u8 饱和累加，255 封顶。
+        // Rebuild norms by summing each document's frequencies across all terms, matching the
+        // token counts in SniiIndexColumnWriter byte for byte. Saturate the u8 sum at 255.
         std::vector<uint8_t>& lengths = destination_doc_lengths_[*active_destination_];
         for (size_t i = 0; i < document_count; ++i) {
             const uint32_t docid = run->docids[i];

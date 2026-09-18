@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -97,7 +98,7 @@ public final class AdbcMetadataCache {
      * reads properties and nothing else -- no driver, no filesystem, no remote call.
      */
     public AdbcMetadataCache(Map<String, String> properties) {
-        this(new CatalogMetaCache(), properties);
+        this(CatalogMetaCache.unmanaged(), properties);
     }
 
     AdbcMetadataCache(CatalogMetaCache owner, Map<String, String> properties) {
@@ -105,14 +106,20 @@ public final class AdbcMetadataCache {
         CacheSpec spec = cacheSpec(properties);
         this.namespaces = owner.create(MetaCacheDefinition
                 .<String, List<AdbcNamespace>>builder("adbc-namespaces", spec, ignored -> ScopePath.catalog())
+                .budgetGroup(ENTRY)
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
         this.tableNames = owner.create(MetaCacheDefinition
                 .<TableNameKey, List<String>>builder("adbc-table-names", spec,
                         key -> ScopePath.database(key.dorisDbName))
+                .budgetGroup(ENTRY)
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
         this.tableSchemas = owner.create(MetaCacheDefinition
                 .<TableKey, Schema>builder("adbc-table-schema", spec,
                         key -> ScopePath.table(key.dorisDbName, key.table))
+                .budgetGroup(ENTRY)
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
     }
 

@@ -504,11 +504,9 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
             }
             result = oldSort.get().withOrderKeysAndChild(newOrderKeys, result);
         }
-        if (!hasAggregateFunc.get()) {
-            // handle for miss slots case, add a top project
-            result = new LogicalProject<>(ImmutableList.copyOf(oldProject.getOutput()), result);
-        }
-        return result;
+        // The outputs appended for HAVING and ORDER BY are implementation details. Restore the
+        // original projection contract after those operators have consumed their helper slots.
+        return new LogicalProject<>(ImmutableList.copyOf(oldProject.getOutput()), result);
     }
 
     private void collectNotExistsSlotAndAggFunc(Expression expression, Set<Slot> oldProjectSlots,

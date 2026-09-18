@@ -303,7 +303,7 @@ protected:
         EXPECT_EQ(execution.stats.inverted_index_query_cache_miss, 0);
         EXPECT_EQ(execution.stats.inverted_index_query_cache_lookup, 1);
         EXPECT_EQ(execution.stats.inverted_index_query_cache_insert, 0);
-        // 命中发生在打开 logical reader 之前：searcher cache 完全没有被触碰。
+        // The hit occurs before opening the logical reader, without touching the searcher cache.
         EXPECT_EQ(execution.stats.inverted_index_searcher_cache_hit, 0);
         EXPECT_EQ(execution.stats.inverted_index_searcher_cache_miss, 0);
     }
@@ -365,8 +365,8 @@ TEST(InvertedIndexRawQuerySemanticTest, CacheEnvelopeSeparatesSlashAndNulBoundar
     EXPECT_NE(nul_left.encode(), nul_right.encode());
 }
 
-// 结果缓存的键只有 (索引文件, 列, 查询类型, 原始查询字节)：命中发生在打开 segment 与
-// 任何分词之前，所以即使 analyzer provider 会失败，缓存命中也照常返回。
+// Result cache keys contain only (index file, column, query type, raw query bytes). Hits precede
+// opening the segment and analysis, so they succeed even if the analyzer provider would fail.
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, SniiRawCacheHitHappensBeforeSegmentOpenAndAnalysis) {
     preload_legacy_searcher_cache_entries();
     expect_raw_cache_hit_after_segment_admission(

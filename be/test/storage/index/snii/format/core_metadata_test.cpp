@@ -46,7 +46,7 @@ CoreMetadata sample_core(IndexConfig index_config = IndexConfig::kDocsOnly) {
                              .norms = {},
                              .null_bitmap = {.offset = 41, .length = 42},
                              .bsbf = {.offset = 51, .length = 52}};
-    // norms 只对带位置的段合法（BM25 的词频来自位置）；docs-only 样本不带 norms。
+    // Norms require positions for BM25 frequencies; docs-only samples omit them.
     if (has_positions(index_config)) {
         metadata.section_refs.norms = {.offset = 31, .length = 32};
     }
@@ -109,7 +109,7 @@ void expect_core_eq(const CoreMetadata& expected, const CoreMetadata& actual) {
     EXPECT_EQ(expected.section_refs.bsbf.length, actual.section_refs.bsbf.length);
 }
 
-// docs-only 段不能带 norms（norms 需要位置）：这是 A2 之后 core 元数据的一条硬约束。
+// Since A2, core metadata forbids norms on docs-only segments: norms require positions.
 TEST(SniiCoreMetadata, RejectsNormsOnDocsOnlyIndex) {
     auto metadata = sample_core();
     metadata.section_refs.norms = {.offset = 31, .length = 32};
@@ -132,11 +132,11 @@ TEST(SniiCoreMetadata, RoundTripsPositions) {
     expect_core_eq(expected, actual);
 }
 
-// CommonGrams 已删除：写过字段 4（CommonGrams 元数据）或字段 5（posting 策略）的段是墓碑，
-// 必须重建索引。生产 writer 从未写过这两个字段。
+// CommonGrams was removed: fields 4 (CommonGrams metadata) and 5 (posting policy) mark unsupported
+// segments that require an index rebuild. Production writers never emitted these fields.
 TEST(SniiCoreMetadata, RejectsLegacyCommonGramsMetadataFieldAsUnsupported) {
     auto payload = payload_of(encode(sample_core(IndexConfig::kDocsPositions)));
-    // 字段 4，length-delimited，任意内容。
+    // Field 4, length-delimited, with arbitrary contents.
     payload.push_back(static_cast<uint8_t>((4u << 3) | 2u));
     payload.push_back(3);
     payload.insert(payload.end(), {'c', 'g', '1'});
@@ -193,8 +193,9 @@ TEST(SniiCoreMetadata, RejectsUnsupportedIndexConfig) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
-// master 开发期曾用 index_config=2 表示"带打分 tier"；打分能力现在由 norms region 表达，
-// 该取值不再有意义，按不支持拒绝（从未进入生产，不存在兼容负担）。
+// During development on master, index_config=2 denoted a scoring tier. The norms region now
+// determines scoring capability, so reject this obsolete value. It was never deployed to
+// production and has no compatibility requirements.
 TEST(SniiCoreMetadata, RejectsLegacyScoringIndexConfigAsUnsupported) {
     auto payload = payload_of(encode(sample_core()));
     ByteSink field;
@@ -207,8 +208,8 @@ TEST(SniiCoreMetadata, RejectsLegacyScoringIndexConfigAsUnsupported) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
-// 已上线的 3.1 系生产 writer 不写 stats.sum_total_term_freq 与
-// section_refs.norms：这种形态必须能打开，缺失的统计按 0、norms 按空 region 处理。
+// The deployed 3.1-series writer omits stats.sum_total_term_freq and section_refs.norms. Such
+// segments must remain readable, with missing statistics set to 0 and an empty norms region.
 TEST(SniiCoreMetadata, AcceptsProductionShapeWithoutNormsAndTotalTermFreq) {
     const auto metadata = sample_core(IndexConfig::kDocsPositions);
     const auto payload = mutate_core_payload(metadata, [](auto* core) {
@@ -226,7 +227,7 @@ TEST(SniiCoreMetadata, AcceptsProductionShapeWithoutNormsAndTotalTermFreq) {
     EXPECT_EQ(actual.section_refs.bsbf.length, metadata.section_refs.bsbf.length);
 }
 
-// 没有 norms 的段编码时不写 section_refs.norms（与生产 writer 的字节形态一致）。
+// Segments without norms omit section_refs.norms, matching the production writer's bytes.
 TEST(SniiCoreMetadata, OmitsEmptyNormsRefOnEncode) {
     auto metadata = sample_core(IndexConfig::kDocsPositions);
     metadata.section_refs.norms = {};
@@ -244,7 +245,7 @@ TEST(SniiCoreMetadata, OmitsEmptyNormsRefOnEncode) {
 
 TEST(SniiCoreMetadata, RejectsMissingEachStatsField) {
     const auto metadata = sample_core();
-    // sum_total_term_freq 是可选字段（生产 writer 不写），不在必填之列。
+    // sum_total_term_freq is optional and omitted by the production writer.
     for (const auto clear : std::array<void (doris::snii::SniiStatsPB::*)(), 4> {
                  &doris::snii::SniiStatsPB::clear_doc_count,
                  &doris::snii::SniiStatsPB::clear_indexed_doc_count,

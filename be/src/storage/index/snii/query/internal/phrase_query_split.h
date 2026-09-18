@@ -173,8 +173,8 @@ struct PhraseTermMapping {
 
 PhraseTermMapping build_phrase_term_mapping(const std::vector<std::string>& terms);
 
-// 把一个已解析的 term 以给定位置偏移追加到 phrase 计划（unique_terms 去重）。定义在
-// phrase_plan.cpp；以前只靠 unity build 的拼接顺序"碰巧"可见。
+// Append a parsed term at the given position offset, deduplicating it in unique_terms.
+// Defined in phrase_plan.cpp; visibility previously depended on the unity build's source order.
 void append_resolved_phrase_clause(ResolvedQueryTerm term, uint32_t position_offset,
                                    internal::ResolvedPhrasePlan* plan);
 

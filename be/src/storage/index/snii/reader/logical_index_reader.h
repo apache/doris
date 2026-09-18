@@ -178,7 +178,7 @@ public:
     const format::StatsBlock& stats() const { return core_.stats; }
     format::IndexTier tier() const { return tier_; }
     bool has_positions() const { return has_positions_; }
-    // 是否带 BM25 norms（分词 + 带位置的索引由新版 writer 写出；老段没有）。
+    // Whether BM25 norms exist: current writers emit them for analyzed indexes with positions.
     bool has_norms() const { return core_.section_refs.norms.length != 0; }
     LogicalIndexOpenMode open_mode() const { return open_mode_; }
     io::FileReader* reader() const { return reader_; }

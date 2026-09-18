@@ -96,8 +96,8 @@ void init_failure_index_meta(doris::TabletIndex* index_meta, int64_t index_id) {
     index_meta->init_from_pb(index_pb);
 }
 
-// 分词过程中抛 INVERTED_INDEX_ANALYZER_ERROR 的分析器：模拟任何 token filter 的运行期失败
-// （以前由某个词元过滤器的 UTF-8 校验扮演这个角色）。
+// An analyzer that throws INVERTED_INDEX_ANALYZER_ERROR to simulate a token filter's runtime
+// failure. Previously, a token filter's UTF-8 validation provided this failure path.
 class ThrowingTokenStream final : public lucene::analysis::TokenStream {
 public:
     lucene::analysis::Token* next(lucene::analysis::Token*) override {
@@ -331,6 +331,50 @@ TEST(SniiWriterFailureLatch, AnalyzerFailureDiscardsStateAndBlocksFinish) {
     EXPECT_EQ(writer.finish().code(), doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
     EXPECT_EQ(writer.term_buffer_for_test(), nullptr);
     EXPECT_EQ(writer.memory_reporter_for_test(), nullptr);
+}
+
+// The writer follows the norms policy it shares with the CLucene writer and SNII compaction: the
+// "norms" property, and on a variant path inverted_index_skip_norms_for_variant, which wins over
+// the property.
+TEST(SniiWriterNorms, WritesNormsFollowSharedNormsPolicy) {
+    const bool original_skip_norms_for_variant =
+            doris::config::inverted_index_skip_norms_for_variant;
+    auto writes_norms = [](const std::map<std::string, std::string>& extra_properties,
+                           const std::string& index_suffix) {
+        doris::TabletIndexPB index_pb;
+        index_pb.set_index_type(doris::IndexType::INVERTED);
+        index_pb.set_index_id(92);
+        index_pb.set_index_name("norms_policy");
+        index_pb.add_col_unique_id(0);
+        index_pb.set_index_suffix_name(index_suffix);
+        index_pb.mutable_properties()->insert({"parser", "english"});
+        index_pb.mutable_properties()->insert({"support_phrase", "true"});
+        for (const auto& [key, value] : extra_properties) {
+            index_pb.mutable_properties()->insert({key, value});
+        }
+        doris::TabletIndex index_meta;
+        index_meta.init_from_pb(index_pb);
+        doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
+                                                        doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+        const doris::Status status = writer.init();
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        return writer.writes_norms_for_test();
+    };
+
+    doris::config::inverted_index_skip_norms_for_variant = false;
+    EXPECT_TRUE(writes_norms({}, ""));
+    EXPECT_FALSE(writes_norms({{"norms", "false"}}, ""));
+    EXPECT_TRUE(writes_norms({}, "v.s_host"));
+    EXPECT_FALSE(writes_norms({{"norms", "false"}}, "v.s_host"));
+    EXPECT_TRUE(writes_norms({{"field_pattern", "s_*"}}, ""));
+
+    doris::config::inverted_index_skip_norms_for_variant = true;
+    EXPECT_TRUE(writes_norms({}, ""));
+    EXPECT_FALSE(writes_norms({}, "v.s_host"));
+    EXPECT_FALSE(writes_norms({{"norms", "true"}}, "v.s_host"));
+    EXPECT_FALSE(writes_norms({{"field_pattern", "s_*"}}, ""));
+
+    doris::config::inverted_index_skip_norms_for_variant = original_skip_norms_for_variant;
 }
 
 TEST(SniiDocIdSinkGrowth, AppendRangeGrowsGeometrically) {

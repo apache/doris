@@ -81,6 +81,30 @@ DataSet make_md5_varbinary_dataset(const std::vector<std::string>& inputs) {
 
 } // namespace
 
+TEST(function_string_test, parse_data_size_nullable) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_STRING};
+    const DataSet data_set = {{{Null()}, Null()},
+                              {{std::string("1MB")}, LARGEINT(1048576)},
+                              {{Null()}, Null()},
+                              {{std::string("2.5MB")}, LARGEINT(2621440)},
+                              {{std::string("0B")}, LARGEINT(0)},
+                              {{Null()}, Null()}};
+    check_function_all_arg_comb<DataTypeInt128, true>("parse_data_size", input_types, data_set);
+    check_function_all_arg_comb<DataTypeInt128, true>("parse_data_size", input_types,
+                                                      {{{Null()}, Null()}, {{Null()}, Null()}});
+
+    const InputTypeSet not_null_types = {Notnull {PrimitiveType::TYPE_STRING}};
+    const DataSet not_null_data = {{{std::string("1MB")}, LARGEINT(1048576)},
+                                   {{std::string("0B")}, LARGEINT(0)}};
+    ASSERT_TRUE(
+            check_function<DataTypeInt128>("parse_data_size", not_null_types, not_null_data).ok());
+    const InputTypeSet const_not_null_types = {ConstedNotnull {PrimitiveType::TYPE_STRING}};
+    for (const auto& row : not_null_data) {
+        ASSERT_TRUE(check_function<DataTypeInt128>("parse_data_size", const_not_null_types, {row})
+                            .ok());
+    }
+}
+
 TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
     const InputTypeSet list_input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
                                            Consted {PrimitiveType::TYPE_VARCHAR}};
@@ -2648,7 +2672,14 @@ TEST(function_string_test, function_extract_url_parameter_test) {
             {{VARCHAR("http://doris.apache.org?k1=aa&k2=bb&test=dd#999/"), VARCHAR("k3")},
              {VARCHAR("")}},
             {{VARCHAR("http://doris.apache.org?k1=aa&k2=bb&test=dd#999/"), VARCHAR("test")},
-             {VARCHAR("dd")}}};
+             {VARCHAR("dd")}},
+            // The first '#' comes before the first '?', so the '?' belongs to the fragment and
+            // the url has no parameters.
+            {{VARCHAR("http://doris.apache.org#f?k1=aa"), VARCHAR("k1")}, {VARCHAR("")}},
+            {{VARCHAR("http://doris.apache.org#f?k1=aa"), VARCHAR("aa")}, {VARCHAR("")}},
+            // The parameters end before the fragment.
+            {{VARCHAR("http://doris.apache.org?k1=aa#f?k2=bb"), VARCHAR("k1")}, {VARCHAR("aa")}},
+            {{VARCHAR("http://doris.apache.org?k1=aa#f?k2=bb"), VARCHAR("k2")}, {VARCHAR("")}}};
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
@@ -2698,7 +2729,14 @@ TEST(function_string_test, function_parse_url_test) {
                           "https://www.facebook.com/aa/bb?returnpage=https://www.facebook.com/"),
                   std::string("HosT")},
                  std::string("www.facebook.com")},
-                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}}};
+                {{std::string("http://www.baidu.com"), std::string("FILE")}, {std::string("")}},
+                // The first '#' comes before the first '?', so the '?' belongs to the fragment
+                // and the url has no query component.
+                {{std::string("http://h/p#f?k=v"), std::string("QUERY")}, {Null()}},
+                {{std::string("http://h/p#f/?#k=v"), std::string("QUERY")}, {Null()}},
+                // The query component ends before the fragment.
+                {{std::string("http://h/p?k=1#f&k=2"), std::string("QUERY")}, {std::string("k=1")}},
+                {{std::string("http://h/p?"), std::string("QUERY")}, {std::string("")}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }
@@ -2717,7 +2755,15 @@ TEST(function_string_test, function_parse_url_test) {
                  {Null()}},
                 {{std::string("http://fb.com/path/p1.p?q=1#f"), std::string("HOST"),
                   std::string("q")},
-                 {Null()}}};
+                 {Null()}},
+                // The only '?' is inside the fragment, so the url has no query component.
+                {{std::string("http://h/p#f?k=v"), std::string("QUERY"), std::string("k")},
+                 {Null()}},
+                // A duplicated key returns the first value.
+                {{std::string("http://h/p?k=1&k=2#f"), std::string("QUERY"), std::string("k")},
+                 {std::string("1")}},
+                {{std::string("http://h/p?k=1&k=2&k=3"), std::string("QUERY"), std::string("k")},
+                 {std::string("1")}}};
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     }

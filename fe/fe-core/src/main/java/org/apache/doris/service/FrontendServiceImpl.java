@@ -71,6 +71,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -234,6 +235,7 @@ import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TGroupCommitInfo;
+import org.apache.doris.thrift.TIncrWindowNotReady;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TInsertOverwriteRecordRequest;
@@ -1264,7 +1266,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private ConnectContext createForwardContext(TMasterOpRequest params, Frontend requester) {
-        ConnectContext context = new ConnectContext(null, true, params.getSessionId());
+        ConnectContext context = ConnectContext.forMysqlProxy(params.getSessionId());
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
@@ -3404,9 +3406,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
                             request.getDbToTableIds(),
                             request.isSetEndTimestampMs() ? request.getEndTimestampMs() : null,
-                            request.getTimeoutMs(), request.isWaitForTransactions());
+                            request.getTimeoutMs(), request.isWaitForTransactions(), request.isAllEndsExplicit());
             result.setCurrentTso(fence.getCurrentTso());
             result.setMaxJournalId(fence.getMaxJournalId());
+            result.setCommittedTso(fence.getCommittedTso());
+        } catch (IncrWindowNotReadyException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getDetailMessage());
+            result.setWindowNotReady(new TIncrWindowNotReady(
+                    e.getRequestedEndTimestampMs(), e.getCommittedTso(), e.getRetryAfterMs())
+                    .setCurrentTso(e.getCurrentTso()).setErrorCode(e.getMysqlErrorCode().getCode())
+                    .setTimeoutMs(e.getTimeoutMs()).setReason(e.getReason()));
         } catch (UserException e) {
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getDetailMessage());
@@ -4041,7 +4051,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (syncJournal) {
-                ConnectContext ctx = new ConnectContext(null);
+                ConnectContext ctx = new ConnectContext();
                 ctx.setDatabase(request.getDb());
                 ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
                 ctx.setEnv(Env.getCurrentEnv());

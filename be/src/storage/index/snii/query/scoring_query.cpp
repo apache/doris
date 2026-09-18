@@ -52,7 +52,7 @@ struct TermPosting {
     double score = 0.0;
 };
 
-// 磁盘上没有词频区：BM25 的 tf 就是该 term 在文档里的位置个数（与 Lucene 系打分定义一致）。
+// With no on-disk frequency region, BM25 tf is the term's position count, as in Lucene scoring.
 Status require_positions(const LogicalIndexReader& idx) {
     if (!idx.has_positions()) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(

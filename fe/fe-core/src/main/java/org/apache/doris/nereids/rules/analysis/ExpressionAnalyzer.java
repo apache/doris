@@ -225,7 +225,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
      * ******************************************************************************************** */
     @Override
     public Expression visitUnboundVariable(UnboundVariable unboundVariable, ExpressionRewriteContext context) {
-        return resolveUnboundVariable(unboundVariable);
+        Variable variable = resolveUnboundVariable(unboundVariable);
+        if (wantToParseSqlFromSqlCache) {
+            getCascadesContext().getStatementContext().getSqlCacheContext()
+                    .ifPresent(sqlCacheContext -> sqlCacheContext.addUsedVariable(variable));
+        }
+        return variable.getRealExpression();
     }
 
     /** resolveUnboundVariable */

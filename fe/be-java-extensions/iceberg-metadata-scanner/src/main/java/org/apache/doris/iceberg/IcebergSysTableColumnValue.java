@@ -17,7 +17,7 @@
 
 package org.apache.doris.iceberg;
 
-import org.apache.doris.common.jni.vec.ColumnValue;
+import org.apache.doris.jni.spi.vec.ColumnValue;
 
 import org.apache.iceberg.StructLike;
 

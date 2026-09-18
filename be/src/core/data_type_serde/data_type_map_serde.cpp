@@ -690,7 +690,7 @@ Status DataTypeMapSerDe::serialize_column_to_jsonb(const IColumn& from_column, i
         auto key_str = key_string_column->get_data_at(i);
         // check key size
         if (key_str.size > std::numeric_limits<uint8_t>::max()) {
-            return Status::InternalError("key size exceeds max limit {} ", key_str.to_string());
+            return Status::InvalidArgument("key size exceeds max limit {} ", key_str.to_string());
         }
         // write key
         if (!writer.writeKey(key_str.data, (uint8_t)key_str.size)) {

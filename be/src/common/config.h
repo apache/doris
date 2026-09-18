@@ -1462,6 +1462,11 @@ DECLARE_mBool(debug_inverted_index_compaction);
 DECLARE_mBool(inverted_index_ram_dir_enable);
 // wheather index by RAM directory when base compaction
 DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
+// Norms cost one byte per segment row, including rows that hold no value for the field. A segment
+// holds one index per variant path, so writing norms for them costs rows * paths bytes. Turn this on
+// to leave norms out of every index on a variant path, whatever its "norms" property says; BM25
+// scoring (score()) on those indexes then fails.
+DECLARE_mBool(inverted_index_skip_norms_for_variant);
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DECLARE_Int32(num_broadcast_buffer);
 
@@ -1592,6 +1597,8 @@ DECLARE_mBool(enable_mow_get_agg_by_cache);
 DECLARE_mBool(enable_mow_get_agg_correctness_check_core);
 DECLARE_mBool(enable_agg_and_remove_pre_rowsets_delete_bitmap);
 DECLARE_mBool(enable_check_agg_and_remove_pre_rowsets_delete_bitmap);
+DECLARE_mBool(enable_remove_agg_pre_rowsets_delete_bitmap_by_keys);
+DECLARE_mBool(enable_remove_pre_rowsets_delete_bitmap_by_keys);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_String(user_files_secure_path);
@@ -1756,6 +1763,11 @@ DECLARE_String(tmp_file_dir);
 
 // the directory for storing the trino-connector plugins.
 DECLARE_String(trino_connector_plugin_dir);
+
+DECLARE_String(jni_plugin_dir);
+DECLARE_String(jni_plugin_hadoop_conf_dir);
+DECLARE_String(jni_plugin_fs_dir);
+DECLARE_Bool(java_plugin_warmup);
 
 // the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
 DECLARE_mString(ca_cert_file_paths);
