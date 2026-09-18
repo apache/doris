@@ -144,18 +144,19 @@ public:
             }
         }
 
-        if (nullable) {
-            return nullable_aggregate_functions.find(name_str) == nullable_aggregate_functions.end()
-                           ? nullptr
-                           : nullable_aggregate_functions[name_str](name_str, argument_types,
-                                                                    result_type, result_is_nullable,
-                                                                    attr);
-        } else {
-            return aggregate_functions.find(name_str) == aggregate_functions.end()
-                           ? nullptr
-                           : aggregate_functions[name_str](name_str, argument_types, result_type,
-                                                           result_is_nullable, attr);
+        const auto& functions = nullable ? nullable_aggregate_functions : aggregate_functions;
+        auto function_iter = functions.find(name_str);
+        if (function_iter == functions.end()) {
+            return nullptr;
         }
+
+        auto function = function_iter->second(name_str, argument_types, result_type,
+                                              result_is_nullable, attr);
+        if (function != nullptr) {
+            DCHECK_LE(function->align_of_data(), 16)
+                    << "Aggregate function " << name_str << " requires unsupported alignment";
+        }
+        return function;
     }
 
     void register_function(const std::string& name, const Creator& creator, bool nullable = false) {
