@@ -80,6 +80,20 @@ TEST(FunctionIpTest, StringToNumRejectsEmbeddedNullTail) {
     check_function_all_arg_comb<DataTypeString, true>("inet6_aton", input_types, ipv6_null_data);
 }
 
+TEST(FunctionIpTest, StringToIPv6AcceptsLongIPv4Spellings) {
+    std::string mapped_ipv4_zero(IPV6_BINARY_LENGTH, '\0');
+    mapped_ipv4_zero[10] = static_cast<char>(0xff);
+    mapped_ipv4_zero[11] = static_cast<char>(0xff);
+
+    for (const auto& [input, input_type] :
+         {std::pair {std::string("0000.0000.0000.0"), InputTypeSet {PrimitiveType::TYPE_VARCHAR}},
+          std::pair {std::string("0000.0000.0000.0000"),
+                     InputTypeSet {Consted {PrimitiveType::TYPE_VARCHAR}}}}) {
+        const DataSet data = {{{input}, mapped_ipv4_zero}};
+        static_cast<void>(check_function<DataTypeString>("ipv6_string_to_num", input_type, data));
+    }
+}
+
 TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
     std::string func_name = "is_ip_address_in_range";
 

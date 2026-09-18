@@ -43,6 +43,7 @@
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/ip_address_cidr.h"
+#include "core/value/ipv4_value.h"
 #include "exec/common/endian.h"
 #include "exec/common/format_ip.h"
 #include "exec/common/ipv6_to_binary.h"
@@ -382,8 +383,6 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
     }
 
     for (size_t out_offset = 0, i = 0; i < column_size; out_offset += offset_inc, ++i) {
-        constexpr size_t ipv4_prefix_length = sizeof("::ffff:") - 1;
-        char src_ipv4_buf[ipv4_prefix_length + IPV4_MAX_TEXT_LENGTH] = "::ffff:";
         const auto src = string_column.get_data_at(i);
         const char* src_value = src.begin();
         const char* src_end = src.end();
@@ -418,9 +417,8 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
         size_t string_length = src.size;
         if (string_length != 0) {
             if (try_parse_ipv4(src_value, src_end, dummy_result)) {
-                memcpy(src_ipv4_buf + ipv4_prefix_length, src_value, string_length);
-                parse_result = parse_ipv6_whole(
-                        src_ipv4_buf, src_ipv4_buf + ipv4_prefix_length + string_length, res_value);
+                map_ipv4_to_ipv6(static_cast<IPv4>(dummy_result), res_value);
+                parse_result = true;
             } else {
                 parse_result = parse_ipv6_whole(src_value, src_end, res_value);
             }
