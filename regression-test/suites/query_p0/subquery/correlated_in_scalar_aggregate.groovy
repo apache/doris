@@ -120,6 +120,13 @@ suite("correlated_in_scalar_aggregate") {
         SELECT m.k, m.k IN (SELECT count(*) AS c FROM cisa_i i HAVING c = m.k) AS v
         FROM cisa_m m ORDER BY m.k
     """
+    // the HAVING clause filters the only row which the aggregation of a correlation key produces
+    // (count(*) = m.k is unknown for the null key), so the right side of the mark join is empty:
+    // the outer row with the null key probes that empty build side with a null probe key
+    order_qt_in_having_filters_the_aggregation """
+        SELECT m.k, m.k IN (SELECT count(*) FROM cisa_i i WHERE i.k = m.k HAVING count(*) = m.k) AS v
+        FROM cisa_m m ORDER BY m.k
+    """
     // a HAVING clause which does not reference the outer query keeps the comparison of the values of
     // the subquery (null and false are different results here)
     order_qt_in_having_uncorrelated """
@@ -156,6 +163,13 @@ suite("correlated_in_scalar_aggregate") {
     order_qt_scalar_lt_sum """
         SELECT o.k, (SELECT sum(i.g) FROM cisa_i i WHERE i.k < o.k) AS s FROM cisa_o o ORDER BY o.k
     """
+    // the number of values which topn_array keeps controls the aggregate: it is not replaced by the
+    // guard of the row which is kept for an empty correlated domain, while the values which the
+    // aggregate aggregates are (the array is sorted to make the order of its values deterministic)
+    order_qt_scalar_lt_topn_array """
+        SELECT o.k, array_sort((SELECT topn_array(i.g, 1) FROM cisa_i i WHERE i.k < o.k)) AS a
+        FROM cisa_o o ORDER BY o.k
+    """
     // `i.k <=> o.k` is an equality as well, but one whose domain contains the inner rows of the
     // null key: the condition of the left outer join of a scalar subquery cannot express it, so it
     // is evaluated on the aggregation of the domain as well (the outer row with the null key
@@ -187,6 +201,15 @@ suite("correlated_in_scalar_aggregate") {
     order_qt_in_nested_aggregation """
         SELECT o.k FROM cisa_o o
         WHERE o.k IN (SELECT max(c) FROM (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x)
+        ORDER BY o.k
+    """
+    // a HAVING clause which reads the aggregation above the aggregation of the derived table: the
+    // predicate is pulled into the apply and reads the output of that aggregation, while the
+    // projections below it may only expose the correlation key
+    order_qt_in_nested_aggregation_having """
+        SELECT o.k FROM cisa_o o
+        WHERE o.k IN (SELECT max(c) FROM (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x
+            HAVING max(c) <= o.k)
         ORDER BY o.k
     """
 

@@ -82,6 +82,12 @@
 4	true
 9	false
 
+-- !in_having_filters_the_aggregation --
+\N	false
+3	false
+4	false
+9	false
+
 -- !in_having_uncorrelated --
 \N	\N
 3	false
@@ -116,6 +122,13 @@
 2	10
 7	40
 
+-- !scalar_lt_topn_array --
+\N	\N
+-1	\N
+1	\N
+2	[10]
+7	[10]
+
 -- !scalar_nullsafe_equal_count --
 \N	1
 -1	0
@@ -145,5 +158,8 @@
 7	\N
 
 -- !in_nested_aggregation --
+1
+
+-- !in_nested_aggregation_having --
 1
 
