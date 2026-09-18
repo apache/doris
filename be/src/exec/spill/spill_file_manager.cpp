@@ -94,7 +94,7 @@ void SpillFileManager::stop() {
     }
     // doris_main flushes before deciding how to exit; this covers the graceful-exit-check path
     // and tests, where stop() is the last chance.
-    flush_remote_spill_stats();
+    _report_remote_spill_stats(true);
     // The GC thread may observe the stop latch before processing a recently queued failed deletion.
     // Retry the pending directories after the thread exits; later failures get one final retry in
     // the destructor.
@@ -395,7 +395,7 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
     }};
     _retry_pending_query_spill_directories();
     if (_remote_store != nullptr) {
-        _remote_gc(_remote_store);
+        _remote_gc();
     }
     for (auto* store_dir : _local_stores) {
         std::string gc_root_dir = store_dir->get_spill_data_gc_path();
@@ -445,15 +445,15 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
     }
 }
 
-void SpillFileManager::_remote_gc(RemoteSpillDataDir* store) {
-    if (!store->ready()) {
+void SpillFileManager::_remote_gc() {
+    if (!_remote_store->ready()) {
         // Retry about once a minute at the default 2s GC interval. ensure_ready() reads what
         // the vault refresh thread and the FE heartbeat already brought in, plus one bounded
         // meta-service call for the instance id.
         if (_remote_not_ready_rounds++ % 30 != 0) {
             return;
         }
-        auto st = store->ensure_ready();
+        auto st = _remote_store->ensure_ready();
         if (!st.ok()) {
             LOG(WARNING) << "remote spill store is not ready yet: " << st;
             return;
@@ -461,15 +461,15 @@ void SpillFileManager::_remote_gc(RemoteSpillDataDir* store) {
     }
     // About once a minute at the default 2s GC interval, starting with the first round.
     if (_remote_report_rounds++ % 30 == 0) {
-        _report_remote_spill_stats(store);
+        _report_remote_spill_stats(false);
     }
-    if (BackendOptions::get_backend_id() != store->backend_id()) {
+    if (BackendOptions::get_backend_id() != _remote_store->backend_id()) {
         // DROP + ADD BACKEND of a live node hands it a new id. The store keeps the id it was
         // bound with (objects and stats of this process stay consistent); the new id takes
         // effect at the next restart, and the objects under the old id are left to the
         // meta-service recycler.
-        LOG_EVERY_T(WARNING, 3600) << "backend id changed from " << store->backend_id() << " to "
-                                   << BackendOptions::get_backend_id()
+        LOG_EVERY_T(WARNING, 3600) << "backend id changed from " << _remote_store->backend_id()
+                                   << " to " << BackendOptions::get_backend_id()
                                    << " while the remote spill store is bound; restart the BE to "
                                       "spill under the new id";
     }
@@ -481,7 +481,7 @@ void SpillFileManager::_remote_gc(RemoteSpillDataDir* store) {
         _remote_boot_marker_pending.store(true, std::memory_order_release);
     }
     if (_remote_boot_marker_pending.load(std::memory_order_acquire)) {
-        auto st = _remote_write_boot_marker(store);
+        auto st = _remote_write_boot_marker();
         if (!st.ok()) {
             LOG_EVERY_T(WARNING, 60) << "failed to write the spill boot marker, will retry: " << st;
             return;
@@ -492,7 +492,7 @@ void SpillFileManager::_remote_gc(RemoteSpillDataDir* store) {
         return;
     }
     bool done = false;
-    auto st = _remote_startup_cleanup(store, &done);
+    auto st = _remote_startup_cleanup(&done);
     if (!st.ok()) {
         LOG_EVERY_T(WARNING, 60) << "failed to clean up spill objects of previous boots, will "
                                     "retry: "
@@ -502,17 +502,12 @@ void SpillFileManager::_remote_gc(RemoteSpillDataDir* store) {
     }
 }
 
-Status SpillFileManager::_remote_write_boot_marker(RemoteSpillDataDir* store) {
+Status SpillFileManager::_remote_write_boot_marker() {
     io::FileWriterPtr writer;
-    RETURN_IF_ERROR(store->fs()->create_file(
-            store->get_remote_boot_marker_path(std::to_string(store->boot_id())), &writer));
+    RETURN_IF_ERROR(_remote_store->fs()->create_file(
+            _remote_store->get_remote_boot_marker_path(std::to_string(_remote_store->boot_id())),
+            &writer));
     return writer->close();
-}
-
-void SpillFileManager::flush_remote_spill_stats() {
-    if (_remote_store != nullptr) {
-        _report_remote_spill_stats(_remote_store, /*final_report=*/true);
-    }
 }
 
 void SpillFileManager::set_remote_spill_report_fn_for_test(RemoteSpillReportFn fn,
@@ -523,14 +518,16 @@ void SpillFileManager::set_remote_spill_report_fn_for_test(RemoteSpillReportFn f
 }
 
 void SpillFileManager::report_remote_spill_stats_for_test(bool final_report) {
-    if (_remote_store != nullptr) {
-        _report_remote_spill_stats(_remote_store, final_report);
-    }
+    _report_remote_spill_stats(final_report);
 }
 
-void SpillFileManager::_report_remote_spill_stats(RemoteSpillDataDir* store, bool final_report) {
+void SpillFileManager::_report_remote_spill_stats(bool final_report) {
+    if (!config::is_cloud_mode()) {
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(_remote_report_mutex);
-    if (!store->ready() || !config::is_cloud_mode()) {
+    if (!_remote_store || !_remote_store->ready()) {
         return;
     }
     // The spill data this process holds in object storage right now (bytes reserved for parts
@@ -538,7 +535,7 @@ void SpillFileManager::_report_remote_spill_stats(RemoteSpillDataDir* store, boo
     // (wall clock, evaluated on the GC cadence) so that meta-service can tell a live BE with
     // stable spill from one that is gone: a record that is not refreshed within
     // spill_objects_expire_time_second no longer counts.
-    const int64_t spill_bytes = store->get_spill_data_bytes();
+    const int64_t spill_bytes = _remote_store->get_spill_data_bytes();
     const int64_t now_ms = MonotonicMillis();
     const bool heartbeat_due = now_ms - _remote_last_report_ms >= _remote_report_heartbeat_ms;
     if (spill_bytes == _reported_remote_spill_bytes && !heartbeat_due) {
@@ -550,10 +547,11 @@ void SpillFileManager::_report_remote_spill_stats(RemoteSpillDataDir* store, boo
     const int64_t report_seq = ++_remote_report_seq;
     Status st;
     if (_remote_report_fn != nullptr) {
-        st = _remote_report_fn(store->backend_id(), store->boot_id(), report_seq, spill_bytes);
+        st = _remote_report_fn(_remote_store->backend_id(), _remote_store->boot_id(), report_seq,
+                               spill_bytes);
     } else {
         st = ExecEnv::GetInstance()->storage_engine().to_cloud().meta_mgr().report_spill_stats(
-                store->backend_id(), store->boot_id(), report_seq, spill_bytes);
+                _remote_store->backend_id(), _remote_store->boot_id(), report_seq, spill_bytes);
     }
     if (!st.ok()) {
         LOG_EVERY_T(WARNING, 60) << "failed to report spill stats to meta-service"
@@ -564,9 +562,9 @@ void SpillFileManager::_report_remote_spill_stats(RemoteSpillDataDir* store, boo
     _remote_last_report_ms = now_ms;
 }
 
-Status SpillFileManager::_remote_startup_cleanup(RemoteSpillDataDir* store, bool* done) {
-    auto fs = store->fs();
-    const auto current_boot_id = std::to_string(store->boot_id());
+Status SpillFileManager::_remote_startup_cleanup(bool* done) {
+    auto fs = _remote_store->fs();
+    const auto current_boot_id = std::to_string(_remote_store->boot_id());
 
     MonotonicStopWatch watch;
     watch.start();
@@ -575,7 +573,7 @@ Status SpillFileManager::_remote_startup_cleanup(RemoteSpillDataDir* store, bool
     // being written by running queries.
     std::vector<io::FileInfo> markers;
     bool exists = false;
-    RETURN_IF_ERROR(fs->list(store->get_remote_boots_path(), true, &markers, &exists));
+    RETURN_IF_ERROR(fs->list(_remote_store->get_remote_boots_path(), true, &markers, &exists));
     std::set<std::string> old_generations;
     for (const auto& marker : markers) {
         if (marker.is_file && !marker.file_name.empty() && marker.file_name != current_boot_id) {
@@ -589,14 +587,14 @@ Status SpillFileManager::_remote_startup_cleanup(RemoteSpillDataDir* store, bool
     // One generation per GC round keeps the GC thread responsive; the rest wait for the next
     // round. The marker goes last so that a failed data deletion is retried.
     const auto& generation = *old_generations.begin();
-    RETURN_IF_ERROR(fs->delete_directory(store->get_remote_boot_data_path(generation)));
-    RETURN_IF_ERROR(fs->delete_file(store->get_remote_boot_marker_path(generation)));
+    RETURN_IF_ERROR(fs->delete_directory(_remote_store->get_remote_boot_data_path(generation)));
+    RETURN_IF_ERROR(fs->delete_file(_remote_store->get_remote_boot_marker_path(generation)));
     *done = old_generations.size() == 1;
     LOG(INFO) << fmt::format(
             "cleaned up spill objects of a previous boot, be_root={}, current_boot_id={}, "
             "deleted_generation={}, remaining_generations={}, cost={}",
-            store->get_remote_be_root(), current_boot_id, generation, old_generations.size() - 1,
-            PrettyPrinter::print(watch.elapsed_time(), TUnit::TIME_NS));
+            _remote_store->get_remote_be_root(), current_boot_id, generation,
+            old_generations.size() - 1, PrettyPrinter::print(watch.elapsed_time(), TUnit::TIME_NS));
     return Status::OK();
 }
 

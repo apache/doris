@@ -44,6 +44,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "storage/adaptive_thread_pool_controller.h"
 #include "storage/olap_define.h"
+#include "storage/options.h"
 #include "storage/storage_engine.h"
 #include "testutil/mock/mock_query_task_controller.h"
 #include "util/defer_op.h"
