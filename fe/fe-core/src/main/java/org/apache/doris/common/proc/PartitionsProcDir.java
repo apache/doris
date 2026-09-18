@@ -422,7 +422,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 for (int start = 0; start < partitions.size(); start += batchSize) {
                     int end = Math.min(start + batchSize, partitions.size());
                     List<CloudPartition> batch = partitions.subList(start, end);
-                    partitionVersions.addAll(CloudPartition.getSnapshotVisibleVersionFromMs(batch, false));
+                    partitionVersions.addAll(CloudPartition.getSnapshotVisibleVersionFromMs(batch, true));
                 }
             } catch (RpcException e) {
                 LOG.warn("get partition versions failed for table: {}", olapTable, e);

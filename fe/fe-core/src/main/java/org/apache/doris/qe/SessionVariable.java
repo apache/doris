@@ -864,6 +864,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String COMPUTE_GROUP = "compute_group";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
     public static final String CLOUD_FORCE_SYNC_VERSION = "cloud_force_sync_version";
+    public static final String CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN = "cloud_get_version_wait_for_pending_txn";
     public static final String CLOUD_PARTITION_VERSION_CACHE_TTL_MS =
             "cloud_partition_version_cache_ttl_ms";
     public static final String CLOUD_TABLE_VERSION_CACHE_TTL_MS =
@@ -3190,11 +3191,15 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = CLOUD_FORCE_SYNC_TABLET_STATS, needForward = true)
     public boolean cloudForceSyncTabletStats = false;
     @VarAttrDef.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
-    public long cloudPartitionVersionCacheTtlMs = Long.MAX_VALUE;
+    public long cloudPartitionVersionCacheTtlMs = 10 * 60 * 1000L;
     @VarAttrDef.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
     public long cloudTableVersionCacheTtlMs = Long.MAX_VALUE;
     @VarAttrDef.VarAttr(name = CLOUD_FORCE_SYNC_VERSION, needForward = true)
     public boolean cloudForceSyncVersion = false;
+    @VarAttrDef.VarAttr(name = CLOUD_GET_VERSION_WAIT_FOR_PENDING_TXN, needForward = true,
+            description = "Whether Cloud partition version RPCs wait for pending transactions. "
+                    + "Does not bypass the version cache or override explicitly specified waiting policies.")
+    public boolean cloudGetVersionWaitForPendingTxn = false;
     // CLOUD_VARIABLES_END
 
     // fetch remote schema rpc timeout
