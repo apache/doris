@@ -328,7 +328,8 @@ suite("paimon_schema_change_ddl", "p0,external,doris,external_docker,external_do
             sql """
                 ALTER TABLE `${tableName}` ORDER BY (
                     id, display_name, score, required_value, small_col,
-                    tiny_col, added_after, amount, profile, id
+                    tiny_col, added_after, amount, profile, multi_a,
+                    multi_b, id
                 )
             """
             exception "Duplicate column in reorder columns"

@@ -28,18 +28,6 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
     String catalogName = "test_pw_ao_catalog"
     String dbName = "test_pw_ao_db"
 
-    def normalizeDorisPartitions = { rows ->
-        rows.collect { row ->
-            def values = row[0].toString().split('/', -1).collect { component ->
-                int equals = component.indexOf('=')
-                assertTrue(equals >= 0, "Invalid Paimon partition path: ${row[0]}")
-                String value = java.net.URLDecoder.decode(component.substring(equals + 1), "UTF-8")
-                return value in ["__DEFAULT_PARTITION__", "__CUSTOM_DEFAULT_PARTITION__"] ? "null" : value
-            }
-            return ["{${values.join(', ')}}", row[1]]
-        }.sort { left, right -> left[0].toString() <=> right[0].toString() }
-    }
-
     // Tables are created via Spark because Doris does not yet support
     // Paimon DDL (CREATE TABLE ... engine=paimon).
     spark_paimon_multi """
@@ -149,12 +137,11 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             FROM paimon.${dbName}.`t_auto_partition\$partitions`
             ORDER BY `partition`
         """
-        def dorisPartitions = normalizeDorisPartitions(sql """
+        def dorisPartitions = sql """
             SELECT `partition`, record_count
             FROM t_auto_partition\$partitions
             ORDER BY `partition`
-        """)
-        sparkPartitions.sort { left, right -> left[0].toString() <=> right[0].toString() }
+        """
         assertSparkDorisResultEquals(sparkPartitions, dorisPartitions)
         order_qt_ao_auto_partition_metadata """
             SELECT `partition`, record_count
@@ -184,12 +171,11 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             SELECT id, name FROM t_append_default ORDER BY id
         """
 
-        // Doris does not duplicate Paimon's nullability validation. An omitted
-        // NOT NULL field without a default remains NULL and is rejected by the
-        // writer against the real Paimon schema.
+        // Master rejects an omitted NOT NULL field without a default during
+        // INSERT analysis, before the row reaches the Paimon writer.
         test {
             sql """INSERT INTO t_append_required (id) VALUES (1)"""
-            exception "Cannot write null to non-null column(name)"
+            exception "Column has no default value, column=name"
         }
 
         // A defaulted partition field uses the schema default as its logical and
