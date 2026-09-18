@@ -33,6 +33,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.common.IntervalUnit;
@@ -48,6 +49,8 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
@@ -452,6 +455,199 @@ public class MTMVTest {
         Mockito.verify(editLogItem).await();
     }
 
+    @Test
+    public void testRefreshPublishAdvancesCacheGeneration() {
+        MTMVCacheManager manager = new MTMVCacheManager();
+        HookedMTMV mtmv = buildHookedMTMV();
+        MTMVCache refreshedGuarded = Mockito.mock(MTMVCache.class);
+        MTMVCache refreshedUnguarded = Mockito.mock(MTMVCache.class);
+        mtmv.refreshGuardedCache = refreshedGuarded;
+        mtmv.refreshUnguardedCache = refreshedUnguarded;
+        long generationBefore = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
+
+        Env env = mockEnv(manager);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
+        }
+
+        long generationAfter = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
+        Assertions.assertEquals(generationBefore + 1, generationAfter);
+        Assertions.assertSame(refreshedGuarded, manager.getIfPresent(mtmv.getId(), true));
+        Assertions.assertSame(refreshedUnguarded, manager.getIfPresent(mtmv.getId(), false));
+    }
+
+    @Test
+    public void testRefreshSkipsPlanBuildWhenCacheDisabled() {
+        int originalMaxSize = Config.mtmv_cache_manage_num;
+        try {
+            Config.mtmv_cache_manage_num = 0;
+            MTMVCacheManager manager = new MTMVCacheManager();
+            HookedMTMV mtmv = buildHookedMTMV();
+            mtmv.refreshGuardedCache = Mockito.mock(MTMVCache.class);
+            mtmv.refreshUnguardedCache = Mockito.mock(MTMVCache.class);
+            long generationBefore = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
+
+            Env env = mockEnv(manager);
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
+            }
+
+            // The generation/invalidation transition still happens, but neither plan was built.
+            long generationAfter = Deencapsulation.getField(mtmv, "rewriteCacheGeneration");
+            Assertions.assertEquals(generationBefore + 1, generationAfter);
+            Assertions.assertEquals(0, mtmv.refreshBuildCount);
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+        } finally {
+            Config.mtmv_cache_manage_num = originalMaxSize;
+        }
+    }
+
+    @Test
+    public void testPausedBuilderCannotRepublishPreRefreshPlan() {
+        MTMVCacheManager manager = new MTMVCacheManager();
+        HookedMTMV mtmv = buildHookedMTMV();
+        MTMVCache prePublishPlan = Mockito.mock(MTMVCache.class);
+        MTMVCache rebuiltPlan = Mockito.mock(MTMVCache.class);
+        MTMVCache refreshedUnguarded = Mockito.mock(MTMVCache.class);
+        mtmv.lazyCaches.add(prePublishPlan);
+        mtmv.lazyCaches.add(rebuiltPlan);
+        mtmv.refreshGuardedCache = Mockito.mock(MTMVCache.class);
+        mtmv.refreshUnguardedCache = refreshedUnguarded;
+
+        Env env = mockEnv(manager);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            // The builder snapshotted the generation and is now paused outside the MV lock: the refresh
+            // publishes its pair and the fresh entry is then evicted before the builder resumes.
+            mtmv.duringLazyBuild = () -> {
+                Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
+                Assertions.assertSame(refreshedUnguarded, manager.getIfPresent(mtmv.getId(), false));
+                manager.invalidate(mtmv.getId());
+            };
+            MTMVCache published = mtmv.getOrGenerateCache(mockConnectContext());
+
+            Assertions.assertSame(rebuiltPlan, published);
+            Assertions.assertSame(rebuiltPlan, manager.getIfPresent(mtmv.getId(), false));
+            Assertions.assertNotSame(prePublishPlan, manager.getIfPresent(mtmv.getId(), false));
+        }
+    }
+
+    @Test
+    public void testTaskCompletionDoesNotPublishForDroppedMv() {
+        MTMVCacheManager manager = new MTMVCacheManager();
+        HookedMTMV mtmv = buildHookedMTMV();
+        mtmv.refreshGuardedCache = Mockito.mock(MTMVCache.class);
+        mtmv.refreshUnguardedCache = Mockito.mock(MTMVCache.class);
+
+        Env env = mockEnv(manager);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            manager.put(mtmv.getId(), true, Mockito.mock(MTMVCache.class));
+            // The task builds its caches outside the MV lock; the drop lands in that window.
+            mtmv.duringRefreshBuild = mtmv::markDropped;
+            Assertions.assertTrue(mtmv.addTaskResult(buildSuccessTaskResult(mtmv), false));
+
+            Assertions.assertTrue(mtmv.isDropped);
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+        }
+    }
+
+    @Test
+    public void testDropStopsPausedBuilderFromPublishing() {
+        MTMVCacheManager manager = new MTMVCacheManager();
+        HookedMTMV mtmv = buildHookedMTMV();
+        MTMVCache builtPlan = Mockito.mock(MTMVCache.class);
+        mtmv.lazyCaches.add(builtPlan);
+
+        Env env = mockEnv(manager);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            manager.put(mtmv.getId(), true, Mockito.mock(MTMVCache.class));
+            mtmv.duringLazyBuild = mtmv::markDropped;
+            MTMVCache generated = mtmv.getOrGenerateCache(mockConnectContext());
+
+            // The caller still gets a usable plan, but nothing survives in the Env-wide cache.
+            Assertions.assertSame(builtPlan, generated);
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+        }
+    }
+
+    private HookedMTMV buildHookedMTMV() {
+        HookedMTMV mtmv = configureMTMV(new HookedMTMV());
+        // Initialize ivmInfo, addTaskResult() dereferences it on success.
+        mtmv.getIvmInfo();
+        return mtmv;
+    }
+
+    private Env mockEnv(MTMVCacheManager manager) {
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(env.getMtmvService()).thenReturn(Mockito.mock(MTMVService.class));
+        Mockito.when(env.getMtmvCacheManager()).thenReturn(manager);
+        Mockito.when(editLog.submitEdit(Mockito.anyShort(), Mockito.any()))
+                .thenReturn(Mockito.mock(EditLogItem.class));
+        return env;
+    }
+
+    private ConnectContext mockConnectContext() {
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        Mockito.when(context.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.getAffectQueryResultInPlanVariables()).thenReturn(Map.of());
+        return context;
+    }
+
+    private AlterMTMV buildSuccessTaskResult(MTMV mtmv) {
+        MTMVRelation relation = mtmv.getRelation();
+        MTMVTask task = new MTMVTask(mtmv, relation, null);
+        task.setStatus(TaskStatus.SUCCESS);
+        AlterMTMV alterMTMV = new AlterMTMV(new TableNameInfo("db1", "mv1"), MTMVAlterOpType.ADD_TASK);
+        alterMTMV.setTask(task);
+        alterMTMV.setRelation(relation);
+        alterMTMV.setPartitionSnapshots(Map.of());
+        return alterMTMV;
+    }
+
+    /**
+     * Runs a hook inside the lock-free cache build so a refresh or a drop can be interleaved with an
+     * in-flight build deterministically, without threads.
+     */
+    private static class HookedMTMV extends MTMV {
+        private final List<MTMVCache> lazyCaches = Lists.newArrayList();
+        private Runnable duringRefreshBuild;
+        private Runnable duringLazyBuild;
+        private MTMVCache refreshGuardedCache;
+        private MTMVCache refreshUnguardedCache;
+        private int lazyBuildCount;
+        private int refreshBuildCount;
+
+        @Override
+        protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock,
+                boolean addSessionVarGuard) {
+            // needLock is true only on the refresh path, false on the lazy query path.
+            Runnable hook = needLock ? duringRefreshBuild : duringLazyBuild;
+            if (needLock) {
+                duringRefreshBuild = null;
+            } else {
+                duringLazyBuild = null;
+            }
+            if (hook != null) {
+                hook.run();
+            }
+            if (needLock) {
+                refreshBuildCount++;
+                return addSessionVarGuard ? refreshGuardedCache : refreshUnguardedCache;
+            }
+            return lazyCaches.get(Math.min(lazyBuildCount++, lazyCaches.size() - 1));
+        }
+    }
+
     private void replayAlterMvProperties(MTMV mtmv, Map<String, String> properties) {
         AlterMTMV alterMTMV = new AlterMTMV(
                 new TableNameInfo("db", "mv"), MTMVAlterOpType.ALTER_PROPERTY);
@@ -473,7 +669,10 @@ public class MTMVTest {
     }
 
     private MTMV buildSerializableMTMV() {
-        MTMV mtmv = new MTMV();
+        return configureMTMV(new MTMV());
+    }
+
+    private <T extends MTMV> T configureMTMV(T mtmv) {
         mtmv.setId(1L);
         mtmv.setQualifiedDbName("db1");
         mtmv.setRefreshInfo(buildMTMVRefreshInfo(mtmv));
