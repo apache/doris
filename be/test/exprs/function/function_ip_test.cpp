@@ -94,6 +94,31 @@ TEST(FunctionIpTest, StringToIPv6AcceptsLongIPv4Spellings) {
     }
 }
 
+TEST(FunctionIpTest, IPv4CompatAndMappedRequireIPv6BinaryLength) {
+    const std::string ipv4_address = {static_cast<char>(0xc0), static_cast<char>(0xa8), '\0',
+                                      static_cast<char>(0x01)};
+
+    const std::string compat_prefix(IPV6_BINARY_LENGTH - IPV4_BINARY_LENGTH, '\0');
+    const std::string compat_address = compat_prefix + ipv4_address;
+    const DataSet compat_data = {{{compat_prefix}, uint8_t {0}},
+                                 {{ipv4_address}, uint8_t {0}},
+                                 {{compat_address}, uint8_t {1}},
+                                 {{compat_address + '\0'}, uint8_t {0}}};
+
+    const std::string mapped_marker = {static_cast<char>(0xff), static_cast<char>(0xff)};
+    const std::string mapped_prefix(IPV6_BINARY_LENGTH - IPV4_BINARY_LENGTH - mapped_marker.size(),
+                                    '\0');
+    const std::string mapped_address = mapped_prefix + mapped_marker + ipv4_address;
+    const DataSet mapped_data = {{{mapped_prefix}, uint8_t {0}},
+                                 {{mapped_marker}, uint8_t {0}},
+                                 {{mapped_address}, uint8_t {1}},
+                                 {{mapped_address + '\0'}, uint8_t {0}}};
+
+    const InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    check_function_all_arg_comb<DataTypeUInt8, true>("is_ipv4_compat", input_types, compat_data);
+    check_function_all_arg_comb<DataTypeUInt8, true>("is_ipv4_mapped", input_types, mapped_data);
+}
+
 TEST(FunctionIpTest, FunctionIsIPAddressInRangeTest) {
     std::string func_name = "is_ip_address_in_range";
 

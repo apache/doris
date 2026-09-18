@@ -989,8 +989,8 @@ public:
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < col_size; ++i) {
-            auto ipv4_in = col_in->get_data_at(i);
-            if (is_ipv4_compat(reinterpret_cast<const UInt8*>(ipv4_in.data))) {
+            const auto address = col_in->get_data_at(i);
+            if (is_ipv4_compat(address)) {
                 col_res_data[i] = 1;
             }
         }
@@ -1000,9 +1000,10 @@ public:
     }
 
 private:
-    static bool is_ipv4_compat(const UInt8* address) {
-        return (LittleEndian::Load64(address) == 0) && (LittleEndian::Load32(address + 8) == 0) &&
-               (LittleEndian::Load32(address + 12) != 0);
+    static bool is_ipv4_compat(const StringRef& address) {
+        return address.size == IPV6_BINARY_LENGTH && (LittleEndian::Load64(address.data) == 0) &&
+               (LittleEndian::Load32(address.data + 8) == 0) &&
+               (LittleEndian::Load32(address.data + 12) != 0);
     }
 };
 
@@ -1029,8 +1030,8 @@ public:
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < col_size; ++i) {
-            auto ipv4_in = col_in->get_data_at(i);
-            if (is_ipv4_mapped(reinterpret_cast<const UInt8*>(ipv4_in.data))) {
+            const auto address = col_in->get_data_at(i);
+            if (is_ipv4_mapped(address)) {
                 col_res_data[i] = 1;
             }
         }
@@ -1040,9 +1041,9 @@ public:
     }
 
 private:
-    static bool is_ipv4_mapped(const UInt8* address) {
-        return (LittleEndian::Load64(address) == 0) &&
-               ((LittleEndian::Load64(address + 8) & 0x00000000FFFFFFFFULL) ==
+    static bool is_ipv4_mapped(const StringRef& address) {
+        return address.size == IPV6_BINARY_LENGTH && (LittleEndian::Load64(address.data) == 0) &&
+               ((LittleEndian::Load64(address.data + 8) & 0x00000000FFFFFFFFULL) ==
                 0x00000000FFFF0000ULL);
     }
 };
