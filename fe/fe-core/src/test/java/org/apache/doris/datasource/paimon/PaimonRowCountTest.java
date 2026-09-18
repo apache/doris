@@ -49,6 +49,16 @@ public class PaimonRowCountTest {
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Test
+    public void testSystemTableEstimateDoesNotLoadMetadataOrPlan() {
+        PaimonSysExternalTable table = Mockito.mock(PaimonSysExternalTable.class, invocation -> {
+            throw new AssertionError("Row count estimation must not access metadata: " + invocation.getMethod());
+        });
+        Mockito.doCallRealMethod().when(table).fetchRowCount();
+
+        Assert.assertEquals(TableIf.UNKNOWN_ROW_COUNT, table.fetchRowCount());
+    }
+
+    @Test
     public void testLatestCountWithoutManifests() throws Exception {
         for (boolean primaryKey : new boolean[] {false, true}) {
             FileStoreTable table = newTable(primaryKey);
