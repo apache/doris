@@ -143,6 +143,38 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
     }
 
     @Test
+    public void testDuplicateAliasesShareOneLazyFetchSlot() throws Exception {
+        this.createTable("create table lazy_materialize_duplicate_alias_tbl("
+                + "sort_col int, lazy_col int) "
+                + "duplicate key(sort_col) distributed by hash(sort_col) buckets 1 "
+                + "properties('replication_num' = '1')");
+        String sql = "select lazy_col as first_alias, lazy_col as second_alias "
+                + "from lazy_materialize_duplicate_alias_tbl order by sort_col limit 1";
+
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+
+        List<PhysicalLazyMaterialize<? extends Plan>> materializeNodes = plan.collectToList(
+                node -> node instanceof PhysicalLazyMaterialize);
+        Assertions.assertEquals(1, materializeNodes.size(), plan.treeString());
+        PhysicalLazyMaterialize<? extends Plan> materialize = materializeNodes.get(0);
+        Assertions.assertEquals(1, materialize.getRelations().size());
+        Assertions.assertEquals(1, materialize.getLazySlots(materialize.getRelations().get(0)).size());
+        Assertions.assertEquals(ImmutableList.of(ImmutableList.of(1)), materialize.getLazyBaseColumnIndices());
+
+        Assertions.assertEquals(2, plan.getOutput().size());
+        Assertions.assertEquals("first_alias", plan.getOutput().get(0).getName());
+        Assertions.assertEquals("second_alias", plan.getOutput().get(1).getName());
+        Assertions.assertNotEquals(plan.getOutput().get(0).getExprId(), plan.getOutput().get(1).getExprId());
+        Assertions.assertEquals(plan.getOutput().get(0).getDataType(), plan.getOutput().get(1).getDataType());
+        Assertions.assertEquals(plan.getOutput().get(0).nullable(), plan.getOutput().get(1).nullable());
+    }
+
+    @Test
     public void testLightSchemaChangeFalse() throws Exception {
         this.createTable("create table tm_lsc_false (k int, v int) duplicate key(k) "
                 + "distributed by hash(k) buckets 1 "
