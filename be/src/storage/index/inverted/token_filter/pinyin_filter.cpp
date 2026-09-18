@@ -82,6 +82,9 @@ Token* PinyinFilter::next(Token* token) {
         current_end_offset_ = token->endOffset();
         auto source_byte_offsets = get_source_byte_offsets();
         current_source_byte_offsets_.assign(source_byte_offsets.begin(), source_byte_offsets.end());
+        auto source_byte_end_offsets = get_source_byte_end_offsets();
+        current_source_byte_end_offsets_.assign(source_byte_end_offsets.begin(),
+                                                source_byte_end_offsets.end());
 
         done_ = false;
     }
@@ -126,6 +129,7 @@ void PinyinFilter::resetVariables() {
     current_source_.clear();
     current_runes_.clear();
     current_source_byte_offsets_.clear();
+    current_source_byte_end_offsets_.clear();
     candidate_offset_ = 0;
     terms_filter_.clear();
     last_increment_position_ = 0;
@@ -240,6 +244,8 @@ bool PinyinFilter::prepareCurrentSource(std::vector<UChar32>& source_codepoints)
     std::vector<UChar32> original_codepoints;
     const auto original_runes = convertToRunes(current_token_text_, original_codepoints);
     if (current_source_byte_offsets_.size() == original_runes.size() + 1) {
+        DORIS_CHECK(current_source_byte_end_offsets_.empty() ||
+                    current_source_byte_end_offsets_.size() == original_runes.size());
         const auto start_rune = std::ranges::lower_bound(
                 original_runes, static_cast<int32_t>(source_start), {}, &RuneInfo::byte_start);
         const auto end_rune = std::ranges::lower_bound(
@@ -249,12 +255,18 @@ bool PinyinFilter::prepareCurrentSource(std::vector<UChar32>& source_codepoints)
         DORIS_CHECK_EQ(end_index - start_index, current_runes_.size());
         const int32_t token_start_offset = current_start_offset_;
         current_start_offset_ += current_source_byte_offsets_[start_index];
-        current_end_offset_ = token_start_offset + current_source_byte_offsets_[end_index];
+        current_end_offset_ =
+                token_start_offset + (current_source_byte_end_offsets_.empty()
+                                              ? current_source_byte_offsets_[end_index]
+                                              : current_source_byte_end_offsets_[end_index - 1]);
         for (size_t i = 0; i < current_runes_.size(); ++i) {
             current_runes_[i].byte_start = current_source_byte_offsets_[start_index + i] -
                                            current_source_byte_offsets_[start_index];
-            current_runes_[i].byte_end = current_source_byte_offsets_[start_index + i + 1] -
-                                         current_source_byte_offsets_[start_index];
+            current_runes_[i].byte_end =
+                    (current_source_byte_end_offsets_.empty()
+                             ? current_source_byte_offsets_[start_index + i + 1]
+                             : current_source_byte_end_offsets_[start_index + i]) -
+                    current_source_byte_offsets_[start_index];
         }
     } else {
         current_start_offset_ += static_cast<int32_t>(source_start);

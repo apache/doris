@@ -25,6 +25,7 @@ import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayDeque;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
@@ -170,6 +171,9 @@ public final class AnalyzerIdentityBuilder {
             Map<String, String> properties) {
         // Use TreeMap to sort keys for consistent identity
         TreeMap<String, String> sortedProps = new TreeMap<>(properties);
+        String tokenizerIdentity = resolveComponentIdentity(
+                properties.get(IndexPolicy.PROP_TOKENIZER), IndexPolicyTypeEnum.TOKENIZER);
+        boolean lowercaseIk = "ik_smart".equals(tokenizerIdentity) || "ik_max_word".equals(tokenizerIdentity);
 
         StringBuilder sb = new StringBuilder();
         sb.append(type.name()).append(":");
@@ -181,11 +185,11 @@ public final class AnalyzerIdentityBuilder {
 
             // For tokenizer, token_filter, char_filter - resolve recursively if needed
             if (IndexPolicy.PROP_TOKENIZER.equals(key)) {
-                resolved = resolveComponentIdentity(value, IndexPolicyTypeEnum.TOKENIZER);
+                resolved = tokenizerIdentity;
             } else if (IndexPolicy.PROP_TOKEN_FILTER.equals(key)) {
                 resolved = resolveTokenFilterIdentity(value);
             } else if (IndexPolicy.PROP_CHAR_FILTER.equals(key)) {
-                resolved = resolveCharFilterIdentity(value);
+                resolved = resolveCharFilterIdentity(value, lowercaseIk);
             }
             if (!Strings.isNullOrEmpty(resolved)) {
                 sb.append(key).append("=").append(resolved).append(";");
@@ -199,6 +203,11 @@ public final class AnalyzerIdentityBuilder {
      * Resolve a component (tokenizer) to its identity.
      */
     private static String resolveComponentIdentity(String name, IndexPolicyTypeEnum expectedType) {
+        return resolveComponentIdentity(name, expectedType, false);
+    }
+
+    private static String resolveComponentIdentity(
+            String name, IndexPolicyTypeEnum expectedType, boolean lowercaseIk) {
         if (Strings.isNullOrEmpty(name)) {
             return "";
         }
@@ -235,7 +244,7 @@ public final class AnalyzerIdentityBuilder {
                                 && "char_replace".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
                             String replacement = sortedProps.getOrDefault("replacement", " ");
                             String pattern = canonicalizeCharReplacePattern(
-                                    sortedProps.get("pattern"), replacement, false);
+                                    sortedProps.get("pattern"), replacement, lowercaseIk);
                             if (pattern.isEmpty()) {
                                 return "";
                             }
@@ -301,25 +310,28 @@ public final class AnalyzerIdentityBuilder {
      * IMPORTANT: Order is preserved because filter order is semantically significant.
      */
     private static String resolveCharFilterIdentity(String filterList) {
+        return resolveCharFilterIdentity(filterList, false);
+    }
+
+    private static String resolveCharFilterIdentity(String filterList, boolean lowercaseIk) {
         if (Strings.isNullOrEmpty(filterList)) {
             return "";
         }
 
-        StringBuilder sb = new StringBuilder();
+        ArrayDeque<String> identities = new ArrayDeque<>();
         String[] filters = filterList.split(",\\s*");
         // DO NOT sort - filter order is semantically significant
 
-        for (String filterName : filters) {
-            String filter = resolveComponentIdentity(filterName.trim(), IndexPolicyTypeEnum.CHAR_FILTER);
+        for (int i = filters.length - 1; i >= 0; --i) {
+            String filter = resolveComponentIdentity(filters[i].trim(), IndexPolicyTypeEnum.CHAR_FILTER, lowercaseIk);
             if (Strings.isNullOrEmpty(filter)) {
                 continue;
             }
-            if (sb.length() > 0) {
-                sb.append(",");
-            }
-            sb.append(filter);
+            identities.addFirst(filter);
+            // An earlier replacement can change the input of a later filter.
+            lowercaseIk = false;
         }
-        return sb.toString();
+        return String.join(",", identities);
     }
 
     private static String appendOuterCharFilterIdentity(

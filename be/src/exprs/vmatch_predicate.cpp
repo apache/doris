@@ -58,8 +58,10 @@ namespace doris {
 using namespace doris::segment_v2;
 
 VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
-    const auto resolved = AnalyzerConfigParser::parse(node.match_predicate.analyzer_name,
-                                                      node.match_predicate.parser_type);
+    const auto resolved = AnalyzerConfigParser::parse(
+            node.match_predicate.analyzer_name, node.match_predicate.parser_type,
+            node.match_predicate.parser_mode, node.match_predicate.parser_lowercase,
+            node.match_predicate.char_filter_map);
 
     InvertedIndexAnalyzerConfig config;
     config.analyzer_name = resolved.provider_name;

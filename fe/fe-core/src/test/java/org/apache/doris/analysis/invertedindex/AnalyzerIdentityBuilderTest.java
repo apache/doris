@@ -271,6 +271,75 @@ public class AnalyzerIdentityBuilderTest {
     }
 
     @Test
+    public void testNamedCharReplaceIdentityAccountsForIkLowercase() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                70, "ascii_lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a")));
+        policyMgr.replayCreateIndexPolicy(analyzerPolicy(71, "plain_smart", "ik_smart"));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                72, "filtered_smart", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "ik_smart", "char_filter", "ascii_lower_a")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertEquals(
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            nonEmptyProperties(), "plain_smart", "none", "__default__", "none", null),
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            nonEmptyProperties(), "filtered_smart", "none", "__default__", "none", null));
+        }
+    }
+
+    @Test
+    public void testNamedCharReplaceContextUsesResolvedTokenizerAndFilterOrder() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                80, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                81, "a_to_b", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "a", "replacement", "b")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                82, "named_max_word", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "ik_max_word")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                83, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword")));
+        long analyzerId = 84;
+        for (String tokenizer : new String[] {"named_max_word", "ik_smart"}) {
+            policyMgr.replayCreateIndexPolicy(analyzerPolicy(analyzerId++, "plain_" + tokenizer, tokenizer));
+            policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                    analyzerId++, "filtered_" + tokenizer, IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", tokenizer, "char_filter", "lower_a")));
+        }
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                88, "ordered", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "named_max_word", "char_filter", "lower_a,a_to_b")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                89, "later_only", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "named_max_word", "char_filter", "a_to_b")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            for (String tokenizer : new String[] {"named_max_word", "ik_smart"}) {
+                String plain = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                        nonEmptyProperties(), "plain_" + tokenizer, "none", "__default__", "none", null);
+                String filtered = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                        nonEmptyProperties(), "filtered_" + tokenizer, "none", "__default__", "none", null);
+                Assertions.assertEquals("named_max_word".equals(tokenizer), plain.equals(filtered));
+            }
+            Assertions.assertNotEquals(
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            nonEmptyProperties(), "ordered", "none", "__default__", "none", null),
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            nonEmptyProperties(), "later_only", "none", "__default__", "none", null));
+        }
+    }
+
+    @Test
     public void testBuiltinTokenizerIdentityIsCanonicalized() throws Exception {
         Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
                 "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);

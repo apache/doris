@@ -448,7 +448,9 @@ public class InvertedIndexUtil {
         String resolvedAnalyzer = resolveAnalyzerName(normalizedAnalyzer);
         String preferredAnalyzer = InvertedIndexProperties.getPreferredAnalyzer(properties);
         if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
-            return resolvedAnalyzer.equals(resolveAnalyzerName(preferredAnalyzer));
+            return resolvedAnalyzer.equals(resolveAnalyzerName(preferredAnalyzer))
+                    && (!INVERTED_INDEX_PARSER_IK.equals(resolvedAnalyzer)
+                        || matchesBuiltinIkDefaults(properties));
         }
 
         String parser = InvertedIndexProperties.getInvertedIndexParser(properties);
@@ -456,7 +458,14 @@ public class InvertedIndexUtil {
             return resolvedAnalyzer.equals("default")
                     || resolvedAnalyzer.equals(INVERTED_INDEX_PARSER_NONE);
         }
-        return resolvedAnalyzer.equals(parser.trim().toLowerCase(Locale.ROOT));
+        return resolvedAnalyzer.equals(parser.trim().toLowerCase(Locale.ROOT))
+                && (!INVERTED_INDEX_PARSER_IK.equals(resolvedAnalyzer)
+                    || matchesBuiltinIkDefaults(properties));
+    }
+
+    private static boolean matchesBuiltinIkDefaults(Map<String, String> properties) {
+        return buildAnalyzerIdentity(properties).equals(
+                buildAnalyzerIdentity(Map.of(INVERTED_INDEX_ANALYZER_NAME_KEY, INVERTED_INDEX_PARSER_IK)));
     }
 
     public static String getAnalyzerIdentity(Index index) {
