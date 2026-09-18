@@ -962,11 +962,14 @@ public class MTMV extends OlapTable {
     /**
      * Previously, ID was used to store the related table of materialized views,
      * but when the catalog is deleted, the ID will change, so name is used instead.
-     * The logic here is to be compatible with older versions by converting ID to name
+     * The logic here is to be compatible with older versions by converting ID to name.
      */
     public void compatible(CatalogMgr catalogMgr) {
         try {
-            compatibleInternal(catalogMgr);
+            boolean changed = compatibleInternal(catalogMgr);
+            if (!changed) {
+                return;
+            }
             Env.getCurrentEnv().getMtmvService().unregisterMTMV(this);
             Env.getCurrentEnv().getMtmvService().registerMTMV(this, this.getDatabase().getId());
         } catch (Throwable e) {
@@ -976,16 +979,18 @@ public class MTMV extends OlapTable {
         }
     }
 
-    private void compatibleInternal(CatalogMgr catalogMgr) throws Exception {
+    private boolean compatibleInternal(CatalogMgr catalogMgr) throws Exception {
+        boolean changed = false;
         if (mvPartitionInfo != null) {
-            mvPartitionInfo.compatible(catalogMgr);
+            changed |= mvPartitionInfo.compatible(catalogMgr);
         }
         if (relation != null) {
-            relation.compatible(catalogMgr);
+            changed |= relation.compatible(catalogMgr);
         }
         if (refreshSnapshot != null) {
-            refreshSnapshot.compatible(this);
+            changed |= refreshSnapshot.compatible(this);
         }
+        return changed;
     }
 
     @Override
