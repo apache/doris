@@ -23,6 +23,14 @@ public class Password {
     @SerializedName(value = "pwd")
     private byte[] password;
 
+    // MySQL-compatible dual password: the previous (retained) password, kept
+    // valid for authentication until the next password change without
+    // "RETAIN CURRENT PASSWORD", or an explicit "DISCARD OLD PASSWORD".
+    // Nullable; absent in images written before this feature (GSON tolerant
+    // in both directions).
+    @SerializedName(value = "pwd2")
+    private byte[] secondaryPassword;
+
     public Password() {
     }
 
@@ -36,5 +44,17 @@ public class Password {
 
     public void setPassword(byte[] password) {
         this.password = password;
+    }
+
+    public byte[] getSecondaryPassword() {
+        return secondaryPassword;
+    }
+
+    public void setSecondaryPassword(byte[] secondaryPassword) {
+        this.secondaryPassword = secondaryPassword;
+    }
+
+    public boolean hasSecondaryPassword() {
+        return secondaryPassword != null && secondaryPassword.length > 0;
     }
 }
