@@ -39,6 +39,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -337,6 +338,23 @@ public class ConnectContextTest {
 
         // clean up
         ctx.cleanup();
+    }
+
+    @Test
+    public void testThreadInfoUsesSessionCloudCluster() {
+        Env localEnv = Mockito.mock(Env.class);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(localEnv);
+            Mockito.when(localEnv.getSelfNode())
+                    .thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9030));
+
+            ConnectContext ctx = new ConnectContext();
+            ctx.cloudCluster = "test";
+            ctx.getSessionVariable().setCloudCluster("test1");
+
+            List<String> row = ctx.toThreadInfo(false).toRow(-1, 0, Optional.empty());
+            Assert.assertEquals("test1", row.get(14));
+        }
     }
 
     @Test
