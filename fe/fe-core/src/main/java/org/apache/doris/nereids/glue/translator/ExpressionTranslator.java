@@ -30,6 +30,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionParams;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionExpr;
@@ -254,6 +255,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // down for storage-level index evaluation (fast path).
         Index invertedIndex = null;
         String analyzer = match.getAnalyzer().orElse(null);
+        if (analyzer != null) {
+            analyzer = InvertedIndexUtil.resolveAnalyzerName(analyzer);
+        }
         Column column = slot.getOriginalColumn().orElse(null);
         OlapTable olapTbl = getOlapTableDirectly(slot);
         if (column != null && olapTbl != null) {

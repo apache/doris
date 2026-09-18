@@ -68,28 +68,18 @@ public final class AnalyzerIdentityBuilder {
 
     private static String resolveBuiltinIkAnalyzerIdentity(
             Map<String, String> properties, String analyzer) {
-        // BE defaults analyzer=ik to max-word mode. It has the built-in ik_max_word base
-        // identity when no index-level tokenizer option changes its behavior; the caller
-        // appends any outer char-filter identity separately.
-        if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_IK.equalsIgnoreCase(analyzer.trim())) {
+        // BE dispatches canonical lowercase built-ins before custom policies.
+        // Preserve the identity of case-distinct legacy policies such as "IK".
+        if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_IK.equals(analyzer.trim())) {
             return null;
         }
-        String lowerCase = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY);
-        if (!Strings.isNullOrEmpty(lowerCase) && !Boolean.TRUE.toString().equalsIgnoreCase(lowerCase)) {
-            return null;
-        }
-        return IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=ik_max_word;";
+        return buildBuiltinIkIdentity("ik_max_word", properties);
     }
 
     private static String resolveLegacyIkIdentity(Map<String, String> properties, String parser) {
         if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_IK.equalsIgnoreCase(parser)) {
             return null;
         }
-        String lowerCase = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY);
-        if (!Strings.isNullOrEmpty(lowerCase) && !Boolean.TRUE.toString().equalsIgnoreCase(lowerCase)) {
-            return null;
-        }
-
         String mode = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_MODE_KEY);
         if (Strings.isNullOrEmpty(mode)) {
             mode = InvertedIndexProperties.INVERTED_INDEX_PARSER_SMART;
@@ -98,9 +88,17 @@ public final class AnalyzerIdentityBuilder {
         if (!"ik_smart".equals(tokenizer) && !"ik_max_word".equals(tokenizer)) {
             return null;
         }
-        // Legacy IK always uses the built-in tokenizer. Do not let a replayed policy whose name
-        // shadows the built-in mode change this synthetic identity.
-        return IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=" + tokenizer + ";";
+        // Legacy IK uses the built-in tokenizer even when a named policy shadows its mode.
+        return buildBuiltinIkIdentity(tokenizer, properties);
+    }
+
+    private static String buildBuiltinIkIdentity(String tokenizer, Map<String, String> properties) {
+        String identity = IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=" + tokenizer + ";";
+        if (Boolean.FALSE.toString().equalsIgnoreCase(
+                properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY))) {
+            identity += "lower_case=false;";
+        }
+        return identity;
     }
 
     /**
@@ -233,6 +231,17 @@ public final class AnalyzerIdentityBuilder {
                             // This setting only limits policy creation; it does not change emitted tokens.
                             sortedProps.remove(PROP_MAX_NGRAM_DIFF);
                         }
+                        if (expectedType == IndexPolicyTypeEnum.CHAR_FILTER
+                                && "char_replace".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
+                            String replacement = sortedProps.getOrDefault("replacement", " ");
+                            String pattern = canonicalizeCharReplacePattern(
+                                    sortedProps.get("pattern"), replacement, false);
+                            if (pattern.isEmpty()) {
+                                return "";
+                            }
+                            sortedProps.put("pattern", pattern);
+                            sortedProps.put("replacement", replacement);
+                        }
                         return sortedProps.toString();
                     }
                 }
@@ -333,11 +342,8 @@ public final class AnalyzerIdentityBuilder {
     }
 
     /**
-     * Returns the byte-set representation used by the BE char_replace filter.
-     *
-     * <p>The DDL validator admits only ASCII input, so every Java char below corresponds to one
-     * BE byte. The filter uses a bitset: pattern order and duplicate bytes do not affect its
-     * behavior, and replacing a byte with itself has no effect.</p>
+     * Canonicalize the ASCII pattern to the BE filter's byte set.
+     * Order, duplicate bytes, and replacements of a byte with itself do not change the stream.
      */
     private static String canonicalizeCharReplacePattern(
             String pattern, String replacement, boolean lowercaseBuiltinIk) {

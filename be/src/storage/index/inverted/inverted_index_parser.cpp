@@ -17,6 +17,7 @@
 
 #include "storage/index/inverted/inverted_index_parser.h"
 
+#include "storage/index/inverted/analyzer/analyzer.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -192,10 +193,7 @@ std::string get_analyzer_name_from_properties(
 }
 
 std::string normalize_analyzer_key(std::string_view analyzer) {
-    if (analyzer.empty()) {
-        return "";
-    }
-    return to_lower(std::string(analyzer));
+    return std::string(analyzer);
 }
 
 std::string build_analyzer_key_from_properties(
@@ -219,35 +217,25 @@ std::string build_analyzer_key_from_properties(
     if (parser.empty()) {
         return INVERTED_INDEX_PARSER_NONE;
     }
-    return normalize_analyzer_key(parser);
+    return to_lower(parser);
 }
 
 // ============================================================================
 // AnalyzerConfigParser implementation
 // ============================================================================
 
-std::string AnalyzerConfigParser::normalize_to_lower(const std::string& value) {
-    return to_lower(value);
-}
-
-bool AnalyzerConfigParser::is_builtin_analyzer(const std::string& normalized_name) {
-    if (normalized_name.empty()) {
-        return false;
-    }
-    auto parser_type = get_inverted_index_parser_type_from_string(normalized_name);
-    return parser_type != InvertedIndexParserType::PARSER_UNKNOWN;
+bool AnalyzerConfigParser::is_builtin_analyzer(const std::string& analyzer_name) {
+    return segment_v2::inverted_index::InvertedIndexAnalyzer::is_builtin_analyzer(analyzer_name);
 }
 
 AnalyzerConfig AnalyzerConfigParser::parse(const std::string& analyzer_name,
                                            const std::string& parser_type_str) {
     AnalyzerConfig config;
-    const std::string normalized_analyzer = normalize_to_lower(analyzer_name);
-    const bool analyzer_is_builtin = is_builtin_analyzer(normalized_analyzer);
 
-    if (!normalized_analyzer.empty()) {
-        config.analyzer_key = normalize_to_lower(analyzer_name);
-        if (analyzer_is_builtin) {
-            config.parser_type = get_inverted_index_parser_type_from_string(normalized_analyzer);
+    if (!analyzer_name.empty()) {
+        config.analyzer_key = normalize_analyzer_key(analyzer_name);
+        if (is_builtin_analyzer(analyzer_name)) {
+            config.parser_type = get_inverted_index_parser_type_from_string(analyzer_name);
         } else {
             config.provider_name = analyzer_name;
             config.parser_type = InvertedIndexParserType::PARSER_NONE;

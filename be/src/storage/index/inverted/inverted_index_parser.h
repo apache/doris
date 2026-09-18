@@ -107,7 +107,7 @@ const std::string INVERTED_INDEX_ANALYZER_NAME_KEY = "analyzer";
 const std::string INVERTED_INDEX_NORMALIZER_NAME_KEY = "normalizer";
 const std::string INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY = "field_pattern";
 
-// Normalize a physical analyzer selection key to lowercase. Empty stays empty.
+// Preserve resolved policy names as exact keys. FE canonicalizes built-in names.
 std::string normalize_analyzer_key(std::string_view analyzer);
 
 // Runtime context for analyzer
@@ -183,7 +183,7 @@ std::string get_parser_dict_compression_from_properties(
 
 std::string get_analyzer_name_from_properties(const std::map<std::string, std::string>& properties);
 
-// Build a normalized analyzer key from index properties.
+// Build an exact analyzer key from index properties.
 // Precedence is analyzer, normalizer, then parser type. A raw index uses "none".
 std::string build_analyzer_key_from_properties(
         const std::map<std::string, std::string>& properties);
@@ -200,22 +200,17 @@ struct AnalyzerConfig {
     bool uses_provider() const { return !provider_name.empty(); }
 };
 
-// Parser for analyzer configuration from Thrift TMatchPredicate.
-// Extracts analyzer_name and parser_type_str, determines if builtin or custom,
-// and produces a normalized AnalyzerConfig.
+// Parse resolved analyzer names and legacy parser types from Thrift TMatchPredicate.
 class AnalyzerConfigParser {
 public:
-    // Parse from raw analyzer name and parser type string (extracted from Thrift).
+    // Parse the resolved analyzer name and legacy parser type from Thrift.
     // @param analyzer_name: Analyzer selection name from Thrift (custom, builtin, or empty).
     // @param parser_type_str: Parser type string like "chinese", "standard", etc.
     [[nodiscard]] static AnalyzerConfig parse(const std::string& analyzer_name,
                                               const std::string& parser_type_str);
 
-    // Check if a normalized analyzer name looks like a builtin parser type
-    [[nodiscard]] static bool is_builtin_analyzer(const std::string& normalized_name);
-
-private:
-    static std::string normalize_to_lower(const std::string& value);
+    // Use the writer's case-sensitive built-in dispatch.
+    [[nodiscard]] static bool is_builtin_analyzer(const std::string& analyzer_name);
 };
 
 } // namespace doris

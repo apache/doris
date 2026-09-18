@@ -28,6 +28,7 @@
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis_factory_mgr.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/inverted_index_parser.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -200,6 +201,26 @@ TEST_F(IndexPolicyMgrTest, LegacyExactNameCollisionPreservesDependentAnalyzerTer
         EXPECT_EQ(count_analyzer_terms(manager, upper_dependent.name), 2);
         EXPECT_EQ(count_analyzer_terms(manager, lower_dependent.name), 1);
     }
+}
+
+TEST_F(IndexPolicyMgrTest, MatchDispatchPreservesReplayedExactIkTerms) {
+    IndexPolicyMgr manager;
+    const auto historical = make_analyzer_policy(110, "IK", "keyword");
+    manager.apply_policy_changes({historical}, {});
+
+    const auto config = AnalyzerConfigParser::parse("IK", "english");
+    ASSERT_TRUE(config.uses_provider());
+    EXPECT_EQ(config.provider_name, historical.name);
+    EXPECT_EQ(config.analyzer_key, build_analyzer_key_from_properties({{"analyzer", "IK"}}));
+    auto analyzer = manager.get_analyzer_provider_by_name(config.provider_name, {})->get_analyzer();
+    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+    const std::string text = "abc def";
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+    const auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+            reader, analyzer.get());
+    ASSERT_EQ(terms.size(), 1);
+    EXPECT_EQ(terms.front().get_single_term(), text);
+    EXPECT_EQ(count_analyzer_terms(manager, historical.name), 1);
 }
 
 TEST_F(IndexPolicyMgrTest, TestGetPolicyByName) {

@@ -95,9 +95,8 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         lock.readLock().unlock();
     }
 
-    // Legacy metadata may contain names that collide after locale-independent normalization.
-    // Policy IDs are allocated monotonically, so the higher ID reproduces the latest definition.
-    // Callers must hold the write lock.
+    // Keep exact bindings and use the highest policy ID for normalized-name fallback.
+    // Callers hold the write lock.
     private void registerPolicyNameLocked(IndexPolicy indexPolicy) {
         String exactName = exactKey(indexPolicy.getName());
         IndexPolicy exactCurrent = exactNameToIndexPolicy.get(exactName);
@@ -140,8 +139,7 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         List<IndexPolicy> copiedPolicies = Lists.newArrayList();
         readLock();
         try {
-            // Preserve every legacy policy so exact-name analyzer bindings can be reconstructed
-            // by BE before it applies normalized-name fallback for interactive lookups.
+            // Send every legacy policy to BE so exact bindings survive normalized-name collisions.
             copiedPolicies.addAll(idToIndexPolicy.values());
         } finally {
             readUnlock();

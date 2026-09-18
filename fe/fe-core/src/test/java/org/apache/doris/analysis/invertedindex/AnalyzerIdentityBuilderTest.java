@@ -211,6 +211,66 @@ public class AnalyzerIdentityBuilderTest {
     }
 
     @Test
+    public void testReplayedExactIkAnalyzerUsesCustomIdentity() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(analyzerPolicy(30, "IK", "standard"));
+        policyMgr.replayCreateIndexPolicy(analyzerPolicy(31, "equivalent_standard", "standard"));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String exact = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "IK"), "IK", "none", "__default__", "none", null);
+            String equivalent = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "equivalent_standard"), "equivalent_standard",
+                    "none", "__default__", "none", null);
+            String builtin = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    Map.of("analyzer", "ik"), "ik", "none", "__default__", "none", null);
+            Assertions.assertAll(
+                    () -> Assertions.assertEquals(equivalent, exact),
+                    () -> Assertions.assertNotEquals(builtin, exact));
+        }
+    }
+
+    @Test
+    public void testNamedCharReplaceIdentityUsesEffectiveByteSet() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+        policyMgr.replayCreateIndexPolicy(analyzerPolicy(50, "plain_keyword", "keyword"));
+        String[] patterns = {"ab", "ba", "aabx", "x", " "};
+        for (int i = 0; i < patterns.length; ++i) {
+            String filter = "byte_filter_" + i;
+            Map<String, String> properties = new HashMap<>();
+            properties.put("type", "char_replace");
+            properties.put("pattern", patterns[i]);
+            if (i < 4) {
+                properties.put("replacement", "x");
+            }
+            policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                    51 + i, filter, IndexPolicyTypeEnum.CHAR_FILTER, properties));
+            policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                    61 + i, "filtered_keyword_" + i, IndexPolicyTypeEnum.ANALYZER,
+                    Map.of("tokenizer", "keyword", "char_filter", filter)));
+        }
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String canonical = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    nonEmptyProperties(), "filtered_keyword_0", "none", "__default__", "none", null);
+            String plain = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    nonEmptyProperties(), "plain_keyword", "none", "__default__", "none", null);
+            Assertions.assertNotEquals(plain, canonical);
+            for (int i = 1; i < patterns.length; ++i) {
+                String identity = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                        nonEmptyProperties(), "filtered_keyword_" + i, "none", "__default__", "none", null);
+                Assertions.assertEquals(i < 3 ? canonical : plain, identity);
+            }
+        }
+    }
+
+    @Test
     public void testBuiltinTokenizerIdentityIsCanonicalized() throws Exception {
         Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
                 "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);
@@ -432,5 +492,27 @@ public class AnalyzerIdentityBuilderTest {
                     Map.of("parser", "ik"), "", "ik", "__default__", "none", null);
             Assertions.assertNotEquals(shadowedCustom, legacy);
         }
+    }
+
+    @Test
+    public void testDisabledLowercaseIkModesHaveDistinctIdentities() {
+        String analyzerMaxWord = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                Map.of("analyzer", "ik", "lower_case", "false"), "ik", "none",
+                "__default__", "none", null);
+        String legacySmart = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                Map.of("parser", "ik", "lower_case", "false"), "", "ik",
+                "__default__", "none", null);
+        String legacyMaxWord = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                Map.of("parser", "ik", "parser_mode", "ik_max_word", "lower_case", "false"),
+                "", "ik", "__default__", "none", null);
+        String lowercaseMaxWord = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                Map.of("analyzer", "ik"), "ik", "none", "__default__", "none", null);
+        String lowercaseSmart = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                Map.of("parser", "ik"), "", "ik", "__default__", "none", null);
+
+        Assertions.assertNotEquals(legacySmart, analyzerMaxWord);
+        Assertions.assertEquals(legacyMaxWord, analyzerMaxWord);
+        Assertions.assertNotEquals(lowercaseMaxWord, analyzerMaxWord);
+        Assertions.assertNotEquals(lowercaseSmart, legacySmart);
     }
 }
