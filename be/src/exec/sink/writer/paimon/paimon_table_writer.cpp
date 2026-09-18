@@ -21,7 +21,6 @@
 #include "common/logging.h"
 #include "core/block/block.h"
 #include "core/block/materialize_block.h"
-#include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 
@@ -49,14 +48,17 @@ Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
 
     SCOPED_TIMER(_open_timer);
 
-    // Step 1: Create and open the JNI backend.
-    _backend = std::make_unique<JniPaimonWriteBackend>();
+    // Step 1: Create the backend (JNI or FFI) based on the sink configuration.
+    RETURN_IF_ERROR(PaimonWriteBackendFactory::create(_t_sink.paimon_table_sink, &_backend));
+    DCHECK(_backend);
+    // Step 2: Open the backend — for JNI this loads the Java class and calls PaimonJniWriter.open().
     RETURN_IF_ERROR(_backend->open(_t_sink.paimon_table_sink, state, profile));
-    // Step 2: Create a lightweight writer adapter that delegates to the opened backend.
+    // Step 3: Create a lightweight writer adapter that delegates to the opened backend.
     RETURN_IF_ERROR(_backend->create_writer(&_writer));
     DCHECK(_writer);
 
-    LOG(INFO) << "PaimonTableWriter opened: backend=JNI, writer_scope=local_state";
+    LOG(INFO) << "PaimonTableWriter opened: backend=" << static_cast<int>(_backend->type())
+              << ", writer_scope=local_state";
     return Status::OK();
 }
 
@@ -81,7 +83,8 @@ Status PaimonTableWriter::write(RuntimeState* state, Block& block) {
     state->update_num_rows_load_total(block.rows());
     state->update_num_bytes_load_total(block.bytes());
 
-    // Step 2: Convert Block → Arrow RecordBatch → Arrow C Data → Java PaimonJniWriter.
+    // Step 2: Delegate to the backend writer (JNI or FFI). For the JNI path
+    // this converts Block → Arrow RecordBatch → Arrow C Data → Java PaimonJniWriter.
     DCHECK(_writer);
     {
         SCOPED_TIMER(_file_store_write_timer);

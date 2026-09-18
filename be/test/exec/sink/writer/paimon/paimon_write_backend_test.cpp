@@ -23,6 +23,14 @@
 
 namespace doris {
 
+TEST(PaimonWriteBackendFactoryTest, SelectBackendType) {
+    TPaimonTableSink sink;
+    EXPECT_EQ(PaimonBackendType::JNI, PaimonWriteBackendFactory::select_backend_type(sink));
+
+    sink.__set_backend_type(TPaimonWriteBackendType::FFI);
+    EXPECT_EQ(PaimonBackendType::FFI, PaimonWriteBackendFactory::select_backend_type(sink));
+}
+
 TEST(JniPaimonWriteBackendTest, OpenAbiAndWriteModes) {
     EXPECT_STREQ(
             "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZZLjava/lang/"
