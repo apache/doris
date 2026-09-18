@@ -40,6 +40,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 
+import org.apache.commons.math3.special.Gamma;
 import org.apache.commons.math3.util.ArithmeticUtils;
 import org.apache.commons.math3.util.FastMath;
 
@@ -753,6 +754,45 @@ public class NumericArithmetic {
             return new NullLiteral(BigIntType.INSTANCE);
         }
         return new BigIntLiteral(ArithmeticUtils.factorial((int) value));
+    }
+
+    /**
+     * gamma
+     *
+     * <p>The BE computes this with std::tgamma and maps the poles to NULL, so this
+     * evaluation reproduces that outcome rather than the raw library behaviour:
+     * commons-math3 returns NaN for everything that is not finite, while std::tgamma
+     * returns an infinity at zero, at a large enough argument and at positive infinity.
+     *
+     * <p>-Infinity is the one input where the two classifications differ in a way that
+     * matters: the BE sees it as a negative integer, hence a pole, and yields NULL.
+     *
+     * <p>Positive and negative inputs need different routes through commons-math3.
+     * Gamma.gamma saturates to an infinity well before std::tgamma does - it already
+     * overflows at 165, while std::tgamma still returns a finite 3.29e293 there - so
+     * positive inputs go through exp(logGamma(x)), which stays finite across the range and
+     * agrees with std::tgamma to the last place. logGamma is not defined for negative
+     * inputs, but that half has no overflow problem, so Gamma.gamma is used there.
+     */
+    @ExecFunction(name = "gamma")
+    public static Expression gamma(DoubleLiteral first) {
+        double x = first.getValue();
+        if (Double.isNaN(x)) {
+            return new DoubleLiteral(Double.NaN);
+        }
+        if (Double.isInfinite(x)) {
+            // +inf overflows to itself; -inf is treated as a negative integer, i.e. a pole.
+            return x > 0 ? new DoubleLiteral(Double.POSITIVE_INFINITY)
+                    : new NullLiteral(DoubleType.INSTANCE);
+        }
+        // Gamma has a pole at zero and at every negative integer, where the BE yields NULL.
+        if (x == 0.0 || (x < 0.0 && x == Math.floor(x))) {
+            return new NullLiteral(DoubleType.INSTANCE);
+        }
+        if (x > 0.0) {
+            return new DoubleLiteral(Math.exp(Gamma.logGamma(x)));
+        }
+        return new DoubleLiteral(Gamma.gamma(x));
     }
 
     /**
