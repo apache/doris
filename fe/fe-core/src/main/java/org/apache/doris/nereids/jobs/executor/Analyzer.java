@@ -54,6 +54,7 @@ import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
+import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
@@ -169,6 +170,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
             ),
             // run CheckSearchUsage before CheckAnalysis to detect search() in GROUP BY before it gets optimized
             bottomUp(new CheckSearchUsage()),
+            // Bind SEARCH dependencies before predicate movement and column pruning.
+            bottomUp(new RewriteSearchToSlots()),
             // run CheckAnalysis before EliminateGroupByConstant in order to report error message correctly like bellow
             // select SUM(lo_tax) FROM lineorder group by 1;
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)

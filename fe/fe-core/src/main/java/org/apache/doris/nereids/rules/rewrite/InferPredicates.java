@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -226,6 +227,11 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
                 // query semantics (see EXCEPT/INTERSECT regression cases).
                 continue;
             }
+            if (expr.containsType(SearchExpression.class)) {
+                // A SEARCH is bound to the inverted indexes of its own scan. The slot substitution of the
+                // SetOp visitors would rebind it to the column of a sibling branch, where BE finds no index.
+                continue;
+            }
             Set<Slot> slots = expr.getInputSlots();
             if (!slots.isEmpty() && planOutputs.containsAll(slots)) {
                 predicates.add(expr);
@@ -253,6 +259,10 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
             if (expr.containsVolatileExpression()) {
                 // See inferNewPredicate for rationale: never clone volatile
                 // predicates into a subtree that did not already evaluate them.
+                continue;
+            }
+            if (expr.containsType(SearchExpression.class)) {
+                // See inferNewPredicate: a SEARCH stays on the scan whose indexes it binds.
                 continue;
             }
             Set<Slot> slots = expr.getInputSlots();

@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.SearchDslParser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.StringType;
@@ -136,6 +139,26 @@ public class SearchExpressionTest {
 
         String str = searchExpr.toString();
         Assertions.assertEquals("search('title:hello')", str);
+        Assertions.assertEquals(str, searchExpr.toSql());
+    }
+
+    @Test
+    public void testNullFieldIsNotAFieldBinding() {
+        SlotReference title = createTestSlot("title");
+        SearchExpression search = new SearchExpression("title:hello", createTestPlan(),
+                Collections.singletonList(title));
+        Assertions.assertTrue(search.bindsOnlyFields());
+
+        // Null-rejection inference and outer join NULL padding substitute NULL for the field.
+        SearchExpression nullField = search.withChildren(Collections.singletonList(NullLiteral.INSTANCE));
+        Assertions.assertFalse(nullField.foldable());
+        Assertions.assertFalse(nullField.bindsOnlyFields());
+
+        StringLiteral key = new StringLiteral("name");
+        Assertions.assertTrue(search.withChildren(
+                Collections.singletonList(new ElementAt(title, key))).bindsOnlyFields());
+        Assertions.assertFalse(search.withChildren(
+                Collections.singletonList(new ElementAt(NullLiteral.INSTANCE, key))).bindsOnlyFields());
     }
 
     @Test

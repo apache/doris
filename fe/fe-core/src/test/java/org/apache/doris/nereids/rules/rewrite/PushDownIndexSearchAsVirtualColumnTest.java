@@ -46,9 +46,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Test for PushDownMatchProjectionAsVirtualColumn rule.
+ * Test for PushDownIndexSearchAsVirtualColumn rule.
  */
-public class PushDownMatchProjectionAsVirtualColumnTest implements MemoPatternMatchSupported {
+public class PushDownIndexSearchAsVirtualColumnTest implements MemoPatternMatchSupported {
 
     @Test
     void testPushDownMatchProjection() {
@@ -62,7 +62,7 @@ public class PushDownMatchProjectionAsVirtualColumnTest implements MemoPatternMa
                 ImmutableList.of(idSlot, new Alias(matchExpr, "m")), scan);
 
         Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
-                .applyTopDown(new PushDownMatchProjectionAsVirtualColumn())
+                .applyTopDown(new PushDownIndexSearchAsVirtualColumn())
                 .getPlan();
 
         // Verify plan structure
@@ -105,7 +105,7 @@ public class PushDownMatchProjectionAsVirtualColumnTest implements MemoPatternMa
                 new LogicalFilter<>(ImmutableSet.of(filterPred), scan));
 
         Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
-                .applyTopDown(new PushDownMatchProjectionAsVirtualColumn())
+                .applyTopDown(new PushDownIndexSearchAsVirtualColumn())
                 .getPlan();
 
         // Verify plan structure: Project -> Filter -> OlapScan
@@ -141,7 +141,7 @@ public class PushDownMatchProjectionAsVirtualColumnTest implements MemoPatternMa
                 ImmutableList.<NamedExpression>of(idSlot), scan);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), project)
-                .applyTopDown(new PushDownMatchProjectionAsVirtualColumn())
+                .applyTopDown(new PushDownIndexSearchAsVirtualColumn())
                 .matches(
                         logicalProject(
                                 logicalOlapScan().when(s -> s.getVirtualColumns().isEmpty())
@@ -163,7 +163,7 @@ public class PushDownMatchProjectionAsVirtualColumnTest implements MemoPatternMa
                 scan);
 
         Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
-                .applyTopDown(new PushDownMatchProjectionAsVirtualColumn())
+                .applyTopDown(new PushDownIndexSearchAsVirtualColumn())
                 .getPlan();
 
         Assertions.assertInstanceOf(LogicalProject.class, root);
@@ -201,7 +201,7 @@ public class PushDownMatchProjectionAsVirtualColumnTest implements MemoPatternMa
                 scan);
 
         Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
-                .applyTopDown(new PushDownMatchProjectionAsVirtualColumn())
+                .applyTopDown(new PushDownIndexSearchAsVirtualColumn())
                 .getPlan();
 
         Assertions.assertInstanceOf(LogicalProject.class, root);
@@ -245,7 +245,7 @@ public class PushDownMatchProjectionAsVirtualColumnTest implements MemoPatternMa
                 ImmutableList.of(idSlot, new Alias(matchExpr, "m")), scanWithVc);
 
         Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
-                .applyTopDown(new PushDownMatchProjectionAsVirtualColumn())
+                .applyTopDown(new PushDownIndexSearchAsVirtualColumn())
                 .getPlan();
 
         Assertions.assertInstanceOf(LogicalProject.class, root);
