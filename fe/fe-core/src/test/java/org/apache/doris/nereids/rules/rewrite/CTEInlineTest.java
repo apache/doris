@@ -210,6 +210,68 @@ public class CTEInlineTest extends TestWithFeService implements MemoPatternMatch
         planRecursiveCte(sql);
     }
 
+    @Test
+    public void mustInlineVolatileCteFromSubQuery() {
+        // u is consumed inside an exists subquery of the recursive child, it must be inlined as well
+        String sql = "with recursive "
+                + "u as (select uuid() as v), "
+                + "r(n) as (select cast(1 as int) union all "
+                + "select cast(n + 1 as int) from r "
+                + "where n < 2 and exists (select 1 from u where u.v is not null)) "
+                + "select n from r order by n";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> planRecursiveCte(sql), "Not throw expected exception.");
+        Assertions.assertTrue(exception.getMessage().contains("inline is blocked"));
+    }
+
+    @Test
+    public void mustInlineVolatileCteInsideNestedCte() {
+        // the recursive child consumes a nested cte which consumes u, so u has to be inlined as well
+        String sql = "with recursive "
+                + "u as (select uuid() as v), "
+                + "r(n) as (select cast(1 as int) union all "
+                + "select cast(n + 1 as int) from r join "
+                + "(with w as (select v from u) select count(*) as c from w) t on t.c = 1 where n < 2) "
+                + "select n from r order by n";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> planRecursiveCte(sql), "Not throw expected exception.");
+        Assertions.assertTrue(exception.getMessage().contains("inline is blocked"));
+    }
+
+    @Test
+    public void mustInlineVolatileCteWithUnusedOutput() {
+        // the recursive child only uses k, so uuid() is pruned from the inlined copy
+        String sql = "with recursive "
+                + "u as (select 1 as k, uuid() as v), "
+                + "r(n) as (select cast(1 as int) union all "
+                + "select cast(n + u.k as int) from r join u on true where n < 3) "
+                + "select n from r order by n";
+        planRecursiveCte(sql);
+    }
+
+    @Test
+    public void mustInlineVolatileCteWithMixedConsumers() {
+        // the outer consumer needs v, the recursive child only needs k: the volatile producer stays
+        // materialized for the outer consumer while a pruned copy is inlined into the recursive child
+        String sql = "with recursive "
+                + "u as (select 1 as k, uuid() as v), "
+                + "r(n) as (select cast(1 as int) union all "
+                + "select cast(n + u.k as int) from r join u on true where n < 3) "
+                + "select r.n from r, u where u.v is not null order by r.n";
+        planRecursiveCte(sql);
+    }
+
+    @Test
+    public void mustInlineVolatileCteWithEmptyAnchor() {
+        // the anchor is empty, the recursive side is never executed, so nothing must be inlined
+        String sql = "with recursive "
+                + "u as (select uuid() as v), "
+                + "r(n) as (select cast(1 as int) where false union all "
+                + "select cast(n + 1 as int) from r join u on true where n < 3) "
+                + "select n from r order by n";
+        planRecursiveCte(sql);
+    }
+
     private void planRecursiveCte(String sql) {
         LogicalPlan unboundPlan = new NereidsParser().parseSingle(sql);
         NereidsPlanner planner = new NereidsPlanner(new StatementContext(connectContext,

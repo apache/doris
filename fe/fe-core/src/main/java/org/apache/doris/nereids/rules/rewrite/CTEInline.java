@@ -33,11 +33,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
@@ -60,9 +62,7 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         statementContext = jobContext.getCascadesContext().getStatementContext();
         mustInlineCTEs = statementContext.getMustInlineCTEs();
-        if (!mustInlineCTEs.isEmpty()) {
-            collectRecursiveCteDependencies(plan);
-        }
+        collectRecursiveCteDependencies(plan);
 
         Plan root = plan.accept(this, null);
         // collect cte id to consumer
@@ -74,7 +74,28 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
         return root;
     }
 
+    /**
+     * Collect every cte which is consumed below the recursive side of a recursive cte, together with
+     * its transitive dependencies: they all have to be inlined, because the recursive side is reset and
+     * re-executed on every iteration and can not read a materialized cte.
+     *
+     * <p>The consumers may come from any nested position (subquery, exists, nested with, ...), so the set
+     * is derived from the plan instead of relying on the analysis context, which does not keep the
+     * recursive-side ownership when a child context is opened for such a subquery.
+     */
     private void collectRecursiveCteDependencies(Plan plan) {
+        List<LogicalRecursiveUnion<?, ?>> recursiveUnions =
+                plan.collectToList(p -> p instanceof LogicalRecursiveUnion);
+        for (LogicalRecursiveUnion<?, ?> recursiveUnion : recursiveUnions) {
+            recursiveUnion.child(1).foreach(node -> {
+                if (node instanceof LogicalCTEConsumer) {
+                    mustInlineCTEs.add(((LogicalCTEConsumer) node).getCteId());
+                }
+            });
+        }
+        if (mustInlineCTEs.isEmpty()) {
+            return;
+        }
         // Resolve the transitive dependencies before making any materialization decisions.
         // Otherwise an outer producer can remain shared by independent recursive controllers
         // even when its consumers are inside CTEs that must be inlined.
@@ -149,22 +170,33 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
     @Override
     public Plan visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, LogicalCTEProducer<?> producer) {
         if (producer != null && cteConsumer.getCteId().equals(producer.getCteId())) {
-            DeepCopierContext deepCopierContext = new DeepCopierContext();
-            Plan inlinedPlan = LogicalPlanDeepCopier.INSTANCE
-                    .deepCopy((LogicalPlan) producer.child(), deepCopierContext);
-            List<NamedExpression> projects = Lists.newArrayList();
-            for (Slot consumerSlot : cteConsumer.getOutput()) {
-                Slot producerSlot = cteConsumer.getProducerSlot(consumerSlot);
-                ExprId inlineExprId = deepCopierContext.exprIdReplaceMap.get(producerSlot.getExprId());
-                List<Expression> childrenExprs = new ArrayList<>();
-                childrenExprs.add(producerSlot.withExprId(inlineExprId));
-                Alias alias = new Alias(consumerSlot.getExprId(), childrenExprs, consumerSlot.getName(),
-                        producerSlot.getQualifier(), false);
-                projects.add(alias);
-            }
-            return new LogicalProject<>(projects, inlinedPlan);
+            return inlineConsumer(cteConsumer, producer.child(), cteConsumer.getOutput());
         }
         return cteConsumer;
+    }
+
+    /**
+     * Replace a cte consumer by a deep copy of the producer body, re-aliasing the given consumer slots to
+     * the corresponding copied producer slots. The copy is not shared with the materialized producer, so
+     * the producer keeps working for all other consumers of the cte.
+     */
+    static Plan inlineConsumer(LogicalCTEConsumer cteConsumer, Plan producerBody, List<Slot> consumerSlots) {
+        DeepCopierContext deepCopierContext = new DeepCopierContext();
+        Plan inlinedPlan = LogicalPlanDeepCopier.INSTANCE
+                .deepCopy((LogicalPlan) producerBody, deepCopierContext);
+        List<NamedExpression> projects = Lists.newArrayListWithCapacity(consumerSlots.size());
+        for (Slot consumerSlot : consumerSlots) {
+            Slot producerSlot = cteConsumer.getProducerSlot(consumerSlot);
+            ExprId inlineExprId = deepCopierContext.exprIdReplaceMap.get(producerSlot.getExprId());
+            Preconditions.checkState(inlineExprId != null, "producer slot %s is not part of the inlined copy",
+                    producerSlot);
+            List<Expression> childrenExprs = new ArrayList<>();
+            childrenExprs.add(producerSlot.withExprId(inlineExprId));
+            Alias alias = new Alias(consumerSlot.getExprId(), childrenExprs, consumerSlot.getName(),
+                    producerSlot.getQualifier(), false);
+            projects.add(alias);
+        }
+        return new LogicalProject<>(projects, inlinedPlan);
     }
 
     private boolean containsNondeterministicFunction(LogicalCTEProducer<?> producer) {
@@ -178,8 +210,8 @@ public class CTEInline extends DefaultPlanRewriter<LogicalCTEProducer<?>> implem
      * Only volatile expressions are unsafe to inline, a stable udf must return the same value
      * for the same arguments within a statement.
      */
-    private boolean containsVolatileExpression(LogicalCTEProducer<?> producer) {
-        return producer.anyMatch(node -> node instanceof Plan
+    static boolean containsVolatileExpression(Plan plan) {
+        return plan.anyMatch(node -> node instanceof Plan
                 && ((Plan) node).getExpressions().stream().anyMatch(Expression::containsVolatileExpression));
     }
 }

@@ -245,4 +245,36 @@ suite("exception_test", "rec_cte") {
                 SELECT n FROM r ORDER BY n;"""
         exception "inline is blocked"
     }
+
+    // the volatile CTE is consumed inside a subquery of the recursive child, unnesting keeps the
+    // consumer below the recursive side, so the CTE has to be inlined as well
+    test {
+        sql """WITH RECURSIVE
+                u AS (SELECT uuid() AS v),
+                r(n) AS (
+                    SELECT CAST(1 AS INT)
+                    UNION ALL
+                    SELECT CAST(n + 1 AS INT)
+                    FROM r
+                    WHERE n < 2 AND EXISTS (SELECT 1 FROM u WHERE u.v IS NOT NULL)
+                )
+                SELECT n FROM r ORDER BY n;"""
+        exception "inline is blocked"
+    }
+
+    // the volatile CTE is consumed by a nested CTE inside the recursive child
+    test {
+        sql """WITH RECURSIVE
+                u AS (SELECT uuid() AS v),
+                r(n) AS (
+                    SELECT CAST(1 AS INT)
+                    UNION ALL
+                    SELECT CAST(n + 1 AS INT)
+                    FROM r
+                    JOIN (WITH w AS (SELECT v FROM u) SELECT COUNT(*) AS c FROM w) t ON t.c = 1
+                    WHERE n < 2
+                )
+                SELECT n FROM r ORDER BY n;"""
+        exception "inline is blocked"
+    }
 }

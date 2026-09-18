@@ -7,6 +7,18 @@
 -- !dead_branch --
 1
 
+-- !unused_volatile_output --
+1
+2
+3
+
+-- !mixed_consumer --
+1
+2
+3
+
+-- !empty_anchor --
+
 -- !stable_udf --
 1
 2

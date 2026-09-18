@@ -42,6 +42,45 @@ suite("must_inline_volatile_cte_test", "rec_cte") {
         SELECT n FROM r ORDER BY n
     """
 
+    // The recursive child only uses k, so the volatile output v is pruned from the inlined copy
+    // instead of rejecting the query.
+    qt_unused_volatile_output """
+        WITH RECURSIVE
+        u AS (SELECT 1 AS k, uuid() AS v),
+        r(n) AS (
+            SELECT CAST(1 AS INT)
+            UNION ALL
+            SELECT CAST(n + u.k AS INT) FROM r JOIN u ON TRUE WHERE n < 3
+        )
+        SELECT n FROM r ORDER BY n
+    """
+
+    // The outer consumer needs v, the recursive child only needs k: the volatile producer stays
+    // materialized for the outer consumer while a pruned copy is inlined into the recursive child.
+    qt_mixed_consumer """
+        WITH RECURSIVE
+        u AS (SELECT 1 AS k, uuid() AS v),
+        r(n) AS (
+            SELECT CAST(1 AS INT)
+            UNION ALL
+            SELECT CAST(n + u.k AS INT) FROM r JOIN u ON TRUE WHERE n < 3
+        )
+        SELECT r.n FROM r, u WHERE u.v IS NOT NULL ORDER BY r.n
+    """
+
+    // The anchor never produces a row, so the recursive side is never executed and the volatile cte
+    // is never read again: the query simply returns no rows.
+    qt_empty_anchor """
+        WITH RECURSIVE
+        u AS (SELECT uuid() AS v),
+        r(n) AS (
+            SELECT CAST(1 AS INT) WHERE FALSE
+            UNION ALL
+            SELECT CAST(n + 1 AS INT) FROM r JOIN u ON TRUE WHERE n < 3
+        )
+        SELECT n FROM r ORDER BY n
+    """
+
     // A stable udf returns the same value for the same arguments within a statement, so it is safe to
     // inline it into the recursive child even though it is not deterministic.
     def udfName = "must_inline_stable_udf"

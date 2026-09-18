@@ -1643,10 +1643,6 @@ public class StatementContext implements Closeable {
         this.hasNestedColumns = hasNestedColumns;
     }
 
-    public void addToMustLineCTEs(CTEId cteId) {
-        mustInlineCTE.add(cteId);
-    }
-
     public Set<CTEId> getMustInlineCTEs() {
         return mustInlineCTE;
     }
