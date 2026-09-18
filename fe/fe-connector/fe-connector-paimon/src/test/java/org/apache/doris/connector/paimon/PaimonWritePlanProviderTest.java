@@ -39,22 +39,6 @@ import java.util.stream.Collectors;
 public class PaimonWritePlanProviderTest {
 
     @Test
-    public void rejectsUnsupportedPartitionSyntax() {
-        PaimonWritePlanProvider provider = new PaimonWritePlanProvider(null, null, null);
-
-        DorisConnectorException temporary = Assertions.assertThrows(DorisConnectorException.class,
-                () -> provider.validateWritePartitionSyntax(true, Collections.singletonList("region")));
-        Assertions.assertEquals("Paimon tables do not support temporary partitions", temporary.getMessage());
-
-        DorisConnectorException names = Assertions.assertThrows(DorisConnectorException.class,
-                () -> provider.validateWritePartitionSyntax(false, Collections.singletonList("region")));
-        Assertions.assertTrue(names.getMessage().contains("Paimon tables do not support PARTITION name lists"));
-
-        Assertions.assertDoesNotThrow(
-                () -> provider.validateWritePartitionSyntax(false, Collections.emptyList()));
-    }
-
-    @Test
     public void insertColumnNamesFollowBoundSchemaOrder() {
         ConnectorWriteHandle handle = handle(
                 columns("score", "name", "id"),

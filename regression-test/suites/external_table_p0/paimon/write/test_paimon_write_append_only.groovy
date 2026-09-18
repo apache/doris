@@ -171,7 +171,7 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             SELECT id, name FROM t_append_default ORDER BY id
         """
 
-        // Master rejects an omitted NOT NULL field without a default during
+        // Doris rejects an omitted NOT NULL field without a default during
         // INSERT analysis, before the row reaches the Paimon writer.
         test {
             sql """INSERT INTO t_append_required (id) VALUES (1)"""
@@ -210,7 +210,7 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
         // FT-044: Duplicate target columns are rejected case-insensitively.
         test {
             sql """INSERT INTO t_append (id, ID) VALUES (8, 9)"""
-            exception "Duplicate column"
+            exception "Column 'ID' specified twice"
         }
     } finally {
         sql """drop catalog if exists ${catalogName}"""

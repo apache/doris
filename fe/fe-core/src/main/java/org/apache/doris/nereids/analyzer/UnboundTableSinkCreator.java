@@ -20,7 +20,6 @@ package org.apache.doris.nereids.analyzer;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
-import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.CatalogIf;
@@ -79,7 +78,6 @@ public class UnboundTableSinkCreator {
                 throw new UserException("Connector '" + curCatalog.getName() + "' (type: "
                         + curCatalog.getType() + ") does not support INSERT operations");
             }
-            validateConnectorWritePartitionSyntax(writeProvider, false, partitions);
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions, query);
         }
         throw new UserException("Load data to " + curCatalog.getClass().getSimpleName() + " is not supported.");
@@ -111,9 +109,7 @@ public class UnboundTableSinkCreator {
                     isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
-            validateConnectorWritePartitionSyntax(
-                    ((PluginDrivenExternalCatalog) curCatalog).getConnector().getWritePlanProvider(),
-                    temporaryPartition, partitions);
+            rejectTemporaryPartitionForExternalTable(temporaryPartition);
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
@@ -145,9 +141,7 @@ public class UnboundTableSinkCreator {
                     isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog && !isAutoDetectPartition) {
-            validateConnectorWritePartitionSyntax(
-                    ((PluginDrivenExternalCatalog) curCatalog).getConnector().getWritePlanProvider(),
-                    temporaryPartition, partitions);
+            rejectTemporaryPartitionForExternalTable(temporaryPartition);
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
         }
@@ -159,15 +153,9 @@ public class UnboundTableSinkCreator {
                         ? " PARTITION(*) is only supported in overwrite partition for OLAP table" : ""));
     }
 
-    private static void validateConnectorWritePartitionSyntax(ConnectorWritePlanProvider writeProvider,
-            boolean temporaryPartition, List<String> partitions) {
-        if (writeProvider == null) {
-            return;
-        }
-        try {
-            writeProvider.validateWritePartitionSyntax(temporaryPartition, partitions);
-        } catch (DorisConnectorException e) {
-            throw new AnalysisException(e.getMessage(), e);
+    private static void rejectTemporaryPartitionForExternalTable(boolean temporaryPartition) {
+        if (temporaryPartition) {
+            throw new AnalysisException("TEMPORARY PARTITION is only supported for internal OLAP tables");
         }
     }
 

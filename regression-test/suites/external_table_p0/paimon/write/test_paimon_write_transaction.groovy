@@ -364,7 +364,7 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
         test {
             sql """INSERT OVERWRITE TABLE t_overwrite_part
                 TEMPORARY PARTITION (region) VALUES (40, 'temporary_partition', 'east')"""
-            exception "Paimon tables do not support temporary partitions"
+            exception "TEMPORARY PARTITION is only supported for internal OLAP tables"
         }
         order_qt_txn_unsupported_partition_syntax """
             SELECT id, name, region FROM t_overwrite_part ORDER BY id

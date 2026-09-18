@@ -195,6 +195,16 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public void validateWritePartitionNames(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> partitionNames) {
+        if (!partitionNames.isEmpty()) {
+            throw new DorisConnectorException("Paimon tables do not support PARTITION name lists; "
+                    + "use PARTITION (key = value) for static partitions or omit PARTITION "
+                    + "for dynamic partition overwrite");
+        }
+    }
+
+    @Override
     public List<String> listDatabaseNames(ConnectorSession session) {
         // M-11: wrap the remote read in executeAuthenticated so the FE-injected Kerberos UGI applies (legacy
         // PaimonMetadataOps.listDatabaseNames wrapped it too). On failure, rethrow with the catalog name exactly
