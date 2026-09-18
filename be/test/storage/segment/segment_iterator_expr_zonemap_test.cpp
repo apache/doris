@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -30,10 +31,15 @@
 #include "core/field.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/index_file_writer.h"
+#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -178,8 +184,14 @@ TabletSchemaSPtr make_commit_tso_tablet_schema() {
     return tablet_schema;
 }
 
-TabletSchemaSPtr make_version_tablet_schema() {
+TabletSchemaSPtr make_version_tablet_schema(bool with_inverted_index = false) {
     auto tablet_schema = std::make_shared<TabletSchema>();
+    if (with_inverted_index) {
+        TabletSchemaPB schema_pb;
+        schema_pb.set_keys_type(KeysType::DUP_KEYS);
+        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        tablet_schema->init_from_pb(schema_pb);
+    }
     tablet_schema->append_column(*create_int_key(0, false));
     TabletColumn version_column;
     version_column.set_unique_id(1);
@@ -192,6 +204,16 @@ TabletSchemaSPtr make_version_tablet_schema() {
     version_column.set_index_length(8);
     version_column.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
     tablet_schema->append_column(version_column);
+    if (with_inverted_index) {
+        TabletIndexPB index_pb;
+        index_pb.set_index_id(1);
+        index_pb.set_index_name("version_idx");
+        index_pb.set_index_type(IndexType::INVERTED);
+        index_pb.add_col_unique_id(1);
+        TabletIndex index;
+        index.init_from_pb(index_pb);
+        tablet_schema->append_index(std::move(index));
+    }
     tablet_schema->set_storage_page_size(4096);
     return tablet_schema;
 }
@@ -226,11 +248,16 @@ std::shared_ptr<AndBlockColumnPredicate> make_commit_tso_gt_predicate(int32_t co
 std::shared_ptr<AndBlockColumnPredicate> make_version_eq_predicate(int32_t column_id,
                                                                    int64_t value) {
     auto predicates = AndBlockColumnPredicate::create_shared();
-    std::shared_ptr<ColumnPredicate> pred(
-            new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ>(
-                    column_id, VERSION_COL, Field::create_field<TYPE_BIGINT>(value)));
+    auto pred = std::make_shared<ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ>>(
+            column_id, VERSION_COL, Field::create_field<TYPE_BIGINT>(value));
     predicates->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
     return predicates;
+}
+
+std::shared_ptr<ColumnPredicate> make_version_eq_column_predicate(int32_t column_id,
+                                                                  int64_t value) {
+    return std::make_shared<ComparisonPredicateBase<TYPE_BIGINT, PredicateType::EQ>>(
+            column_id, VERSION_COL, Field::create_field<TYPE_BIGINT>(value));
 }
 
 // Read schema covers all tablet columns in order, so ordinal == tablet cid.
@@ -251,6 +278,17 @@ Block make_hidden_column_read_block(const ReadSchemaSPtr& read_schema) {
 class SegmentIteratorExprZonemapTest : public testing::Test {
 protected:
     void SetUp() override {
+        _previous_searcher_cache = ExecEnv::GetInstance()->get_inverted_index_searcher_cache();
+        _previous_query_cache = ExecEnv::GetInstance()->get_inverted_index_query_cache();
+        constexpr int64_t kCacheLimit = 1024 * 1024;
+        _inverted_index_searcher_cache = std::unique_ptr<InvertedIndexSearcherCache>(
+                InvertedIndexSearcherCache::create_global_instance(kCacheLimit, 1));
+        _inverted_index_query_cache = std::unique_ptr<InvertedIndexQueryCache>(
+                InvertedIndexQueryCache::create_global_cache(kCacheLimit, 1));
+        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(
+                _inverted_index_searcher_cache.get());
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(_inverted_index_query_cache.get());
+
         auto st = io::global_local_filesystem()->delete_directory(kTestDir);
         ASSERT_TRUE(st.ok()) << st;
         st = io::global_local_filesystem()->create_directory(kTestDir);
@@ -259,6 +297,10 @@ protected:
     }
 
     void TearDown() override {
+        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(_previous_searcher_cache);
+        ExecEnv::GetInstance()->set_inverted_index_query_cache(_previous_query_cache);
+        _inverted_index_searcher_cache.reset();
+        _inverted_index_query_cache.reset();
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
@@ -320,6 +362,33 @@ protected:
                                                             segment));
     }
 
+    void create_index_file_writer(const io::FileSystemSPtr& fs, const std::string& path,
+                                  std::unique_ptr<IndexFileWriter>* index_file_writer) {
+        if (!_tablet_schema->has_inverted_index()) {
+            return;
+        }
+        const std::string index_path_prefix {
+                InvertedIndexDescriptor::get_index_file_path_prefix(path)};
+        const std::string index_path =
+                InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+        io::FileWriterPtr index_writer;
+        auto st = fs->create_file(index_path, &index_writer);
+        ASSERT_TRUE(st.ok()) << st;
+        *index_file_writer = std::make_unique<IndexFileWriter>(
+                fs, index_path_prefix, kRowsetId.to_string(), 0, InvertedIndexStorageFormatPB::V2,
+                std::move(index_writer));
+    }
+
+    void close_index_file_writer(IndexFileWriter* index_file_writer) {
+        if (index_file_writer == nullptr) {
+            return;
+        }
+        auto st = index_file_writer->begin_close();
+        ASSERT_TRUE(st.ok()) << st;
+        st = index_file_writer->finish_close();
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
     void build_hidden_bigint_segment(const std::string& file_name, int num_rows,
                                      uint32_t num_rows_per_block, const Field& hidden_value,
                                      std::shared_ptr<Segment>* segment) {
@@ -329,10 +398,13 @@ protected:
         auto st = fs->create_file(path, &file_writer);
         ASSERT_TRUE(st.ok()) << st;
 
+        std::unique_ptr<IndexFileWriter> index_file_writer;
+        ASSERT_NO_FATAL_FAILURE(create_index_file_writer(fs, path, &index_file_writer));
+
         VerticalSegmentWriterOptions opts;
         opts.num_rows_per_block = num_rows_per_block;
         TestVerticalSegmentWriter writer(file_writer.get(), 0, _tablet_schema, nullptr, nullptr,
-                                         opts, nullptr);
+                                         opts, index_file_writer.get());
         st = writer.init();
         ASSERT_TRUE(st.ok()) << st;
 
@@ -355,6 +427,7 @@ protected:
         ASSERT_TRUE(st.ok()) << st;
         st = file_writer->close();
         ASSERT_TRUE(st.ok()) << st;
+        ASSERT_NO_FATAL_FAILURE(close_index_file_writer(index_file_writer.get()));
 
         st = Segment::open(fs, path, 100, 0, kRowsetId, _tablet_schema, io::FileReaderOptions {},
                            segment);
@@ -402,9 +475,38 @@ protected:
         EXPECT_EQ(expected_rows, total_rows);
     }
 
+    void assert_column_iterator_values(const std::shared_ptr<Segment>& segment,
+                                       ColumnIterator* iter, size_t expected_rows,
+                                       int64_t expected_value) {
+        ColumnIteratorOptions iter_opts;
+        iter_opts.stats = &_stats;
+        iter_opts.file_reader = segment->file_reader().get();
+        iter_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+        auto st = iter->init(iter_opts);
+        ASSERT_TRUE(st.ok()) << st;
+        st = iter->seek_to_ordinal(0);
+        ASSERT_TRUE(st.ok()) << st;
+
+        MutableColumnPtr dst = ColumnVector<TYPE_BIGINT>::create();
+        size_t rows = expected_rows;
+        bool has_null = true;
+        st = iter->next_batch(&rows, dst, &has_null);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_FALSE(has_null);
+        ASSERT_EQ(expected_rows, dst->size());
+        const auto* values = assert_cast<const ColumnInt64*>(dst.get());
+        for (size_t i = 0; i < dst->size(); ++i) {
+            EXPECT_EQ(expected_value, values->get_element(i));
+        }
+    }
+
     TabletSchemaSPtr _tablet_schema;
     OlapReaderStatistics _stats;
     RuntimeState _runtime_state;
+    std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
+    std::unique_ptr<InvertedIndexQueryCache> _inverted_index_query_cache;
+    InvertedIndexSearcherCache* _previous_searcher_cache = nullptr;
+    InvertedIndexQueryCache* _previous_query_cache = nullptr;
 };
 
 TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesWholeSegmentByExprZonemap) {
@@ -505,6 +607,43 @@ TEST_F(SegmentIteratorExprZonemapTest, VersionPredicateSkipsPhysicalPageIndexes)
             assert_hidden_column_values(iter.get(), read_options, read_schema, kNumRows, kVersion));
     EXPECT_EQ(0, _stats.rows_bf_filtered);
     EXPECT_EQ(0, _stats.rows_stats_filtered);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, VersionPredicateSkipsPhysicalInvertedIndex) {
+    constexpr int64_t kVersion = 7;
+    _tablet_schema = make_version_tablet_schema(true);
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_version_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    TQueryOptions query_options;
+    query_options.__set_enable_inverted_index_query(true);
+    query_options.__set_enable_inverted_index_query_cache(false);
+    query_options.__set_enable_inverted_index_searcher_cache(false);
+    _runtime_state.set_query_options(query_options);
+
+    auto predicate = make_version_eq_column_predicate(1, kVersion);
+    auto block_predicate = AndBlockColumnPredicate::create_shared();
+    block_predicate->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(kVersion, kVersion);
+    read_options.block_row_max = 1024;
+    read_options.column_predicates = {predicate};
+    read_options.col_id_to_predicates.emplace(1, std::move(block_predicate));
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    ASSERT_FALSE(iter->empty());
+    ASSERT_NO_FATAL_FAILURE(
+            assert_hidden_column_values(iter.get(), read_options, read_schema, kNumRows, kVersion));
+    EXPECT_EQ(0, _stats.rows_inverted_index_filtered);
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, ExprZonemapUsesReadTimeVersion) {
@@ -629,7 +768,39 @@ TEST_F(SegmentIteratorExprZonemapTest, ExprZonemapUsesReadTimeBinlogTso) {
     EXPECT_EQ(0, _stats.expr_zonemap_filtered_pages);
 }
 
-TEST_F(SegmentIteratorExprZonemapTest, NewColumnIteratorReadsCommitTsoFromReadOptions) {
+TEST_F(SegmentIteratorExprZonemapTest, CommitTsoReaderIgnoresCachedPhysicalReader) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    _tablet_schema = make_commit_tso_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_commit_tso_segment(&segment));
+
+    StorageReadOptions physical_options;
+    physical_options.stats = &_stats;
+    ColumnIteratorUPtr physical_iter;
+    auto st = segment->new_column_iterator(_tablet_schema->column(1), &physical_iter,
+                                           &physical_options);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, physical_iter);
+    ASSERT_NO_FATAL_FAILURE(
+            assert_column_iterator_values(segment, physical_iter.get(), kCommitTsoRows, 0));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(7, 7);
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+
+    ColumnIteratorUPtr iter;
+    st = segment->new_column_iterator(_tablet_schema->column(1), &iter, &read_options);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    ASSERT_NO_FATAL_FAILURE(
+            assert_column_iterator_values(segment, iter.get(), kCommitTsoRows, kCommitTso));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, CommitTsoReaderDoesNotPollutePhysicalReaderCache) {
     constexpr int64_t kCommitTso = 466872251335573505L;
     _tablet_schema = make_commit_tso_tablet_schema();
 
@@ -643,30 +814,21 @@ TEST_F(SegmentIteratorExprZonemapTest, NewColumnIteratorReadsCommitTsoFromReadOp
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
 
-    ColumnIteratorUPtr iter;
-    auto st = segment->new_column_iterator(_tablet_schema->column(1), &iter, &read_options);
+    ColumnIteratorUPtr logical_iter;
+    auto st = segment->new_column_iterator(_tablet_schema->column(1), &logical_iter, &read_options);
     ASSERT_TRUE(st.ok()) << st;
-    ASSERT_NE(nullptr, iter);
+    ASSERT_NE(nullptr, logical_iter);
+    ASSERT_NO_FATAL_FAILURE(
+            assert_column_iterator_values(segment, logical_iter.get(), kCommitTsoRows, kCommitTso));
 
-    auto file_reader = segment->file_reader();
-    ColumnIteratorOptions iter_opts;
-    iter_opts.stats = &_stats;
-    iter_opts.file_reader = file_reader.get();
-    iter_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    st = iter->init(iter_opts);
+    StorageReadOptions physical_options;
+    physical_options.stats = &_stats;
+    ColumnIteratorUPtr physical_iter;
+    st = segment->new_column_iterator(_tablet_schema->column(1), &physical_iter, &physical_options);
     ASSERT_TRUE(st.ok()) << st;
-
-    MutableColumnPtr dst = ColumnVector<TYPE_BIGINT>::create();
-    size_t n = kCommitTsoRows;
-    bool has_null = true;
-    st = iter->next_batch(&n, dst, &has_null);
-    ASSERT_TRUE(st.ok()) << st;
-    ASSERT_FALSE(has_null);
-    ASSERT_EQ(kCommitTsoRows, dst->size());
-    auto* col = assert_cast<ColumnInt64*>(dst.get());
-    for (size_t i = 0; i < dst->size(); ++i) {
-        EXPECT_EQ(kCommitTso, col->get_element(i));
-    }
+    ASSERT_NE(nullptr, physical_iter);
+    ASSERT_NO_FATAL_FAILURE(
+            assert_column_iterator_values(segment, physical_iter.get(), kCommitTsoRows, 0));
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionValue) {

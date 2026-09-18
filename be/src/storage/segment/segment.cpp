@@ -159,9 +159,8 @@ Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& sche
                                         const StorageReadOptions& read_options, bool* usable) {
     *usable = true;
     for (size_t ordinal = 0; ordinal < schema.num_block_columns(); ++ordinal) {
-        // The commit-tso column is only served correctly once its reader is created with the
-        // rowset's commit_tso as a const value. Creating it here without one would cache a reader
-        // that hands every later read the on-disk placeholder instead.
+        // The statistics iterator reads segment metadata without StorageReadOptions and therefore
+        // cannot materialize the rowset's commit_tso in place of the on-disk placeholder.
         if (static_cast<int32_t>(ordinal) == schema.commit_tso_ordinal()) {
             continue;
         }
@@ -956,12 +955,12 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
 
     // __DORIS_COMMIT_TSO_COL__ on a single-version segment stores a 0 placeholder on disk (its
     // real value is the rowset's commit_tso, filled at read time). Pass the real commit_tso as a
-    // const value so the cache returns a ConstantColumnReader, whose iterator yields the real value
-    // on every read path (projection / predicate / MIN-MAX zone-map) instead of the placeholder 0.
+    // const value so a ConstantColumnReader yields the real value on every read path (projection /
+    // predicate / MIN-MAX zone-map) instead of the placeholder 0. Constant readers deliberately
+    // bypass the UID-only ColumnReaderCache because their value depends on these read options.
     // commit_tso == -1 means it is not assigned yet (before publish); keep the on-disk value then.
-    // The value is constant per segment (a segment belongs to a single rowset), so caching the
-    // ConstantColumnReader does not cross-pollute other queries. Some internal read paths (e.g. MOW
-    // partial-update row fetch) build a bare StorageReadOptions without tablet_schema, so guard it.
+    // Some internal read paths (e.g. MOW partial-update row fetch) build a bare StorageReadOptions
+    // without tablet_schema, so guard it.
     std::optional<Field> const_value;
     if (opt->tablet_schema != nullptr && opt->version.first == opt->version.second &&
         opt->commit_tso.end_tso() != -1) {

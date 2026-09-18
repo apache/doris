@@ -1803,6 +1803,12 @@ Status SegmentIterator::_init_index_iterators() {
 
     // Inverted index iterators
     for (ColumnId cid = 0; cid < _schema->num_read_columns(); ++cid) {
+        if (_segment->get_read_time_constant_value(cid, *_schema, _opts).has_value()) {
+            // The on-disk inverted index contains the physical placeholder, not the logical value
+            // synthesized for this read. Leaving the iterator empty disables both column-predicate
+            // and expression index consumers so row-level evaluation sees the synthesized value.
+            continue;
+        }
         // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
         if (_index_iterators[cid] == nullptr) {
             // Scan-time Variant path placeholders in the read schema retain the Variant storage
