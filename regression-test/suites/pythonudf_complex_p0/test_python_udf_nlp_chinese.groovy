@@ -15,11 +15,43 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.security.MessageDigest
+
 suite("test_python_udf_nlp_chinese") {
     // Test Chinese NLP processing using jieba library
     // Dependencies: jieba
 
-    def pyPath = """${context.file.parent}/py_udf_complex_scripts/py_udf_complex.zip"""
+    def archiveName = "nlp_chinese_jieba_0.42.1_392d235b.zip"
+    def expectedSha256 = "392d235bf3249633f4a1749c6589f6bc8e3c6427e19457ae06e476f0b6a80b96"
+    def pyPath = """${context.file.parent}/py_udf_complex_scripts/${archiveName}"""
+    def archiveUrl = """${getS3Url()}/regression/pythonudf_complex_p0/${archiveName}"""
+    def archiveFile = new File(pyPath)
+
+    def fileSha256 = { File file ->
+        MessageDigest digest = MessageDigest.getInstance("SHA-256")
+        file.withInputStream { input ->
+            byte[] buffer = new byte[8192]
+            int bytesRead
+            while ((bytesRead = input.read(buffer)) != -1) {
+                digest.update(buffer, 0, bytesRead)
+            }
+        }
+        return digest.digest().collect { String.format("%02x", it & 0xff) }.join()
+    }
+
+    if (!archiveFile.exists() || fileSha256(archiveFile) != expectedSha256) {
+        logger.info("Downloading NLP Python zip from ${archiveUrl}".toString())
+        def command = ["/usr/bin/curl", "-fL", "--retry", "3", "--retry-delay", "2", archiveUrl, "--output", pyPath]
+        def process = new ProcessBuilder(command).redirectErrorStream(true).start()
+        def output = process.inputStream.text
+        def code = process.waitFor()
+        if (code != 0) {
+            logger.info("NLP Python zip download output: ${output}".toString())
+        }
+        assertEquals(0, code)
+    }
+    assertEquals(expectedSha256, fileSha256(archiveFile))
+
     scp_udf_file_to_all_be(pyPath)
     def runtime_version = getPythonUdfRuntimeVersion()
     log.info("Python zip path: ${pyPath}".toString())
