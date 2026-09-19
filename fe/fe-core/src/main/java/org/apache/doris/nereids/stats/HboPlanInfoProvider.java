@@ -58,7 +58,6 @@ public class HboPlanInfoProvider {
     private volatile Cache<String, Map<Integer, String>> nodeIdToFingerprintCache;
     private volatile Cache<String, Map<String, String>> pinnedGuardSkipCache;
     private volatile Cache<String, Map<String, String>> pinnedExpansionAppliedCache;
-    private volatile Cache<String, Map<String, String>> pinnedEntryTypeCache;
     // per query: fingerprint -> the literal mode of the struct info which matched it
     private volatile Cache<String, Map<String, String>> pinnedLiteralModeCache;
     // per query: fingerprint -> how the pinned entry of that fingerprint was applied
@@ -96,10 +95,6 @@ public class HboPlanInfoProvider {
         pinnedLiteralModeCache = buildHboPinnedGuardSkipCache(
                 Config.hbo_pinned_stats_cache_num,
                 Config.expire_hbo_plan_info_cache_in_fe_second);
-        pinnedEntryTypeCache = buildHboPinnedGuardSkipCache(
-                Config.hbo_plan_info_cache_num,
-                Config.expire_hbo_plan_info_cache_in_fe_second
-        );
         pinnedApplyStateCache = buildHboPinnedGuardSkipCache(
                 Config.hbo_pinned_stats_cache_num,
                 Config.expire_hbo_plan_info_cache_in_fe_second);
@@ -225,20 +220,6 @@ public class HboPlanInfoProvider {
         return skips == null ? Collections.emptyMap() : skips;
     }
 
-    /**
-     * Record the type (EXACT / FILTER_SMALL) of the pinned entry that matched the given fingerprint
-     * for this query, so the explain annotation can report which kind of injected entry is in
-     * effect (and, for FILTER_SMALL, why it was skipped).
-     */
-    public void putPinnedEntryType(String queryId, String fingerprint, String type) {
-        Map<String, String> types = pinnedEntryTypeCache.getIfPresent(queryId);
-        if (types == null) {
-            types = new HashMap<>();
-            pinnedEntryTypeCache.put(queryId, types);
-        }
-        types.put(fingerprint, type);
-    }
-
     /** Matched pinned entry types of a query, keyed by hbo fingerprint. */
     public void putPinnedLiteralMode(String queryId, String fingerprint, String literalMode) {
         Map<String, String> modes = pinnedLiteralModeCache.getIfPresent(queryId);
@@ -252,11 +233,6 @@ public class HboPlanInfoProvider {
     public Map<String, String> getPinnedLiteralMode(String queryId) {
         Map<String, String> modes = pinnedLiteralModeCache.getIfPresent(queryId);
         return modes == null ? Collections.emptyMap() : modes;
-    }
-
-    public Map<String, String> getPinnedEntryType(String queryId) {
-        Map<String, String> types = pinnedEntryTypeCache.getIfPresent(queryId);
-        return types == null ? Collections.emptyMap() : types;
     }
 
     /**
@@ -308,41 +284,62 @@ public class HboPlanInfoProvider {
     }
 
     /**
-     * Reference the above UpdateConfig comments.
+     * Reference the above UpdateConfig comments. Every per-query cache of this provider is rebuilt
+     * (they are all sized and expired by the same two configs), and the entries of a running query
+     * are carried over so that a runtime change cannot drop the plan info of a query which is still
+     * in flight.
      */
     public static synchronized void updateConfig() {
         HboPlanStatisticsManager hboManger = Env.getCurrentEnv().getHboPlanStatisticsManager();
         if (hboManger == null) {
             return;
         }
-        HboPlanInfoProvider planInfoProvider = hboManger.getHboPlanInfoProvider();
-        if (planInfoProvider == null) {
+        HboPlanInfoProvider provider = hboManger.getHboPlanInfoProvider();
+        if (provider == null) {
             return;
         }
+        int cacheNum = Config.hbo_plan_info_cache_num;
+        int pinnedCacheNum = Config.hbo_pinned_stats_cache_num;
+        long expireSeconds = Config.expire_hbo_plan_info_cache_in_fe_second;
 
-        Cache<String, Map<Integer, PhysicalPlan>> idToPlanCache = buildHboIdToPlanCache(
-                Config.hbo_plan_info_cache_num,
-                Config.expire_hbo_plan_info_cache_in_fe_second
-        );
-        Cache<String, Map<PhysicalPlan, Integer>> planToIdCache = buildHboPlanToIdCache(
-                Config.hbo_plan_info_cache_num,
-                Config.expire_hbo_plan_info_cache_in_fe_second
-        );
-        Cache<String, Map<RelationId, Set<Expression>>> scanToFilterCache = buildHboScanToFilterCache(
-                Config.hbo_plan_info_cache_num,
-                Config.expire_hbo_plan_info_cache_in_fe_second
-        );
-        Cache<String, Map<Integer, String>> nodeIdToFingerprintCache = buildHboNodeIdToFingerprintCache(
-                Config.hbo_plan_info_cache_num,
-                Config.expire_hbo_plan_info_cache_in_fe_second
-        );
-        idToPlanCache.putAll(planInfoProvider.idToPlanCache.asMap());
-        planInfoProvider.idToPlanCache = idToPlanCache;
-        planToIdCache.putAll(planInfoProvider.planToIdCache.asMap());
-        planInfoProvider.planToIdCache = planToIdCache;
-        scanToFilterCache.putAll(planInfoProvider.scanToFilterCache.asMap());
-        planInfoProvider.scanToFilterCache = scanToFilterCache;
-        nodeIdToFingerprintCache.putAll(planInfoProvider.nodeIdToFingerprintCache.asMap());
-        planInfoProvider.nodeIdToFingerprintCache = nodeIdToFingerprintCache;
+        Cache<String, Map<Integer, PhysicalPlan>> idToPlanCache =
+                buildHboIdToPlanCache(cacheNum, expireSeconds);
+        idToPlanCache.putAll(provider.idToPlanCache.asMap());
+        provider.idToPlanCache = idToPlanCache;
+
+        Cache<String, Map<PhysicalPlan, Integer>> planToIdCache =
+                buildHboPlanToIdCache(cacheNum, expireSeconds);
+        planToIdCache.putAll(provider.planToIdCache.asMap());
+        provider.planToIdCache = planToIdCache;
+
+        Cache<String, Map<RelationId, Set<Expression>>> scanToFilterCache =
+                buildHboScanToFilterCache(cacheNum, expireSeconds);
+        scanToFilterCache.putAll(provider.scanToFilterCache.asMap());
+        provider.scanToFilterCache = scanToFilterCache;
+
+        Cache<String, Map<Integer, String>> nodeIdToFingerprintCache =
+                buildHboNodeIdToFingerprintCache(cacheNum, expireSeconds);
+        nodeIdToFingerprintCache.putAll(provider.nodeIdToFingerprintCache.asMap());
+        provider.nodeIdToFingerprintCache = nodeIdToFingerprintCache;
+
+        Cache<String, Map<String, String>> pinnedGuardSkipCache =
+                buildHboPinnedGuardSkipCache(cacheNum, expireSeconds);
+        pinnedGuardSkipCache.putAll(provider.pinnedGuardSkipCache.asMap());
+        provider.pinnedGuardSkipCache = pinnedGuardSkipCache;
+
+        Cache<String, Map<String, String>> pinnedExpansionAppliedCache =
+                buildHboPinnedGuardSkipCache(cacheNum, expireSeconds);
+        pinnedExpansionAppliedCache.putAll(provider.pinnedExpansionAppliedCache.asMap());
+        provider.pinnedExpansionAppliedCache = pinnedExpansionAppliedCache;
+
+        Cache<String, Map<String, String>> pinnedLiteralModeCache =
+                buildHboPinnedGuardSkipCache(pinnedCacheNum, expireSeconds);
+        pinnedLiteralModeCache.putAll(provider.pinnedLiteralModeCache.asMap());
+        provider.pinnedLiteralModeCache = pinnedLiteralModeCache;
+
+        Cache<String, Map<String, String>> pinnedApplyStateCache =
+                buildHboPinnedGuardSkipCache(pinnedCacheNum, expireSeconds);
+        pinnedApplyStateCache.putAll(provider.pinnedApplyStateCache.asMap());
+        provider.pinnedApplyStateCache = pinnedApplyStateCache;
     }
 }

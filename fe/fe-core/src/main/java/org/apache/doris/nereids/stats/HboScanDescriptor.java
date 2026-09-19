@@ -53,25 +53,74 @@ public class HboScanDescriptor {
     private final String table;
     private final long visibleVersion;
     private final long scanRows;
+    private final RowsKind rowsKind;
     private final long selectedPartitions;
     private final long totalPartitions;
 
-    HboScanDescriptor(String table, long visibleVersion, long scanRows, long selectedPartitions,
-            long totalPartitions) {
+    HboScanDescriptor(String table, long visibleVersion, long scanRows, RowsKind rowsKind,
+            long selectedPartitions, long totalPartitions) {
         this.table = table;
         this.visibleVersion = visibleVersion;
         this.scanRows = scanRows;
+        this.rowsKind = rowsKind;
         this.selectedPartitions = selectedPartitions;
         this.totalPartitions = totalPartitions;
+    }
+
+    /**
+     * How the row count of a scan was obtained.
+     */
+    public enum RowsKind {
+        /**
+         * Every selected partition reported its own row count, so the number is the physical size of
+         * the data the scan reads.
+         */
+        MEASURED,
+        /**
+         * The row count of at least one selected partition is not available, so the number is
+         * derived from the table (its last reported row count, or the statistics of the last
+         * analysis plus the rows loaded since). Two such numbers are comparable with each other, but
+         * a number of this kind must never be compared with a {@link #MEASURED} one: the derivation
+         * can be off by a large factor, e.g. for the partitions of a skewed table.
+         */
+        ESTIMATED,
+        /** No row count at all (the table was neither analyzed nor reported by a backend). */
+        UNKNOWN
+    }
+
+    /** A row count and how it was obtained. */
+    public static class Rows {
+        private static final Rows UNKNOWN_ROWS = new Rows(UNKNOWN, RowsKind.UNKNOWN);
+
+        private final long rows;
+        private final RowsKind kind;
+
+        Rows(long rows, RowsKind kind) {
+            this.rows = rows;
+            this.kind = kind;
+        }
+
+        public long getRows() {
+            return rows;
+        }
+
+        public RowsKind getKind() {
+            return kind;
+        }
+
+        public boolean isKnown() {
+            return kind != RowsKind.UNKNOWN;
+        }
     }
 
     /** The state of a scan node: which table it reads, and how much of it. */
     public static HboScanDescriptor of(OlapScan scan) throws RpcException {
         OlapTable table = scan.getTable();
         List<Long> selectedPartitionIds = scan.getSelectedPartitionIds();
+        Rows rows = rowsOf(table, selectedPartitionIds, scan.getSelectedIndexId());
         return new HboScanDescriptor(table.getNameWithFullQualifiers(), table.getVisibleVersion(),
-                scanRowsOf(table, selectedPartitionIds, scan.getSelectedIndexId()),
-                selectedPartitionIds.size(), table.getPartitionNames().size());
+                rows.getRows(), rows.getKind(), selectedPartitionIds.size(),
+                table.getPartitionNames().size());
     }
 
     /**
@@ -88,11 +137,11 @@ public class HboScanDescriptor {
      * {@link #UNKNOWN} is returned only when the table has no row count at all (never analyzed and
      * never reported by a backend).
      */
-    public static long scanRowsOf(OlapTable table, List<Long> partitionIds, long indexId) {
+    public static Rows rowsOf(OlapTable table, List<Long> partitionIds, long indexId) {
         long rows = 0;
         long unknownPartitions = 0;
         for (long partitionId : partitionIds) {
-            long partitionRows = table.getRowCountForPartitionIndex(partitionId, indexId, true);
+            long partitionRows = reportedRowsOf(table, partitionId, indexId);
             if (partitionRows == UNKNOWN) {
                 unknownPartitions++;
             } else {
@@ -100,15 +149,30 @@ public class HboScanDescriptor {
             }
         }
         if (unknownPartitions == 0) {
-            return rows;
+            return new Rows(rows, RowsKind.MEASURED);
         }
         long tableRows = tableRowsOf(table, indexId);
         if (tableRows == UNKNOWN) {
-            return UNKNOWN;
+            return Rows.UNKNOWN_ROWS;
         }
         // a partition whose row count is unknown holds at least one row, the rest is the average of
-        // the table (the same rule the optimizer uses for the same situation)
-        return rows + Math.max(unknownPartitions, tableRows * unknownPartitions / table.getPartitionNum());
+        // the table (the same rule the optimizer uses for the same situation). The result is an
+        // estimate and is marked as one, so that the drift verdict never compares it with a measured
+        // row count.
+        return new Rows(rows + Math.max(unknownPartitions,
+                tableRows * unknownPartitions / table.getPartitionNum()), RowsKind.ESTIMATED);
+    }
+
+    /**
+     * The row count a backend reported for one partition, or {@link #UNKNOWN} when no backend
+     * reported it (or when a newer load invalidated the report): only such a number is a
+     * measurement of the partition, everything else is derived by {@link #rowsOf}.
+     */
+    private static long reportedRowsOf(OlapTable table, long partitionId, long indexId) {
+        // the strict accessor is the only one which distinguishes an index no backend reported yet
+        // (-1) from an empty one (0): the non strict one maps both to 0, which would make a never
+        // reported partition look like a measurement of zero rows
+        return table.getRowCountForPartitionIndex(partitionId, indexId, true);
     }
 
     /** The rows of a whole table, with the rows loaded since the last analysis as the fallback. */
@@ -135,6 +199,7 @@ public class HboScanDescriptor {
         String[] parts = header.split(",");
         long version = UNKNOWN;
         long rows = UNKNOWN;
+        RowsKind kind = RowsKind.UNKNOWN;
         long selected = UNKNOWN;
         long total = UNKNOWN;
         for (int i = 1; i < parts.length; i++) {
@@ -143,6 +208,10 @@ public class HboScanDescriptor {
                 version = parseLong(part.substring(1));
             } else if (part.startsWith("r")) {
                 rows = parseLong(part.substring(1));
+                kind = RowsKind.MEASURED;
+            } else if (part.startsWith("e")) {
+                rows = parseLong(part.substring(1));
+                kind = RowsKind.ESTIMATED;
             } else if (part.startsWith("p")) {
                 int slash = part.indexOf('/');
                 if (slash > 0) {
@@ -155,7 +224,7 @@ public class HboScanDescriptor {
             // no partition part: the scan selects every partition of the table
             selected = total;
         }
-        return new HboScanDescriptor(parts[0], version, rows, selected, total);
+        return new HboScanDescriptor(parts[0], version, rows, kind, selected, total);
     }
 
     /** The content of the scan token of this scan: {@code db.t,v3,r1000,p1/5}. */
@@ -164,8 +233,12 @@ public class HboScanDescriptor {
         if (visibleVersion != UNKNOWN) {
             sb.append(",v").append(visibleVersion);
         }
-        if (scanRows != UNKNOWN) {
+        // a measured row count is marked 'r', an estimated one 'e': the verdict only ever compares
+        // two numbers of the same kind (see HboStructFreshness)
+        if (rowsKind == RowsKind.MEASURED) {
             sb.append(",r").append(scanRows);
+        } else if (rowsKind == RowsKind.ESTIMATED) {
+            sb.append(",e").append(scanRows);
         }
         if (totalPartitions != UNKNOWN && selectedPartitions != totalPartitions) {
             sb.append(",p").append(selectedPartitions).append('/').append(totalPartitions);
@@ -239,9 +312,19 @@ public class HboScanDescriptor {
         return visibleVersion != UNKNOWN;
     }
 
-    /** Whether the rows of the scan were recorded. */
+    /** How the recorded row count was obtained. */
+    public RowsKind getRowsKind() {
+        return rowsKind;
+    }
+
+    /** Whether the rows of the scan were recorded (measured or estimated). */
     public boolean hasScanRows() {
-        return scanRows != UNKNOWN;
+        return rowsKind != RowsKind.UNKNOWN;
+    }
+
+    /** Whether two row counts may be compared with each other. */
+    public static boolean isRowCountComparable(HboScanDescriptor left, HboScanDescriptor right) {
+        return left.hasScanRows() && right.hasScanRows() && left.getRowsKind() == right.getRowsKind();
     }
 
     /** Whether the recorded version equals the version of {@code other} (impossible when unknown). */

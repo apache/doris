@@ -50,7 +50,11 @@ import java.util.Set;
  * <p>Pinned statistics are per-FE in memory; when
  * {@code Config.hbo_persist_pinned_to_internal_db} is enabled they are additionally written
  * through to {@code __internal_schema.hbo_statistics} and each FE loads the table into memory
- * once, lazily on first use. The in-memory cache stays authoritative: loaded entries are merged
+ * once, in the background ({@link HboPinnedStatisticsLoader}, started by {@code Env}), so that the
+ * planning path never runs a query of its own: the internal statement a load issues would be
+ * planned on the calling thread, and its own plan consults this manager - a read path which
+ * triggered the load could therefore re-enter the load while a SET/DELETE is in between its memory
+ * update and its DB write. The in-memory cache stays authoritative: loaded entries are merged
  * with putIfAbsent, so entries injected while persistence was off (or concurrently) win over the
  * stored snapshot, and a DELETE whose DB removal failed while the load was still pending is
  * tombstoned so the pending load cannot resurrect it. Once the load succeeds, rows that were
@@ -64,9 +68,10 @@ import java.util.Set;
  * survives until this FE restarts and reloads.
  */
 public class HboPlanStatisticsManager {
-    private static final Logger LOG = LogManager.getLogger(HboPlanStatisticsManager.class);
+    /** How often the background loader retries a load which could not run (schema not ready yet). */
+    static final long LOAD_RETRY_INTERVAL_MS = 30_000L;
 
-    private static final long LOAD_RETRY_INTERVAL_MS = 30_000L;
+    private static final Logger LOG = LogManager.getLogger(HboPlanStatisticsManager.class);
 
     /**
      * How a manually injected (pinned) row count is applied.
@@ -81,8 +86,9 @@ public class HboPlanStatisticsManager {
          */
         FILTER_SMALL,
         /**
-         * Not a row count but the measured fan-out factor of one join
-         * ({@code output rows / max(left rows, right rows)}). The factor is kept in
+         * Not a row count but a factor relative to the <b>left input</b> of one join (0.1 keeps 10%
+         * of the left input, 1000 fans out to 1000 times it, see
+         * {@code HboStatsCalculator.applyPinnedJoinExpansion}). The factor is kept in
          * {@link PinnedHboStatistics#getExpansion()} and the key is the fingerprint of the join
          * equality conditions (see {@link HboJoinConditions}), not the fingerprint of a sub tree.
          * Injected with {@code HBO SET STATISTICS ... TYPE=JOIN_EXPANSION}; it is stored in the same
@@ -117,6 +123,9 @@ public class HboPlanStatisticsManager {
     }
 
     private HboPlanStatisticsProvider hboPlanStatisticsProvider;
+    // the background loader of the persisted pinned entries (started by Env, see
+    // startPinnedStatisticsLoader); it is the only caller of ensurePinnedLoaded
+    private HboPinnedStatisticsLoader loader;
     private HboPlanInfoProvider hboPlanInfoProvider;
     // LRU bound follows the sibling hbo caches (see HboPlanInfoProvider): a non-positive
     // hbo_pinned_stats_cache_num disables the bound instead of silently disabling injection
@@ -220,9 +229,13 @@ public class HboPlanStatisticsManager {
      * The pinned row-count entry of a sub tree. Entries of another kind (a join expansion factor
      * keyed by the join conditions) are never returned here, so the two read paths can not pick up
      * each other's entry.
+     *
+     * <p>This is the planning hot path, so it only reads the in-memory cache: the persisted entries
+     * of this FE are loaded by {@link HboPinnedStatisticsLoader} in the background. Doing it here
+     * would run a DDL and a full table scan on a user query's planning thread, and the internal
+     * statement it runs would re-enter this manager (see the class javadoc).
      */
     public Optional<PinnedHboStatistics> getPinnedPlanStatistics(String fingerprint) {
-        ensurePinnedLoaded();
         return Optional.ofNullable(pinnedPlanStatistics.getIfPresent(fingerprint))
                 .filter(pinned -> !pinned.isExpansion());
     }
@@ -253,7 +266,8 @@ public class HboPlanStatisticsManager {
      * row count and its key is the join condition fingerprint.
      *
      * @param fingerprint sha256 of the canonical equality-condition set
-     * @param expansion measured fan-out factor: output rows / max(left rows, right rows), >= 1
+     * @param expansion measured factor relative to the left input of the join (0.1 keeps 10% of the
+     *                  left input, 1000 fans out to 1000 times it), greater than 0
      * @param condCanonical the canonical equality-condition set the factor was measured for
      */
     public void putPinnedExpansionStatistics(String fingerprint, double expansion, String condCanonical) {
@@ -266,7 +280,6 @@ public class HboPlanStatisticsManager {
      * The pinned join expansion entry of a set of equality conditions, if one was injected.
      */
     public Optional<PinnedHboStatistics> getPinnedExpansion(String fingerprint) {
-        ensurePinnedLoaded();
         return Optional.ofNullable(pinnedPlanStatistics.getIfPresent(fingerprint))
                 .filter(PinnedHboStatistics::isExpansion);
     }
@@ -334,8 +347,33 @@ public class HboPlanStatisticsManager {
     }
 
     public Map<String, PinnedHboStatistics> getAllPinnedPlanStatistics() {
-        ensurePinnedLoaded();
         return Collections.unmodifiableMap(pinnedPlanStatistics.asMap());
+    }
+
+    /**
+     * Start loading the persisted pinned statistics of this FE in the background. Called once by
+     * {@code Env} while the daemon threads are started; a FE which never loads them (the internal
+     * schema is not ready, or persistence is turned off) simply plans without the persisted entries.
+     */
+    public void startPinnedStatisticsLoader() {
+        loader = new HboPinnedStatisticsLoader(this);
+        loader.start();
+        LOG.info("started the hbo pinned statistics loader");
+    }
+
+    /** Whether the persisted pinned statistics of this FE have been loaded (or are not needed). */
+    public boolean isPinnedStatisticsLoaded() {
+        return hboPinnedLoaded || !FeConstants.enableInternalSchemaDb;
+    }
+
+    /** Whether the loader has nothing left to do. */
+    boolean needsPinnedStatisticsLoad() {
+        return FeConstants.enableInternalSchemaDb && !hboPinnedLoaded;
+    }
+
+    /** Load the persisted pinned statistics once; a failure is retried by the loader. */
+    void loadPinnedStatistics() {
+        ensurePinnedLoaded();
     }
 
     private void ensurePinnedLoaded() {

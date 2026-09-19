@@ -41,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -97,8 +98,19 @@ import java.util.stream.Collectors;
  * kinds) are {@link #isValid() invalid} and callers must fall back to the legacy behavior.
  */
 public class GroupStructInfo {
-    /** Shared invalid instance. */
-    public static final GroupStructInfo INVALID = new GroupStructInfo(false, "", "");
+    private static final List<HboScanDescriptor> INVALID_SCANS = Collections.emptyList();
+
+    /** Shared invalid instance: the group content is not supported by the simplified struct info. */
+    public static final GroupStructInfo INVALID = new GroupStructInfo(false, "", "", "", INVALID_SCANS);
+    /**
+     * Shared instance for a failure which is not a property of the plan: the table state could not be
+     * read (e.g. the visible version of a cloud table could not be fetched). Unlike
+     * {@link #INVALID} it is not cached by the memo (see {@code Group#getOrComputeHboStructInfo}), so
+     * the next lookup of the same group retries instead of disabling hbo struct info for the whole
+     * query.
+     */
+    public static final GroupStructInfo TRANSIENT_FAILURE =
+            new GroupStructInfo(false, "", "", "", INVALID_SCANS);
 
     private static final String SEP = ";";
     private static final Logger LOG = LogManager.getLogger(GroupStructInfo.class);
@@ -125,12 +137,19 @@ public class GroupStructInfo {
 
     private final boolean valid;
     private final String canonicalString;
+    /** The canonical string without the scan baselines: the fingerprint input. */
+    private final String shapeString;
     private final String fingerprint;
+    /** The scans of the sub tree, in the order their tokens appear in the canonical string. */
+    private final List<HboScanDescriptor> scans;
 
-    private GroupStructInfo(boolean valid, String canonicalString, String fingerprint) {
+    private GroupStructInfo(boolean valid, String canonicalString, String shapeString, String fingerprint,
+            List<HboScanDescriptor> scans) {
         this.valid = valid;
         this.canonicalString = canonicalString;
+        this.shapeString = shapeString;
         this.fingerprint = fingerprint;
+        this.scans = scans;
     }
 
     public boolean isValid() {
@@ -139,6 +158,24 @@ public class GroupStructInfo {
 
     public String getCanonicalString() {
         return canonicalString;
+    }
+
+    /**
+     * The fingerprint input: the canonical string with the baseline of every scan token removed
+     * ({@code S{db.t}}). It is built from the traversal itself and not by parsing the canonical
+     * string, so no text inside a table name or a literal can be mistaken for a scan token.
+     */
+    public String getShapeString() {
+        return shapeString;
+    }
+
+    /**
+     * The row count and partition selection of every scan of the sub tree, in the order the scan
+     * tokens appear in the canonical string (i.e. the order a user sees when pasting the struct
+     * info). Empty when the struct info is invalid.
+     */
+    public List<HboScanDescriptor> getScans() {
+        return scans;
     }
 
     public String getFingerprint() {
@@ -223,6 +260,35 @@ public class GroupStructInfo {
     }
 
     /**
+     * The struct info of the group a plan node belongs to, computed now instead of being taken from
+     * the per-group cache. The fingerprint does not depend on any data state, so the cached struct
+     * info is the right source for a lookup; its <b>baseline</b> (the visible version and the row
+     * counts of its scans) is however a snapshot of the moment it was computed, which may be well
+     * before the query is planned. Whoever displays that baseline (EXPLAIN prints it as the
+     * {@code struct=} a user pastes into {@code HBO SET STATISTICS}) or compares it (the drift
+     * verdict) must therefore ask for it here, so that the whole query reports one data state.
+     */
+    public static Optional<GroupStructInfo> dataStateOfPlanNode(AbstractPlan planNode,
+            Map<Integer, Group> groupsById, LiteralMode mode) {
+        Group group = planNode.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
+        if (group == null) {
+            Optional<Object> groupState = planNode.getMutableState(MutableState.KEY_GROUP);
+            if (groupState.isPresent() && groupsById != null) {
+                try {
+                    group = groupsById.get(Integer.valueOf(groupState.get().toString()));
+                } catch (NumberFormatException ignored) {
+                    group = null;
+                }
+            }
+        }
+        if (group == null) {
+            return Optional.empty();
+        }
+        GroupStructInfo structInfo = of(group, mode);
+        return structInfo.isValid() ? Optional.of(structInfo) : Optional.empty();
+    }
+
+    /**
      * Compute the simplified struct info (and its fingerprint) of a memo group, by traversing the
      * group's logical expression and its child groups.
      */
@@ -234,29 +300,31 @@ public class GroupStructInfo {
      * Compute the simplified struct info of a memo group in the given literal mode.
      */
     public static GroupStructInfo of(Group group, LiteralMode mode) {
+        Ctx ctx = new Ctx(mode);
         try {
-            Ctx ctx = new Ctx(mode);
-            StringBuilder sb = new StringBuilder();
-            visit(group, sb, ctx);
+            Canonical out = new Canonical();
+            visit(group, out, ctx);
             if (!ctx.valid) {
                 return INVALID;
             }
-            String canonicalString = sb.toString();
+            String canonicalString = out.annotated.toString();
+            String shapeString = out.shape.toString();
             String fingerprint = Hashing.sha256()
-                    .hashString(stripScanBaseline(canonicalString), StandardCharsets.UTF_8).toString();
-            return new GroupStructInfo(true, canonicalString, fingerprint);
+                    .hashString(shapeString, StandardCharsets.UTF_8).toString();
+            return new GroupStructInfo(true, canonicalString, shapeString, fingerprint,
+                    new ArrayList<>(ctx.scans));
         } catch (RuntimeException e) {
             // memo content not supported by the simplified struct info: treat as invalid and
             // fall back to legacy behavior instead of failing the optimizer on the hot path
             LOG.debug("failed to compute hbo struct info for group {}", group.getGroupId(), e);
-            return INVALID;
+            return ctx.retryable ? TRANSIENT_FAILURE : INVALID;
         }
     }
 
     /**
      * Visit a group and append its canonical description to {@code sb}.
      */
-    private static void visit(Group group, StringBuilder sb, Ctx ctx) {
+    private static void visit(Group group, Canonical out, Ctx ctx) {
         if (!ctx.valid) {
             return;
         }
@@ -274,50 +342,50 @@ public class GroupStructInfo {
             invalid(ctx);
             return;
         }
-        appendPlan(ge.getPlan(), ge, sb, ctx);
+        appendPlan(ge.getPlan(), ge, out, ctx);
     }
 
-    private static void appendPlan(Plan plan, GroupExpression ge, StringBuilder sb, Ctx ctx) {
+    private static void appendPlan(Plan plan, GroupExpression ge, Canonical out, Ctx ctx) {
         if (!ctx.valid) {
             return;
         }
         if (plan instanceof LogicalOlapScan) {
-            appendScan((LogicalOlapScan) plan, sb, ctx);
+            appendScan((LogicalOlapScan) plan, out, ctx);
         } else if (plan instanceof LogicalFilter) {
             LogicalFilter<?> filter = (LogicalFilter<?>) plan;
-            sb.append("F{").append(normalizedSorted(filter.getConjuncts(), ctx.mode)).append("}(");
-            appendChild(ge, 0, sb, ctx);
-            sb.append(")");
+            out.append("F{").append(normalizedSorted(filter.getConjuncts(), ctx.mode)).append("}(");
+            appendChild(ge, 0, out, ctx);
+            out.append(")");
         } else if (plan instanceof LogicalProject) {
             // project is transparent for structure matching
             if (ge.arity() == 1) {
-                appendChild(ge, 0, sb, ctx);
+                appendChild(ge, 0, out, ctx);
             } else {
                 invalid(ctx);
             }
         } else if (plan instanceof LogicalJoin) {
-            appendJoin((LogicalJoin<?, ?>) plan, ge, sb, ctx);
+            appendJoin((LogicalJoin<?, ?>) plan, ge, out, ctx);
         } else if (plan instanceof LogicalAggregate) {
-            appendAggregate((LogicalAggregate<?>) plan, ge, sb, ctx);
+            appendAggregate((LogicalAggregate<?>) plan, ge, out, ctx);
         } else {
             // unsupported head operator (sort/topn/limit/window/union/cte/tvf/...)
             invalid(ctx);
         }
     }
 
-    private static void appendJoin(LogicalJoin<?, ?> join, GroupExpression ge, StringBuilder sb, Ctx ctx) {
+    private static void appendJoin(LogicalJoin<?, ?> join, GroupExpression ge, Canonical out, Ctx ctx) {
         if (isFlattenableJoinType(join.getJoinType())) {
-            appendJoinChain(join, ge, sb, ctx);
+            appendJoinChain(join, ge, out, ctx);
             return;
         }
         // Outer / semi / anti / asof joins: the two sides are semantically different and the join
         // cannot be reassociated, so the memo order of the children and the join type are kept.
-        sb.append("J{").append(join.getJoinType());
-        sb.append(",c:[").append(normalizedJoinConditions(join, ctx.mode)).append("]}(");
-        appendChild(ge, 0, sb, ctx);
-        sb.append(SEP);
-        appendChild(ge, 1, sb, ctx);
-        sb.append(")");
+        out.append("J{").append(join.getJoinType().toString());
+        out.append(",c:[").append(normalizedJoinConditions(join, ctx.mode)).append("]}(");
+        appendChild(ge, 0, out, ctx);
+        out.append(SEP);
+        appendChild(ge, 1, out, ctx);
+        out.append(")");
     }
 
     /**
@@ -331,9 +399,9 @@ public class GroupStructInfo {
      * produces the same descriptor. Cross joins are merged with inner joins because a cross join is
      * exactly an inner join without condition, and both have the same output row count.
      */
-    private static void appendJoinChain(LogicalJoin<?, ?> join, GroupExpression ge, StringBuilder sb, Ctx ctx) {
+    private static void appendJoinChain(LogicalJoin<?, ?> join, GroupExpression ge, Canonical out, Ctx ctx) {
         TreeSet<String> conditions = new TreeSet<>();
-        List<String> leaves = new ArrayList<>();
+        List<Leaf> leaves = new ArrayList<>();
         collectJoinConditions(join, conditions, ctx.mode);
         for (int i = 0; i < ge.arity(); i++) {
             collectJoinChain(ge.child(i), conditions, leaves, ctx);
@@ -341,12 +409,14 @@ public class GroupStructInfo {
         if (!ctx.valid) {
             return;
         }
-        // the leaves are ordered by their fingerprint input (the canonical form without the scan
-        // baselines): the order is part of the fingerprint, so it must not depend on a data state
-        // which the fingerprint deliberately ignores
-        leaves.sort(Comparator.comparing(GroupStructInfo::stripScanBaseline));
-        sb.append("J{inner,c:[").append(String.join(SEP, conditions)).append("]}(");
-        sb.append(String.join(SEP, leaves)).append(")");
+        // the leaves are ordered by their fingerprint input (their own shape, i.e. without the data
+        // state of their scans): the order is part of the fingerprint, so it must not depend on a
+        // data state which the fingerprint deliberately ignores
+        leaves.sort(Comparator.comparing(Leaf::getShape));
+        out.append("J{inner,c:[").append(String.join(SEP, conditions)).append("]}(");
+        out.append(leaves.stream().map(Leaf::getCanonical).collect(Collectors.joining(SEP)),
+                leaves.stream().map(Leaf::getShape).collect(Collectors.joining(SEP)));
+        out.append(")");
     }
 
     /**
@@ -354,7 +424,7 @@ public class GroupStructInfo {
      * chain (associativity), or append the canonical form of the whole sub tree as one chain leaf.
      * The group of {@code ge} is already marked visited by the caller.
      */
-    private static void collectJoinChain(Group group, TreeSet<String> conditions, List<String> leaves, Ctx ctx) {
+    private static void collectJoinChain(Group group, TreeSet<String> conditions, List<Leaf> leaves, Ctx ctx) {
         if (!ctx.valid) {
             return;
         }
@@ -381,10 +451,29 @@ public class GroupStructInfo {
             collectJoinChain(ge.child(0), conditions, leaves, ctx);
             return;
         }
-        StringBuilder leaf = new StringBuilder();
+        Canonical leaf = new Canonical();
         appendPlan(plan, ge, leaf, ctx);
         if (ctx.valid) {
-            leaves.add(leaf.toString());
+            leaves.add(new Leaf(leaf.annotated.toString(), leaf.shape.toString()));
+        }
+    }
+
+    /** One leaf of a flattened join chain: both of its canonical forms. */
+    private static class Leaf {
+        private final String canonical;
+        private final String shape;
+
+        Leaf(String canonical, String shape) {
+            this.canonical = canonical;
+            this.shape = shape;
+        }
+
+        String getCanonical() {
+            return canonical;
+        }
+
+        String getShape() {
+            return shape;
         }
     }
 
@@ -393,41 +482,57 @@ public class GroupStructInfo {
         return joinType == JoinType.INNER_JOIN || joinType == JoinType.CROSS_JOIN;
     }
 
-    private static void appendAggregate(LogicalAggregate<?> agg, GroupExpression ge, StringBuilder sb, Ctx ctx) {
+    private static void appendAggregate(LogicalAggregate<?> agg, GroupExpression ge, Canonical out, Ctx ctx) {
         // Only the grouping keys and the child take part: the output row count of an aggregation is
         // the number of groups, which the aggregate functions and the output expressions cannot
         // change, so keeping them would only split one plan pattern into several cache entries.
-        sb.append("A{gb:").append(normalizedSorted(agg.getGroupByExpressions(), ctx.mode));
-        sb.append("}(");
-        appendChild(ge, 0, sb, ctx);
-        sb.append(")");
+        out.append("A{gb:").append(normalizedSorted(agg.getGroupByExpressions(), ctx.mode));
+        out.append("}(");
+        appendChild(ge, 0, out, ctx);
+        out.append(")");
     }
 
     private static void invalid(Ctx ctx) {
         ctx.valid = false;
     }
 
-    private static void appendScan(LogicalOlapScan scan, StringBuilder sb, Ctx ctx) {
+    /** Mark the struct info invalid because the table state could not be read (retryable). */
+    private static void transientFailure(Ctx ctx) {
+        ctx.valid = false;
+        ctx.retryable = true;
+    }
+
+    private static void appendScan(LogicalOlapScan scan, Canonical out, Ctx ctx) {
         try {
-            // the scan token is the table plus the data state of the scan (baseline); the baseline
-            // is stripped before hashing, so it annotates the entry instead of keying it
-            sb.append("S{").append(HboScanDescriptor.of(scan).render()).append("}");
+            // the scan token is the table plus the data state of the scan (baseline). Its shape form
+            // is the table alone and is written by this very call, so the fingerprint input is never
+            // derived by parsing the canonical string: no table name and no literal value can be
+            // mistaken for a scan token.
+            HboScanDescriptor descriptor = HboScanDescriptor.of(scan);
+            out.annotated.append("S{").append(descriptor.render()).append('}');
+            out.shape.append("S{").append(descriptor.getTable()).append('}');
+            ctx.scans.add(descriptor);
         } catch (org.apache.doris.rpc.RpcException e) {
-            // table version may not be available (e.g. cloud rpc failure): mark invalid and fall back
+            // the table version may not be readable (e.g. a cloud rpc failure): the group stays
+            // invalid for this lookup, but the failure is retried by the next one
             LOG.debug("failed to get visible version for scan {}", scan.getTable().getNameWithFullQualifiers(), e);
-            invalid(ctx);
+            transientFailure(ctx);
         }
     }
 
     /**
-     * The fingerprint input of a canonical string: every scan token is reduced to its table
-     * ({@code S{db.t,v3,r1000,p1/5}} becomes {@code S{db.t}}), i.e. the recorded data state of the
-     * scan - visible version, scanned rows and pruned partition count - is dropped.
+     * Remove the baseline of every scan token of a canonical string ({@code S{db.t,v3,r1000,p1/5}}
+     * becomes {@code S{db.t}}), i.e. the data state of the scan - visible version, scanned rows and
+     * pruned partition count.
      *
-     * <p>A hbo key therefore survives a data load: the entry stays matchable and the read side
-     * decides, from the baseline the entry carries, whether the injected row count still applies
-     * (see {@link HboStructFreshness}). The baseline stays in the printed canonical string, so the
-     * user copies it with the {@code struct=} value of EXPLAIN.
+     * <p>The fingerprint of a plan is built by the traversal itself, which
+     * knows where every scan token starts and ends. This text based variant is for strings which
+     * were not produced by a traversal: the struct info a user pasted into {@code HBO SET STATISTICS}
+     * (whose sha256 has to match the fingerprint the user copied) and the sort key of a join chain
+     * leaf. A table name which contains the token delimiters ({@code ,} or {@code }}) or a literal
+     * value which looks like a scan token cannot be told apart from one; such an input at most makes
+     * the pasted struct info unverifiable (a rejected statement), never a wrong key, because the
+     * fingerprint of a plan is never computed by this method.
      */
     public static String stripScanBaseline(String canonicalString) {
         StringBuilder sb = new StringBuilder(canonicalString.length());
@@ -448,11 +553,11 @@ public class GroupStructInfo {
         return sb.toString();
     }
 
-    private static void appendChild(GroupExpression ge, int index, StringBuilder sb, Ctx ctx) {
+    private static void appendChild(GroupExpression ge, int index, Canonical out, Ctx ctx) {
         if (!ctx.valid) {
             return;
         }
-        visit(ge.child(index), sb, ctx);
+        visit(ge.child(index), out, ctx);
     }
 
     // -----------------------------------------------------------------------------------
@@ -498,7 +603,12 @@ public class GroupStructInfo {
      *
      * <p>A literal value is not quoted in the canonical form and a data type may even contain
      * parentheses ({@code lit(abc:VARCHAR(10))}), so the closing parenthesis is found by counting
-     * instead of by a regular expression.
+     * instead of by a regular expression. A <b>value</b> which contains a parenthesis of its own
+     * (e.g. {@code where city = 'Springfield (IL)'}) cannot be delimited this way, so folding such a
+     * canonical string is refused by the fingerprint check of {@code HBO SET STATISTICS} (the
+     * statement says so and the user can pass {@code LITERAL_MODE=WITH_LITERAL}); the constant
+     * agnostic struct info printed by EXPLAIN is built by the group traversal itself (see
+     * {@link #dataStateOfPlanNode}), so it has no such limitation.
      */
     public static String toNoLiteral(String canonicalString) {
         StringBuilder sb = new StringBuilder(canonicalString.length());
@@ -577,10 +687,35 @@ public class GroupStructInfo {
     private static class Ctx {
         private final LiteralMode mode;
         private boolean valid = true;
+        /** whether the failure was an environment problem which a later lookup may survive */
+        private boolean retryable = false;
         private final Set<Group> visited = new HashSet<>();
+        private final List<HboScanDescriptor> scans = new ArrayList<>();
 
         Ctx(LiteralMode mode) {
             this.mode = mode;
+        }
+    }
+
+    /**
+     * The two forms of the description a traversal builds at the same time: the canonical string
+     * (which carries the data state of every scan as an annotation) and its shape (which does not,
+     * and whose sha256 is the fingerprint). Everything but a scan token is written to both.
+     */
+    private static class Canonical {
+        private final StringBuilder annotated = new StringBuilder();
+        private final StringBuilder shape = new StringBuilder();
+
+        Canonical append(String text) {
+            annotated.append(text);
+            shape.append(text);
+            return this;
+        }
+
+        /** Append a part which differs between the two forms (a scan token). */
+        void append(String annotatedPart, String shapePart) {
+            annotated.append(annotatedPart);
+            shape.append(shapePart);
         }
     }
 }

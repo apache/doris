@@ -218,10 +218,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         return true;
     }
 
-    /**
-     * Get fingerprint of plan.
-     */
-
     @Override
     public boolean bound() {
         return !hasUnboundChild.get();

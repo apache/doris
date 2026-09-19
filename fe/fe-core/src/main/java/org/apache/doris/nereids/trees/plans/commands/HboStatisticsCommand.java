@@ -138,7 +138,7 @@ public class HboStatisticsCommand extends Command {
             // a pinned entry is only displayable when it carries its struct info, and a struct info
             // which does not belong to the fingerprint would make the SHOW output misleading
             String canonical = validateStructCanonical(fingerprint, structCanonical, type, literalMode,
-                    scope != Scope.LEARNED);
+                    scope != Scope.LEARNED, scope != Scope.LEARNED);
             if (type == PinnedType.JOIN_EXPANSION) {
                 // a fan-out factor: >= 1 means the join expands, < 1 means it filters (0.1 keeps 10%
                 // of the left input), so only zero and negative values are meaningless
@@ -146,10 +146,12 @@ public class HboStatisticsCommand extends Command {
                     throw new AnalysisException(
                             "hbo join expansion must be greater than 0: " + value);
                 }
-            } else if (value < 0 || value != Math.floor(value)) {
-                // the VALUE of every other type is a row count
+            } else if (value < 0 || value != Math.floor(value) || value > (double) Long.MAX_VALUE) {
+                // the VALUE of every other type is a row count; a double above Long.MAX_VALUE would
+                // not be rejected by the integer check but would silently saturate when it is cast
+                // (and persisted) as a long
                 throw new AnalysisException("hbo statistics VALUE must be a non-negative integer"
-                        + " for type " + type + ": " + value);
+                        + " no greater than " + Long.MAX_VALUE + " for type " + type + ": " + value);
             }
             if (scope == Scope.LEARNED) {
                 hboManager.putLearnedPlanStatistics(fingerprint, (long) value, structCanonical);
@@ -250,9 +252,15 @@ public class HboStatisticsCommand extends Command {
      *
      * @param required whether a missing struct info is an error (pinned entries are displayed by
      *                 {@code HBO SHOW STATISTICS}, so they must carry one)
+     * @param keyedEntry whether the struct info is the key of the entry. A pinned entry is looked up
+     *                   by the sha256 of what the user pasted, so the struct info has to be a form
+     *                   the read side can produce; the struct info of a learned entry is a label
+     *                   only (its key is generated internally), so it is accepted as it is - which
+     *                   is also why a learned join / aggregation entry may carry its J-shape or
+     *                   A-shape struct even though no literal carrying form of those exists.
      */
     private String validateStructCanonical(String targetFingerprint, String structCanonical, PinnedType type,
-            LiteralMode literalMode, boolean required) throws AnalysisException {
+            LiteralMode literalMode, boolean required, boolean keyedEntry) throws AnalysisException {
         if (structCanonical.isEmpty()) {
             if (required) {
                 throw new AnalysisException("hbo statistics STRUCT is required,"
@@ -269,12 +277,12 @@ public class HboStatisticsCommand extends Command {
             throw new AnalysisException("TYPE=FILTER_SMALL can only guard a filter entry,"
                     + " its STRUCT must be a filter root: STRUCT='F{...}(...)'");
         }
-        if (type != PinnedType.JOIN_EXPANSION && literalMode == LiteralMode.WITH_LITERAL
+        if (keyedEntry && type != PinnedType.JOIN_EXPANSION && literalMode == LiteralMode.WITH_LITERAL
                 && (structCanonical.startsWith("J{") || structCanonical.startsWith("A{"))) {
             throw new AnalysisException("a join / aggregation entry has no literal carrying form"
                     + " (their canonical is always constant agnostic), use LITERAL_MODE=NO_LITERAL");
         }
-        if (type == PinnedType.JOIN_EXPANSION && literalMode == LiteralMode.WITH_LITERAL) {
+        if (keyedEntry && type == PinnedType.JOIN_EXPANSION && literalMode == LiteralMode.WITH_LITERAL) {
             throw new AnalysisException("a join expansion entry is keyed by the constant agnostic"
                     + " condition canonical, use LITERAL_MODE=NO_LITERAL");
         }

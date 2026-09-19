@@ -17,10 +17,13 @@
 
 suite("hbo_persist_internal_db_test", "nonConcurrent") {
     // Persistence of pinned hbo statistics into __internal_schema.hbo_statistics is gated by
-    // Config.hbo_persist_pinned_to_internal_db (default false, hot-mutable). Flip it on for this
-    // suite and restore the previous value afterwards so other suites keep the default
-    // in-memory-only behavior. The in-memory pinned entry is authoritative: SET writes through
-    // synchronously and DELETE removes the row again.
+    // Config.hbo_persist_pinned_to_internal_db (hot-mutable, true by default). The config is pinned
+    // to true for this suite and restored afterwards, so that the row level effect of SET/DELETE is
+    // asserted whatever the cluster is configured with. The in-memory pinned entry is authoritative:
+    // SET writes through synchronously and DELETE removes the row again.
+    // The load side (a FE reading the table back at start-up, and the tombstone handling of a DELETE
+    // racing that load) is not covered here: it needs a FE restart, and it is exercised by the
+    // background loader (HboPinnedStatisticsLoader) instead of by a statement.
     def prevPersist = (sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'hbo_persist_pinned_to_internal_db'; """)[0][1].toString()
     // a pinned entry must carry the struct info its fingerprint was computed from, so the pair
     // below is self consistent (sha256 of the canonical struct info without the data state of its

@@ -38,14 +38,15 @@ public interface MutableState {
     String KEY_HBO_FP_NO_LITERAL = "hbo-fingerprint-no-literal";
     /** hbo simplified struct info canonical string attached at planning time for explain printing */
     String KEY_HBO_STRUCT = "hbo-struct";
-    /** marks that the node statistics actually came from hbo (learned or pinned) */
-    String KEY_HBO_USED = "hbo-used";
+    /**
+     * hbo struct info of the same node in the constant agnostic form, built by the group traversal
+     * (never by folding the literal carrying form of {@link #KEY_HBO_STRUCT} as text)
+     */
+    String KEY_HBO_STRUCT_NO_LITERAL = "hbo-struct-no-literal";
     /** canonical string of the join equality conditions (join nodes, for HBO SET EXPANSION) */
     String KEY_HBO_COND = "hbo-cond";
     /** fingerprint of the join equality conditions (join nodes, the expansion injection key) */
     String KEY_HBO_COND_FP = "hbo-cond-fp";
-    /** type of the pinned entry that matched this node (exact / filter_small) */
-    String KEY_HBO_TYPE = "hbo-type";
     /** applied injected join expansion, e.g. {@code exp=200x} */
     String KEY_HBO_EXPANSION = "hbo-expansion";
 

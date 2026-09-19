@@ -59,8 +59,9 @@ public class HboStatisticsStore {
     private static final String EXPANSION_COLUMN = "expansion";
     /** which struct info the entry is keyed by (with_literal / no_literal) */
     private static final String LITERAL_MODE_COLUMN = "literal_mode";
-    // the schema is checked once per FE: it can only change by a FE upgrade, and the check costs a
-    // round trip to the internal table
+    // the DDL and the schema check are done once per FE: the table can only change by a FE upgrade,
+    // and both cost a round trip to the internal table (a forwarded DDL on a follower FE)
+    private static volatile boolean tableCreated = false;
     private static volatile boolean schemaVerified = false;
 
     private HboStatisticsStore() {
@@ -68,7 +69,10 @@ public class HboStatisticsStore {
 
     /** Create the table if it does not exist, and check that its schema is the current one. */
     public static void ensureTable() throws Exception {
-        StatisticsUtil.execUpdate(createDdl());
+        if (!tableCreated) {
+            StatisticsUtil.execUpdate(createDdl());
+            tableCreated = true;
+        }
         if (!schemaVerified) {
             verifySchema();
         }
@@ -83,7 +87,7 @@ public class HboStatisticsStore {
      */
     private static void verifySchema() throws Exception {
         try {
-            StatisticsUtil.execStatisticQuery("SELECT `fingerprint`, `row_count`, `stats_type`,"
+            StatisticsUtil.execStatisticQueryOrThrow("SELECT `fingerprint`, `row_count`, `stats_type`,"
                     + " `literal_mode`, `struct_info`, `" + EXPANSION_COLUMN + "`, `"
                     + CREATE_TIME_COLUMN + "` FROM " + FULL_QUALIFIED + " LIMIT 0");
             schemaVerified = true;
@@ -154,7 +158,7 @@ public class HboStatisticsStore {
         List<HboPlanStatisticsManager.PinnedHboStatistics> result = new ArrayList<>();
         try {
             ensureTable();
-            List<ResultRow> rows = StatisticsUtil.execStatisticQuery(
+            List<ResultRow> rows = StatisticsUtil.execStatisticQueryOrThrow(
                     "SELECT `fingerprint`, `row_count`, `stats_type`, `struct_info`, `" + EXPANSION_COLUMN
                             + "`, `" + LITERAL_MODE_COLUMN + "`, `" + CREATE_TIME_COLUMN + "` FROM "
                             + FULL_QUALIFIED);

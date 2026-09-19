@@ -23,15 +23,20 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.statistics.hbo.PlanStatistics;
+import org.apache.doris.statistics.hbo.ScanPlanStatistics;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -43,22 +48,31 @@ import java.util.Set;
  * table grows. The read side therefore has to decide whether the injected row count still describes
  * the data it was measured on:
  * <ul>
- *   <li>{@link #STATE_LIVE}: nothing changed (the recorded visible version is still the current
- *       one), the entry is applied;</li>
+ *   <li>{@link #STATE_LIVE}: the data the entry was measured on is still the current one, the entry
+ *       is applied;</li>
  *   <li>{@link #STATE_DRIFTED}: the data moved, but by at most
  *       {@code Config.hbo_row_count_change_ratio} of the recorded row count (10% by default): the
  *       entry is applied, which is the point of the tolerance - a table which merely keeps growing
  *       (e.g. a few new rows in a partition) does not invalidate a measured row count;</li>
- *   <li>{@link #STATE_STALE}: the data moved further than that (or the recorded state cannot be
- *       verified any more): the entry is <b>not</b> applied, and the query falls back to the
- *       optimizer estimation / the learned entries;</li>
- *   <li>{@link #STATE_UNKNOWN}: the entry records no data state at all (e.g. a hand written struct
- *       literal without a baseline), so there is nothing to judge: the entry is applied as it
- *       always was.</li>
+ *   <li>{@link #STATE_STALE}: the data moved further than that: the entry is <b>not</b> applied, and
+ *       the query falls back to the optimizer estimation;</li>
+ *   <li>{@link #STATE_UNKNOWN}: nothing can be compared (the entry records no row count, or the
+ *       current one cannot be read / was obtained a different way), so there is nothing to judge: the
+ *       entry is applied as it always was.</li>
  * </ul>
  * The recorded row count is never scaled: an entry either applies with the value the user measured
  * or does not apply at all ("soft strategy" - a user who needs the exact recorded state in any case
- * should not inject hbo statistics for that query).
+ * should not inject hbo statistics for that query). Setting
+ * {@code hbo_row_count_change_ratio} to 0 or less switches the verdict back to the strict semantics
+ * hbo had before the baseline existed: the recorded visible version has to still be the current one.
+ *
+ * <p>The rows are compared <b>before</b> the version, and only against a number which was obtained
+ * the same way ({@link HboScanDescriptor.RowsKind}): the visible version is a property of the table,
+ * so two different partition selections of one table share it while reading completely different
+ * amounts of data, and a measured row count must not be compared with one that was derived from the
+ * table average. When nothing can be compared (a hand written struct literal, an entry whose rows
+ * were never measured, or a current row count which cannot be read), the entry is applied - a
+ * transient failure to read the catalog must not drop an entry the user injected.
  *
  * <p>A scan is judged by the rows of its <b>selected</b> partitions, so pruning decides which data
  * the entry depends on: an unrelated partition which grows does not invalidate a pruned entry.
@@ -67,6 +81,10 @@ import java.util.Set;
  * prunes partitions can therefore only be judged by rows when it was recorded as a whole table scan
  * (its state is reported as unknown otherwise, and such an entry is kept unless the user asks for
  * {@code OLDER_THAN}).
+ *
+ * <p>Learned (profile collected) entries carry the input table statistics of the run they were
+ * measured in, so they are judged by the same tolerance over those recorded rows; an entry injected
+ * by {@code HBO SET LEARNED STATISTICS} carries no such statistics and is applied as it always was.
  */
 public class HboStructFreshness {
     /** The recorded data state is still the current one. */
@@ -154,22 +172,27 @@ public class HboStructFreshness {
      * (the struct info of the entry) against the state of {@code liveCanonical} (the struct info the
      * read side just computed for the group). This is the decision of the read side.
      */
-    public static HboStructFreshness between(String recordedCanonical, String liveCanonical) {
+    public static HboStructFreshness between(String recordedCanonical, GroupStructInfo liveStructInfo) {
+        return between(recordedCanonical, liveStructInfo.getScans());
+    }
+
+    /** The same comparison for a caller which has the scans of the current query only. */
+    static HboStructFreshness between(String recordedCanonical, List<HboScanDescriptor> liveScans) {
         List<HboScanDescriptor> recordedScans = HboScanDescriptor.parseAll(recordedCanonical);
-        List<HboScanDescriptor> liveScans = HboScanDescriptor.parseAll(liveCanonical);
+        String liveText = renderScans(liveScans);
         if (recordedScans.isEmpty()) {
             // an entry without a baseline (a hand written struct literal): nothing to judge
-            return new HboStructFreshness(STATE_UNKNOWN, "", renderScans(liveScans),
+            return new HboStructFreshness(STATE_UNKNOWN, "", liveText,
                     HboScanDescriptor.UNKNOWN, HboScanDescriptor.UNKNOWN);
         }
         if (recordedScans.size() != liveScans.size()) {
             // the entry describes a different number of scans than the group: cannot be compared
-            return new HboStructFreshness(STATE_UNKNOWN, renderScans(recordedScans), renderScans(liveScans),
+            return new HboStructFreshness(STATE_UNKNOWN, renderScans(recordedScans), liveText,
                     HboScanDescriptor.UNKNOWN, HboScanDescriptor.UNKNOWN);
         }
         String state = STATE_LIVE;
         String recordedText = renderScans(recordedScans);
-        String liveText = renderScans(liveScans);
+
         long recordedRows = HboScanDescriptor.UNKNOWN;
         long liveRows = HboScanDescriptor.UNKNOWN;
         for (int i = 0; i < recordedScans.size(); i++) {
@@ -224,31 +247,43 @@ public class HboStructFreshness {
             long currentVersion = visibleVersionOf(table);
             // the rows of the whole table, computed the same way the recorded rows of a whole table
             // scan were computed, so the two numbers describe the same thing
-            long currentRows = HboScanDescriptor.scanRowsOf(table, new ArrayList<>(table.getPartitionIds()),
-                    table.getBaseIndexId());
+            HboScanDescriptor.Rows liveRowsOfTable = HboScanDescriptor.rowsOf(table,
+                    new ArrayList<>(table.getPartitionIds()), table.getBaseIndexId());
+            long currentRows = liveRowsOfTable.getRows();
+            HboScanDescriptor.RowsKind currentRowsKind = liveRowsOfTable.getKind();
             liveTexts.add(recorded.getTable() + ":v" + currentVersion
                     + (currentRows == HboScanDescriptor.UNKNOWN ? "" : ",r" + currentRows));
             String scanState;
-            if (recorded.hasVisibleVersion() && currentVersion == recorded.getVisibleVersion()) {
-                scanState = STATE_LIVE;
-            } else if (!recorded.hasVisibleVersion() && !recorded.hasScanRows()) {
+            if (!recorded.hasVisibleVersion() && !recorded.hasScanRows()) {
                 // nothing was recorded for this scan: it applies as it always was, nothing to judge
                 scanState = STATE_UNKNOWN;
                 currentRows = HboScanDescriptor.UNKNOWN;
             } else if (threshold() <= 0) {
-                scanState = STATE_STALE;
+                scanState = recorded.hasVisibleVersion() && currentVersion == recorded.getVisibleVersion()
+                        ? STATE_LIVE : STATE_STALE;
                 currentRows = HboScanDescriptor.UNKNOWN;
-            } else if (!recorded.hasScanRows()) {
+            } else if (recorded.hasVisibleVersion() && currentVersion == recorded.getVisibleVersion()) {
+                // the visible version is a property of the whole table, so an unchanged version means
+                // that nothing was loaded into any of its partitions: the recorded state is still the
+                // current one, whatever the entry was measured on. (The read side can not use this
+                // shortcut: it knows which partitions the entry was measured on and which ones the
+                // query reads, and those can differ under one unchanged version.)
+                scanState = STATE_LIVE;
+            } else if (!recorded.hasScanRows() || !recorded.isPartitionSelectionComplete()) {
                 // the entry records no row count at all (a struct literal of an older format, for
-                // example), so the version check is the only signal left: the same rule the read
-                // side applies, and such an entry should be injected again
-                scanState = STATE_STALE;
-                currentRows = HboScanDescriptor.UNKNOWN;
-            } else if (!recorded.isPartitionSelectionComplete() || currentRows == HboScanDescriptor.UNKNOWN) {
-                // the recorded rows are the rows of the pruned partitions only (or the current row
-                // count cannot be read): the entry stays applicable, only a query can judge it
+                // example), or it records the rows of pruned partitions only, which are not the rows
+                // of the table: the state can only be judged by a query of that entry
                 scanState = STATE_UNKNOWN;
                 currentRows = HboScanDescriptor.UNKNOWN;
+            } else if (currentRows == HboScanDescriptor.UNKNOWN
+                    || currentRowsKind != recorded.getRowsKind()) {
+                // the current row count cannot be read or was obtained differently than the recorded
+                // one: the version is the only comparable signal
+                scanState = recorded.hasVisibleVersion() && currentVersion == recorded.getVisibleVersion()
+                        ? STATE_LIVE : STATE_STALE;
+                currentRows = HboScanDescriptor.UNKNOWN;
+            } else if (recorded.getScanRows() == currentRows) {
+                scanState = STATE_LIVE;
             } else {
                 scanState = changeRatio(recorded.getScanRows(), currentRows) <= threshold()
                         ? STATE_DRIFTED : STATE_STALE;
@@ -265,6 +300,113 @@ public class HboStructFreshness {
     }
 
     /**
+     * Judge a learned (profile collected) entry: its recorded input table row counts against the
+     * rows of the scans of the current query. The input tables are aggregated by table name, because
+     * a learned entry describes the scans of the node it was published for in plan order while the
+     * struct info orders them canonically.
+     *
+     * <p>This is a one way guard: it only rejects an entry when a comparable pair of row counts
+     * proves that the data moved beyond the tolerance. Everything which cannot be compared (an
+     * injected entry without input statistics, a different number of tables, a row count of a
+     * different kind) leaves the entry applicable, so a learned lookup which worked before this
+     * check keeps working.
+     */
+    public static HboStructFreshness ofLearnedEntry(List<PlanStatistics> recordedInputStatistics,
+            GroupStructInfo liveStructInfo) {
+        return ofLearnedEntry(recordedInputStatistics, liveStructInfo.getScans());
+    }
+
+    /** The same guard for a caller which has the scans of the current query only. */
+    static HboStructFreshness ofLearnedEntry(List<PlanStatistics> recordedInputStatistics,
+            List<HboScanDescriptor> liveScans) {
+        Map<String, Long> recordedRowsByTable = new LinkedHashMap<>();
+        if (recordedInputStatistics != null) {
+            for (PlanStatistics input : recordedInputStatistics) {
+                if (!(input instanceof ScanPlanStatistics)) {
+                    continue;
+                }
+                PhysicalOlapScan scan = ((ScanPlanStatistics) input).getScan();
+                if (scan == null || scan.getTable() == null) {
+                    continue;
+                }
+                String table = scan.getTable().getNameWithFullQualifiers();
+                recordedRowsByTable.merge(table, (long) input.getOutputRows(), Long::sum);
+            }
+        }
+        if (recordedRowsByTable.isEmpty()) {
+            // an injected learned entry carries no input table statistics: nothing to compare
+            return new HboStructFreshness(STATE_UNKNOWN, "", renderScans(liveScans),
+                    HboScanDescriptor.UNKNOWN, HboScanDescriptor.UNKNOWN);
+        }
+        return ofLearnedRows(recordedRowsByTable, liveScans);
+    }
+
+    /**
+     * The comparison of a learned entry: the rows it recorded for each input table against the rows
+     * of the scans of the current query. Only measured row counts are comparable with the recorded
+     * ones (a learned number is a measurement of a real run), and a table whose rows cannot be
+     * compared leaves the entry applicable.
+     */
+    static HboStructFreshness ofLearnedRows(Map<String, Long> recordedRowsByTable,
+            List<HboScanDescriptor> liveScans) {
+        Map<String, long[]> liveByTable = new LinkedHashMap<>();
+        Map<String, HboScanDescriptor.RowsKind> liveKinds = new LinkedHashMap<>();
+        for (HboScanDescriptor scan : liveScans) {
+            long[] rows = liveByTable.computeIfAbsent(scan.getTable(), key -> new long[] {0});
+            if (scan.hasScanRows()) {
+                rows[0] += scan.getScanRows();
+            } else {
+                rows[0] = HboScanDescriptor.UNKNOWN;
+            }
+            HboScanDescriptor.RowsKind kind = liveKinds.get(scan.getTable());
+            // a table which is scanned twice is only comparable when both scans agree on the kind
+            liveKinds.put(scan.getTable(), kind == null || kind == scan.getRowsKind()
+                    ? scan.getRowsKind() : HboScanDescriptor.RowsKind.UNKNOWN);
+        }
+        String state = STATE_LIVE;
+        boolean compared = false;
+        long recordedRows = HboScanDescriptor.UNKNOWN;
+        long liveRows = HboScanDescriptor.UNKNOWN;
+        for (Map.Entry<String, Long> entry : recordedRowsByTable.entrySet()) {
+            long[] live = liveByTable.get(entry.getKey());
+            long recorded = entry.getValue();
+            if (live == null || recorded == HboScanDescriptor.UNKNOWN
+                    || live[0] == HboScanDescriptor.UNKNOWN
+                    || liveKinds.get(entry.getKey()) != HboScanDescriptor.RowsKind.MEASURED) {
+                // the learned numbers are measured row counts, so they are only compared with a
+                // measured one: a derived number could be off by a large factor
+                continue;
+            }
+            compared = true;
+            String tableState = recorded == live[0] ? STATE_LIVE
+                    : changeRatio(recorded, live[0]) <= threshold() ? STATE_DRIFTED : STATE_STALE;
+            if (worse(tableState, state).equals(tableState)) {
+                state = tableState;
+                recordedRows = recorded;
+                liveRows = live[0];
+            }
+        }
+        if (!compared) {
+            // nothing could be compared, so the entry is applied as it always was
+            return new HboStructFreshness(STATE_UNKNOWN, renderTables(recordedRowsByTable),
+                    renderTables(liveByTable), HboScanDescriptor.UNKNOWN, HboScanDescriptor.UNKNOWN);
+        }
+        return new HboStructFreshness(state, renderTables(recordedRowsByTable), renderTables(liveByTable),
+                recordedRows, liveRows);
+    }
+
+    /** Render the aggregated row counts of a learned entry, e.g. {@code hbo_test.t1:r1000}. */
+    private static String renderTables(Map<String, ? extends Object> rowsByTable) {
+        List<String> rendered = new ArrayList<>();
+        for (Map.Entry<String, ? extends Object> entry : rowsByTable.entrySet()) {
+            long rows = entry.getValue() instanceof long[] ? ((long[]) entry.getValue())[0]
+                    : (Long) entry.getValue();
+            rendered.add(entry.getKey() + (rows == HboScanDescriptor.UNKNOWN ? "" : ":r" + rows));
+        }
+        return String.join("; ", rendered);
+    }
+
+    /**
      * The state of one scan of the current query against the same scan of an entry.
      * See the class comment for the meaning of the states.
      */
@@ -273,20 +415,30 @@ public class HboStructFreshness {
             // the entry records nothing about this scan (e.g. a struct literal typed by hand)
             return STATE_UNKNOWN;
         }
-        if (recorded.hasSameVersion(live)) {
-            return STATE_LIVE;
-        }
         if (threshold() <= 0) {
-            // strict mode: a data change of any size invalidates the entry
-            return STATE_STALE;
+            // strict mode: only the recorded data state may be reused - the semantics hbo had before
+            // the baseline existed, when the visible version was part of the key
+            return recorded.hasSameVersion(live) ? STATE_LIVE : STATE_STALE;
         }
-        if (!recorded.hasScanRows() || !live.hasScanRows()) {
-            // no row count on one side, so the version check is the only signal left: a version
-            // which moved is not a hit
-            return STATE_STALE;
+        if (recorded.hasScanRows() && live.hasScanRows()) {
+            if (recorded.getRowsKind() != live.getRowsKind()) {
+                // one number is a measurement and the other is derived from the table, so comparing
+                // them would compare incomparable values (the derivation can be off by a large
+                // factor): fall back to the version, which only says whether the table changed
+                return recorded.hasSameVersion(live) ? STATE_LIVE : STATE_STALE;
+            }
+            // the rows are compared BEFORE the version: a different partition selection (or another
+            // scan of the same table) can read a completely different amount of data under the very
+            // same table version, so equal versions do not mean that the entry still fits
+            if (recorded.getScanRows() == live.getScanRows()) {
+                return STATE_LIVE;
+            }
+            return changeRatio(recorded.getScanRows(), live.getScanRows()) <= threshold()
+                    ? STATE_DRIFTED : STATE_STALE;
         }
-        return changeRatio(recorded.getScanRows(), live.getScanRows()) <= threshold()
-                ? STATE_DRIFTED : STATE_STALE;
+        // the recorded baseline was never a measurement, or the current row count cannot be read:
+        // there is nothing to judge, so the entry is applied as it always was
+        return STATE_UNKNOWN;
     }
 
     /** How much the row count of a scan may change and still be reused; a non-positive value is strict. */
@@ -336,7 +488,8 @@ public class HboStructFreshness {
                 sb.append(":v").append(scan.getVisibleVersion());
             }
             if (scan.hasScanRows()) {
-                sb.append(",r").append(scan.getScanRows());
+                sb.append(scan.getRowsKind() == HboScanDescriptor.RowsKind.MEASURED ? ",r" : ",e")
+                        .append(scan.getScanRows());
             }
             if (scan.getTotalPartitions() != HboScanDescriptor.UNKNOWN
                     && !scan.isPartitionSelectionComplete()) {

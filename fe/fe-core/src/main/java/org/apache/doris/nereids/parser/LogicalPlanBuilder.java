@@ -7220,25 +7220,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 if (fingerprint != null) {
                     throw new ParseException("FINGERPRINT is given twice in hbo set statistics statement");
                 }
-                checkHboWord(fingerprintParam.fingerprintWord, "FINGERPRINT");
+                if (!isHboWord(fingerprintParam.fingerprintWord, "FINGERPRINT")) {
+                    throw unknownHboParameter(fingerprintParam.fingerprintWord);
+                }
                 fingerprint = stripQuotes(fingerprintParam.fingerprint.getText());
             } else if (param instanceof DorisParser.HboSetWordContext) {
                 DorisParser.HboSetWordContext wordParam = (DorisParser.HboSetWordContext) param;
-                if ("fingerprint".equalsIgnoreCase(wordParam.valueWord.getText())) {
+                if (isHboWord(wordParam.valueWord, "FINGERPRINT")) {
                     // a bare FINGERPRINT value can not be lexed reliably (a hex fingerprint may start
                     // with a digit), so it has to be quoted
                     throw new ParseException("the FINGERPRINT value must be quoted: FINGERPRINT='<64 hex>'");
                 }
-                checkHboWord(wordParam.valueWord, "LITERAL_MODE");
+                if (!isHboWord(wordParam.valueWord, "LITERAL_MODE")) {
+                    // this alternative is also matched by an unknown parameter whose value happens to
+                    // be an identifier (LITERAL_MODE=NO_LITERAL is the only one that takes one), so
+                    // report the parameter name instead of claiming LITERAL_MODE was expected
+                    throw unknownHboParameter(wordParam.valueWord);
+                }
                 if (literalModeName != null) {
                     throw new ParseException("LITERAL_MODE is given twice in hbo set statistics statement");
                 }
                 literalModeName = wordParam.valueName.getText();
             } else if (param instanceof DorisParser.HboSetUnknownContext) {
-                throw new ParseException("unknown parameter '"
-                        + ((DorisParser.HboSetUnknownContext) param).unknownWord.getText()
-                        + "' in hbo set statistics statement, expect VALUE / TYPE / FINGERPRINT /"
-                        + " STRUCT / LITERAL_MODE");
+                throw unknownHboParameter(((DorisParser.HboSetUnknownContext) param).unknownWord);
             }
         }
         if (value == null) {
@@ -7291,10 +7295,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private void checkHboWord(org.antlr.v4.runtime.ParserRuleContext word, String expected) {
-        if (word == null || !expected.equalsIgnoreCase(word.getText())) {
+        if (!isHboWord(word, expected)) {
             throw new ParseException("expect '" + expected + "' keyword in hbo statement, but got "
                     + (word == null ? "nothing" : word.getText()));
         }
+    }
+
+    /** Whether the word is the expected one (case insensitive). */
+    private static boolean isHboWord(org.antlr.v4.runtime.ParserRuleContext word, String expected) {
+        return word != null && expected.equalsIgnoreCase(word.getText());
+    }
+
+    /** The error of a named parameter which is not one of the parameters of the statement. */
+    private static ParseException unknownHboParameter(org.antlr.v4.runtime.ParserRuleContext word) {
+        return new ParseException("unknown parameter '"
+                + (word == null ? "" : word.getText())
+                + "' in hbo set statistics statement, expect VALUE / TYPE / FINGERPRINT /"
+                + " STRUCT / LITERAL_MODE");
     }
 
     private void checkHboStatementWords(

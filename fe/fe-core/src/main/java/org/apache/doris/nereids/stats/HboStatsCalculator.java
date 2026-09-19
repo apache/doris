@@ -29,8 +29,8 @@ import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
-import org.apache.doris.statistics.hbo.PlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
+import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
 import org.apache.doris.statistics.model.Statistics;
 
 import java.util.Locale;
@@ -45,6 +45,16 @@ public class HboStatsCalculator extends StatsCalculator {
     /** Pinned lookup order for filter roots: exact form first, then the constant agnostic form. */
     private static final GroupStructInfo.LiteralMode[] FILTER_LOOKUP_MODES = {
             GroupStructInfo.LiteralMode.WITH_LITERAL,
+            GroupStructInfo.LiteralMode.NO_LITERAL,
+    };
+
+    /**
+     * Lookup modes of a join / aggregation root. Their canonical form is never keyed with literals
+     * ({@code HBO SET STATISTICS} rejects a {@code J{...}} / {@code A{...}} struct in WITH_LITERAL
+     * mode), so trying that form would only cost a second struct-info computation per group without
+     * any chance to match.
+     */
+    private static final GroupStructInfo.LiteralMode[] JOIN_AGG_LOOKUP_MODES = {
             GroupStructInfo.LiteralMode.NO_LITERAL,
     };
 
@@ -70,7 +80,7 @@ public class HboStatsCalculator extends StatsCalculator {
         // 1) pinned, authoritative: exact (literal carrying) then constant agnostic filter
         //    fingerprint; FILTER_SMALL entries additionally require the optimizer estimate to be
         //    in the pathological "extremely small" regime
-        Statistics pinnedStats = applyPinnedStats(filterNode, legacyStats, inputStats);
+        Statistics pinnedStats = applyPinnedStats(filterNode, legacyStats, inputStats, FILTER_LOOKUP_MODES);
         if (pinnedStats != null) {
             return pinnedStats;
         }
@@ -78,15 +88,15 @@ public class HboStatsCalculator extends StatsCalculator {
         //    printed filter fingerprint is honored), then the scan group fingerprint used by the
         //    publish path (whose entries carry the predicates for matching)
         for (GroupStructInfo.LiteralMode mode : FILTER_LOOKUP_MODES) {
-            Statistics learnedStats = applyLearnedStats(
-                    HboUtils.getHboPlanNodeAndHash(filterNode, mode), legacyStats);
+            Statistics learnedStats = applyLearnedStats(filterNode, mode, legacyStats);
             if (learnedStats != null) {
                 return learnedStats;
             }
         }
         if (HboUtils.isLogicalFilterOnLogicalScan(filter) || HboUtils.isPhysicalFilterOnPhysicalScan(filter)) {
             AbstractPlan scanPlan = HboUtils.getScanUnderFilterNode(filter);
-            Statistics learnedStats = applyLearnedStats(HboUtils.getHboPlanNodeAndHash(scanPlan), legacyStats);
+            Statistics learnedStats = applyLearnedStats(
+                    scanPlan, GroupStructInfo.LiteralMode.WITH_LITERAL, legacyStats);
             if (learnedStats != null) {
                 return learnedStats;
             }
@@ -100,7 +110,7 @@ public class HboStatsCalculator extends StatsCalculator {
                 groupExpression.childStatistics(1));
         AbstractPlan joinNode = (AbstractPlan) join;
         // 1) exact pinned row count for this join group (authoritative)
-        Statistics pinnedStats = applyPinnedStats(joinNode, legacyStats, null);
+        Statistics pinnedStats = applyPinnedStats(joinNode, legacyStats, null, JOIN_AGG_LOOKUP_MODES);
         if (pinnedStats != null) {
             return pinnedStats;
         }
@@ -112,7 +122,7 @@ public class HboStatsCalculator extends StatsCalculator {
         }
         // 3) learned (join / aggregation keys never carry literals)
         Statistics learnedStats = applyLearnedStats(
-                HboUtils.getHboPlanNodeAndHash(joinNode, GroupStructInfo.LiteralMode.NO_LITERAL), legacyStats);
+                joinNode, GroupStructInfo.LiteralMode.NO_LITERAL, legacyStats);
         return learnedStats == null ? legacyStats : learnedStats;
     }
 
@@ -229,8 +239,8 @@ public class HboStatsCalculator extends StatsCalculator {
      *                        of a filter node (null for join / aggregation)
      */
     private Statistics applyPinnedStats(AbstractPlan planNode, Statistics delegateStats,
-            Statistics guardInputStats) {
-        for (GroupStructInfo.LiteralMode mode : FILTER_LOOKUP_MODES) {
+            Statistics guardInputStats, GroupStructInfo.LiteralMode[] lookupModes) {
+        for (GroupStructInfo.LiteralMode mode : lookupModes) {
             Optional<GroupStructInfo> structInfoOpt = GroupStructInfo.structInfoOfPlanNode(planNode, null, mode);
             if (!structInfoOpt.isPresent()) {
                 continue;
@@ -243,9 +253,9 @@ public class HboStatsCalculator extends StatsCalculator {
                 continue;
             }
             HboPlanStatisticsManager.PinnedHboStatistics pinned = pinnedOpt.get();
-            // report which kind of injected entry matched (and, for FILTER_SMALL, why it was
-            // skipped) through the explain annotation
-            recordPinnedEntryType(fingerprint, pinned.getType(),
+            // report which literal mode of the injected entry matched (and, for FILTER_SMALL, why it
+            // was skipped) through the explain annotation; its type is read from the entry itself
+            recordPinnedLiteralMode(fingerprint,
                     mode == GroupStructInfo.LiteralMode.NO_LITERAL ? "no_literal" : "with_literal");
             if (pinned.getType() == HboPlanStatisticsManager.PinnedType.FILTER_SMALL
                     && guardInputStats != null
@@ -256,8 +266,13 @@ public class HboStatsCalculator extends StatsCalculator {
                 recordGuardSkip(fingerprint, delegateStats.getRowCount(), guardInputStats.getRowCount());
                 continue;
             }
-            HboStructFreshness freshness = HboStructFreshness.between(
-                    pinned.getStructCanonical(), structInfo.getCanonicalString());
+            // the entry is judged against a data state taken now, not against the one the memo cached
+            // when this group was looked up the first time: a load which committed while the query is
+            // being optimized would otherwise be invisible. The cached struct info stays the source of
+            // the fingerprint, which does not depend on any data state.
+            Optional<GroupStructInfo> dataState = GroupStructInfo.dataStateOfPlanNode(planNode, null, mode);
+            HboStructFreshness freshness = HboStructFreshness.between(pinned.getStructCanonical(),
+                    dataState.isPresent() ? dataState.get() : structInfo);
             if (freshness.isStale()) {
                 // the data this entry was measured on moved too far (or its state cannot be
                 // verified any more): do not apply the recorded row count, keep looking
@@ -273,36 +288,49 @@ public class HboStatsCalculator extends StatsCalculator {
 
     private Statistics getStatsFromHboPlanStats(AbstractPlan planNode, Statistics delegateStats,
             GroupStructInfo.LiteralMode mode, Statistics guardInputStats) {
-        Statistics pinnedStats = applyPinnedStats(planNode, delegateStats, guardInputStats);
+        Statistics pinnedStats = applyPinnedStats(planNode, delegateStats, guardInputStats,
+                JOIN_AGG_LOOKUP_MODES);
         if (pinnedStats != null) {
             return pinnedStats;
         }
-        Statistics learnedStats = applyLearnedStats(HboUtils.getHboPlanNodeAndHash(planNode, mode), delegateStats);
+        Statistics learnedStats = applyLearnedStats(planNode, mode, delegateStats);
         return learnedStats == null ? delegateStats : learnedStats;
     }
 
-    private Statistics applyLearnedStats(Optional<PlanNodeAndHash> planNodeAndHashOpt, Statistics delegateStats) {
+    private Statistics applyLearnedStats(AbstractPlan planNode, GroupStructInfo.LiteralMode mode,
+            Statistics delegateStats) {
+        Optional<PlanNodeAndHash> planNodeAndHashOpt = HboUtils.getHboPlanNodeAndHash(planNode, mode);
         if (!planNodeAndHashOpt.isPresent() || !planNodeAndHashOpt.get().getHash().isPresent()) {
             return null;
         }
         RecentRunsPlanStatistics planStatistics = hboPlanStatisticsProvider.getHboPlanStats(planNodeAndHashOpt.get());
-        PlanStatistics matchedPlanStatistics = HboUtils.getMatchedPlanStatistics(planStatistics,
+        RecentRunsPlanStatisticsEntry matchedEntry = HboUtils.getMatchedEntry(planStatistics,
                 cascadesContext.getConnectContext());
-        if (matchedPlanStatistics == null) {
+        if (matchedEntry == null) {
             return null;
         }
-        // a learned entry also has to be visible as "used" in the explain annotation, which is keyed
-        // by the fingerprint of the node and its literal mode
-        planNodeAndHashOpt.get().getHash().ifPresent(hash -> {
-            String queryId = currentQueryId();
-            if (queryId != null) {
-                Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
-                        .putPinnedLiteralMode(queryId, hash, "no_literal");
-                Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
-                        .putPinnedLiteralMode(queryId, hash, "with_literal");
+        // a learned key does not contain the data state of its tables either, so the entry is judged
+        // by the input table statistics it was measured with: an entry published before a large data
+        // change must not keep its old row count (see HboStructFreshness.ofLearnedEntry)
+        String hash = planNodeAndHashOpt.get().getHash().get();
+        Optional<GroupStructInfo> liveStructInfo = GroupStructInfo.structInfoOfPlanNode(planNode, null, mode);
+        if (liveStructInfo.isPresent()) {
+            HboStructFreshness freshness = HboStructFreshness.ofLearnedEntry(
+                    matchedEntry.getInputTableStatistics(), liveStructInfo.get());
+            if (freshness.isStale()) {
+                recordPinnedSkip(hash, freshness.getSummary());
+                return null;
             }
-        });
-        return delegateStats.withRowCountAndHboFlag(matchedPlanStatistics.getOutputRows());
+        }
+        // a learned entry also has to be visible as "used" in the explain annotation, which is keyed
+        // by the fingerprint of the node and the literal mode which matched it
+        String queryId = currentQueryId();
+        if (queryId != null) {
+            Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                    .putPinnedLiteralMode(queryId, hash,
+                            mode == GroupStructInfo.LiteralMode.NO_LITERAL ? "no_literal" : "with_literal");
+        }
+        return delegateStats.withRowCountAndHboFlag(matchedEntry.getPlanStatistics().getOutputRows());
     }
 
     /** True while the optimizer's own filter estimate is in the pathological "extremely small" regime. */
@@ -313,15 +341,12 @@ public class HboStatsCalculator extends StatsCalculator {
         return inputRows > 0 && estimatedRows <= inputRows * Config.hbo_filter_small_ratio;
     }
 
-    /** Record (per query) that a FILTER_SMALL entry was skipped, for the explain annotation. */
-    private void recordPinnedEntryType(String fingerprint, HboPlanStatisticsManager.PinnedType type,
-            String literalMode) {
+    /** Record (per query) the literal mode of the entry that matched a fingerprint. */
+    private void recordPinnedLiteralMode(String fingerprint, String literalMode) {
         String queryId = currentQueryId();
         if (queryId == null) {
             return;
         }
-        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
-                .putPinnedEntryType(queryId, fingerprint, type.name().toLowerCase(Locale.ROOT));
         Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
                 .putPinnedLiteralMode(queryId, fingerprint, literalMode);
     }

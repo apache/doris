@@ -2333,12 +2333,6 @@ public class Config extends ConfigBase {
     public static int hbo_plan_info_cache_num = 1000;
 
     /**
-     * Maximum number of manually injected (pinned) hbo statistics entries kept per FE. When the
-     * limit is exceeded the least recently used pinned entry is evicted (LRU); pinned entries are
-     * otherwise not expired automatically. A non-positive value disables the LRU bound
-     * (unbounded), matching the other hbo caches. Takes effect at FE start (not hot-mutable).
-     */
-    /**
      * Threshold of the "extremely small filter estimate" guard used by pinned entries injected with
      * {@code TYPE FILTER_SMALL}: such an entry is only applied while the optimizer's own filter
      * estimate E satisfies {@code E <= 1} or {@code E <= inputRows * hbo_filter_small_ratio}, i.e.
@@ -2362,6 +2356,12 @@ public class Config extends ConfigBase {
             + "less means the recorded data state has to match exactly.")
     public static double hbo_row_count_change_ratio = 0.1;
 
+    /**
+     * Maximum number of manually injected (pinned) hbo statistics entries kept per FE. When the
+     * limit is exceeded the least recently used pinned entry is evicted (LRU); pinned entries are
+     * otherwise not expired automatically. A non-positive value disables the LRU bound
+     * (unbounded), matching the other hbo caches. Takes effect at FE start (not hot-mutable).
+     */
     @ConfField(description = "The default setting is 5000. Maximum number of manually injected "
             + "(pinned) hbo statistics entries kept per FE; exceeding the limit evicts the least "
             + "recently used entry; a non-positive value disables the bound (unbounded). Takes "

@@ -165,8 +165,8 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         // current one and found to have moved within the tolerance
         assertEquals(loadedFingerprint, driftedRows[0][1].toString())
         assertEquals("drifted", driftedRows[0][7].toString())
-        assertTrue(driftedRows[0][8].toString().contains(",now=internal.hbo_test.hbo_sp_r:v3,r1010,+1.0%"),
-                driftedRows[0][8].toString())
+        assertTrue((driftedRows[0][8].toString() =~
+                /,now=internal\.hbo_test\.hbo_sp_r:v3,[re]1010,\+1\.0%/).find(), driftedRows[0][8].toString())
     } finally {
         injected.each { sql """ HBO DELETE STATISTICS FINGERPRINT='${it}'; """ }
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"

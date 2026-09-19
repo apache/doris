@@ -101,7 +101,7 @@ public final class SimpleStructInfo {
 
     private void collectScans() {
         int index = 0;
-        while ((index = canonical.indexOf("S{", index)) >= 0) {
+        while ((index = HboScanDescriptor.nextScanTokenStart(canonical, index)) >= 0) {
             int end = canonical.indexOf('}', index);
             if (end < 0) {
                 return;

@@ -334,15 +334,26 @@ public class HboUtils {
      */
     public static PlanStatistics getMatchedPlanStatistics(RecentRunsPlanStatistics planStatistics,
             ConnectContext connectContext) {
+        RecentRunsPlanStatisticsEntry entry = getMatchedEntry(planStatistics, connectContext);
+        return entry == null ? null : entry.getPlanStatistics();
+    }
+
+    /**
+     * The matched learned entry, i.e. its plan statistics together with the input table statistics
+     * of the run it was measured in (the read side judges an entry by those, see
+     * {@code HboStructFreshness.ofLearnedEntry}). Null when no entry matches.
+     */
+    public static RecentRunsPlanStatisticsEntry getMatchedEntry(RecentRunsPlanStatistics planStatistics,
+            ConnectContext connectContext) {
         // an entry injected by HBO SET LEARNED STATISTICS carries no input table statistics; it is
         // a wildcard that matches by fingerprint alone (real learned entries always describe at
         // least one scan, so an empty input list is unambiguous)
         for (RecentRunsPlanStatisticsEntry injected : planStatistics.getRecentRunsStatistics()) {
             if (injected.getInputTableStatistics().isEmpty()) {
-                return injected.getPlanStatistics();
+                return injected;
             }
         }
-        PlanStatistics matchedPlanStatistics = null;
+        RecentRunsPlanStatisticsEntry matchedEntry = null;
         // NOTE: get current inputTableStatistics is difficult, consider the case:
         // select ... from t where c1 = 1 followed by select ... from t where c1 = 1 and c2 = 2
         // since the input table t will have two entries in recentRunEntries list,
@@ -376,12 +387,12 @@ public class HboUtils {
                                     planStatistics, inputTableStatistics.get(),
                                     rfsafeThreshold, isEnableHboNonStrictMatchingMode);
                     if (recentRunsPlanStatisticsEntry.isPresent()) {
-                        matchedPlanStatistics = recentRunsPlanStatisticsEntry.get().getPlanStatistics();
+                        matchedEntry = recentRunsPlanStatisticsEntry.get();
                     }
                 }
             }
         }
-        return matchedPlanStatistics;
+        return matchedEntry;
     }
 
     /**

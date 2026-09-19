@@ -22,6 +22,10 @@ import org.apache.doris.common.Config;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 /**
  * Unit test of the parts of the hbo data state verdict which need no catalog: how a scan token is
  * built and parsed, that the baseline of a scan token does not take part in the fingerprint, and how
@@ -29,8 +33,8 @@ import org.junit.jupiter.api.Test;
  *
  * <p>{@link HboStructFreshness#of} (the verdict of {@code HBO SHOW STATISTICS} /
  * {@code HBO DELETE STALE STATISTICS}, which reads the catalog) and the end to end behaviour are
- * covered by the regression suites {@code hbo_row_count_drift_test} and
- * {@code hbo_delete_stale_statistics_test}.
+ * covered by the regression suites {@code hbo_row_count_drift_test},
+ * {@code hbo_delete_stale_statistics_test} and {@code hbo_struct_group_level_test}.
  */
 public class HboStructFreshnessTest {
     private static final String FILTER_WITH_LITERAL =
@@ -44,15 +48,23 @@ public class HboStructFreshnessTest {
         Assertions.assertEquals("internal.db.t", descriptor.getTable());
         Assertions.assertEquals(3, descriptor.getVisibleVersion());
         Assertions.assertEquals(1000, descriptor.getScanRows());
+        Assertions.assertEquals(HboScanDescriptor.RowsKind.MEASURED, descriptor.getRowsKind());
         Assertions.assertEquals(1, descriptor.getSelectedPartitions());
         Assertions.assertEquals(5, descriptor.getTotalPartitions());
         Assertions.assertFalse(descriptor.isPartitionSelectionComplete());
         Assertions.assertEquals("internal.db.t,v3,r1000,p1/5", descriptor.render());
 
+        // an estimated row count is marked 'e', so that it is never compared with a measurement
+        HboScanDescriptor estimated = HboScanDescriptor.parse("internal.db.t,v3,e1000,p1/5");
+        Assertions.assertEquals(1000, estimated.getScanRows());
+        Assertions.assertEquals(HboScanDescriptor.RowsKind.ESTIMATED, estimated.getRowsKind());
+        Assertions.assertEquals("internal.db.t,v3,e1000,p1/5", estimated.render());
+
         // an unknown number, and a selection which covers every partition, are not printed
         HboScanDescriptor partial = HboScanDescriptor.parse("internal.db.t,v3");
         Assertions.assertEquals(3, partial.getVisibleVersion());
         Assertions.assertEquals(HboScanDescriptor.UNKNOWN, partial.getScanRows());
+        Assertions.assertEquals(HboScanDescriptor.RowsKind.UNKNOWN, partial.getRowsKind());
         Assertions.assertTrue(partial.isPartitionSelectionComplete());
         Assertions.assertEquals("internal.db.t,v3", partial.render());
 
@@ -62,21 +74,47 @@ public class HboStructFreshnessTest {
         Assertions.assertFalse(bare.hasScanRows());
         Assertions.assertTrue(bare.isPartitionSelectionComplete());
         Assertions.assertEquals("internal.db.t", bare.render());
+
+        // a struct info is scanned in the order a user sees it
+        List<HboScanDescriptor> scans = HboScanDescriptor.parseAll(FILTER_WITH_LITERAL
+                + "S{internal.db.t1,v2,r10};S{internal.db.t2,v2,e20})");
+        Assertions.assertEquals(2, scans.size());
+        Assertions.assertEquals("internal.db.t1", scans.get(0).getTable());
+        Assertions.assertEquals("internal.db.t2", scans.get(1).getTable());
+        Assertions.assertEquals(HboScanDescriptor.RowsKind.ESTIMATED, scans.get(1).getRowsKind());
+        Assertions.assertTrue(HboScanDescriptor.isRowCountComparable(scans.get(0), scans.get(0)));
+        Assertions.assertFalse(HboScanDescriptor.isRowCountComparable(scans.get(0), scans.get(1)));
     }
 
     @Test
     public void testScanBaselineIsNotPartOfTheFingerprint() {
-        // the same plan pattern on the same table hashes the same whatever the data state is
+        // the fingerprint of a plan is built by the group traversal; this text based fold is for the
+        // struct info a user pasted, and it reduces every scan token to its table
         String before = FILTER_WITH_LITERAL + "S{internal.db.t,v2,r1000})";
         String after = FILTER_WITH_LITERAL + "S{internal.db.t,v7,r1080,p1/5})";
         Assertions.assertEquals(GroupStructInfo.stripScanBaseline(before),
                 GroupStructInfo.stripScanBaseline(after));
-        Assertions.assertEquals(FILTER_WITH_LITERAL + "S{internal.db.t})", GroupStructInfo.stripScanBaseline(after));
+        Assertions.assertEquals(FILTER_WITH_LITERAL + "S{internal.db.t})",
+                GroupStructInfo.stripScanBaseline(after));
         // the literals of the predicates are untouched
         Assertions.assertFalse(GroupStructInfo.stripScanBaseline(after).contains("lit(*)"));
         // a canonical string without any baseline is returned as it is
         String bare = FILTER_WITH_LITERAL + "S{internal.db.t})";
         Assertions.assertEquals(bare, GroupStructInfo.stripScanBaseline(bare));
+    }
+
+    @Test
+    public void testLiteralFoldingAndSimpleRendering() {
+        Assertions.assertEquals("F{EqualTo(col(internal.db.t.b),lit(*))}(S{internal.db.t})",
+                GroupStructInfo.toNoLiteral(FILTER_WITH_LITERAL + "S{internal.db.t})"));
+        // a data type may contain a parenthesis of its own
+        Assertions.assertEquals("F{EqualTo(col(internal.db.t.b),lit(*))}(S{internal.db.t})",
+                GroupStructInfo.toNoLiteral("F{EqualTo(col(internal.db.t.b),lit(abc:VARCHAR(10)))}"
+                        + "(S{internal.db.t})"));
+        // the simple rendering drops the catalog, the visible version and the rows, and keeps the
+        // pruned partition count
+        Assertions.assertEquals("F{b = 1}(S{db.t,p1/5})", SimpleStructInfo.render(FILTER_WITH_LITERAL
+                + "S{internal.db.t,v3,e1000,p1/5})"));
     }
 
     @Test
@@ -87,7 +125,7 @@ public class HboStructFreshnessTest {
         // a data change within the tolerance (10% by default) is a drift: the entry is applied
         HboStructFreshness drifted = HboStructFreshness.between(
                 FILTER_WITH_LITERAL + "S{internal.db.t,v2,r1000})",
-                FILTER_WITH_LITERAL + "S{internal.db.t,v3,r1050})");
+                HboScanDescriptor.parseAll(FILTER_WITH_LITERAL + "S{internal.db.t,v3,r1050})"));
         Assertions.assertEquals(HboStructFreshness.STATE_DRIFTED, drifted.getState());
         Assertions.assertTrue(drifted.isDrifted());
         Assertions.assertFalse(drifted.isStale());
@@ -95,6 +133,9 @@ public class HboStructFreshnessTest {
         Assertions.assertEquals("internal.db.t:v2,r1000", drifted.getRecorded());
         Assertions.assertEquals("internal.db.t:v3,r1050", drifted.getLive());
         Assertions.assertEquals("internal.db.t:v3,r1050,+5.0%", drifted.getLiveDetail());
+        // an entry whose rows were estimated is compared with an estimate of the same kind
+        assertEquals(HboStructFreshness.STATE_DRIFTED,
+                verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v2,e1000})", "S{internal.db.t,v3,e1010})"));
         // a deletion is judged the same way (the size of the data is compared, not its direction)
         assertEquals(HboStructFreshness.STATE_DRIFTED,
                 verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v2,r1000})", "S{internal.db.t,v3,r950})"));
@@ -106,10 +147,28 @@ public class HboStructFreshnessTest {
         // beyond the tolerance the recorded row count is not applied at all
         HboStructFreshness stale = HboStructFreshness.between(
                 FILTER_WITH_LITERAL + "S{internal.db.t,v2,r1000})",
-                FILTER_WITH_LITERAL + "S{internal.db.t,v3,r1510})");
+                HboScanDescriptor.parseAll(FILTER_WITH_LITERAL + "S{internal.db.t,v3,r1510})"));
         Assertions.assertEquals(HboStructFreshness.STATE_STALE, stale.getState());
         Assertions.assertTrue(stale.isStale());
         Assertions.assertEquals("stale(rows=1510,rec=1000,+51.0%)", stale.getSummary());
+    }
+
+    @Test
+    public void testRowsAreComparedBeforeTheVersion() {
+        // the visible version is a property of the TABLE: two different partition selections of one
+        // table share it while reading a completely different amount of data, so an equal version
+        // must not be taken as "the entry still fits"
+        HboStructFreshness freshness = HboStructFreshness.between(
+                FILTER_WITH_LITERAL + "S{internal.db.t,v5,r1000,p1/3})",
+                HboScanDescriptor.parseAll(FILTER_WITH_LITERAL + "S{internal.db.t,v5,r50000,p1/3})"));
+        Assertions.assertEquals(HboStructFreshness.STATE_STALE, freshness.getState());
+        // a measurement must not be compared with a number which was derived from the table
+        assertEquals(HboStructFreshness.STATE_STALE,
+                verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v5,r1000})", "S{internal.db.t,v6,e1010})"));
+        // with an unchanged version the same mismatch is not judged by rows: the two numbers differ
+        // because they were computed differently, not because the data moved
+        assertEquals(HboStructFreshness.STATE_LIVE,
+                verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v5,r1000})", "S{internal.db.t,v5,e1010})"));
     }
 
     @Test
@@ -118,13 +177,13 @@ public class HboStructFreshnessTest {
         // it always was: there is nothing to compare
         assertEquals(HboStructFreshness.STATE_UNKNOWN,
                 verdict(FILTER_WITH_LITERAL, "S{internal.db.t})", "S{internal.db.t,v3,r1000})"));
-        // a version, but no row count: the version check is the only signal left
-        assertEquals(HboStructFreshness.STATE_LIVE,
+        // a version, but no row count: nothing was ever measured, so the entry is applied as well
+        assertEquals(HboStructFreshness.STATE_UNKNOWN,
                 verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v3})", "S{internal.db.t,v3,r1000})"));
-        assertEquals(HboStructFreshness.STATE_STALE,
+        assertEquals(HboStructFreshness.STATE_UNKNOWN,
                 verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v3})", "S{internal.db.t,v4,r1000})"));
-        // the row count of the current scan cannot be read (e.g. an empty table without statistics)
-        assertEquals(HboStructFreshness.STATE_STALE,
+        // the row count of the current scan cannot be read: the entry keeps being applied
+        assertEquals(HboStructFreshness.STATE_UNKNOWN,
                 verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v2,r1000})", "S{internal.db.t,v3})"));
         // an entry which describes another scan than the group cannot be judged
         assertEquals(HboStructFreshness.STATE_UNKNOWN, verdict(FILTER_WITH_LITERAL,
@@ -156,7 +215,7 @@ public class HboStructFreshnessTest {
     @Test
     public void testRowCountOfAnEmptyTable() {
         // nothing was recorded: any row is a change far beyond the tolerance
-        assertEquals(HboStructFreshness.STATE_DRIFTED,
+        assertEquals(HboStructFreshness.STATE_LIVE,
                 verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v2,r0})", "S{internal.db.t,v3,r0})"));
         assertEquals(HboStructFreshness.STATE_STALE,
                 verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v2,r0})", "S{internal.db.t,v3,r1})"));
@@ -170,8 +229,37 @@ public class HboStructFreshnessTest {
                 "S{internal.db.t,v2,r1000})", "S{internal.db.t,v3,r1050})"));
     }
 
+    @Test
+    public void testLearnedEntryGuard() {
+        List<HboScanDescriptor> live = HboScanDescriptor.parseAll(
+                FILTER_WITH_LITERAL + "S{internal.db.t,v3,r1050})");
+        // the run the entry was measured in read 1000 rows, the current query reads 1050: a drift
+        Map<String, Long> recorded = new LinkedHashMap<>();
+        recorded.put("internal.db.t", 1000L);
+        Assertions.assertEquals(HboStructFreshness.STATE_DRIFTED,
+                HboStructFreshness.ofLearnedRows(recorded, live).getState());
+        // a large change rejects the learned entry
+        Map<String, Long> shrunken = new LinkedHashMap<>();
+        shrunken.put("internal.db.t", 100L);
+        Assertions.assertEquals(HboStructFreshness.STATE_STALE,
+                HboStructFreshness.ofLearnedRows(shrunken, live).getState());
+        // a table the entry does not describe, or a row count which cannot be compared, keeps the
+        // entry applicable (the guard only rejects on evidence)
+        Map<String, Long> otherTable = new LinkedHashMap<>();
+        otherTable.put("internal.db.other", 1000L);
+        Assertions.assertEquals(HboStructFreshness.STATE_UNKNOWN,
+                HboStructFreshness.ofLearnedRows(otherTable, live).getState());
+        Assertions.assertEquals(HboStructFreshness.STATE_UNKNOWN, HboStructFreshness.ofLearnedRows(
+                recorded, HboScanDescriptor.parseAll(FILTER_WITH_LITERAL + "S{internal.db.t,v3})"))
+                .getState());
+        // no recorded row counts at all (an entry injected by HBO SET LEARNED STATISTICS)
+        Assertions.assertEquals(HboStructFreshness.STATE_UNKNOWN,
+                HboStructFreshness.ofLearnedRows(new LinkedHashMap<>(), live).getState());
+    }
+
     private static String verdict(String prefix, String recordedScan, String liveScan) {
-        return HboStructFreshness.between(prefix + recordedScan, prefix + liveScan).getState();
+        return HboStructFreshness.between(prefix + recordedScan,
+                HboScanDescriptor.parseAll(prefix + liveScan)).getState();
     }
 
     private static void assertEquals(String expected, String actual) {

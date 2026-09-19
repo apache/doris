@@ -31,6 +31,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.stats.GroupStructInfo;
 import org.apache.doris.nereids.stats.HboPlanStatisticsProvider;
 import org.apache.doris.nereids.stats.HboUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -472,7 +473,10 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     && context.getSessionVariable().isEnableHboOptimization()) {
                 Optional<PlanNodeAndHash> planNodeAndHashOpt;
                 try {
-                    planNodeAndHashOpt = HboUtils.getHboPlanNodeAndHash(physicalHashJoin);
+                    // join keys are always constant agnostic: the read side and the publish path
+                    // use this mode, and a literal carrying join entry can not exist
+                    planNodeAndHashOpt = HboUtils.getHboPlanNodeAndHash(physicalHashJoin,
+                            GroupStructInfo.LiteralMode.NO_LITERAL);
                 } catch (IllegalStateException e) {
                     LOG.warn("failed to get plan node hash", e);
                     planNodeAndHashOpt = Optional.empty();

@@ -195,18 +195,32 @@ public class Group {
      * Lazily compute and cache the simplified struct info of this group in the given literal mode.
      * Both modes are cached separately (at most two computations per group per query), so the memo
      * stays the single source of truth for the hbo fingerprints.
+     *
+     * <p>A failure which is a property of the plan ({@link GroupStructInfo#INVALID}) is cached: the
+     * next lookup of the same group would fail the same way. A failure which came from reading the
+     * catalog ({@link GroupStructInfo#TRANSIENT_FAILURE}, e.g. a cloud rpc error) is <b>not</b>
+     * cached, so the next lookup retries instead of disabling hbo struct info for the whole query.
      */
     public GroupStructInfo getOrComputeHboStructInfo(GroupStructInfo.LiteralMode mode) {
         if (mode == GroupStructInfo.LiteralMode.NO_LITERAL) {
-            if (hboStructInfoNoLiteral == null) {
-                hboStructInfoNoLiteral = GroupStructInfo.of(this, GroupStructInfo.LiteralMode.NO_LITERAL);
+            if (hboStructInfoNoLiteral != null) {
+                return hboStructInfoNoLiteral;
             }
-            return hboStructInfoNoLiteral;
+            GroupStructInfo computed = GroupStructInfo.of(this, GroupStructInfo.LiteralMode.NO_LITERAL);
+            hboStructInfoNoLiteral = cacheable(computed);
+            return computed;
         }
-        if (hboStructInfo == null) {
-            hboStructInfo = GroupStructInfo.of(this, GroupStructInfo.LiteralMode.WITH_LITERAL);
+        if (hboStructInfo != null) {
+            return hboStructInfo;
         }
-        return hboStructInfo;
+        GroupStructInfo computed = GroupStructInfo.of(this, GroupStructInfo.LiteralMode.WITH_LITERAL);
+        hboStructInfo = cacheable(computed);
+        return computed;
+    }
+
+    /** The value to cache: null for a failure which a later lookup may survive. */
+    private static GroupStructInfo cacheable(GroupStructInfo structInfo) {
+        return structInfo == GroupStructInfo.TRANSIENT_FAILURE ? null : structInfo;
     }
 
     public GroupExpression getFirstLogicalExpression() {

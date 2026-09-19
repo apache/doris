@@ -2112,6 +2112,10 @@ public class Env {
         workloadRuntimeStatusMgr.start();
         admissionControl.start();
         splitSourceManager.start();
+
+        // loads the pinned hbo statistics this FE persisted in the internal database (a no-op when
+        // the feature is off); it runs in the background so that no user query pays for the load
+        hboPlanStatisticsManager.startPinnedStatisticsLoader();
     }
 
     private void transferToNonMaster(FrontendNodeType newType) {

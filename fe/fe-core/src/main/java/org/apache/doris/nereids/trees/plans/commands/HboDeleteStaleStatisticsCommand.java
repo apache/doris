@@ -65,6 +65,14 @@ public class HboDeleteStaleStatisticsCommand extends Command {
                 .checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             throw new AnalysisException("Access denied: HBO statistics management requires ADMIN privilege");
         }
+        if (olderThanSeconds != null
+                && (olderThanSeconds < 0 || olderThanSeconds > Long.MAX_VALUE / 1000)) {
+            // a negative value would disable the clause instead of applying it, and a value whose
+            // millisecond conversion overflows would silently become negative
+            throw new AnalysisException("hbo delete stale statistics OLDER_THAN must be a non-negative"
+                    + " number of seconds no greater than " + (Long.MAX_VALUE / 1000)
+                    + ": " + olderThanSeconds);
+        }
         long olderThanMillis = olderThanSeconds == null ? -1 : olderThanSeconds * 1000;
         int removed = Env.getCurrentEnv().getHboPlanStatisticsManager()
                 .deleteStalePinnedPlanStatistics(olderThanMillis);

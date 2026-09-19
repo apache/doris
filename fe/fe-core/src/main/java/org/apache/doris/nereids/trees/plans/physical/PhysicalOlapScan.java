@@ -43,8 +43,6 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
 import java.util.Collection;
@@ -58,7 +56,6 @@ import java.util.stream.Collectors;
  * Physical olap scan plan.
  */
 public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapScan {
-    private static final Logger LOG = LogManager.getLogger(PhysicalOlapScan.class);
     private final DistributionSpec distributionSpec;
     private final long selectedIndexId;
     private final ImmutableList<Long> selectedTabletIds;

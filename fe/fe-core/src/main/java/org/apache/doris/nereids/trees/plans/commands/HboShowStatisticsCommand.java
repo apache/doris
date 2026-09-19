@@ -65,6 +65,15 @@ import java.util.regex.Pattern;
  * come from the recent-runs cache keyed by hbo fingerprint. The learned row count is the output
  * row count of the latest recorded run of that fingerprint (see the Detail column for the number of
  * recorded runs), so it is a summary, not a single current value.
+ *
+ * <p><b>The State column is judged in catalog scope.</b> This statement cannot run the query an
+ * entry was injected for, so it compares the recorded data state with the tables as a whole
+ * ({@code HboStructFreshness.of}): an entry whose struct prunes partitions reports {@code unknown}
+ * here even while the read side keeps applying it for a query which reads the partitions it was
+ * measured on. The state the read side actually saw is the {@code last=} part of the Detail column
+ * (filled when this FE applied the entry) and the {@code used=} / {@code skipped=} marker of the
+ * EXPLAIN annotation. {@code HBO DELETE STALE STATISTICS} removes on this catalog scope as well, so
+ * it can only remove an entry which is stale for the tables as a whole.
  */
 public class HboShowStatisticsCommand extends ShowCommand {
     private static final String SCOPE_PINNED = "pinned";
