@@ -138,15 +138,11 @@ struct IteratorItem {
     StorageReadOptions storage_read_options;
 };
 
-static void set_slot_access_paths(const SlotDescriptor& slot, const TabletSchema& schema,
+// read_column is what slot resolves to, or its variant parent column for a subpath slot.
+static void set_slot_access_paths(const SlotDescriptor& slot, const TabletColumn& read_column,
                                   StorageReadOptions& storage_read_options) {
-    int32_t unique_id = slot.col_unique_id();
-    const int field_index =
-            unique_id >= 0 ? schema.field_index(unique_id) : schema.field_index(slot.col_name());
-    if (field_index >= 0) {
-        const auto& column = schema.column(field_index);
-        unique_id = column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
-    }
+    const int32_t unique_id =
+            read_column.unique_id() >= 0 ? read_column.unique_id() : read_column.parent_unique_id();
     if (unique_id < 0) {
         return;
     }
@@ -1043,10 +1039,19 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
                         file_cache_miss_policy;
             }
-            set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                    full_read_schema, &slots[x], row_ids, column,
-                    iterator_item.storage_read_options, iterator_item.iterator));
+            int32_t index = slots[x].col_unique_id() >= 0
+                                    ? full_read_schema.field_index(slots[x].col_unique_id())
+                                    : full_read_schema.field_index(slots[x].col_name());
+            if (index < 0) {
+                return Status::InternalError(
+                        "field name is invalid. field={}, field_name_to_index={}",
+                        slots[x].col_name(), full_read_schema.get_all_field_names());
+            }
+            const auto& read_column = full_read_schema.column(index);
+            set_slot_access_paths(slots[x], read_column, iterator_item.storage_read_options);
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(read_column, &slots[x], row_ids, column,
+                                                            iterator_item.storage_read_options,
+                                                            iterator_item.iterator));
         }
     }
     return Status::OK();

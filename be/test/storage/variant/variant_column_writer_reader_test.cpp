@@ -87,7 +87,22 @@ constexpr static std::string_view tmp_dir = "./ut_dir/tmp";
 
 enum class VariantWriterInput : uint8_t { V2 };
 
+// Mirror of what BetaRowsetReader derives from the schema a read targets: it drives whether a
+// compaction or checksum read flattens variant subcolumns instead of reading them hierarchically.
+static void set_variant_read_facts(StorageReadOptions& opts, const TabletSchemaSPtr& schema) {
+    opts.tablet_has_extracted_variant_columns = std::ranges::any_of(
+            schema->columns(), [](const auto& column) { return column->is_extracted_column(); });
+}
+
 enum class VariantIndexWritePolicy : uint8_t { NONE, BLOOM_AND_INVERTED };
+
+// Resolve a query slot against a schema the way the point-query and rowid-fetch callers do.
+static const TabletColumn& read_column_of(const TabletSchemaSPtr& schema, SlotDescriptor* slot) {
+    int32_t index = slot->col_unique_id() >= 0 ? schema->field_index(slot->col_unique_id())
+                                               : schema->field_index(slot->col_name());
+    CHECK_GE(index, 0) << "slot not in schema: " << slot->col_name();
+    return schema->column(index);
+}
 
 static std::string variant_writer_input_name(VariantWriterInput input) {
     return "V2";
@@ -1371,11 +1386,15 @@ protected:
         RETURN_IF_ERROR(rowset->create_reader(&reader));
 
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = _tablet_schema;
         reader_context.need_ordered_result = false;
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(_tablet_schema->columns(), std::vector<ColumnId> {0}));
         reader_context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*_tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
         RETURN_IF_ERROR(reader->init(&reader_context));
 
         rows->clear();
@@ -1773,7 +1792,6 @@ protected:
 
         StorageReadOptions read_opts;
         read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-        read_opts.tablet_schema = _tablet_schema;
         OlapReaderStatistics stats;
         read_opts.stats = &stats;
 
@@ -2661,7 +2679,7 @@ TEST_F(VariantColumnWriterReaderTest,
                                                OlapReaderStatistics* stats) {
         StorageReadOptions read_opts;
         read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
-        read_opts.tablet_schema = compaction_schema;
+        set_variant_read_facts(read_opts, compaction_schema);
         read_opts.stats = stats;
         const size_t reader_calls = column_reader_cache.path_column_reader_calls();
         ASSERT_TRUE(
@@ -3646,16 +3664,17 @@ TEST_F(VariantColumnWriterReaderTest, test_segment_rowid_read_by_reader_version)
     StorageReadOptions read_options;
     read_options.stats = &stats;
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-    read_options.tablet_schema = _tablet_schema;
 
     MutableColumnPtr whole_result = slots[0]->type()->create_column();
     ColumnIteratorUPtr whole_iterator;
-    auto st = segments[0]->seek_and_read_by_rowid(*_tablet_schema, slots[0], row_ids, whole_result,
-                                                  read_options, whole_iterator);
+    auto st = segments[0]->seek_and_read_by_rowid(read_column_of(_tablet_schema, slots[0]),
+                                                  slots[0], row_ids, whole_result, read_options,
+                                                  whole_iterator);
     ASSERT_TRUE(st.ok()) << st.to_string();
     auto* const whole_iterator_address = whole_iterator.get();
-    st = segments[0]->seek_and_read_by_rowid(*_tablet_schema, slots[0], second_row_ids,
-                                             whole_result, read_options, whole_iterator);
+    st = segments[0]->seek_and_read_by_rowid(read_column_of(_tablet_schema, slots[0]), slots[0],
+                                             second_row_ids, whole_result, read_options,
+                                             whole_iterator);
     ASSERT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(whole_iterator.get(), whole_iterator_address);
     ASSERT_EQ(whole_result->size(), jsons.size());
@@ -3665,12 +3684,13 @@ TEST_F(VariantColumnWriterReaderTest, test_segment_rowid_read_by_reader_version)
 
     MutableColumnPtr hot_result = slots[1]->type()->create_column();
     ColumnIteratorUPtr hot_iterator;
-    st = segments[0]->seek_and_read_by_rowid(*_tablet_schema, slots[1], row_ids, hot_result,
-                                             read_options, hot_iterator);
+    st = segments[0]->seek_and_read_by_rowid(read_column_of(_tablet_schema, slots[1]), slots[1],
+                                             row_ids, hot_result, read_options, hot_iterator);
     ASSERT_TRUE(st.ok()) << st.to_string();
     auto* const hot_iterator_address = hot_iterator.get();
-    st = segments[0]->seek_and_read_by_rowid(*_tablet_schema, slots[1], second_row_ids, hot_result,
-                                             read_options, hot_iterator);
+    st = segments[0]->seek_and_read_by_rowid(read_column_of(_tablet_schema, slots[1]), slots[1],
+                                             second_row_ids, hot_result, read_options,
+                                             hot_iterator);
     ASSERT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(hot_iterator.get(), hot_iterator_address);
     const auto& nullable_hot = assert_cast<const ColumnNullable&>(*hot_result);
@@ -3684,12 +3704,14 @@ TEST_F(VariantColumnWriterReaderTest, test_segment_rowid_read_by_reader_version)
 
     MutableColumnPtr subpath_result = slots[2]->type()->create_column();
     ColumnIteratorUPtr subpath_iterator;
-    st = segments[0]->seek_and_read_by_rowid(*_tablet_schema, slots[2], row_ids, subpath_result,
-                                             read_options, subpath_iterator);
+    st = segments[0]->seek_and_read_by_rowid(read_column_of(_tablet_schema, slots[2]), slots[2],
+                                             row_ids, subpath_result, read_options,
+                                             subpath_iterator);
     ASSERT_TRUE(st.ok()) << st.to_string();
     auto* const subpath_iterator_address = subpath_iterator.get();
-    st = segments[0]->seek_and_read_by_rowid(*_tablet_schema, slots[2], second_row_ids,
-                                             subpath_result, read_options, subpath_iterator);
+    st = segments[0]->seek_and_read_by_rowid(read_column_of(_tablet_schema, slots[2]), slots[2],
+                                             second_row_ids, subpath_result, read_options,
+                                             subpath_iterator);
     ASSERT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(subpath_iterator.get(), subpath_iterator_address);
     const auto& nullable_subpath = assert_cast<const ColumnNullable&>(*subpath_result);
@@ -3751,13 +3773,12 @@ TEST_F(VariantColumnWriterReaderTest, test_segment_rowid_read_by_reader_version)
     StorageReadOptions empty_read_options;
     empty_read_options.stats = &empty_stats;
     empty_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-    empty_read_options.tablet_schema = _tablet_schema;
 
     MutableColumnPtr empty_whole_result = empty_slots[0]->type()->create_column();
     ColumnIteratorUPtr empty_whole_iterator;
-    st = empty_nested_segments[0]->seek_and_read_by_rowid(*_tablet_schema, empty_slots[0],
-                                                          empty_row_ids, empty_whole_result,
-                                                          empty_read_options, empty_whole_iterator);
+    st = empty_nested_segments[0]->seek_and_read_by_rowid(
+            read_column_of(_tablet_schema, empty_slots[0]), empty_slots[0], empty_row_ids,
+            empty_whole_result, empty_read_options, empty_whole_iterator);
     ASSERT_TRUE(st.ok()) << st.to_string();
     ASSERT_EQ(empty_whole_result->size(), expected_whole.size());
     for (size_t row = 0; row < expected_whole.size(); ++row) {
@@ -3767,8 +3788,8 @@ TEST_F(VariantColumnWriterReaderTest, test_segment_rowid_read_by_reader_version)
     MutableColumnPtr empty_subpath_result = empty_slots[1]->type()->create_column();
     ColumnIteratorUPtr empty_subpath_iterator;
     st = empty_nested_segments[0]->seek_and_read_by_rowid(
-            *_tablet_schema, empty_slots[1], empty_row_ids, empty_subpath_result,
-            empty_read_options, empty_subpath_iterator);
+            read_column_of(_tablet_schema, empty_slots[1]), empty_slots[1], empty_row_ids,
+            empty_subpath_result, empty_read_options, empty_subpath_iterator);
     ASSERT_TRUE(st.ok()) << st.to_string();
     const auto& nullable = assert_cast<const ColumnNullable&>(*empty_subpath_result);
     const auto& values = nullable.get_nested_column();
@@ -4196,9 +4217,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
 
     // construct tablet schema for compaction
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
-    storage_read_opts.tablet_schema = _tablet_schema;
-    std::unordered_map<int32_t, TabletSchema::PathsSetInfo> uid_to_paths_set_info;
-    TabletSchema::PathsSetInfo paths_set_info;
+    VariantCompactionPathsMap uid_to_paths_set_info;
+    VariantCompactionPaths paths_set_info;
     paths_set_info.sub_path_set.insert("key0");
     paths_set_info.sub_path_set.insert("key3");
     paths_set_info.sub_path_set.insert("key4");
@@ -4210,7 +4230,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     paths_set_info.sparse_path_set.insert("key8");
     paths_set_info.sparse_path_set.insert("key9");
     uid_to_paths_set_info[parent_column.unique_id()] = paths_set_info;
-    _tablet_schema->set_path_set_info(std::move(uid_to_paths_set_info));
+    storage_read_opts.variant_compaction_paths =
+            std::make_shared<VariantCompactionPathsMap>(std::move(uid_to_paths_set_info));
 
     // mock a subcolumn in compaction
     TabletColumn subcolumn_in_compaction;
@@ -4220,6 +4241,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     subcolumn_in_compaction.set_path_info(PathInData(parent_column.name_lower_case() + ".key10"));
     subcolumn_in_compaction.set_is_nullable(true);
     _tablet_schema->append_column(subcolumn_in_compaction);
+    set_variant_read_facts(storage_read_opts, _tablet_schema);
 
     // 14. check compaction subcolumn reader
     check_leaf_reader();
@@ -4714,7 +4736,6 @@ TEST_F(VariantColumnWriterReaderTest,
     TabletColumn parent_column_v2 = parent_column;
     StorageReadOptions v2_query_read_opts;
     v2_query_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    v2_query_read_opts.tablet_schema = _tablet_schema;
     OlapReaderStatistics v2_query_stats;
     v2_query_read_opts.stats = &v2_query_stats;
     ColumnIteratorUPtr v2_root_it;
@@ -4745,7 +4766,7 @@ TEST_F(VariantColumnWriterReaderTest,
 
     StorageReadOptions compact_read_opts;
     compact_read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
-    compact_read_opts.tablet_schema = _tablet_schema;
+    set_variant_read_facts(compact_read_opts, _tablet_schema);
     OlapReaderStatistics compact_stats;
     compact_read_opts.stats = &compact_stats;
     TabletColumn doc_bucket_col = variant_util::create_doc_value_column(parent_column, 0);
@@ -4962,7 +4983,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_doc_compact_from_doc_value_bucke
 
     StorageReadOptions storage_read_opts;
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
-    storage_read_opts.tablet_schema = compaction_schema;
+    set_variant_read_facts(storage_read_opts, compaction_schema);
     OlapReaderStatistics stats;
     storage_read_opts.stats = &stats;
 
@@ -5188,7 +5209,7 @@ TEST_P(VariantSpecializedWriterCompatibilityTest, doc_compact_writer_round_trip)
     MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
     StorageReadOptions storage_read_opts;
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
-    storage_read_opts.tablet_schema = _tablet_schema;
+    set_variant_read_facts(storage_read_opts, _tablet_schema);
     OlapReaderStatistics stats;
     storage_read_opts.stats = &stats;
 
@@ -5954,11 +5975,12 @@ TEST_F(VariantColumnWriterReaderTest,
     std::vector<RowsetSharedPtr> input_rowsets {rowset};
 
     auto compaction_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+    VariantCompactionPathsMap compaction_paths;
     auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            input_rowsets, compaction_schema);
+            input_rowsets, compaction_schema, compaction_paths);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
-    const auto* path_set_info = compaction_schema->try_path_set_info(1);
+    const auto* path_set_info = compaction_paths.contains(1) ? &compaction_paths.at(1) : nullptr;
     ASSERT_NE(path_set_info, nullptr);
     ASSERT_TRUE(path_set_info->typed_path_set.contains("a"));
     EXPECT_FALSE(path_set_info->sub_path_set.contains(StringRef("a")));
@@ -6935,7 +6957,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     StorageReadOptions v2_read_opts;
     v2_read_opts.stats = &v2_stats;
     v2_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    v2_read_opts.tablet_schema = _tablet_schema;
     ColumnIteratorUPtr v2_it;
     st = variant_column_reader->new_iterator(&v2_it, &parent_column_v2, &v2_read_opts,
                                              &column_reader_cache);
@@ -6967,7 +6988,6 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     StorageReadOptions v2_rowid_read_opts;
     v2_rowid_read_opts.stats = &v2_rowid_stats;
     v2_rowid_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    v2_rowid_read_opts.tablet_schema = _tablet_schema;
     ColumnIteratorUPtr v2_rowid_it;
     st = variant_column_reader->new_iterator(&v2_rowid_it, &parent_column_v2, &v2_rowid_read_opts,
                                              &column_reader_cache);
@@ -8125,8 +8145,6 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     TabletColumn parent_column = _tablet_schema->column(0);
     StorageReadOptions storage_read_opts;
 
-    storage_read_opts.tablet_schema = _tablet_schema;
-
     TabletColumn subcolumn;
     subcolumn.set_name(parent_column.name_lower_case() + ".b");
     subcolumn.set_type((FieldType)(int)footer.columns(1).type());
@@ -8135,6 +8153,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     subcolumn.set_variant_max_subcolumns_count(parent_column.variant_max_subcolumns_count());
     subcolumn.set_is_nullable(true);
     _tablet_schema->append_column(subcolumn);
+    set_variant_read_facts(storage_read_opts, _tablet_schema);
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     OlapReaderStatistics stats;
     storage_read_opts.stats = &stats;
@@ -8440,8 +8459,9 @@ TEST_F(VariantColumnWriterReaderTest, test_compaction_nokey_variant_uid0) {
     auto input_readers = create_rowset_readers(input_rowsets);
 
     auto compaction_schema = std::make_shared<TabletSchema>(*_tablet_schema);
+    auto compaction_paths = std::make_shared<VariantCompactionPathsMap>();
     auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            input_rowsets, compaction_schema);
+            input_rowsets, compaction_schema, *compaction_paths);
     ASSERT_TRUE(st.ok()) << st.to_string();
 
     RowsetWriterContext ctx;
@@ -8452,6 +8472,7 @@ TEST_F(VariantColumnWriterReaderTest, test_compaction_nokey_variant_uid0) {
     ctx.data_dir = _data_dir.get();
     ctx.rowset_state = VISIBLE;
     ctx.tablet_schema = compaction_schema;
+    ctx.variant_compaction_paths = compaction_paths;
     ctx.tablet_path = _tablet->tablet_path();
     ctx.tablet_id = _tablet->tablet_id();
     ctx.tablet = _tablet;
@@ -8535,8 +8556,9 @@ TEST_F(VariantColumnWriterReaderTest, legacy_v1_segment_compaction_preserves_ful
     auto input_readers = create_rowset_readers(input_rowsets);
 
     auto compaction_schema = std::make_shared<TabletSchema>(*_tablet_schema);
-    status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(input_rowsets,
-                                                                                 compaction_schema);
+    auto compaction_paths = std::make_shared<VariantCompactionPathsMap>();
+    status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            input_rowsets, compaction_schema, *compaction_paths);
     ASSERT_TRUE(status.ok()) << status;
 
     RowsetWriterContext context;
@@ -8547,6 +8569,7 @@ TEST_F(VariantColumnWriterReaderTest, legacy_v1_segment_compaction_preserves_ful
     context.data_dir = _data_dir.get();
     context.rowset_state = VISIBLE;
     context.tablet_schema = compaction_schema;
+    context.variant_compaction_paths = compaction_paths;
     context.tablet_path = _tablet->tablet_path();
     context.tablet_id = _tablet->tablet_id();
     context.tablet = _tablet;

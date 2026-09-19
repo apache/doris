@@ -595,6 +595,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                                            return seg->id() == row_loc.segment_id;
                                        });
                 const auto& segment = *it;
+                const auto tablet_schema = _tablet->tablet_schema();
                 for (int cid : _reusable->missing_col_uids()) {
                     int pos = _reusable->get_col_uid_to_idx().at(cid);
                     std::vector<segment_v2::rowid_t> row_ids {
@@ -602,11 +603,19 @@ Status PointQueryExecutor::_lookup_row_data() {
                     auto& column = result_columns[pos];
                     std::unique_ptr<ColumnIterator> iter;
                     SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                    int32_t index = slot->col_unique_id() >= 0
+                                            ? tablet_schema->field_index(slot->col_unique_id())
+                                            : tablet_schema->field_index(slot->col_name());
+                    if (index < 0) {
+                        return Status::InternalError(
+                                "field name is invalid. field={}, field_name_to_index={}",
+                                slot->col_name(), tablet_schema->get_all_field_names());
+                    }
                     StorageReadOptions storage_read_options;
                     storage_read_options.stats = &_read_stats;
                     storage_read_options.io_ctx = io_ctx;
-                    RETURN_IF_ERROR(segment->seek_and_read_by_rowid(*_tablet->tablet_schema(), slot,
-                                                                    row_ids, column,
+                    RETURN_IF_ERROR(segment->seek_and_read_by_rowid(tablet_schema->column(index),
+                                                                    slot, row_ids, column,
                                                                     storage_read_options, iter));
                 }
             }
