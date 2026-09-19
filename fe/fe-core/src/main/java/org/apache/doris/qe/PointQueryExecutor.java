@@ -447,7 +447,8 @@ public class PointQueryExecutor implements CoordInterface {
         Future<InternalService.PTabletKeyLookupResponse> futureResponse;
         try {
             futureResponse = BackendServiceProxy.getInstance()
-                    .fetchTabletDataAsync(backend.getBrpcAddress(), request);
+                    .fetchTabletDataAsync(backend.getBrpcAddress(), request,
+                            Math.max(0, timeoutTs - System.currentTimeMillis()));
         } catch (RpcException e) {
             LOG.warn("query fetch rpc exception {}, e {}", backend.getBrpcAddress(), e);
             status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
@@ -456,6 +457,7 @@ public class PointQueryExecutor implements CoordInterface {
         }
         long currentTs = System.currentTimeMillis();
         if (currentTs >= timeoutTs) {
+            futureResponse.cancel(true);
             LOG.warn("fetch result timeout {}", backend.getBrpcAddress());
             status.updateStatus(TStatusCode.INTERNAL_ERROR, "query request timeout");
             return null;
@@ -478,9 +480,13 @@ public class PointQueryExecutor implements CoordInterface {
             return null;
         } catch (ExecutionException e) {
             LOG.warn("query fetch execution exception {}, addr {}", e, backend.getBrpcAddress());
-            if (e.getMessage() != null && e.getMessage().contains("time out")) {
-                // if timeout, we set error code to TIMEOUT, and it will not retry querying.
+            io.grpc.Status.Code rpcCode = io.grpc.Status.fromThrowable(e).getCode();
+            if (rpcCode == io.grpc.Status.Code.DEADLINE_EXCEEDED
+                    || (e.getMessage() != null && e.getMessage().contains("time out"))) {
+                // An expired item budget is not a backend availability failure.
                 status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
+            } else if (rpcCode == io.grpc.Status.Code.CANCELLED) {
+                status.updateStatus(TStatusCode.CANCELLED, e.getMessage());
             } else {
                 status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
                 SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
