@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_delete_bitmap_metrics", "p0") {
+suite("test_delete_bitmap_metrics", "p0,nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     def backendId_to_params = [string: [:]]
@@ -183,80 +183,105 @@ suite("test_delete_bitmap_metrics", "p0") {
         qt_sql "select * from ${testTable} order by plan_id"
 
 
-        def tablets = sql_return_maparray """ show tablets from ${testTable}; """
-        logger.info("tablets: " + tablets)
-        def local_delete_bitmap_count = 0
-        def ms_delete_bitmap_count = 0
-        def local_delete_bitmap_cardinality = 0;
-        def ms_delete_bitmap_cardinality = 0;
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
-            logger.info("tablet: " + tablet_info)
-            String trigger_backend_id = tablet.BackendId
+        def checkPerReplicaDeleteBitmap = {
+            def tablets = sql_return_maparray """ show tablets from ${testTable}; """
+            tablets.sort { lhs, rhs -> lhs.ReplicaId.toLong() <=> rhs.ReplicaId.toLong() }
+            logger.info("tablets: " + tablets)
+            def local_delete_bitmap_count = 0
+            def ms_delete_bitmap_count = 0
+            def local_delete_bitmap_cardinality = 0;
+            def ms_delete_bitmap_cardinality = 0;
+            try {
+                for (int ri = 0; ri < tablets.size(); ri++) {
+                    // use_fix_replica selects replicas in ReplicaId order. Populate and
+                    // inspect each replica immediately because the agg cache is an LRU.
+                    sql "set use_fix_replica=${ri};"
+                    sql "select * from ${testTable};"
 
-            // before compaction, delete_bitmap_count is (rowsets num - 1)
-            local_delete_bitmap_count = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
-            local_delete_bitmap_cardinality = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).cardinality
-            logger.info("local_delete_bitmap_count:" + local_delete_bitmap_count)
-            logger.info("local_delete_bitmap_cardinality:" + local_delete_bitmap_cardinality)
-            assertTrue(local_delete_bitmap_count == 7)
-            assertTrue(local_delete_bitmap_cardinality == 7)
+                    def tablet = tablets[ri]
+                    String tablet_id = tablet.TabletId
+                    def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
+                    logger.info("tablet: " + tablet_info)
+                    String trigger_backend_id = tablet.BackendId
 
-            if (isCloudMode()) {
-                ms_delete_bitmap_count = getMSDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
-                ms_delete_bitmap_cardinality = getMSDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).cardinality
-                logger.info("ms_delete_bitmap_count:" + ms_delete_bitmap_count)
-                logger.info("ms_delete_bitmap_cardinality:" + ms_delete_bitmap_cardinality)
-                assertTrue(ms_delete_bitmap_count == 7)
-                assertTrue(ms_delete_bitmap_cardinality == 7)
-            }
+                    // before compaction, delete_bitmap_count is (rowsets num - 1)
+                    local_delete_bitmap_count = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
+                    local_delete_bitmap_cardinality = getLocalDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).cardinality
+                    logger.info("local_delete_bitmap_count:" + local_delete_bitmap_count)
+                    logger.info("local_delete_bitmap_cardinality:" + local_delete_bitmap_cardinality)
+                    assertTrue(local_delete_bitmap_count == 7)
+                    assertTrue(local_delete_bitmap_cardinality == 7)
 
-            def status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-            logger.info("agg cache status: ${status}")
-            assert status.delete_bitmap_count == 8
-            assert status.cardinality == 7
-            assert status.size > 0
+                    if (isCloudMode()) {
+                        ms_delete_bitmap_count = getMSDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
+                        ms_delete_bitmap_cardinality = getMSDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).cardinality
+                        logger.info("ms_delete_bitmap_count:" + ms_delete_bitmap_count)
+                        logger.info("ms_delete_bitmap_cardinality:" + ms_delete_bitmap_cardinality)
+                        assertTrue(ms_delete_bitmap_count == 7)
+                        assertTrue(ms_delete_bitmap_cardinality == 7)
+                    }
 
-            status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id, true)
-            logger.info("agg cache verbose status: ${status}")
+                    def status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
+                    logger.info("agg cache status: ${status}")
+                    assert status.delete_bitmap_count == 8
+                    assert status.cardinality == 7
+                    assert status.size > 0
 
-            def tablet_delete_bitmap_count = 0;
-            def base_rowset_delete_bitmap_count = 0;
-            int retry_time = 0;
-            while (retry_time < 10) {
-                log.info("retry_time: ${retry_time}")
-                getMetricsMethod.call() {
-                    respCode, body ->
-                        logger.info("test get delete bitmap count resp Code {}", "${respCode}".toString())
-                        assertEquals("${respCode}".toString(), "200")
-                        String out = "${body}".toString()
-                        def strs = out.split('\n')
-                        for (String line in strs) {
-                            if (line.startsWith("tablet_max_delete_bitmap_score")) {
-                                logger.info("find: {}", line)
-                                tablet_delete_bitmap_count = line.replaceAll("tablet_max_delete_bitmap_score ", "").toInteger()
-                                break
-                            }
-                        }
-                        for (String line in strs) {
-                            if (line.startsWith("tablet_max_base_rowset_delete_bitmap_score")) {
-                                logger.info("find: {}", line)
-                                base_rowset_delete_bitmap_count = line.replaceAll("tablet_max_base_rowset_delete_bitmap_score ", "").toInteger()
-                                break
-                            }
-                        }
+                    status = getAggCacheDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id, true)
+                    logger.info("agg cache verbose status: ${status}")
                 }
-                if (tablet_delete_bitmap_count > 0 && base_rowset_delete_bitmap_count > 0) {
-                    break;
-                } else {
-                    Thread.sleep(10000)
-                    retry_time++;
-                }
+            } finally {
+                sql "set use_fix_replica=-1;"
             }
-            assertTrue(tablet_delete_bitmap_count > 0)
-            assertTrue(base_rowset_delete_bitmap_count > 0)
         }
+
+        if (isCloudMode()) {
+            // Cloud multi-replica can resolve the same logical CloudReplica to a
+            // different physical BE for SHOW TABLETS and the warm-up scan. Disable
+            // it while binding the warm-up and per-BE cache assertion; the helper
+            // restores the original FE config even when an assertion fails.
+            setFeConfigTemporary([enable_cloud_multi_replica: false]) {
+                checkPerReplicaDeleteBitmap()
+            }
+        } else {
+            checkPerReplicaDeleteBitmap()
+        }
+
+        def tablet_delete_bitmap_count = 0;
+        def base_rowset_delete_bitmap_count = 0;
+        int retry_time = 0;
+        while (retry_time < 10) {
+            log.info("retry_time: ${retry_time}")
+            getMetricsMethod.call() {
+                respCode, body ->
+                    logger.info("test get delete bitmap count resp Code {}", "${respCode}".toString())
+                    assertEquals("${respCode}".toString(), "200")
+                    String out = "${body}".toString()
+                    def strs = out.split('\n')
+                    for (String line in strs) {
+                        if (line.startsWith("tablet_max_delete_bitmap_score")) {
+                            logger.info("find: {}", line)
+                            tablet_delete_bitmap_count = line.replaceAll("tablet_max_delete_bitmap_score ", "").toInteger()
+                            break
+                        }
+                    }
+                    for (String line in strs) {
+                        if (line.startsWith("tablet_max_base_rowset_delete_bitmap_score")) {
+                            logger.info("find: {}", line)
+                            base_rowset_delete_bitmap_count = line.replaceAll("tablet_max_base_rowset_delete_bitmap_score ", "").toInteger()
+                            break
+                        }
+                    }
+            }
+            if (tablet_delete_bitmap_count > 0 && base_rowset_delete_bitmap_count > 0) {
+                break;
+            } else {
+                Thread.sleep(10000)
+                retry_time++;
+            }
+        }
+        assertTrue(tablet_delete_bitmap_count > 0)
+        assertTrue(base_rowset_delete_bitmap_count > 0)
     } finally {
         reset_be_param("check_tablet_delete_bitmap_interval_seconds")
     }
