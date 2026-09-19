@@ -23,6 +23,7 @@
 #include "exprs/create_predicate_function.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "util/hash_util.hpp"
+#include "util/raw_value.h"
 
 namespace doris {
 RuntimeFilterWrapper::RuntimeFilterWrapper(const RuntimeFilterParams* params)
@@ -623,13 +624,47 @@ bool RuntimeFilterWrapper::contain_null() const {
 }
 
 std::shared_ptr<const std::vector<uint32_t>>
-RuntimeFilterWrapper::get_or_compute_bucket_prune_hashes(const DataTypePtr& target_type) const {
+RuntimeFilterWrapper::get_or_compute_bucket_prune_hashes(const DataTypePtr& target_type,
+                                                         TDistributionHashType::type hash_type,
+                                                         uint32_t bucket_num) const {
     DORIS_CHECK(_state.load() == State::READY);
     DORIS_CHECK(_hybrid_set != nullptr);
     DORIS_CHECK(target_type != nullptr);
+    DORIS_CHECK_GT(bucket_num, 0);
     PrimitiveType primitive_type = target_type->get_primitive_type();
     DORIS_CHECK_EQ(primitive_type, _column_return_type);
 
+    if (hash_type == TDistributionHashType::IDENTITY) {
+        std::scoped_lock lock(_identity_bucket_prune_hashes_mutex);
+        if (auto it = _identity_bucket_prune_hashes.find(bucket_num);
+            it != _identity_bucket_prune_hashes.end()) {
+            return it->second;
+        }
+        _bucket_prune_hashes_started.store(true);
+        auto buckets = std::make_shared<std::vector<uint32_t>>();
+        buckets->reserve(_hybrid_set->size() + (_hybrid_set->contain_null() ? 1 : 0));
+        auto* iter = _hybrid_set->begin();
+        while (iter->has_next()) {
+            const void* value = iter->get_value();
+            DORIS_CHECK(value != nullptr);
+            if (is_string_type(primitive_type) || primitive_type == TYPE_VARBINARY) {
+                const auto* string_value = reinterpret_cast<const StringRef*>(value);
+                buckets->push_back(RawValue::identity_hash(string_value->data, string_value->size,
+                                                           primitive_type, 0, bucket_num));
+            } else {
+                buckets->push_back(
+                        RawValue::identity_hash(value, 0, primitive_type, 0, bucket_num));
+            }
+            iter->next();
+        }
+        if (_hybrid_set->contain_null()) {
+            buckets->push_back(RawValue::identity_hash(nullptr, 0, primitive_type, 0, bucket_num));
+        }
+        _identity_bucket_prune_hashes.emplace(bucket_num, buckets);
+        return buckets;
+    }
+
+    DORIS_CHECK_EQ(hash_type, TDistributionHashType::CRC32);
     std::call_once(_bucket_prune_hashes_once, [&] {
         _bucket_prune_hashes_started.store(true);
         // Materialize the exact-set values into a column so bucket pruning uses the

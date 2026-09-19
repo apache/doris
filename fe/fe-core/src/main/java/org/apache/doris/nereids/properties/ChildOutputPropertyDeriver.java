@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -453,6 +454,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     public PhysicalProperties visitPhysicalSetOperation(PhysicalSetOperation setOperation, PlanContext context) {
         int[] offsetsOfFirstChild = null;
         ShuffleType firstType = null;
+        HashDistributionInfo.HashType firstHashType = null;
         List<DistributionSpec> childrenDistribution = childrenOutputProperties.stream()
                 .map(PhysicalProperties::getDistributionSpec)
                 .collect(Collectors.toList());
@@ -531,7 +533,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                                 childDistribution.getShuffleType(),
                                 childDistribution.getTableId(),
                                 childDistribution.getSelectedIndexId(),
-                                childDistribution.getPartitionIds()
+                                childDistribution.getPartitionIds(),
+                                childDistribution.getHashType()
                         )
                 );
             }
@@ -561,10 +564,12 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 }
             }
             if (offsetsOfFirstChild == null) {
-                firstType = ((DistributionSpecHash) childDistribution).getShuffleType();
+                firstType = distributionSpecHash.getShuffleType();
+                firstHashType = distributionSpecHash.getHashType();
                 offsetsOfFirstChild = offsetsOfCurrentChild;
             } else if (!Arrays.equals(offsetsOfFirstChild, offsetsOfCurrentChild)
-                    || firstType != ((DistributionSpecHash) childDistribution).getShuffleType()) {
+                    || firstType != distributionSpecHash.getShuffleType()
+                    || firstHashType != distributionSpecHash.getHashType()) {
                 // NOTICE: if come here, the first child output must be DistributionSpecHash
                 return PhysicalProperties.createAnyFromHash((DistributionSpecHash) childrenDistribution.get(0));
             }
@@ -574,7 +579,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         for (int offset : offsetsOfFirstChild) {
             request.add(setOperation.getOutput().get(offset).getExprId());
         }
-        return PhysicalProperties.createHash(request, firstType);
+        return new PhysicalProperties(new DistributionSpecHash(request, firstType,
+                -1L, -1L, Collections.emptySet(), firstHashType));
     }
 
     @Override
@@ -754,7 +760,8 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             }
             anotherSideOrderedExprIds.add(rightExprIds.get(index));
         }
-        return new DistributionSpecHash(anotherSideOrderedExprIds, oneSideSpec.getShuffleType());
+        return new DistributionSpecHash(anotherSideOrderedExprIds, oneSideSpec.getShuffleType(),
+                -1L, -1L, Collections.emptySet(), oneSideSpec.getHashType());
     }
 
     private static boolean isSameHashValue(DataType originType, DataType castType) {

@@ -248,24 +248,40 @@ public:
             std::map<VOlapTablePartition*, int64_t>* partition_tablets_buffer = nullptr) const {
         std::function<uint32_t(Block*, uint32_t, const VOlapTablePartition&)> compute_function;
         if (!_distributed_slot_locs.empty()) {
-            //TODO: refactor by saving the hash values. then we can calculate in columnwise.
-            compute_function = [this](Block* block, uint32_t row,
-                                      const VOlapTablePartition& partition) -> uint32_t {
-                uint32_t hash_val = 0;
-                for (unsigned short _distributed_slot_loc : _distributed_slot_locs) {
-                    auto* slot_desc = _slots[_distributed_slot_loc];
-                    auto& column = block->get_by_position(_distributed_slot_loc).column;
-                    auto val = column->get_data_at(row);
-                    if (val.data != nullptr) {
-                        hash_val = RawValue::zlib_crc32(val.data, val.size,
-                                                        slot_desc->type()->get_primitive_type(),
-                                                        hash_val);
-                    } else {
-                        hash_val = HashUtil::zlib_crc_hash_null(hash_val);
+            if (_t_param.distribution_hash_type == TDistributionHashType::IDENTITY) {
+                compute_function = [this](Block* block, uint32_t row,
+                                          const VOlapTablePartition& partition) -> uint32_t {
+                    uint32_t bucket = 0;
+                    for (unsigned short distributed_slot_loc : _distributed_slot_locs) {
+                        auto* slot_desc = _slots[distributed_slot_loc];
+                        const auto& column = block->get_by_position(distributed_slot_loc).column;
+                        auto val = column->get_data_at(row);
+                        bucket = RawValue::identity_hash(
+                                val.data, val.size, slot_desc->type()->get_primitive_type(), bucket,
+                                cast_set<uint32_t>(partition.num_buckets));
                     }
-                }
-                return cast_set<uint32_t>(hash_val % partition.num_buckets);
-            };
+                    return bucket;
+                };
+            } else {
+                //TODO: refactor by saving the hash values. then we can calculate in columnwise.
+                compute_function = [this](Block* block, uint32_t row,
+                                          const VOlapTablePartition& partition) -> uint32_t {
+                    uint32_t hash_val = 0;
+                    for (unsigned short _distributed_slot_loc : _distributed_slot_locs) {
+                        auto* slot_desc = _slots[_distributed_slot_loc];
+                        auto& column = block->get_by_position(_distributed_slot_loc).column;
+                        auto val = column->get_data_at(row);
+                        if (val.data != nullptr) {
+                            hash_val = RawValue::zlib_crc32(val.data, val.size,
+                                                            slot_desc->type()->get_primitive_type(),
+                                                            hash_val);
+                        } else {
+                            hash_val = HashUtil::zlib_crc_hash_null(hash_val);
+                        }
+                    }
+                    return cast_set<uint32_t>(hash_val % partition.num_buckets);
+                };
+            }
         } else { // random distribution
             compute_function = [](Block* block, uint32_t row,
                                   const VOlapTablePartition& partition) -> uint32_t {

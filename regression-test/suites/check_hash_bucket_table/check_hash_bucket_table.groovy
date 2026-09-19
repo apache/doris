@@ -75,6 +75,11 @@ suite("check_hash_bucket_table") {
     def checkTable = { String db, String tblName ->
         sql "use `${db}`;"
         def showStmt = sql_return_maparray("show create table `${tblName}`")[0]["Create Table"]
+        // TODO: Add hash bucket validation for non-CRC32 tables.
+        if (showStmt.contains("\"distribution_hash_type\"")) {
+            logger.info("===== [check] Skip non-CRC32 hash table: ${db}.${tblName}")
+            return false
+        }
         def partitionInfo = sql_return_maparray """ show partitions from `${tblName}`; """
         int checkedPartition = 0
         partitionInfo.each {

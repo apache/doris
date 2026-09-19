@@ -123,10 +123,12 @@ protected:
         return std::make_shared<VExprContext>(wrapper);
     }
 
-    TRuntimeFilterDesc bucket_prune_desc(int filter_id) {
+    TRuntimeFilterDesc bucket_prune_desc(
+            int filter_id, TDistributionHashType::type hash_type = TDistributionHashType::CRC32) {
         TRuntimeFilterDesc desc;
         desc.__set_filter_id(filter_id);
         desc.__set_bucket_pruning_target_ids({SCAN_NODE_ID});
+        desc.__set_bucket_pruning_target_hash_types({{SCAN_NODE_ID, hash_type}});
         return desc;
     }
 
@@ -165,13 +167,17 @@ TEST_F(RuntimeFilterBucketPrunerTest, ExactSetHashesSharedAcrossConsumers) {
     auto second = make_in_conjunct(filter_id, {}, runtime_filter_wrapper);
     auto target_type = first->root()->get_impl()->children()[0]->data_type();
 
-    auto first_hashes = assert_cast<RuntimeFilterExpr*>(first->root().get())
-                                ->get_bucket_prune_hashes(target_type);
-    auto second_hashes = assert_cast<RuntimeFilterExpr*>(second->root().get())
-                                 ->get_bucket_prune_hashes(target_type);
-    auto nullable_hashes = assert_cast<RuntimeFilterExpr*>(first->root().get())
-                                   ->get_bucket_prune_hashes(std::make_shared<DataTypeNullable>(
-                                           std::make_shared<DataTypeInt32>()));
+    auto first_hashes =
+            assert_cast<RuntimeFilterExpr*>(first->root().get())
+                    ->get_bucket_prune_hashes(target_type, TDistributionHashType::CRC32, 8);
+    auto second_hashes =
+            assert_cast<RuntimeFilterExpr*>(second->root().get())
+                    ->get_bucket_prune_hashes(target_type, TDistributionHashType::CRC32, 8);
+    auto nullable_hashes =
+            assert_cast<RuntimeFilterExpr*>(first->root().get())
+                    ->get_bucket_prune_hashes(
+                            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()),
+                            TDistributionHashType::CRC32, 8);
 
     EXPECT_EQ(first_hashes.get(), second_hashes.get());
     EXPECT_EQ(first_hashes.get(), nullable_hashes.get());
@@ -184,10 +190,28 @@ TEST_F(RuntimeFilterBucketPrunerTest, RejectsMergeAfterBucketHashesStart) {
     auto wrapper = make_in_wrapper(filter_id, {1});
     auto other = make_in_wrapper(filter_id, {2});
 
-    static_cast<void>(
-            wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>()));
+    static_cast<void>(wrapper->get_or_compute_bucket_prune_hashes(std::make_shared<DataTypeInt32>(),
+                                                                  TDistributionHashType::CRC32, 8));
 
     EXPECT_DEATH({ static_cast<void>(wrapper->merge(other.get())); }, "Check failed");
+}
+
+TEST_F(RuntimeFilterBucketPrunerTest, IdentityExactInKeepsIdentityBucket) {
+    constexpr int filter_id = 17;
+    constexpr int32_t value = 1;
+    VExprContextSPtrs conjuncts {make_in_conjunct(filter_id, {value})};
+    std::vector<TRuntimeFilterDesc> rf_descs {
+            bucket_prune_desc(filter_id, TDistributionHashType::IDENTITY)};
+
+    RuntimeFilterBucketPruner pruner;
+    int64_t newly_pruned = 0;
+    ASSERT_TRUE(pruner.prune_by_runtime_filters(four_bucket_ranges(), conjuncts, rf_descs,
+                                                SCAN_NODE_ID, 1024, &newly_pruned)
+                        .ok());
+    EXPECT_EQ(newly_pruned, 3);
+    for (int32_t bucket_seq = 0; bucket_seq < 4; ++bucket_seq) {
+        EXPECT_EQ(pruner.is_bucket_pruned(bucket_seq, 4), bucket_seq != 1);
+    }
 }
 
 TEST_F(RuntimeFilterBucketPrunerTest, ExactInKeepsOnlyMatchingBucket) {
