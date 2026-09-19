@@ -263,6 +263,11 @@ public class RangerDorisAccessController extends RangerAccessController {
         // granting - and denying - on policies this source has never matched, in every deployment that has
         // any. That is a change to what an existing Ranger service decides and belongs with a release note
         // of its own, not here.
+        //
+        // User groups are omitted for the same reason. Ranger already attaches UserStore groups during
+        // RangerDefaultRequestProcessor.preProcess() when the operator sets
+        // ranger.plugin.doris.use.rangerGroups=true in ranger-doris-security.xml. Calling setUserGroups()
+        // here would start matching group items in every deployment, including those that never opted in.
         request.setClientIPAddress(clientAddressOf(subject, context));
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);

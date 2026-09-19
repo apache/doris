@@ -32,6 +32,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
+import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResource;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
@@ -352,5 +353,22 @@ public class RangerTest {
 
         Assertions.assertEquals(0, plugin.requests.get(),
                 "the default workload group was put to the policy engine");
+    }
+
+    /**
+     * Roles and groups stay off the request this source builds. Ranger-hive sends Doris roles; this
+     * source does not, and groups belong to Ranger's {@code use.rangerGroups} preprocessing, not to
+     * this builder. Putting either on the request would start matching policy items this source has
+     * never matched.
+     */
+    @Test
+    public void testRequestDoesNotCarryRolesOrGroups() {
+        RangerAccessRequestImpl request = controller().createRequest(USER, AccessContext.NONE);
+
+        Assertions.assertEquals("user1", request.getUser());
+        Assertions.assertTrue(request.getUserGroups() == null || request.getUserGroups().isEmpty(),
+                "groups were attached in createRequest rather than left to Ranger preprocessing");
+        Assertions.assertTrue(request.getUserRoles() == null || request.getUserRoles().isEmpty(),
+                "roles were attached in createRequest, which this source has never done");
     }
 }
