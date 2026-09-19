@@ -61,6 +61,14 @@ suite("topn_lazy_on_data_model") {
     qt_shape_mow_key_lazy "explain shape plan select user_id  from mow order by username limit 1"
     qt_shape_mow_value_lazy "explain shape plan select age  from mow order by username limit 1"
 
+    order_qt_mow_alias_with_materialized_base_slot """
+        SELECT username AS username_alias, NULL
+        FROM mow
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY username, user_id) = 1
+        ORDER BY username
+        LIMIT 5
+    """
+
     // agg key user_id is lazy materialized
     sql """
         drop table if exists agg; 
