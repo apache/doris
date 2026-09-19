@@ -1032,13 +1032,14 @@ public class ConnectContext {
         }
     }
 
-    // The session is over (see FlightProtocolAdapter.tearDown): its deferred executors are
-    // finalized, and it keeps none and runs no command from now on. Nothing to do for a
-    // connection of any other protocol.
-    public void tearDownFlightSqlSession() {
-        if (protocolAdapter instanceof FlightProtocolAdapter) {
-            ((FlightProtocolAdapter) protocolAdapter).tearDown();
-        }
+    /**
+     * Releases what the protocol still holds for this session, when the connection leaves the pool
+     * (see {@link ConnectPoolMgr#unregisterConnection}): for Arrow Flight SQL the channel-cached
+     * results and the deferred executors, after which the session keeps none and runs no command
+     * (see {@code FlightProtocolAdapter.tearDown}); nothing for a MySQL connection. Idempotent.
+     */
+    public void releaseProtocolSession() {
+        protocolAdapter.releaseSession(this);
     }
 
     // A snapshot; empty for a connection of any other protocol.
@@ -1182,7 +1183,7 @@ public class ConnectContext {
         }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
-            protocolAdapter.connectPool(connectScheduler).putTraceId2QueryId(traceId, queryId);
+            connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }
     }
 
