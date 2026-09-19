@@ -83,6 +83,13 @@ class DorisConnectionManager(SQLConnectionManager):
             "buffered": True,
             "charset": "utf8",
             "get_warnings": True,
+            # mysql-connector-python ships a C extension and defaults to it
+            # (use_pure: False). The C extension silently corrupts SQL statements
+            # larger than ~8188 bytes (8192-byte socket buffer minus the COM_QUERY
+            # header): Doris rejects them with drifting `mismatched input` errors,
+            # while the identical SQL works via the mysql CLI. The pure-Python
+            # protocol implementation is not affected. See issue #67546.
+            "use_pure": True,
         }
 
         try:
