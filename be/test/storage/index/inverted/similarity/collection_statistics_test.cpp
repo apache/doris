@@ -31,14 +31,17 @@
 
 #include "common/exception.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/primitive_type.h"
 #include "exec/common/variant_util.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
+#include "exprs/vmatch_predicate.h"
 #include "exprs/vsearch.h"
 #include "exprs/vslot_ref.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
@@ -56,6 +59,7 @@
 #include "storage/rowset/rowset_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -2185,6 +2189,69 @@ TEST_F(CollectionStatisticsTest, MatchSelectsOnlyTheRuntimeAnalyzerIndex) {
     ASSERT_NE(collect_info.index_meta, nullptr);
     EXPECT_EQ(collect_info.index_meta->index_id(), 20);
     EXPECT_EQ(collect_info.logical_scoring_leaves.size(), 1u);
+}
+
+TEST_F(CollectionStatisticsTest, MatchScoresLegacyMetadataUsingTheResolvedPolicy) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+    TIndexPolicy policy;
+    policy.id = 100;
+    policy.name = "Foo";
+    policy.type = TIndexPolicyType::ANALYZER;
+    policy.properties["tokenizer"] = "keyword";
+    policy_mgr.apply_policy_changes({policy}, {});
+
+    TMatchPredicate match;
+    match.__set_analyzer_name("foo");
+    match.__set_parser_type("english");
+    match.__set_parser_lowercase(true);
+    match.__set_parser_stopwords("none");
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::MATCH_PRED);
+    node.__set_opcode(TExprOpcode::MATCH_PHRASE);
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_num_children(2);
+    node.__set_match_predicate(match);
+    auto predicate = VMatchPredicate::create_shared(node);
+    predicate->add_child(
+            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1)));
+    predicate->add_child(std::make_shared<collection_statistics::MockVLiteral>("one two"));
+
+    auto tablet_schema = create_tablet_schema_with_two_fulltext_indexes();
+    TabletIndex legacy_index;
+    legacy_index._index_id = 30;
+    legacy_index._index_type = IndexType::INVERTED;
+    legacy_index._col_unique_ids.push_back(1);
+    legacy_index._properties = {{"analyzer", "foo"}, {"support_phrase", "true"}};
+    tablet_schema->append_index(std::move(legacy_index));
+
+    MatchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    auto status = collector.collect(runtime_state_.get(), tablet_schema, predicate, &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1U);
+    const auto& collect_info = collect_infos.begin()->second;
+    ASSERT_NE(collect_info.index_meta, nullptr);
+    EXPECT_EQ(collect_info.index_meta->index_id(), 30);
+    EXPECT_EQ(collect_info.unique_terms, std::vector<std::string>({"one two"}));
+    ASSERT_EQ(collect_info.logical_scoring_leaves.size(), 1U);
+    EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses.size(), 1U);
+
+    TabletIndex exact_index;
+    exact_index._index_id = 40;
+    exact_index._index_type = IndexType::INVERTED;
+    exact_index._col_unique_ids.push_back(1);
+    exact_index._properties = {{"analyzer", "Foo"}, {"support_phrase", "true"}};
+    tablet_schema->append_index(std::move(exact_index));
+    collect_infos.clear();
+    status = collector.collect(runtime_state_.get(), tablet_schema, predicate, &collect_infos);
+    ASSERT_TRUE(status.ok()) << status.msg();
+    ASSERT_EQ(collect_infos.size(), 1U);
+    ASSERT_NE(collect_infos.begin()->second.index_meta, nullptr);
+    EXPECT_EQ(collect_infos.begin()->second.index_meta->index_id(), 40);
 }
 
 TEST_F(CollectionStatisticsTest, MatchArrayStringSelectsFulltextLeafIndex) {

@@ -24,6 +24,8 @@
 #include <unordered_set>
 #include <utility>
 
+#include "storage/index/inverted/analyzer/analyzer.h"
+
 namespace doris {
 namespace {
 
@@ -203,8 +205,15 @@ AnalyzerPtr IndexPolicyMgr::get_analyzer_by_name(const std::string& name) {
 }
 
 AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
-        const std::string& name, const std::map<std::string, std::string>& outer_char_filter_map) {
+        const std::string& name, const std::map<std::string, std::string>& outer_char_filter_map,
+        std::string* resolved_name, std::string* legacy_name) {
     std::shared_lock lock(_mutex);
+    if (resolved_name != nullptr) {
+        *resolved_name = name;
+    }
+    if (legacy_name != nullptr) {
+        legacy_name->clear();
+    }
     const std::string normalized_name = normalize_name(name);
     const auto* index_policy = find_policy_by_name_locked(name);
     if (index_policy == nullptr) {
@@ -212,6 +221,15 @@ AnalyzerProviderPtr IndexPolicyMgr::get_analyzer_provider_by_name(
             return std::make_shared<SingleAnalyzerProvider>(build_builtin_normalizer(name));
         }
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Policy not found with name: " + name);
+    }
+    if (resolved_name != nullptr) {
+        *resolved_name = index_policy->name;
+    }
+    // A metadata alias must not select a builtin or a different policy.
+    if (legacy_name != nullptr &&
+        !segment_v2::inverted_index::InvertedIndexAnalyzer::is_builtin_analyzer(normalized_name) &&
+        find_policy_by_name_locked(normalized_name) == index_policy) {
+        *legacy_name = normalized_name;
     }
     if (index_policy->type == TIndexPolicyType::ANALYZER) {
         return build_analyzer_provider_from_config(build_analyzer_config_from_policy(*index_policy),

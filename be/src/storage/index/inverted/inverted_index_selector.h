@@ -47,7 +47,8 @@ Status add_inverted_index_selection_candidate(
 [[nodiscard]] Result<size_t> select_best_inverted_index_candidate(
         const std::vector<InvertedIndexSelectionCandidate>& candidates,
         const InvertedIndexSelectionKeyIndex& key_index, FieldType field_type,
-        InvertedIndexQueryType query_type, std::string_view normalized_analyzer_key);
+        InvertedIndexQueryType query_type, std::string_view normalized_analyzer_key,
+        std::string_view legacy_analyzer_key = {});
 
 FieldType get_inverted_index_leaf_field_type(const DataTypePtr& column_type);
 

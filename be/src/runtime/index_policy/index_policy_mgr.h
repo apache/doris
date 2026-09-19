@@ -50,7 +50,8 @@ public:
     AnalyzerPtr get_analyzer_by_name(const std::string& name);
     AnalyzerProviderPtr get_analyzer_provider_by_name(
             const std::string& name,
-            const std::map<std::string, std::string>& outer_char_filter_map = {});
+            const std::map<std::string, std::string>& outer_char_filter_map = {},
+            std::string* resolved_name = nullptr, std::string* legacy_name = nullptr);
 
 private:
     segment_v2::inverted_index::CustomAnalyzerConfigPtr build_analyzer_config_from_policy(
