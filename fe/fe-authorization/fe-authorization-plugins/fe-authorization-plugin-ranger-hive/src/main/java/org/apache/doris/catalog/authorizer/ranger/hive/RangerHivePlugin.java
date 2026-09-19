@@ -17,10 +17,17 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
+import org.apache.doris.catalog.authorizer.ranger.RangerUserStoreGroups;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
+import org.apache.ranger.plugin.util.ServicePolicies;
 
 public class RangerHivePlugin extends RangerBasePlugin {
+    private static final Logger LOG = LogManager.getLogger(RangerHivePlugin.class);
+
     public RangerHivePlugin(String serviceName) {
         this(serviceName, null);
     }
@@ -29,5 +36,18 @@ public class RangerHivePlugin extends RangerBasePlugin {
         super(serviceName, null, null);
         super.init();
         super.registerAuthContextEventListener(rangerAuthContextListener);
+        LOG.info(RangerUserStoreGroups.describe(getConfig()));
+    }
+
+    /**
+     * Takes the policies Ranger downloaded, and asks for the user store with them, so that the requests
+     * {@code RangerHiveAccessController} builds can carry the groups Ranger keeps for a user. Hive's own
+     * plugin gets them from Hadoop's group mapping, which Doris has no equivalent of; the store is what stands
+     * in for it. See {@link RangerUserStoreGroups}.
+     */
+    @Override
+    public void setPolicies(ServicePolicies policies) {
+        RangerUserStoreGroups.addUserStoreEnricher(getConfig(), policies);
+        super.setPolicies(policies);
     }
 }
