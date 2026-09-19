@@ -55,6 +55,7 @@ protected:
                  .ak = "",
                  .sk = "",
                  .token = "",
+                 .azure_credentials = {},
                  .bucket = bucket,
                  .provider = ObjStorageProvider::AWS,
                  .use_virtual_addressing = false,
