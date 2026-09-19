@@ -189,7 +189,7 @@ private:
 
     void _init_column_states();
     void _rebuild_scan_predicate_states();
-    void _mark_common_expr_states(const VExprSPtr& expr);
+    void _mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated);
     Status _vec_init_lazy_materialization();
 
     uint32_t segment_id() const { return _segment->id(); }
@@ -341,6 +341,13 @@ private:
         // predicates, then only residual predicates after index evaluation.
         bool has_scan_pred = false;
         bool has_common_expr = false;
+        // Set when a pushed-down common expression was generated on BE at runtime
+        // (TopN filter or runtime filter) rather than by the FE planner. FE computes
+        // predicate access paths only from planner-visible predicates, so such an
+        // expression may touch nested fields that are not predicate paths. The column
+        // must then read all of its access paths before filtering instead of splitting
+        // lazy nested-column recovery.
+        bool has_runtime_common_expr = false;
         // Index evaluation sets this to false when it fully supplies the column result.
         // _need_read_data() applies the remaining read constraints.
         bool need_read_data = true;
