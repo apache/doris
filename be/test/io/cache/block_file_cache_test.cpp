@@ -3884,21 +3884,20 @@ TEST_F(BlockFileCacheTest, test_evict_metrics_only_count_downloaded_blocks) {
     EXPECT_EQ(cache._cur_cache_size, 5);
     const auto before_downloaded_remove = cache.get_stats_unsafe();
     const auto before_downloaded_queue_evict_size =
-            cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]->get_value();
+            cache._queue_evict_size_metrics[context.cache_type]->get_value();
     cache.remove_if_cached(downloaded_key);
     const auto after_downloaded_remove = cache.get_stats_unsafe();
     EXPECT_EQ(after_downloaded_remove.at("total_removed_size") -
                       before_downloaded_remove.at("total_removed_size"),
               5);
-    EXPECT_EQ(cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]
-                              ->get_value() -
+    EXPECT_EQ(cache._queue_evict_size_metrics[context.cache_type]->get_value() -
                       before_downloaded_queue_evict_size,
               5);
     EXPECT_EQ(cache._cur_cache_size, 0);
 
     const auto before_empty_remove = cache.get_stats_unsafe();
     const auto before_empty_queue_evict_size =
-            cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]->get_value();
+            cache._queue_evict_size_metrics[context.cache_type]->get_value();
     {
         auto holder = cache.get_or_set(empty_key, 0, 5, context);
         ASSERT_EQ(holder.file_blocks.size(), 1);
@@ -3908,9 +3907,8 @@ TEST_F(BlockFileCacheTest, test_evict_metrics_only_count_downloaded_blocks) {
     const auto after_empty_remove = cache.get_stats_unsafe();
     EXPECT_EQ(after_empty_remove.at("total_removed_size"),
               before_empty_remove.at("total_removed_size"));
-    EXPECT_EQ(
-            cache._queue_evict_size_metrics[file_cache_type_index(context.cache_type)]->get_value(),
-            before_empty_queue_evict_size);
+    EXPECT_EQ(cache._queue_evict_size_metrics[context.cache_type]->get_value(),
+              before_empty_queue_evict_size);
     EXPECT_EQ(cache._cur_cache_size, 0);
 
     EXPECT_EQ(after_downloaded_remove.at("evict_not_downloaded_size"),
