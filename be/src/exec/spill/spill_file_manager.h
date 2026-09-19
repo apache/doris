@@ -71,6 +71,12 @@ public:
     // retained by the manager and retried by its GC and shutdown paths.
     void delete_query_spill_directory(const std::string& query_id, SpillDataDir* data_dir);
 
+    // Take over a spill file directory whose deletion failed. Its objects are still stored, so
+    // `charged_bytes` stay charged to `data_dir` until a retry deletes them; otherwise a
+    // deletion outage would free capacity that is still in use.
+    void retry_spill_directory_deletion(SpillDataDir* data_dir, std::string dir,
+                                        int64_t charged_bytes);
+
     void gc(int32_t max_work_time_ms);
 
     void update_spill_write_bytes(int64_t bytes) { _spill_write_bytes_counter->increment(bytes); }
@@ -91,7 +97,7 @@ public:
         return _remote_startup_cleanup_pending.load(std::memory_order_acquire);
     }
 
-    /// Number of query spill directories whose deletion failed and is being retried.
+    /// Number of spill directories whose deletion failed and is being retried.
     size_t pending_delete_dir_count();
 
     /// Record that a query of this process writes under spill/{ip}_{port}/{query_dir} of the remote
@@ -106,19 +112,27 @@ public:
     int64_t remote_spill_data_bytes();
 
 private:
-    struct PendingQuerySpillDirectory {
+    struct PendingSpillDirectory {
         int failed_count {0};
-        std::string query_dir;
+        // A query directory or the directory of one spill file.
+        std::string dir;
         SpillDataDir* data_dir {nullptr};
+        // Bytes of the objects under `dir` still charged to `data_dir`; released once deleted.
+        int64_t charged_bytes {0};
     };
 
     void _init_metrics();
     Status _init_spill_store_map();
     void _spill_gc_thread_callback();
-    Status _try_delete_query_spill_directory(const PendingQuerySpillDirectory& pending_directory);
+    Status _try_delete_spill_directory(const PendingSpillDirectory& pending_directory);
     void _retry_pending_query_spill_directories();
+    /// Queue a failed deletion, merged with a pending ancestor or absorbing pending descendants
+    /// of the same store so that an outage keeps about one entry per query.
+    void _add_pending_directory(PendingSpillDirectory pending_directory);
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
     void _remote_gc();
+    /// Rewrite the heartbeat object of the remote store when it is due; GC thread only.
+    void _remote_heartbeat();
     /// Delete the query directories under spill/{ip}_{port}/ that the previous process of this BE
     /// left behind; `done` is set when none is left. The directories are taken from one listing,
     /// the first after the store became ready, minus those registered by queries of this
@@ -133,6 +147,8 @@ private:
     std::shared_ptr<SpillRemoteUploadBudget> _remote_upload_budget;
     std::atomic<bool> _remote_startup_cleanup_pending {false};
     int64_t _remote_not_ready_rounds = 0;
+    // GC thread only: MonotonicSeconds() at which the heartbeat is next written.
+    int64_t _next_remote_heartbeat_s = 0;
     // GC thread only: directories left behind by the previous process, not yet deleted; empty
     // optional until the first listing.
     std::optional<std::vector<std::string>> _remote_residue_dirs;
@@ -144,8 +160,8 @@ private:
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;
 
-    std::mutex _pending_query_spill_directories_mutex;
-    std::vector<PendingQuerySpillDirectory> _pending_query_spill_directories;
+    std::mutex _pending_spill_directories_mutex;
+    std::vector<PendingSpillDirectory> _pending_spill_directories;
 
     std::atomic_uint64_t id_ = 0;
 
