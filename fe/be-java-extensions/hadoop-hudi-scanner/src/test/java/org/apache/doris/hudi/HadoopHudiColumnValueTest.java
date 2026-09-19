@@ -1,0 +1,98 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.hudi;
+
+import org.apache.doris.common.jni.vec.ColumnType;
+
+import org.apache.hadoop.hive.common.type.Timestamp;
+import org.apache.hadoop.hive.serde2.io.TimestampWritableV2;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
+import org.apache.hadoop.io.LongWritable;
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+
+public class HadoopHudiColumnValueTest {
+    @Test
+    public void testInstantCarriersAcrossTimezonesAndPrecisions() {
+        java.util.TimeZone original = java.util.TimeZone.getDefault();
+        try {
+            for (String zone : new String[] {"UTC", "Asia/Shanghai", "America/New_York"}) {
+                java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(zone));
+                for (int precision : new int[] {3, 6}) {
+                    for (long epoch : new long[] {-1, 0, 1636263000123L, 1636266600123L}) {
+                        if (precision == 6 && epoch > 0) {
+                            epoch = epoch * 1000 + 456;
+                        }
+                        long units = precision == 3 ? 1000L : 1_000_000L;
+                        java.time.Instant instant = java.time.Instant.ofEpochSecond(Math.floorDiv(epoch, units),
+                                Math.floorMod(epoch, units) * (1_000_000_000L / units));
+                        LocalDateTime expected = LocalDateTime.ofInstant(instant, java.time.ZoneOffset.UTC);
+                        HadoopHudiColumnValue value = new HadoopHudiColumnValue(ZoneId.of(zone));
+                        value.setField(ColumnType.parseType("ts", "timestamptz(" + precision + ")"),
+                                PrimitiveObjectInspectorFactory.writableTimestampObjectInspector);
+                        value.setRow(new LongWritable(epoch));
+                        Assert.assertEquals(expected, value.getTimeStampTz());
+                        value.setRow(java.sql.Timestamp.from(instant));
+                        Assert.assertEquals(expected, value.getTimeStampTz());
+                        value.setRow(new TimestampWritableV2(Timestamp.ofEpochSecond(
+                                instant.getEpochSecond(), instant.getNano())));
+                        Assert.assertEquals(expected, value.getTimeStampTz());
+                        value.setRow(null);
+                        Assert.assertTrue(value.isNull());
+                    }
+                }
+            }
+        } finally {
+            java.util.TimeZone.setDefault(original);
+        }
+    }
+
+    @Test
+    public void testInstantTimestampUsesUtcComponents() {
+        HadoopHudiColumnValue value = new HadoopHudiColumnValue(ZoneId.of("Asia/Shanghai"));
+        value.setField(ColumnType.parseType("ts", "timestamptz(6)"), null);
+        value.setRow(new LongWritable(-1));
+        Assert.assertEquals(LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999999000), value.getTimeStampTz());
+        value.setField(ColumnType.parseType("ts", "timestamptz(6)"),
+                PrimitiveObjectInspectorFactory.writableTimestampObjectInspector);
+        value.setRow(new TimestampWritableV2(Timestamp.ofEpochSecond(1, 111333000)));
+        Assert.assertEquals(LocalDateTime.of(1970, 1, 1, 0, 0, 1, 111333000), value.getTimeStampTz());
+    }
+
+    @Test
+    public void testInt64LocalTimestampIgnoresSessionTimezone() {
+        HadoopHudiColumnValue value = new HadoopHudiColumnValue(ZoneId.of("America/Los_Angeles"));
+        value.setField(ColumnType.parseType("ts", "datetimev2(6)"), null);
+        value.setRow(new LongWritable(0));
+
+        Assert.assertEquals(LocalDateTime.of(1970, 1, 1, 0, 0), value.getDateTime());
+    }
+
+    @Test
+    public void testInt96LocalTimestampIgnoresSessionTimezone() {
+        HadoopHudiColumnValue value = new HadoopHudiColumnValue(ZoneId.of("America/Los_Angeles"));
+        value.setField(ColumnType.parseType("ts", "datetimev2(6)"),
+                PrimitiveObjectInspectorFactory.writableTimestampObjectInspector);
+        value.setRow(new TimestampWritableV2(Timestamp.ofEpochSecond(0)));
+
+        Assert.assertEquals(LocalDateTime.of(1970, 1, 1, 0, 0), value.getDateTime());
+    }
+}

@@ -151,6 +151,7 @@ suite("test_paimon_write_external_paths", "p0,external,paimon") {
         assertDorisSparkRows("external_round_robin_initial", "t_round_robin",
                 "pt, id, length(payload)", "ORDER BY pt, id")
 
+        // Keep this table's aggregate baseline separate from the four lifecycle rows above.
         // Isolate the round-robin oracle from the independent writers above. One fixed bucket and
         // one pipeline task keep all rows in a single Paimon writer. Paimon checks file rolling
         // every 1000 rows; 4000 deterministic high-entropy rows leave enough margin to roll

@@ -73,8 +73,33 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         }
         auto& value =
                 reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
-        value.from_unixtime(orc_batch->data[source_row], timezone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+        orc_serde_utils::RoundedOrcTimestamp timestamp;
+        auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
+        const bool is_timestamp_instant =
+                orc_view.file_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT;
+        // TIMESTAMP_INSTANT is an epoch value, so its carry must precede timezone conversion;
+        // applying it in civil time selects the wrong side of a daylight-saving transition.
+        value.from_unixtime(is_timestamp_instant ? timestamp.seconds : orc_batch->data[source_row],
+                            timezone);
+        if (!value.is_valid_date()) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC timestamp is outside the target timezone range");
+        }
+        value.set_microsecond(timestamp.microseconds);
+        // Plain ORC TIMESTAMP is a civil value. Carry after timezone conversion so a fractional
+        // round does not jump backward or skip an hour at a daylight-saving transition.
+        if (!is_timestamp_instant && timestamp.carry &&
+            !value.date_add_interval<TimeUnit::SECOND>(TimeInterval {TimeUnit::SECOND, 1, false})) {
+            data.resize(old_data_size);
+            return Status::DataQualityError(
+                    "Decoded ORC timestamp is outside the target timezone range");
+        }
     }
     return Status::OK();
 }
@@ -611,6 +636,28 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeDateTimeV2SerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    if (field->type()->id() != arrow::Type::TIMESTAMP) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    const auto& timestamp = assert_cast<const arrow::TimestampType&>(*field->type());
+    const arrow::TimeUnit::type expected_unit = type->get_scale() > 3   ? arrow::TimeUnit::MICRO
+                                                : type->get_scale() > 0 ? arrow::TimeUnit::MILLI
+                                                                        : arrow::TimeUnit::SECOND;
+    if (timestamp.unit() != expected_unit) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+}
+
 Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
@@ -838,6 +885,13 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
             return Status::InternalError("get unix timestamp error.");
         }
 
+        // ORC-645 aliases this pre-epoch fraction to a positive timestamp on disk.
+        // Keep the same fail-fast contract as TIMESTAMPTZ instead of writing a wrong value.
+        if (timestamp == -1 && datetime_val.microsecond() >= 1000) {
+            return Status::NotSupported(
+                    "ORC cannot represent pre-epoch timestamp fractions in [-0.999, 0) seconds "
+                    "without data loss; use Parquet for these values");
+        }
         cur_batch->data[row_id] = timestamp;
         cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micro_to_nano_second;
     }

@@ -20,6 +20,7 @@
 #include <arrow/io/interfaces.h>
 #include <arrow/result.h>
 #include <arrow/status.h>
+#include <cctz/time_zone.h>
 #include <gen_cpp/DataSinks_types.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/file_writer.h>
@@ -27,8 +28,9 @@
 #include <parquet/types.h>
 
 #include <cstdint>
+#include <optional>
 
-#include "format/table/iceberg/schema.h"
+#include "format/arrow/arrow_block_convertor.h"
 #include "format/transformer/vfile_format_transformer.h"
 
 namespace doris {
@@ -83,23 +85,26 @@ struct ParquetFileOptions {
     TParquetVersion::type parquet_version;
     bool parquet_disable_dictionary = false;
     bool enable_int96_timestamps = false;
+    // Overrides only INT96 normalization; UTC preserves a wall-clock carrier.
+    std::optional<std::string> int96_timezone = std::nullopt;
 };
 
 // a wrapper of parquet output stream
-class VParquetTransformer final : public VFileFormatTransformer {
+class VParquetTransformer : public VFileFormatTransformer {
 public:
     VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                         const VExprContextSPtrs& output_vexpr_ctxs,
                         std::vector<std::string> column_names, bool output_object_data,
                         const ParquetFileOptions& parquet_options,
-                        const std::string* iceberg_schema_json = nullptr,
-                        const iceberg::Schema* iceberg_schema = nullptr);
+                        std::unique_ptr<ArrowBlockConvertor> arrow_block_convertor =
+                                std::make_unique<ArrowFlightArrowBlockConvertor>());
 
     VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                         const VExprContextSPtrs& output_vexpr_ctxs,
                         std::vector<TParquetSchema> parquet_schemas, bool output_object_data,
                         const ParquetFileOptions& parquet_options,
-                        const std::string* iceberg_schema_json = nullptr);
+                        std::unique_ptr<ArrowBlockConvertor> arrow_block_convertor =
+                                std::make_unique<ArrowFlightArrowBlockConvertor>());
 
     ~VParquetTransformer() override = default;
 
@@ -111,11 +116,14 @@ public:
 
     int64_t written_len() override;
 
-    Status collect_file_statistics_after_close(TIcebergColumnStats* stats);
+protected:
+    std::unique_ptr<ArrowBlockConvertor> _arrow_block_convertor;
+
+    virtual Status _parse_schema(std::shared_ptr<arrow::Schema>* schema);
+    std::shared_ptr<::parquet::FileMetaData> _file_metadata() const { return _writer->metadata(); }
 
 private:
     Status _parse_properties();
-    Status _parse_schema();
     arrow::Status _open_file_writer();
 
     std::shared_ptr<ParquetOutputStream> _outstream;
@@ -127,9 +135,9 @@ private:
     std::vector<std::string> _column_names;
     std::vector<TParquetSchema> _parquet_schemas;
     const ParquetFileOptions _parquet_options;
-    const std::string* _iceberg_schema_json;
+    std::string _timezone;
+    cctz::time_zone _timezone_obj;
     uint64_t _write_size = 0;
-    const iceberg::Schema* _iceberg_schema;
 };
 
 } // namespace doris

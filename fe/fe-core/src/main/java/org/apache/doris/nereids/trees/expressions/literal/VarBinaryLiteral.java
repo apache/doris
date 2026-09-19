@@ -24,10 +24,10 @@ import org.apache.doris.nereids.types.VarBinaryType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.io.BaseEncoding;
+import com.google.common.primitives.UnsignedBytes;
 
 import java.util.Arrays;
 import java.util.Locale;
-import java.util.Objects;
 
 /**
  * Represents varbinary literal
@@ -98,6 +98,12 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
     }
 
     @Override
+    public String computeToSql() {
+        // Persisted view definitions must retain the binary literal's type, not just its hex digits.
+        return "X'" + toString() + "'";
+    }
+
+    @Override
     public LiteralExpr toLegacyLiteral() {
         try {
             org.apache.doris.analysis.VarBinaryLiteral literal
@@ -112,33 +118,8 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
     @Override
     public int compareTo(ComparableLiteral other) {
         if (other instanceof VarBinaryLiteral) {
-            byte[] thisBytes = this.byteValues;
-            byte[] otherBytes = ((VarBinaryLiteral) other).byteValues;
-
-            int minLength = Math.min(thisBytes.length, otherBytes.length);
-            int i = 0;
-            for (i = 0; i < minLength; i++) {
-                if (Byte.toUnsignedInt(thisBytes[i]) < Byte.toUnsignedInt(otherBytes[i])) {
-                    return -1;
-                } else if (Byte.toUnsignedInt(thisBytes[i]) > Byte.toUnsignedInt(otherBytes[i])) {
-                    return 1;
-                }
-            }
-            if (thisBytes.length > otherBytes.length) {
-                if (thisBytes[i] == 0x00) {
-                    return 0;
-                } else {
-                    return 1;
-                }
-            } else if (thisBytes.length < otherBytes.length) {
-                if (otherBytes[i] == 0x00) {
-                    return 0;
-                } else {
-                    return -1;
-                }
-            } else {
-                return 0;
-            }
+            // Match BE byte ordering: trailing zero bytes are data, not padding.
+            return UnsignedBytes.lexicographicalComparator().compare(byteValues, ((VarBinaryLiteral) other).byteValues);
         }
         if (other instanceof NullLiteral) {
             return 1;
@@ -165,6 +146,13 @@ public class VarBinaryLiteral extends Literal implements ComparableLiteral {
 
     @Override
     protected int computeHashCode() {
-        return Objects.hash(super.computeHashCode(), byteValues);
+        // equals compares content regardless of the byte array's identity or declared length.
+        return Arrays.hashCode(byteValues);
+    }
+
+    @Override
+    public int fastChildrenHashCode() {
+        // Parent expressions cache this hash before comparing children, so array identity is unsafe.
+        return Arrays.hashCode(byteValues);
     }
 }

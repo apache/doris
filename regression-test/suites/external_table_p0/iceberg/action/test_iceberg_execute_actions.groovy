@@ -16,29 +16,9 @@
 // under the License.
 
 import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeFormatterBuilder
-import java.time.temporal.ChronoField
-import java.time.LocalDateTime
-import java.time.ZoneId
+import java.time.OffsetDateTime
 
 suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,external_docker_doris") {
-    DateTimeFormatter unifiedFormatter = new DateTimeFormatterBuilder()
-            .appendPattern("yyyy-MM-dd")
-            .optionalStart()
-            .appendLiteral('T')
-            .optionalEnd()
-            .optionalStart()
-            .appendLiteral(' ')
-            .optionalEnd()
-            .appendPattern("HH:mm")
-            .optionalStart()
-            .appendPattern(":ss")
-            .optionalEnd()
-            .optionalStart()
-            .appendFraction(ChronoField.MILLI_OF_SECOND, 0, 3, true)
-            .optionalEnd()
-            .toFormatter()
-
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable iceberg test.")
@@ -256,8 +236,9 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
 
     // Convert timestamp to required format for rollback operation
     DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
-    LocalDateTime dateTime = LocalDateTime.parse(latestCommittedTime, unifiedFormatter)
-    String formattedSnapshotTime = dateTime.atZone(ZoneId.systemDefault()).format(outputFormatter)
+    // System-table timestamps carry the session offset; the runner JVM's zone is unrelated.
+    OffsetDateTime dateTime = OffsetDateTime.parse(latestCommittedTime.replace(' ', 'T'))
+    String formattedSnapshotTime = dateTime.format(outputFormatter)
 
     // Execute timestamp-based rollback
     List<List<Object>> rollbackTimestampResult = sql """
@@ -268,7 +249,7 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external,doris,external_docker,ex
     qt_after_rollback_to_timestamp """SELECT * FROM test_rollback_timestamp ORDER BY id"""
 
     String epochMillisSnapshotTime = String.valueOf(
-            dateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli())
+            dateTime.toInstant().toEpochMilli())
 
     List<List<Object>> rollbackTimestampEpochResult = sql """
         ALTER TABLE ${catalog_name}.${db_name}.test_rollback_timestamp

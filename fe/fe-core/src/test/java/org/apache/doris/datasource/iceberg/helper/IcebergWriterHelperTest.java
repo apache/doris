@@ -78,6 +78,31 @@ public class IcebergWriterHelperTest {
     }
 
     @Test
+    public void testBinaryPartitionCommitUsesTypedValues() {
+        Schema binarySchema = new Schema(
+                Types.NestedField.optional(1, "key", Types.BinaryType.get()),
+                Types.NestedField.optional(2, "fixed_key", Types.FixedType.ofLength(2)),
+                Types.NestedField.optional(3, "uuid_key", Types.UUIDType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(binarySchema);
+        Mockito.when(table.spec()).thenReturn(PartitionSpec.builderFor(binarySchema)
+                .identity("key").identity("fixed_key").identity("uuid_key").build());
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
+        TIcebergCommitData commit = new TIcebergCommitData();
+        commit.setFilePath("/table/data/binary.parquet");
+        commit.setPartitionValues(ImmutableList.of("0xdead", "0xdead", "0x00112233445566778899aabbccddeeff"));
+        commit.setRowCount(1);
+        commit.setFileSize(128);
+        DataFile file = IcebergWriterHelper.convertToWriterResult(table, ImmutableList.of(commit)).dataFiles()[0];
+        Assertions.assertEquals(ByteBuffer.wrap(new byte[] {(byte) 0xde, (byte) 0xad}),
+                file.partition().get(0, ByteBuffer.class));
+        Assertions.assertEquals(file.partition().get(0, ByteBuffer.class), file.partition().get(1, ByteBuffer.class));
+        Assertions.assertEquals(java.util.UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"),
+                file.partition().get(2, java.util.UUID.class));
+    }
+
+    @Test
     public void testConvertToWriterResultRespectsNoneMetricsMode() {
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.schema()).thenReturn(schema);

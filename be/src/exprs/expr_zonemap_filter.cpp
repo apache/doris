@@ -185,6 +185,12 @@ const BloomFilterEvalContext::SlotBloomFilter* BloomFilterEvalContext::slot(int 
 
 TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const PrimitiveType& type,
                                                   int precision, int scale) {
+    if (type == TYPE_VARBINARY) {
+        // Binary IN sets expose StringRef payloads, not the StringView used by scalar fields.
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        auto field = Field::create_field<TYPE_VARBINARY>(StringView(*value));
+        return create_texpr_node_from(field, type, precision, scale);
+    }
     if (is_string_type(type)) {
         const auto* value = reinterpret_cast<const StringRef*>(data);
         auto field = Field::create_field<TYPE_STRING>(String(value->data, value->size));

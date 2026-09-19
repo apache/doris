@@ -600,7 +600,7 @@ public class IcebergMetadataOpsValidationTest {
     }
 
     @Test
-    public void testPrimitiveModifyPreservesActualTypeWhenMappingDisabled() throws Throwable {
+    public void testPrimitiveModifyIgnoresRemovedMappingFlags() throws Throwable {
         Schema schema = mappedPrimitiveSchema();
         ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
         Table icebergTable = Mockito.mock(Table.class);
@@ -611,12 +611,15 @@ public class IcebergMetadataOpsValidationTest {
         Mockito.when(dorisCatalog.getEnableMappingVarbinary()).thenReturn(false);
         Mockito.when(dorisCatalog.getEnableMappingTimestampTz()).thenReturn(false);
 
-        Column topUuid = new Column("top_uuid", Type.STRING, true);
+        // Removed mapping flags must not recreate the legacy STRING or unzoned timestamp contract.
+        Column topUuid = new Column("top_uuid",
+                IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), false, false), true);
         topUuid.setNullableSpecified(true);
-        Column nestedUuid = new Column("uuid_value", Type.STRING, true);
+        Column nestedUuid = new Column("uuid_value",
+                IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), false, false), true);
         nestedUuid.setNullableSpecified(true);
         Column nestedTimestamp = new Column(
-                "tz_value", ScalarType.createDatetimeV2Type(6), true);
+                "tz_value", ScalarType.createTimeStampTzType(6), true);
 
         try (MockedStatic<IcebergUtils> mockedIcebergUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
@@ -627,6 +630,9 @@ public class IcebergMetadataOpsValidationTest {
                     new ColumnPosition("other"), 1L);
             ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.tz_value"),
                     nestedTimestamp, null, 1L);
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.fromDotName("info.tz_value"),
+                            new Column("tz_value", ScalarType.createDatetimeV2Type(6), true), null, 1L),
+                    "Cannot change column type");
         }
 
         Mockito.verify(updateSchema, Mockito.never()).updateColumnDoc(

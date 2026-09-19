@@ -18,6 +18,9 @@
 suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_doris,new_catalog_property") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        // LTZ output carries the session offset; keep the source fixture's display zone explicit.
+        // Legacy ORC LTZ tables use Paimon's SDK, which truncates sub-microsecond digits.
+        sql "set time_zone = 'Asia/Shanghai'"
         String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String table_name = "ts_scale_orc"
@@ -80,5 +83,3 @@ suite("test_paimon_minio", "p0,external,doris,external_docker,external_docker_do
         }
     }
 }
-
-

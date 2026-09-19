@@ -33,7 +33,9 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/jni/jni_data_bridge.h"
+#include "format_v2/jni/hudi_jni_reader.h"
 #include "io/io_common.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::format {
 namespace {
@@ -147,6 +149,101 @@ TEST(JniTableReaderTest, GenericConnectorDoesNotPublishPaimonEncodedSchema) {
 
     EXPECT_FALSE(reader._scanner_params.contains("required_fields_base64"));
     EXPECT_FALSE(reader._scanner_params.contains("columns_types_base64"));
+}
+
+TEST(JniTableReaderTest, GenericConnectorUsesQuerySessionTimezone) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+    FakeJniTableReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::JNI,
+                             .scan_params = nullptr,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+
+    reader._apply_common_scanner_params();
+    EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
+}
+
+TEST(JniTableReaderTest, CatalogTimezoneCannotOverrideQuerySessionTimezone) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+    FakeJniTableReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::JNI,
+                             .scan_params = nullptr,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+    reader._scanner_params["time_zone"] = "UTC";
+
+    reader._apply_common_scanner_params();
+
+    EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
+}
+
+TEST(HudiJniReaderTest, CatalogInt96TimezoneDoesNotOverrideSessionTimezone) {
+    TFileScanRangeParams scan_params;
+    scan_params.__set_hive_parquet_time_zone("Asia/Shanghai");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+
+    hudi::HudiJniReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::JNI,
+                             .scan_params = &scan_params,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+    TFileRangeDesc range;
+    TTableFormatFileDesc table_format_params;
+    THudiFileDesc hudi_params;
+    table_format_params.__set_hudi_params(std::move(hudi_params));
+    range.__set_table_format_params(std::move(table_format_params));
+    reader._current_range = std::move(range);
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(reader.build_scanner_params(&params).ok());
+    reader._scanner_params = std::move(params);
+    reader._apply_common_scanner_params();
+    EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
+    EXPECT_FALSE(reader._scanner_params.contains("int96_time_zone"));
+}
+
+TEST(HudiJniReaderTest, UnconfiguredInt96TimezoneUsesSessionTimezone) {
+    TFileScanRangeParams scan_params;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_timezone("America/Los_Angeles");
+
+    hudi::HudiJniReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {},
+                             .conjuncts = {},
+                             .format = FileFormat::JNI,
+                             .scan_params = &scan_params,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr})
+                        .ok());
+    TFileRangeDesc range;
+    TTableFormatFileDesc table_format_params;
+    THudiFileDesc hudi_params;
+    table_format_params.__set_hudi_params(std::move(hudi_params));
+    range.__set_table_format_params(std::move(table_format_params));
+    reader._current_range = std::move(range);
+
+    std::map<std::string, std::string> params;
+    ASSERT_TRUE(reader.build_scanner_params(&params).ok());
+    reader._scanner_params = std::move(params);
+    reader._apply_common_scanner_params();
+    EXPECT_EQ(reader._scanner_params["time_zone"], "America/Los_Angeles");
+    EXPECT_FALSE(reader._scanner_params.contains("int96_time_zone"));
 }
 
 TEST(JniTableReaderTest, CancellationStopsBeforeFetchingAnotherJavaBatch) {

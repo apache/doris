@@ -103,6 +103,7 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -121,6 +122,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
@@ -134,6 +136,7 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -141,7 +144,6 @@ import java.util.stream.Collectors;
  * Utils for type coercion.
  */
 public class TypeCoercionUtils {
-
     /**
      * numeric type precedence for type promotion.
      * bigger numeric has smaller ordinal
@@ -157,6 +159,10 @@ public class TypeCoercionUtils {
     );
 
     private static final Logger LOG = LogManager.getLogger(TypeCoercionUtils.class);
+    private static final Set<String> UNSUPPORTED_VARBINARY_COLLECTIONS = ImmutableSet.of(
+            "array_contains", "array_position", "countequal", "array_distinct", "array_remove",
+            "array_enumerate_uniq", "array_contains_all", "arrays_overlap", "array_union",
+            "array_except", "array_intersect", "collect_set");
 
     /**
      * ensure the result's data type equals to the originExpr's dataType,
@@ -772,6 +778,21 @@ public class TypeCoercionUtils {
      * process BoundFunction type coercion
      */
     public static Expression processBoundFunction(BoundFunction boundFunction) {
+        if (UNSUPPORTED_VARBINARY_COLLECTIONS.contains(boundFunction.getName())) {
+            for (Expression argument : boundFunction.children()) {
+                DataType type = argument.getDataType();
+                if (!boundFunction.getName().equals("collect_set")) {
+                    while (type instanceof ArrayType) {
+                        type = ((ArrayType) type).getItemType();
+                    }
+                }
+                // These BE hash/comparison kernels lack byte-owning ColumnVarbinary dispatch.
+                // Reject before coercion rather than reinterpret arbitrary bytes as text or fail in BE.
+                if (type.isVarBinaryType()) {
+                    throw new AnalysisException(boundFunction.getName() + " does not support VARBINARY arguments");
+                }
+            }
+        }
         // check
         boundFunction.checkLegalityBeforeTypeCoercion();
         if (boundFunction instanceof CreateMap && boundFunction.arity() == 0) {
@@ -1265,6 +1286,9 @@ public class TypeCoercionUtils {
 
     private static Optional<DataType> findWiderPrimitiveTypeForTwo(
             DataType leftType, DataType rightType, boolean overflowToDouble, boolean stringIsHighPriority) {
+        if (leftType.isVarBinaryType() || rightType.isVarBinaryType()) {
+            return findCommonBinaryType(leftType, rightType);
+        }
         if (stringIsHighPriority) {
             if (leftType.isStringLikeType() && canCastTo(rightType, StringType.INSTANCE)) {
                 return Optional.of(StringType.INSTANCE);
@@ -1386,12 +1410,6 @@ public class TypeCoercionUtils {
                     + " could not used in ComparisonPredicate " + comparisonPredicate.toSql()
                     + ". " + VariantType.UNSUPPORTED_ORDERING_COMPARISON_MESSAGE);
         }
-        // TODO: remove this restriction after supporting varbinary comparison in BE
-        if (left.getDataType().isVarBinaryType() || right.getDataType().isVarBinaryType()) {
-            throw new AnalysisException("data type varbinary "
-                    + " could not used in ComparisonPredicate now " + comparisonPredicate.toSql());
-        }
-
         // same type
         if (left.getDataType().equals(right.getDataType())) {
             if (!supportCompare(left.getDataType(), false)) {
@@ -1791,6 +1809,9 @@ public class TypeCoercionUtils {
     @Deprecated
     private static Optional<DataType> findCommonPrimitiveTypeForComparison(
             DataType leftType, DataType rightType, boolean intStringToString) {
+        if (leftType.isVarBinaryType() || rightType.isVarBinaryType()) {
+            return findCommonBinaryType(leftType, rightType);
+        }
         // same type
         if (leftType.equals(rightType)) {
             return Optional.of(leftType);
@@ -2036,6 +2057,9 @@ public class TypeCoercionUtils {
     @VisibleForTesting
     @Deprecated
     public static Optional<DataType> findCommonPrimitiveTypeForCaseWhen(DataType t1, DataType t2) {
+        if (t1.isVarBinaryType() || t2.isVarBinaryType()) {
+            return findCommonBinaryType(t1, t2);
+        }
         if (!(t1 instanceof PrimitiveType) || !(t2 instanceof PrimitiveType)) {
             return Optional.empty();
         }
@@ -2252,9 +2276,20 @@ public class TypeCoercionUtils {
         return Optional.empty();
     }
 
-    /**
-     * BE only support numeric, character, date-time and array
-     */
+    private static Optional<DataType> findCommonBinaryType(DataType left, DataType right) {
+        if (left.isVarBinaryType() && right.isVarBinaryType()) {
+            return Optional.of(VarBinaryType.createVarBinaryType(
+                    Math.max(((VarBinaryType) left).len, ((VarBinaryType) right).len)));
+        }
+        DataType other = left.isVarBinaryType() ? right : left;
+        // Cast character bytes to binary, never binary to text or the legacy DOUBLE fallback.
+        if (other.isStringLikeType() || other.isNullType()) {
+            return Optional.of(VarBinaryType.INSTANCE);
+        }
+        return Optional.empty();
+    }
+
+    // Binary scalars use the same unsigned byte ordering in FE literals and BE columns.
     private static boolean supportCompare(DataType dataType, boolean allowStruct) {
         if (dataType.isArrayType()) {
             return supportCompare(((ArrayType) dataType).getItemType(), allowStruct);

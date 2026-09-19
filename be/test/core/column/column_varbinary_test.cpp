@@ -36,8 +36,52 @@
 #include "core/string_ref.h"
 #include "core/string_view.h"
 #include "core/types.h"
+#include "util/raw_value.h"
 
 namespace doris {
+
+TEST(ColumnVarbinaryStorageTest, TabletRoutingHashesRawBinaryBytes) {
+    for (const std::string& value :
+         {std::string(), std::string("abc"), std::string("\0\xff", 2), std::string(64, '\x80')}) {
+        for (uint32_t seed : {0U, 31U}) {
+            EXPECT_EQ(HashUtil::zlib_crc_hash(value.data(), static_cast<uint32_t>(value.size()),
+                                              seed),
+                      RawValue::zlib_crc32(value.data(), value.size(), TYPE_VARBINARY, seed));
+        }
+    }
+}
+
+TEST(ColumnVarbinaryStorageTest, FieldsOwnLongBinaryValues) {
+    const std::string expected(64, '\xff');
+    Field copy;
+    {
+        auto column = ColumnVarbinary::create();
+        column->insert_data(expected.data(), expected.size());
+        Field value = (*column)[0];
+        EXPECT_NE(value.get<TYPE_VARBINARY>().data(), column->get_data_at(0).data);
+        copy = value;
+        EXPECT_NE(copy.get<TYPE_VARBINARY>().data(), value.get<TYPE_VARBINARY>().data());
+        column->clear();
+    }
+    EXPECT_EQ(copy.get<TYPE_VARBINARY>().str(), expected);
+    copy = Field::create_field<TYPE_VARBINARY>(StringView("a"));
+    EXPECT_EQ(copy.get<TYPE_VARBINARY>().str(), "a");
+}
+
+TEST(ColumnVarbinaryStorageTest, StorageDecoderInsertionPreservesBinaryPayloads) {
+    auto column = ColumnVarbinary::create();
+    const std::string payload("\0a\0\xff", 4);
+    const uint32_t offsets[] = {0, 0, 1, 4};
+    ASSERT_NO_THROW(column->insert_many_continuous_binary_data(payload.data(), offsets, 3));
+    EXPECT_EQ(column->get_data_at(0).to_string(), "");
+    EXPECT_EQ(column->get_data_at(1).to_string(), std::string("\0", 1));
+    EXPECT_EQ(column->get_data_at(2).to_string(), payload.substr(1));
+    const StringRef dictionary[] = {{payload.data(), payload.size()}, {"", 0}};
+    const int32_t codes[] = {1, 0, 1};
+    ASSERT_NO_THROW(column->insert_many_dict_data(codes, 1, dictionary, 2, 2));
+    EXPECT_EQ(column->get_data_at(3).to_string(), payload);
+    EXPECT_EQ(column->get_data_at(4).to_string(), "");
+}
 
 class ColumnVarbinaryTest : public ::testing::Test {
 protected:
@@ -111,6 +155,55 @@ TEST_F(ColumnVarbinaryTest, BasicInsertGetPopClear) {
     col->clear();
     EXPECT_EQ(col->size(), 0U);
     EXPECT_EQ(col->byte_size(), 0U);
+}
+
+TEST_F(ColumnVarbinaryTest, HashingPreservesRawBytesAndNullMasks) {
+    auto binary = ColumnVarbinary::create();
+    auto strings = ColumnString::create();
+    const std::vector<std::string> values {"", std::string("\0", 1), "a", std::string("a\0", 2),
+                                           make_bytes(32)};
+    for (const auto& value : values) {
+        binary->insert_data(value.data(), value.size());
+        strings->insert_data(value.data(), value.size());
+    }
+    const uint8_t null_map[] = {0, 1, 0, 0, 0};
+    // Exchange and aggregation must hash bytes, not StringView pointer/inline representations.
+    for (const uint8_t* mask : {static_cast<const uint8_t*>(nullptr), null_map}) {
+        std::vector<uint64_t> expected64(values.size(), 17), actual64(values.size(), 17);
+        strings->update_hashes_with_value(expected64.data(), mask);
+        EXPECT_NO_THROW(binary->update_hashes_with_value(actual64.data(), mask));
+        EXPECT_EQ(expected64, actual64);
+        uint64_t expected_range64 = 17, actual_range64 = 17;
+        strings->update_xxHash_with_value(0, values.size(), expected_range64, mask);
+        EXPECT_NO_THROW(binary->update_xxHash_with_value(0, values.size(), actual_range64, mask));
+        EXPECT_EQ(expected_range64, actual_range64);
+
+        std::vector<uint32_t> expected32(values.size(), 23), actual32(values.size(), 23);
+        strings->update_crcs_with_value(expected32.data(), TYPE_STRING,
+                                        static_cast<uint32_t>(values.size()), 0, mask);
+        EXPECT_NO_THROW(binary->update_crcs_with_value(
+                actual32.data(), TYPE_VARBINARY, static_cast<uint32_t>(values.size()), 0, mask));
+        EXPECT_EQ(expected32, actual32);
+        uint32_t expected_range32 = 23, actual_range32 = 23;
+        strings->update_crc_with_value(0, values.size(), expected_range32, mask);
+        EXPECT_NO_THROW(binary->update_crc_with_value(0, values.size(), actual_range32, mask));
+        EXPECT_EQ(expected_range32, actual_range32);
+        expected32.assign(values.size(), 23);
+        actual32.assign(values.size(), 23);
+        strings->update_crc32c_batch(expected32.data(), mask);
+        EXPECT_NO_THROW(binary->update_crc32c_batch(actual32.data(), mask));
+        EXPECT_EQ(expected32, actual32);
+        expected_range32 = actual_range32 = 23;
+        strings->update_crc32c_single(0, values.size(), expected_range32, mask);
+        EXPECT_NO_THROW(binary->update_crc32c_single(0, values.size(), actual_range32, mask));
+        EXPECT_EQ(expected_range32, actual_range32);
+    }
+    for (size_t row = 0; row < values.size(); ++row) {
+        SipHash expected, actual;
+        strings->update_hash_with_value(row, expected);
+        EXPECT_NO_THROW(binary->update_hash_with_value(row, actual));
+        EXPECT_EQ(expected.get64(), actual.get64());
+    }
 }
 
 TEST_F(ColumnVarbinaryTest, InsertFromAndRanges) {

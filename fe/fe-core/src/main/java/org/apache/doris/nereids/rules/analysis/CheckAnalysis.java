@@ -152,8 +152,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                         "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
             }
             if (expr.getDataType().isObjectType()
-                    || isLegacyVariant(expr.getDataType())
-                    || expr.getDataType().isVarBinaryType()) {
+                    || isLegacyVariant(expr.getDataType())) {
                 throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }

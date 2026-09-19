@@ -648,8 +648,7 @@ public class HiveMetaStoreClientHelper {
             case "string":
                 return ScalarType.createStringType();
             case "binary":
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
-                        : ScalarType.createStringType();
+                return ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH);
             default:
                 break;
         }
@@ -724,8 +723,8 @@ public class HiveMetaStoreClientHelper {
             return ScalarType.createDecimalV3Type(precision, scale);
         }
         if (lowerCaseType.startsWith("timestamp with local time zone")) {
-            return enableMappingTimeStampTz ? ScalarType.createTimeStampTzType(timeScale)
-                    : ScalarType.createDatetimeV2Type(timeScale);
+            // The external logical type defines instant semantics, including inside containers.
+            return ScalarType.createTimeStampTzType(timeScale);
         }
         return Type.UNSUPPORTED;
     }

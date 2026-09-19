@@ -462,7 +462,19 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             CatalogLog log = new CatalogLog();
             log.setCatalogId(catalog.getId());
-            log.setNewProps(newProperties);
+            Map<String, String> loggedProperties = Maps.newHashMap(newProperties);
+            if (catalog instanceof ExternalCatalog
+                    && loggedProperties.containsKey(CatalogProperty.ENABLE_MAPPING_VARBINARY)) {
+                // Older FEs replay this map verbatim, so normalize the durable record, not just
+                // the live CatalogProperty. Do not mutate the caller's possibly immutable map.
+                loggedProperties.put(CatalogProperty.ENABLE_MAPPING_VARBINARY, "true");
+            }
+            if (catalog instanceof ExternalCatalog
+                    && loggedProperties.containsKey(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ)) {
+                // Replicate the effective type policy so older followers infer the same schema.
+                loggedProperties.put(CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
+            }
+            log.setNewProps(loggedProperties);
             replayAlterCatalogProps(log, oldProperties, false);
             Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
         } finally {
@@ -557,6 +569,42 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
         }
         return false;
+    }
+
+    /**
+     * Migrate legacy markers after fenced master replay, before accepting queries or starting checkpoints.
+     */
+    public void migrateVarbinaryMappingProperties() throws DdlException {
+        writeLock();
+        try {
+            for (CatalogIf catalog : idToCatalog.values()) {
+                if (!(catalog instanceof ExternalCatalog)) {
+                    continue;
+                }
+                ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+                Map<String, String> migratedProperties = Maps.newHashMap();
+                for (String marker : new String[] {CatalogProperty.ENABLE_MAPPING_VARBINARY,
+                        CatalogProperty.ENABLE_MAPPING_TIMESTAMP_TZ}) {
+                    if (!Boolean.parseBoolean(externalCatalog.getProperties().get(marker))) {
+                        migratedProperties.put(marker, "true");
+                    }
+                }
+                if (migratedProperties.isEmpty()) {
+                    continue;
+                }
+                CatalogLog log = new CatalogLog();
+                log.setCatalogId(catalog.getId());
+                log.setNewProps(migratedProperties);
+                // Use the existing ALTER format so running older followers can replay the change.
+                // Journal first: a failed write must leave the marker eligible for a retry.
+                Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+                // Migration must not revalidate unrelated legacy connection properties or contact
+                // the external system while the master is still becoming ready.
+                replayAlterCatalogProps(log, null, true);
+            }
+        } finally {
+            writeUnlock();
+        }
     }
 
     public List<List<String>> showCatalogs(

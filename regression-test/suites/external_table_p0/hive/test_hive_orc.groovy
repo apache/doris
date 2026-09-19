@@ -139,8 +139,10 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
     }
     def test_topn_abs = {
         def test_col_topn = { String col -> 
-            "qt_orc_all_types_${col}_topn_abs_asc"  """ select  * from  orc_all_types  where  string_col is not null order by abs(${col}),string_col asc limit 10; """
-            "qt_orc_all_types_${col}_topn_abs_desc"  """ select * from  orc_all_types  where  string_col is not null order by abs(${col}),string_col desc limit 10; """
+            // Numeric functions require an explicit text interpretation of binary fixture data.
+            def numericInput = col == "binary_col" ? "cast(binary_col as string)" : col
+            "qt_orc_all_types_${col}_topn_abs_asc"  """ select  * from  orc_all_types  where  string_col is not null order by abs(${numericInput}),string_col asc limit 10; """
+            "qt_orc_all_types_${col}_topn_abs_desc"  """ select * from  orc_all_types  where  string_col is not null order by abs(${numericInput}),string_col desc limit 10; """
         }
 
         test_col_topn("tinyint_col")
@@ -242,40 +244,45 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
             order_qt_sql_topn_binary_col4 """ select  binary_col,cast(binary_col as string) from  orc_all_types order by binary_col desc,string_col desc limit 10; """
 
             sql """ switch internal; """
-            sql """ drop database if exists test_view_varbinary_db"""
+            sql """ drop database if exists test_view_varbinary_db force"""
             sql """ create database if not exists test_view_varbinary_db"""
             sql """use test_view_varbinary_db"""
+            // Bound the sample so duplicate binary values cannot turn this check into a huge self-join.
+            def binaryQuery = ("SELECT binary_col FROM `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` "
+                    + "ORDER BY int_col, binary_col LIMIT 100")
+            def binarySource = "(${binaryQuery}) binary_src"
+            def expectedBinary = sql "SELECT from_binary(binary_col) FROM ${binarySource} ORDER BY binary_col"
+            // Views retain execution types; materialized objects still obey native storage restrictions.
+            sql "CREATE VIEW test_view_varbinary AS SELECT binary_col FROM ${binarySource}"
+            assertEquals(expectedBinary,
+                    sql("SELECT from_binary(binary_col) FROM test_view_varbinary ORDER BY binary_col"))
             test {
-                sql " create view test_view_varbinary as select binary_col from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types`; "
-                exception " View does not support VARBINARY type: binary_col"
+                sql """CREATE TABLE test_ctas_varbinary DISTRIBUTED BY RANDOM BUCKETS 2
+                       PROPERTIES ('replication_num'='1') AS SELECT binary_col FROM ${binarySource}"""
+                exception "varbinary"
             }
-
             test {
                 sql """ CREATE MATERIALIZED VIEW test_mv_varbinary
                         BUILD DEFERRED REFRESH AUTO ON MANUAL
                         DISTRIBUTED BY RANDOM BUCKETS 2
                         PROPERTIES ('replication_num' = '1')
-                        AS select binary_col from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types`; """
-                exception " MTMV do not support varbinary type : binary_col"
+                        AS SELECT binary_col FROM ${binarySource}"""
+                exception "varbinary"
             }
-
-            test {
-                sql " select count() from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` group by binary_col; "
-                exception " errCode = 2"
-            }
-
-            test {
-                sql " select * from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` as a join `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types`  as b on a.binary_col = b.binary_col; "
-                exception " errCode = 2,"
-            }
-
-            test {
-                sql " select * from `test_hive_orc_mapping_varbinary`.`default`.`orc_all_types` where binary_col = X'AB'; "
-                exception " could not used in ComparisonPredicate now"
-            }
+            assertTrue(sql("DESC test_view_varbinary")[0][1].toLowerCase().startsWith("varbinary"))
+            assertEquals(sql("SELECT count(*) FROM ${binarySource}")[0][0].toString(),
+                    sql("SELECT coalesce(sum(n), 0) FROM (SELECT count(*) n FROM ${binarySource} GROUP BY binary_col) g")[0][0].toString())
+            assertEquals(sql("SELECT coalesce(sum(n*n), 0) FROM (SELECT count(*) n FROM ${binarySource} "
+                    + "WHERE binary_col IS NOT NULL GROUP BY binary_col) g")[0][0].toString(),
+                    sql("SELECT count(*) FROM (${binaryQuery}) a JOIN (${binaryQuery}) b "
+                    + "ON a.binary_col = b.binary_col")[0][0].toString())
+            assertEquals(sql("SELECT count(*) FROM ${binarySource} WHERE from_binary(binary_col) = 'AB'"),
+                    sql("SELECT count(*) FROM ${binarySource} WHERE binary_col = X'AB'"))
+            sql "DROP DATABASE test_view_varbinary_db FORCE"
 
         } finally {
+            // A failed assertion must not leave derived objects behind for the next run.
+            sql "DROP DATABASE IF EXISTS internal.test_view_varbinary_db FORCE"
         }
     }
 }
-

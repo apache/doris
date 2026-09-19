@@ -24,8 +24,37 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 
 namespace doris {
+
+TEST(HashKeyTypeTest, BinaryKeysUsePayloadReferences) {
+    auto type = std::make_shared<DataTypeVarbinary>();
+    EXPECT_EQ(HashKeyType::string_key, get_hash_key_type({type}));
+    EXPECT_EQ(HashKeyType::string_key, get_hash_key_type({make_nullable(type)}));
+    EXPECT_EQ(HashKeyType::serialized,
+              get_hash_key_type({type, std::make_shared<DataTypeInt32>()}));
+    auto column = type->create_column();
+    const std::vector<std::string> values = {"", std::string("\0", 1), std::string("a\0", 2),
+                                             std::string(64, '\xff')};
+    for (const auto& value : values) {
+        column->insert_data(value.data(), value.size());
+    }
+    MethodStringNoCache<StringHashMap<int>> method;
+    DorisVector<StringRef> keys;
+    method.init_serialized_keys_impl({column.get()}, column->size(), keys);
+    ASSERT_EQ(keys.size(), values.size());
+    for (size_t row = 0; row < values.size(); ++row) {
+        EXPECT_EQ(keys[row].to_string(), values[row]);
+    }
+    std::vector<StringRef> output_keys(keys.begin(), keys.end());
+    MutableColumns output;
+    output.push_back(type->create_column());
+    method.insert_keys_into_columns(output_keys, output, output_keys.size());
+    for (size_t row = 0; row < values.size(); ++row) {
+        EXPECT_EQ(output[0]->get_data_at(row).to_string(), values[row]);
+    }
+}
 
 TEST(HashKeyTypeTest, FixedWidthStructUsesSerializedKey) {
     const auto group_key = make_nullable(std::make_shared<DataTypeInt32>());

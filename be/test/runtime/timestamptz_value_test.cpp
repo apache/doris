@@ -22,8 +22,11 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <utility>
 
+#include "common/exception.h"
 #include "exprs/function/cast/cast_base.h"
+#include "exprs/function/cast/cast_to_timestamptz_impl.hpp"
 #include "testutil/datetime_ut_util.h"
 #include "util/timezone_utils.h"
 
@@ -32,6 +35,83 @@ namespace doris {
 TEST(TimeStampTzValueTest, make_time) {
     TimestampTzValue tz {};
     EXPECT_EQ(tz.to_date_int_val(), MIN_DATETIME_V2);
+}
+
+TEST(TimeStampTzValueTest, ToStringPreservesHistoricalOffsetSeconds) {
+    TimezoneUtils::load_offsets_to_cache();
+    const auto utc = cctz::utc_time_zone();
+    struct TestCase {
+        const char* zone;
+        int year;
+        const char* civil;
+        const char* offset;
+    };
+    const TestCase cases[] = {
+            {"Asia/Shanghai", 1890, "1890-01-01 08:05:43", "+08:05:43"},
+            {"America/New_York", 1880, "1879-12-31 19:03:58", "-04:56:02"},
+            {"Asia/Shanghai", 2024, "2024-01-01 08:00:00", "+08:00"},
+            {"America/New_York", 2024, "2023-12-31 19:00:00", "-05:00"},
+            {"Asia/Kathmandu", 2024, "2024-01-01 05:45:00", "+05:45"},
+            {"UTC", 2024, "2024-01-01 00:00:00", "+00:00"},
+    };
+    for (const auto& test_case : cases) {
+        cctz::time_zone zone;
+        ASSERT_TRUE(cctz::load_time_zone(test_case.zone, &zone));
+        for (const auto scale : {0, 3, 6}) {
+            SCOPED_TRACE(testing::Message() << test_case.zone << ", scale=" << scale);
+            const auto micros = scale == 6 ? 123456 : scale == 3 ? 123000 : 0;
+            const auto value = make_timestamptz(test_case.year, 1, 1, 0, 0, 0, micros);
+            const std::string fraction = scale == 6 ? ".123456" : scale == 3 ? ".123" : "";
+            const auto formatted = value.to_string(zone, scale);
+            EXPECT_EQ(formatted, std::string(test_case.civil) + fraction + test_case.offset);
+
+            // The client-visible offset must describe the same instant, including historical
+            // sub-minute offsets; parsing in UTC must not depend on the display session zone.
+            for (const bool strict : {false, true}) {
+                TimestampTzValue parsed;
+                CastParameters params;
+                params.is_strict = strict;
+                ASSERT_TRUE(parsed.from_string(StringRef(formatted), &utc, params, scale))
+                        << params.status.to_string();
+                EXPECT_EQ(parsed, value) << formatted;
+            }
+        }
+    }
+}
+
+TEST(TimeStampTzValueTest, ToStringRejectsUnrepresentableLocalYear) {
+    TimezoneUtils::load_offsets_to_cache();
+    const auto utc = cctz::utc_time_zone();
+    const auto east = cctz::fixed_time_zone(std::chrono::hours(8));
+    const auto west = cctz::fixed_time_zone(std::chrono::hours(-8));
+    for (const auto scale : {0, 3, 6}) {
+        const auto micros = scale == 6 ? 999999 : scale == 3 ? 999000 : 0;
+        const auto minimum = make_timestamptz(0, 1, 1, 0, 0, 0, 0);
+        const auto maximum = make_timestamptz(9999, 12, 31, 23, 59, 59, micros);
+        // A valid UTC instant must not turn into an offset-only protocol value.
+        for (const auto& entry : {std::make_pair(minimum, west), std::make_pair(maximum, east)}) {
+            try {
+                static_cast<void>(entry.first.to_string(entry.second, scale));
+                FAIL() << "Expected an unrepresentable local year error";
+            } catch (const Exception& e) {
+                EXPECT_EQ(e.code(), ErrorCode::INVALID_ARGUMENT);
+                EXPECT_NE(std::string(e.what()).find("TIMESTAMPTZ local year is outside [0, 9999]"),
+                          std::string::npos);
+            }
+        }
+        for (const auto& entry : {std::make_pair(minimum, utc), std::make_pair(maximum, utc),
+                                  std::make_pair(minimum, east), std::make_pair(maximum, west)}) {
+            const auto wire = entry.first.to_string(entry.second, scale);
+            for (const bool strict : {false, true}) {
+                TimestampTzValue parsed;
+                CastParameters params;
+                params.is_strict = strict;
+                ASSERT_TRUE(parsed.from_string(StringRef(wire), &utc, params, scale))
+                        << wire << ": " << params.status.to_string();
+                EXPECT_EQ(parsed, entry.first);
+            }
+        }
+    }
 }
 
 TEST(TimeStampTzValueTest, from_string) {
@@ -107,6 +187,41 @@ TEST(TimeStampTzValueTest, from_string) {
         params.is_strict = true;
         EXPECT_TRUE(tz.from_string(str, &time_zone, params, 0)) << params.status.to_string();
         EXPECT_EQ(tz, make_timestamptz(2020, 1, 1, 12, 0, 0, 0)) << tz._utc_dt.to_string();
+    }
+}
+
+TEST(TimeStampTzValueTest, HistoricalOffsetsInStrictAndFallbackParsers) {
+    const auto utc = cctz::utc_time_zone();
+    const auto expected = make_timestamptz(1890, 1, 1, 0, 0, 0, 123456);
+    for (const std::string input :
+         {"1890-01-01 08:05:43.123456+08:05:43", "1889-12-31 19:03:58.123456-04:56:02",
+          "1890-01-01 00:00:30.123456+00:00:30", "1889-12-31 23:59:30.123456-00:00:30",
+          "1890-01-01 08:05:00.123456+08:05"}) {
+        SCOPED_TRACE(input);
+        for (const bool fallback : {false, true}) {
+            TimestampTzValue parsed;
+            CastParameters params;
+            params.is_strict = !fallback;
+            const bool success =
+                    fallback
+                            ? CastToTimestampTz::from_string_non_strict_mode_impl(
+                                      StringRef(input), parsed, params, &utc, 6)
+                            : CastToTimestampTz::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                                      StringRef(input), parsed, params, &utc, 6);
+            EXPECT_TRUE(success) << params.status.to_string();
+            EXPECT_EQ(parsed, expected);
+        }
+    }
+    for (const std::string offset : {"+08:60:00", "+08:05:60", "+08:05:", "+08:05:4", "+08:05:430",
+                                     "+14:00:01", "+15:00:00", "-13:00:00"}) {
+        SCOPED_TRACE(offset);
+        const auto input = "1890-01-01 00:00:00" + offset;
+        for (const bool strict : {false, true}) {
+            TimestampTzValue parsed;
+            CastParameters params;
+            params.is_strict = strict;
+            EXPECT_FALSE(parsed.from_string(StringRef(input), &utc, params, 6));
+        }
     }
 }
 

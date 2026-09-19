@@ -22,6 +22,9 @@ suite("test_gen_iceberg_by_api", "p0,external,doris,external_docker,external_doc
         return
     }
 
+    // Iceberg instant columns use TIMESTAMPTZ; pin the display zone for typed snapshots.
+    sql """set time_zone = 'Asia/Shanghai'"""
+
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")

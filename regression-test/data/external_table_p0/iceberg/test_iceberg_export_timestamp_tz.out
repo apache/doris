@@ -8,14 +8,14 @@ id	int	Yes	true	\N
 ts_tz	timestamptz(6)	Yes	true	\N	WITH_TIMEZONE
 
 -- !select_tvf0 --
-1	2025-01-01 00:00:00.000000+08:00
-2	2025-06-01 12:34:56.789000+08:00
-3	2025-12-31 23:59:59.999999+08:00
+1	2024-12-31T16:00
+2	2025-06-01T04:34:56.789
+3	2025-12-31T15:59:59.999999
 4	\N
 
 -- !select_tvf0_desc --
 id	int	Yes	false	\N	NONE
-ts_tz	timestamptz(6)	Yes	false	\N	NONE
+ts_tz	datetime(6)	Yes	false	\N	NONE
 
 -- !select_tvf0_false --
 1	2025-01-01 00:00:00.000000+08:00
@@ -28,14 +28,14 @@ id	int	Yes	false	\N	NONE
 ts_tz	timestamptz(6)	Yes	false	\N	NONE
 
 -- !select_tvf1 --
-1	2025-01-01 00:00:00.000000+08:00
-2	2025-06-01 12:34:56.789000+08:00
-3	2025-12-31 23:59:59.999999+08:00
+1	2024-12-31T16:00
+2	2025-06-01T04:34:56.789
+3	2025-12-31T15:59:59.999999
 4	\N
 
 -- !select_tvf1_desc --
 id	int	Yes	false	\N	NONE
-ts_tz	timestamptz(6)	Yes	false	\N	NONE
+ts_tz	datetime(6)	Yes	false	\N	NONE
 
 -- !select_tvf1_false --
 1	2025-01-01 00:00:00.000000+08:00
@@ -66,4 +66,3 @@ ts_tz	timestamptz(6)	Yes	false	\N	NONE
 -- !select_tvf3_desc --
 id	int	Yes	false	\N	NONE
 ts_tz	timestamptz(6)	Yes	false	\N	NONE
-

@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -618,11 +617,10 @@ public final class IcebergWriteSchemaContext {
             case TIMESTAMP:
                 long micros = (Long) value;
                 Types.TimestampType timestampType = (Types.TimestampType) icebergType;
-                ZoneId literalZone = timestampType.shouldAdjustToUTC() && !enableMappingTimestampTz
-                        ? TimeUtils.getDorisZoneId() : ZoneOffset.UTC;
-                LocalDateTime dateTime = microsToDateTime(micros, literalZone);
+                // Instant defaults use UTC components; unzoned defaults retain their civil components.
+                LocalDateTime dateTime = microsToDateTime(micros, ZoneOffset.UTC);
                 long microsecond = Math.floorMod(micros, 1_000_000L);
-                if (enableMappingTimestampTz && timestampType.shouldAdjustToUTC()) {
+                if (timestampType.shouldAdjustToUTC()) {
                     return new TimestampTzLiteral((TimeStampTzType) targetType,
                             dateTime.getYear(), dateTime.getMonthValue(),
                             dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(),

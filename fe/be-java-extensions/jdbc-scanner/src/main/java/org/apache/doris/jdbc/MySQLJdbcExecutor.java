@@ -35,9 +35,12 @@ import java.math.BigInteger;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
+import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
 import java.util.List;
@@ -70,6 +73,14 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
 
     @Override
     protected void initializeStatement(Connection conn, JdbcDataSourceConfig config, String sql) throws SQLException {
+        if (usesMySqlTimestampProtocol(config)) {
+            // MySQL sends TIMESTAMP as session-local fields. Read and bind those fields in UTC
+            // without the driver's legacy Calendar conversion, which may apply the JVM offset.
+            // Set this on every checkout because pooled sessions may have been modified by a query.
+            try (Statement timezoneStatement = conn.createStatement()) {
+                timezoneStatement.execute("SET SESSION time_zone = '+00:00'");
+            }
+        }
         if (config.getOp() == TJdbcOperation.READ) {
             conn.setAutoCommit(false);
             Preconditions.checkArgument(sql != null, "SQL statement cannot be null for READ operation.");
@@ -168,10 +179,30 @@ public class MySQLJdbcExecutor extends BaseJdbcExecutor {
                 return data;
             }
             case TIMESTAMPTZ: {
-                return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
+                if (usesMySqlTimestampProtocol(config)) {
+                    return resultSet.getObject(columnIndex + 1, LocalDateTime.class);
+                }
+                Timestamp value = resultSet.getTimestamp(columnIndex + 1);
+                return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
             }
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
+        }
+    }
+
+    private static boolean usesMySqlTimestampProtocol(JdbcDataSourceConfig config) {
+        // OceanBase's MySQL mode shares both the TIMESTAMP mapping and session-local wire format.
+        return config.getTableType() == TOdbcTableType.MYSQL || config.getTableType() == TOdbcTableType.OCEANBASE;
+    }
+
+    @Override
+    protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
+        if (usesMySqlTimestampProtocol(config)) {
+            // Connector/J 5.x can ignore Calendar during timestamp conversion. Bind the UTC
+            // session's civil fields directly so neither driver nor JVM applies another offset.
+            preparedStatement.setString(parameterIndex, value.toString().replace('T', ' '));
+        } else {
+            super.setTimestampTz(parameterIndex, value);
         }
     }
 

@@ -24,6 +24,30 @@ namespace doris {
 
 using namespace ut_type;
 
+TEST(function_binary_test, comparisons_preserve_zero_bytes) {
+    const InputTypeSet types = {TYPE_VARBINARY, TYPE_VARBINARY};
+    const DataSet equals = {{{VARBINARY("a"), VARBINARY("a\0", 2)}, uint8_t(0)},
+                            {{VARBINARY("\0", 1), VARBINARY("\0", 1)}, uint8_t(1)},
+                            {{VARBINARY(""), VARBINARY("\0", 1)}, uint8_t(0)},
+                            {{VARBINARY("\xff", 1), VARBINARY("\xff", 1)}, uint8_t(1)},
+                            {{Null(), VARBINARY("")}, Null()}};
+    check_function_all_arg_comb<DataTypeUInt8, true>("eq", types, equals);
+    const DataSet less = {{{VARBINARY("a"), VARBINARY("a\0\1", 3)}, uint8_t(1)},
+                          {{VARBINARY("\x7f", 1), VARBINARY("\x80", 1)}, uint8_t(1)},
+                          {{VARBINARY("\0", 1), VARBINARY("")}, uint8_t(0)},
+                          {{Null(), VARBINARY("")}, Null()}};
+    check_function_all_arg_comb<DataTypeUInt8, true>("lt", types, less);
+}
+
+TEST(function_binary_test, in_preserves_zero_bytes) {
+    const InputTypeSet types = {TYPE_VARBINARY, TYPE_VARBINARY, TYPE_VARBINARY};
+    const DataSet data = {{{VARBINARY("a"), VARBINARY("a\0", 2), VARBINARY("b")}, uint8_t(0)},
+                          {{VARBINARY("\0", 1), VARBINARY(""), VARBINARY("\0", 1)}, uint8_t(1)},
+                          {{VARBINARY("a"), VARBINARY("b"), Null()}, Null()},
+                          {{Null(), VARBINARY(""), VARBINARY("\0", 1)}, Null()}};
+    check_function_all_arg_comb<DataTypeUInt8, true>("in", types, data);
+}
+
 TEST(function_binary_test, function_binary_length_test) {
     std::string func_name = "length";
     InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY};
