@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -29,6 +28,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -595,11 +595,11 @@ public class ShowDataCommand extends ShowCommand {
 
     /**
      * Bytes of query spill currently held in object storage, summed over the alive BEs as
-     * periodically polled by CloudTabletStatMgr on every FE. This is a billing input, so a
+     * periodically polled by RemoteSpillStatsPoller on every FE. This is a billing input, so a
      * missing or stale value is reported instead of being shown as zero.
      */
     private long getRemoteSpillSize() throws AnalysisException {
-        return ((CloudTabletStatMgr) Env.getCurrentEnv().getTabletStatMgr()).getRemoteSpillBytes();
+        return ((CloudEnv) Env.getCurrentEnv()).getRemoteSpillStatsPoller().getRemoteSpillBytes();
     }
 
     // |DBName|DataSize|RecycleSize|BinlogSize|
