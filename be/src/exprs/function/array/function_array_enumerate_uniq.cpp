@@ -121,6 +121,15 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
+        for (const auto argument : arguments) {
+            if (block.get_by_position(argument).column->only_null()) {
+                auto& result_column = block.get_by_position(result);
+                result_column.column =
+                        result_column.type->create_column_const(input_rows_count, Field());
+                return Status::OK();
+            }
+        }
+
         ColumnUInt8::MutablePtr result_null_map;
         ColumnUInt8::Container* result_null_map_data = nullptr;
         if (block.get_by_position(result).type->is_nullable()) {
@@ -134,12 +143,6 @@ public:
         for (size_t i = 0; i < arguments.size(); ++i) {
             auto cur_column =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
-            if (cur_column->only_null()) {
-                auto& result_column = block.get_by_position(result);
-                result_column.column =
-                        result_column.type->create_column_const(input_rows_count, Field());
-                return Status::OK();
-            }
             if (const auto* nullable = check_and_get_column<ColumnNullable>(cur_column.get())) {
                 VectorizedUtils::update_null_map(*result_null_map_data,
                                                  nullable->get_null_map_data());

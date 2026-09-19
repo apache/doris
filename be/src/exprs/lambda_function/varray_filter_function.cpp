@@ -67,6 +67,11 @@ public:
         RETURN_IF_ERROR(children[1]->execute_column(context, block, expr_selector, output_count,
                                                     column_ptr_1));
 
+        if (column_ptr_0->only_null() || column_ptr_1->only_null()) {
+            result_column = result_type->create_column_const(output_count, Field());
+            return Status::OK();
+        }
+
         //2. get first and second array column
         auto first_column = column_ptr_0->convert_to_full_column_if_const();
 

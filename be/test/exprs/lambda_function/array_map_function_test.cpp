@@ -44,7 +44,9 @@
 #include "exprs/vlambda_function_expr.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/descriptors.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "testutil/function_utils.h"
 #include "util/defer_op.h"
 
@@ -790,6 +792,41 @@ TEST(ArrayFilterFunctionTest, NullableSecondaryLambdaArrayPropagatesToResult) {
     EXPECT_EQ(values.get_data(), ColumnInt32::Container({3}));
 }
 
+TEST(ArrayFilterFunctionTest, AllNullSourceSkipsConstantPredicateExpansion) {
+    constexpr size_t row_count = 2;
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto bool_type = std::make_shared<DataTypeUInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(make_nullable(int_type));
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto array_bool_type = std::make_shared<DataTypeArray>(make_nullable(bool_type));
+
+    auto filter = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, row_count, "array_filter"));
+    filter->add_child(std::make_shared<MockColumnExpr>(
+            make_nullable_int_array_column({{}, {}}, {1, 1}), nullable_array_int_type, "source"));
+
+    auto predicate_data = ColumnUInt8::create();
+    predicate_data->get_data().assign({1, 1});
+    auto predicate_null_map = ColumnUInt8::create(2, 0);
+    auto predicate_offsets = ColumnArray::ColumnOffsets::create();
+    predicate_offsets->get_data().push_back(2);
+    auto predicate = ColumnArray::create(
+            ColumnNullable::create(std::move(predicate_data), std::move(predicate_null_map)),
+            std::move(predicate_offsets));
+    filter->add_child(std::make_shared<MockConstColumnExpr>(std::move(predicate), array_bool_type,
+                                                            "predicate"));
+
+    VExprContext context(filter);
+    open_expr(filter, &context);
+
+    Block block;
+    ColumnPtr result;
+    auto status = filter->execute_column(&context, &block, nullptr, row_count, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(is_column_const(*result));
+    EXPECT_TRUE(result->only_null());
+}
+
 TEST(ArrayEnumerateUniqFunctionTest, MappedAndOriginalNullableArraysUseLogicalRowOffsets) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto nullable_int_type = make_nullable(int_type);
@@ -845,6 +882,51 @@ TEST(ArrayEnumerateUniqFunctionTest, MappedAndOriginalNullableArraysUseLogicalRo
     const auto& values = assert_cast<const ColumnInt64&>(
             assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
     EXPECT_EQ(values.get_data(), ColumnInt64::Container({1, 1}));
+}
+
+TEST(ArrayEnumerateUniqFunctionTest, AllNullLaterArgumentSkipsEarlierConstantExpansion) {
+    constexpr size_t row_count = 512;
+    constexpr size_t array_size = 4096;
+    constexpr int64_t max_execution_bytes = 1024 * 1024;
+
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int_type = make_nullable(int_type);
+    auto array_int_type = std::make_shared<DataTypeArray>(nullable_int_type);
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto result_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt64>())));
+
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "ArrayEnumerateUniqAllNullFastPath");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    std::vector<int32_t> constant_values(array_size, 1);
+    auto constant_array = ColumnConst::create(make_int_array_column({constant_values}), row_count);
+    auto all_null_array = make_nullable_int_array_column(
+            std::vector<std::vector<int32_t>>(row_count), std::vector<uint8_t>(row_count, 1));
+
+    Block block;
+    block.insert({std::move(constant_array), array_int_type, "constant_array"});
+    block.insert({std::move(all_null_array), nullable_array_int_type, "all_null_array"});
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "array_enumerate_uniq", block.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+
+    FunctionUtils function_utils(result_type, {array_int_type, nullable_array_int_type}, false);
+    auto* function_context = function_utils.get_fn_ctx();
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    block.insert({nullptr, result_type, "result"});
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t baseline = tracker->consumption();
+    auto status = function->execute(function_context, block, {0, 1}, 2, row_count);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t execution_peak = tracker->peak_consumption() - baseline;
+    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(block.get_by_position(2).column->only_null());
+    EXPECT_LT(execution_peak, max_execution_bytes);
 }
 
 TEST(ArrayMapFunctionTest, LambdaWithConstantCaptureUsesNestedColumnDirectly) {
