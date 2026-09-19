@@ -254,6 +254,21 @@ public class DataTypeTest {
     }
 
     @Test
+    public void testIsInjectiveCastToForDateTypes() {
+        for (DataType source : ImmutableList.of(DateType.INSTANCE, DateV2Type.INSTANCE)) {
+            assertSafeCast(source, DateType.INSTANCE);
+            assertSafeCast(source, DateV2Type.INSTANCE);
+            assertSafeCast(source, DateTimeType.INSTANCE);
+            for (int scale = 0; scale <= DateTimeV2Type.MAX_SCALE; scale++) {
+                assertSafeCast(source, DateTimeV2Type.of(scale));
+            }
+            assertUnsafeCast(source, TimeStampTzType.MAX);
+            assertUnsafeCast(source, TimeStampNsType.INSTANCE);
+            assertUnsafeCast(DateTimeV2Type.MAX, source);
+        }
+    }
+
+    @Test
     public void testIsInjectiveCastToForComplexTypes() {
         assertSafeCast(ArrayType.of(IntegerType.INSTANCE), ArrayType.of(BigIntType.INSTANCE));
         assertUnsafeCast(ArrayType.of(BigIntType.INSTANCE), ArrayType.of(IntegerType.INSTANCE));

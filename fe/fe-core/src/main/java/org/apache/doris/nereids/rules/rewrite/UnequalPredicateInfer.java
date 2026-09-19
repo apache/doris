@@ -396,7 +396,8 @@ public class UnequalPredicateInfer {
 
         private void clear(Relation[][] graph, int left, int right, Relation type) {
             graph[left][right] = Relation.UNDEFINED;
-            if (type == Relation.EQ) {
+            // A reverse inequality is a separate constraint, not the duplicate of this equality.
+            if (type == Relation.EQ && graph[right][left] == Relation.EQ) {
                 graph[right][left] = Relation.UNDEFINED;
             }
         }
@@ -448,7 +449,8 @@ public class UnequalPredicateInfer {
                     clear(chosen, left, right, type);
                 } else if (deduced[left][right] != type) {
                     keep[i] = true;
-                    set(deduced, left, right, Relation.EQ);
+                    // Preserve the relation of the retained predicate; an inequality is not an equality.
+                    set(deduced, left, right, type);
                     expandGraph(deduced, left, right);
                     if (type == Relation.EQ) {
                         expandGraph(deduced, right, left);
