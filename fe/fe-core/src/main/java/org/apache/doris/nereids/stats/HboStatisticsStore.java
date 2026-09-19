@@ -17,12 +17,16 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,6 +63,9 @@ public class HboStatisticsStore {
     private static final String EXPANSION_COLUMN = "expansion";
     /** which struct info the entry is keyed by (with_literal / no_literal) */
     private static final String LITERAL_MODE_COLUMN = "literal_mode";
+    /** the columns this version writes and reads, checked once per FE (see verifySchema) */
+    private static final List<String> COLUMNS = ImmutableList.of("fingerprint", "row_count", "stats_type",
+            LITERAL_MODE_COLUMN, "struct_info", EXPANSION_COLUMN, CREATE_TIME_COLUMN);
     // the DDL and the schema check are done once per FE: the table can only change by a FE upgrade,
     // and both cost a round trip to the internal table (a forwarded DDL on a follower FE)
     private static volatile boolean tableCreated = false;
@@ -79,24 +86,39 @@ public class HboStatisticsStore {
     }
 
     /**
-     * Check that the table has the current column, by selecting it. A table created by an older FE
-     * version (e.g. with the {@code create_time_ms} column) cannot be written by this version, and
-     * because the table is created with {@code CREATE TABLE IF NOT EXISTS} it would stay broken, so
-     * a failing check logs the fix (the check is best effort: a not ready internal schema must not
-     * fail the statement either).
+     * Check that the table has every column this version reads and writes, by looking at its metadata
+     * in the FE catalog. A query would be cheaper to write but wrong to interpret: it fails both when
+     * the table has an old schema and when the internal schema is simply not ready yet, and the two
+     * need opposite reactions (drop the table vs wait).
+     *
+     * <p>A table created by an older FE version (e.g. with a {@code create_time_ms} column) cannot be
+     * written by this version, and because it is created with {@code CREATE TABLE IF NOT EXISTS} it
+     * stays broken; the check therefore logs the fix and forgets that the table was "created", so
+     * that the DDL runs again - and recreates the table - after the operator dropped it. Without
+     * that, persistence would stay dead until the FE restarts.
      */
     private static void verifySchema() throws Exception {
-        try {
-            StatisticsUtil.execStatisticQueryOrThrow("SELECT `fingerprint`, `row_count`, `stats_type`,"
-                    + " `literal_mode`, `struct_info`, `" + EXPANSION_COLUMN + "`, `"
-                    + CREATE_TIME_COLUMN + "` FROM " + FULL_QUALIFIED + " LIMIT 0");
-            schemaVerified = true;
-        } catch (Exception t) {
-            LOG.warn("cannot read the {} column of {}; when the table was created by an older FE"
-                    + " version it has to be dropped so that it is recreated: DROP TABLE {}",
-                    CREATE_TIME_COLUMN, FULL_QUALIFIED, FULL_QUALIFIED, t);
-            throw t;
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(INTERNAL_DB);
+        TableIf table = db == null ? null : db.getTableNullable(TABLE);
+        if (table == null) {
+            // the DDL succeeded but the table is not visible yet (a follower waiting for the journal,
+            // or an internal schema which is not ready): retry later, do not blame the table
+            throw new IllegalStateException("the internal table " + FULL_QUALIFIED + " is not visible yet");
         }
+        List<String> missing = new ArrayList<>();
+        for (String column : COLUMNS) {
+            if (table.getColumn(column) == null) {
+                missing.add(column);
+            }
+        }
+        if (!missing.isEmpty()) {
+            tableCreated = false;
+            LOG.warn("the internal table {} has no {} column: it was created by an older FE version and"
+                    + " has to be dropped so that it is recreated (DROP TABLE {})",
+                    FULL_QUALIFIED, missing, FULL_QUALIFIED);
+            throw new IllegalStateException("the internal table " + FULL_QUALIFIED + " has an old schema");
+        }
+        schemaVerified = true;
     }
 
     /**

@@ -36,7 +36,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * HboPlanInfoProvider maintains 4 kinds of cache for each queryId:
+ * HboPlanInfoProvider maintains these kinds of cache for each queryId:
  * - scanToFilterCache:
  *   scan relation id <-> filter expr sets on the scan
  *   collected during rewriting stage

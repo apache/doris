@@ -146,7 +146,7 @@ public class HboStatisticsCommand extends Command {
                     throw new AnalysisException(
                             "hbo join expansion must be greater than 0: " + value);
                 }
-            } else if (value < 0 || value != Math.floor(value) || value > (double) Long.MAX_VALUE) {
+            } else if (value < 0 || value != Math.floor(value) || value >= (double) Long.MAX_VALUE) {
                 // the VALUE of every other type is a row count; a double above Long.MAX_VALUE would
                 // not be rejected by the integer check but would silently saturate when it is cast
                 // (and persisted) as a long

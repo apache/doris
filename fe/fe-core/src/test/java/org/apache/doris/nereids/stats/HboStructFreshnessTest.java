@@ -162,12 +162,14 @@ public class HboStructFreshnessTest {
                 FILTER_WITH_LITERAL + "S{internal.db.t,v5,r1000,p1/3})",
                 HboScanDescriptor.parseAll(FILTER_WITH_LITERAL + "S{internal.db.t,v5,r50000,p1/3})"));
         Assertions.assertEquals(HboStructFreshness.STATE_STALE, freshness.getState());
-        // a measurement must not be compared with a number which was derived from the table
-        assertEquals(HboStructFreshness.STATE_STALE,
+        // a measurement must not be compared with a number which was derived from the table: the two
+        // were obtained differently, so nothing is judged and the entry is applied as it always was
+        // (the version is only decisive in strict mode)
+        assertEquals(HboStructFreshness.STATE_UNKNOWN,
                 verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v5,r1000})", "S{internal.db.t,v6,e1010})"));
-        // with an unchanged version the same mismatch is not judged by rows: the two numbers differ
-        // because they were computed differently, not because the data moved
-        assertEquals(HboStructFreshness.STATE_LIVE,
+        assertEquals(HboStructFreshness.STATE_UNKNOWN,
+                verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v5,e1000})", "S{internal.db.t,v6,r1010})"));
+        assertEquals(HboStructFreshness.STATE_UNKNOWN,
                 verdict(FILTER_WITH_LITERAL, "S{internal.db.t,v5,r1000})", "S{internal.db.t,v5,e1010})"));
     }
 

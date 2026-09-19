@@ -2372,12 +2372,13 @@ public class Config extends ConfigBase {
      * Persist manually injected (pinned) hbo statistics into the internal database table
      * __internal_schema.hbo_statistics, so that they survive FE restarts. In-memory pinned
      * statistics stay authoritative; changes are written through synchronously (best effort)
-     * and the table is loaded lazily on first use. Persistence applies to SET/DELETE issued
+     * and each FE loads the table in the background at start-up (HboPinnedStatisticsLoader).
+     * Persistence applies to SET/DELETE issued
      * while this config is true: entries SET while it is false are not persisted, and entries
      * DELETEd while it is false keep their stored rows. A FE loads the table into memory at most
-     * once per process (on first use while this config is true), so rows deleted while it is
-     * false reappear only for a FE whose one-time load is still pending (e.g. right after FE
-     * start with the config on). On that load, existing in-memory entries win over the stored
+     * once per process (in the background at start-up, retried until it succeeds), so rows deleted
+     * while it is false reappear only for a FE whose one-time load is still pending (e.g. right after
+     * FE start). On that load, existing in-memory entries win over the stored
      * snapshot; deletions issued while this config is true during the pending load are honored —
      * rows of theirs that the load sees are best-effort removed from the table again, and they
      * reappear after a FE restart only if that removal also fails. In general, rows whose

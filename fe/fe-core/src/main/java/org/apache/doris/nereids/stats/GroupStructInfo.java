@@ -312,7 +312,7 @@ public class GroupStructInfo {
             String fingerprint = Hashing.sha256()
                     .hashString(shapeString, StandardCharsets.UTF_8).toString();
             return new GroupStructInfo(true, canonicalString, shapeString, fingerprint,
-                    new ArrayList<>(ctx.scans));
+                    new ArrayList<>(out.getScans()));
         } catch (RuntimeException e) {
             // memo content not supported by the simplified struct info: treat as invalid and
             // fall back to legacy behavior instead of failing the optimizer on the hot path
@@ -414,8 +414,12 @@ public class GroupStructInfo {
         // data state which the fingerprint deliberately ignores
         leaves.sort(Comparator.comparing(Leaf::getShape));
         out.append("J{inner,c:[").append(String.join(SEP, conditions)).append("]}(");
-        out.append(leaves.stream().map(Leaf::getCanonical).collect(Collectors.joining(SEP)),
-                leaves.stream().map(Leaf::getShape).collect(Collectors.joining(SEP)));
+        for (int i = 0; i < leaves.size(); i++) {
+            if (i > 0) {
+                out.append(SEP);
+            }
+            out.append(leaves.get(i).getCanonical());
+        }
         out.append(")");
     }
 
@@ -454,26 +458,24 @@ public class GroupStructInfo {
         Canonical leaf = new Canonical();
         appendPlan(plan, ge, leaf, ctx);
         if (ctx.valid) {
-            leaves.add(new Leaf(leaf.annotated.toString(), leaf.shape.toString()));
+            leaves.add(new Leaf(leaf));
         }
     }
 
-    /** One leaf of a flattened join chain: both of its canonical forms. */
+    /** One leaf of a flattened join chain: both of its canonical forms and its scans. */
     private static class Leaf {
-        private final String canonical;
-        private final String shape;
+        private final Canonical canonical;
 
-        Leaf(String canonical, String shape) {
+        Leaf(Canonical canonical) {
             this.canonical = canonical;
-            this.shape = shape;
         }
 
-        String getCanonical() {
+        Canonical getCanonical() {
             return canonical;
         }
 
         String getShape() {
-            return shape;
+            return canonical.shape.toString();
         }
     }
 
@@ -509,9 +511,17 @@ public class GroupStructInfo {
             // derived by parsing the canonical string: no table name and no literal value can be
             // mistaken for a scan token.
             HboScanDescriptor descriptor = HboScanDescriptor.of(scan);
+            if (descriptor.getTable().indexOf(',') >= 0 || descriptor.getTable().indexOf('}') >= 0) {
+                // the token delimiters cannot appear in a table name: the printed struct info could
+                // not be read back, and a pasted one could resolve to another table
+                LOG.debug("scan table {} contains a struct info delimiter, hbo is disabled for it",
+                        descriptor.getTable());
+                invalid(ctx);
+                return;
+            }
             out.annotated.append("S{").append(descriptor.render()).append('}');
             out.shape.append("S{").append(descriptor.getTable()).append('}');
-            ctx.scans.add(descriptor);
+            out.getScans().add(descriptor);
         } catch (org.apache.doris.rpc.RpcException e) {
             // the table version may not be readable (e.g. a cloud rpc failure): the group stays
             // invalid for this lookup, but the failure is retried by the next one
@@ -525,14 +535,15 @@ public class GroupStructInfo {
      * becomes {@code S{db.t}}), i.e. the data state of the scan - visible version, scanned rows and
      * pruned partition count.
      *
-     * <p>The fingerprint of a plan is built by the traversal itself, which
-     * knows where every scan token starts and ends. This text based variant is for strings which
-     * were not produced by a traversal: the struct info a user pasted into {@code HBO SET STATISTICS}
-     * (whose sha256 has to match the fingerprint the user copied) and the sort key of a join chain
-     * leaf. A table name which contains the token delimiters ({@code ,} or {@code }}) or a literal
-     * value which looks like a scan token cannot be told apart from one; such an input at most makes
-     * the pasted struct info unverifiable (a rejected statement), never a wrong key, because the
-     * fingerprint of a plan is never computed by this method.
+     * <p>The fingerprint of a plan and the sort key of a join chain leaf are built by the traversal
+     * itself, which knows where every scan token starts and ends. This text based variant is only for
+     * the struct info a user pasted into {@code HBO SET STATISTICS}, whose sha256 has to match the
+     * fingerprint the user copied. A literal value which looks like a scan token (a string starting
+     * with {@code S{} and containing a {@code ,}) cannot be told apart from one there, so such a
+     * struct info is rejected: that statement cannot be used for that node, in either literal mode
+     * (there is no workaround). That is a rejected statement, never a wrong key - the fingerprint of
+     * a plan is not computed by this method. A table name which contains the delimiters is not
+     * printed at all, because such a canonical form could not be read back (see appendScan).
      */
     public static String stripScanBaseline(String canonicalString) {
         StringBuilder sb = new StringBuilder(canonicalString.length());
@@ -557,7 +568,11 @@ public class GroupStructInfo {
         if (!ctx.valid) {
             return;
         }
-        visit(ge.child(index), out, ctx);
+        // the child is built on its own form, so that its scans are appended in the order its tokens
+        // appear in the parent string
+        Canonical child = new Canonical();
+        visit(ge.child(index), child, ctx);
+        out.append(child);
     }
 
     // -----------------------------------------------------------------------------------
@@ -603,12 +618,13 @@ public class GroupStructInfo {
      *
      * <p>A literal value is not quoted in the canonical form and a data type may even contain
      * parentheses ({@code lit(abc:VARCHAR(10))}), so the closing parenthesis is found by counting
-     * instead of by a regular expression. A <b>value</b> which contains a parenthesis of its own
-     * (e.g. {@code where city = 'Springfield (IL)'}) cannot be delimited this way, so folding such a
-     * canonical string is refused by the fingerprint check of {@code HBO SET STATISTICS} (the
-     * statement says so and the user can pass {@code LITERAL_MODE=WITH_LITERAL}); the constant
-     * agnostic struct info printed by EXPLAIN is built by the group traversal itself (see
-     * {@link #dataStateOfPlanNode}), so it has no such limitation.
+     * instead of by a regular expression; a value with balanced parentheses
+     * ({@code lit(IL (north))}) is therefore folded correctly. Only an <b>unbalanced</b> parenthesis
+     * in a value (e.g. {@code where city = 'IL)'}) makes the fold consume too much, and the pasted
+     * struct info is then rejected by the fingerprint check of {@code HBO SET STATISTICS} with the
+     * generic "does not match the fingerprint" message; there is no workaround, because the check
+     * runs in both literal modes. The constant agnostic struct info printed by EXPLAIN is built by the
+     * group traversal itself (see {@link #dataStateOfPlanNode}), so it has no such limitation.
      */
     public static String toNoLiteral(String canonicalString) {
         StringBuilder sb = new StringBuilder(canonicalString.length());
@@ -690,7 +706,6 @@ public class GroupStructInfo {
         /** whether the failure was an environment problem which a later lookup may survive */
         private boolean retryable = false;
         private final Set<Group> visited = new HashSet<>();
-        private final List<HboScanDescriptor> scans = new ArrayList<>();
 
         Ctx(LiteralMode mode) {
             this.mode = mode;
@@ -705,6 +720,11 @@ public class GroupStructInfo {
     private static class Canonical {
         private final StringBuilder annotated = new StringBuilder();
         private final StringBuilder shape = new StringBuilder();
+        // the scans of this part, in the order their tokens appear in the two strings: a caller which
+        // compares them with the scans of another struct info (see HboStructFreshness) has to see the
+        // same order the printed struct info has, which is not always the traversal order (a join
+        // chain prints its leaves sorted)
+        private final List<HboScanDescriptor> scans = new ArrayList<>();
 
         Canonical append(String text) {
             annotated.append(text);
@@ -716,6 +736,17 @@ public class GroupStructInfo {
         void append(String annotatedPart, String shapePart) {
             annotated.append(annotatedPart);
             shape.append(shapePart);
+        }
+
+        /** Append another canonical form (a child sub tree or a join chain leaf). */
+        void append(Canonical other) {
+            annotated.append(other.annotated);
+            shape.append(other.shape);
+            scans.addAll(other.scans);
+        }
+
+        List<HboScanDescriptor> getScans() {
+            return scans;
         }
     }
 }

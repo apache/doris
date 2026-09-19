@@ -35,13 +35,13 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
     sql """analyze table hbo_sp_t with sync;"""
 
     def prevInfoCollection = (sql "show global variables like 'enable_hbo_info_collection'")[0][1].toString()
-    sql "set global enable_hbo_info_collection=true;"
     sql "set enable_hbo_optimization=true;"
     sql "set show_hbo_fingerprint=true;"
     sql "set enable_sql_cache=false;"
     sql "set enable_query_cache=false;"
     def injected = []
     try {
+        sql "set global enable_hbo_info_collection=true;"
         def explainText = { q -> (sql """ explain $q """).flatten().join("\n") }
         // the exact and the constant agnostic fingerprint of the same filter node, and the struct
         // info printed for it (what a user copies into HBO SET STATISTICS)
@@ -168,8 +168,10 @@ suite("hbo_show_statistics_test", "nonConcurrent") {
         assertTrue((driftedRows[0][8].toString() =~
                 /,now=internal\.hbo_test\.hbo_sp_r:v3,[re]1010,\+1\.0%/).find(), driftedRows[0][8].toString())
     } finally {
-        injected.each { sql """ HBO DELETE STATISTICS FINGERPRINT='${it}'; """ }
+        // restore the global configuration FIRST: a throwing cleanup below must not leave the cluster
+        // with collection enabled for the suites which run after this one
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
+        injected.each { sql """ HBO DELETE STATISTICS FINGERPRINT='${it}'; """ }
     }
 
     assertTrue(sql(""" HBO SHOW PINNED STATISTICS LIKE '%hbo\\_sp\\_r%'; """).isEmpty())

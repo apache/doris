@@ -7217,11 +7217,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             } else if (param instanceof DorisParser.HboSetFingerprintContext) {
                 DorisParser.HboSetFingerprintContext fingerprintParam =
                         (DorisParser.HboSetFingerprintContext) param;
-                if (fingerprint != null) {
-                    throw new ParseException("FINGERPRINT is given twice in hbo set statistics statement");
-                }
                 if (!isHboWord(fingerprintParam.fingerprintWord, "FINGERPRINT")) {
                     throw unknownHboParameter(fingerprintParam.fingerprintWord);
+                }
+                if (fingerprint != null) {
+                    throw new ParseException("FINGERPRINT is given twice in hbo set statistics statement");
                 }
                 fingerprint = stripQuotes(fingerprintParam.fingerprint.getText());
             } else if (param instanceof DorisParser.HboSetWordContext) {

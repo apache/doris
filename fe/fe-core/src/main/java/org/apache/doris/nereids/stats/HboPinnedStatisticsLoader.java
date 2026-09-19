@@ -36,9 +36,11 @@ import org.apache.logging.log4j.Logger;
  *
  * <p>The daemon therefore owns the only call to the load. It retries every
  * {@link HboPlanStatisticsManager#LOAD_RETRY_INTERVAL_MS} until the entries are in memory (the
- * internal schema may not be ready right after start-up), and stops as soon as the manager has
- * everything it needs - which also covers a FE whose internal schema database is disabled, and a
- * FE whose persistence is configured off.
+ * internal schema may not be ready right after start-up) and stops once the manager has everything
+ * it needs, or once the internal schema database is disabled (a property of this FE which cannot
+ * change at runtime). A FE whose persistence is merely configured off keeps the daemon cycling: the
+ * load itself returns immediately in that case (no query is issued), and the cycle is what picks the
+ * entries up when the operator turns the hot config on.
  */
 public class HboPinnedStatisticsLoader extends Daemon {
     private static final Logger LOG = LogManager.getLogger(HboPinnedStatisticsLoader.class);

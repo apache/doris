@@ -49,13 +49,13 @@ suite("hbo_row_count_drift_test", "nonConcurrent") {
 
     def prevInfoCollection = (sql "show global variables like 'enable_hbo_info_collection'")[0][1].toString()
     def prevRatio = (sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'hbo_row_count_change_ratio'; """)[0][1].toString()
-    sql "set global enable_hbo_info_collection=true;"
     sql "set enable_hbo_optimization=true;"
     sql "set show_hbo_fingerprint=true;"
     sql "set enable_sql_cache=false;"
     sql "set enable_query_cache=false;"
     def injected = []
     try {
+        sql "set global enable_hbo_info_collection=true;"
         def explainText = { String q -> (sql """ explain $q """).flatten().join("\n") }
         // the annotation line of one entry (the read side reports the data state verdict on it)
         def entryLineOf = { String text, String fingerprint ->
@@ -85,6 +85,10 @@ suite("hbo_row_count_drift_test", "nonConcurrent") {
         // below normalise because both are the same number for these tables
         def normalizeRows = { String text -> text.replaceAll(/,[re](\d+)/, ',r$1') }
         assertTrue(normalizeRows(structCanonical).contains("S{internal.hbo_test.hbo_dr_t,v2,r1000}"),
+                structCanonical)
+        // ... and the row count carries the tag of how it was obtained: 'r' when every selected
+        // partition reported its own count, 'e' when it was derived from the table
+        assertTrue((structCanonical =~ /S\{internal\.hbo_test\.hbo_dr_t,v\d+,[re]\d+\}/).find(),
                 structCanonical)
         sql """ HBO SET STATISTICS VALUE=600 LITERAL_MODE=WITH_LITERAL FINGERPRINT='${fingerprint}'
                 STRUCT='${structCanonical}'; """
@@ -150,7 +154,12 @@ suite("hbo_row_count_drift_test", "nonConcurrent") {
         // of the two states is reported depends on how the row count could be read at each moment,
         // so the assertion only pins down that the entry was NOT rejected
         def grown = verdictOf(explainText(partitionQuery), partitionFingerprint)
-        assertTrue((grown =~ /^used=(live|drifted)/).find(), grown)
+        // the entry is applied although the table grew by 50%: the rows of the partition this query
+        // reads did not change, and they are what the entry depends on. Which of the three states is
+        // reported depends on how the row counts could be read at each moment (a measurement or a
+        // derivation), so the assertion pins down that the entry was not rejected and that any
+        // reported ratio is a change of zero rows
+        assertTrue((grown =~ /^used=(live|unknown|drifted\(rows=1000,rec=1000,\+0\.0%\))$/).find(), grown)
         // HBO SHOW STATISTICS cannot run the query of an entry, so it compares the recorded state
         // with the catalog as a whole - and the recorded rows of a pruned scan are not the rows of
         // the table: it reports unknown and keeps the entry, only the read side can judge it
@@ -163,9 +172,10 @@ suite("hbo_row_count_drift_test", "nonConcurrent") {
         def partitionGrown = verdictOf(explainText(partitionQuery), partitionFingerprint)
         assertTrue((partitionGrown =~ /^skipped=stale\(rows=\d+,rec=1000,/).find(), partitionGrown)
     } finally {
-        injected.each { sql """ HBO DELETE STATISTICS FINGERPRINT='${it}'; """ }
-        // restore the config and the session state last, so a failure above cannot leak them
+        // restore the global configuration FIRST: a throwing cleanup below must not leave the cluster
+        // with a changed tolerance for the suites which run after this one
         sql """ ADMIN SET FRONTEND CONFIG ("hbo_row_count_change_ratio" = "${prevRatio}"); """
         sql "set global enable_hbo_info_collection=${prevInfoCollection};"
+        injected.each { sql """ HBO DELETE STATISTICS FINGERPRINT='${it}'; """ }
     }
 }

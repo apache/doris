@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
 import org.apache.doris.statistics.model.Statistics;
@@ -269,10 +270,16 @@ public class HboStatsCalculator extends StatsCalculator {
             // the entry is judged against a data state taken now, not against the one the memo cached
             // when this group was looked up the first time: a load which committed while the query is
             // being optimized would otherwise be invisible. The cached struct info stays the source of
-            // the fingerprint, which does not depend on any data state.
-            Optional<GroupStructInfo> dataState = GroupStructInfo.dataStateOfPlanNode(planNode, null, mode);
-            HboStructFreshness freshness = HboStructFreshness.between(pinned.getStructCanonical(),
-                    dataState.isPresent() ? dataState.get() : structInfo);
+            // the fingerprint, which does not depend on any data state. An entry which records no data
+            // state at all is applied as it always was, so there is nothing to walk for.
+            HboStructFreshness freshness;
+            if (HboStructFreshness.hasRecordedDataState(pinned.getStructCanonical())) {
+                Optional<GroupStructInfo> dataState = GroupStructInfo.dataStateOfPlanNode(planNode, null, mode);
+                freshness = HboStructFreshness.between(pinned.getStructCanonical(),
+                        dataState.isPresent() ? dataState.get() : structInfo);
+            } else {
+                freshness = HboStructFreshness.between(pinned.getStructCanonical(), structInfo.getScans());
+            }
             if (freshness.isStale()) {
                 // the data this entry was measured on moved too far (or its state cannot be
                 // verified any more): do not apply the recorded row count, keep looking
@@ -310,16 +317,27 @@ public class HboStatsCalculator extends StatsCalculator {
             return null;
         }
         // a learned key does not contain the data state of its tables either, so the entry is judged
-        // by the input table statistics it was measured with: an entry published before a large data
-        // change must not keep its old row count (see HboStructFreshness.ofLearnedEntry)
+        // by the rows it recorded for its input tables: an entry published before a large data change
+        // must not keep its old row count (see HboStructFreshness.ofLearnedEntry).
+        //
+        // Only a scan node reports the rows it read before its own predicates, which is the number a
+        // catalog row count can be compared with; every other node reports what its input produced
+        // after those predicates, where a ratio against the rows of the data would be off by the
+        // selectivity of that node. Guarding those would reject almost every selective entry, so they
+        // are left unguarded (the publish path would have to record the rows of the node's input
+        // tables for that).
         String hash = planNodeAndHashOpt.get().getHash().get();
-        Optional<GroupStructInfo> liveStructInfo = GroupStructInfo.structInfoOfPlanNode(planNode, null, mode);
-        if (liveStructInfo.isPresent()) {
-            HboStructFreshness freshness = HboStructFreshness.ofLearnedEntry(
-                    matchedEntry.getInputTableStatistics(), liveStructInfo.get());
-            if (freshness.isStale()) {
-                recordPinnedSkip(hash, freshness.getSummary());
-                return null;
+        if (planNode instanceof OlapScan) {
+            // the data state of a scan group is the scan itself, so asking for it now costs nothing
+            // (and a load during this planning pass is seen, unlike the cached state)
+            Optional<GroupStructInfo> liveStructInfo = GroupStructInfo.dataStateOfPlanNode(planNode, null, mode);
+            if (liveStructInfo.isPresent()) {
+                HboStructFreshness freshness = HboStructFreshness.ofLearnedEntry(
+                        matchedEntry.getInputTableStatistics(), liveStructInfo.get());
+                if (freshness.isStale()) {
+                    recordPinnedSkip(hash, freshness.getSummary());
+                    return null;
+                }
             }
         }
         // a learned entry also has to be visible as "used" in the explain annotation, which is keyed

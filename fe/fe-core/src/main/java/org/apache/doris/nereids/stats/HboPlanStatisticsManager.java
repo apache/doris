@@ -346,7 +346,18 @@ public class HboPlanStatisticsManager {
         return removed;
     }
 
+    /**
+     * Every pinned entry of this FE, after making sure the persisted ones have been loaded.
+     *
+     * <p>Unlike the planning path ({@link #getPinnedPlanStatistics}) this is only used by the admin
+     * statements ({@code HBO SHOW} / {@code HBO DELETE STALE STATISTICS}), which are expected to wait
+     * for the entries of the internal table and to report what is stored. Loading here cannot
+     * re-enter the way it could before the load moved to {@link HboPinnedStatisticsLoader}: the
+     * internal statement a load runs is planned by this FE, and its planning reads the pinned cache
+     * without triggering a load any more.
+     */
     public Map<String, PinnedHboStatistics> getAllPinnedPlanStatistics() {
+        ensurePinnedLoaded();
         return Collections.unmodifiableMap(pinnedPlanStatistics.asMap());
     }
 
@@ -356,8 +367,15 @@ public class HboPlanStatisticsManager {
      * schema is not ready, or persistence is turned off) simply plans without the persisted entries.
      */
     public void startPinnedStatisticsLoader() {
-        loader = new HboPinnedStatisticsLoader(this);
-        loader.start();
+        synchronized (pinnedLoadLock) {
+            if (loader != null && loader.isAlive()) {
+                // the daemon threads are started again when a FE is promoted; a second loader would
+                // only double the retry attempts
+                return;
+            }
+            loader = new HboPinnedStatisticsLoader(this);
+            loader.start();
+        }
         LOG.info("started the hbo pinned statistics loader");
     }
 
