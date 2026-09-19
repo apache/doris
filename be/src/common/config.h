@@ -1724,6 +1724,11 @@ DECLARE_mInt64(spill_s3_storage_limit_bytes);
 // partially filled last one). Bounds the upload buffer memory of spill; writers block once it
 // is reached.
 DECLARE_mInt64(spill_s3_max_inflight_upload_bytes);
+// Upper bound of one object-storage read of spill data. Adjacent spilled blocks are coalesced
+// into one GET of at most this size (further capped by the query's spill_buffer_size_bytes);
+// a single block larger than it is still read whole. 0 reads the part footer exactly and
+// every block with its own GET.
+DECLARE_mInt64(spill_s3_read_coalesce_bytes);
 DECLARE_Int64(wait_cancel_release_memory_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);

@@ -102,6 +102,8 @@ struct MockS3Store {
     // LIST of a whole spill root ("{vault}/spill/{ip}_{port}/"), issued by the startup cleanup only.
     std::atomic<int64_t> root_list_requests {0};
     std::atomic<int64_t> get_requests {0};
+    // Bytes returned by each GET, in order. Guarded by mutex.
+    std::vector<size_t> get_sizes;
     std::atomic<int64_t> head_requests {0};
     std::atomic<int64_t> list_requests {0};
     std::atomic<int64_t> delete_requests {0};
@@ -135,6 +137,7 @@ struct MockS3Store {
         put_requests = 0;
         root_list_requests = 0;
         get_requests = 0;
+        get_sizes.clear();
         head_requests = 0;
         list_requests = 0;
         delete_requests = 0;
@@ -298,6 +301,7 @@ public:
         size_t to_copy = std::min(bytes_read, it->second.size() - offset);
         memcpy(buffer, it->second.data() + offset, to_copy);
         *size_return = to_copy;
+        _store->get_sizes.push_back(to_copy);
         return io::ObjStorageResponse::OK();
     }
 
@@ -464,6 +468,7 @@ protected:
         _saved_limit = config::spill_s3_storage_limit_bytes;
         _saved_inflight = config::spill_s3_max_inflight_upload_bytes;
         _saved_check_after_upload = config::enable_s3_object_check_after_upload;
+        _saved_read_coalesce = config::spill_s3_read_coalesce_bytes;
         // The manager talks to meta-service through the cloud storage engine only in cloud
         // mode; there is no engine in this test, so pin the mode regardless of earlier tests.
         _saved_deploy_mode = config::deploy_mode;
@@ -509,6 +514,7 @@ protected:
         config::spill_s3_storage_limit_bytes = _saved_limit;
         config::spill_s3_max_inflight_upload_bytes = _saved_inflight;
         config::enable_s3_object_check_after_upload = _saved_check_after_upload;
+        config::spill_s3_read_coalesce_bytes = _saved_read_coalesce;
         config::deploy_mode = _saved_deploy_mode;
         config::cloud_unique_id = _saved_cloud_unique_id;
         BackendOptions::set_localhost(_saved_localhost);
@@ -588,6 +594,80 @@ protected:
         return spill_file;
     }
 
+    // Read the whole spill file and return the values of its first column.
+    std::vector<std::string> _read_all(const SpillFileSPtr& spill_file) {
+        auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
+        auto st = reader->open();
+        EXPECT_TRUE(st.ok()) << st;
+        std::vector<std::string> values;
+        bool eos = false;
+        while (st.ok() && !eos) {
+            Block block;
+            st = reader->read(&block, &eos);
+            EXPECT_TRUE(st.ok()) << st;
+            if (block.rows() > 0) {
+                auto block_values = _column_values(block);
+                values.insert(values.end(), block_values.begin(), block_values.end());
+            }
+        }
+        EXPECT_TRUE(reader->close().ok());
+        return values;
+    }
+
+    static std::vector<std::string> _values_of(const std::vector<Block>& blocks) {
+        std::vector<std::string> values;
+        for (const auto& block : blocks) {
+            auto block_values = _column_values(block);
+            values.insert(values.end(), block_values.begin(), block_values.end());
+        }
+        return values;
+    }
+
+    static std::string _object(const std::string& key) {
+        std::lock_guard lock(mock_store().mutex);
+        return mock_store().objects.at(mock_store().make_key(kBucket, key));
+    }
+
+    // Block start offsets of a part object, followed by the offset where its footer starts.
+    static std::vector<size_t> _block_offsets(const std::string& object) {
+        size_t block_count = 0;
+        memcpy(&block_count, object.data() + object.size() - sizeof(size_t), sizeof(size_t));
+        size_t footer_start = object.size() - (block_count + 2) * sizeof(size_t);
+        std::vector<size_t> offsets(block_count + 1);
+        for (size_t i = 0; i < block_count; ++i) {
+            memcpy(&offsets[i], object.data() + footer_start + i * sizeof(size_t), sizeof(size_t));
+        }
+        offsets[block_count] = footer_start;
+        return offsets;
+    }
+
+    // Sizes of the reads that cover the blocks in order when adjacent blocks are coalesced
+    // up to `window` bytes; a block larger than the window is read alone.
+    static std::vector<size_t> _coalesced_reads(const std::vector<size_t>& offsets, size_t window) {
+        std::vector<size_t> reads;
+        const size_t block_count = offsets.size() - 1;
+        for (size_t i = 0; i < block_count;) {
+            size_t last = i + 1;
+            while (last < block_count && offsets[last + 1] - offsets[i] <= window) {
+                ++last;
+            }
+            reads.push_back(offsets[last] - offsets[i]);
+            i = last;
+        }
+        return reads;
+    }
+
+    static std::vector<size_t> _get_sizes() {
+        std::lock_guard lock(mock_store().mutex);
+        return mock_store().get_sizes;
+    }
+
+    static void _reset_get_stats() {
+        std::lock_guard lock(mock_store().mutex);
+        mock_store().get_requests = 0;
+        mock_store().get_sizes.clear();
+    }
+
     int64_t _counter(const char* name) {
         auto* counter = _custom_profile->get_counter(name);
         EXPECT_NE(counter, nullptr) << name;
@@ -610,6 +690,7 @@ protected:
     int64_t _saved_limit = 0;
     int64_t _saved_inflight = 0;
     bool _saved_check_after_upload = true;
+    int64_t _saved_read_coalesce = 0;
     std::string _saved_deploy_mode;
     std::string _saved_cloud_unique_id;
     std::string _saved_localhost;
@@ -718,9 +799,8 @@ TEST_F(SpillFileS3Test, RoundtripAcrossParts) {
     st = reader->close();
     ASSERT_TRUE(st.ok());
 
-    // 3 footer reads per part plus one read per block, each a GET.
-    int64_t expected_gets =
-            3 * static_cast<int64_t>(keys.size()) + static_cast<int64_t>(blocks.size());
+    // Every part fits in one coalesced read, so it is fetched whole with a single GET.
+    int64_t expected_gets = static_cast<int64_t>(keys.size());
     ASSERT_EQ(_counter(profile::SPILL_REMOTE_READ_REQUESTS), expected_gets);
     ASSERT_EQ(mock_store().get_requests, expected_gets);
     ASSERT_EQ(io_ctx->spill_remote_read_requests(), expected_gets);
@@ -760,6 +840,147 @@ TEST_F(SpillFileS3Test, SeekAcrossParts) {
     bool eos = false;
     ASSERT_TRUE(reader->read(&block, &eos).ok());
     ASSERT_TRUE(eos);
+}
+
+// One part larger than the footer probe: the footer takes one GET, then adjacent blocks are
+// coalesced into reads of at most spill_s3_read_coalesce_bytes, a block larger than that is
+// read alone, and a window covering the whole part fetches it in one GET.
+TEST_F(SpillFileS3Test, ReadCoalescesAdjacentBlocks) {
+    config::spill_file_part_size_bytes = 1024 * 1024;
+    _create_manager();
+    std::mt19937 rng(11);
+    std::vector<Block> blocks;
+    for (int i = 0; i < 12; ++i) {
+        blocks.push_back(_random_string_block(rng, 64, 200));
+    }
+    Status st;
+    auto spill_file = _write_blocks("query_5/join-1-0-1", blocks, &st);
+    ASSERT_TRUE(st.ok()) << st;
+    auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_5/");
+    ASSERT_EQ(keys.size(), 1);
+    const std::string object = _object(keys[0]);
+    const auto offsets = _block_offsets(object);
+    ASSERT_EQ(offsets.size(), blocks.size() + 1);
+    const size_t footer_size = object.size() - offsets.back();
+    constexpr size_t kFooterProbe = 64 * 1024;
+    ASSERT_GT(object.size(), kFooterProbe);
+    size_t min_block = SIZE_MAX;
+    for (size_t i = 0; i + 1 < offsets.size(); ++i) {
+        min_block = std::min(min_block, offsets[i + 1] - offsets[i]);
+    }
+    ASSERT_GT(min_block, 1024);
+
+    auto* io_ctx = _runtime_state->get_query_ctx()->resource_ctx()->io_context();
+    const auto expected_values = _values_of(blocks);
+    for (int64_t window : {int64_t(1024), int64_t(40 * 1024), int64_t(object.size())}) {
+        SCOPED_TRACE(fmt::format("window {}", window));
+        config::spill_s3_read_coalesce_bytes = window;
+        _reset_get_stats();
+        int64_t read_bytes_before = io_ctx->spill_read_bytes_from_remote_storage();
+        int64_t requests_before = io_ctx->spill_remote_read_requests();
+
+        ASSERT_EQ(_read_all(spill_file), expected_values);
+
+        std::vector<size_t> expected_gets;
+        if (static_cast<size_t>(window) >= object.size()) {
+            expected_gets.push_back(object.size());
+        } else {
+            expected_gets.push_back(kFooterProbe);
+            auto reads = _coalesced_reads(offsets, window);
+            expected_gets.insert(expected_gets.end(), reads.begin(), reads.end());
+        }
+        ASSERT_EQ(_get_sizes(), expected_gets);
+        ASSERT_EQ(io_ctx->spill_remote_read_requests() - requests_before,
+                  static_cast<int64_t>(expected_gets.size()));
+        size_t total = 0;
+        for (size_t size : expected_gets) {
+            total += size;
+        }
+        ASSERT_EQ(io_ctx->spill_read_bytes_from_remote_storage() - read_bytes_before, total);
+        if (window == 1024) {
+            // Every block is larger than the window, so each is read alone.
+            ASSERT_EQ(expected_gets.size(), 1 + blocks.size());
+        } else if (static_cast<size_t>(window) < object.size()) {
+            ASSERT_LT(expected_gets.size(), 1 + blocks.size());
+            // The probe re-reads only the tail blocks in front of the footer.
+            ASSERT_EQ(total, object.size() + kFooterProbe - footer_size);
+        }
+    }
+}
+
+// spill_s3_read_coalesce_bytes = 0 falls back to exact reads: the footer of every part (block
+// count and max sub block size, then the offsets) and one GET per block.
+TEST_F(SpillFileS3Test, ReadCoalesceDisabled) {
+    config::spill_s3_read_coalesce_bytes = 0;
+    _create_manager();
+    std::mt19937 rng(13);
+    std::vector<Block> blocks;
+    for (int i = 0; i < 10; ++i) {
+        blocks.push_back(_random_string_block(rng, 64, 200));
+    }
+    Status st;
+    auto spill_file = _write_blocks("query_6/agg-1-0-1", blocks, &st);
+    ASSERT_TRUE(st.ok()) << st;
+    auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_6/");
+    ASSERT_GT(keys.size(), 1);
+    // Parts are read in index order; the listing is lexicographic.
+    auto part_index = [](const std::string& key) {
+        return std::stoul(key.substr(key.rfind('/') + 1));
+    };
+    std::sort(keys.begin(), keys.end(), [&](const std::string& a, const std::string& b) {
+        return part_index(a) < part_index(b);
+    });
+    std::vector<size_t> expected_gets;
+    int64_t object_bytes = 0;
+    for (const auto& key : keys) {
+        const std::string object = _object(key);
+        object_bytes += object.size();
+        const auto offsets = _block_offsets(object);
+        expected_gets.push_back(2 * sizeof(size_t));
+        expected_gets.push_back((offsets.size() - 1) * sizeof(size_t));
+        for (size_t i = 0; i + 1 < offsets.size(); ++i) {
+            expected_gets.push_back(offsets[i + 1] - offsets[i]);
+        }
+    }
+
+    _reset_get_stats();
+    ASSERT_EQ(_read_all(spill_file), _values_of(blocks));
+    ASSERT_EQ(_get_sizes(), expected_gets);
+    auto* io_ctx = _runtime_state->get_query_ctx()->resource_ctx()->io_context();
+    ASSERT_EQ(io_ctx->spill_read_bytes_from_remote_storage(), object_bytes);
+}
+
+// Seeking inside the part that is already buffered issues no request.
+TEST_F(SpillFileS3Test, SeekWithinBufferedPart) {
+    config::spill_file_part_size_bytes = 1024 * 1024;
+    _create_manager();
+    std::mt19937 rng(17);
+    std::vector<Block> blocks;
+    for (int i = 0; i < 10; ++i) {
+        blocks.push_back(_random_string_block(rng, 64, 200));
+    }
+    Status st;
+    auto spill_file = _write_blocks("query_7/sort-1-0-1", blocks, &st);
+    ASSERT_TRUE(st.ok()) << st;
+    auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_7/");
+    ASSERT_EQ(keys.size(), 1);
+
+    _reset_get_stats();
+    auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
+    ASSERT_TRUE(reader->open().ok());
+    ASSERT_EQ(_get_sizes(), std::vector<size_t> {_object(keys[0]).size()});
+    for (size_t target : {7UL, 2UL, 9UL, 0UL}) {
+        st = reader->seek(target);
+        ASSERT_TRUE(st.ok()) << st;
+        Block block;
+        bool eos = false;
+        st = reader->read(&block, &eos);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_FALSE(eos);
+        ASSERT_EQ(_column_values(block), _column_values(blocks[target]));
+    }
+    ASSERT_EQ(mock_store().get_requests, 1);
+    ASSERT_TRUE(reader->close().ok());
 }
 
 TEST_F(SpillFileS3Test, GcDeletesObjects) {
