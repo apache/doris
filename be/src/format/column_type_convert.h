@@ -44,6 +44,16 @@ namespace doris::converter {
 
 enum FileFormat { COMMON, ORC, PARQUET };
 
+inline bool requires_datetimev2_precision_conversion(const DataTypePtr& src_type,
+                                                     const DataTypePtr& dst_type) {
+    const auto src = remove_nullable(src_type);
+    const auto dst = remove_nullable(dst_type);
+    const auto primitive = src->get_primitive_type();
+    return primitive == dst->get_primitive_type() &&
+           (primitive == TYPE_DATETIMEV2 || primitive == TYPE_TIMESTAMPTZ) &&
+           src->get_scale() > dst->get_scale();
+}
+
 // Helper: get the inner (non-nullable) mutable column from an exclusively-owned dst_col.
 // - For non-nullable dst_col: returns a raw pointer to the column itself.
 // - For nullable dst_col: returns a raw pointer to the nested (non-null) column.

@@ -373,8 +373,7 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
         return _decimal_converter(src_type, dst_type);
     }
 
-    if (src_primitive_type == TYPE_DATETIMEV2 && dst_primitive_type == TYPE_DATETIMEV2 &&
-        src_type->get_scale() > dst_type->get_scale()) {
+    if (requires_datetimev2_precision_conversion(src_type, dst_type)) {
         return std::make_unique<DateTimeV2PrecisionConverter>(dst_type->get_scale());
     }
 

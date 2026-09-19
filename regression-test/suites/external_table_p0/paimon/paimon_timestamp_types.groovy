@@ -112,11 +112,37 @@ suite("paimon_timestamp_types", "p0,external") {
             """
         }
 
+        def precisionEvolutionPredicateQuery = { table ->
+            return """
+                select id, cast(ts as string), microsecond(ts)
+                from ${table}
+                where ts = '2025-01-01 00:00:01'
+                order by id
+            """
+        }
+
+        def precisionEvolutionRangePredicateQuery = { table ->
+            return """
+                select id, cast(ts as string), microsecond(ts)
+                from ${table}
+                where ts >= '2025-01-01 00:00:01' and ts < '2025-01-01 00:00:03'
+                order by id
+            """
+        }
+
         sql """set force_jni_scanner=false"""
         sql """set enable_file_scanner_v2=false"""
         order_qt_precision_evolution_v1_parquet precisionEvolutionQuery(
                 "timestamp_precision_evolution_parquet")
         order_qt_precision_evolution_v1_orc precisionEvolutionQuery(
+                "timestamp_precision_evolution_orc")
+        order_qt_precision_evolution_v1_parquet_predicate precisionEvolutionPredicateQuery(
+                "timestamp_precision_evolution_parquet")
+        order_qt_precision_evolution_v1_orc_predicate precisionEvolutionPredicateQuery(
+                "timestamp_precision_evolution_orc")
+        order_qt_precision_evolution_v1_parquet_range_predicate precisionEvolutionRangePredicateQuery(
+                "timestamp_precision_evolution_parquet")
+        order_qt_precision_evolution_v1_orc_range_predicate precisionEvolutionRangePredicateQuery(
                 "timestamp_precision_evolution_orc")
 
         sql """set enable_file_scanner_v2=true"""
@@ -384,29 +410,5 @@ insert into test_timestamp_ntz_ltz_simple_parquet values (
     ARRAY[timestamp '2024-01-01 10:12:34.123456', timestamp '2024-01-02 10:12:34.123456', timestamp '2024-01-03 10:12:34.123456'],
     ROW(timestamp '2024-01-01 10:12:34.123456', timestamp '2024-01-02 10:12:34.123456')
 );
-
-create table timestamp_precision_evolution_parquet (
-    id int,
-    ts timestamp(6)
-) with ('file.format' = 'parquet');
-
-insert into timestamp_precision_evolution_parquet values
-    (1, timestamp '2025-01-01 00:00:01.600000'),
-    (2, timestamp '2025-01-01 00:00:02.999999'),
-    (3, timestamp '2025-01-01 00:00:03.400000');
-
-alter table timestamp_precision_evolution_parquet modify ts timestamp(0);
-
-create table timestamp_precision_evolution_orc (
-    id int,
-    ts timestamp(6)
-) with ('file.format' = 'orc');
-
-insert into timestamp_precision_evolution_orc values
-    (1, timestamp '2025-01-01 00:00:01.600000'),
-    (2, timestamp '2025-01-01 00:00:02.999999'),
-    (3, timestamp '2025-01-01 00:00:03.400000');
-
-alter table timestamp_precision_evolution_orc modify ts timestamp(0);
 
 */

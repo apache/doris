@@ -67,6 +67,16 @@ TEST_F(ColumnTypeConverterTest, TruncatesDateTimeV2PrecisionWithoutRounding) {
     }
 }
 
+TEST_F(ColumnTypeConverterTest, DateTimeV2PrecisionNarrowingRequiresPredicateConversion) {
+    const auto file_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    const auto narrowed_table_type = std::make_shared<DataTypeDateTimeV2>(0);
+    const auto equal_table_type = std::make_shared<DataTypeDateTimeV2>(6);
+
+    EXPECT_TRUE(
+            converter::requires_datetimev2_precision_conversion(file_type, narrowed_table_type));
+    EXPECT_FALSE(converter::requires_datetimev2_precision_conversion(file_type, equal_table_type));
+}
+
 // Test integer type conversions (widening)
 TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
     // Test TINYINT -> SMALLINT

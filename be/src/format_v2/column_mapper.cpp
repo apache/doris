@@ -1504,6 +1504,9 @@ static bool mapping_can_use_file_column_directly(const ColumnMapping& mapping) {
     if (mapping.table_type == nullptr || mapping.file_type == nullptr) {
         return false;
     }
+    if (mapping.truncate_datetimev2_precision) {
+        return false;
+    }
     const auto table_type = remove_nullable(mapping.table_type);
     const auto file_type = remove_nullable(mapping.file_type);
     const bool same_timestamptz_with_different_scale =
@@ -2903,10 +2906,9 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     mapping->file_type = file_field.type;
     const auto file_type = remove_nullable(mapping->file_type);
     const auto table_type = remove_nullable(mapping->table_type);
-    mapping->truncate_datetimev2_precision = _options.truncate_datetimev2_precision_for_paimon &&
-                                             file_type->get_primitive_type() == TYPE_DATETIMEV2 &&
-                                             table_type->get_primitive_type() == TYPE_DATETIMEV2 &&
-                                             file_type->get_scale() > table_type->get_scale();
+    mapping->truncate_datetimev2_precision =
+            _options.truncate_datetimev2_precision_for_paimon &&
+            converter::requires_datetimev2_precision_conversion(file_type, table_type);
     // Access paths are relative to the Variant terminal, so recursive complex mappings must carry
     // them instead of leaving them only on the top-level table column.
     mapping->variant_access_paths = table_column.variant_access_paths;
