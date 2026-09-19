@@ -26,19 +26,14 @@ import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TabletStatsPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.proto.InternalService;
-import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.thrift.FrontendService;
@@ -47,7 +42,6 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TSyncCloudTabletStatsRequest;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -84,24 +78,6 @@ public class CloudTabletStatMgr extends MasterDaemon {
     // keep Config.prom_output_table_metrics_limit tables with the largest data size, used for prometheus output
     private volatile List<OlapTable.Statistics> cloudTableStatsList = new ArrayList<>();
 
-    /** One successful fetch of the remote spill stats: the value and when it was fetched. */
-    private static final class RemoteSpillStats {
-        private final long bytes;
-        private final long fetchTimeMs;
-
-        private RemoteSpillStats(long bytes, long fetchTimeMs) {
-            this.bytes = bytes;
-            this.fetchTimeMs = fetchTimeMs;
-        }
-    }
-
-    // Bytes of query spill currently held in object storage (spill_storage_type=s3), summed over
-    // the alive BEs of all clusters. Polled once per cycle on every FE, so SHOW DATA reads it from
-    // memory like the tablet sizes. Null until the first successful poll. A BE that is gone no
-    // longer contributes: its leftover objects are removed by its restart or by the meta-service
-    // recycler and are not counted meanwhile.
-    private volatile RemoteSpillStats remoteSpillStats = null;
-
     private static final ExecutorService GET_TABLET_STATS_THREAD_POOL = Executors.newFixedThreadPool(
             Config.max_get_tablet_stat_task_threads_num,
             new ThreadFactoryBuilder().setNameFormat("get-tablet-stats-%d").setDaemon(true).build());
@@ -134,9 +110,6 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        // Independent of the tablet stats below: a failure there must not skip this refresh.
-        refreshRemoteSpillStats();
-
         if (cloudTableStatsList.isEmpty()) {
             // use tablet stats loaded from image to update table stats when fe start
             // avoid that the table stats is empty for a long time since getAllTabletStats may consume a long time
@@ -317,71 +290,6 @@ public class CloudTabletStatMgr extends MasterDaemon {
             updateTabletStat(resp, activeUpdate);
             return null;
         });
-    }
-
-    private void refreshRemoteSpillStats() {
-        List<Backend> backends;
-        try {
-            backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
-        } catch (AnalysisException e) {
-            LOG.warn("failed to list the backends for the remote spill stats", e);
-            return;
-        }
-        InternalService.PGetBeResourceRequest request = InternalService.PGetBeResourceRequest.newBuilder().build();
-        List<Pair<Backend, Future<InternalService.PGetBeResourceResponse>>> futures = new ArrayList<>();
-        for (Backend be : backends) {
-            if (!be.isAlive()) {
-                continue;
-            }
-            futures.add(Pair.of(be, BackendServiceProxy.getInstance()
-                    .getBeResourceAsync(be.getBrpcAddress(), 5, request)));
-        }
-        // Any failure keeps the previous value: a partial sum would under-report a billing input,
-        // and getRemoteSpillBytes() reports a value that stays stale for too long.
-        long totalBytes = 0;
-        for (Pair<Backend, Future<InternalService.PGetBeResourceResponse>> beFuture : futures) {
-            if (beFuture.second == null) {
-                LOG.warn("failed to send get_be_resource to backend {}", beFuture.first.getId());
-                return;
-            }
-            try {
-                InternalService.PGetBeResourceResponse response = beFuture.second.get(5, TimeUnit.SECONDS);
-                if (!response.hasStatus() || new Status(response.getStatus()).getErrorCode() != TStatusCode.OK) {
-                    LOG.warn("get_be_resource of backend {} failed: {}", beFuture.first.getId(),
-                            response.hasStatus() ? response.getStatus().getErrorMsgsList() : "no status");
-                    return;
-                }
-                totalBytes += response.getGlobalBeResourceUsage().getRemoteSpillBytes();
-            } catch (Exception e) {
-                LOG.warn("get_be_resource of backend {} failed", beFuture.first.getId(), e);
-                return;
-            }
-        }
-        remoteSpillStats = new RemoteSpillStats(totalBytes, System.currentTimeMillis());
-    }
-
-    @VisibleForTesting
-    void setRemoteSpillStatsForTest(long bytes, long fetchTimeMs) {
-        remoteSpillStats = new RemoteSpillStats(bytes, fetchTimeMs);
-    }
-
-    /**
-     * Bytes of query spill currently held in object storage, as last polled from the backends.
-     * This is a billing input, so a value that is missing or older than
-     * cloud_spill_stats_max_age_second is reported as an error instead of being shown as current.
-     */
-    public long getRemoteSpillBytes() throws AnalysisException {
-        RemoteSpillStats stats = remoteSpillStats;
-        if (stats == null) {
-            throw new AnalysisException("spill stats have not been polled from the backends yet");
-        }
-        long ageSecond = (System.currentTimeMillis() - stats.fetchTimeMs) / 1000;
-        if (ageSecond > Config.cloud_spill_stats_max_age_second) {
-            throw new AnalysisException(String.format("spill stats polled from the backends are stale: "
-                    + "last fetched %d seconds ago, limit %d seconds (cloud_spill_stats_max_age_second)",
-                    ageSecond, Config.cloud_spill_stats_max_age_second));
-        }
-        return stats.bytes;
     }
 
     private void updateStatInfo(List<Long> dbIds) {
