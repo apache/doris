@@ -48,11 +48,11 @@ public class MicroSecondsDiff extends ScalarFunction implements BinaryExpression
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(DateTimeV2Type.WILDCARD, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD),
-            FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD)
+                    .args(DateTimeV2Type.WILDCARD, DateTimeV2Type.WILDCARD),
+            FunctionSignature.ret(BigIntType.INSTANCE)
+                    .args(TimeStampTzType.WILDCARD, TimeStampTzType.WILDCARD)
             );
 
     /**
