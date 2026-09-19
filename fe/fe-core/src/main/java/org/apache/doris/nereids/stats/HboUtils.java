@@ -23,14 +23,11 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
-import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -45,9 +42,9 @@ import org.apache.doris.statistics.hbo.ScanPlanStatistics;
 import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.hash.Hashing;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,6 +55,7 @@ import java.util.Set;
  * Hbo utils.
  */
 public class HboUtils {
+    private static final Logger LOG = LogManager.getLogger(HboUtils.class);
 
     /**
      * Get accurate stats index
@@ -228,47 +226,6 @@ public class HboUtils {
     }
 
     /**
-     * Collect full qualifier of scan with relation id info, for distinguishing the same table in the query.
-     * This is mainly for pattern matching of hbo, supporting different join orders, such as a join b and b join a
-     * matching the same hbo stats. info.
-     * @param planNode planNode
-     * @param scanQualifierList scan qualifier list
-     */
-    public static void collectScanQualifierList(AbstractPlan planNode, List<String> scanQualifierList) {
-        if (planNode instanceof LogicalOlapScan) {
-            scanQualifierList.add(((LogicalOlapScan) planNode).getQualifierWithRelationId());
-        } else if (planNode instanceof PhysicalOlapScan) {
-            scanQualifierList.add(((PhysicalOlapScan) planNode).getQualifierWithRelationId());
-        } else if (planNode instanceof GroupPlan
-                && !((GroupPlan) planNode).getGroup().getLogicalExpressions().isEmpty()
-                && ((GroupPlan) planNode).getGroup()
-                .getLogicalExpressions().get(0).getPlan() instanceof AbstractLogicalPlan) {
-            Plan logicalPlan = ((GroupPlan) planNode).getGroup().getLogicalExpressions().get(0).getPlan();
-            collectScanQualifierList((AbstractPlan) logicalPlan, scanQualifierList);
-        } else if (planNode instanceof GroupPlan
-                && ((GroupPlan) planNode).getGroup().getLogicalExpressions().isEmpty()
-                && !((GroupPlan) planNode).getGroup().getPhysicalExpressions().isEmpty()
-                && ((GroupPlan) planNode).getGroup()
-                .getPhysicalExpressions().get(0).getPlan() instanceof AbstractPhysicalPlan) {
-            Plan physicalPlan = ((GroupPlan) planNode).getGroup().getPhysicalExpressions().get(0).getPlan();
-            collectScanQualifierList((AbstractPlan) physicalPlan, scanQualifierList);
-        } else {
-            for (Object child : planNode.children()) {
-                collectScanQualifierList((AbstractPlan) child, scanQualifierList);
-            }
-        }
-    }
-
-    /**
-     * Get plan fingerprint hash value
-     * @param planFingerprint plan fingerprint
-     * @return plan fingerprint hash value
-     */
-    public static String getPlanFingerprintHash(String planFingerprint) {
-        return Hashing.sha256().hashString(planFingerprint, StandardCharsets.UTF_8).toString();
-    }
-
-    /**
      * Get matched hbo plan stats. entry.
      * @param recentHboPlanStatistics recentHboPlanStatistics
      * @param inputTableStatistics inputTableStatistics
@@ -325,23 +282,24 @@ public class HboUtils {
     }
 
     /**
-     * getPlanNodeHash
-     * @param planNode planNode
-     * @return planNode And Hash
+     * Get the hbo lookup key of a plan node: the simplified group struct-info fingerprint.
+     * <p>Empty result means the node has no usable fingerprint (no group back reference /
+     * unsupported struct info): the caller should treat it as an hbo cache miss.
      */
-    public static PlanNodeAndHash getPlanNodeHash(AbstractPlan planNode) {
-        String planFingerprint;
-        String planHash;
-        if (planNode instanceof AbstractPhysicalPlan) {
-            planFingerprint = planNode.getPlanTreeFingerprint();
-            planHash = HboUtils.getPlanFingerprintHash(planFingerprint);
-        } else if (planNode instanceof AbstractLogicalPlan) {
-            planFingerprint = planNode.getPlanTreeFingerprint();
-            planHash = HboUtils.getPlanFingerprintHash(planFingerprint);
-        } else {
-            throw new IllegalStateException("hbo get neither physical plan nor logical plan");
-        }
-        return new PlanNodeAndHash(planNode, Optional.of(planHash));
+    public static Optional<PlanNodeAndHash> getHboPlanNodeAndHash(AbstractPlan planNode) {
+        return getHboPlanNodeAndHash(planNode, GroupStructInfo.LiteralMode.WITH_LITERAL);
+    }
+
+    /**
+     * Get the hbo lookup key of a plan node in the given literal mode (see
+     * {@link GroupStructInfo.LiteralMode}): {@code WITH_LITERAL} for the exact filter form,
+     * {@code NO_LITERAL} for the constant agnostic form used by join / aggregation keys and by
+     * the filter shape key.
+     */
+    public static Optional<PlanNodeAndHash> getHboPlanNodeAndHash(AbstractPlan planNode,
+            GroupStructInfo.LiteralMode mode) {
+        Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(planNode, mode);
+        return fingerprint.map(hash -> new PlanNodeAndHash(planNode, Optional.of(hash)));
     }
 
     private static Optional<List<PlanStatistics>> getFilterAdjustedInputTableStatistics(
@@ -376,6 +334,14 @@ public class HboUtils {
      */
     public static PlanStatistics getMatchedPlanStatistics(RecentRunsPlanStatistics planStatistics,
             ConnectContext connectContext) {
+        // an entry injected by HBO SET LEARNED STATISTICS carries no input table statistics; it is
+        // a wildcard that matches by fingerprint alone (real learned entries always describe at
+        // least one scan, so an empty input list is unambiguous)
+        for (RecentRunsPlanStatisticsEntry injected : planStatistics.getRecentRunsStatistics()) {
+            if (injected.getInputTableStatistics().isEmpty()) {
+                return injected.getPlanStatistics();
+            }
+        }
         PlanStatistics matchedPlanStatistics = null;
         // NOTE: get current inputTableStatistics is difficult, consider the case:
         // select ... from t where c1 = 1 followed by select ... from t where c1 = 1 and c2 = 2
@@ -479,8 +445,6 @@ public class HboUtils {
     private static InputTableStatisticsInfo buildHboInputTableStatisticsInfo(PhysicalPlan root,
             Map<PhysicalPlan, Integer> planToIdMap, Map<RelationId, Set<Expression>> scanToFilterMap,
             List<TPlanNodeRuntimeStatsItem> statsItem) {
-        String planFingerprint = ((AbstractPhysicalPlan) root).getPlanTreeFingerprint();
-        String planHash = HboUtils.getPlanFingerprintHash(planFingerprint);
         ImmutableList.Builder<PlanStatistics> inputTableStatisticsBuilder = ImmutableList.builder();
         List<PhysicalOlapScan> scans = root.collectToList(PhysicalOlapScan.class::isInstance);
         for (PhysicalOlapScan scan : scans) {
@@ -493,7 +457,7 @@ public class HboUtils {
                 }
             }
         }
-        return new InputTableStatisticsInfo(Optional.of(planHash), Optional.of(inputTableStatisticsBuilder.build()));
+        return new InputTableStatisticsInfo(Optional.of(inputTableStatisticsBuilder.build()));
     }
 
     /**
@@ -502,27 +466,56 @@ public class HboUtils {
      * @param planToIdMap planToIdMap
      * @param scanToFilterMap scanToFilterMap
      * @param curPlanNodeRuntimeStats curPlanNodeRuntimeStats
+     * @param nodeFingerprints snapshot of nereids plan node id -> hbo fingerprint taken during
+     *        planning (only populated when the struct-info fingerprint is enabled)
      * @return plan statistics map
      */
     public static Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> genPlanStatisticsMap(
             Map<Integer, PhysicalPlan> idToPlanMap, Map<PhysicalPlan, Integer> planToIdMap,
             Map<RelationId, Set<Expression>> scanToFilterMap,
-            List<TPlanNodeRuntimeStatsItem> curPlanNodeRuntimeStats) {
+            List<TPlanNodeRuntimeStatsItem> curPlanNodeRuntimeStats,
+            Map<Integer, String> nodeFingerprints) {
         Map<PlanNodeAndHash, PlanStatisticsWithInputInfo> outputPlanStatisticsMap = new HashMap<>();
+        int missingFingerprints = 0;
+        int skippedWithoutSnapshot = 0;
         for (TPlanNodeRuntimeStatsItem nodeStats : curPlanNodeRuntimeStats) {
             int nodeId = nodeStats.node_id;
             PhysicalPlan planNode = idToPlanMap.get(nodeId);
-            if (planNode != null) {
-                PlanStatistics curPlanStatistics = PlanStatistics.buildFromStatsItem(
-                        nodeStats, planNode, scanToFilterMap);
-                InputTableStatisticsInfo inputTableStatisticsInfo = buildHboInputTableStatisticsInfo(
-                        planNode, planToIdMap, scanToFilterMap, curPlanNodeRuntimeStats);
-                Optional<String> hash = inputTableStatisticsInfo.getHash();
-                PlanNodeAndHash planNodeAndHash = new PlanNodeAndHash((AbstractPlan) planNode, hash);
-                PlanStatisticsWithInputInfo planHashWithInputInfo = new PlanStatisticsWithInputInfo(
-                        nodeId, curPlanStatistics, inputTableStatisticsInfo);
-                outputPlanStatisticsMap.put(planNodeAndHash, planHashWithInputInfo);
+            if (planNode == null) {
+                continue;
             }
+            PlanStatistics curPlanStatistics = PlanStatistics.buildFromStatsItem(
+                    nodeStats, planNode, scanToFilterMap);
+            InputTableStatisticsInfo inputTableStatisticsInfo = buildHboInputTableStatisticsInfo(
+                    planNode, planToIdMap, scanToFilterMap, curPlanNodeRuntimeStats);
+            Optional<String> hash;
+            if (nodeFingerprints != null && nodeFingerprints.containsKey(nodeId)) {
+                hash = Optional.ofNullable(nodeFingerprints.get(nodeId));
+            } else {
+                // no planning-time snapshot for this node: skip it
+                skippedWithoutSnapshot++;
+                if (nodeFingerprints != null && !nodeFingerprints.isEmpty()) {
+                    missingFingerprints++;
+                }
+                continue;
+            }
+            if (!hash.isPresent()) {
+                continue;
+            }
+            PlanNodeAndHash planNodeAndHash = new PlanNodeAndHash((AbstractPlan) planNode, hash);
+            PlanStatisticsWithInputInfo planHashWithInputInfo = new PlanStatisticsWithInputInfo(
+                    nodeId, curPlanStatistics, inputTableStatisticsInfo);
+            outputPlanStatisticsMap.put(planNodeAndHash, planHashWithInputInfo);
+        }
+        if (missingFingerprints > 0) {
+            LOG.warn("hbo struct fingerprint snapshot missing for {} of {} plan nodes",
+                    missingFingerprints, curPlanNodeRuntimeStats.size());
+        } else if (skippedWithoutSnapshot > 0) {
+            // the whole per-query snapshot is empty (e.g. every group resolved INVALID): the
+            // worst diagnostic case must not be silent, unlike a partially populated snapshot
+            LOG.warn("hbo struct fingerprint snapshot is empty: skipped {} of {} plan nodes; "
+                    + "hbo statistics for this query will not be published",
+                    skippedWithoutSnapshot, curPlanNodeRuntimeStats.size());
         }
         return outputPlanStatisticsMap;
     }

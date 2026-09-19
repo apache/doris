@@ -2333,6 +2333,65 @@ public class Config extends ConfigBase {
     public static int hbo_plan_info_cache_num = 1000;
 
     /**
+     * Maximum number of manually injected (pinned) hbo statistics entries kept per FE. When the
+     * limit is exceeded the least recently used pinned entry is evicted (LRU); pinned entries are
+     * otherwise not expired automatically. A non-positive value disables the LRU bound
+     * (unbounded), matching the other hbo caches. Takes effect at FE start (not hot-mutable).
+     */
+    /**
+     * Threshold of the "extremely small filter estimate" guard used by pinned entries injected with
+     * {@code TYPE FILTER_SMALL}: such an entry is only applied while the optimizer's own filter
+     * estimate E satisfies {@code E <= 1} or {@code E <= inputRows * hbo_filter_small_ratio}, i.e.
+     * while the pathological regime that motivated the injection still holds. Hot mutable.
+     */
+    @ConfField(mutable = true, description = "The default setting is 0.001. Relative threshold below which "
+            + "the optimizer's own filter estimate counts as 'extremely small' for HBO FILTER_SMALL "
+            + "pinned entries.")
+    public static double hbo_filter_small_ratio = 0.001;
+
+    /**
+     * Tolerance of a hbo entry against data growth. A hbo key no longer contains the visible version
+     * or the row count of its tables, so an entry keeps matching while a table grows; the read side
+     * applies an entry while the row count of the data it was measured on changed by at most this
+     * ratio (|now - recorded| / recorded). Beyond it the entry is not applied and the query falls
+     * back to the optimizer estimation. A non-positive value disables the tolerance, i.e. an entry
+     * is only applied while the recorded data state is exactly the current one. Hot mutable.
+     */
+    @ConfField(mutable = true, description = "The default setting is 0.1. Relative row count change of the data "
+            + "an injected HBO entry was measured on, up to which the entry may still be applied; 0 or "
+            + "less means the recorded data state has to match exactly.")
+    public static double hbo_row_count_change_ratio = 0.1;
+
+    @ConfField(description = "The default setting is 5000. Maximum number of manually injected "
+            + "(pinned) hbo statistics entries kept per FE; exceeding the limit evicts the least "
+            + "recently used entry; a non-positive value disables the bound (unbounded). Takes "
+            + "effect at FE start (not hot-mutable).")
+    public static int hbo_pinned_stats_cache_num = 5000;
+
+    /**
+     * Persist manually injected (pinned) hbo statistics into the internal database table
+     * __internal_schema.hbo_statistics, so that they survive FE restarts. In-memory pinned
+     * statistics stay authoritative; changes are written through synchronously (best effort)
+     * and the table is loaded lazily on first use. Persistence applies to SET/DELETE issued
+     * while this config is true: entries SET while it is false are not persisted, and entries
+     * DELETEd while it is false keep their stored rows. A FE loads the table into memory at most
+     * once per process (on first use while this config is true), so rows deleted while it is
+     * false reappear only for a FE whose one-time load is still pending (e.g. right after FE
+     * start with the config on). On that load, existing in-memory entries win over the stored
+     * snapshot; deletions issued while this config is true during the pending load are honored —
+     * rows of theirs that the load sees are best-effort removed from the table again, and they
+     * reappear after a FE restart only if that removal also fails. In general, rows whose
+     * best-effort removal from the table fails (during or after the one-time load, e.g. because
+     * the internal table is temporarily unreachable) reappear after a FE restart; re-issue the
+     * DELETE once the table is reachable. A FE never refreshes entries SET by other FEs during
+     * its lifetime.
+     */
+    @ConfField(mutable = true, description = "The default setting is true. When true, HBO SET/DELETE STATISTICS "
+            + "entries are persisted into __internal_schema.hbo_statistics and reloaded after FE "
+            + "restart.")
+    public static boolean hbo_persist_pinned_to_internal_db = true;
+
+    /**
      * Maximum number of events to poll in each RPC.
      */
     @ConfField(mutable = true, masterOnly = true)

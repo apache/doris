@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.collect.ImmutableList;
@@ -251,12 +250,6 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         return preAggStatus;
     }
 
-    public String getQualifierWithRelationId() {
-        String fullQualifier = getTable().getNameWithFullQualifiers();
-        String relationId = getRelationId().toString();
-        return fullQualifier + "#" + relationId;
-    }
-
     public List<Slot> getBaseOutputs() {
         return baseOutputs;
     }
@@ -287,28 +280,6 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
 
     public Optional<ScoreRangeInfo> getScoreRangeInfo() {
         return scoreRangeInfo;
-    }
-
-    @Override
-    public String getFingerprint() {
-        String partitions = "";
-        int partitionCount = this.table.getPartitionNames().size();
-        if (selectedPartitionIds.size() != partitionCount) {
-            partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
-        }
-        // NOTE: embed version info avoid mismatching under data maintaining
-        // TODO: more efficient way to ignore the ignorable data maintaining
-        long version = 0;
-        try {
-            version = getTable().getVisibleVersion();
-        } catch (RpcException e) {
-            String errMsg = "table " + getTable().getName() + "in cloud getTableVisibleVersion error";
-            LOG.warn(errMsg, e);
-            throw new IllegalStateException(errMsg);
-        }
-        return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]"
-                + "#" + getRelationId() + "@" + version
-                + "@" + getTable().getVisibleVersionTime());
     }
 
     @Override

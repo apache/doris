@@ -132,6 +132,47 @@ statementBase
     | analyzeStatsStatement
     | transactionStatement
     | grantRevokeStatement
+    | hboStatement
+    ;
+
+// HBO manual statistics management. 'HBO', 'STATISTICS' and 'EXPANSION' are not reserved
+// keywords, so they are matched as identifiers and validated in the logical plan builder (adding
+// them to the lexer would break user identifiers). The more specific STATISTICS forms come first:
+// 'HBO DELETE EXPANSION <fp>' can only match the expansion alternative because the statistics
+// alternative would require an extra identifier token after the scope.
+hboStatement
+    // 'VALUE' / 'TYPE' / 'STRUCT' are non reserved words, i.e. they are also valid identifiers, so
+    // the parameter names are matched with hboWord (plain identifiers only) to keep
+    // 'SET STATISTICS VALUE=1 TYPE=EXACT' distinguishable from 'SET STATISTICS VALUE=1 FINGERPRINT=..'
+    : hbo=identifier SET scope=identifier? statistics=identifier
+          hboSetParam+                                                 #hboSetStatistics
+    | hbo=identifier DELETE staleWord=identifier statistics=identifier
+          (olderWord=identifier olderThan=INTEGER_VALUE)?               #hboDeleteStaleStatistics
+    | hbo=identifier DELETE scope=identifier? statistics=identifier
+          fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL      #hboDeleteStatistics
+    | hbo=identifier SHOW scope=identifier? statistics=identifier (FULL)?
+          (LIKE likePattern=STRING_LITERAL)?                           #hboShowStatistics
+    ;
+
+// one named parameter of HBO SET STATISTICS: they are collected in any order and validated in the
+// logical plan builder, so a wrong, repeated or unknown parameter gives a readable error
+hboSetParam
+    : VALUE EQ value=(INTEGER_VALUE | DECIMAL_VALUE)                   #hboSetValue
+    | TYPE EQ typeName=identifier                                      #hboSetType
+    | STRUCT EQ structCanonical=STRING_LITERAL                         #hboSetStruct
+    | fingerprintWord=hboWord EQ fingerprint=STRING_LITERAL            #hboSetFingerprint
+    | valueWord=hboWord EQ valueName=identifier                        #hboSetWord
+    // a parameter name which is not one of the words above, with any value shape, so that a typo
+    // like FOO=1 is reported as an unknown parameter instead of as a parser error
+    | unknownWord=hboWord EQ unknownString=STRING_LITERAL              #hboSetUnknown
+    | unknownWord=hboWord EQ unknownNumber=(INTEGER_VALUE | DECIMAL_VALUE)   #hboSetUnknown
+    | unknownWord=hboWord EQ unknownName=identifier                    #hboSetUnknown
+    ;
+
+// hbo parameter name: deliberately not 'identifier' (which includes the non reserved keywords)
+hboWord
+    : IDENTIFIER
+    | quotedIdentifier
     ;
 
 queryOrDmlStatement

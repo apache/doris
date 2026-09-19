@@ -53,7 +53,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.rpc.RpcException;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -456,28 +455,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                 partitionPrunablePredicates, scanParams));
-    }
-
-    @Override
-    public String getFingerprint() {
-        String partitions = "";
-        int partitionCount = this.table.getPartitionNames().size();
-        if (selectedPartitionIds.size() != partitionCount) {
-            partitions = " partitions(" + selectedPartitionIds.size() + "/" + partitionCount + ")";
-        }
-        // NOTE: embed version info avoid mismatching under data maintaining
-        // TODO: more efficient way to ignore the ignorable data maintaining
-        long version = 0;
-        try {
-            version = getTable().getVisibleVersion();
-        } catch (RpcException e) {
-            String errMsg = "table " + getTable().getName() + "in cloud getTableVisibleVersion error";
-            LOG.warn(errMsg, e);
-            throw new IllegalStateException(errMsg);
-        }
-        return Utils.toSqlString("OlapScan[" + table.getNameWithFullQualifiers() + partitions + "]"
-                + "#" + getRelationId() + "@" + version
-                + "@" + getTable().getVisibleVersionTime());
     }
 
     @Override
@@ -912,12 +889,6 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     public Optional<TableSample> getTableSample() {
         return tableSample;
-    }
-
-    public String getQualifierWithRelationId() {
-        String fullQualifier = getTable().getNameWithFullQualifiers();
-        String relationId = getRelationId().toString();
-        return fullQualifier + "#" + relationId;
     }
 
     public boolean isDirectMvScan() {

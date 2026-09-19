@@ -25,17 +25,11 @@ import java.util.Optional;
  * Describes plan statistics which are derived from history based optimizer.
  */
 public class InputTableStatisticsInfo {
-    private final Optional<String> hash;
     private final Optional<List<PlanStatistics>> inputTableStatistics;
 
-    public InputTableStatisticsInfo(Optional<String> hash, Optional<List<PlanStatistics>> inputTableStatistics) {
-        this.hash = Objects.requireNonNull(hash, "hash is null");
+    public InputTableStatisticsInfo(Optional<List<PlanStatistics>> inputTableStatistics) {
         this.inputTableStatistics = Objects.requireNonNull(inputTableStatistics,
                 "inputTableStatistics is null");
-    }
-
-    public Optional<String> getHash() {
-        return hash;
     }
 
     public Optional<List<PlanStatistics>> getInputTableStatistics() {
@@ -51,11 +45,11 @@ public class InputTableStatisticsInfo {
             return false;
         }
         InputTableStatisticsInfo that = (InputTableStatisticsInfo) o;
-        return Objects.equals(hash, that.hash) && Objects.equals(inputTableStatistics, that.inputTableStatistics);
+        return Objects.equals(inputTableStatistics, that.inputTableStatistics);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(hash, inputTableStatistics);
+        return Objects.hash(inputTableStatistics);
     }
 }
