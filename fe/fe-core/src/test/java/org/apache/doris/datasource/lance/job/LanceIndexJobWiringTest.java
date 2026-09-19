@@ -36,6 +36,7 @@ import java.util.List;
 
 public class LanceIndexJobWiringTest {
     private static final short LANCE_INDEX_JOB_OPCODE = 500;
+    private static final short LANCE_INDEX_JOB_REMOVE_OPCODE = 501;
     private static final String LANCE_INDEX_JOB_MODULE = "lanceIndexJobManager";
 
     @Test
@@ -54,6 +55,24 @@ public class LanceIndexJobWiringTest {
                 fieldsUsingOpcode,
                 "operation code 500 must remain uniquely assigned to Lance index job upserts");
         Assertions.assertEquals(LANCE_INDEX_JOB_OPCODE, OperationType.OP_LANCE_INDEX_JOB_UPSERT);
+    }
+
+    @Test
+    public void lanceIndexJobRemoveOpcodeIsUniquelyAssigned() throws IllegalAccessException {
+        List<String> fieldsUsingOpcode = new ArrayList<>();
+        for (Field field : OperationType.class.getDeclaredFields()) {
+            if (Modifier.isStatic(field.getModifiers())
+                    && field.getType() == short.class
+                    && field.getShort(null) == LANCE_INDEX_JOB_REMOVE_OPCODE) {
+                fieldsUsingOpcode.add(field.getName());
+            }
+        }
+
+        Assertions.assertEquals(
+                Collections.singletonList("OP_LANCE_INDEX_JOB_REMOVE"),
+                fieldsUsingOpcode,
+                "operation code 501 must remain uniquely assigned to Lance index job removals");
+        Assertions.assertEquals(LANCE_INDEX_JOB_REMOVE_OPCODE, OperationType.OP_LANCE_INDEX_JOB_REMOVE);
     }
 
     @Test
