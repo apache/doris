@@ -817,7 +817,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Keep this list identical to the deploy loop's (search CONN_PLUGIN_DIR). A module missing here
     # but present there is not a no-op: the deploy step unzips whatever archive is left in the
     # module's target/ from some earlier build, so the plugin silently ships stale.
-    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc; do
+    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss; do
         if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
             modules+=("fe-connector/fe-connector-${_conn_mod}")
         fi
@@ -853,6 +853,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("be-java-extensions/java-udf")
     modules+=("be-java-extensions/jdbc-scanner")
     modules+=("be-java-extensions/paimon-scanner")
+    modules+=("be-java-extensions/fluss-scanner")
     modules+=("be-java-extensions/trino-connector-scanner")
     modules+=("be-java-extensions/max-compute-connector")
     modules+=("be-java-extensions/java-writer")
@@ -883,8 +884,8 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
         # anyway, silently.
         ignorable_modules=(
             "iceberg-metadata-scanner" "hadoop-hudi-scanner" "java-udf" "jdbc-scanner"
-            "paimon-scanner" "trino-connector-scanner" "max-compute-connector" "java-writer"
-            "${HADOOP_DEPS_NAME}"
+            "paimon-scanner" "fluss-scanner" "trino-connector-scanner" "max-compute-connector"
+            "java-writer" "${HADOOP_DEPS_NAME}"
         )
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
         for module in "${ignore_modules[@]}"; do
@@ -1304,7 +1305,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy connector provider plugins as independent plugin directories.
     # Each sub-directory is one connector backend loaded at runtime by ConnectorPluginManager.
     CONN_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/connector"
-    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc; do
+    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss; do
         conn_plugin_target="${CONN_PLUGIN_DIR}/${conn_module}"
         conn_module_dir="${DORIS_HOME}/fe/fe-connector/fe-connector-${conn_module}"
         if [ ! -d "${conn_module_dir}" ]; then
@@ -1526,6 +1527,7 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
         plugin_modules+=("iceberg-metadata-scanner:iceberg")
         plugin_modules+=("max-compute-connector:max-compute")
         plugin_modules+=("paimon-scanner:paimon")
+        plugin_modules+=("fluss-scanner:fluss")
         plugin_modules+=("hadoop-hudi-scanner:hudi")
         plugin_modules+=("trino-connector-scanner:trino-connector")
         plugin_modules+=("java-udf:java-udf")
