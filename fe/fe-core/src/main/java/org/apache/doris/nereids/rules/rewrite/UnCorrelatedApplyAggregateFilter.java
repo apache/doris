@@ -759,10 +759,11 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * Whether one of the aggregates of the aggregation returns a value of its own for an empty
-     * input (the count 0 or the empty array of an array_agg, for example), instead of the null
-     * which the other aggregations return for it (see keepsTheValueOfAnEmptyDomain: an aggregate
-     * whose result is nullable, a UDAF included, has no value of its own which the rewrite reads).
+     * Whether one of the aggregates of the aggregation declares a value of its own for an empty
+     * input (the count 0 or the empty array of an array_agg, for example). An aggregate which
+     * declares no such value is left to the rewrite of the other cases, which reads the value of an
+     * empty input the way the rest of the engine does (see keepsTheValueOfAnEmptyDomain): the value
+     * of a UDAF is written in the UDAF itself, so its declaration does not tell it.
      */
     private static boolean returnsAValueForAnEmptyInput(LogicalAggregate<?> aggregate) {
         for (NamedExpression output : aggregate.getOutputExpressions()) {
@@ -1914,7 +1915,9 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     /**
      * The value which an aggregate function returns for an empty input, or null if it cannot be
      * decided. For example count(*) returns 0 and sum(t2.c1) returns null, while the value of an
-     * array_agg(t2.c1) cannot be decided.
+     * array_agg(t2.c1) cannot be decided. Neither can the value of a UDAF: it is written in the
+     * UDAF itself, so a UDAF whose state starts at 0 (an inline sum, for example) returns 0 for an
+     * empty input although its result is declared nullable.
      */
     private static Expression emptyValueForEmptyInput(AggregateFunction function) {
         if (function instanceof Count) {
@@ -1925,17 +1928,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // these aggregations return null for an empty input
             return new NullLiteral(function.getDataType());
         }
-        if (!(function instanceof AlwaysNotNullable)) {
-            // the other aggregations whose result is nullable return null for an empty input as
-            // well: the UDAFs (whose value for an empty input is written in the UDAF itself, which
-            // the rewrite reads like the rest of the engine does, see
-            // keepsTheValueOfAnEmptyDomain) and the aggregations which declare no not null result
-            // (group_concat, any_value, ...)
-            return new NullLiteral(function.getDataType());
-        }
-        // the aggregations which declare a not null result are the ones whose value for an empty
-        // input may be a value of its own (the count 0 above, the empty array of an array_agg, ...),
-        // which the rewrite cannot read
+        // only the aggregations above are known to return a fixed value for an empty input
         return null;
     }
 
