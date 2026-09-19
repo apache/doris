@@ -3899,6 +3899,96 @@ TEST(RecyclerTest, advance_pending_txn_and_rebegin) {
     }
 }
 
+TEST(RecyclerTest, recycle_expired_spill_objects) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("recycle_spill");
+    obj_info->set_ak(config::test_s3_ak);
+    obj_info->set_sk(config::test_s3_sk);
+    obj_info->set_endpoint(config::test_s3_endpoint);
+    obj_info->set_region(config::test_s3_region);
+    obj_info->set_bucket(config::test_s3_bucket);
+    obj_info->set_prefix("recycle_spill");
+
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = std::dynamic_pointer_cast<MockAccessor>(recycler.accessor_map_.begin()->second);
+    ASSERT_NE(accessor, nullptr);
+
+    const int64_t ttl = config::spill_objects_expire_time_second;
+    ASSERT_GT(ttl, 3600);
+    const int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+    const int64_t expired = now - ttl - 3600;
+    // "spill/{ip}_{port}/{query_id}/...": a live BE running a query older than the TTL (its
+    // heartbeat is fresh), a dead BE whose objects and heartbeat are all older than the TTL, and
+    // a BE that wrote a new object after its old ones.
+    const std::vector<std::string> live_be_keys = {
+            "spill/10.0.0.1_9050/q1/sort-1-0-1/0",
+            "spill/10.0.0.1_9050/q1/sort-1-0-1/1",
+            "spill/10.0.0.1_9050/_heartbeat",
+    };
+    const std::vector<std::string> dead_be_keys = {
+            "spill/10.0.0.2_9050/q2/agg-1-0-1/0",
+            "spill/10.0.0.2_9050/q3/sort-1-0-1/0",
+            "spill/10.0.0.2_9050/_heartbeat",
+            "spill/stray_object",
+    };
+    const std::vector<std::string> active_be_keys = {
+            "spill/10.0.0.3_9050/q4/sort-1-0-1/0",
+            "spill/10.0.0.3_9050/q4/sort-1-0-1/1",
+    };
+    for (const auto& key : live_be_keys) {
+        ASSERT_EQ(accessor->put_file_with_mtime(key, key.ends_with("_heartbeat") ? now : expired),
+                  0);
+    }
+    for (const auto& key : dead_be_keys) {
+        ASSERT_EQ(accessor->put_file_with_mtime(key, expired), 0);
+    }
+    ASSERT_EQ(accessor->put_file_with_mtime(active_be_keys[0], expired), 0);
+    ASSERT_EQ(accessor->put_file_with_mtime(active_be_keys[1], now), 0);
+    // Regular data and a key that only shares the first letters of the spill prefix.
+    ASSERT_EQ(accessor->put_file_with_mtime("data/10001/rowset_0.dat", expired), 0);
+    ASSERT_EQ(accessor->put_file_with_mtime("spillover/not_spill", expired), 0);
+
+    // A non-positive TTL would select objects of running queries: the task is skipped.
+    config::spill_objects_expire_time_second = 0;
+    ASSERT_EQ(recycler.recycle_expired_spill_objects(), 0);
+    config::spill_objects_expire_time_second = -1;
+    ASSERT_EQ(recycler.recycle_expired_spill_objects(), 0);
+    config::spill_objects_expire_time_second = ttl;
+    for (const auto& key : dead_be_keys) {
+        EXPECT_EQ(accessor->exists(key), 0) << key;
+    }
+
+    ASSERT_EQ(recycler.recycle_expired_spill_objects(), 0);
+    for (const auto& key : live_be_keys) {
+        EXPECT_EQ(accessor->exists(key), 0) << key;
+    }
+    for (const auto& key : active_be_keys) {
+        EXPECT_EQ(accessor->exists(key), 0) << key;
+    }
+    for (const auto& key : dead_be_keys) {
+        EXPECT_NE(accessor->exists(key), 0) << key;
+    }
+    EXPECT_EQ(accessor->exists("data/10001/rowset_0.dat"), 0);
+    EXPECT_EQ(accessor->exists("spillover/not_spill"), 0);
+
+    // Once the live BE stops refreshing its heartbeat for the whole TTL, its directory goes too.
+    ASSERT_EQ(accessor->put_file_with_mtime("spill/10.0.0.1_9050/_heartbeat", expired), 0);
+    ASSERT_EQ(recycler.recycle_expired_spill_objects(), 0);
+    for (const auto& key : live_be_keys) {
+        EXPECT_NE(accessor->exists(key), 0) << key;
+    }
+    EXPECT_EQ(accessor->exists(active_be_keys[1]), 0);
+}
+
 TEST(RecyclerTest, recycle_expired_txn_label) {
     config::label_keep_max_second = 0;
     auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
@@ -5029,6 +5119,11 @@ TEST(RecyclerTest, recycle_deleted_instance_with_orphan_tmp_rowset) {
     schema.set_schema_version(0);
     auto rowset = create_rowset("orphan_tmp_rowset_test", tablet_id, index_id, 2, schema, txn_id);
     ASSERT_EQ(0, create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false));
+    // Spill objects left by a BE: not referenced by any rowset. The vault may be shared and the
+    // keys do not name the instance, so they go through the expiration-based sweep; put without
+    // a modification time, they count as expired.
+    const std::string spill_key = "spill/10.0.0.1_9050/q1/sort-1-0-1/0";
+    ASSERT_EQ(accessor->put_file(spill_key, "spill"), 0);
 
     // Verify the data file exists
     {
@@ -5051,12 +5146,15 @@ TEST(RecyclerTest, recycle_deleted_instance_with_orphan_tmp_rowset) {
     // Recycle deleted instance
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
 
-    // All data files must be deleted
+    // All data files of this instance, including the spill objects, must be deleted.
     {
         std::unique_ptr<ListIterator> list_iter;
         ASSERT_EQ(0, accessor->list_all(&list_iter));
-        ASSERT_FALSE(list_iter->has_next());
+        for (auto file = list_iter->next(); file; file = list_iter->next()) {
+            ADD_FAILURE() << "unexpected survivor: " << file->path;
+        }
     }
+    EXPECT_NE(accessor->exists(spill_key), 0);
 
     // All ref_count keys must be cleaned up
     {

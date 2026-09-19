@@ -1615,6 +1615,27 @@ DEFINE_String(spill_storage_limit, "20%");               // 20%
 DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
 DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
 DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
+DEFINE_String(spill_storage_type, "local");
+// s3: cloud mode only; spill is written to the S3 storage vault under
+// spill/{ip}_{port}/{query_id}/, where ip is the address of this BE and port its
+// heartbeat_service_port.
+// Objects of finished queries are deleted by the BE, those of dead BEs by the meta-service
+// recycler (spill_objects_expire_time_second). Incomplete multipart uploads of a crashed BE
+// need an AbortIncompleteMultipartUpload lifecycle rule on the bucket.
+DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
+    return config == "local" || config == "s3";
+});
+DEFINE_String(spill_s3_storage_vault, "");
+DEFINE_mInt64(spill_s3_storage_limit_bytes, "0");
+DEFINE_Validator(spill_s3_storage_limit_bytes, [](int64_t config) -> bool { return config >= 0; });
+DEFINE_mInt64(spill_s3_max_inflight_upload_bytes, "268435456"); // 256MB
+DEFINE_Validator(spill_s3_max_inflight_upload_bytes,
+                 [](int64_t config) -> bool { return config > 0; });
+DEFINE_mInt64(spill_s3_read_coalesce_bytes, "8388608"); // 8MB
+DEFINE_Validator(spill_s3_read_coalesce_bytes, [](int64_t config) -> bool { return config >= 0; });
+DEFINE_mInt64(spill_s3_heartbeat_interval_second, "3600");
+DEFINE_Validator(spill_s3_heartbeat_interval_second,
+                 [](int64_t config) -> bool { return config >= 0; });
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");

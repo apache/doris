@@ -34,6 +34,7 @@
 #include <deque>
 #include <functional>
 #include <initializer_list>
+#include <map>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -881,6 +882,8 @@ int InstanceRecycler::do_recycle() {
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_stage(); }))
                 .add(task_wrapper(
                         [this]() { return InstanceRecycler::recycle_expired_stage_objects(); }))
+                .add(task_wrapper(
+                        [this]() { return InstanceRecycler::recycle_expired_spill_objects(); }))
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_versions(); }))
                 .add(task_wrapper([this]() { return InstanceRecycler::recycle_restore_jobs(); }));
         bool finished = true;
@@ -1000,6 +1003,14 @@ int InstanceRecycler::recycle_deleted_instance_data() {
                             instance_info().snapshot_switch_status() !=
                                     SnapshotSwitchStatus::SNAPSHOT_SWITCH_DISABLED;
     if (snapshot_enabled) {
+        // Only referenced rowsets are recycled selectively below because the vault may be
+        // shared with other instances. Spill objects (spill/{ip}_{port}/...) do not say which
+        // instance wrote them, so only the expired ones are removed, as for a live instance.
+        if (recycle_expired_spill_objects() != 0) {
+            LOG_WARNING("failed to delete spill objects of deleted instance")
+                    .tag("instance_id", instance_id_);
+            return -1;
+        }
         bool has_unrecycled_rowsets = false;
         if (recycle_ref_rowsets(&has_unrecycled_rowsets) != 0) {
             LOG_WARNING("failed to recycle ref rowsets").tag("instance_id", instance_id_);
@@ -7824,6 +7835,111 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         }
         metrics_context.total_recycled_num++;
         metrics_context.report();
+    }
+    return ret;
+}
+
+std::string InstanceRecycler::spill_object_prefix() const {
+    return "spill/";
+}
+
+int InstanceRecycler::recycle_expired_spill_objects() {
+    LOG_INFO("begin to recycle expired spill objects").tag("instance_id", instance_id_);
+
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    RecyclerMetricsContext metrics_context(instance_id_, "recycle_expired_spill_objects");
+
+    DORIS_CLOUD_DEFER {
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
+        metrics_context.finish_report();
+        LOG_INFO("recycle expired spill objects, cost={}s", cost).tag("instance_id", instance_id_);
+    };
+
+    if (!config::force_immediate_recycle && config::spill_objects_expire_time_second <= 0) {
+        // A non-positive TTL would select objects of running queries; treat it as "disabled".
+        LOG_WARNING("skip recycling spill objects: spill_objects_expire_time_second must be > 0")
+                .tag("instance_id", instance_id_)
+                .tag("value", config::spill_objects_expire_time_second);
+        return 0;
+    }
+    int64_t expiration_time =
+            duration_cast<seconds>(system_clock::now().time_since_epoch()).count() -
+            config::spill_objects_expire_time_second;
+    if (config::force_immediate_recycle) {
+        expiration_time = INT64_MAX;
+    }
+
+    const std::string prefix = spill_object_prefix();
+    int ret = 0;
+    for (const auto& [resource_id, accessor] : accessor_map_) {
+        if (stopped()) {
+            break;
+        }
+        // BE writes spill only to S3 vaults, and only S3Accessor::delete_prefix honours the
+        // expiration time (HdfsAccessor deletes the whole prefix). Keep MOCK for unit tests.
+        if (accessor->type() != AccessorType::S3 && accessor->type() != AccessorType::MOCK) {
+            continue;
+        }
+        // Objects are written by BE under "{vault prefix}/spill/{ip}_{port}/...", and a live BE
+        // rewrites "spill/{ip}_{port}/_heartbeat" every hour. A BE directory is deleted only
+        // when nothing in it changed for the whole TTL: objects of a long query of a live BE
+        // are kept however old they are, since the heartbeat keeps the directory fresh. The keys
+        // do not name the instance, so in a vault shared with other instances the sweep also
+        // removes the directories of their dead BEs.
+        std::unique_ptr<ListIterator> list_iter;
+        if (accessor->list_directory(prefix, &list_iter) != 0) {
+            LOG(WARNING) << "failed to list spill objects, instance_id=" << instance_id_
+                         << " resource_id=" << resource_id;
+            ret = -1;
+            continue;
+        }
+        // Latest modification time of every BE directory "spill/{ip}_{port}/".
+        std::map<std::string, int64_t> latest_mtime;
+        for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+            const std::string& path = file->path;
+            if (!path.starts_with(prefix)) {
+                continue;
+            }
+            auto slash = path.find('/', prefix.size());
+            // An object directly under "spill/" is not in any BE directory; it is its own group.
+            std::string group = slash == std::string::npos ? path : path.substr(0, slash + 1);
+            auto [it, inserted] = latest_mtime.emplace(std::move(group), file->mtime_s);
+            if (!inserted) {
+                it->second = std::max(it->second, file->mtime_s);
+            }
+        }
+        if (!list_iter->is_valid()) {
+            LOG(WARNING) << "failed to list spill objects, instance_id=" << instance_id_
+                         << " resource_id=" << resource_id;
+            ret = -1;
+            continue;
+        }
+        for (const auto& [group, mtime] : latest_mtime) {
+            if (stopped()) {
+                break;
+            }
+            if (mtime > expiration_time) {
+                continue;
+            }
+            // The expiration time still applies: objects written after the listing survive.
+            int ret1 = group.ends_with('/') ? accessor->delete_prefix(group, expiration_time)
+                                            : accessor->delete_file(group);
+            if (ret1 != 0) {
+                LOG(WARNING) << "failed to recycle expired spill objects, ret=" << ret1
+                             << " instance_id=" << instance_id_ << " resource_id=" << resource_id
+                             << " prefix=" << group;
+                ret = -1;
+                continue;
+            }
+            LOG_INFO("recycled expired spill objects")
+                    .tag("instance_id", instance_id_)
+                    .tag("resource_id", resource_id)
+                    .tag("prefix", group)
+                    .tag("latest_mtime", mtime);
+            metrics_context.total_recycled_num++;
+            metrics_context.report();
+        }
     }
     return ret;
 }

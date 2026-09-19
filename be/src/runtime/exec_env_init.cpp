@@ -54,6 +54,8 @@
 #include "exec/scan/scanner_scheduler.h"
 #include "exec/sink/delta_writer_v2_pool.h"
 #include "exec/sink/load_stream_map_pool.h"
+#include "exec/spill/remote_spill_data_dir.h"
+#include "exec/spill/spill_data_dir.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exprs/function/dictionary_factory.h"
 #include "format/orc/orc_memory_pool.h"
@@ -231,10 +233,17 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return Status::OK();
     }
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
-    for (const auto& spill_path : spill_store_paths) {
-        spill_store_map.emplace(spill_path.path, std::make_unique<SpillDataDir>(
-                                                         spill_path.path, spill_path.capacity_bytes,
-                                                         spill_path.storage_medium));
+    if (config::spill_storage_type == "s3") {
+        // One remote store, see RemoteSpillDataDir for the object layout.
+        spill_store_map.emplace(
+                "s3", std::make_unique<RemoteSpillDataDir>(config::spill_s3_storage_vault));
+    } else {
+        for (const auto& spill_path : spill_store_paths) {
+            spill_store_map.emplace(
+                    spill_path.path,
+                    std::make_unique<LocalSpillDataDir>(spill_path.path, spill_path.capacity_bytes,
+                                                        spill_path.storage_medium));
+        }
     }
     init_doris_metrics(store_paths);
     _store_paths = store_paths;
@@ -901,11 +910,14 @@ void ExecEnv::destroy() {
         static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
     }
 
+    // The spill manager's GC thread resolves its remote store through the storage engine and
+    // deletes spill data through the vault file systems: stop it while the engine is alive.
+    SAFE_STOP(_spill_file_mgr);
+
     // StorageEngine must be destoried before _cache_manager destory.
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 
-    SAFE_STOP(_spill_file_mgr);
     if (_runtime_query_statistics_mgr) {
         _runtime_query_statistics_mgr->stop_report_thread();
     }

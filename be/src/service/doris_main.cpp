@@ -468,14 +468,44 @@ int main(int argc, char** argv) {
     }
 
     std::vector<doris::StorePath> spill_paths;
-    if (doris::config::spill_storage_root_path.empty()) {
-        doris::config::spill_storage_root_path = doris::config::storage_root_path;
-    }
-    olap_res = doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
-    if (!olap_res) {
-        LOG(ERROR) << "parse config spill storage path failed, path="
-                   << doris::config::spill_storage_root_path;
-        exit(-1);
+    const bool spill_to_s3 = doris::config::spill_storage_type == "s3";
+    if (spill_to_s3) {
+        if (!doris::config::is_cloud_mode()) {
+            LOG(ERROR) << "spill_storage_type=s3 is only supported in cloud mode";
+            exit(-1);
+        }
+        // Same rule as the dynamic update path in SpillFileManager: a budget below two upload
+        // buffers is allowed but serialises uploads (one buffer at a time).
+        if (doris::config::spill_s3_max_inflight_upload_bytes <
+            2 * doris::config::s3_write_buffer_size) {
+            LOG(WARNING) << "spill_s3_max_inflight_upload_bytes ("
+                         << doris::config::spill_s3_max_inflight_upload_bytes
+                         << ") is below 2 * s3_write_buffer_size ("
+                         << doris::config::s3_write_buffer_size
+                         << "); spill uploads will run one buffer at a time";
+        }
+        if (doris::config::spill_file_part_size_bytes < doris::config::s3_write_buffer_size) {
+            // Every part ends with a partially filled upload buffer that is charged to the
+            // upload budget at its full allocated size, so tiny parts waste budget.
+            LOG(WARNING) << "spill_file_part_size_bytes ("
+                         << doris::config::spill_file_part_size_bytes
+                         << ") is below s3_write_buffer_size ("
+                         << doris::config::s3_write_buffer_size
+                         << "); every spill part will hold a mostly empty upload buffer";
+        }
+        LOG(INFO) << "spill data will be written to object storage, spill_storage_root_path is "
+                     "ignored";
+    } else {
+        if (doris::config::spill_storage_root_path.empty()) {
+            doris::config::spill_storage_root_path = doris::config::storage_root_path;
+        }
+        olap_res =
+                doris::parse_conf_store_paths(doris::config::spill_storage_root_path, &spill_paths);
+        if (!olap_res) {
+            LOG(ERROR) << "parse config spill storage path failed, path="
+                       << doris::config::spill_storage_root_path;
+            exit(-1);
+        }
     }
     std::set<std::string> broken_paths;
     doris::parse_conf_broken_store_paths(doris::config::broken_storage_path, &broken_paths);
@@ -523,7 +553,7 @@ int main(int argc, char** argv) {
             ++it;
         }
     }
-    if (spill_paths.empty()) {
+    if (!spill_to_s3 && spill_paths.empty()) {
         LOG(ERROR) << "All spill disks are broken, exit.";
         exit(-1);
     }
@@ -777,7 +807,6 @@ int main(int argc, char** argv) {
 #endif
     // For graceful shutdown, need to wait for all running queries to stop
     exec_env->wait_for_all_tasks_done();
-
     if (!doris::config::enable_graceful_exit_check) {
         // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
         // It will make sure that graceful shutdown can be done definitely.

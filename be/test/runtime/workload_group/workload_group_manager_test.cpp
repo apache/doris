@@ -41,6 +41,7 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "storage/olap_define.h"
+#include "storage/options.h"
 #include "testutil/mock/mock_query_task_controller.h"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
@@ -78,8 +79,8 @@ protected:
         for (const auto& spill_path : spill_paths) {
             spill_store_map.emplace(
                     spill_path.path,
-                    std::make_unique<SpillDataDir>(spill_path.path, spill_path.capacity_bytes,
-                                                   spill_path.storage_medium));
+                    std::make_unique<LocalSpillDataDir>(spill_path.path, spill_path.capacity_bytes,
+                                                        spill_path.storage_medium));
         }
 
         ExecEnv::GetInstance()->_runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
