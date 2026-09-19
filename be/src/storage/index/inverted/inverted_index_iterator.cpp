@@ -69,8 +69,10 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
     // The execution context carries reader selection separately from analyzer execution.
     const std::string& analyzer_key =
             (i_param->analyzer_ctx != nullptr) ? i_param->analyzer_ctx->analyzer_key : "";
-    auto reader =
-            DORIS_TRY(select_best_reader(i_param->column_type, i_param->query_type, analyzer_key));
+    const std::string& legacy_analyzer_key =
+            (i_param->analyzer_ctx != nullptr) ? i_param->analyzer_ctx->legacy_analyzer_key : "";
+    auto reader = DORIS_TRY(select_best_reader(i_param->column_type, i_param->query_type,
+                                               analyzer_key, legacy_analyzer_key));
     if (UNLIKELY(reader == nullptr)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "inverted index reader is null");
@@ -150,7 +152,7 @@ Status InvertedIndexIterator::try_read_from_inverted_index(const InvertedIndexRe
 
 Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         const DataTypePtr& column_type, InvertedIndexQueryType query_type,
-        const std::string& analyzer_key) {
+        const std::string& analyzer_key, const std::string& legacy_analyzer_key) {
     const std::string normalized_key = ensure_normalized_key(analyzer_key);
     // The column type only disambiguates between several indexes on the same field; with a
     // single candidate the selection is already determined. Callers that have no runtime type
@@ -164,8 +166,9 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         }
         field_type = get_inverted_index_leaf_field_type(column_type);
     }
-    auto selection = select_best_inverted_index_candidate(_selection_candidates, _key_to_entries,
-                                                          field_type, query_type, normalized_key);
+    auto selection =
+            select_best_inverted_index_candidate(_selection_candidates, _key_to_entries, field_type,
+                                                 query_type, normalized_key, legacy_analyzer_key);
     if (!selection.has_value()) {
         return ResultError(std::move(selection.error()));
     }

@@ -118,9 +118,11 @@ std::string normalize_analyzer_key(std::string_view analyzer);
 // Runtime context for analyzer
 // Contains only the fields needed at runtime
 struct InvertedIndexAnalyzerCtx {
-    // Physical reader selection key from Thrift. Empty allows fallback selection;
-    // non-empty requires an exact match.
+    // Physical reader selection key. Empty allows fallback selection.
     std::string analyzer_key;
+
+    // Optional lowercase metadata key verified against the same analyzer policy.
+    std::string legacy_analyzer_key;
 
     // Named custom analyzer or normalizer used to execute the predicate.
     std::string analyzer_name;

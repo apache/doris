@@ -83,9 +83,29 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _analyzer_ctx->parser_type = resolved.parser_type;
 
     if (_analyzer_ctx->requires_analysis()) {
-        _analyzer_provider =
-                inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(&config);
+        std::string bound_name;
+        std::string legacy_name;
+        _analyzer_provider = inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(
+                &config, &bound_name, &legacy_name);
         _analyzer = _analyzer_provider->get_analyzer();
+        if (!legacy_name.empty() && legacy_name != bound_name) {
+            _analyzer_ctx->legacy_analyzer_key =
+                    AnalyzerConfigParser::parse(legacy_name, node.match_predicate.parser_type,
+                                                node.match_predicate.parser_mode,
+                                                node.match_predicate.parser_lowercase,
+                                                node.match_predicate.char_filter_map)
+                            .analyzer_key;
+        }
+        if (bound_name != resolved.provider_name) {
+            // Reader selection and query tokenization must use the same policy binding.
+            _analyzer_ctx->analyzer_key =
+                    AnalyzerConfigParser::parse(bound_name, node.match_predicate.parser_type,
+                                                node.match_predicate.parser_mode,
+                                                node.match_predicate.parser_lowercase,
+                                                node.match_predicate.char_filter_map)
+                            .analyzer_key;
+            _analyzer_ctx->analyzer_name = std::move(bound_name);
+        }
     }
 
     _analyzer_ctx->char_filter_map = std::move(config.char_filter_map);
