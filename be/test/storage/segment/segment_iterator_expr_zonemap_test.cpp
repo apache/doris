@@ -621,6 +621,7 @@ TEST_F(SegmentIteratorExprZonemapTest, VersionMinMaxFallsBackFromStatisticsItera
 
     StorageReadOptions read_options;
     read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
     read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(kVersion, kVersion);
     read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
@@ -642,6 +643,7 @@ TEST_F(SegmentIteratorExprZonemapTest, CommitTsoMinMaxUsesStatisticsIterator) {
 
     StorageReadOptions read_options;
     read_options.stats = &_stats;
+    read_options.runtime_state = &_runtime_state;
     read_options.tablet_schema = _tablet_schema;
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
