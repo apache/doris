@@ -39,6 +39,7 @@
 #include "exec/spill/spill_file_manager.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
+#include "io/fs/file_range_read_scheduler.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/heap_profiler.h"
@@ -234,6 +235,12 @@ void QueryContext::record_spill_data_dir(SpillDataDir* data_dir) {
 
 QueryContext::~QueryContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
+    {
+        std::lock_guard lock(_file_range_read_context_mutex);
+        if (_file_range_read_context != nullptr) {
+            _file_range_read_context->cancel();
+        }
+    }
     // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
     // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
     // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
@@ -309,6 +316,12 @@ void QueryContext::cancel(Status new_status) {
     if (!_exec_status.update(new_status)) {
         return;
     }
+    {
+        std::lock_guard lock(_file_range_read_context_mutex);
+        if (_file_range_read_context != nullptr) {
+            _file_range_read_context->cancel();
+        }
+    }
     // Tasks should be always runnable.
     _execution_dependency->set_always_ready();
     _memory_sufficient_dependency->set_always_ready();
@@ -358,6 +371,22 @@ void QueryContext::cancel(Status new_status) {
             pipeline_ctx->cancel(new_status);
         }
     }
+}
+
+std::shared_ptr<io::FileRangeReadContext> QueryContext::get_or_create_file_range_read_context(
+        io::FileRangeReadScheduler* scheduler) {
+    DORIS_CHECK(scheduler != nullptr);
+    std::lock_guard lock(_file_range_read_context_mutex);
+    if (_file_range_read_context == nullptr) {
+        _file_range_read_scheduler = scheduler;
+        _file_range_read_context = scheduler->create_context();
+        if (is_cancelled()) {
+            _file_range_read_context->cancel();
+        }
+    } else {
+        DORIS_CHECK(_file_range_read_scheduler == scheduler);
+    }
+    return _file_range_read_context;
 }
 
 void QueryContext::set_load_error_url(std::string error_url) {
