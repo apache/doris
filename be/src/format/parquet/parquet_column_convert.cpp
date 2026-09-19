@@ -48,6 +48,8 @@ bool PhysicalToLogicalConverter::is_parquet_native_type(PrimitiveType type) {
     case TYPE_STRING:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_GEOMETRY:
+    case TYPE_GEOGRAPHY:
         return true;
     default:
         return false;

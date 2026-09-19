@@ -23,6 +23,7 @@ import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -380,6 +381,9 @@ public class ColumnDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
+        if (isOlap && containsSpatialType(type)) {
+            throw new AnalysisException("GEOMETRY and GEOGRAPHY are not supported for Doris internal tables");
+        }
         type.validateDataType();
         type = updateCharacterTypeLength(type);
         if (type.isArrayType()) {
@@ -570,6 +574,25 @@ public class ColumnDefinition {
             throw new AnalysisException("Time type is not supported for olap table");
         }
         validateGeneratedColumnInfo();
+    }
+
+    private static boolean containsSpatialType(DataType type) {
+        PrimitiveType primitiveType = type.toCatalogDataType().getPrimitiveType();
+        if (primitiveType == PrimitiveType.GEOMETRY || primitiveType == PrimitiveType.GEOGRAPHY) {
+            return true;
+        }
+        if (type.isArrayType()) {
+            return containsSpatialType(((ArrayType) type).getItemType());
+        }
+        if (type.isMapType()) {
+            MapType mapType = (MapType) type;
+            return containsSpatialType(mapType.getKeyType()) || containsSpatialType(mapType.getValueType());
+        }
+        if (type.isStructType()) {
+            return ((StructType) type).getFields().stream()
+                    .anyMatch(field -> containsSpatialType(field.getDataType()));
+        }
+        return false;
     }
 
     /**

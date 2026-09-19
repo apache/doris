@@ -414,6 +414,11 @@ public abstract class DataType {
     @Developing // should support map, struct
     public static DataType fromCatalogType(Type type) {
         switch (type.getPrimitiveType()) {
+            case GEOMETRY:
+                return new GeometryType(((ScalarType) type).getSpatialCrs());
+            case GEOGRAPHY:
+                return new GeographyType(((ScalarType) type).getSpatialCrs(),
+                        ((ScalarType) type).getSpatialAlgorithm());
             case BOOLEAN: return BooleanType.INSTANCE;
             case TINYINT: return TinyIntType.INSTANCE;
             case SMALLINT: return SmallIntType.INSTANCE;

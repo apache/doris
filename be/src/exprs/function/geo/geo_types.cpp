@@ -428,6 +428,13 @@ std::unique_ptr<GeoShape> GeoShape::from_wkb(const char* data, size_t size,
     return shape;
 }
 
+std::unique_ptr<GeoShape> GeoShape::from_wkb_bytes(const char* data, size_t size,
+                                                    GeoParseStatus& status) {
+    std::unique_ptr<GeoShape> shape;
+    status = WkbParse::parse_wkb_bytes(data, size, shape);
+    return shape;
+}
+
 std::unique_ptr<GeoShape> GeoShape::from_encoded(const void* ptr, size_t size) {
     if (size < 2 || ((const char*)ptr)[0] != 0X00) {
         return nullptr;

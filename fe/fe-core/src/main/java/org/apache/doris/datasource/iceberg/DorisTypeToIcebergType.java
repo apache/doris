@@ -26,6 +26,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.datasource.DorisTypeVisitor;
 
 import com.google.common.collect.Lists;
+import org.apache.iceberg.types.EdgeAlgorithm;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
@@ -136,6 +137,16 @@ public class DorisTypeToIcebergType extends DorisTypeVisitor<Type> {
             return Types.TimestampType.withZone();
         } else if (primitiveType.equals(PrimitiveType.VARIANT)) {
             return Types.VariantType.get();
+        } else if (primitiveType.equals(PrimitiveType.GEOMETRY)) {
+            return Types.GeometryType.of(((ScalarType) atomic).getSpatialCrs());
+        } else if (primitiveType.equals(PrimitiveType.GEOGRAPHY)) {
+            ScalarType geography = (ScalarType) atomic;
+            if (Types.GeographyType.DEFAULT_CRS.equalsIgnoreCase(geography.getSpatialCrs())
+                    && EdgeAlgorithm.SPHERICAL.toString().equalsIgnoreCase(geography.getSpatialAlgorithm())) {
+                return Types.GeographyType.crs84();
+            }
+            return Types.GeographyType.of(geography.getSpatialCrs(),
+                    EdgeAlgorithm.fromName(geography.getSpatialAlgorithm()));
         }
         // unsupported type: PrimitiveType.HLL BITMAP BINARY
 

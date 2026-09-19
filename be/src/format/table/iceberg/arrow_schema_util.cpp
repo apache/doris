@@ -28,6 +28,9 @@ const char* ArrowSchemaUtil::PARQUET_FIELD_ID = "PARQUET:field_id";
 const char* ArrowSchemaUtil::ORIGINAL_TYPE = "originalType";
 const char* ArrowSchemaUtil::MAP_TYPE_VALUE = "mapType";
 const char* ArrowSchemaUtil::UUID_TYPE_VALUE = "uuid";
+const char* ArrowSchemaUtil::ICEBERG_BINARY_TYPE = "iceberg.binary-type";
+const char* ArrowSchemaUtil::GEOMETRY_BINARY_TYPE_VALUE = "GEOMETRY";
+const char* ArrowSchemaUtil::GEOGRAPHY_BINARY_TYPE_VALUE = "GEOGRAPHY";
 
 Status ArrowSchemaUtil::convert(const Schema* schema, const std::string& timezone,
                                 std::vector<std::shared_ptr<arrow::Field>>& fields) {
@@ -83,6 +86,16 @@ Status ArrowSchemaUtil::convert_to(const iceberg::NestedField& field,
         break;
 
     case iceberg::TypeID::BINARY:
+        arrow_type = arrow::binary();
+        break;
+
+    case iceberg::TypeID::GEOMETRY:
+        metadata[ICEBERG_BINARY_TYPE] = GEOMETRY_BINARY_TYPE_VALUE;
+        arrow_type = arrow::binary();
+        break;
+
+    case iceberg::TypeID::GEOGRAPHY:
+        metadata[ICEBERG_BINARY_TYPE] = GEOGRAPHY_BINARY_TYPE_VALUE;
         arrow_type = arrow::binary();
         break;
 
