@@ -220,7 +220,6 @@ Status ParsedPartitionBoundaries::parse(
             BUILD_BOUNDARY_CVR(BOOLEAN)
             BUILD_BOUNDARY_CVR(IPV4)
             BUILD_BOUNDARY_CVR(IPV6)
-            BUILD_BOUNDARY_CVR(UUID)
         default:
             break;
         }
@@ -491,7 +490,6 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
         BUILD_INPUT_COLUMNS(BOOLEAN)
         BUILD_INPUT_COLUMNS(IPV4)
         BUILD_INPUT_COLUMNS(IPV6)
-        BUILD_INPUT_COLUMNS(UUID)
     default:
         break;
     }

@@ -125,20 +125,6 @@ public class UuidLiteral extends LiteralExpr {
         return buffer;
     }
 
-    /** Return the next UUID in unsigned 128-bit order, saturating at the maximum UUID. */
-    public UuidLiteral successor() throws AnalysisException {
-        UUID uuid = UUID.fromString(value);
-        long high = uuid.getMostSignificantBits();
-        long low = uuid.getLeastSignificantBits();
-        if (low != -1L) {
-            low++;
-        } else if (high != -1L) {
-            high++;
-            low = 0;
-        }
-        return new UuidLiteral(new UUID(high, low).toString());
-    }
-
     public String getValue() {
         return value;
     }
