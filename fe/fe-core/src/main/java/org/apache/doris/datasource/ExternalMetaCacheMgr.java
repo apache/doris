@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
@@ -379,9 +380,13 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateCatalog(long catalogId) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "invalidateCatalog",
-                () -> cache.invalidateCatalogEntries(catalogId)));
+        try {
+            routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                    cache, catalogId, "invalidateCatalog",
+                    () -> cache.invalidateCatalogEntries(catalogId)));
+        } finally {
+            rowCountCache.invalidateCatalog(catalogId);
+        }
     }
 
     public void invalidateCatalogByEngine(long catalogId, String engine) {
@@ -484,14 +489,30 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateDb(long catalogId, String dbName) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
+        try {
+            routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                    cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
+        } finally {
+            CatalogIf<?> catalog = getCatalog(catalogId);
+            if (catalog != null) {
+                rowCountCache.invalidateDb(catalogId, Util.genIdByName(catalog.getName(), dbName));
+            }
+        }
     }
 
     public void invalidateTable(long catalogId, String dbName, String tableName) {
-        routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                cache, catalogId, "invalidateTable",
-                () -> cache.invalidateTable(catalogId, dbName, tableName)));
+        try {
+            routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                    cache, catalogId, "invalidateTable",
+                    () -> cache.invalidateTable(catalogId, dbName, tableName)));
+        } finally {
+            CatalogIf<?> catalog = getCatalog(catalogId);
+            if (catalog != null) {
+                rowCountCache.invalidateTable(catalogId,
+                        Util.genIdByName(catalog.getName(), dbName),
+                        Util.genIdByName(catalog.getName(), dbName, tableName));
+            }
+        }
     }
 
     public void invalidateTableByEngine(long catalogId, String engine, String dbName, String tableName) {
