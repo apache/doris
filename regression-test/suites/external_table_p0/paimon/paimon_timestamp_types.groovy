@@ -99,6 +99,50 @@ suite("paimon_timestamp_types", "p0,external") {
             qt_c1 ts_scale_orc
             qt_c2 ts_scale_parquet
 
+            // TIMESTAMP(7/8/9) values are exposed by Doris at microsecond precision. Keep the
+            // predicates below on ts9 so file pruning must retain the row whose source value has
+            // nanoseconds beyond the Doris-visible literal.
+            order_qt_ts9_eq_orc """
+                select id from ts_scale_orc
+                where ts9 = '2024-01-02 10:04:05.123456'
+                order by id
+            """
+            order_qt_ts9_eq_parquet """
+                select id from ts_scale_parquet
+                where ts9 = '2024-01-02 10:04:05.123456'
+                order by id
+            """
+            order_qt_ts9_lt_orc """
+                select id from ts_scale_orc
+                where ts9 < '2024-01-02 10:04:05.123456'
+                order by id
+            """
+            order_qt_ts9_le_orc """
+                select id from ts_scale_orc
+                where ts9 <= '2024-01-02 10:04:05.123456'
+                order by id
+            """
+            order_qt_ts9_gt_parquet """
+                select id from ts_scale_parquet
+                where ts9 > '2024-01-02 10:04:05.123456'
+                order by id
+            """
+            order_qt_ts9_ge_parquet """
+                select id from ts_scale_parquet
+                where ts9 >= '2024-01-02 10:04:05.123456'
+                order by id
+            """
+            order_qt_ts9_in_orc """
+                select id from ts_scale_orc
+                where ts9 in ('2024-01-02 10:04:05.123457', '2024-01-02 10:04:05.123456')
+                order by id
+            """
+            order_qt_ts9_ne_parquet """
+                select id from ts_scale_parquet
+                where ts9 != '2024-01-02 10:04:05.123457'
+                order by id
+            """
+
         }
 
         sql """set force_jni_scanner=true"""
