@@ -66,6 +66,18 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
                 + "properties(\n"
                 + "    \"replication_num\"=\"1\"\n"
                 + ")");
+        createTable("create table generated_column_table (\n"
+                + "    k1 int,\n"
+                + "    v1 int,\n"
+                + "    v2 int as (v1 + 1),\n"
+                + "    v3 int\n"
+                + ")\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 4\n"
+                + "properties(\n"
+                + "    \"replication_num\"=\"1\",\n"
+                + "    \"enable_unique_key_merge_on_write\"=\"true\"\n"
+                + ")");
     }
 
     @Test
@@ -112,6 +124,27 @@ public class UpdateCommandTest extends TestWithFeService implements PlanPatternM
                                                 logicalFilter(
                                                         logicalOlapScan()
                                                 )
+                                        )
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testPartialUpdateWithGeneratedColumnDependency() {
+        String sql = "update generated_column_table set v3 = 999 where k1 = 1";
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        Assertions.assertInstanceOf(UpdateCommand.class, parsed);
+        UpdateCommand command = ((UpdateCommand) parsed);
+        LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
+        PlanChecker.from(connectContext, plan)
+                .analyze(plan)
+                .rewrite()
+                .matches(
+                        logicalOlapTableSink(
+                                logicalProject(
+                                        logicalFilter(
+                                                logicalOlapScan()
                                         )
                                 )
                         )
