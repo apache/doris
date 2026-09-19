@@ -28,7 +28,6 @@
 #include <ostream>
 #include <string>
 #include <type_traits>
-#include <vector>
 
 #include "common/cast_set.h"
 #include "common/exception.h"

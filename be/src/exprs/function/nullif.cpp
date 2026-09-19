@@ -24,7 +24,6 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
-#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
