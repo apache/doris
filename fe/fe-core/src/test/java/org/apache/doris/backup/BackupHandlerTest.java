@@ -32,8 +32,11 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
@@ -41,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.SnapshotTask;
@@ -66,6 +70,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 
@@ -136,6 +141,69 @@ public class BackupHandlerTest {
 
         File backupDir = new File(BackupHandler.BACKUP_ROOT_DIR.toString());
         Assertions.assertTrue(backupDir.exists());
+    }
+
+    /**
+     * A repository whose descriptor did not bind at load (properties the provider now rejects) is what
+     * ALTER REPOSITORY exists to repair: the corrected properties bind, and the replacement is usable.
+     * Only a record with no descriptor at all - unmigrated or corrupt - has nothing to merge into.
+     */
+    @Test
+    public void testAlterRepairsARepositoryWhoseDescriptorDidNotBindAtLoad() throws Exception {
+        handler = new BackupHandler(env);
+        String json = "{"
+                + "\"id\":50000,"
+                + "\"n\":\"s3RepoToRepair\","
+                + "\"iro\":false,"
+                + "\"lo\":\"s3://my-bucket/backup\","
+                + "\"ct\":-1,"
+                + "\"fs_descriptor\":{\"fs_type\":\"S3\",\"fs_name\":\"\","
+                + "\"fs_props\":{\"s3.access_key\":\"ak\",\"s3.secret_key\":\"sk\"}}"
+                + "}";
+        Repository broken = GsonUtils.GSON.fromJson(json, Repository.class);
+        Assertions.assertTrue(broken.hasFileSystemDescriptor());
+        Assertions.assertNotNull(broken.getUnavailableReason(), "no endpoint: the S3 provider cannot bind this");
+        Assertions.assertTrue(handler.getRepoMgr().addAndInitRepoIfNotExist(broken, true).ok());
+
+        Map<String, String> correction = Maps.newHashMap();
+        correction.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
+        correction.put("s3.region", "us-east-1");
+        handler.alterRepository("s3RepoToRepair", correction);
+
+        Repository repaired = handler.getRepoMgr().getRepo("s3RepoToRepair");
+        Assertions.assertNotSame(broken, repaired);
+        Assertions.assertNull(repaired.getUnavailableReason());
+        Assertions.assertEquals("ak", repaired.getFileSystemDescriptor().getProperties().get("s3.access_key"));
+        Assertions.assertEquals("us-east-1", repaired.getFileSystemDescriptor().getProperties().get("s3.region"));
+
+        // Still not bindable: refused with the binding's reason, and the record is left as it was.
+        Map<String, String> stillBroken = Maps.newHashMap();
+        stillBroken.put("s3.endpoint", "");
+        stillBroken.put("s3.region", "");
+        DdlException refused = Assertions.assertThrows(DdlException.class,
+                () -> handler.alterRepository("s3RepoToRepair", stillBroken));
+        Assertions.assertTrue(refused.getMessage().contains("do not bind a filesystem provider"), refused.getMessage());
+        Assertions.assertSame(repaired, handler.getRepoMgr().getRepo("s3RepoToRepair"));
+    }
+
+    /**
+     * One job throwing out of run() - a repository whose provider is absent used to do that on every
+     * tick - must neither stop the cycle for the jobs after it nor escape the daemon.
+     */
+    @Test
+    public void testAJobThatThrowsDoesNotStopTheOtherJobsOfTheCycle() {
+        handler = new BackupHandler(env);
+        AbstractJob throwing = Mockito.mock(AbstractJob.class);
+        Mockito.doThrow(new StoragePropertiesException("No supported storage type found")).when(throwing).run();
+        AbstractJob next = Mockito.mock(AbstractJob.class);
+        Map<Long, Deque<AbstractJob>> jobs = Deencapsulation.getField(handler, "dbIdToBackupOrRestoreJobs");
+        jobs.put(1L, Lists.newLinkedList(Lists.newArrayList(throwing)));
+        jobs.put(2L, Lists.newLinkedList(Lists.newArrayList(next)));
+
+        Assertions.assertDoesNotThrow(() -> handler.runAfterCatalogReady());
+
+        Mockito.verify(throwing).run();
+        Mockito.verify(next).run();
     }
 
     @Test

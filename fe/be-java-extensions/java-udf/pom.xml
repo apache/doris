@@ -68,12 +68,16 @@ under the License.
           dependency that is only reached transitively is one refactor away from disappearing.
 
           The exclusions are what fe-common carries for the FE that no Java function executor can
-          reach: netty, the S3 filesystem, protobuf, jackson, RoaringBitmap. They were found by
-          walking jdeps' class-level edges out of this module and taking the jars with nothing
-          reachable in them, then dropping the ones that are reached by ServiceLoader instead
-          (the logging providers) or that exist to be extended rather than called
+          reach: netty, protobuf, jackson, RoaringBitmap, commons-io, commons-codec. They were
+          found by walking jdeps' class-level edges out of this module and taking the jars with
+          nothing reachable in them, then dropping the ones that are reached by ServiceLoader
+          instead (the logging providers) or that exist to be extended rather than called
           (hive-udf-shade). Verified the only way it can be verified, by loading the plugin out
-          of a real deployment directory with them gone.
+          of a real deployment directory with them gone. commons-codec is the one that used to be
+          excluded for free: fe-common reached it only through hadoop-common, at provided scope,
+          so it never arrived here; now that fe-common declares it for its own Hll, this list has
+          to say so or the jar walks in. The S3 filesystem (hadoop-aws) went the other way - it
+          left fe-common altogether - so it no longer needs naming here.
         -->
         <dependency>
             <groupId>org.apache.doris</groupId>
@@ -83,10 +87,6 @@ under the License.
                 <exclusion>
                     <groupId>io.netty</groupId>
                     <artifactId>netty-all</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.hadoop</groupId>
-                    <artifactId>hadoop-aws</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>com.google.protobuf</groupId>
@@ -107,6 +107,10 @@ under the License.
                 <exclusion>
                     <groupId>commons-io</groupId>
                     <artifactId>commons-io</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>commons-codec</groupId>
+                    <artifactId>commons-codec</artifactId>
                 </exclusion>
                 <exclusion>
                     <groupId>org.apache.logging.log4j</groupId>

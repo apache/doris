@@ -41,7 +41,7 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
 
     private static final String STORAGE_TYPE_KEY = "_STORAGE_TYPE_";
     private static final String STORAGE_TYPE_AZURE = "AZURE";
-    private static final String PROVIDER_KEY = "provider";
+    private static final String PROVIDER_KEY = AzureBlobEndpointSignals.PROVIDER_KEY;
     private static final String[] ACCOUNT_NAME_KEYS = {
             AzureFileSystemProperties.ACCOUNT_NAME, "azure.access_key", "AZURE_ACCOUNT_NAME"};
     private static final String[] ENDPOINT_KEYS = {
@@ -105,14 +105,11 @@ public class AzureFileSystemProvider implements FileSystemProvider<AzureFileSyst
     @Override
     public boolean supportsGuess(Map<String, String> properties) {
         // Verbatim port of fe-core AzureProperties.guessIsMe: provider=azure, or an endpoint
-        // alias whose HOST carries a recognised Azure Blob/DFS suffix. The suffix predicate
-        // (endpoint alias list, host extraction, dot-anchored endsWith, probe-injected live
-        // suffix list) is shared with the S3-compatible fallback providers via
-        // AzureBlobEndpointSignals so their mutual exclusion can never drift from this claim.
-        if ("azure".equalsIgnoreCase(properties.get(PROVIDER_KEY))) {
-            return true;
-        }
-        return AzureBlobEndpointSignals.guessIsAzureBlobEndpoint(properties);
+        // alias whose HOST carries a recognised Azure Blob/DFS suffix. The whole predicate lives in
+        // AzureBlobEndpointSignals: its endpoint leg is shared with the S3-compatible fallback
+        // providers (mutual exclusion), and the whole of it with fe-core, which has to answer the
+        // same question when this plugin is not loaded - neither may drift from this claim.
+        return AzureBlobEndpointSignals.guessIsAzure(properties);
     }
 
     @Override

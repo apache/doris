@@ -24,6 +24,7 @@ import com.google.common.collect.Sets;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -32,6 +33,13 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
     private boolean hidePassword;
     private Set<String> additionalHiddenKeys = Sets.newHashSet();
 
+    /**
+     * The aliases masked with no filesystem plugin loaded: everything the static block below enumerates,
+     * case-insensitive and immutable. {@link #SENSITIVE_KEY} starts as a copy of it and grows through
+     * {@link #registerSensitiveKeys}. Exposed so that a test can pin the shipped plugins' aliases to the
+     * static set without the registration that runs in the same JVM masking a gap.
+     */
+    public static final Set<String> BUILTIN_SENSITIVE_KEYS;
     public static final Set<String> SENSITIVE_KEY;
     public static final Set<String> HIDDEN_KEY;
     public static final String PASSWORD_MASK = "*XXX";
@@ -79,10 +87,8 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("iceberg.rest.session-token");
         // Inlined union of the legacy typed storage classes' @ConnectorProperty(sensitive = true)
         // key aliases (S3/GCS/Azure/OSS/OSS-HDFS/COS/OBS/Minio Properties). The set is
-        // case-insensitive, so alias spellings differing only in case are listed once. Locked
-        // against the legacy classes by DatasourcePrintableMapSensitiveKeysParityTest until the
-        // legacy package is deleted; SPI providers additionally feed registerSensitiveKeys at
-        // FE startup.
+        // case-insensitive, so alias spellings differing only in case are listed once. SPI providers
+        // additionally feed registerSensitiveKeys at FE startup.
         SENSITIVE_KEY.addAll(Arrays.asList(
                 "s3.access_key", "AWS_ACCESS_KEY", "access_key", "glue.access_key",
                 "aws.glue.access-key", "client.credentials-provider.glue.access_key",
@@ -101,6 +107,24 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
                 "cos.access_key", "cos.secret_key",
                 "obs.access_key", "obs.secret_key",
                 "minio.access_key", "minio.secret_key", "minio.session_token"));
+        // The aliases the shipped filesystem plugins declare sensitive beyond the legacy union above.
+        // Masking must not depend on a plugin having loaded: a shipped plugin that fails to load is
+        // skipped and the FE serves on, while every catalog, repository and vault created with its
+        // aliases stays in metadata and is printed by SHOW CREATE CATALOG, SHOW CATALOG, the
+        // catalogs() TVF and the audit log through this set. Pinned to the providers on the test
+        // classpath by DatasourcePrintableMapTest.testShippedFilesystemPluginAliasesAreMaskedWithoutThePlugin.
+        SENSITIVE_KEY.addAll(Arrays.asList(
+                "aws.glue.session-token",
+                "AZURE_ACCOUNT_KEY", "AZURE_CLIENT_SECRET",
+                "cos.session_token", "COS_SECRET_KEY", "COS_SESSION_TOKEN", "COS_TOKEN",
+                "gs.session_token",
+                "obs.session_token", "OBS_SECRET_KEY", "OBS_SESSION_TOKEN", "OBS_TOKEN",
+                "oss.security_token", "oss.hdfs.security_token",
+                "OSS_SECRET_KEY", "OSS_SESSION_TOKEN", "OSS_TOKEN",
+                "ozone.secret_key", "ozone.session_token"));
+        Set<String> builtin = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        builtin.addAll(SENSITIVE_KEY);
+        BUILTIN_SENSITIVE_KEYS = Collections.unmodifiableSet(builtin);
         HIDDEN_KEY = Sets.newHashSet();
         // Exact literals of the legacy S3Properties.Env.FS_KEYS list.
         HIDDEN_KEY.addAll(Arrays.asList("AWS_ENDPOINT", "AWS_REGION", "AWS_ACCESS_KEY", "AWS_SECRET_KEY",

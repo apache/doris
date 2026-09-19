@@ -17,6 +17,8 @@
 
 package org.apache.doris.kerberos;
 
+import org.apache.doris.foundation.security.HadoopAuthConfigKeys;
+
 import com.google.common.base.Strings;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
@@ -27,11 +29,14 @@ import java.util.Map;
 
 public abstract class AuthenticationConfig {
     private static final Logger LOG = LogManager.getLogger(AuthenticationConfig.class);
-    public static String HADOOP_USER_NAME = "hadoop.username";
-    public static String HADOOP_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
-    public static String HADOOP_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
-    public static String HADOOP_SECURITY_AUTH_TO_LOCAL = "hadoop.security.auth_to_local";
-    public static String DORIS_KRB5_DEBUG = "doris.krb5.debug";
+    // The names themselves live in fe-foundation, so that a module naming one of these properties
+    // does not have to link against Hadoop just to spell it. Kept here as well because they are
+    // part of this class's published surface.
+    public static final String HADOOP_USER_NAME = HadoopAuthConfigKeys.HADOOP_USER_NAME;
+    public static final String HADOOP_KERBEROS_PRINCIPAL = HadoopAuthConfigKeys.HADOOP_KERBEROS_PRINCIPAL;
+    public static final String HADOOP_KERBEROS_KEYTAB = HadoopAuthConfigKeys.HADOOP_KERBEROS_KEYTAB;
+    public static final String HADOOP_SECURITY_AUTH_TO_LOCAL = HadoopAuthConfigKeys.HADOOP_SECURITY_AUTH_TO_LOCAL;
+    public static final String DORIS_KRB5_DEBUG = HadoopAuthConfigKeys.DORIS_KRB5_DEBUG;
     private static final String DEFAULT_HADOOP_USERNAME = "hadoop";
 
     /**

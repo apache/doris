@@ -21,10 +21,13 @@ import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 
 
 /**
@@ -37,6 +40,8 @@ import java.util.Map;
  *  The broker's StorageBackend.StorageType desc
  */
 public class StorageDesc extends ResourceDesc implements GsonPostProcessable {
+    private static final Logger LOG = LogManager.getLogger(StorageDesc.class);
+
 
     @Deprecated
     @SerializedName("st")
@@ -110,6 +115,17 @@ public class StorageDesc extends ResourceDesc implements GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
-        initStorageAdapter();
+        // Binding runs plugin code: bindPrimary probes every loaded provider and bind() belongs to
+        // the one that claims the map. This method runs at image load and journal replay for every
+        // persisted load and export job, so with that provider absent - a filesystem plugin that
+        // failed to load - a throw here would take the image load down, or kill a serving follower
+        // at the next OP_CREATE_LOAD_JOB. Leave the adapter unbound instead: every getter re-runs
+        // initStorageAdapter() lazily, so the job binds at use and fails there with a Status.
+        try {
+            initStorageAdapter();
+        } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
+            LOG.warn("Storage descriptor (name={}, type={}) could not bind its filesystem provider at"
+                    + " load; the binding is retried at use: {}", name, storageType, e.getMessage());
+        }
     }
 }
