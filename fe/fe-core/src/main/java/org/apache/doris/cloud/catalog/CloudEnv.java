@@ -84,6 +84,7 @@ public class CloudEnv extends Env {
     private CacheHotspotManager cacheHotspotMgr;
     private CloudSyncVersionDaemon cloudSyncVersionDaemon;
     private CloudFEVersionSynchronizer cloudFEVersionSynchronizer;
+    private RemoteSpillStatsPoller remoteSpillStatsPoller;
 
     private boolean enableStorageVault;
 
@@ -106,6 +107,7 @@ public class CloudEnv extends Env {
         this.upgradeMgr = new CloudUpgradeMgr((CloudSystemInfoService) systemInfo);
         this.cloudSyncVersionDaemon = new CloudSyncVersionDaemon();
         this.cloudFEVersionSynchronizer = new CloudFEVersionSynchronizer();
+        this.remoteSpillStatsPoller = new RemoteSpillStatsPoller();
         this.cloudSnapshotHandler = CloudSnapshotHandler.getInstance();
     }
 
@@ -184,11 +186,17 @@ public class CloudEnv extends Env {
         return cloudFEVersionSynchronizer;
     }
 
+    public RemoteSpillStatsPoller getRemoteSpillStatsPoller() {
+        return remoteSpillStatsPoller;
+    }
+
     @Override
     protected void startNonMasterDaemonThreads() {
         LOG.info("start cloud Non Master only daemon threads");
         super.startNonMasterDaemonThreads();
         cloudSyncVersionDaemon.start();
+        // Every FE serves SHOW DATA from its own copy of the remote spill stats.
+        remoteSpillStatsPoller.start();
     }
 
     public static String genFeNodeNameFromMeta(String host, int port, long timeMs) {

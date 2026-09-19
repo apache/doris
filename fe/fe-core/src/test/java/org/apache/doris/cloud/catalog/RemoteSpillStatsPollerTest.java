@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog;
+package org.apache.doris.cloud.catalog;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -25,45 +25,60 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-public class CloudTabletStatMgrTest {
+public class RemoteSpillStatsPollerTest {
     private int savedMaxAge;
+    private int savedPollInterval;
 
     @BeforeEach
     public void setUp() {
         savedMaxAge = Config.cloud_spill_stats_max_age_second;
+        savedPollInterval = Config.cloud_spill_stats_poll_interval_second;
         Config.cloud_spill_stats_max_age_second = 300;
+        Config.cloud_spill_stats_poll_interval_second = 60;
     }
 
     @AfterEach
     public void tearDown() {
         Config.cloud_spill_stats_max_age_second = savedMaxAge;
+        Config.cloud_spill_stats_poll_interval_second = savedPollInterval;
     }
 
     @Test
     public void testRemoteSpillBytesNotFetchedYet() {
-        CloudTabletStatMgr mgr = new CloudTabletStatMgr();
-        AnalysisException e = Assertions.assertThrows(AnalysisException.class, mgr::getRemoteSpillBytes);
+        RemoteSpillStatsPoller poller = new RemoteSpillStatsPoller();
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class, poller::getRemoteSpillBytes);
         Assertions.assertTrue(e.getMessage().contains("not been polled"), e.getMessage());
     }
 
     @Test
     public void testRemoteSpillBytesFresh() throws AnalysisException {
-        CloudTabletStatMgr mgr = new CloudTabletStatMgr();
-        mgr.setRemoteSpillStatsForTest(12345L, System.currentTimeMillis());
-        Assertions.assertEquals(12345L, mgr.getRemoteSpillBytes());
+        RemoteSpillStatsPoller poller = new RemoteSpillStatsPoller();
+        poller.setRemoteSpillStatsForTest(12345L, System.currentTimeMillis());
+        Assertions.assertEquals(12345L, poller.getRemoteSpillBytes());
         // Within the limit: still served.
-        mgr.setRemoteSpillStatsForTest(67L, System.currentTimeMillis() - 200_000L);
-        Assertions.assertEquals(67L, mgr.getRemoteSpillBytes());
+        poller.setRemoteSpillStatsForTest(67L, System.currentTimeMillis() - 200_000L);
+        Assertions.assertEquals(67L, poller.getRemoteSpillBytes());
     }
 
     @Test
     public void testRemoteSpillBytesStale() {
-        CloudTabletStatMgr mgr = new CloudTabletStatMgr();
-        mgr.setRemoteSpillStatsForTest(12345L, System.currentTimeMillis() - 301_000L);
-        AnalysisException e = Assertions.assertThrows(AnalysisException.class, mgr::getRemoteSpillBytes);
+        RemoteSpillStatsPoller poller = new RemoteSpillStatsPoller();
+        poller.setRemoteSpillStatsForTest(12345L, System.currentTimeMillis() - 301_000L);
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class, poller::getRemoteSpillBytes);
         Assertions.assertTrue(e.getMessage().contains("stale"), e.getMessage());
         // The limit is mutable: raising it makes the same value acceptable again.
         Config.cloud_spill_stats_max_age_second = 600;
-        Assertions.assertDoesNotThrow(mgr::getRemoteSpillBytes);
+        Assertions.assertDoesNotThrow(poller::getRemoteSpillBytes);
+    }
+
+    @Test
+    public void testMaxAgeCoversThreePollIntervals() {
+        Assertions.assertEquals(300, RemoteSpillStatsPoller.maxAgeSecond());
+        // A poll interval longer than a third of the max age cannot make every value stale.
+        Config.cloud_spill_stats_poll_interval_second = 600;
+        Assertions.assertEquals(1800, RemoteSpillStatsPoller.maxAgeSecond());
+        RemoteSpillStatsPoller poller = new RemoteSpillStatsPoller();
+        poller.setRemoteSpillStatsForTest(12345L, System.currentTimeMillis() - 700_000L);
+        Assertions.assertDoesNotThrow(poller::getRemoteSpillBytes);
     }
 }
