@@ -238,6 +238,15 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
         return context.getClientIp().filter(StringUtils::isNotBlank).orElseGet(subject::getHost);
     }
 
+    /**
+     * The groups to put on a request about {@code subject}: the ones Ranger's own user store puts the user
+     * in, see {@link RangerUserStoreGroups}. Empty until the plugin has downloaded the store, for a user the
+     * store does not know, and when the deployment has switched this off.
+     */
+    protected Set<String> groupsOf(AuthorizedSubject subject) {
+        return RangerUserStoreGroups.groupsOf(getPlugin(), subject.getUser());
+    }
+
     private static boolean deferenceFrom(Map<String, String> properties) {
         String configured = properties == null ? null : properties.get(DEFER_TO_GLOBAL_SCOPE_AUTHORITY);
         if (configured == null) {

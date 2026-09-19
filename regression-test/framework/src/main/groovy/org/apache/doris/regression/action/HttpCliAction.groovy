@@ -25,6 +25,7 @@ import org.apache.doris.regression.suite.SuiteContext
 import org.apache.http.client.methods.HttpDelete
 import org.apache.http.client.methods.HttpGet
 import org.apache.http.client.methods.HttpPost
+import org.apache.http.client.methods.HttpPut
 import org.apache.http.entity.StringEntity
 import org.apache.http.entity.ContentType
 import org.apache.http.impl.client.CloseableHttpClient
@@ -152,6 +153,11 @@ class HttpCliAction implements SuiteAction {
                 HttpDelete httpDelete = new HttpDelete(uri)
                 headers.each { k, v -> httpDelete.setHeader(k, v) }
                 result = executeRequest(httpDelete)
+            } else if (op == "put") {
+                HttpPut httpPut = new HttpPut(uri)
+                headers.each { k, v -> httpPut.setHeader(k, v) }
+                httpPut.setEntity(new StringEntity(body, ContentType.APPLICATION_JSON))
+                result = executeRequest(httpPut)
             } else {
                 HttpPost httpPost = new HttpPost(uri)
                 headers.each { k, v -> httpPost.setHeader(k, v) }
