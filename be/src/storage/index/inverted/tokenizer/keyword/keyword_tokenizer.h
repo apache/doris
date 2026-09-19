@@ -45,6 +45,9 @@ public:
             int32_t length = std::min(_char_length, MAX_TOKEN_LENGTH_LIMIT);
             std::string_view term(_char_buffer, length);
             set(token, term);
+            set_source_byte_offsets(term, 0);
+            token->setStartOffset(correct_source_offset(0));
+            token->setEndOffset(correct_source_offset(length));
             return token;
         }
         return nullptr;

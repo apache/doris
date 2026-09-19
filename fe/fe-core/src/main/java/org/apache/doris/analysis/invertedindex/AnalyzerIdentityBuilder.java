@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis.invertedindex;
 
+import org.apache.doris.analysis.InvertedIndexProperties;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
@@ -24,6 +25,8 @@ import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayDeque;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -45,14 +48,58 @@ public final class AnalyzerIdentityBuilder {
         }
 
         if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
+            String builtinIkIdentity = resolveBuiltinIkAnalyzerIdentity(properties, preferredAnalyzer);
+            if (builtinIkIdentity != null) {
+                return appendOuterCharFilterIdentity(builtinIkIdentity, properties);
+            }
             // For custom analyzer/normalizer, resolve to underlying config to build identity
-            return resolveAnalyzerIdentity(preferredAnalyzer, defaultAnalyzerKey, log);
+            return appendOuterCharFilterIdentity(
+                    resolveAnalyzerIdentity(preferredAnalyzer, defaultAnalyzerKey, log), properties);
         }
 
         if (Strings.isNullOrEmpty(parser) || parserNone.equalsIgnoreCase(parser)) {
             return defaultAnalyzerKey;
         }
-        return parser;
+        String legacyIkIdentity = resolveLegacyIkIdentity(properties, parser);
+        if (legacyIkIdentity != null) {
+            return appendOuterCharFilterIdentity(legacyIkIdentity, properties);
+        }
+        return appendOuterCharFilterIdentity(parser, properties);
+    }
+
+    private static String resolveBuiltinIkAnalyzerIdentity(
+            Map<String, String> properties, String analyzer) {
+        // BE dispatches canonical lowercase built-ins before custom policies.
+        // Preserve the identity of case-distinct legacy policies such as "IK".
+        if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_IK.equals(analyzer.trim())) {
+            return null;
+        }
+        return buildBuiltinIkIdentity("ik_max_word", properties);
+    }
+
+    private static String resolveLegacyIkIdentity(Map<String, String> properties, String parser) {
+        if (!InvertedIndexProperties.INVERTED_INDEX_PARSER_IK.equalsIgnoreCase(parser)) {
+            return null;
+        }
+        String mode = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_MODE_KEY);
+        if (Strings.isNullOrEmpty(mode)) {
+            mode = InvertedIndexProperties.INVERTED_INDEX_PARSER_SMART;
+        }
+        String tokenizer = normalizeBuiltinComponentName(mode, IndexPolicyTypeEnum.TOKENIZER);
+        if (!"ik_smart".equals(tokenizer) && !"ik_max_word".equals(tokenizer)) {
+            return null;
+        }
+        // Legacy IK uses the built-in tokenizer even when a named policy shadows its mode.
+        return buildBuiltinIkIdentity(tokenizer, properties);
+    }
+
+    private static String buildBuiltinIkIdentity(String tokenizer, Map<String, String> properties) {
+        String identity = IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=" + tokenizer + ";";
+        if (Boolean.FALSE.toString().equalsIgnoreCase(
+                properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_LOWERCASE_KEY))) {
+            identity += "lower_case=false;";
+        }
+        return identity;
     }
 
     /**
@@ -124,6 +171,9 @@ public final class AnalyzerIdentityBuilder {
             Map<String, String> properties) {
         // Use TreeMap to sort keys for consistent identity
         TreeMap<String, String> sortedProps = new TreeMap<>(properties);
+        String tokenizerIdentity = resolveComponentIdentity(
+                properties.get(IndexPolicy.PROP_TOKENIZER), IndexPolicyTypeEnum.TOKENIZER);
+        boolean lowercaseIk = "ik_smart".equals(tokenizerIdentity) || "ik_max_word".equals(tokenizerIdentity);
 
         StringBuilder sb = new StringBuilder();
         sb.append(type.name()).append(":");
@@ -131,16 +181,19 @@ public final class AnalyzerIdentityBuilder {
         for (Map.Entry<String, String> entry : sortedProps.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
+            String resolved = null;
 
             // For tokenizer, token_filter, char_filter - resolve recursively if needed
             if (IndexPolicy.PROP_TOKENIZER.equals(key)) {
-                sb.append("tokenizer=").append(resolveComponentIdentity(value, IndexPolicyTypeEnum.TOKENIZER));
+                resolved = tokenizerIdentity;
             } else if (IndexPolicy.PROP_TOKEN_FILTER.equals(key)) {
-                sb.append("token_filter=").append(resolveTokenFilterIdentity(value));
+                resolved = resolveTokenFilterIdentity(value);
             } else if (IndexPolicy.PROP_CHAR_FILTER.equals(key)) {
-                sb.append("char_filter=").append(resolveCharFilterIdentity(value));
+                resolved = resolveCharFilterIdentity(value, lowercaseIk);
             }
-            sb.append(";");
+            if (!Strings.isNullOrEmpty(resolved)) {
+                sb.append(key).append("=").append(resolved).append(";");
+            }
         }
 
         return sb.toString();
@@ -150,47 +203,80 @@ public final class AnalyzerIdentityBuilder {
      * Resolve a component (tokenizer) to its identity.
      */
     private static String resolveComponentIdentity(String name, IndexPolicyTypeEnum expectedType) {
+        return resolveComponentIdentity(name, expectedType, false);
+    }
+
+    private static String resolveComponentIdentity(
+            String name, IndexPolicyTypeEnum expectedType, boolean lowercaseIk) {
         if (Strings.isNullOrEmpty(name)) {
             return "";
         }
 
-        // Check if it's a built-in component
-        if (expectedType == IndexPolicyTypeEnum.TOKENIZER
-                && IndexPolicy.BUILTIN_TOKENIZERS.contains(name)) {
-            return name;
-        }
-
-        // For custom component, get its properties
+        // Existing named policies take precedence over built-ins for upgrade compatibility.
         try {
             Env env = Env.getCurrentEnv();
-            if (env == null || env.getIndexPolicyMgr() == null) {
-                return name;
+            if (env != null && env.getIndexPolicyMgr() != null) {
+                IndexPolicy policy = env.getIndexPolicyMgr().getPolicyByName(name);
+                if (policy != null && policy.getType() == expectedType) {
+                    if (policy.isInvalid()) {
+                        return "invalid-policy:" + policy.getId() + ":" + policy.getName();
+                    }
+                    Map<String, String> props = policy.getProperties();
+                    if (props != null && !props.isEmpty()) {
+                        TreeMap<String, String> sortedProps = new TreeMap<>(props);
+                        String type = sortedProps.get(IndexPolicy.PROP_TYPE);
+                        String normalizedType = normalizeBuiltinComponentName(type, expectedType);
+                        if (normalizedType != null) {
+                            if ("empty".equals(normalizedType)) {
+                                return "";
+                            }
+                            if (sortedProps.size() == 1) {
+                                return normalizedType;
+                            }
+                            sortedProps.put(IndexPolicy.PROP_TYPE, normalizedType);
+                        }
+                        if (expectedType == IndexPolicyTypeEnum.TOKENIZER
+                                && "ngram".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
+                            // This setting only limits policy creation; it does not change emitted tokens.
+                            sortedProps.remove(PROP_MAX_NGRAM_DIFF);
+                        }
+                        if (expectedType == IndexPolicyTypeEnum.CHAR_FILTER
+                                && "char_replace".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
+                            String replacement = sortedProps.getOrDefault("replacement", " ");
+                            String pattern = canonicalizeCharReplacePattern(
+                                    sortedProps.get("pattern"), replacement, lowercaseIk);
+                            if (pattern.isEmpty()) {
+                                return "";
+                            }
+                            sortedProps.put("pattern", pattern);
+                            sortedProps.put("replacement", replacement);
+                        }
+                        return sortedProps.toString();
+                    }
+                }
             }
-
-            IndexPolicy policy = env.getIndexPolicyMgr().getPolicyByName(name);
-            if (policy == null || policy.getType() != expectedType) {
-                return name;
-            }
-            if (policy.isInvalid()) {
-                return "invalid-policy:" + policy.getId() + ":" + policy.getName();
-            }
-
-            Map<String, String> props = policy.getProperties();
-            if (props == null || props.isEmpty()) {
-                return name;
-            }
-
-            // Build identity from sorted properties
-            TreeMap<String, String> sortedProps = new TreeMap<>(props);
-            if (expectedType == IndexPolicyTypeEnum.TOKENIZER
-                    && "ngram".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
-                // This setting only limits policy creation; it does not change emitted tokens.
-                sortedProps.remove(PROP_MAX_NGRAM_DIFF);
-            }
-            return sortedProps.toString();
         } catch (RuntimeException e) {
-            return name;
+            // Fall through to built-in resolution or the original name.
         }
+
+        String normalizedName = normalizeBuiltinComponentName(name, expectedType);
+        return "empty".equals(normalizedName) ? "" : normalizedName == null ? name : normalizedName;
+    }
+
+    private static String normalizeBuiltinComponentName(String name, IndexPolicyTypeEnum expectedType) {
+        if (Strings.isNullOrEmpty(name)) {
+            return null;
+        }
+        String normalizedName = name.trim().toLowerCase(Locale.ROOT);
+        if ((expectedType == IndexPolicyTypeEnum.TOKENIZER
+                    && IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName))
+                || (expectedType == IndexPolicyTypeEnum.TOKEN_FILTER
+                    && IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(normalizedName))
+                || (expectedType == IndexPolicyTypeEnum.CHAR_FILTER
+                    && IndexPolicy.BUILTIN_CHAR_FILTERS.contains(normalizedName))) {
+            return normalizedName;
+        }
+        return null;
     }
 
     /**
@@ -206,17 +292,15 @@ public final class AnalyzerIdentityBuilder {
         String[] filters = filterList.split(",\\s*");
         // DO NOT sort - filter order is semantically significant
 
-        for (int i = 0; i < filters.length; i++) {
-            String filter = filters[i].trim();
-            if (i > 0) {
+        for (String filterName : filters) {
+            String filter = resolveComponentIdentity(filterName.trim(), IndexPolicyTypeEnum.TOKEN_FILTER);
+            if (Strings.isNullOrEmpty(filter)) {
+                continue;
+            }
+            if (sb.length() > 0) {
                 sb.append(",");
             }
-
-            if (IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(filter)) {
-                sb.append(filter);
-            } else {
-                sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.TOKEN_FILTER));
-            }
+            sb.append(filter);
         }
         return sb.toString();
     }
@@ -226,26 +310,81 @@ public final class AnalyzerIdentityBuilder {
      * IMPORTANT: Order is preserved because filter order is semantically significant.
      */
     private static String resolveCharFilterIdentity(String filterList) {
+        return resolveCharFilterIdentity(filterList, false);
+    }
+
+    private static String resolveCharFilterIdentity(String filterList, boolean lowercaseIk) {
         if (Strings.isNullOrEmpty(filterList)) {
             return "";
         }
 
-        StringBuilder sb = new StringBuilder();
+        ArrayDeque<String> identities = new ArrayDeque<>();
         String[] filters = filterList.split(",\\s*");
         // DO NOT sort - filter order is semantically significant
 
-        for (int i = 0; i < filters.length; i++) {
-            String filter = filters[i].trim();
-            if (i > 0) {
-                sb.append(",");
+        for (int i = filters.length - 1; i >= 0; --i) {
+            String filter = resolveComponentIdentity(filters[i].trim(), IndexPolicyTypeEnum.CHAR_FILTER, lowercaseIk);
+            if (Strings.isNullOrEmpty(filter)) {
+                continue;
             }
+            identities.addFirst(filter);
+            // An earlier replacement can change the input of a later filter.
+            lowercaseIk = false;
+        }
+        return String.join(",", identities);
+    }
 
-            if (IndexPolicy.BUILTIN_CHAR_FILTERS.contains(filter)) {
-                sb.append(filter);
-            } else {
-                sb.append(resolveComponentIdentity(filter, IndexPolicyTypeEnum.CHAR_FILTER));
+    private static String appendOuterCharFilterIdentity(
+            String analyzerIdentity, Map<String, String> properties) {
+        String type = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE);
+        String pattern = properties.get(InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN);
+        if (!"char_replace".equals(type) || Strings.isNullOrEmpty(pattern)) {
+            return analyzerIdentity;
+        }
+        String replacement = properties.getOrDefault(
+                InvertedIndexProperties.INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " ");
+        String canonicalPattern = canonicalizeCharReplacePattern(
+                pattern, replacement, isDefaultLowercaseBuiltinIkIdentity(analyzerIdentity));
+        if (canonicalPattern.isEmpty()) {
+            return analyzerIdentity;
+        }
+        return analyzerIdentity + "|outer_char_filter=char_replace:"
+                + canonicalPattern.length() + ":" + canonicalPattern + ":"
+                + replacement.length() + ":" + replacement + ";";
+    }
+
+    /**
+     * Canonicalize the ASCII pattern to the BE filter's byte set.
+     * Order, duplicate bytes, and replacements of a byte with itself do not change the stream.
+     */
+    private static String canonicalizeCharReplacePattern(
+            String pattern, String replacement, boolean lowercaseBuiltinIk) {
+        if (replacement.length() != 1) {
+            return pattern;
+        }
+        char replacementByte = replacement.charAt(0);
+        boolean[] replacedBytes = new boolean[256];
+        for (int i = 0; i < pattern.length(); ++i) {
+            char patternByte = pattern.charAt(i);
+            if (patternByte < replacedBytes.length && patternByte != replacementByte) {
+                replacedBytes[patternByte] = true;
             }
         }
-        return sb.toString();
+        if (lowercaseBuiltinIk && replacementByte >= 'a' && replacementByte <= 'z') {
+            replacedBytes[replacementByte - ('a' - 'A')] = false;
+        }
+
+        StringBuilder canonical = new StringBuilder();
+        for (int i = 0; i < replacedBytes.length; ++i) {
+            if (replacedBytes[i]) {
+                canonical.append((char) i);
+            }
+        }
+        return canonical.toString();
+    }
+
+    private static boolean isDefaultLowercaseBuiltinIkIdentity(String analyzerIdentity) {
+        return (IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=ik_smart;").equals(analyzerIdentity)
+                || (IndexPolicyTypeEnum.ANALYZER.name() + ":tokenizer=ik_max_word;").equals(analyzerIdentity);
     }
 }

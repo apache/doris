@@ -126,7 +126,8 @@ InvertedIndexQueryType search_query_type(std::string_view clause_type) {
 Result<const TabletIndex*> select_index_meta(const std::vector<const TabletIndex*>& index_metas,
                                              FieldType field_type,
                                              InvertedIndexQueryType query_type,
-                                             std::string_view analyzer_key) {
+                                             std::string_view analyzer_key,
+                                             std::string_view legacy_analyzer_key = {}) {
     std::vector<InvertedIndexSelectionCandidate> candidates;
     candidates.reserve(index_metas.size());
     InvertedIndexSelectionKeyIndex key_index;
@@ -144,7 +145,8 @@ Result<const TabletIndex*> select_index_meta(const std::vector<const TabletIndex
     }
 
     auto selection = select_best_inverted_index_candidate(
-            candidates, key_index, field_type, query_type, normalize_analyzer_key(analyzer_key));
+            candidates, key_index, field_type, query_type, normalize_analyzer_key(analyzer_key),
+            legacy_analyzer_key);
     if (!selection.has_value()) {
         return ResultError(std::move(selection.error()));
     }
@@ -376,8 +378,9 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     DORIS_CHECK(analyzer_ctx != nullptr);
     const auto query_type = match_query_type(expr->op());
     DORIS_CHECK(query_type != InvertedIndexQueryType::UNKNOWN_QUERY);
-    const auto* index_meta = DORIS_TRY(select_index_meta(
-            candidates.index_metas, candidates.field_type, query_type, analyzer_ctx->analyzer_key));
+    const auto* index_meta = DORIS_TRY(
+            select_index_meta(candidates.index_metas, candidates.field_type, query_type,
+                              analyzer_ctx->analyzer_key, analyzer_ctx->legacy_analyzer_key));
     if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties()) ||
         !IndexReaderHelper::is_need_similarity_score(expr->op(), index_meta)) {
         return Status::OK();

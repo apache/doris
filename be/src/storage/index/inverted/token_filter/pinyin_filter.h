@@ -51,13 +51,16 @@ private:
 
     bool processCurrentToken();
 
+    bool prepareCurrentSource(std::vector<UChar32>& source_codepoints);
+
     bool readTerm(Token* token);
 
     void resetVariables();
 
     void addCandidate(const TermItem& item);
 
-    void processAsciiBuffer(const std::string& ascii_buffer, int start_pos, int end_pos);
+    void processAsciiBuffer(const std::string& ascii_buffer,
+                            const std::vector<int>& source_rune_indices);
 
     void setTokenAttributes(Token* token, const std::string& term, int startOffset, int endOffset,
                             int position);
@@ -98,6 +101,9 @@ private:
     std::string current_token_text_;
     int current_start_offset_;
     int current_end_offset_;
+    std::vector<RuneInfo> current_runes_;
+    std::vector<int32_t> current_source_byte_offsets_;
+    std::vector<int32_t> current_source_byte_end_offsets_;
 };
 
 using PinyinFilterPtr = std::shared_ptr<PinyinFilter>;
