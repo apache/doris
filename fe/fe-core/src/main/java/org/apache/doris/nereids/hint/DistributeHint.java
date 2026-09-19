@@ -56,6 +56,10 @@ public class DistributeHint extends Hint {
         isSuccessInLeading = successInLeading;
     }
 
+    public boolean isSuccessInLeading() {
+        return isSuccessInLeading;
+    }
+
     public Expression getSkewExpr() {
         return skewInfo.getSkewExpr();
     }
