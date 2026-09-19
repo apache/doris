@@ -466,6 +466,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 mapContext.accessPathBuilder.accessPath.addAll(path.subList(2, path.size()));
                 mapContext.accessPathBuilder.addPrefix("key".equalsIgnoreCase(entryField)
                         ? AccessPathInfo.ACCESS_MAP_KEYS : AccessPathInfo.ACCESS_MAP_VALUES);
+                mapContext.setType(context.type);
                 return continueCollectAccessPath(mapEntries.getArgument(0), mapContext);
             }
         }

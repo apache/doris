@@ -201,8 +201,11 @@ public class SumLiteralRewrite extends OneRewriteRuleFactory {
             // right now, only support expr +/- literal
             return null;
         }
-        if (!(right.getDataType().isIntegerLikeType() || right.getDataType().isFloatLikeType())) {
-            // only support integer or float types
+        if (!child.getDataType().isIntegerLikeType()
+                || !left.getDataType().isIntegerLikeType()
+                || !right.getDataType().isIntegerLikeType()) {
+            // Reassociation changes per-row rounding for floating-point types.
+            // Only rewrite arithmetic whose analyzed operands and result are integers.
             return null;
         }
         // Strip redundant widening integer cast introduced by type coercion.

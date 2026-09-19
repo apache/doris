@@ -259,6 +259,26 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testTransformValuesPreservesValueOffsetMetaPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select transform_values((k, v) -> size(v), map_arr_col) from map_array_tbl",
+                ImmutableList.of(
+                        path("map_arr_col", "KEYS"),
+                        metaPath("map_arr_col", "VALUES", "OFFSET")),
+                ImmutableList.of(path("map_arr_col", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testTransformValuesPreservesValueNullMetaPath() throws Exception {
+        assertAllAccessPathsContain(
+                "select transform_values((k, v) -> v is null, element_at(s, 'data')[1]) from tbl",
+                ImmutableList.of(
+                        path("s", "data", "*", "KEYS"),
+                        metaPath("s", "data", "*", "VALUES", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "VALUES", "NULL")));
+    }
+
+    @Test
     public void testFullFieldAccessKeepsExactMetadataPath() throws Exception {
         assertColumn("select element_at(s, 'city') from tbl "
                         + "where element_at(s, 'city') is null",
@@ -354,6 +374,23 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                         ImmutableList.of("a"),
                         ImmutableList.of("b", "c")
                 ));
+    }
+
+    @Test
+    public void testVariantIntegerIndexStopsSubColumnPath() throws Exception {
+        // DORIS-28435: an integer index selects an array element, so only the object-key prefix becomes a storage
+        // sub-column; a sub-column items.1 would look up a missing object key and return NULL.
+        assertVariantSubColumnSlots("select element_at(element_at(v, 'items'), 1), v['items'][-1] from variant_tbl",
+                ImmutableList.of(ImmutableList.of("items")));
+    }
+
+    @Test
+    public void testVariantIntegerIndexPredicateStopsSubColumnPath() throws Exception {
+        // Filters stop at the integer index too, also when a string key follows it; the object-key sub-column
+        // items.1, spelled like the index, stays a separate slot.
+        assertVariantSubColumnSlots("select id from variant_tbl"
+                        + " where v['items'][1] = 2 and v['items'][-1]['k'] = 1 and v['items']['1'] = 'x'",
+                ImmutableList.of(ImmutableList.of("items"), ImmutableList.of("items", "1")));
     }
 
     @Test

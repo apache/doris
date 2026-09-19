@@ -46,10 +46,14 @@ import org.apache.doris.nereids.types.ArrayType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
+import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
 import java.math.BigInteger;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -1034,6 +1038,12 @@ public class StringArithmetic {
         if (startPos < 0) {
             return null;
         }
+        int fragmentPos = protocolEnd.indexOf('#');
+        if (fragmentPos >= 0 && fragmentPos < startPos) {
+            // The '#' comes before the '?', so the '?' and everything behind it belongs to the
+            // fragment and the url has no query component.
+            return null;
+        }
         String queryStart = protocolEnd.substring(startPos + 1);
         return substringEnd(queryStart, queryStart.indexOf('#'));
     }
@@ -1075,10 +1085,57 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "url_decode")
     public static Expression urlDecode(StringLikeLiteral first) {
+        if (!isValidUtf8AfterUrlDecode(first.getValue())) {
+            // String literals cannot preserve an invalid UTF-8 byte sequence. Let BE evaluate it
+            // instead of folding the replacement characters produced by java.net.URLDecoder.
+            throw new IllegalArgumentException("URL-decoded value is not valid UTF-8");
+        }
         try {
             return castStringLikeLiteral(first, URLDecoder.decode(first.getValue(), StandardCharsets.UTF_8.name()));
         } catch (UnsupportedEncodingException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    private static boolean isValidUtf8AfterUrlDecode(String value) {
+        ByteArrayOutputStream decodedBytes = new ByteArrayOutputStream(value.length());
+        int index = 0;
+        while (index < value.length()) {
+            char current = value.charAt(index);
+            if (current == '%') {
+                if (index + 2 >= value.length()) {
+                    // Preserve URLDecoder's existing malformed-escape handling.
+                    return true;
+                }
+                int high = Character.digit(value.charAt(index + 1), 16);
+                int low = Character.digit(value.charAt(index + 2), 16);
+                if (high < 0 || low < 0) {
+                    // Preserve URLDecoder's existing malformed-escape handling.
+                    return true;
+                }
+                decodedBytes.write((high << 4) + low);
+                index += 3;
+            } else if (current == '+') {
+                decodedBytes.write(' ');
+                index++;
+            } else {
+                int start = index;
+                while (index < value.length() && value.charAt(index) != '%' && value.charAt(index) != '+') {
+                    index++;
+                }
+                byte[] originalBytes = value.substring(start, index).getBytes(StandardCharsets.UTF_8);
+                decodedBytes.write(originalBytes, 0, originalBytes.length);
+            }
+        }
+
+        try {
+            StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(decodedBytes.toByteArray()));
+            return true;
+        } catch (CharacterCodingException e) {
+            return false;
         }
     }
 
@@ -1135,6 +1192,11 @@ public class StringArithmetic {
             return castStringLikeLiteral(first, "");
         }
         int hashPos = trimmedUrl.indexOf('#');
+        if (hashPos >= 0 && hashPos < questionPos) {
+            // The '#' comes before the '?', so the '?' and everything behind it belongs to the
+            // fragment and the url has no query parameters.
+            return castStringLikeLiteral(first, "");
+        }
         String subUrl = hashPos < 0
                 ? trimmedUrl.substring(questionPos + 1)
                 : trimmedUrl.substring(questionPos + 1, hashPos);

@@ -2008,9 +2008,11 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
+    // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
+    public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = TIMESTAMP_NS_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
@@ -2203,6 +2205,11 @@ public class Config extends ConfigBase {
 
     @ConfField(description = "The auto-refresh interval of the external meta cache.")
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
+
+    @ConfField(mutable = false, masterOnly = false,
+            description = "FE-wide maximum weight for managed external metadata caches. Supports byte units "
+                    + "or a percentage of the JVM max heap; 0 disables the global quota.")
+    public static String external_meta_cache_max_weight = "0";
 
     // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
     @ConfField(mutable = true, masterOnly = false,
@@ -2651,8 +2658,10 @@ public class Config extends ConfigBase {
             + "while the client pulls the results (DoGet); that coordinator is normally released when the "
             + "session runs its next query or is closed. Most Flight clients never close a session, so the "
             + "coordinator, and with it the query's workload group queue slot and its active_queries entry, "
-            + "would otherwise stay held until wait_timeout. If the session stays idle for longer than this "
-            + "many seconds after the query started, the coordinator is released anyway. The bound is never "
+            + "would otherwise stay held until wait_timeout. Once this many seconds have passed since the query "
+            + "started and the session is not running a statement, the coordinator is released anyway; each "
+            + "such query is bounded on its own, and the session's other commands in the meantime (a session "
+            + "option, a metadata request) neither release it earlier nor keep it longer. The bound is never "
             + "shorter than the query's own execution timeout, and the session itself is not killed "
             + "(wait_timeout still governs that). 0 disables the bound.")
     public static int arrow_flight_deferred_query_idle_timeout_second = 3600;
@@ -2703,6 +2712,10 @@ public class Config extends ConfigBase {
             + "and use of Python UDF is disabled. In some scenarios it may be necessary to disable "
             + "this configuration to prevent command injection attacks.")
     public static boolean enable_python_udf = true;
+
+    @ConfField(description = "The user identity allowed to create AI resources, in the form 'user'@'host'. "
+            + "The default value '*' allows any user that satisfies the existing privilege checks.")
+    public static String ai_resource_allowed_user = "*";
 
     @ConfField(description = "Whether to ignore unknown modules in Image file. If true, metadata modules not in "
             + "PersistMetaModules.MODULE_NAMES will be ignored and skipped. Default is false, if Image "
@@ -2784,9 +2797,6 @@ public class Config extends ConfigBase {
             + "Doris SQL `select password('root@123')` to generate encrypted "
             + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`")
     public static String initial_root_password = "";
-
-    @ConfField(description = "The path of the nereids trace file.")
-    public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
 
     @ConfField(mutable = true, masterOnly = true, description = "The maximum number of snapshots assigned to an "
             + "upload task during the backup process. The default " + "value is 10.")
@@ -2964,9 +2974,6 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";
-
-    @ConfField
-    public static String spilled_minidump_storage_path = System.getenv("LOG_DIR") + File.separator + "minidump";
 
     // The max number of profiles that can be stored to storage.
     @ConfField
@@ -3596,8 +3603,8 @@ public class Config extends ConfigBase {
     public static int tso_max_get_retry_count = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = "TSO service time window in milliseconds. Default is "
-            + "5000, which means the TSO service will apply for a " + "TSO time window of 5000ms from BDBJE once.")
-    public static int tso_service_window_duration_ms = 5000;
+            + "1000. Persist the readable committed TSO together with the reserved allocation window.")
+    public static int tso_service_window_duration_ms = 1000;
 
     @ConfField(mutable = true, masterOnly = true, description = "Max tolerated clock backward threshold during TSO "
             + "calibration in milliseconds. Exceeding this " + "threshold will fail enabling TSO. Default is 30 "
@@ -3686,9 +3693,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Whether to allow the use of inverted index v1 for "
             + "variant.")
     public static boolean enable_inverted_index_v1_for_variant = false;
-
-    @ConfField(mutable = true, description = "Whether to enable ColumnVariantV2 for Variant execution and storage.")
-    public static boolean enable_variant_v2 = false;
 
     @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;

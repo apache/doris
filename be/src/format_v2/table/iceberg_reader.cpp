@@ -152,8 +152,6 @@ const char* file_format_name(FileFormat format) {
         return "TEXT";
     case FileFormat::JNI:
         return "JNI";
-    case FileFormat::NATIVE:
-        return "NATIVE";
     case FileFormat::ARROW:
         return "ARROW";
     case FileFormat::WAL:

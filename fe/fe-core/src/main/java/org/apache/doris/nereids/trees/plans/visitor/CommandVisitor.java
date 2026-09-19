@@ -164,7 +164,6 @@ import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
-import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
@@ -331,10 +330,6 @@ public interface CommandVisitor<R, C> {
 
     default R visitExplainDictionaryCommand(ExplainDictionaryCommand explainDictionary, C context) {
         return visitCommand(explainDictionary, context);
-    }
-
-    default R visitReplayCommand(ReplayCommand replay, C context) {
-        return visitCommand(replay, context);
     }
 
     default R visitCreatePolicyCommand(CreatePolicyCommand createPolicy, C context) {
