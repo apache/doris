@@ -142,7 +142,7 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             FROM t_auto_partition\$partitions
             ORDER BY `partition`
         """
-        assertSparkDorisResultEquals(sparkPartitions, dorisPartitions)
+        assertPaimonPartitionRecordCountsEqual(sparkPartitions, dorisPartitions)
         order_qt_ao_auto_partition_metadata """
             SELECT `partition`, record_count
             FROM t_auto_partition\$partitions
@@ -195,7 +195,7 @@ suite("test_paimon_write_append_only", "p0,external,paimon") {
             FROM t_partition_default\$partitions
             ORDER BY `partition`
         """
-        assertSparkDorisResultEquals(sparkDefaultPartitions, dorisDefaultPartitions)
+        assertPaimonPartitionRecordCountsEqual(sparkDefaultPartitions, dorisDefaultPartitions)
         order_qt_ao_partition_default_metadata """
             SELECT `partition`, record_count
             FROM t_partition_default\$partitions

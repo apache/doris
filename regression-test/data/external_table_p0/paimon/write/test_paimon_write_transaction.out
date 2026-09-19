@@ -75,12 +75,25 @@
 50	special_new	a/b=c%20	2026-07-04
 7	keep	keep	2026-07-01
 
+-- !txn_static_boundary_partitions --
+region=__CUSTOM_DEFAULT_PARTITION__/dt=2026-07-01	1
+region=__CUSTOM_DEFAULT_PARTITION__/dt=2026-07-03	1
+region=a/b=c%20/dt=2026-07-04	1
+region=keep/dt=2026-07-01	1
+region=null/dt=2026-07-01	1
+
 -- !txn_dynamic_multi --
 10	p1_new	p1
 20	p2_new_a	p2
 21	p2_new_b	p2
 4	p3_keep	p3
 5	p4_keep	p4
+
+-- !txn_dynamic_multi_partitions --
+region=p1	1
+region=p2	2
+region=p3	1
+region=p4	1
 
 -- !txn_dynamic_partition --
 10	east_new	east
