@@ -3219,10 +3219,8 @@ TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
     ASSERT_TRUE(reader.close().ok());
 
     const std::vector<FileFormat> formats {FileFormat::ORC,  FileFormat::CSV, FileFormat::JSON,
-                                           FileFormat::TEXT, FileFormat::JNI, FileFormat::NATIVE,
-                                           FileFormat::ARROW};
-    const std::vector<std::string> format_names {"ORC", "CSV",    "JSON", "TEXT",
-                                                 "JNI", "NATIVE", "ARROW"};
+                                           FileFormat::TEXT, FileFormat::JNI, FileFormat::ARROW};
+    const std::vector<std::string> format_names {"ORC", "CSV", "JSON", "TEXT", "JNI", "ARROW"};
     for (size_t idx = 0; idx < formats.size(); ++idx) {
         TableReader enum_reader;
         ASSERT_TRUE(enum_reader

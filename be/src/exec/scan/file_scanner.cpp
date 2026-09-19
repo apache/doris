@@ -63,7 +63,6 @@
 #include "format/avro/avro_jni_reader.h"
 #include "format/csv/csv_reader.h"
 #include "format/json/new_json_reader.h"
-#include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/hive_reader.h"
@@ -1257,13 +1256,6 @@ Status FileScanner::_get_next_reader() {
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader = WalReader::create_unique(_state);
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
-            break;
-        }
-        case TFileFormatType::FORMAT_NATIVE: {
-            auto reader = NativeReader::create_unique(_profile, *_params, range, _io_ctx, _state);
-            init_status = reader->init_reader();
-            _cur_reader = std::move(reader);
-            need_to_get_parsed_schema = false;
             break;
         }
         case TFileFormatType::FORMAT_ARROW: {
