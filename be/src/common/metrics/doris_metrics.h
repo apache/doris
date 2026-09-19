@@ -53,6 +53,9 @@ public:
     IntCounter* query_scan_bytes_from_local = nullptr;
     IntCounter* query_scan_bytes_from_remote = nullptr;
     IntCounter* query_scan_rows = nullptr;
+    IntCounter* point_query_rpc_unary_total = nullptr;
+    IntCounter* point_query_rpc_batch_total = nullptr;
+    IntCounter* point_query_rpc_batch_items_total = nullptr;
 
     // Query cache incremental merge (see runtime/query_cache/query_cache.h):
     // how many instance decisions reused a stale entry incrementally, how many
