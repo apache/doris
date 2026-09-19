@@ -152,8 +152,6 @@ public class RemoteOlapTable extends OlapTable {
     }
 
     public ImmutableMap<Long, Backend> getAllBackendsByAllCluster() {
-        return Env.getCurrentEnv().getExtMetaCacheMgr()
-                .doris(catalog.getId())
-                .getBackends(catalog.getId());
+        return catalog.getAllBackends();
     }
 }
