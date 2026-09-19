@@ -612,7 +612,8 @@ bool ParquetReader::_type_matches(const int cid) const {
             remove_nullable(_file_metadata->schema().get_column(file_col_name)->data_type);
 
     return (table_col_type->get_primitive_type() == file_col_type->get_primitive_type()) &&
-           !is_complex_type(table_col_type->get_primitive_type());
+           !is_complex_type(table_col_type->get_primitive_type()) &&
+           !converter::requires_datetimev2_precision_conversion(file_col_type, table_col_type);
 }
 
 void ParquetReader::_collect_predicate_columns_from_conjuncts(

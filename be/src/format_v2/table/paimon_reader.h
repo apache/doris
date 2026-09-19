@@ -55,6 +55,7 @@ public:
 protected:
     void configure_mapper_options(format::TableColumnMapperOptions* options) const override {
         options->enable_paimon_metadata_virtual_columns = true;
+        options->truncate_datetimev2_precision_for_paimon = true;
     }
     format::TableColumnMappingMode mapping_mode() const override;
     Status annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) override;

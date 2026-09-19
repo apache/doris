@@ -30,6 +30,7 @@ import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -167,7 +168,8 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getDateTime() {
-        Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
+        Timestamp ts = truncateTimestampPrecision(
+                record.getTimestamp(idx, dorisType.getPrecision()));
         if (dataType instanceof LocalZonedTimestampType) {
             // Paimon stores TIMESTAMP_LTZ as an epoch instant, so convert it directly in the cached session zone.
             return LocalDateTime.ofInstant(ts.toInstant(), timeZone);
@@ -178,9 +180,24 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getTimeStampTz() {
-        Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
+        Timestamp ts = truncateTimestampPrecision(
+                record.getTimestamp(idx, dorisType.getPrecision()));
         // Timestamp's local representation is identical to converting its epoch instant in UTC.
         return ts.toLocalDateTime();
+    }
+
+    private Timestamp truncateTimestampPrecision(Timestamp timestamp) {
+        if (!(dataType instanceof TimestampType)) {
+            return timestamp;
+        }
+        int precision = dorisType.getPrecision();
+        long divisor = 1;
+        for (int i = precision; i < 9; ++i) {
+            divisor *= 10;
+        }
+        LocalDateTime value = timestamp.toLocalDateTime();
+        int truncatedNano = (int) (value.getNano() / divisor * divisor);
+        return Timestamp.fromLocalDateTime(value.withNano(truncatedNano));
     }
 
     @Override

@@ -222,12 +222,43 @@ public class PaimonColumnValueTest {
                 LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999_999_999),
                 timestampValue.getTimeStampTz());
 
+        PaimonColumnValue secondsPrecisionValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromEpochMillis(1_735_689_601_600L)), 0,
+                ColumnType.parseType("t", "datetimev2(0)"), new TimestampType(0), "UTC");
+        Assertions.assertEquals(
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1), secondsPrecisionValue.getDateTime());
+
+        PaimonColumnValue leadingZeroValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromLocalDateTime(
+                        LocalDateTime.of(2025, 1, 1, 0, 0, 1, 1_000))), 0,
+                ColumnType.parseType("t", "datetimev2(4)"), new TimestampType(6), "UTC");
+        Assertions.assertEquals(
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1), leadingZeroValue.getDateTime());
+
+        PaimonColumnValue preEpochValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromLocalDateTime(
+                        LocalDateTime.of(1969, 12, 31, 23, 59, 59, 600_000_000))), 0,
+                ColumnType.parseType("t", "datetimev2(0)"), new TimestampType(6), "UTC");
+        Assertions.assertEquals(
+                LocalDateTime.of(1969, 12, 31, 23, 59, 59), preEpochValue.getDateTime());
+
         PaimonColumnValue localZonedValue = new PaimonColumnValue(
                 GenericRow.of(Timestamp.fromInstant(Instant.parse("2024-03-10T10:30:00.123456789Z"))), 0,
                 dorisTimestampType, new LocalZonedTimestampType(9), "America/Los_Angeles");
         Assertions.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 3, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
+
+        PaimonColumnValue narrowedLocalZonedValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromInstant(Instant.parse("2024-03-10T10:30:00.123456789Z"))), 0,
+                ColumnType.parseType("t", "datetimev2(0)"), new LocalZonedTimestampType(9),
+                "America/Los_Angeles");
+        Assertions.assertEquals(
+                LocalDateTime.of(2024, 3, 10, 3, 30, 0, 123_456_789),
+                narrowedLocalZonedValue.getDateTime());
+        Assertions.assertEquals(
+                LocalDateTime.of(2024, 3, 10, 10, 30, 0, 123_456_789),
+                narrowedLocalZonedValue.getTimeStampTz());
 
         localZonedValue.setTimeZone("Asia/Shanghai");
         Assertions.assertEquals(
