@@ -304,8 +304,6 @@ public interface PaimonCatalogOps {
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
             Table table = catalog.getTable(identifier);
             Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions);
-            // Relation options are applied after this cached handle is returned. Defer final
-            // validation so a safe relation value can override an unsafe physical value.
             return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
         }
 

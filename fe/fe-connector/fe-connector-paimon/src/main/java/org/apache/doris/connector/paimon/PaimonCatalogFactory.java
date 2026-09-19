@@ -141,9 +141,13 @@ public final class PaimonCatalogFactory {
                 // filesystem: nothing custom.
                 break;
         }
-        if (hasEnclosingMetaCacheWeightLimit && !options.contains(CatalogOptions.CACHE_ENABLED)) {
-            options.set(CatalogOptions.CACHE_ENABLED, false);
-        }
+        // PaimonMetaCacheCatalog (Doris-owned) replaces the SDK CachingCatalog's table and database
+        // caches with Doris's own CatalogMetaCache framework. The two caching layers cannot coexist:
+        // if the SDK wraps itself in CachingCatalog (cache-enabled=true, the SDK default), a
+        // PaimonMetaCacheCatalog miss falls through to CachingCatalog.getTable() which returns a
+        // frozen Table — the stale-read bug DORIS-29032 would persist even after a Doris-side
+        // REFRESH. Always disable the SDK cache so the catalog always loads fresh.
+        options.set(CatalogOptions.CACHE_ENABLED, false);
         return options;
     }
 

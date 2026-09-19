@@ -97,10 +97,13 @@ public class PaimonCatalogFactoryTest {
         Map<String, String> defaults = props(
                 "paimon.catalog.type", "filesystem", "warehouse", "/wh");
 
+        // PaimonMetaCacheCatalog replaces the SDK CachingCatalog: the two cannot coexist, so
+        // cache-enabled=false is forced unconditionally regardless of governance or user setting.
         try (PaimonConnector ungoverned = new PaimonConnector(defaults, new RecordingConnectorContext())) {
             Options options = ungoverned.buildCatalogOptions();
-            Assertions.assertFalse(options.contains(CatalogOptions.CACHE_ENABLED),
-                    "without a global/catalog total, Doris must preserve the Paimon SDK default");
+            Assertions.assertTrue(options.contains(CatalogOptions.CACHE_ENABLED));
+            Assertions.assertFalse(options.get(CatalogOptions.CACHE_ENABLED),
+                    "the Paimon SDK CachingCatalog must be disabled even without a Doris weight limit");
         }
 
         Map<String, String> catalogLimited = new HashMap<>(defaults);
@@ -109,25 +112,28 @@ public class PaimonCatalogFactoryTest {
             Options options = governed.buildCatalogOptions();
             Assertions.assertTrue(options.contains(CatalogOptions.CACHE_ENABLED));
             Assertions.assertFalse(options.get(CatalogOptions.CACHE_ENABLED),
-                    "an enclosing Doris hard limit must not be bypassed by an unaccounted SDK cache");
+                    "the Paimon SDK CachingCatalog must stay disabled under an enclosing Doris hard limit");
         }
 
         Map<String, String> entryLimited = new HashMap<>(defaults);
         entryLimited.put("meta.cache.paimon.partition_view.max-weight", "1MB");
         try (PaimonConnector entryOnly = new PaimonConnector(entryLimited, new RecordingConnectorContext())) {
-            Assertions.assertFalse(entryOnly.buildCatalogOptions().contains(CatalogOptions.CACHE_ENABLED),
-                    "an entry-only limit must preserve the Paimon SDK default");
+            Assertions.assertTrue(entryOnly.buildCatalogOptions().contains(CatalogOptions.CACHE_ENABLED));
+            Assertions.assertFalse(entryOnly.buildCatalogOptions().get(CatalogOptions.CACHE_ENABLED),
+                    "the Paimon SDK CachingCatalog must be disabled unconditionally");
         }
 
+        // An explicit paimon.cache-enabled setting is overridden: Doris owns the cache layer now.
         PaimonCatalogProperties explicitTrue = PaimonCatalogProperties.of(props(
                 "paimon.catalog.type", "filesystem", "warehouse", "/wh", "paimon.cache-enabled", "true"));
-        Assertions.assertTrue(PaimonCatalogFactory.buildCatalogOptions(explicitTrue, true)
-                .get(CatalogOptions.CACHE_ENABLED), "an explicit Paimon setting must win");
+        Assertions.assertFalse(PaimonCatalogFactory.buildCatalogOptions(explicitTrue, true)
+                .get(CatalogOptions.CACHE_ENABLED),
+                "an explicit SDK enable must be forced off by Doris");
 
         PaimonCatalogProperties explicitFalse = PaimonCatalogProperties.of(props(
                 "paimon.catalog.type", "filesystem", "warehouse", "/wh", "paimon.cache-enabled", "false"));
         Assertions.assertFalse(PaimonCatalogFactory.buildCatalogOptions(explicitFalse, true)
-                .get(CatalogOptions.CACHE_ENABLED), "an explicit Paimon setting must win");
+                .get(CatalogOptions.CACHE_ENABLED));
     }
 
     @Test
