@@ -401,30 +401,24 @@ public class PartitionKeyTest {
     }
 
     @Test
-    public void testUuidPartitionKey() throws Exception {
-        RangePartitionInfo.checkPartitionColumn(uuid);
-        ListPartitionInfo.checkPartitionColumn(uuid);
+    public void testUuidPartitionColumnRejected() {
+        AnalysisException rangeException = Assertions.assertThrows(AnalysisException.class,
+                () -> RangePartitionInfo.checkPartitionColumn(uuid));
+        Assertions.assertEquals("Column[uuid] type[UUID] cannot be a range partition key.",
+                rangeException.getDetailMessage());
+        AnalysisException listException = Assertions.assertThrows(AnalysisException.class,
+                () -> ListPartitionInfo.checkPartitionColumn(uuid));
+        Assertions.assertEquals("Column[uuid] type[UUID] cannot be a list partition key.",
+                listException.getDetailMessage());
+    }
 
+    @Test
+    public void testUuidDistributionKey() throws Exception {
         PartitionKey key = PartitionKey.createPartitionKey(
                 Arrays.asList(new PartitionValue("00112233-4455-6677-8899-aabbccddeeff")),
                 Arrays.asList(uuid));
         Assertions.assertEquals("(\"00112233-4455-6677-8899-aabbccddeeff\")", key.toSql());
         Assertions.assertEquals(1460664532L, key.getHashValue());
-
-        PartitionKey successor = key.successor();
-        Assertions.assertEquals("00112233-4455-6677-8899-aabbccddef00",
-                successor.getKeys().get(0).getStringValue());
-        Assertions.assertTrue(key.compareTo(successor) < 0);
-
-        PartitionKey min = PartitionKey.createInfinityPartitionKey(Arrays.asList(uuid), false);
-        Assertions.assertTrue(min.isMinValue());
-        Assertions.assertEquals("00000000-0000-0000-0000-000000000000",
-                min.getKeys().get(0).getStringValue());
-
-        PartitionKey max = PartitionKey.createPartitionKey(
-                Arrays.asList(new PartitionValue("ffffffff-ffff-ffff-ffff-ffffffffffff")),
-                Arrays.asList(uuid));
-        Assertions.assertEquals(max, max.successor());
     }
 
     @Test

@@ -40,7 +40,6 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
-#include "core/data_type/data_type_uuid.h"
 #include "core/value/uuid_value.h"
 #include "exec/operator/exchange_sink_operator.h"
 #include "exec/operator/operator_helper.h"
@@ -401,7 +400,7 @@ TEST(TabletSinkHashPartitionerTest, TimeStampNsRangePartitionKey) {
     EXPECT_EQ(result->id, before_epoch.id);
 }
 
-TEST(TabletSinkHashPartitionerTest, UuidRangePartitionRoutesRows) {
+TEST(TabletSinkHashPartitionerTest, UuidRangePartitionRejected) {
     OperatorContext ctx;
 
     TDescriptorTableBuilder dtb;
@@ -467,24 +466,8 @@ TEST(TabletSinkHashPartitionerTest, UuidRangePartitionRoutesRows) {
     ASSERT_TRUE(st.ok()) << st.to_string();
     auto vpartition = std::make_unique<VOlapTablePartitionParam>(schema, tpartition);
     st = vpartition->init();
-    ASSERT_TRUE(st.ok()) << st.to_string();
-
-    OlapTabletFinder finder(vpartition.get(), OlapTabletFinder::FIND_TABLET_EVERY_ROW);
-    uint128_t low;
-    uint128_t high;
-    ASSERT_TRUE(UUIDValue::from_string(low, "00000000-0000-0000-0000-000000000001"));
-    ASSERT_TRUE(UUIDValue::from_string(high, "ffffffff-ffff-ffff-ffff-ffffffffffff"));
-    auto block = ColumnHelper::create_block<DataTypeUUID>({low, high});
-    std::vector<VOlapTablePartition*> partitions(block.rows(), nullptr);
-    std::vector<uint32_t> tablet_index(block.rows(), 0);
-    std::vector<bool> skip(block.rows(), false);
-    st = finder.find_tablets(&ctx.state, &block, cast_set<int>(block.rows()), partitions,
-                             tablet_index, skip, nullptr);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_NE(partitions[0], nullptr);
-    ASSERT_NE(partitions[1], nullptr);
-    EXPECT_EQ(partitions[0]->id, 1);
-    EXPECT_EQ(partitions[1]->id, 2);
+    ASSERT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("unsupported partition column node type"), std::string::npos);
 }
 } // anonymous namespace
 } // namespace doris
