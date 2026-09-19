@@ -102,7 +102,6 @@ public:
             const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                     nullable_column.get_nested_column());
             PaddedPODArray<typename PrimitiveTypeTraits<T>::CppType> values;
-            values.reserve(batch_size);
             for (size_t i = 0; i < batch_size; ++i) {
                 if (!nullable_column.is_null_at(i) && column.get_data()[i] >= 0) {
                     values.push_back(column.get_data()[i]);
@@ -118,7 +117,6 @@ public:
                 this->data(place).value.add_many(data, batch_size);
             } else {
                 PaddedPODArray<typename PrimitiveTypeTraits<T>::CppType> values;
-                values.reserve(batch_size);
                 for (size_t i = 0; i < batch_size; ++i) {
                     if (data[i] >= 0) {
                         values.push_back(data[i]);
