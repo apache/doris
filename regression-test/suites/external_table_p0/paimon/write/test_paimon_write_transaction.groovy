@@ -319,7 +319,12 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             FROM t_static_boundary\$partitions
             ORDER BY `partition`
         """
-        assertSparkDorisResultEquals(sparkBoundaryPartitions, dorisBoundaryPartitions)
+        assertPaimonPartitionRecordCountsEqual(sparkBoundaryPartitions, dorisBoundaryPartitions)
+        order_qt_txn_static_boundary_partitions """
+            SELECT `partition`, record_count
+            FROM t_static_boundary\$partitions
+            ORDER BY `partition`
+        """
 
         // Dynamic overwrite replaces all partitions present in one input batch,
         // preserves untouched partitions, and publishes one overwrite snapshot.
@@ -348,7 +353,12 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             FROM t_dynamic_multi\$partitions
             ORDER BY `partition`
         """
-        assertSparkDorisResultEquals(sparkDynamicPartitions, dorisDynamicPartitions)
+        assertPaimonPartitionRecordCountsEqual(sparkDynamicPartitions, dorisDynamicPartitions)
+        order_qt_txn_dynamic_multi_partitions """
+            SELECT `partition`, record_count
+            FROM t_dynamic_multi\$partitions
+            ORDER BY `partition`
+        """
 
         // FT-016: Dynamic partition overwrite replaces the partitions present in the
         // input while preserving existing partitions that are not touched.

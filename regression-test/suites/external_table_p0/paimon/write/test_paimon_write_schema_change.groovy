@@ -683,7 +683,7 @@ suite("test_paimon_write_schema_change", "p0,external,paimon") {
             FROM `${appendTable}\$partitions`
             ORDER BY `partition`
         """
-        assertSparkDorisResultEquals(sparkPartitions, dorisPartitions)
+        assertPaimonPartitionRecordCountsEqual(sparkPartitions, dorisPartitions)
         order_qt_sc_append_partitions """
             SELECT `partition`, record_count
             FROM `${appendTable}\$partitions`

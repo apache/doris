@@ -1951,6 +1951,15 @@ class Suite implements GroovyInterceptable {
             ResultUtils.assertSparkDorisResultEquals((args as Object[])[0] as List<List<Object>>,
                     (args as Object[])[1] as List<List<Object>>)
             return null
+        } else if (name == "assertPaimonPartitionRecordCountsEqual") {
+            // Paimon 1.3 displays Spark partition values as struct-like strings, whereas Doris
+            // returns partition paths. Compare counts here; ordered golden results check paths.
+            List<List<Object>> sparkRows = (args as Object[])[0] as List<List<Object>>
+            List<List<Object>> dorisRows = (args as Object[])[1] as List<List<Object>>
+            def sparkCounts = sparkRows.collect { row -> [row[1]] }.sort { row -> row[0] }
+            def dorisCounts = dorisRows.collect { row -> [row[1]] }.sort { row -> row[0] }
+            ResultUtils.assertSparkDorisResultEquals(sparkCounts, dorisCounts)
+            return null
         } else if (name.startsWith("assert") && name.length() > "assert".length()) {
             // delegate to junit Assertions dynamically
             return Assertions."$name"(*args) // *args: spread-dot
