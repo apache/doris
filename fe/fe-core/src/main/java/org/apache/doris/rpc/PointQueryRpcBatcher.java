@@ -39,6 +39,7 @@ import io.grpc.Status;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
@@ -204,7 +205,11 @@ class PointQueryRpcBatcher {
                         // Spread large unary responses across the existing channel pool; one
                         // connection may not have enough flow-control credit for all of them.
                         // Client selection can resolve DNS, so keep it off the completion thread.
-                        fallbackExecutor.execute(() -> live.forEach(item -> unary(address, item)));
+                        try {
+                            fallbackExecutor.execute(() -> live.forEach(item -> unary(address, item)));
+                        } catch (RejectedExecutionException e) {
+                            fail(live, e);
+                        }
                     } else {
                         fail(live, failure);
                     }
@@ -231,11 +236,7 @@ class PointQueryRpcBatcher {
         if (item.future.isDone() || remaining <= 0) {
             return;
         }
-        try {
-            item.future.setFuture(client.fetchTabletDataAsync(item.request, remaining));
-        } catch (Exception e) {
-            item.future.setException(e);
-        }
+        item.future.setFuture(client.fetchTabletDataAsync(item.request, remaining));
     }
 
     private long remainingMillis(Item item) {

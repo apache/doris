@@ -18,6 +18,7 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.proto.InternalService.PTabletKeyLookupBatchRequest;
 import org.apache.doris.proto.InternalService.PTabletKeyLookupBatchResponse;
 import org.apache.doris.proto.InternalService.PTabletKeyLookupRequest;
@@ -38,14 +39,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -136,6 +142,57 @@ class PointQueryRpcBatcherTest {
         Assertions.assertEquals(row(3), submit(3).get());
         Assertions.assertEquals(3, transport.unaries.size());
         Assertions.assertTrue(transport.batches.isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 50})
+    void unarySubmissionFailureCompletesItem(int waitUs) throws Exception {
+        Config.point_query_rpc_batch_max_wait_us = waitUs;
+        IllegalStateException failure = new IllegalStateException("channel closed during submission");
+        Mockito.when(transport.client.fetchTabletDataAsync(Mockito.any(PTabletKeyLookupRequest.class),
+                Mockito.anyLong())).thenThrow(failure);
+        ListenableFuture<PTabletKeyLookupResponse> result = submit(1);
+        ExecutionException thrown = Assertions.assertThrows(ExecutionException.class,
+                () -> result.get(5, TimeUnit.SECONDS));
+        Assertions.assertSame(failure, thrown.getCause());
+    }
+
+    @Test
+    void saturatedFallbackPoolCompletesEveryItem() throws Exception {
+        ThreadPoolExecutor pool = Deencapsulation.getField(new BackendServiceProxy(), "grpcThreadPool");
+        int savedMaximum = pool.getMaximumPoolSize();
+        CountDownLatch occupied = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Future<?> blocker = null;
+        try {
+            pool.setMaximumPoolSize(1);
+            blocker = pool.submit(() -> {
+                occupied.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            Assertions.assertTrue(occupied.await(5, TimeUnit.SECONDS));
+            batcher = new PointQueryRpcBatcher(ignored -> transport.client, pool);
+            CompletableFuture<ListenableFuture<PTabletKeyLookupResponse>> first = owner(request(1));
+            ListenableFuture<PTabletKeyLookupResponse> second = submit(2);
+            transport.result.setException(Status.RESOURCE_EXHAUSTED.asRuntimeException());
+            for (ListenableFuture<?> result : java.util.Arrays.asList(first.get(5, TimeUnit.SECONDS), second)) {
+                Assertions.assertTrue(result.isDone(), "Rejected fallback must not leave a pending query");
+                ExecutionException failure = Assertions.assertThrows(ExecutionException.class,
+                        () -> result.get(5, TimeUnit.SECONDS));
+                Assertions.assertInstanceOf(RejectedExecutionException.class, failure.getCause());
+            }
+            Assertions.assertTrue(transport.unaries.isEmpty());
+        } finally {
+            pool.setMaximumPoolSize(savedMaximum);
+            release.countDown();
+            if (blocker != null) {
+                blocker.get(5, TimeUnit.SECONDS);
+            }
+        }
     }
 
     @Test

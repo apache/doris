@@ -61,19 +61,13 @@ protected:
     }
 };
 
-TEST_F(PointQueryRpcBatchTest, ValidateCountRequiredFieldsAndTimeout) {
+TEST_F(PointQueryRpcBatchTest, ValidateCount) {
     EXPECT_FALSE(PInternalService::_validate_tablet_fetch_data_batch(request).ok());
     for (int i = 0; i < 8; ++i) {
         add(i);
         EXPECT_TRUE(PInternalService::_validate_tablet_fetch_data_batch(request).ok());
     }
     add(8);
-    EXPECT_FALSE(PInternalService::_validate_tablet_fetch_data_batch(request).ok());
-    request.mutable_items()->RemoveLast();
-    request.mutable_items(0)->set_remaining_timeout_ms(0);
-    EXPECT_FALSE(PInternalService::_validate_tablet_fetch_data_batch(request).ok());
-    request.mutable_items(0)->set_remaining_timeout_ms(1);
-    request.mutable_items(0)->clear_request();
     EXPECT_FALSE(PInternalService::_validate_tablet_fetch_data_batch(request).ok());
 }
 
@@ -132,6 +126,23 @@ TEST_F(PointQueryRpcBatchTest, IncludeQueueWaitAndPreviousLookupsInItemDeadlines
     EXPECT_FALSE(response.results(1).has_row_batch());
     EXPECT_EQ(0, response.results(2).status().status_code());
     EXPECT_EQ("row", response.results(2).row_batch());
+}
+
+TEST_F(PointQueryRpcBatchTest, ZeroBudgetExpiresOnlyItsOwnItem) {
+    add(0, 0);
+    add(1);
+    ASSERT_TRUE(PInternalService::_validate_tablet_fetch_data_batch(request).ok());
+    execute([](const auto*, auto* res) {
+        res->set_row_batch("live result");
+        return Status::OK();
+    });
+    EXPECT_EQ(1, calls);
+    ASSERT_EQ(2, response.results_size());
+    EXPECT_EQ(0, response.status().status_code());
+    EXPECT_EQ(TStatusCode::TIMEOUT, response.results(0).status().status_code());
+    EXPECT_FALSE(response.results(0).has_row_batch());
+    EXPECT_EQ(0, response.results(1).status().status_code());
+    EXPECT_EQ("live result", response.results(1).row_batch());
 }
 
 TEST_F(PointQueryRpcBatchTest, CancellationBeforeExecutionSkipsAllLookups) {

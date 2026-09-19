@@ -73,6 +73,7 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -487,6 +488,8 @@ public class PointQueryExecutor implements CoordInterface {
                 status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
             } else if (rpcCode == io.grpc.Status.Code.CANCELLED) {
                 status.updateStatus(TStatusCode.CANCELLED, e.getMessage());
+            } else if (e.getCause() instanceof RejectedExecutionException) {
+                status.updateStatus(TStatusCode.INTERNAL_ERROR, e.getMessage());
             } else {
                 status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
                 SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());

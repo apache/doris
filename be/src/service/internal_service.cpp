@@ -1012,12 +1012,7 @@ Status PInternalService::_validate_tablet_fetch_data_batch(
     if (request.ByteSizeLong() > 1024 * 1024) {
         return Status::InvalidArgument("point query batch exceeds 1 MiB");
     }
-    for (const auto& item : request.items()) {
-        if (!item.IsInitialized() || item.remaining_timeout_ms() == 0) {
-            return Status::InvalidArgument(
-                    "point query batch item requires a request and positive timeout");
-        }
-    }
+    // Protobuf decoding checks required fields; execution checks each item's remaining budget.
     return Status::OK();
 }
 
