@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -82,6 +83,30 @@ public class LeadingHintJoinConstraintTest extends TestWithFeService {
         PlanChecker planChecker = PlanChecker.from(connectContext).analyze(query);
         Assertions.assertFalse(planChecker.getCascadesContext().getHintMap().get("Leading").isSuccess(),
                 () -> "the illegal join order must not be applied:\n" + planChecker.getPlan().treeString());
+
+        LogicalJoin<?, ?> semiJoin = findJoin(planChecker.getPlan(), JoinType.LEFT_SEMI_JOIN);
+        Assertions.assertNotNull(semiJoin, () -> "the original semi join is lost in plan:\n"
+                + planChecker.getPlan().treeString());
+        Assertions.assertFalse(semiJoin.getHashJoinConjuncts().isEmpty()
+                        && semiJoin.getOtherJoinConjuncts().isEmpty(),
+                () -> "the condition of the semi join is lost: " + semiJoin);
+    }
+
+    @Test
+    public void testSemiJoinDoesNotAbsorbTablesWhenTheMatchedSideIsTheRightChild() throws Exception {
+        // The mirrored illegal order of the case above: with `leading(TABLE_3 TABLE_2 TABLE_1)` the first
+        // join is {TABLE_3, TABLE_2} and the matched side TABLE_2 is its right child, while neither child
+        // holds the preserved side TABLE_1. Rebuilding the semi join at this level would replace the join
+        // of {TABLE_3, TABLE_2} with a semi join and drop TABLE_1.k = TABLE_2.k, so the hint must be
+        // ignored as well.
+        String query = "SELECT /*+ leading(" + TABLE_3 + " " + TABLE_2 + " " + TABLE_1 + ") */ COUNT(*) FROM ("
+                + TABLE_1 + " LEFT SEMI JOIN " + TABLE_2 + " ON " + TABLE_1 + ".k = " + TABLE_2 + ".k)"
+                + " CROSS JOIN " + TABLE_3;
+        PlanChecker planChecker = PlanChecker.from(connectContext).analyze(query);
+        Assertions.assertEquals(Hint.HintStatus.UNUSED,
+                planChecker.getCascadesContext().getHintMap().get("Leading").getStatus(),
+                () -> "the illegal join order must be ignored, not rejected as a syntax error:\n"
+                        + planChecker.getPlan().treeString());
 
         LogicalJoin<?, ?> semiJoin = findJoin(planChecker.getPlan(), JoinType.LEFT_SEMI_JOIN);
         Assertions.assertNotNull(semiJoin, () -> "the original semi join is lost in plan:\n"
