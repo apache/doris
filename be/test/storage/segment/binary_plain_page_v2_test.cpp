@@ -604,7 +604,8 @@ void verify_unpadded_column(MutableColumnPtr& column, const std::vector<std::str
 // → BinaryPlainPageDecoder → strings come out unpadded.
 TEST_F(BinaryPlainPageV2Test, CharStripPreDecoder_V2_RoundtripPaddedSlices) {
     constexpr size_t pad_len = 8;
-    std::vector<std::string> logical = {"a", "bc", "", "alpha", "alpaca12"};
+    std::vector<std::string> logical = {"a", std::string("a\0b", 3), "", std::string("\0xy", 3),
+                                        "alpaca12"};
     auto buffers = make_padded_buffers(logical, pad_len);
     auto slices = slices_from(buffers, pad_len);
 
@@ -653,7 +654,8 @@ TEST_F(BinaryPlainPageV2Test, CharStripPreDecoder_V2_RoundtripPaddedSlices) {
 // V2 case above for the PLAIN_ENCODING path.
 TEST_F(BinaryPlainPageV2Test, CharStripPreDecoder_V1_RoundtripPaddedSlices) {
     constexpr size_t pad_len = 6;
-    std::vector<std::string> logical = {"x", "abcd", "", "zzzzzz", "qw"};
+    std::vector<std::string> logical = {"x", std::string("a\0\0b", 4), "",
+                                        std::string("\0abcde", 6), "qw"};
     auto buffers = make_padded_buffers(logical, pad_len);
     auto slices = slices_from(buffers, pad_len);
 

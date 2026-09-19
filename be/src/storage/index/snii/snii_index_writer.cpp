@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "core/string_ref.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
@@ -147,7 +148,8 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
     DCHECK(token_count != nullptr);
     *max_position = position_base;
     *token_count = 0;
-    const size_t logical_size = _is_char ? strnlen(value.data, value.size) : value.size;
+    const size_t logical_size =
+            _is_char ? StringRef(value.data, value.size).trim_tail_padding_zero().size : value.size;
     const std::string_view logical_value(value.data, logical_size);
     if ((!_should_analyzer && logical_value.size() > _ignore_above) ||
         (_should_analyzer && logical_value.empty())) {

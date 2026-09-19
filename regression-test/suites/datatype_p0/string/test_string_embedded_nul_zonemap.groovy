@@ -59,6 +59,15 @@ suite("test_string_embedded_nul_zonemap") {
     qt_inside_varchar_le "SELECT COUNT(*) FROM nul_inside_varchar WHERE s <= 'a'"
     qt_inside_varchar_minmax "SELECT HEX(MIN(s)), HEX(MAX(s)) FROM nul_inside_varchar"
 
+    // CHAR uses the same logical bound after stripping only trailing zero padding.
+    load_one_value("nul_inside_char", "CHAR(4)", "610062")
+    qt_inside_char_data "SELECT COUNT(*), MIN(LENGTH(s)), MAX(LENGTH(s)), MIN(HEX(s)), MAX(HEX(s)) FROM nul_inside_char"
+    qt_inside_char_oracle "SELECT SUM(CAST(s > 'a' AS INT)), SUM(CAST(s != 'a' AS INT)), SUM(CAST(s <= 'a' AS INT)) FROM nul_inside_char"
+    qt_inside_char_gt "SELECT COUNT(*) FROM nul_inside_char WHERE s > 'a'"
+    qt_inside_char_ne "SELECT COUNT(*) FROM nul_inside_char WHERE s != 'a'"
+    qt_inside_char_le "SELECT COUNT(*) FROM nul_inside_char WHERE s <= 'a'"
+    qt_inside_char_minmax "SELECT HEX(MIN(s)), HEX(MAX(s)) FROM nul_inside_char"
+
     // 'a' 0x00 -- the 0x00 is the last byte, so the whole bound used to shrink to 'a'.
     load_one_value("nul_trailing_string", "STRING", "6100")
     qt_trailing_string_data "SELECT COUNT(*), MIN(LENGTH(s)), MAX(LENGTH(s)), MIN(HEX(s)), MAX(HEX(s)) FROM nul_trailing_string"
