@@ -2648,7 +2648,8 @@ void InstanceRecycler::submit_recycle_tmp_rowsets_job(SimpleThreadPool& worker_p
                                                    rowset.rowset_id_v2()) != 0) {
                 return;
             }
-            if (delete_delete_bitmap_kvs(rowset.tablet_id(), rowset.rowset_id_v2()) != 0) {
+            if (delete_delete_bitmap_kvs(rowset.partition_id(), rowset.tablet_id(),
+                                         rowset.rowset_id_v2()) != 0) {
                 return;
             }
         }
@@ -4793,8 +4794,7 @@ bool InstanceRecycler::is_tablet_recycled(int64_t tablet_id) {
     return recycled_tablets_.contains(tablet_id);
 }
 
-int InstanceRecycler::should_delete_versioned_delete_bitmap_kvs(int64_t partition_id,
-                                                                int64_t tablet_id) {
+int InstanceRecycler::should_delete_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id) {
     bool is_mow = true;
     if (partition_id != -1) {
         std::lock_guard lock(partition_mow_cache_mutex);
@@ -4864,7 +4864,7 @@ int InstanceRecycler::should_delete_versioned_delete_bitmap_kvs(int64_t partitio
 
 int InstanceRecycler::delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
                                                          const std::string& rowset_id) {
-    int ret = should_delete_versioned_delete_bitmap_kvs(partition_id, tablet_id);
+    int ret = should_delete_delete_bitmap_kvs(partition_id, tablet_id);
     if (ret <= 0) {
         return ret;
     }
@@ -4882,17 +4882,47 @@ int InstanceRecycler::delete_versioned_delete_bitmap_kvs(int64_t partition_id, i
     return ret;
 }
 
-int InstanceRecycler::delete_delete_bitmap_kvs(int64_t tablet_id, const std::string& rowset_id) {
+int InstanceRecycler::delete_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
+                                               const std::string& rowset_id) {
+    int ret = should_delete_delete_bitmap_kvs(partition_id, tablet_id);
+    if (ret <= 0) {
+        return ret;
+    }
+
     std::string delete_bitmap_start =
             meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id, 0, 0});
     std::string delete_bitmap_end =
             meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id, INT64_MAX, INT64_MAX});
-    int ret = txn_remove(txn_kv_.get(), delete_bitmap_start, delete_bitmap_end);
-    if (ret != 0) {
-        LOG(WARNING) << "failed to delete delete bitmap kv, instance_id=" << instance_id_
-                     << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
+
+    std::unique_ptr<RangeGetIterator> it;
+    while (it == nullptr || it->more()) {
+        ret = txn_get(txn_kv_.get(), delete_bitmap_start, delete_bitmap_end, it);
+        if (ret != 0) {
+            LOG(WARNING) << "failed to get delete bitmap kv, instance_id=" << instance_id_
+                         << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
+            return ret;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+
+        std::vector<std::string> keys;
+        while (it->has_next()) {
+            auto [key, _] = it->next();
+            keys.emplace_back(key);
+            if (!it->has_next()) {
+                delete_bitmap_start = key;
+            }
+        }
+        delete_bitmap_start.push_back('\x00');
+        if (txn_remove(txn_kv_.get(), std::move(keys)) != 0) {
+            LOG(WARNING) << "failed to delete delete bitmap kv, instance_id=" << instance_id_
+                         << " tablet_id=" << tablet_id << " rowset_id=" << rowset_id;
+            return -1;
+        }
     }
-    return ret;
+
+    return 0;
 }
 
 bool InstanceRecycler::decode_packed_file_key(std::string_view key, std::string* packed_path) {
@@ -6001,6 +6031,14 @@ int InstanceRecycler::recycle_rowsets() {
                              << instance_id_;
                 return;
             }
+            for (const auto& [_, rs] : rowsets_to_delete) {
+                if (delete_delete_bitmap_kvs(rs.partition_id(), rs.tablet_id(),
+                                             rs.rowset_id_v2()) != 0) {
+                    LOG(WARNING) << "failed to delete delete bitmap kv, rs="
+                                 << rs.ShortDebugString();
+                    return;
+                }
+            }
             if (txn_remove(txn_kv_.get(), rowset_keys_to_delete) != 0) {
                 LOG(WARNING) << "failed to delete recycle rowset kv, instance_id=" << instance_id_;
                 return;
@@ -6753,7 +6791,8 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                                  << rs.ShortDebugString();
                     return;
                 }
-                if (delete_delete_bitmap_kvs(rs.tablet_id(), rs.rowset_id_v2()) != 0) {
+                if (delete_delete_bitmap_kvs(rs.partition_id(), rs.tablet_id(),
+                                             rs.rowset_id_v2()) != 0) {
                     LOG(WARNING) << "failed to delete delete bitmap kv, rs="
                                  << rs.ShortDebugString();
                     return;
