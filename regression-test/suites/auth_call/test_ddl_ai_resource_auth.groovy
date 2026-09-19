@@ -78,8 +78,7 @@ suite("test_ddl_ai_resource_auth","p0,auth_call") {
                     'ai.temperature' = '0.7',
                     'ai.max_token' = '1024',
                     'ai.max_retries' = '3',
-                    'ai.retry_delay_second' = '1',
-                    'ai.validity_check' = 'false'
+                    'ai.retry_delay_second' = '1'
                 );"""
         def res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""
         assertTrue(res.size() > 0)
@@ -99,8 +98,7 @@ suite("test_ddl_ai_resource_auth","p0,auth_call") {
                 'ai.temperature' = '0.7',
                 'ai.max_token' = '1024',
                 'ai.max_retries' = '3',
-                'ai.retry_delay_second' = '1',
-                'ai.validity_check' = 'false'
+                'ai.retry_delay_second' = '1'
             );"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {

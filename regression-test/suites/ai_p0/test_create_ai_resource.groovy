@@ -25,9 +25,6 @@ suite("test_create_ai_resource") {
 
     try_sql("""DROP RESOURCE '${resourceName}'""")
 
-    //If 'ai.validity_check'='false' is not set,
-    // ai resource availability must be checked when creating the resource.
-
     // missing end_point
     test {
         sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
@@ -76,6 +73,19 @@ suite("test_create_ai_resource") {
         exception "Missing [ai.api_key] in properties for provider: DEEPSEEK"
     }
 
+    test {
+        sql """CREATE RESOURCE "${resourceName}"
+            PROPERTIES(
+                'type' = 'ai',
+                'ai.provider_type' = 'deepseek',
+                'ai.endpoint' = 'https://api.deepseek.com/chat/completions',
+                'ai.model_name' = 'deepseek-chat',
+                'ai.api_key' = 'sk-xxx',
+                'ai.max_retries' = '-1'
+            );"""
+        exception "Max retries must be a non-negative integer"
+    }
+
     sql """CREATE RESOURCE IF NOT EXISTS "${resourceName}"
             PROPERTIES(
                 'type' = 'ai',
@@ -85,12 +95,28 @@ suite("test_create_ai_resource") {
                 'ai.api_key' = 'sk-xxx',
                 'ai.temperature' = '0.7',
                 'ai.max_token' = '1024',
-                'ai.max_retries' = '3',
-                'ai.retry_delay_second' = '1',
-                'ai.validity_check' = 'false'
+                'ai.max_retries' = '0',
+                'ai.retry_delay_second' = '1'
             );"""
     def res = sql """SHOW RESOURCES WHERE NAME = '${resourceName}'"""
     assertTrue(res.size() > 0)
+    assertTrue(res.any { row -> row[2] == 'ai.max_retries' && row[3] == '0' })
+    assertFalse(res.collect { row -> row[2] }.contains('ai.validity_check'))
+    def propertiesBeforeInvalidAlter = res.collectEntries { row -> [(row[2]): row[3]] }
+
+    test {
+        sql """ALTER RESOURCE "${resourceName}" PROPERTIES ('ai.dimensions' = '0')"""
+        exception "Dimensions must be a positive integer or -1"
+    }
+
+    def propertiesAfterInvalidAlter = (sql """SHOW RESOURCES WHERE NAME = '${resourceName}'""")
+            .collectEntries { row -> [(row[2]): row[3]] }
+    assertEquals(propertiesBeforeInvalidAlter, propertiesAfterInvalidAlter)
+
+    sql """ALTER RESOURCE "${resourceName}" PROPERTIES ('ai.max_retries' = '2')"""
+    def propertiesAfterValidAlter = (sql """SHOW RESOURCES WHERE NAME = '${resourceName}'""")
+            .collectEntries { row -> [(row[2]): row[3]] }
+    assertEquals('2', propertiesAfterValidAlter['ai.max_retries'])
 
     try_sql("""DROP RESOURCE '${resourceName}'""")
 }

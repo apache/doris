@@ -19,9 +19,6 @@ package org.apache.doris.qe.runtime;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
-import org.apache.doris.catalog.AIResource;
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.nereids.StatementContext;
@@ -230,13 +227,7 @@ public class ThriftPlansBuilder {
             return aiResourceMap;
         }
 
-        for (String resourceName : statementContext.getUsedAIResourceNames()) {
-            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
-            if (!(resource instanceof AIResource)) {
-                throw new IllegalStateException("AI resource '" + resourceName + "' does not exist");
-            }
-            aiResourceMap.put(resourceName, ((AIResource) resource).toThrift());
-        }
+        aiResourceMap.putAll(statementContext.getUsedAIResources());
         return aiResourceMap;
     }
 

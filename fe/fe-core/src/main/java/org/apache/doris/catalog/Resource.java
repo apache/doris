@@ -367,10 +367,10 @@ public abstract class Resource implements Writable, GsonPostProcessable {
 
     public void applyDefaultProperties() {}
 
-    public static void registerUsedAIResourceName(String resourceName) {
+    public static void registerUsedAIResource(AIResource resource) {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && ctx.getStatementContext() != null) {
-            ctx.getStatementContext().registerUsedAIResourceName(resourceName);
+            ctx.getStatementContext().registerUsedAIResource(resource.getName(), resource.toThrift());
         }
     }
 }
