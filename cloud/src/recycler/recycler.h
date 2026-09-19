@@ -388,9 +388,10 @@ public:
     // returns 0 for success otherwise error
     int recycle_expired_stage_objects();
 
-    // delete spill objects ("spill/" prefix of every S3 storage vault) older than
-    // config::spill_objects_expire_time_second. They are left behind only by BEs that died and
-    // never restarted with the same address.
+    // delete the spill directories ("spill/{ip}_{port}/" of every S3 storage vault) in which no
+    // object changed for config::spill_objects_expire_time_second. A live BE rewrites a
+    // heartbeat object in its directory every hour, so only BEs that died and never restarted
+    // with the same address leave such directories behind.
     // returns 0 for success otherwise error
     int recycle_expired_spill_objects();
 

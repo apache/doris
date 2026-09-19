@@ -44,27 +44,35 @@ SpillFile::~SpillFile() {
 }
 
 void SpillFile::gc() {
-    if (_dir_created) {
-        // Delete the spill directory (or object key prefix) directly instead of moving it to a
-        // GC directory. No existence check: for object storage a "directory" never exists as an
-        // object, while deleting a missing local directory or an empty prefix is a no-op.
-        auto fs = _data_dir->fs();
-        Status status = fs != nullptr ? fs->delete_directory(_spill_dir)
-                                      : Status::InternalError("spill store {} is not ready",
-                                                              _data_dir->path());
-        DBUG_EXECUTE_IF("fault_inject::spill_file::gc", {
-            status = Status::Error<INTERNAL_ERROR>("fault_inject spill_file gc failed");
-        });
-        if (!status.ok()) {
-            LOG_EVERY_T(WARNING, 1) << fmt::format("failed to delete spill data, dir {}, error: {}",
-                                                   _spill_dir, status.to_string());
-        }
-        _dir_created = false;
+    const int64_t written_bytes = std::exchange(_total_written_bytes, 0);
+    if (!_dir_created) {
+        _data_dir->release(written_bytes);
+        return;
     }
-    // Decrease spill data usage even if per-file cleanup failed. QueryContext teardown deletes the
-    // whole query spill directory and retains failures for later retries.
-    _data_dir->release(_total_written_bytes);
-    _total_written_bytes = 0;
+    _dir_created = false;
+    // Delete the spill directory (or object key prefix) directly instead of moving it to a
+    // GC directory. No existence check: for object storage a "directory" never exists as an
+    // object, while deleting a missing local directory or an empty prefix is a no-op.
+    auto fs = _data_dir->fs();
+    Status status =
+            fs != nullptr ? fs->delete_directory(_spill_dir)
+                          : Status::InternalError("spill store {} is not ready", _data_dir->path());
+    DBUG_EXECUTE_IF("fault_inject::spill_file::gc", {
+        status = Status::Error<INTERNAL_ERROR>("fault_inject spill_file gc failed");
+    });
+    if (status.ok()) {
+        _data_dir->release(written_bytes);
+        return;
+    }
+    LOG_EVERY_T(WARNING, 1) << fmt::format("failed to delete spill data, dir {}, error: {}",
+                                           _spill_dir, status.to_string());
+    // The data is still stored: keep it charged until a retry of the manager deletes it.
+    auto* manager = ExecEnv::GetInstance()->spill_file_mgr();
+    if (manager == nullptr) {
+        _data_dir->release(written_bytes);
+        return;
+    }
+    manager->retry_spill_directory_deletion(_data_dir, _spill_dir, written_bytes);
 }
 
 Status SpillFile::create_writer(RuntimeState* state, RuntimeProfile* profile,
