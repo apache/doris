@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatterns {
@@ -43,6 +44,24 @@ class BindExpressionTest extends TestWithFeService implements GeneratedPlanPatte
                 "CREATE TABLE t2 (col1 date, col2 int) DISTRIBUTED BY HASH(col2)\n" + "BUCKETS 1\n" + "PROPERTIES(\n"
                         + "    \"replication_num\"=\"1\"\n" + ");"
         );
+    }
+
+    @Test
+    void testOrdinalIsNotNarrowedTo32Bits() {
+        // getIntValue() is getNumber().intValue(), so a BIGINT or LARGEINT ordinal
+        // was truncated to its low 32 bits before the `>= 1 && <= selectItems` test.
+        // 4294967297 is 2^32 + 1, which truncated to 1 and silently bound to the
+        // first select item, while the plainly out-of-range 3 did not. Both are out
+        // of range for a two-item select list and must be treated the same way.
+        String outOfRange = "select col1, count(*) from t1 group by 3";
+        String wrapsToOne = "select col1, count(*) from t1 group by 4294967297";
+
+        Assertions.assertThrows(Exception.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(outOfRange),
+                "an ordinal past the end of the select list must not bind");
+        Assertions.assertThrows(Exception.class,
+                () -> PlanChecker.from(connectContext).checkPlannerResult(wrapsToOne),
+                "a 64-bit ordinal must not be narrowed into range");
     }
 
     @Test
