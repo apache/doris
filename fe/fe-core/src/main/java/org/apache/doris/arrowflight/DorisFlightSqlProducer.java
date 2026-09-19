@@ -24,7 +24,6 @@ import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
@@ -351,18 +350,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             return FlightProtocolAdapter.of(connectContext).callCommand(connectContext,
                     () -> executeQueryStatement(context.peerIdentity(), connectContext, request.getQuery(),
                             descriptor));
+        } catch (FlightRuntimeException e) {
+            // Already carries the status meant for the client - UNAVAILABLE from the session's
+            // command lock or from an incremental window that is not ready (queryFailure, with its
+            // doris-error-code metadata), UNAUTHENTICATED from a closed session, and whatever the
+            // session layer refuses a session with. Wrapping it as INTERNAL would hide that, as it
+            // did between #67820 and this fix; the other entry points below let it through too.
+            throw e;
         } catch (Throwable e) {
-            if (e instanceof FlightRuntimeException) {
-                FlightRuntimeException flightError = (FlightRuntimeException) e;
-                ErrorFlightMetadata metadata = flightError.status().metadata();
-                if (metadata.containsKey("doris-error-code")) {
-                    String code = metadata.get("doris-error-code");
-                    if (Integer.toString(ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode()).equals(code)
-                            || Integer.toString(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT.getCode()).equals(code)) {
-                        throw flightError;
-                    }
-                }
-            }
             String errMsg = "get flight info statement failed, " + e.getMessage();
             LOG.error(errMsg, e);
             throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
