@@ -64,47 +64,28 @@ suite("test_paimon_write_boundary",
         qt_before_rows """select id, score, note from write_boundary order by id"""
         qt_before_snapshots """select count(*) from write_boundary\$snapshots"""
 
-        // WB01-WB06 preserve the documented data-write boundary at analysis time. The source table
-        // and its snapshot list must stay unchanged after every rejected write shape.
-        //
-        // The INSERT-family rejections are worded by the connector-SPI path, not by the legacy fe-core
-        // one: a paimon catalog is a PluginDrivenExternalCatalog, so UnboundTableSinkCreator builds an
-        // UnboundConnectorTableSink instead of throwing "Load data to PaimonExternalCatalog is not
-        // supported", and the rejection lands on the connector's declared write capabilities (the paimon
-        // connector declares none). The boundary asserted here is identical -- every write shape is still
-        // rejected at analysis time and the table is untouched -- only the message differs.
-        test {
-            sql """insert into write_boundary values (3, 30, 'insert-values')"""
-            exception "does not support INSERT operations"
-        }
-        test {
-            sql """insert into write_boundary select 3, 30, 'insert-select'"""
-            exception "does not support INSERT operations"
-        }
-        test {
-            // INSERT OVERWRITE is gated earlier, by InsertOverwriteTableCommand's allowInsertOverwrite.
-            sql """insert overwrite table write_boundary values (3, 30, 'overwrite')"""
-            exception "insert into overwrite only support"
-        }
-        test {
-            sql """update write_boundary set score = score + 1 where id = 1"""
-            exception "target table in update command should be an olapTable"
-        }
-        test {
-            sql """delete from write_boundary where id = 1"""
-            exception "delete command could be only used on olap table"
-        }
-        test {
-            sql """
-                merge into write_boundary target
-                using (select 1 as id, 99 as score, 'merge' as note) source
-                on target.id = source.id
-                when matched then update set score = source.score, note = source.note
-                when not matched then insert (id, score, note)
-                    values (source.id, source.score, source.note)
-            """
-            exception "merge into command only support MOW unique key olapTable"
-        }
+        // Exercise both append/overwrite writes and row-level changelog writes through the
+        // external-table boundary suite.
+        sql """insert into write_boundary values (3, 30, 'insert-values')"""
+        sql """insert into write_boundary select 4, 40, 'insert-select'"""
+        sql """refresh table write_boundary"""
+        qt_after_append_rows """select id, score, note from write_boundary order by id"""
+
+        sql """insert overwrite table write_boundary values (5, 50, 'overwrite')"""
+        sql """update write_boundary set score = score + 1 where id = 5"""
+        sql """
+            merge into write_boundary target
+            using (
+                select 5 as id, 99 as score, 'merge-update' as note
+                union all
+                select 6 as id, 60 as score, 'merge-insert' as note
+            ) source
+            on target.id = source.id
+            when matched then update set score = source.score, note = source.note
+            when not matched then insert (id, score, note)
+                values (source.id, source.score, source.note)
+        """
+        sql """delete from write_boundary where id = 5"""
 
         sql """refresh table write_boundary"""
         qt_after_rows """select id, score, note from write_boundary order by id"""

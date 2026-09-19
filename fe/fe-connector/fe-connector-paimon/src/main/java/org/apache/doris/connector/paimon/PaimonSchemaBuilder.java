@@ -125,7 +125,8 @@ public final class PaimonSchemaBuilder {
             // toPaimonSchema's toPaimontype(type).copy(field.getContainsNull()).
             builder.column(col.getName(),
                     PaimonTypeMapping.toPaimonType(col.getType()).copy(col.isNullable()),
-                    col.getComment());
+                    col.getComment(),
+                    col.getDefaultValue());
         }
         return builder.build();
     }

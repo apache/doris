@@ -487,6 +487,17 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Whether a table column default is also the value of that column in older files which do not
+     * physically contain it. The default preserves the existing external-file behavior. Connectors
+     * whose defaults are write-time only (for example Paimon) return {@code false}, so a nullable
+     * column missing from an older file is read as {@code NULL} while omitted values in later writes
+     * still use the connector's default.
+     */
+    default boolean applyColumnDefaultsOnRead() {
+        return true;
+    }
+
+    /**
      * Appends connector-specific EXPLAIN output.
      * Called after the generic TABLE/QUERY/PREDICATES lines.
      *

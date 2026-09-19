@@ -37,6 +37,7 @@ org.apache.doris.connector.spi.ConnectorContext#createSiblingConnector(java.lang
 org.apache.doris.connector.spi.ConnectorContext#executeAuthenticated(java.util.concurrent.Callable):java.lang.Object
 org.apache.doris.connector.spi.ConnectorContext#getCatalogId():long
 org.apache.doris.connector.spi.ConnectorContext#getCatalogName():java.lang.String
+org.apache.doris.connector.spi.ConnectorContext#getClusterId():int
 org.apache.doris.connector.spi.ConnectorContext#getConnectorConfig():java.util.Map
 org.apache.doris.connector.spi.ConnectorContext#getEnvironment():java.util.Map
 org.apache.doris.connector.spi.ConnectorContext#getHttpSecurityHook():org.apache.doris.connector.spi.ConnectorHttpSecurityHook
@@ -99,6 +100,7 @@ org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#schemaId(long)
 org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#snapshotId(long):org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#adjustFileCompressType(org.apache.doris.thrift.TFileCompressType):org.apache.doris.thrift.TFileCompressType
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#appendExplainInfo(java.lang.StringBuilder,java.lang.String,java.util.Map):void
+org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#applyColumnDefaultsOnRead():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#canServeMetadataOnlyCount(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Optional):boolean
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#classifyColumn(java.lang.String):org.apache.doris.connector.spi.scan.ConnectorColumnCategory
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#collectScanProfiles(org.apache.doris.connector.spi.ConnectorSession):java.util.List
@@ -146,8 +148,11 @@ org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:TEXT_SERDE_LIB:ja
 org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:TEXT_SKIP_LINES:java.lang.String=hive.text.skip_lines
 org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:TEXT_TRIM_DOUBLE_QUOTES:java.lang.String=hive.text.trim_double_quotes
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#appendExplainInfo(java.lang.StringBuilder,java.lang.String,org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorWriteHandle):void
+org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getRowChangeStyle():org.apache.doris.connector.spi.write.ConnectorRowChangeStyle
+org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getRowLevelPrimaryKeyColumns(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):java.util.List
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getSyntheticWriteColumns(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):java.util.List
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getWriteColumns(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Optional):java.util.Optional
+org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getWriteDistribution(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):org.apache.doris.connector.spi.write.ConnectorWriteDistribution
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getWriteMetadataIdentity(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):java.lang.String
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getWritePartitioning(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getWriteSortColumns(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):java.util.List
@@ -160,6 +165,7 @@ org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#requiresPartitio
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#requiresPartitionLocalSort():boolean
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#supportedOperations():java.util.Set
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#supportsWriteBranch():boolean
+org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#validateRowLevelDml(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest):void
 org.apache.doris.extension.spi.Plugin#close():void
 org.apache.doris.extension.spi.Plugin#initialize(org.apache.doris.extension.spi.PluginContext):void
 org.apache.doris.extension.spi.PluginContext#getProperties():java.util.Map

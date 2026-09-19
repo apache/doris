@@ -23,6 +23,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -122,12 +123,24 @@ public class CheckCastTest {
 
     @Test
     public void testCastBetweenVariantTypes() {
-        VariantType v1Source = new VariantType(100);
-        VariantType v1SameProperties = new VariantType(100);
-        VariantType v1DifferentProperties = new VariantType(200);
+        VariantType source = new VariantType(100);
+        VariantType sameProperties = new VariantType(100);
+        VariantType differentProperties = new VariantType(200);
 
-        Assertions.assertTrue(CheckCast.check(v1Source, v1SameProperties, true));
-        Assertions.assertTrue(CheckCast.check(v1Source, v1DifferentProperties, true));
+        Assertions.assertTrue(CheckCast.check(source, sameProperties, true));
+        Assertions.assertTrue(CheckCast.check(source, differentProperties, true));
+        Assertions.assertTrue(CheckCast.check(source, ConnectorComputeVariantType.INSTANCE, true));
+        Assertions.assertTrue(CheckCast.check(ConnectorComputeVariantType.INSTANCE, source, true));
+        Assertions.assertTrue(CheckCast.check(
+                ArrayType.of(source), ArrayType.of(ConnectorComputeVariantType.INSTANCE), true));
+        Assertions.assertTrue(CheckCast.check(
+                MapType.of(StringType.INSTANCE, source),
+                MapType.of(StringType.INSTANCE, ConnectorComputeVariantType.INSTANCE), true));
+        Assertions.assertTrue(CheckCast.check(
+                new StructType(Lists.newArrayList(new StructField("v", source, true, ""))),
+                new StructType(Lists.newArrayList(
+                        new StructField("v", ConnectorComputeVariantType.INSTANCE, true, ""))),
+                true));
     }
 
     @Test

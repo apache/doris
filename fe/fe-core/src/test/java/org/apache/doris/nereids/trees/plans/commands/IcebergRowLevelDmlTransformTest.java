@@ -29,6 +29,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -108,6 +109,7 @@ public class IcebergRowLevelDmlTransformTest {
         }
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(table.getConnectorRowChangeStyle()).thenReturn(ConnectorRowChangeStyle.POSITION_DELETE);
         // The row-level DML admission probe now resolves per-handle via the table helper; stub it directly. The
         // catalog -> connector chain is still needed for checkMode (validateRowLevelDmlMode).
         Mockito.when(table.connectorSupportedWriteOperations()).thenReturn(ops);
@@ -116,12 +118,12 @@ public class IcebergRowLevelDmlTransformTest {
 
     @Test
     public void handlesPluginDrivenTableByRowLevelDmlCapability() {
-        // An iceberg table presents as PluginDrivenExternalTable; it is admitted via the
-        // neutral connector capability (supportsDelete || supportsMerge), NOT a concrete iceberg cast.
+        // An iceberg table presents as PluginDrivenExternalTable; it is admitted via the neutral
+        // POSITION_DELETE row-change style and connector capability, NOT a concrete iceberg cast.
         Assertions.assertTrue(transform.handles(pluginTable(true, false)));
         Assertions.assertTrue(transform.handles(pluginTable(false, true)));
         Assertions.assertTrue(transform.handles(pluginTable(true, true)));
-        // A plugin connector with neither capability (e.g. jdbc/es/paimon today) must NOT be admitted,
+        // A plugin connector with neither capability (e.g. jdbc/es) must NOT be admitted,
         // else its row-level DML would route through the iceberg synthesis path.
         Assertions.assertFalse(transform.handles(pluginTable(false, false)));
         // Non-plugin table types and null are never admitted.

@@ -40,10 +40,10 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             sql "select * from variant_smoke order by id"
             check { explainString ->
                 def nativeSplits = explainString =~ /paimonNativeReadSplits=(\d+)\/(\d+)/
-                // Variant has no JNI transfer carrier, so force_jni_scanner must keep it native.
+                // The Paimon Variant JNI carrier lets force_jni_scanner route every split to JNI.
                 return nativeSplits.find()
-                        && nativeSplits.group(1).toInteger() > 0
-                        && nativeSplits.group(1) == nativeSplits.group(2)
+                        && nativeSplits.group(1).toInteger() == 0
+                        && nativeSplits.group(2).toInteger() > 0
             }
         }
 

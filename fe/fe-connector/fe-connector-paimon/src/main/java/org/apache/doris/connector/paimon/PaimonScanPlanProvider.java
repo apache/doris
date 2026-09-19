@@ -270,8 +270,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * engine via {@code VariableMgr.toMap}). When true the JNI escape
      * hatch is engaged: native-eligible DataSplits are routed to JNI (see
      * {@link #shouldUseNativeReader}), bypassing the native ORC/Parquet readers to dodge native-reader
-     * bugs. Variant projections remain native because JNI has no Variant carrier. Default false
-     * (legacy default), so normal reads are unaffected. Package-private static for offline unit testing.
+     * bugs. Default false (legacy default), so normal reads are unaffected. Package-private static for
+     * offline unit testing.
      */
     static boolean isForceJniScannerEnabled(ConnectorSession session) {
         if (session == null) {
@@ -429,6 +429,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // paimon reads native parquet/orc sub-splits where it can (see isNativeReadRange), so the BE file cache
         // applies; this preserves the governance paimon catalogs already had.
         return true;
+    }
+
+    @Override
+    public boolean applyColumnDefaultsOnRead() {
+        // Paimon applies a field default when a later write omits that field. It does not reinterpret
+        // rows in files written before the field existed; Spark/Paimon returns NULL for those rows.
+        return false;
     }
 
     /**
@@ -737,12 +744,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         boolean ignoreJni = IGNORE_SPLIT_TYPE_JNI.equals(ignoreSplitType);
         boolean ignoreNative = IGNORE_SPLIT_TYPE_NATIVE.equals(ignoreSplitType);
 
-        if (hasVariantProjection && paimonHandle.isForceJni() && !ignoreJni) {
-            // System-table forceJni preserves row-kind/sequence semantics that raw files cannot reproduce;
-            // Variant has no JNI carrier, so failing is safer than silently changing those semantics.
-            throw new DorisConnectorException(
-                    "Paimon Variant columns are unsupported for force-JNI system tables");
-        }
         if (optionsPin && Arrays.stream(projected).anyMatch(index -> index < 0)) {
             // Only an @options read can bind against a schema the scan table does not have: its snapshot
             // is chosen per relation, so a column bound from one version may be absent from the version
@@ -827,10 +828,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             if (requiresMetadataColumns) {
                 validateMetadataColumnReader(true, false);
             }
-            if (hasVariantProjection) {
-                throw new DorisConnectorException(
-                        "Paimon Variant columns require native Parquet data files");
-            }
             ranges.add(buildJniScanRange(split, defaultFileFormat,
                     Collections.emptyMap(), false, weightDenominator));
         }
@@ -860,7 +857,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // Process DataSplits
         for (DataSplit dataSplit : dataSplits) {
             if (isCountPushdownSplit(countPushdown, dataSplit)) {
-                countSum += dataSplit.mergedRowCount();
+                countSum += dataSplit.mergedRowCount().getAsLong();
                 if (countRepresentative == null) {
                     countRepresentative = dataSplit;
                 }
@@ -913,10 +910,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 }
                 if (requiresMetadataColumns) {
                     validateMetadataColumnReader(true, false);
-                }
-                if (hasVariantProjection) {
-                    throw new DorisConnectorException(
-                            "Paimon Variant columns require native Parquet data files");
                 }
                 ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
                         partitionValues, true, weightDenominator));
@@ -1166,11 +1159,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // FIX-SCHEMA-EVOLUTION (B-1a): emit the native-reader schema dictionary so BE matches file<->table
         // columns BY FIELD ID across schema evolution (rename/reorder) instead of falling back to NAME
         // matching (which silently reads NULL/garbage for renamed columns). Only meaningful when the table
-        // can take the native path: handle-level force is semantic and unconditional, while a Variant
-        // projection may override only the session debugging knob because JNI has no Variant carrier.
-        boolean hasVariantProjection = projectsVariant(table.rowType(), columns);
-        if (!paimonHandle.isForceJni()
-                && (hasVariantProjection || !isForceJniScannerEnabled(session))) {
+        // can take the native path: both handle-level and session-level JNI forcing are unconditional.
+        if (!paimonHandle.isForceJni() && !isForceJniScannerEnabled(session)) {
             // The schema dict must be built from a FileStoreTable. A normal data table IS one; a $ro
             // (read-optimized) system table is a ReadOptimizedTable that WRAPS a FileStoreTable and reads
             // its data files with its field ids, so resolve the underlying base FileStoreTable here.
@@ -1347,7 +1337,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (undecorated instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable fallbackReadTable = (FallbackReadFileStoreTable) undecorated;
             authorizeBranch(fallbackReadTable.wrapped());
-            authorizeBranch(fallbackReadTable.fallback());
+            authorizeBranch(fallbackReadTable.other());
             return;
         }
         authorizeBranch(undecorated);
@@ -1409,7 +1399,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             FallbackReadFileStoreTable targetPair = (FallbackReadFileStoreTable) target;
             return new FallbackReadFileStoreTable(
                     pinCatalogSnapshotBranch(targetPair.wrapped(), sourcePair.wrapped()),
-                    pinCatalogSnapshotBranch(targetPair.fallback(), sourcePair.fallback()));
+                    pinCatalogSnapshotBranch(targetPair.other(), sourcePair.other()),
+                    PaimonReaderOptions.isWrappedFirst(targetPair));
         }
         return pinCatalogSnapshotBranch(target, source);
     }
@@ -1452,7 +1443,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             FallbackReadFileStoreTable fallbackReadTable = (FallbackReadFileStoreTable) undecorated;
             return new FallbackReadFileStoreTable(
                     rebuildWithoutCatalogLoader(fallbackReadTable.wrapped()),
-                    rebuildWithoutCatalogLoader(fallbackReadTable.fallback()));
+                    rebuildWithoutCatalogLoader(fallbackReadTable.other()),
+                    PaimonReaderOptions.isWrappedFirst(fallbackReadTable));
         }
         return rebuildWithoutCatalogLoader(undecorated);
     }
@@ -1571,12 +1563,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * Whether a {@link DataSplit} contributes a precomputed COUNT(*)-pushdown row count: true iff count
      * pushdown is active for this scan AND the split's merged (post-merge / post-deletion-vector) row
      * count is precomputed by the paimon SDK. Mirrors legacy {@code PaimonScanNode}'s count gate
-     * ({@code applyCountPushdown && dataSplit.mergedRowCountAvailable()}, the FIRST routing arm).
+     * ({@code applyCountPushdown && dataSplit.mergedRowCount().isPresent()}, the FIRST routing arm).
      * Extracted as a pure static so the correctness-critical count routing decision is unit-testable
      * with a real {@link DataSplit}, like {@link #shouldUseNativeReader}.
      */
     static boolean isCountPushdownSplit(boolean countPushdown, DataSplit dataSplit) {
-        return countPushdown && dataSplit.mergedRowCountAvailable();
+        return countPushdown && dataSplit.mergedRowCount().isPresent();
     }
 
     /**
@@ -1744,10 +1736,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * must still be allowed native.
      *
      * <p>{@code forceJniScanner} is the user/session escape hatch ({@code SET force_jni_scanner=true},
-     * read via {@link #isForceJniScannerEnabled}): when set, every native-eligible non-Variant split is
-     * routed to JNI to dodge native-reader bugs. Variant projections on ordinary tables stay native because
-     * JNI cannot carry Variant columns, but the semantic handle-level force remains unconditional. Default
-     * false, so normal reads are unaffected.
+     * read via {@link #isForceJniScannerEnabled}): when set, every native-eligible split is routed to JNI
+     * to dodge native-reader bugs. Default false, so normal reads are unaffected.
      *
      * <p>Extracted as a pure static so the correctness-critical routing decision is unit-testable
      * with real {@link RawFile}s, without driving a full Paimon {@code ReadBuilder}/{@code TableScan}.
@@ -1769,12 +1759,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     static boolean shouldUseNativeReader(boolean forceJni, boolean forceJniScanner,
             boolean hasVariantProjection, Set<Long> physicalVariantSchemaIds,
             Optional<List<RawFile>> optRawFiles) {
-        // Handle-level force marks system-table semantics, while only the session debugging knob may be
-        // overridden for Variant. An ORC file is safe only when its historical physical schema predates
-        // the projected Variant field; BE never needs to install a Variant schema override for that file.
-        return !forceJni && (hasVariantProjection
+        // An ORC file is safe only when its historical physical schema predates the projected Variant
+        // field; BE never needs to install a Variant schema override for that file. All JNI forcing remains
+        // unconditional because the JNI scanner supports the Variant execution carrier.
+        return !forceJni && !forceJniScanner && (hasVariantProjection
                 ? supportNativeVariantReader(optRawFiles, physicalVariantSchemaIds)
-                : !forceJniScanner && supportNativeReader(optRawFiles));
+                : supportNativeReader(optRawFiles));
     }
 
     private Set<Long> physicalVariantSchemaIds(Table table, PaimonTableHandle handle,

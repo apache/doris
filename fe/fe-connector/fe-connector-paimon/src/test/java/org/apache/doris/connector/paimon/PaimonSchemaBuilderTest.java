@@ -77,6 +77,17 @@ public class PaimonSchemaBuilderTest {
     }
 
     @Test
+    public void columnsCarryDefaultValues() {
+        ConnectorColumn id = new ConnectorColumn(
+                "id", ConnectorType.of("INT"), "id comment", false, "7");
+        Schema schema = PaimonSchemaBuilder.build(baseRequest()
+                .columns(Arrays.asList(id, col("name", ConnectorType.of("STRING"), true)))
+                .build());
+
+        Assertions.assertEquals("7", schema.fields().get(0).defaultValue());
+    }
+
+    @Test
     public void primaryKeysComeFromPropertiesOnly() {
         Map<String, String> props = new LinkedHashMap<>();
         props.put("primary-key", "id, name");

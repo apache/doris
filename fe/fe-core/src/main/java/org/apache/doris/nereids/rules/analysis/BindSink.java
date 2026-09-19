@@ -393,6 +393,15 @@ public class BindSink implements AnalysisRuleFactory {
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema,
             Set<String> missingIvmHiddenColumns) {
+        return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
+                boundSink, child, targetSchema, missingIvmHiddenColumns, Maps.newHashMap());
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
+            LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema,
+            Set<String> missingIvmHiddenColumns, Map<String, Expression> materializedColumnValues) {
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
@@ -417,7 +426,14 @@ public class BindSink implements AnalysisRuleFactory {
                 shadowColumns.add(column);
                 continue;
             }
-            if (columnToChildOutput.containsKey(column)
+            if (materializedColumnValues.containsKey(column.getName())) {
+                Expression value = materializedColumnValues.get(column.getName());
+                Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
+                        value, DataType.fromCatalogType(column.getType())), column.getName());
+                columnToOutput.put(column.getName(), output);
+                columnToReplaced.put(column.getName(), output.toSlot());
+                replaceMap.put(output.toSlot(), output.child());
+            } else if (columnToChildOutput.containsKey(column)
                     // do not process explicitly use DEFAULT value here:
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
@@ -895,6 +911,12 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> targetWriteSchema = resolvedTargetSchema.stream()
                 .filter(column -> isConnectorSinkWriteColumn(column, sink.isRewrite()))
                 .collect(ImmutableList.toImmutableList());
+        boolean changelogRowChange = sink.getRowChangeSpec().isPresent();
+        if (changelogRowChange) {
+            child = ConnectorChangelogPlanBuilder.build(targetWriteSchema,
+                    table.getConnectorRowLevelPrimaryKeyColumns(), sink.getRowChangeSpec().get(),
+                    child, ctx.cascadesContext);
+        }
         if (sink.isRewrite()) {
             List<NamedExpression> rewriteOutputs = selectConnectorRewriteOutputs(
                     targetWriteSchema, child.getOutput());
@@ -902,9 +924,10 @@ public class BindSink implements AnalysisRuleFactory {
                 child = new LogicalProject<>(rewriteOutputs, child);
             }
         }
-        List<Column> bindColumns = selectConnectorSinkBindColumns(
-                table, targetWriteSchema, sink.getColNames(),
-                staticPartitionColNames, sink.isRewrite());
+        List<Column> bindColumns = changelogRowChange
+                ? targetWriteSchema
+                : selectConnectorSinkBindColumns(table, targetWriteSchema, sink.getColNames(),
+                        staticPartitionColNames, sink.isRewrite());
         LogicalConnectorTableSink<?> boundSink = new LogicalConnectorTableSink<>(
                 database,
                 table,
@@ -920,11 +943,15 @@ public class BindSink implements AnalysisRuleFactory {
                 Optional.empty(),
                 Optional.empty(),
                 child);
-        if (boundSink.getCols().size() != child.getOutput().size()) {
+        int expectedOutputSize = boundSink.getCols().size() + (changelogRowChange ? 1 : 0);
+        if (expectedOutputSize != child.getOutput().size()) {
             // Carry the "Expected N columns but got M" detail that legacy (and the sibling count-check in this
             // file) emit; the terser form dropped it on the connector path.
             throw new AnalysisException("insert into cols should be corresponding to the query output. "
-                    + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
+                    + "Expected " + expectedOutputSize + " columns but got " + child.getOutput().size());
+        }
+        if (changelogRowChange) {
+            return boundSink;
         }
         if (table.requiresFullSchemaWriteOrder()) {
             // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally
@@ -936,12 +963,13 @@ public class BindSink implements AnalysisRuleFactory {
             // trailing partition columns by position, so they must sit at their full-schema (tail)
             // positions; and (3) PhysicalConnectorTableSink.getRequirePhysicalProperties locates
             // partition columns by their full-schema position, so the child must be in full-schema order.
-            Map<String, NamedExpression> columnToOutput = getColumnToOutput(
-                    ctx, table, false, false, boundSink, child, targetWriteSchema);
+            Map<String, Expression> materializedStaticPartitionValues =
+                    Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             if (table.materializeStaticPartitionValues() && !staticPartitionColNames.isEmpty()) {
-                // Connectors that consume the partition value FROM THE ROW must write the static partition value
-                // INTO the data column: getColumnToOutput excluded it from the bound columns and NULL-filled it,
-                // so re-project the PARTITION-clause literal here (mirrors the retired legacy iceberg bind).
+                // Connectors that consume the partition value FROM THE ROW must supply the static partition value
+                // before getColumnToOutput validates omitted non-null columns (mirrors the retired legacy iceberg
+                // bind). Supplying it afterwards would incorrectly report that a non-null partition column has no
+                // default value.
                 // Two reasons put a connector here — its files retain the column (Iceberg), or its files strip
                 // the column but the BE derives the partition DIRECTORY from the row value (Hive, where a NULL
                 // would become __HIVE_DEFAULT_PARTITION__). Connectors that STRIP partition columns and refill
@@ -950,14 +978,13 @@ public class BindSink implements AnalysisRuleFactory {
                 for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
                     Column column = findColumn(targetWriteSchema, entry.getKey());
                     if (column != null) {
-                        Expression castExpr = TypeCoercionUtils.castIfNotSameType(
-                                entry.getValue(), DataType.fromCatalogType(column.getType()));
-                        // Key and alias use the canonical schema name, so they line up with
-                        // getOutputProjectByCoercion, which looks columnToOutput up by getFullSchema() names.
-                        columnToOutput.put(column.getName(), new Alias(castExpr, column.getName()));
+                        materializedStaticPartitionValues.put(column.getName(), entry.getValue());
                     }
                 }
             }
+            Map<String, NamedExpression> columnToOutput = getColumnToOutput(
+                    ctx, table, false, false, boundSink, child, targetWriteSchema,
+                    Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER), materializedStaticPartitionValues);
             LogicalProject<?> fullOutputProject =
                     getOutputProjectByCoercion(targetWriteSchema, child, columnToOutput);
             return boundSink.withChildAndUpdateOutput(fullOutputProject);
@@ -1004,6 +1031,12 @@ public class BindSink implements AnalysisRuleFactory {
                     .filter(col -> !staticPartitionColNames.contains(col.getName()))
                     .filter(col -> isConnectorSinkWriteColumn(col, isRewrite))
                     .collect(ImmutableList.toImmutableList());
+        }
+        Set<String> specifiedColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (String columnName : colNames) {
+            if (!specifiedColumnNames.add(columnName)) {
+                throw new AnalysisException("Column '" + columnName + "' specified twice");
+            }
         }
         return colNames.stream().map(cn -> {
             Column column = findColumn(targetSchema, cn);
