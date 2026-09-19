@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include <iterator>
+#include <map>
 #include <mutex>
 #include <ranges>
 #include <set>
@@ -34,7 +35,7 @@
 namespace doris::cloud {
 class MockListIterator final : public ListIterator {
 public:
-    MockListIterator(std::vector<std::string> entries) : entries_(std::move(entries)) {}
+    MockListIterator(std::vector<FileMeta> entries) : entries_(std::move(entries)) {}
     ~MockListIterator() override = default;
 
     bool is_valid() override { return true; }
@@ -44,7 +45,7 @@ public:
     std::optional<FileMeta> next() override {
         std::optional<FileMeta> ret;
         if (has_next()) {
-            ret = FileMeta {.path = std::move(entries_.back())};
+            ret = std::move(entries_.back());
             entries_.pop_back();
         }
 
@@ -52,7 +53,7 @@ public:
     }
 
 private:
-    std::vector<std::string> entries_;
+    std::vector<FileMeta> entries_;
 };
 
 class MockAccessor final : public StorageVaultAccessor {
@@ -81,13 +82,29 @@ public:
 
     int abort_multipart_upload(const std::string& path, const std::string& upload_id) override;
 
+    // Put an object with the given modification time (seconds); put_file() uses 0.
+    int put_file_with_mtime(const std::string& path, int64_t mtime_s);
+
 private:
-    int delete_prefix_impl(const std::string& path_prefix);
+    // expiration_time > 0 keeps the objects modified after it, as S3Accessor does.
+    int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0);
 
     auto get_prefix_range(const std::string& path_prefix);
 
+    // Requires mtx_.
+    std::vector<FileMeta> to_file_metas(auto&& paths) const {
+        std::vector<FileMeta> metas;
+        for (const auto& path : paths) {
+            auto it = mtimes_.find(path);
+            metas.push_back({.path = path, .mtime_s = it == mtimes_.end() ? 0 : it->second});
+        }
+        return metas;
+    }
+
     std::mutex mtx_;
     std::set<std::string> objects_;
+    // Modification times of the objects put by put_file_with_mtime(); others are 0.
+    std::map<std::string, int64_t> mtimes_;
 };
 
 inline MockAccessor::MockAccessor() : StorageVaultAccessor(AccessorType::MOCK) {
@@ -108,17 +125,24 @@ inline auto MockAccessor::get_prefix_range(const std::string& path_prefix) {
     return std::make_pair(begin, end);
 }
 
-inline int MockAccessor::delete_prefix_impl(const std::string& path_prefix) {
+inline int MockAccessor::delete_prefix_impl(const std::string& path_prefix,
+                                            int64_t expiration_time) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("MockAccessor::delete_prefix", (int)0, &path_prefix);
     LOG(INFO) << "delete object of prefix=" << path_prefix;
     std::lock_guard lock(mtx_);
 
     auto [begin, end] = get_prefix_range(path_prefix);
-    if (begin == end) {
-        return 0;
+    while (begin != end) {
+        auto mtime = mtimes_.find(*begin);
+        if (expiration_time > 0 && mtime != mtimes_.end() && mtime->second > expiration_time) {
+            ++begin;
+            continue;
+        }
+        if (mtime != mtimes_.end()) {
+            mtimes_.erase(mtime);
+        }
+        begin = objects_.erase(begin);
     }
-
-    objects_.erase(begin, end);
     return 0;
 }
 
@@ -130,7 +154,7 @@ inline int MockAccessor::delete_prefix(const std::string& path_prefix, int64_t e
         return -1;
     }
 
-    return delete_prefix_impl(norm_path_prefix);
+    return delete_prefix_impl(norm_path_prefix, expiration_time);
 }
 
 inline int MockAccessor::delete_directory(const std::string& dir_path) {
@@ -147,6 +171,7 @@ inline int MockAccessor::delete_directory(const std::string& dir_path) {
 inline int MockAccessor::delete_all(int64_t expiration_time) {
     std::lock_guard lock(mtx_);
     objects_.clear();
+    mtimes_.clear();
     return 0;
 }
 
@@ -163,22 +188,30 @@ inline int MockAccessor::delete_file(const std::string& path) {
     LOG(INFO) << "delete object path=" << path;
     std::lock_guard lock(mtx_);
     objects_.erase(path);
+    mtimes_.erase(path);
     return 0;
 }
 
 inline int MockAccessor::put_file(const std::string& path, const std::string& content) {
     std::lock_guard lock(mtx_);
     objects_.insert(path);
+    mtimes_.erase(path);
+    return 0;
+}
+
+inline int MockAccessor::put_file_with_mtime(const std::string& path, int64_t mtime_s) {
+    std::lock_guard lock(mtx_);
+    objects_.insert(path);
+    mtimes_[path] = mtime_s;
     return 0;
 }
 
 inline int MockAccessor::list_all(std::unique_ptr<ListIterator>* res) {
-    std::vector<std::string> entries;
+    std::vector<FileMeta> entries;
 
     {
         std::lock_guard lock(mtx_);
-        entries.reserve(objects_.size());
-        entries.assign(objects_.rbegin(), objects_.rend());
+        entries = to_file_metas(objects_ | std::ranges::views::reverse);
     }
 
     *res = std::make_unique<MockListIterator>(std::move(entries));
@@ -195,16 +228,12 @@ inline int MockAccessor::list_directory(const std::string& dir_path,
         return -1;
     }
 
-    std::vector<std::string> entries;
+    std::vector<FileMeta> entries;
 
     {
         std::lock_guard lock(mtx_);
         auto [begin, end] = get_prefix_range(norm_dir_path);
-        if (begin != end) {
-            entries.reserve(std::distance(begin, end));
-            std::ranges::copy(std::ranges::subrange(begin, end) | std::ranges::views::reverse,
-                              std::back_inserter(entries));
-        }
+        entries = to_file_metas(std::ranges::subrange(begin, end) | std::ranges::views::reverse);
     }
 
     *res = std::make_unique<MockListIterator>(std::move(entries));

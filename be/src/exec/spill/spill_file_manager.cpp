@@ -35,6 +35,7 @@
 #include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "util/debug_points.h"
@@ -203,8 +204,8 @@ void SpillFileManager::update_spill_remote_read(int64_t bytes, int64_t get_reque
 }
 
 size_t SpillFileManager::pending_delete_dir_count() {
-    std::lock_guard lock(_pending_query_spill_directories_mutex);
-    return _pending_query_spill_directories.size();
+    std::lock_guard lock(_pending_spill_directories_mutex);
+    return _pending_spill_directories.size();
 }
 
 // Retry failed query-directory deletions and clean up stale spill files.
@@ -311,21 +312,54 @@ void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
         std::lock_guard lock(_remote_query_dirs_mutex);
         _remote_query_dirs.erase(query_id);
     }
-    PendingQuerySpillDirectory pending_directory {
-            .query_dir = data_dir->get_spill_data_path(query_id),
+    PendingSpillDirectory pending_directory {
+            .dir = data_dir->get_spill_data_path(query_id),
             .data_dir = data_dir,
     };
 
-    auto status = _try_delete_query_spill_directory(pending_directory);
+    auto status = _try_delete_spill_directory(pending_directory);
     if (!status.ok()) {
-        std::lock_guard lock(_pending_query_spill_directories_mutex);
         ++pending_directory.failed_count;
-        _pending_query_spill_directories.emplace_back(std::move(pending_directory));
+        _add_pending_directory(std::move(pending_directory));
     }
 }
 
-Status SpillFileManager::_try_delete_query_spill_directory(
-        const PendingQuerySpillDirectory& pending_directory) {
+void SpillFileManager::retry_spill_directory_deletion(SpillDataDir* data_dir, std::string dir,
+                                                      int64_t charged_bytes) {
+    _add_pending_directory({.failed_count = 1,
+                            .dir = std::move(dir),
+                            .data_dir = data_dir,
+                            .charged_bytes = charged_bytes});
+}
+
+void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_directory) {
+    auto is_under = [](const std::string& dir, const std::string& ancestor) {
+        return dir.size() > ancestor.size() && dir.starts_with(ancestor) &&
+               dir[ancestor.size()] == '/';
+    };
+    std::lock_guard lock(_pending_spill_directories_mutex);
+    for (auto& pending : _pending_spill_directories) {
+        if (pending.data_dir == pending_directory.data_dir &&
+            (pending.dir == pending_directory.dir ||
+             is_under(pending_directory.dir, pending.dir))) {
+            // Deleting the pending ancestor deletes these objects too.
+            pending.charged_bytes += pending_directory.charged_bytes;
+            return;
+        }
+    }
+    std::erase_if(_pending_spill_directories, [&](const PendingSpillDirectory& pending) {
+        if (pending.data_dir == pending_directory.data_dir &&
+            is_under(pending.dir, pending_directory.dir)) {
+            pending_directory.charged_bytes += pending.charged_bytes;
+            return true;
+        }
+        return false;
+    });
+    _pending_spill_directories.emplace_back(std::move(pending_directory));
+}
+
+Status SpillFileManager::_try_delete_spill_directory(
+        const PendingSpillDirectory& pending_directory) {
     DBUG_EXECUTE_IF("fault_inject::spill_file_manager::delete_query_spill_directory", {
         return Status::Error<INTERNAL_ERROR>("injected query spill directory deletion failure");
     });
@@ -335,14 +369,14 @@ Status SpillFileManager::_try_delete_query_spill_directory(
         return Status::InternalError("spill store {} is not ready",
                                      pending_directory.data_dir->path());
     }
-    return fs->delete_directory(pending_directory.query_dir);
+    return fs->delete_directory(pending_directory.dir);
 }
 
 void SpillFileManager::_retry_pending_query_spill_directories() {
-    std::vector<PendingQuerySpillDirectory> pending_directories;
+    std::vector<PendingSpillDirectory> pending_directories;
     {
-        std::lock_guard lock(_pending_query_spill_directories_mutex);
-        pending_directories.swap(_pending_query_spill_directories);
+        std::lock_guard lock(_pending_spill_directories_mutex);
+        pending_directories.swap(_pending_spill_directories);
     }
     DBUG_EXECUTE_IF(
             "fault_inject::spill_file_manager::retry_pending_query_spill_directories_after_drain",
@@ -351,27 +385,27 @@ void SpillFileManager::_retry_pending_query_spill_directories() {
     // Limit repeated warnings for a persistently unavailable directory while retaining it for
     // every subsequent retry.
     constexpr int log_interval = 5;
-    std::vector<PendingQuerySpillDirectory> failed_directories;
+    std::vector<PendingSpillDirectory> failed_directories;
     for (auto& pending_directory : pending_directories) {
-        auto status = _try_delete_query_spill_directory(pending_directory);
+        auto status = _try_delete_spill_directory(pending_directory);
         if (status.ok()) {
+            if (pending_directory.data_dir != nullptr) {
+                pending_directory.data_dir->release(pending_directory.charged_bytes);
+            }
             continue;
         }
 
         ++pending_directory.failed_count;
         if (pending_directory.failed_count % log_interval == 0) {
             LOG(WARNING) << fmt::format(
-                    "failed to retry deleting spill query directory, dir {}, error: {}",
-                    pending_directory.query_dir, status.to_string());
+                    "failed to retry deleting spill directory, dir {}, error: {}",
+                    pending_directory.dir, status.to_string());
         }
         failed_directories.emplace_back(std::move(pending_directory));
     }
 
-    if (!failed_directories.empty()) {
-        std::lock_guard lock(_pending_query_spill_directories_mutex);
-        for (auto& pending_directory : failed_directories) {
-            _pending_query_spill_directories.emplace_back(std::move(pending_directory));
-        }
+    for (auto& pending_directory : failed_directories) {
+        _add_pending_directory(std::move(pending_directory));
     }
 }
 
@@ -459,6 +493,7 @@ void SpillFileManager::_remote_gc() {
             return;
         }
     }
+    _remote_heartbeat();
     if (!remote_startup_cleanup_pending()) {
         return;
     }
@@ -470,6 +505,29 @@ void SpillFileManager::_remote_gc() {
     } else if (done) {
         _remote_startup_cleanup_pending.store(false, std::memory_order_release);
     }
+}
+
+void SpillFileManager::_remote_heartbeat() {
+    const int64_t interval_s = config::spill_s3_heartbeat_interval_second;
+    const int64_t now_s = MonotonicSeconds();
+    if (interval_s <= 0 || now_s < _next_remote_heartbeat_s) {
+        return;
+    }
+    auto write = [&]() -> Status {
+        io::FileWriterPtr writer;
+        RETURN_IF_ERROR(_remote_store->fs()->create_file(_remote_store->heartbeat_path(), &writer));
+        RETURN_IF_ERROR(writer->append(std::to_string(UnixSeconds())));
+        return writer->close();
+    };
+    auto st = write();
+    if (!st.ok()) {
+        // Retry in a minute; the TTL of the recycler leaves days for that.
+        LOG_EVERY_T(WARNING, 600) << "failed to write the spill heartbeat "
+                                  << _remote_store->heartbeat_path() << ": " << st;
+        _next_remote_heartbeat_s = now_s + std::min<int64_t>(interval_s, 60);
+        return;
+    }
+    _next_remote_heartbeat_s = now_s + interval_s;
 }
 
 int64_t SpillFileManager::remote_spill_data_bytes() {

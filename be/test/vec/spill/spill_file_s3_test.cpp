@@ -469,6 +469,10 @@ protected:
         _saved_inflight = config::spill_s3_max_inflight_upload_bytes;
         _saved_check_after_upload = config::enable_s3_object_check_after_upload;
         _saved_read_coalesce = config::spill_s3_read_coalesce_bytes;
+        _saved_heartbeat_interval = config::spill_s3_heartbeat_interval_second;
+        // The GC thread would put heartbeat objects in the middle of the request counts below;
+        // tests of the heartbeat enable it.
+        config::spill_s3_heartbeat_interval_second = 0;
         // The manager talks to meta-service through the cloud storage engine only in cloud
         // mode; there is no engine in this test, so pin the mode regardless of earlier tests.
         _saved_deploy_mode = config::deploy_mode;
@@ -515,6 +519,7 @@ protected:
         config::spill_s3_max_inflight_upload_bytes = _saved_inflight;
         config::enable_s3_object_check_after_upload = _saved_check_after_upload;
         config::spill_s3_read_coalesce_bytes = _saved_read_coalesce;
+        config::spill_s3_heartbeat_interval_second = _saved_heartbeat_interval;
         config::deploy_mode = _saved_deploy_mode;
         config::cloud_unique_id = _saved_cloud_unique_id;
         BackendOptions::set_localhost(_saved_localhost);
@@ -691,6 +696,7 @@ protected:
     int64_t _saved_inflight = 0;
     bool _saved_check_after_upload = true;
     int64_t _saved_read_coalesce = 0;
+    int64_t _saved_heartbeat_interval = 0;
     std::string _saved_deploy_mode;
     std::string _saved_cloud_unique_id;
     std::string _saved_localhost;
@@ -1043,6 +1049,68 @@ TEST_F(SpillFileS3Test, QueryDirectoryDeletionRetriesUntilSuccess) {
 // previous process and go; a directory of a running query of this process, the data of other BEs
 // (another host, or another port on this host), and directories created after the first listing
 // stay.
+// A spill file whose deletion fails keeps its bytes charged, also when the query directory
+// deletion fails after it, until a retry deletes the objects: an outage cannot free capacity
+// that is still used, and the spill size reported to SHOW DATA does not drop.
+TEST_F(SpillFileS3Test, FailedDeletionKeepsCapacityCharged) {
+    _create_manager();
+    _manager->stop();
+
+    std::mt19937 rng(19);
+    Status st;
+    auto spill_file =
+            _write_blocks("query_8/sort-1-0-1", {_random_string_block(rng, 64, 200)}, &st);
+    ASSERT_TRUE(st.ok()) << st;
+    const int64_t charged = _data_dir->get_spill_data_bytes();
+    ASSERT_GT(charged, 0);
+
+    mock_store().fail_deletes = true;
+    spill_file.reset();
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), charged);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), charged);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
+
+    // The limit still counts the retained objects.
+    config::spill_s3_storage_limit_bytes = charged;
+    ASSERT_TRUE(_data_dir->update_capacity().ok());
+    ASSERT_TRUE(_data_dir->reach_capacity_limit(1));
+
+    // The failed query directory deletion takes over the pending spill file directory.
+    _manager->delete_query_spill_directory("query_8", _data_dir);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
+    _manager->gc(1000);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), charged);
+
+    mock_store().fail_deletes = false;
+    _manager->gc(1000);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), 0);
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+    ASSERT_FALSE(_data_dir->reach_capacity_limit(1));
+    ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_8/").empty());
+}
+
+// The GC thread rewrites spill/{ip}_{port}/_heartbeat every spill_s3_heartbeat_interval_second;
+// the meta-service recycler keeps the directory of a BE whose heartbeat is fresh. The startup
+// cleanup of query directories leaves the heartbeat alone.
+TEST_F(SpillFileS3Test, HeartbeatObjectIsWritten) {
+    config::spill_s3_heartbeat_interval_second = 3600;
+    _create_manager();
+    _manager->stop();
+    _manager->gc(1000);
+    const std::string heartbeat_key = spill_root() + "/_heartbeat";
+    ASSERT_EQ(mock_store().keys_with_prefix(kBucket, heartbeat_key),
+              std::vector<std::string> {heartbeat_key});
+    ASSERT_EQ(_object(heartbeat_key).empty(), false);
+    ASSERT_FALSE(_manager->remote_startup_cleanup_pending());
+
+    // Not due again within the interval.
+    int64_t puts = mock_store().put_requests;
+    _manager->gc(1000);
+    ASSERT_EQ(mock_store().put_requests, puts);
+    ASSERT_EQ(mock_store().keys_with_prefix(kBucket, heartbeat_key).size(), 1);
+}
+
 TEST_F(SpillFileS3Test, StartupCleanupDeletesResidueOfPreviousProcess) {
     // The test drives the GC rounds itself.
     const auto saved_gc_interval = config::spill_gc_interval_ms;
