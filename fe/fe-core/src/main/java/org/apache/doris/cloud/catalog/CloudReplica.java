@@ -650,6 +650,10 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
                 if (systemInfo.getBackendByIdWithBoxedId(entry.getValue().key()) == null
                         && secondaryClusterToBackends.remove(entry.getKey(), entry.getValue())) {
                     removed++;
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("removed stale secondary route, clusterId {}, beId {}, replica info {}",
+                                entry.getKey(), entry.getValue().key(), this);
+                    }
                 }
             }
         }
@@ -662,6 +666,10 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
                     && !secondaryClusterToBackends.containsKey(entry.getKey())
                     && primaryClusterToBackend.remove(entry.getKey(), entry.getValue())) {
                 removed++;
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("removed stale primary route, clusterId {}, beId {}, replica info {}",
+                            entry.getKey(), entry.getValue(), this);
+                }
             }
         }
         return removed;
