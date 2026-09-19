@@ -4225,6 +4225,13 @@ public class Config extends ConfigBase {
                     + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
     public static boolean enable_adaptive_random_bucket_load = true;
 
+    @ConfField(description = {"每个 Lance catalog client 代际共享的 Java Arrow 内存上限，单位字节，必须大于 0。"
+            + "刷新期间新旧代际可短暂并存；不包含 Rust Session 缓存及独立索引检查任务。",
+            "Shared Java Arrow memory limit in bytes per Lance catalog client generation; must be positive. "
+                    + "Generations may overlap during refresh. Excludes Rust Session caches and independent "
+                    + "index inspection tasks."})
+    public static long lance_catalog_arrow_memory_limit_bytes = 256L * 1024 * 1024;
+
     @ConfField(mutable = true, masterOnly = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
             "是否启用 Lance 外表索引变更(CREATE/CREATE OR REPLACE/DROP INDEX)的 admission。默认关闭;"
                     + "启用前需确认未决 job 配额均为正值。注意:在 dispatch(后续版本)与 FORCE_RELEASE(后续版本)就绪前"

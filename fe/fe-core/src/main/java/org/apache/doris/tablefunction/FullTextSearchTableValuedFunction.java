@@ -18,7 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TFtsCoverageMode;
@@ -113,19 +113,7 @@ public class FullTextSearchTableValuedFunction extends LanceExternalSearchTableV
     @VisibleForTesting
     static Field findStringField(LanceTableMetadata metadata, String column)
             throws AnalysisException {
-        Field match = null;
-        for (Field field : metadata.getSchema().getFields()) {
-            if (field.getName().equalsIgnoreCase(column)) {
-                if (match != null) {
-                    throw new AnalysisException("Lance full-text column '" + column
-                            + "' is ambiguous under case-insensitive matching");
-                }
-                match = field;
-            }
-        }
-        if (match == null) {
-            throw new AnalysisException("Lance full-text column '" + column + "' does not exist");
-        }
+        Field match = requireSearchColumn(metadata.getSchema(), column, "full-text");
         ArrowType.ArrowTypeID typeId = match.getType().getTypeID();
         if (typeId != ArrowType.ArrowTypeID.Utf8
                 && typeId != ArrowType.ArrowTypeID.LargeUtf8) {

@@ -19,9 +19,12 @@ package org.apache.doris.datasource.lance;
 
 import org.apache.doris.common.AnalysisException;
 
+import org.apache.arrow.memory.BufferAllocator;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lance.namespace.LanceNamespace;
+import org.mockito.Mockito;
 
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -58,16 +61,24 @@ public class LanceExternalCatalogIndexAdmissionTest {
         catalogProperties.put(LanceExternalCatalog.LANCE_CATALOG_TYPE,
                 LanceExternalCatalog.LANCE_FILESYSTEM);
         catalogProperties.put(LanceExternalCatalog.WAREHOUSE, "/unused/lance-warehouse");
-        LanceExternalCatalog catalog = new LanceExternalCatalog(
-                301, "lance_admission_failure", null, catalogProperties, "");
+        LanceExternalCatalog catalog = Mockito.spy(new LanceExternalCatalog(
+                301, "lance_admission_failure", null, catalogProperties, ""));
         Map<String, String> runtimeStorageOptions = new HashMap<>();
         runtimeStorageOptions.put("aws_access_key_id", accessKey);
         runtimeStorageOptions.put("aws_secret_access_key", secretKey);
         RuntimeException providerFailure = new RuntimeException("dataset open failed for "
                 + datasetUri + " with access=" + accessKey + " secret=" + secretKey);
 
-        RuntimeException exposed = catalog.indexAdmissionSnapshotLoadFailure(
-                "db", "tbl", providerFailure, datasetUri, runtimeStorageOptions);
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        Mockito.when(namespace.describeTable(Mockito.any())).thenThrow(providerFailure);
+        RuntimeException exposed;
+        try (LanceCatalogClient client = new LanceCatalogClient(namespace, Mockito.mock(BufferAllocator.class),
+                null, "filesystem", "default", Collections.emptyList(), Collections.emptyList(),
+                runtimeStorageOptions, Collections.emptyList())) {
+            Mockito.doAnswer(invocation -> client.acquire()).when(catalog).acquireClient();
+            exposed = Assertions.assertThrows(RuntimeException.class,
+                    () -> catalog.loadTableIndexAdmissionSnapshot("db", "tbl"));
+        }
 
         Assertions.assertTrue(exposed.getMessage().startsWith(
                 "Failed to load Lance index admission snapshot for db.tbl:"), exposed.getMessage());
@@ -82,12 +93,16 @@ public class LanceExternalCatalogIndexAdmissionTest {
 
     @Test
     public void testAdmissionSnapshotLoadFailurePreservesIllegalArgumentCauseType() {
-        LanceExternalCatalog catalog = new LanceExternalCatalog(
-                302, "lance_admission_argument", null, Collections.emptyMap(), "");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceExternalCatalog.WAREHOUSE, "/unused/lance-warehouse");
+        LanceExternalCatalog catalog = Mockito.spy(new LanceExternalCatalog(
+                302, "lance_admission_argument", null, properties, ""));
         IllegalArgumentException providerFailure = new IllegalArgumentException("bad request");
+        Mockito.doThrow(providerFailure).when(catalog).acquireClient();
 
-        RuntimeException exposed = catalog.indexAdmissionSnapshotLoadFailure(
-                "db", "tbl", providerFailure, null, null);
+        RuntimeException exposed = Assertions.assertThrows(RuntimeException.class,
+                () -> catalog.loadTableIndexAdmissionSnapshot("db", "tbl"));
 
         Assertions.assertTrue(exposed.getCause() instanceof IllegalArgumentException);
         Assertions.assertNotSame(providerFailure, exposed.getCause());

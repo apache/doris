@@ -29,6 +29,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot.PhysicalIndexInfo;
+import org.apache.doris.datasource.lance.index.LanceShowIndexInfo;
 import org.apache.doris.datasource.lance.job.LanceIndexFenceKey;
 import org.apache.doris.datasource.lance.job.LanceIndexJob;
 import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
@@ -211,7 +212,7 @@ public class LanceIndexAdmissionTest {
                 scalarField("s", 3, new ArrowType.Utf8()), vectorField("Embedding", 4));
     }
 
-    private static LanceIndexAdmissionSnapshot snapshot(List<LanceLogicalIndex> logical,
+    private static LanceIndexAdmissionSnapshot snapshot(List<LanceShowIndexInfo> logical,
             List<PhysicalIndexInfo> physical) {
         return new LanceIndexAdmissionSnapshot(DATASET_VERSION, DATASET_URI, logical, physical,
                 defaultFields());
@@ -226,9 +227,9 @@ public class LanceIndexAdmissionTest {
                 Collections.emptyList(), Collections.emptyList(), Arrays.asList(fields));
     }
 
-    private static LanceLogicalIndex logicalIndex(String name, String column, String indexType,
+    private static LanceShowIndexInfo logicalIndex(String name, String column, String indexType,
             String propertiesJson) {
-        return new LanceLogicalIndex(name, Collections.singletonList(column), indexType, propertiesJson);
+        return new LanceShowIndexInfo(name, Collections.singletonList(column), indexType, propertiesJson);
     }
 
     private static PhysicalIndexInfo physicalIndex(String name, String indexTypeName) {
@@ -464,7 +465,7 @@ public class LanceIndexAdmissionTest {
         // Lance scalar indexes can span several columns; a same-name single-column request is a
         // definition mismatch even when the algorithm and the first column agree, never a no-op.
         LanceIndexAdmissionSnapshot snapshot = snapshot(
-                Collections.singletonList(new LanceLogicalIndex("idx", Arrays.asList("c", "s"),
+                Collections.singletonList(new LanceShowIndexInfo("idx", Arrays.asList("c", "s"),
                         "BTREE", "{}")),
                 Collections.singletonList(physicalIndex("idx", "SCALAR")));
 

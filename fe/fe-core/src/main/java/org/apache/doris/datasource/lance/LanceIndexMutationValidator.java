@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.lance.job.LanceIndexNameNormalizer;
+import org.apache.doris.datasource.lance.metadata.LanceTypeConverter;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 
 import com.google.common.collect.ImmutableSet;
