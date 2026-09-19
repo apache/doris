@@ -1274,6 +1274,15 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
         } else if (tablet_meta_info.has_vertical_compaction_num_columns_per_group()) {
             tablet_meta.set_vertical_compaction_num_columns_per_group(
                     tablet_meta_info.vertical_compaction_num_columns_per_group());
+        } else if (tablet_meta_info.has_binlog_config()) {
+            const auto& binlog_config = tablet_meta_info.binlog_config();
+            if (!binlog_config.has_enable() || !binlog_config.has_ttl_seconds() ||
+                !binlog_config.has_max_bytes() || !binlog_config.has_max_history_nums()) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "invalid binlog config, some fields not set";
+                return;
+            }
+            tablet_meta.mutable_binlog_config()->CopyFrom(tablet_meta_info.binlog_config());
         }
         int64_t table_id = tablet_meta.table_id();
         int64_t index_id = tablet_meta.index_id();

@@ -54,6 +54,18 @@ import java.util.TimeZone;
 
 public class PropertyAnalyzerTest {
     @Test
+    public void testBinlogTtlRejectsValuesBelowDisabledSentinel() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "-1");
+        Assertions.assertEquals("-1", PropertyAnalyzer.analyzeBinlogConfig(properties)
+                .get(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "-2");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeBinlogConfig(properties));
+    }
+
+    @Test
     public void testBfColumns() throws AnalysisException {
         List<Column> columns = Lists.newArrayList();
         columns.add(new Column("k1", PrimitiveType.INT));

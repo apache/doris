@@ -736,6 +736,7 @@ message TabletMetaInfoPB { // For update tablet meta
     optional bool enable_mow_light_delete = 14;
     optional int32 vertical_compaction_num_columns_per_group = 15;
     optional string group_commit_mode = 16;
+    optional doris.BinlogConfigPB binlog_config = 17;
 }
 
 message TabletCompactionJobPB {
@@ -780,6 +781,7 @@ message TabletCompactionJobPB {
     optional int64 segment_size_input_rowsets = 28;
     optional int64 index_size_output_rowsets = 29;
     optional int64 segment_size_output_rowsets = 30;
+    optional int64 row_binlog_ttl_seconds = 31;
 }
 
 message TabletSchemaChangeJobPB {

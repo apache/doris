@@ -2350,7 +2350,9 @@ TEST(MetaServiceTest, CommitTxnWithSubTxnTest2) {
         txn_info_pb.set_db_id(db_id);
         txn_info_pb.set_label(label);
         txn_info_pb.add_table_ids(t1);
-        txn_info_pb.set_timeout_ms(36000);
+        // Creating 1,500 subtransactions can exceed 36 seconds under ASAN. This case checks
+        // committing subtransactions; CommitTxnExpiredTest covers transaction expiration.
+        txn_info_pb.set_timeout_ms(5 * 60 * 1000);
         req.mutable_txn_info()->CopyFrom(txn_info_pb);
         BeginTxnResponse res;
         meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
@@ -4910,6 +4912,43 @@ TEST(MetaServiceTest, UpdateTablet) {
         tablet_meta_info->set_is_persistent(true);
         meta_service->update_tablet(&cntl, &req, &resp, nullptr);
         ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+    }
+    get_and_check_tablet_meta(tablet_id1, 300, true, true);
+    {
+        brpc::Controller cntl;
+        UpdateTabletRequest req;
+        UpdateTabletResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        auto* tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id1);
+        tablet_meta_info->mutable_binlog_config()->set_ttl_seconds(61);
+        meta_service->update_tablet(&cntl, &req, &resp, nullptr);
+        EXPECT_EQ(resp.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+    {
+        brpc::Controller cntl;
+        UpdateTabletRequest req;
+        UpdateTabletResponse resp;
+        req.set_cloud_unique_id(cloud_unique_id);
+        auto* tablet_meta_info = req.add_tablet_meta_infos();
+        tablet_meta_info->set_tablet_id(tablet_id1);
+        auto* binlog_config = tablet_meta_info->mutable_binlog_config();
+        binlog_config->set_enable(true);
+        binlog_config->set_binlog_format(doris::BinlogFormatPB::ROW);
+        binlog_config->set_ttl_seconds(60);
+        binlog_config->set_max_bytes(1024);
+        binlog_config->set_max_history_nums(10);
+        meta_service->update_tablet(&cntl, &req, &resp, nullptr);
+        ASSERT_EQ(resp.status().code(), MetaServiceCode::OK);
+
+        GetTabletRequest get_req;
+        get_req.set_cloud_unique_id(cloud_unique_id);
+        get_req.set_tablet_id(tablet_id1);
+        GetTabletResponse get_resp;
+        meta_service->get_tablet(&cntl, &get_req, &get_resp, nullptr);
+        ASSERT_EQ(get_resp.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(get_resp.tablet_meta().has_binlog_config());
+        EXPECT_EQ(get_resp.tablet_meta().binlog_config().ttl_seconds(), 60);
     }
     get_and_check_tablet_meta(tablet_id1, 300, true, true);
 }

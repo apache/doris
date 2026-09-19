@@ -53,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -169,6 +170,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                                                OlapTable baseTable, Map<Long, Pair<Long, Long>> offsetMap,
                                                BaseTableStream.StreamScanType streamScanType, List<Slot> originSlots,
                                                List<Slot> notVirtualSlots, boolean isIncremental) {
+        offsetMap = applyRowBinlogTtl(cascadesContext, baseTable, offsetMap, streamScanType);
         // remap scan from binlog
         Map<Long, Long> visibleVersions = scan.getTable().hasCloudReadStates()
                 ? scan.getTable().getCloudVisibleVersions(selectedPartitionIds)
@@ -226,6 +228,21 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
             plan = new LogicalFilter<>(ImmutableSet.of(opFilter), plan);
         }
         return new LogicalProject<>(project, plan);
+    }
+
+    private Map<Long, Pair<Long, Long>> applyRowBinlogTtl(CascadesContext cascadesContext, OlapTable table,
+            Map<Long, Pair<Long, Long>> offsetMap, BaseTableStream.StreamScanType scanType) {
+        if (!table.hasRowBinlogTtl()) {
+            return offsetMap;
+        }
+        long cutoffTso = TSOTimestamp.calculateCutoff(
+                cascadesContext.getStatementContext().getRowBinlogReferenceTso(),
+                table.getBinlogConfig().getTtlSeconds());
+        return offsetMap.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, entry -> {
+            Pair<Long, Long> range = entry.getValue();
+            return Pair.of(BinlogUtils.effectiveStartTso(range.first, cutoffTso,
+                    range.first != null && scanType == BaseTableStream.StreamScanType.MIN_DELTA), range.second);
+        }));
     }
 
     /**

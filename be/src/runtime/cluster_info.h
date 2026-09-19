@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include <atomic>
 #include <string>
 
 namespace doris {
@@ -28,6 +29,19 @@ namespace doris {
 // These info are usually in heartbeat from Master FE.
 class ClusterInfo {
 public:
+    int64_t row_binlog_ttl_reference_tso() const {
+        return _row_binlog_ttl_reference_tso.load(std::memory_order_acquire);
+    }
+
+    // Heartbeat identity validation must precede this call. Never persist this value:
+    // after a restart cleanup waits for a fresh, authenticated master heartbeat.
+    void advance_row_binlog_ttl_reference_tso(int64_t tso) {
+        auto previous = _row_binlog_ttl_reference_tso.load(std::memory_order_acquire);
+        while (tso > previous && !_row_binlog_ttl_reference_tso.compare_exchange_weak(
+                                         previous, tso, std::memory_order_acq_rel)) {
+        }
+    }
+
     // Unique cluster id
     int32_t cluster_id = 0;
     // Master FE addr: ip:rpc_port
@@ -43,6 +57,9 @@ public:
     // Save the last 2 tokens to avoid token invalid during token update
     std::string curr_auth_token = "";
     std::string last_auth_token = "";
+
+private:
+    std::atomic<int64_t> _row_binlog_ttl_reference_tso {0};
 };
 
 } // namespace doris

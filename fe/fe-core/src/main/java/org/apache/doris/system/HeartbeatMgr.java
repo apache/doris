@@ -17,6 +17,7 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.binlog.RowBinlogTtlDiscovery;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.ClientPool;
@@ -67,6 +68,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -80,6 +82,11 @@ public class HeartbeatMgr extends MasterDaemon {
     private SystemInfoService nodeMgr;
     private HeartbeatFlags heartbeatFlags;
     private final ExecutorService abortTxnExecutor;
+    private final ExecutorService rowBinlogTtlExecutor;
+    private final AtomicBoolean rowBinlogTtlRefreshPending = new AtomicBoolean();
+    private final RowBinlogTtlDiscovery rowBinlogTtlDiscovery = new RowBinlogTtlDiscovery();
+    private long lastRowBinlogTtlRefreshMs;
+
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
 
@@ -90,6 +97,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool", needRegisterMetric);
         this.abortTxnExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1,
                 Config.heartbeat_mgr_blocking_queue_size, "abort-txn-executor", needRegisterMetric);
+        this.rowBinlogTtlExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1,
+                "row-binlog-ttl-reference", needRegisterMetric);
         this.heartbeatFlags = new HeartbeatFlags();
     }
 
@@ -109,6 +118,24 @@ public class HeartbeatMgr extends MasterDaemon {
         masterInfo.set(tMasterInfo);
     }
 
+    // Called by the dedicated refresh worker, never by a heartbeat sender. The CAS discards
+    // a result acquired across a master transition (setMaster replaces the object).
+    public static boolean refreshRowBinlogTtlReferenceTso() {
+        TMasterInfo before = masterInfo.get();
+        if (before == null || !Config.enable_feature_binlog) {
+            return false;
+        }
+        try {
+            long tso = Env.getCurrentTSOService().getTSO();
+            TMasterInfo after = new TMasterInfo(before);
+            after.setRowBinlogTtlReferenceTso(Math.max(before.getRowBinlogTtlReferenceTso(), tso));
+            return masterInfo.compareAndSet(before, after);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to refresh row binlog TTL reference; keep previous boundary", e);
+            return false;
+        }
+    }
+
     /**
      * At each round:
      * 1. send heartbeat to all nodes
@@ -116,6 +143,19 @@ public class HeartbeatMgr extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
+        long now = System.currentTimeMillis();
+        if (now - lastRowBinlogTtlRefreshMs >= 15000 && rowBinlogTtlRefreshPending.compareAndSet(false, true)) {
+            lastRowBinlogTtlRefreshMs = now;
+            rowBinlogTtlExecutor.submit(() -> {
+                try {
+                    if (Env.getCurrentEnv().isMaster() && refreshRowBinlogTtlReferenceTso()) {
+                        rowBinlogTtlDiscovery.discover();
+                    }
+                } finally {
+                    rowBinlogTtlRefreshPending.set(false);
+                }
+            });
+        }
         if (Config.isCloudMode() && masterInfo.get() != null) {
             masterInfo.get().setMetaServiceEndpoint(Config.meta_service_endpoint);
         }
