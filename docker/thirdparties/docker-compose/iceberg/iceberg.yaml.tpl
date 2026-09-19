@@ -168,6 +168,7 @@ services:
         /usr/bin/mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
       fi;
       /usr/bin/mc cp -r /mnt/preinstalled_data/iceberg/ minio/warehouse/wh/multi_catalog/;
+      /usr/bin/mc cp -r /mnt/preinstalled_data/paimon/ minio/warehouse/wh/;
       "
 
 networks:
