@@ -71,9 +71,12 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
         const auto* from_col_array = check_and_get_column<ColumnArray>(from_column.get());
 
         if (from_col_array) {
+            /// The elements of a row that is NULL are hidden payloads, so the NULL of the row has to
+            /// be inherited by the elements that belong to it before they are cast.
+            auto child_mask = build_child_null_mask(null_map, &from_col_array->get_offsets(),
+                                                    from_col_array->get_data_ptr());
             /// create columns for converting nested column containing original and result columns
-            ColumnWithTypeAndName from_nested_column {from_col_array->get_data_ptr(),
-                                                      from_nested_type, ""};
+            ColumnWithTypeAndName from_nested_column {child_mask.column, from_nested_type, ""};
 
             /// convert nested column
             ColumnNumbers new_arguments {block.columns()};
@@ -82,7 +85,7 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
             uint32_t nested_result = block.columns();
             block.insert({to_nested_type, ""});
             RETURN_IF_ERROR(nested_function(context, block, new_arguments, nested_result,
-                                            from_col_array->get_data_ptr()->size(), null_map));
+                                            child_mask.column->size(), child_mask.null_map));
             auto nested_result_column = block.get_by_position(nested_result).column;
 
             /// set converted nested column to result
