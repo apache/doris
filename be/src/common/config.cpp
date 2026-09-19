@@ -1631,6 +1631,8 @@ DEFINE_Validator(spill_s3_storage_limit_bytes, [](int64_t config) -> bool { retu
 DEFINE_mInt64(spill_s3_max_inflight_upload_bytes, "268435456"); // 256MB
 DEFINE_Validator(spill_s3_max_inflight_upload_bytes,
                  [](int64_t config) -> bool { return config > 0; });
+DEFINE_mInt64(spill_s3_read_coalesce_bytes, "8388608"); // 8MB
+DEFINE_Validator(spill_s3_read_coalesce_bytes, [](int64_t config) -> bool { return config >= 0; });
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
