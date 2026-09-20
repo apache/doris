@@ -100,15 +100,4 @@ suite("topn") {
         sql """select topn_weighted(id,id,0) from test_topn;"""
         exception "topn_weighted requires third parameter must be a constant positive integer"
     }
-
-    for (String value : ["true", "false", "cast(null as boolean)", "id > 1"]) {
-        test {
-            sql "select topn_weighted(${value}, id, 1) from test_topn"
-            exception "topn_weighted does not support BOOLEAN as its first argument"
-        }
-        test {
-            sql "select topn_weighted(${value}, id, 1, 50) from test_topn"
-            exception "topn_weighted does not support BOOLEAN as its first argument"
-        }
-    }
 }

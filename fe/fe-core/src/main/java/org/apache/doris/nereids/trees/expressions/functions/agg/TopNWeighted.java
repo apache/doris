@@ -198,11 +198,6 @@ public class TopNWeighted extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        // Reject BOOLEAN before signature matching can implicitly cast it to a numeric type.
-        if (getArgumentType(0).isBooleanType()) {
-            throw new AnalysisException(
-                    "topn_weighted does not support BOOLEAN as its first argument: " + toSql());
-        }
         if (!getArgument(2).isConstant()) {
             throw new AnalysisException(
                     "topn_weighted requires third parameter must be a constant: "
