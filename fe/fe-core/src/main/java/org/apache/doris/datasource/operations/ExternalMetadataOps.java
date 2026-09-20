@@ -78,14 +78,36 @@ public interface ExternalMetadataOps {
      * @param force
      * @throws DdlException
      */
-    default void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
-        dropDbImpl(dbName, ifExists, force);
+    default boolean dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+        if (!dropDbImpl(dbName, ifExists, force)) {
+            // No remote mutation happened, so do not run the post-drop hook or journal the
+            // operation. A retained local incarnation may still need cleanup (for example a lost
+            // case-insensitive name mapping), so give the implementation a separate hook.
+            afterDropDbNoOp(dbName);
+            return false;
+        }
         afterDropDb(dbName);
+        return true;
     }
 
-    void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException;
+    /**
+     * @return whether the remote database was dropped. Returns {@code false} when the call was a
+     *         no-op (for example {@code IF EXISTS} on a database that does not exist).
+     */
+    boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException;
 
     void afterDropDb(String dbName);
+
+    /**
+     * Cleanup hook for a drop that did not mutate the remote metastore (for example
+     * {@code DROP DATABASE IF EXISTS} on a database that does not exist). The default preserves the
+     * pre-existing local cleanup for connectors whose {@code afterDropDb} only unregisters the
+     * database, so a retained incarnation is still retired. Paimon overrides it to do targeted
+     * retirement without its broad engine-cache flush.
+     */
+    default void afterDropDbNoOp(String dbName) {
+        afterDropDb(dbName);
+    }
 
     /**
      * @param createTableInfo

@@ -490,6 +490,12 @@ public class ExternalMetaCacheMgr {
                 cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
     }
 
+    public void invalidateDb(ExternalDatabase<?> database) {
+        long catalogId = database.getCatalog().getId();
+        routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                cache, catalogId, "invalidateDb", () -> cache.invalidateDb(database)));
+    }
+
     public void invalidateTable(long catalogId, String dbName, String tableName) {
         invalidateLanceTableAccess(catalogId);
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
@@ -620,7 +626,8 @@ public class ExternalMetaCacheMgr {
     }
 
     private void safeInvalidate(ExternalMetaCache cache, long catalogId, String operation, Runnable action) {
-        if (!cache.isCatalogInitialized(catalogId)) {
+        if (!cache.isCatalogInitialized(catalogId)
+                && !cache.supportsInvalidationWithoutCatalogEntries()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("skip {} for catalog {} on engine '{}' because cache entry is absent",
                         operation, catalogId, cache.engine());
@@ -681,9 +688,12 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateTableCache(ExternalTable dorisTable) {
-        invalidateTable(dorisTable.getCatalog().getId(),
-                dorisTable.getDbName(),
-                dorisTable.getName());
+        long catalogId = dorisTable.getCatalog().getId();
+        // Typed table invalidation bypasses the name-based invalidateTable() entry point, so the
+        // Lance access-cache retirement that used to happen there has to be repeated here.
+        invalidateLanceTableAccess(catalogId);
+        routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                cache, catalogId, "invalidateTable", () -> cache.invalidateTable(dorisTable)));
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid table cache for {}.{} in catalog {}", dorisTable.getRemoteDbName(),
                     dorisTable.getRemoteName(), dorisTable.getCatalog().getName());

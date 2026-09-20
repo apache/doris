@@ -248,6 +248,29 @@ public class PaimonMetadataOpsTest {
     }
 
     @Test
+    public void testDatabaseExistBypassesCacheAndPreservesLookupSemantics() throws Exception {
+        Catalog remoteCatalog = Mockito.mock(Catalog.class);
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        PaimonMetadataOps metadataOps = newMetadataOps(dorisCatalog, remoteCatalog);
+        Mockito.when(remoteCatalog.listDatabases()).thenReturn(Arrays.asList("db1", "db2"));
+        Mockito.when(remoteCatalog.caseSensitive()).thenReturn(false);
+
+        Assert.assertTrue(metadataOps.databaseExist("db1"));
+        Assert.assertTrue(metadataOps.databaseExist("DB1"));
+        Assert.assertTrue(metadataOps.databaseExist(Catalog.SYSTEM_DATABASE_NAME));
+        Assert.assertFalse(metadataOps.databaseExist("SYS"));
+        Assert.assertFalse(metadataOps.databaseExist("dropped_db"));
+
+        Mockito.when(remoteCatalog.caseSensitive()).thenReturn(true);
+        Assert.assertTrue(metadataOps.databaseExist("db1"));
+        Assert.assertFalse(metadataOps.databaseExist("DB1"));
+        Assert.assertTrue(metadataOps.databaseExist(Catalog.SYSTEM_DATABASE_NAME));
+        Assert.assertFalse(metadataOps.databaseExist("SYS"));
+
+        Mockito.verify(remoteCatalog, Mockito.never()).getDatabase(Mockito.anyString());
+    }
+
+    @Test
     public void testType() throws Exception {
         String tableName = getTableName();
         Identifier identifier = new Identifier(dbName, tableName);
