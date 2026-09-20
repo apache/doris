@@ -30,6 +30,7 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -135,6 +136,36 @@ public class CommitDataSerializerTest {
             new TDeserializer(new TBinaryProtocol.Factory()).deserialize(roundTripped, payloads.get(i));
             Assertions.assertEquals(input.get(i), roundTripped);
         }
+    }
+
+    @Test
+    public void rawFeedPreservesEachBinarySlice() {
+        List<byte[]> payloads = new ArrayList<>();
+        Transaction collector = new Transaction() {
+            @Override
+            public void commit() {
+                throw new UnsupportedOperationException("commit not expected in this test");
+            }
+
+            @Override
+            public void rollback() {
+                throw new UnsupportedOperationException("rollback not expected in this test");
+            }
+
+            @Override
+            public void addCommitData(byte[] commitFragment) {
+                payloads.add(commitFragment);
+            }
+        };
+        ByteBuffer fragment = ByteBuffer.wrap(new byte[] {0, 1, 2, 3});
+        fragment.position(1);
+        fragment.limit(3);
+
+        CommitDataSerializer.feedRaw(collector, Arrays.asList(fragment, ByteBuffer.wrap(new byte[] {4, 5})));
+
+        Assertions.assertArrayEquals(new byte[] {1, 2}, payloads.get(0));
+        Assertions.assertArrayEquals(new byte[] {4, 5}, payloads.get(1));
+        Assertions.assertEquals(1, fragment.position());
     }
 
 }
