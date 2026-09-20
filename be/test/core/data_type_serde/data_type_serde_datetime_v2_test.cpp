@@ -511,6 +511,38 @@ TEST_F(DataTypeDateTimeV2SerDeTest, ReadArrowTimestampBeforeEpoch) {
     EXPECT_EQ(insert_value, dest_column->get_element(0).to_string(6));
 }
 
+TEST_F(DataTypeDateTimeV2SerDeTest, ReadArrowTimestampRespectsTargetScale) {
+    const auto check = [](arrow::TimeUnit::type unit, const std::vector<int64_t>& input, int scale,
+                          const std::vector<std::string>& expected) {
+        arrow::TimestampBuilder builder(arrow::timestamp(unit), arrow::default_memory_pool());
+        ASSERT_TRUE(builder.AppendValues(input).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnDateTimeV2::create();
+        DataTypeDateTimeV2SerDe serde(scale);
+        const auto status = serde.read_column_from_arrow(*column, array.get(), 0, array->length(),
+                                                         cctz::utc_time_zone());
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(expected.size(), column->size());
+        for (size_t row = 0; row < expected.size(); ++row) {
+            EXPECT_EQ(expected[row], column->get_data()[row].to_string(6));
+        }
+    };
+
+    check(arrow::TimeUnit::MILLI, {-1001, -1000, -501, -500, -499, 0, 499, 500, 999}, 0,
+          {"1969-12-31 23:59:59.000000", "1969-12-31 23:59:59.000000", "1969-12-31 23:59:59.000000",
+           "1970-01-01 00:00:00.000000", "1970-01-01 00:00:00.000000", "1970-01-01 00:00:00.000000",
+           "1970-01-01 00:00:00.000000", "1970-01-01 00:00:01.000000",
+           "1970-01-01 00:00:01.000000"});
+    check(arrow::TimeUnit::MICRO, {-876544, -876500, 123499, 123500, 999499, 999500}, 3,
+          {"1969-12-31 23:59:59.123000", "1969-12-31 23:59:59.124000", "1970-01-01 00:00:00.123000",
+           "1970-01-01 00:00:00.124000", "1970-01-01 00:00:00.999000",
+           "1970-01-01 00:00:01.000000"});
+    check(arrow::TimeUnit::MICRO, {-876544, 123456}, 6,
+          {"1969-12-31 23:59:59.123456", "1970-01-01 00:00:00.123456"});
+}
+
 TEST_F(DataTypeDateTimeV2SerDeTest, ArrowTimezoneNaiveTimestampIgnoresSessionTimezone) {
     auto timestamp_type = arrow::timestamp(arrow::TimeUnit::MICRO);
     arrow::TimestampBuilder builder(timestamp_type, arrow::default_memory_pool());

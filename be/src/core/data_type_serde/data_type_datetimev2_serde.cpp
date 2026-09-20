@@ -683,7 +683,13 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
             // "2022-01-01 11:11:11.111", timestamp = 1641035471111, divisor = 1000,
             // set_microsecond(111000)
             v.set_microsecond(remainder * DIVISOR_FOR_MICRO / divisor);
-            col_data.emplace_back(v);
+            DateV2Value<DateTimeV2ValueType> scaled_v;
+            if (!transform_date_scale(_scale, 6, scaled_v, v)) {
+                return Status::DataQualityError(
+                        "Arrow timestamp exceeds DATETIMEV2 range after rounding to scale {}",
+                        _scale);
+            }
+            col_data.emplace_back(scaled_v);
         }
     } else {
         LOG(WARNING) << "not support convert to datetimev2 from arrow type:"
