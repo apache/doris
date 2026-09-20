@@ -520,6 +520,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (!alterJobCommand.getSourceProperties().isEmpty()) {
             mergedSourceProperties = new HashMap<>(this.sourceProperties);
             mergedSourceProperties.putAll(alterJobCommand.getSourceProperties());
+            DataSourceConfigValidator.validateSource(mergedSourceProperties, dataSourceType.name());
             newConvertedSourceProperties = buildConvertedSourceProperties(mergedSourceProperties);
         }
 

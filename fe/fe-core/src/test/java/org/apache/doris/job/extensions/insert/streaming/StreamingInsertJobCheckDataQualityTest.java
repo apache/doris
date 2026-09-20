@@ -186,6 +186,23 @@ public class StreamingInsertJobCheckDataQualityTest {
     }
 
     @Test
+    public void testModifyUnrelatedPropertyPreservesSampleState() throws Exception {
+        StreamingInsertJob job = jobWithProperties("10");
+        long sampleStartTime = System.currentTimeMillis() - 1_000L;
+        Deencapsulation.setField(job, "sampleStartTime", sampleStartTime);
+        Deencapsulation.setField(job, "sampleWindowScannedRows", 1000L);
+        Deencapsulation.setField(job, "sampleWindowFilteredRows", 50L);
+
+        Map<String, String> alter = new HashMap<>();
+        alter.put(StreamingJobProperties.S3_MAX_BATCH_FILES_PROPERTY, "128");
+        Deencapsulation.invoke(job, "modifyPropertiesInternal", alter);
+
+        Assertions.assertEquals(sampleStartTime, (long) Deencapsulation.getField(job, "sampleStartTime"));
+        Assertions.assertEquals(1000L, (long) Deencapsulation.getField(job, "sampleWindowScannedRows"));
+        Assertions.assertEquals(50L, (long) Deencapsulation.getField(job, "sampleWindowFilteredRows"));
+    }
+
+    @Test
     public void testRecomputeDerivedFieldsResetsSampleCounters() throws Exception {
         StreamingInsertJob job = jobWithProperties("10");
         Deencapsulation.setField(job, "sampleWindowScannedRows", 1000L);

@@ -531,10 +531,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         try {
             offsetNode = objectMapper.readTree(offset);
         } catch (Exception e) {
-            throw new AnalysisException("ALTER JOB for CDC requires a JSON specific offset");
+            offsetNode = null;
         }
         if (offsetNode == null || !offsetNode.isObject()) {
-            throw new AnalysisException("ALTER JOB for CDC requires a JSON specific offset");
+            throw new AnalysisException(
+                    "ALTER JOB for CDC only supports JSON specific offset, "
+                    + "e.g. '{\"file\":\"binlog.000001\",\"pos\":\"154\"}' for MySQL "
+                    + "or '{\"lsn\":\"12345678\"}' for PostgreSQL");
         }
 
         boolean valid = switch (sourceType) {
