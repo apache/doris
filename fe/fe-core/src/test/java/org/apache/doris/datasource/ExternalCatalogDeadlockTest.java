@@ -43,10 +43,13 @@ import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ExternalCatalogDeadlockTest {
 
@@ -419,6 +422,150 @@ public class ExternalCatalogDeadlockTest {
         } finally {
             releaseReset.countDown();
         }
+    }
+
+    @Test
+    public void testCatalogResetRetiresObjectGenerationInsideInitializationFence() throws Exception {
+        DeadlockCatalog catalog = new DeadlockCatalog();
+        DeadlockDatabase replacement = new DeadlockDatabase(catalog);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        MetaCache<ExternalDatabase<? extends ExternalTable>> cache = new MetaCache<>(
+                "catalog-cache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> Lists.newArrayList(),
+                key -> Optional.empty(),
+                (key, value, cause) -> { });
+        catalog.setMetaCache(cache);
+        cache.updateCache("db", "db", new DeadlockDatabase(catalog), 3L);
+        Lock lifecycleReadLock = getLifecycleReadLock(cache);
+        CountDownLatch queryStarted = new CountDownLatch(1);
+        CountDownLatch queryCompleted = new CountDownLatch(1);
+        AtomicReference<Throwable> backgroundFailure = new AtomicReference<>();
+        AtomicReference<Thread> resetThread = new AtomicReference<>();
+
+        lifecycleReadLock.lock();
+        boolean lifecycleReadLocked = true;
+        Future<?> reset = executor.submit(() -> {
+            resetThread.set(Thread.currentThread());
+            runQuietly(backgroundFailure, () -> catalog.resetToUninitialized(false));
+        });
+        Future<?> query = null;
+        try {
+            Assertions.assertTrue(waitForStackFrame(resetThread, "retireObjects"));
+            query = executor.submit(() -> runQuietly(backgroundFailure, () -> {
+                queryStarted.countDown();
+                catalog.makeSureInitialized();
+                cache.updateCache("db", "db", replacement, 3L);
+                queryCompleted.countDown();
+            }));
+            Assertions.assertTrue(queryStarted.await(3, TimeUnit.SECONDS));
+            Assertions.assertFalse(queryCompleted.await(200, TimeUnit.MILLISECONDS));
+
+            lifecycleReadLock.unlock();
+            lifecycleReadLocked = false;
+            reset.get(3, TimeUnit.SECONDS);
+            query.get(3, TimeUnit.SECONDS);
+            Assertions.assertNull(backgroundFailure.get());
+            Assertions.assertSame(replacement, cache.tryGetMetaObj("db").orElse(null));
+        } finally {
+            if (lifecycleReadLocked) {
+                lifecycleReadLock.unlock();
+            }
+            if (query != null) {
+                query.cancel(true);
+            }
+            reset.cancel(true);
+            executor.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(3, TimeUnit.SECONDS));
+            Assertions.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testDatabaseResetRetiresObjectGenerationInsideInitializationFence() throws Exception {
+        DeadlockCatalog catalog = new DeadlockCatalog();
+        DeadlockDatabase database = new DeadlockDatabase(catalog);
+        ExternalTable replacement = Mockito.mock(ExternalTable.class);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        MetaCache<ExternalTable> cache = new MetaCache<>(
+                "table-cache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> Lists.newArrayList(),
+                key -> Optional.empty(),
+                (key, value, cause) -> { });
+        database.setMetaCache(cache);
+        cache.updateCache("table", "table", Mockito.mock(ExternalTable.class), 4L);
+        Lock lifecycleReadLock = getLifecycleReadLock(cache);
+        CountDownLatch queryStarted = new CountDownLatch(1);
+        CountDownLatch queryCompleted = new CountDownLatch(1);
+        AtomicReference<Throwable> backgroundFailure = new AtomicReference<>();
+        AtomicReference<Thread> resetThread = new AtomicReference<>();
+
+        lifecycleReadLock.lock();
+        boolean lifecycleReadLocked = true;
+        Future<?> reset = executor.submit(() -> {
+            resetThread.set(Thread.currentThread());
+            runQuietly(backgroundFailure, database::resetMetaToUninitialized);
+        });
+        Future<?> query = null;
+        try {
+            Assertions.assertTrue(waitForStackFrame(resetThread, "retireObjects"));
+            query = executor.submit(() -> runQuietly(backgroundFailure, () -> {
+                queryStarted.countDown();
+                database.makeSureInitialized();
+                cache.updateCache("table", "table", replacement, 4L);
+                queryCompleted.countDown();
+            }));
+            Assertions.assertTrue(queryStarted.await(3, TimeUnit.SECONDS));
+            Assertions.assertFalse(queryCompleted.await(200, TimeUnit.MILLISECONDS));
+
+            lifecycleReadLock.unlock();
+            lifecycleReadLocked = false;
+            reset.get(3, TimeUnit.SECONDS);
+            query.get(3, TimeUnit.SECONDS);
+            Assertions.assertNull(backgroundFailure.get());
+            Assertions.assertSame(replacement, cache.tryGetMetaObj("table").orElse(null));
+        } finally {
+            if (lifecycleReadLocked) {
+                lifecycleReadLock.unlock();
+            }
+            if (query != null) {
+                query.cancel(true);
+            }
+            reset.cancel(true);
+            executor.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(3, TimeUnit.SECONDS));
+            Assertions.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    private static Lock getLifecycleReadLock(MetaCache<?> cache) throws Exception {
+        Field lifecycleLockField = MetaCache.class.getDeclaredField("metaObjLifecycleLock");
+        lifecycleLockField.setAccessible(true);
+        return ((ReentrantReadWriteLock) lifecycleLockField.get(cache)).readLock();
+    }
+
+    private static boolean waitForStackFrame(AtomicReference<Thread> threadReference, String methodName)
+            throws InterruptedException {
+        for (int i = 0; i < 100; i++) {
+            Thread thread = threadReference.get();
+            if (thread != null && Arrays.stream(thread.getStackTrace())
+                    .anyMatch(frame -> frame.getMethodName().equals(methodName))) {
+                return true;
+            }
+            Thread.sleep(10);
+        }
+        return false;
     }
 
     private static void assertNoDeadlock(Thread queryThread, Thread refreshThread,

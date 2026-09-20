@@ -56,6 +56,8 @@ public class MetaCache<T> {
     private static final int MAX_NAMES_LOAD_ATTEMPTS = 4;
     private static final int MAX_NAMES_REFRESH_FLIGHTS = 2;
     private static final int MAX_PHYSICAL_NAMES_LOADS = 2;
+    private static final int MAX_META_OBJ_LOAD_ATTEMPTS = 4;
+    private static final int MAX_PHYSICAL_META_OBJ_LOADS_PER_NAME = 2;
     private Cache<String, NamesCacheValue> namesCache;
     private final CacheLoader<String, List<Pair<String, String>>> namesCacheLoader;
     private final Consumer<List<Pair<String, String>>> namesCacheUpdateAction;
@@ -83,9 +85,11 @@ public class MetaCache<T> {
     // Loads may run without this lock, but may publish only into the generation they started in.
     private final ReentrantReadWriteLock metaObjLifecycleLock = new ReentrantReadWriteLock();
     private final AtomicLong metaObjGeneration = new AtomicLong();
-    // Object loads and event mutations for the same name share one lock. Locks are reference-counted
-    // so a blocked connector call never serializes unrelated names or leaves an unbounded lock map.
-    private final ConcurrentMap<String, MetaObjKeyLock> metaObjKeyLocks = Maps.newConcurrentMap();
+    // Object loads and event mutations for the same name and generation share one lock. A reset moves
+    // new work to a new lock while the retired physical loader remains counted against the per-name bound.
+    private final ConcurrentMap<MetaObjKey, MetaObjKeyLock> metaObjKeyLocks = Maps.newConcurrentMap();
+    private final Object physicalMetaObjLoadsLock = new Object();
+    private final Map<String, Integer> physicalMetaObjLoads = Maps.newHashMap();
 
     private String name;
 
@@ -464,32 +468,49 @@ public class MetaCache<T> {
     }
 
     public Optional<T> getMetaObj(String name, long id) {
-        Optional<T> val = withMetaObjLifecycleReadLock(() -> metaObjCache.getIfPresent(name));
-        if (val != null && val.isPresent()) {
-            return val;
-        }
-        return withMetaObjKeyLock(name, () -> {
-            while (true) {
-                long generation;
+        for (int attempt = 0; attempt < MAX_META_OBJ_LOAD_ATTEMPTS; attempt++) {
+            long generation;
+            metaObjLifecycleLock.readLock().lock();
+            try {
+                Optional<T> current = metaObjCache.getIfPresent(name);
+                if (current != null && current.isPresent()) {
+                    return current;
+                }
+                generation = metaObjGeneration.get();
+            } finally {
+                metaObjLifecycleLock.readLock().unlock();
+            }
+            Optional<T> result = withMetaObjKeyLock(name, generation, () -> {
                 metaObjLifecycleLock.readLock().lock();
                 try {
+                    if (generation != metaObjGeneration.get()) {
+                        return null;
+                    }
                     Optional<T> current = metaObjCache.getIfPresent(name);
                     if (current != null && current.isPresent()) {
                         return current;
                     }
-                    generation = metaObjGeneration.get();
                 } finally {
                     metaObjLifecycleLock.readLock().unlock();
+                }
+                if (!acquirePhysicalMetaObjLoad(name)) {
+                    throw new IllegalStateException("Too many concurrent physical metadata object loads for "
+                            + this.name + "." + name);
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
                             this.name, name, id, new Exception());
                 }
-                Optional<T> loaded = loadMetaObj(name);
+                Optional<T> loaded;
+                try {
+                    loaded = loadMetaObj(name);
+                } finally {
+                    releasePhysicalMetaObjLoad(name);
+                }
                 metaObjLifecycleLock.readLock().lock();
                 try {
                     if (generation != metaObjGeneration.get()) {
-                        continue;
+                        return null;
                     }
                     metaObjCache.put(name, loaded);
                     idToName.put(id, name);
@@ -497,8 +518,13 @@ public class MetaCache<T> {
                 } finally {
                     metaObjLifecycleLock.readLock().unlock();
                 }
+            });
+            if (result != null) {
+                return result;
             }
-        });
+        }
+        throw new IllegalStateException("Failed to load metadata object for " + this.name + "." + name
+                + " because metadata kept changing");
     }
 
     private Optional<T> loadMetaObj(String key) {
@@ -532,40 +558,49 @@ public class MetaCache<T> {
     }
 
     public boolean updateCache(String remoteName, String localName, T obj, long id, long expectedEpoch) {
-        return withMetaObjKeyLock(localName, () -> {
-            return withMetaObjLifecycleReadLock(() -> {
-                synchronized (namesMutationLock) {
-                    if (!namesLoadEpochValidator.test(expectedEpoch)) {
-                        return false;
+        while (true) {
+            long generation = metaObjGeneration.get();
+            Boolean result = withMetaObjKeyLock(localName, generation, () -> {
+                return withMetaObjLifecycleReadLock(() -> {
+                    if (generation != metaObjGeneration.get()) {
+                        return null;
                     }
-                    long generation = advanceNamesGeneration();
-                    NamesCacheValue currentNames = namesCache.getIfPresent("");
-                    Map<String, Pair<String, String>> names = currentNames == null
-                            ? Maps.newLinkedHashMap() : currentNames.names;
-                    names.put(localName, Pair.of(remoteName, localName));
-                    namesCache.put("", new NamesCacheValue(
-                            generation, names, currentNames != null && currentNames.complete));
-                    nameUpdateAction.accept(remoteName, localName);
-                    metaObjCache.put(localName, Optional.of(obj));
-                    idToName.put(id, localName);
-                }
-                return true;
+                    synchronized (namesMutationLock) {
+                        if (!namesLoadEpochValidator.test(expectedEpoch)) {
+                            return false;
+                        }
+                        long namesGeneration = advanceNamesGeneration();
+                        NamesCacheValue currentNames = namesCache.getIfPresent("");
+                        Map<String, Pair<String, String>> names = currentNames == null
+                                ? Maps.newLinkedHashMap() : currentNames.names;
+                        names.put(localName, Pair.of(remoteName, localName));
+                        namesCache.put("", new NamesCacheValue(
+                                namesGeneration, names, currentNames != null && currentNames.complete));
+                        nameUpdateAction.accept(remoteName, localName);
+                        metaObjCache.put(localName, Optional.of(obj));
+                        idToName.put(id, localName);
+                    }
+                    return true;
+                });
             });
-        });
+            if (result != null) {
+                return result;
+            }
+        }
     }
 
     // The action runs under the same-name mutation lock and must not mutate another name in this MetaCache.
     // A bulk invalidation may retire the cache while the action runs, so verify the generation afterwards.
     public boolean executeIfMetaObjCurrent(String localName, T expectedObj, BooleanSupplier action) {
-        return withMetaObjKeyLock(localName, () -> {
-            long generation;
+        long generation = metaObjGeneration.get();
+        return withMetaObjKeyLock(localName, generation, () -> {
             metaObjLifecycleLock.readLock().lock();
             try {
                 Optional<T> cachedObj = metaObjCache.getIfPresent(localName);
-                if (cachedObj == null || !cachedObj.isPresent() || cachedObj.get() != expectedObj) {
+                if (generation != metaObjGeneration.get()
+                        || cachedObj == null || !cachedObj.isPresent() || cachedObj.get() != expectedObj) {
                     return false;
                 }
-                generation = metaObjGeneration.get();
             } finally {
                 metaObjLifecycleLock.readLock().unlock();
             }
@@ -579,28 +614,36 @@ public class MetaCache<T> {
     }
 
     public void invalidate(String localName, long id) {
-        withMetaObjKeyLock(localName, () -> {
-            withMetaObjLifecycleReadLock(() -> {
-                synchronized (namesMutationLock) {
-                    long generation = advanceNamesGeneration();
-                    NamesCacheValue currentNames = namesCache.getIfPresent("");
-                    if (currentNames != null) {
-                        currentNames.names.remove(localName);
-                        namesCache.put("", new NamesCacheValue(
-                                generation, currentNames.names, currentNames.complete));
+        while (true) {
+            long generation = metaObjGeneration.get();
+            Boolean invalidated = withMetaObjKeyLock(localName, generation, () -> {
+                return withMetaObjLifecycleReadLock(() -> {
+                    if (generation != metaObjGeneration.get()) {
+                        return null;
                     }
-                    nameInvalidationAction.accept(localName);
-                    idToName.remove(id);
-                }
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("invalidate obj in metacache {}, obj name: {}, id: {}",
-                            name, localName, id, new Exception());
-                }
-                metaObjCache.invalidate(localName);
-                return null;
+                    synchronized (namesMutationLock) {
+                        long namesGeneration = advanceNamesGeneration();
+                        NamesCacheValue currentNames = namesCache.getIfPresent("");
+                        if (currentNames != null) {
+                            currentNames.names.remove(localName);
+                            namesCache.put("", new NamesCacheValue(
+                                    namesGeneration, currentNames.names, currentNames.complete));
+                        }
+                        nameInvalidationAction.accept(localName);
+                        idToName.remove(id);
+                    }
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("invalidate obj in metacache {}, obj name: {}, id: {}",
+                                name, localName, id, new Exception());
+                    }
+                    metaObjCache.invalidate(localName);
+                    return true;
+                });
             });
-            return null;
-        });
+            if (invalidated != null) {
+                return;
+            }
+        }
     }
 
     public void invalidateNames() {
@@ -612,6 +655,13 @@ public class MetaCache<T> {
     }
 
     public void invalidateObjects() {
+        retireObjects().run();
+    }
+
+    // Call this while holding the catalog/database initialization monitor, then run the returned
+    // removal work after releasing that monitor. This keeps the generation swap atomic with reset
+    // without running removal listeners under the parent monitor.
+    public Runnable retireObjects() {
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalidate objects in metacache {}", name, new Exception());
         }
@@ -625,7 +675,7 @@ public class MetaCache<T> {
         } finally {
             metaObjLifecycleLock.writeLock().unlock();
         }
-        retiredCache.invalidateAll();
+        return retiredCache::invalidateAll;
     }
 
     public void invalidateAll() {
@@ -666,18 +716,19 @@ public class MetaCache<T> {
         }
     }
 
-    private <R> R withMetaObjKeyLock(String key, Supplier<R> action) {
-        MetaObjKeyLock keyLock = acquireMetaObjKeyLock(key);
+    private <R> R withMetaObjKeyLock(String key, long generation, Supplier<R> action) {
+        MetaObjKey metaObjKey = new MetaObjKey(key, generation);
+        MetaObjKeyLock keyLock = acquireMetaObjKeyLock(metaObjKey);
         try {
             synchronized (keyLock) {
                 return action.get();
             }
         } finally {
-            releaseMetaObjKeyLock(key);
+            releaseMetaObjKeyLock(metaObjKey);
         }
     }
 
-    private MetaObjKeyLock acquireMetaObjKeyLock(String key) {
+    private MetaObjKeyLock acquireMetaObjKeyLock(MetaObjKey key) {
         return metaObjKeyLocks.compute(key, (ignored, current) -> {
             MetaObjKeyLock result = current == null ? new MetaObjKeyLock() : current;
             result.users++;
@@ -685,11 +736,33 @@ public class MetaCache<T> {
         });
     }
 
-    private void releaseMetaObjKeyLock(String key) {
+    private void releaseMetaObjKeyLock(MetaObjKey key) {
         metaObjKeyLocks.compute(key, (ignored, current) -> {
             current.users--;
             return current.users == 0 ? null : current;
         });
+    }
+
+    private boolean acquirePhysicalMetaObjLoad(String key) {
+        synchronized (physicalMetaObjLoadsLock) {
+            int current = physicalMetaObjLoads.getOrDefault(key, 0);
+            if (current >= MAX_PHYSICAL_META_OBJ_LOADS_PER_NAME) {
+                return false;
+            }
+            physicalMetaObjLoads.put(key, current + 1);
+            return true;
+        }
+    }
+
+    private void releasePhysicalMetaObjLoad(String key) {
+        synchronized (physicalMetaObjLoadsLock) {
+            int current = physicalMetaObjLoads.get(key);
+            if (current == 1) {
+                physicalMetaObjLoads.remove(key);
+            } else {
+                physicalMetaObjLoads.put(key, current - 1);
+            }
+        }
     }
 
     /**
@@ -741,6 +814,33 @@ public class MetaCache<T> {
 
     private static class MetaObjKeyLock {
         private int users;
+    }
+
+    private static class MetaObjKey {
+        private final String name;
+        private final long generation;
+
+        private MetaObjKey(String name, long generation) {
+            this.name = name;
+            this.generation = generation;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof MetaObjKey)) {
+                return false;
+            }
+            MetaObjKey that = (MetaObjKey) obj;
+            return generation == that.generation && name.equals(that.name);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(name, generation);
+        }
     }
 
     private static class NamesLoad {

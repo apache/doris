@@ -125,6 +125,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     this.name, this.id, isInitializing, initialized, new Exception());
         }
         MetaCache<T> cacheToInvalidate = null;
+        Runnable objectInvalidation = null;
         try {
             synchronized (this) {
                 metadataLoadEpoch.updateAndGet(epoch -> epoch.next(epoch.catalogEpoch));
@@ -133,11 +134,12 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 cacheToInvalidate = metaCache;
                 if (cacheToInvalidate != null) {
                     cacheToInvalidate.invalidateNames();
+                    objectInvalidation = cacheToInvalidate.retireObjects();
                 }
             }
         } finally {
-            if (cacheToInvalidate != null) {
-                cacheToInvalidate.invalidateObjects();
+            if (objectInvalidation != null) {
+                objectInvalidation.run();
             }
         }
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(extCatalog.getId(), getFullName());

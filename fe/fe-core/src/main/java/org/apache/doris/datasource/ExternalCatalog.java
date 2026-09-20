@@ -676,6 +676,7 @@ public abstract class ExternalCatalog
      */
     public void resetToUninitialized(boolean invalidCache) {
         MetaCache<ExternalDatabase<? extends ExternalTable>> cacheToInvalidate = null;
+        Runnable objectInvalidation = null;
         try {
             synchronized (this) {
                 metadataLoadEpoch.incrementAndGet();
@@ -688,12 +689,13 @@ public abstract class ExternalCatalog
                 cacheToInvalidate = metaCache;
                 if (cacheToInvalidate != null) {
                     cacheToInvalidate.invalidateNames();
+                    objectInvalidation = cacheToInvalidate.retireObjects();
                 }
                 onClose();
             }
         } finally {
-            if (cacheToInvalidate != null) {
-                cacheToInvalidate.invalidateObjects();
+            if (objectInvalidation != null) {
+                objectInvalidation.run();
             }
         }
         setLastUpdateTime(System.currentTimeMillis());

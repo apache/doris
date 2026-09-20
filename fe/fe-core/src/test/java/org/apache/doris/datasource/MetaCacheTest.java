@@ -1886,6 +1886,102 @@ public class MetaCacheTest {
     }
 
     @Test
+    public void testReplacementGenerationBypassesRetiredObjectLoader() throws Exception {
+        CountDownLatch retiredLoaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseRetiredLoader = new CountDownLatch(1);
+        AtomicInteger loadCount = new AtomicInteger();
+        ExecutorService executor = Executors.newCachedThreadPool();
+        MetaCache<String> testCache = new MetaCache<>(
+                "testCache",
+                executor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                100,
+                key -> Lists.newArrayList(),
+                key -> {
+                    int load = loadCount.incrementAndGet();
+                    if (load == 1) {
+                        retiredLoaderStarted.countDown();
+                        Assert.assertTrue(releaseRetiredLoader.await(5, TimeUnit.SECONDS));
+                    }
+                    return Optional.of("loaded-" + load);
+                },
+                (key, value, cause) -> { });
+
+        Future<Optional<String>> retiredLoad = executor.submit(() -> testCache.getMetaObj("key", 1L));
+        try {
+            Assert.assertTrue(retiredLoaderStarted.await(3, TimeUnit.SECONDS));
+            testCache.invalidateObjects();
+
+            Future<Optional<String>> replacementLoad =
+                    executor.submit(() -> testCache.getMetaObj("key", 1L));
+            Assert.assertEquals(Optional.of("loaded-2"), replacementLoad.get(3, TimeUnit.SECONDS));
+            Assert.assertEquals(2, loadCount.get());
+
+            releaseRetiredLoader.countDown();
+            Assert.assertEquals(Optional.of("loaded-2"), retiredLoad.get(3, TimeUnit.SECONDS));
+        } finally {
+            releaseRetiredLoader.countDown();
+            executor.shutdownNow();
+            Assert.assertTrue(executor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testPhysicalObjectLoadsRemainBoundedAcrossGenerations() throws Exception {
+        CountDownLatch firstLoaderStarted = new CountDownLatch(1);
+        CountDownLatch secondLoaderStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoaders = new CountDownLatch(1);
+        AtomicInteger loadCount = new AtomicInteger();
+        ExecutorService executor = Executors.newCachedThreadPool();
+        MetaCache<String> testCache = new MetaCache<>(
+                "testCache",
+                executor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                100,
+                key -> Lists.newArrayList(),
+                key -> {
+                    int load = loadCount.incrementAndGet();
+                    if (load == 1) {
+                        firstLoaderStarted.countDown();
+                    } else if (load == 2) {
+                        secondLoaderStarted.countDown();
+                    }
+                    releaseLoaders.await();
+                    return Optional.of("loaded-" + load);
+                },
+                (key, value, cause) -> { });
+
+        Future<Optional<String>> firstLoad = executor.submit(() -> testCache.getMetaObj("key", 1L));
+        Future<Optional<String>> secondLoad = null;
+        try {
+            Assert.assertTrue(firstLoaderStarted.await(3, TimeUnit.SECONDS));
+            testCache.invalidateObjects();
+            secondLoad = executor.submit(() -> testCache.getMetaObj("key", 1L));
+            Assert.assertTrue(secondLoaderStarted.await(3, TimeUnit.SECONDS));
+            testCache.invalidateObjects();
+
+            Future<Optional<String>> rejectedLoad = executor.submit(() -> testCache.getMetaObj("key", 1L));
+            try {
+                rejectedLoad.get(3, TimeUnit.SECONDS);
+                Assert.fail("A third physical load for the same name must be rejected");
+            } catch (java.util.concurrent.ExecutionException e) {
+                Assert.assertTrue(e.getCause() instanceof IllegalStateException);
+            }
+            Assert.assertEquals(2, loadCount.get());
+        } finally {
+            firstLoad.cancel(true);
+            if (secondLoad != null) {
+                secondLoad.cancel(true);
+            }
+            releaseLoaders.countDown();
+            executor.shutdownNow();
+            Assert.assertTrue(executor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     public void testGetMetaObjConcurrent() throws InterruptedException {
         // Create a CountDownLatch to track cache loading invocations
         CountDownLatch loadLatch = new CountDownLatch(1);
