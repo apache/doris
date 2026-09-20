@@ -20,11 +20,11 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
+import org.apache.doris.catalog.authorizer.ranger.BackgroundLoadedRangerPlugin;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -59,11 +59,11 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
      * one Ranger service, which is bounded and not a leak that grows. Stopping it would cost more than that:
      * a plain {@code ALTER CATALOG} detaches and re-attaches the catalog's access controller, and a plugin
      * torn down and rebuilt between those two pays {@code cleanup()} on the DDL thread - it interrupts the
-     * policy refresher and joins it without a timeout - and then two synchronous admin REST calls on the way
-     * back up, since {@code RangerBasePlugin.init()} loads the service's roles and policies before it
-     * returns.
+     * policy refresher and joins it without a timeout - and then the whole first load on the way back up:
+     * roles, policies and user store downloaded again, on the plugin's own thread, before the catalog answers
+     * a single check.
      */
-    private static RangerBasePlugin sharedPlugin;
+    private static BackgroundLoadedRangerPlugin sharedPlugin;
     private static final Map<Map<String, String>, Held> byConfiguration = new LinkedHashMap<>();
 
     /** One controller and the number of bindings holding it; the last one to let go takes it out. */
@@ -101,8 +101,8 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
         RangerAccessController.validateProperties(properties);
         Map<String, String> configuration = normalize(properties);
 
-        RangerBasePlugin built = null;
-        RangerBasePlugin toStop = null;
+        BackgroundLoadedRangerPlugin built = null;
+        BackgroundLoadedRangerPlugin toStop = null;
         try {
             while (true) {
                 synchronized (LOCK) {
@@ -131,14 +131,16 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
                         return held.controller;
                     }
                 }
-                // Built with no lock held: RangerBasePlugin.init() loads the service's roles and its policies
-                // over REST before it returns, so against a slow or unreachable Ranger admin doing it under
-                // the lock queues every other binding's create - and close - behind the whole REST timeout.
-                // Losing the race that opens costs one plugin, stopped in the finally below.
+                // Built with no lock held. The constructor starts the load of roles, policies and user store
+                // on the plugin's own thread and returns, but what it does before that - reading the plugin's
+                // configuration, a Kerberos login if one is configured - is nothing every other binding's
+                // create and close should queue behind either; and stopping the loser of the race this opens
+                // (the finally below) can block, which is the stronger reason. Losing costs one plugin.
                 built = new RangerDorisPlugin(SERVICE_NAME);
             }
         } finally {
-            // With no lock held: cleanup() interrupts the policy refresher and joins it without a timeout.
+            // With no lock held: cleanup() interrupts the policy refresher and joins it without a timeout,
+            // and a refresher part way through a download finishes it first.
             if (toStop != null) {
                 toStop.cleanup();
             }

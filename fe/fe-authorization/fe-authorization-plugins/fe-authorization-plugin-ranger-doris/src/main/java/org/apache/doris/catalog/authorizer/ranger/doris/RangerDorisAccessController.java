@@ -25,6 +25,7 @@ import org.apache.doris.authorization.AccessRequirements;
 import org.apache.doris.authorization.AuthorizedResource;
 import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.spi.AuthorizationContext;
+import org.apache.doris.catalog.authorizer.ranger.BackgroundLoadedRangerPlugin;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 
 import org.apache.logging.log4j.LogManager;
@@ -34,7 +35,6 @@ import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
 import org.apache.ranger.plugin.service.RangerAuthContextListener;
-import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.Collections;
 import java.util.Date;
@@ -71,7 +71,7 @@ public class RangerDorisAccessController extends RangerAccessController {
      * and the lifecycle fence in {@link RangerAccessController} - not a null field - is what stops it from
      * reaching a plugin that has been cleaned up.
      */
-    private final RangerBasePlugin dorisPlugin;
+    private final BackgroundLoadedRangerPlugin dorisPlugin;
     // private static ScheduledThreadPoolExecutor logFlushTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
     //        "ranger-doris-audit-log-flusher-timer", true);
     // private RangerHiveAuditHandler auditHandler;
@@ -89,7 +89,7 @@ public class RangerDorisAccessController extends RangerAccessController {
         // logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
     }
 
-    public RangerDorisAccessController(RangerBasePlugin plugin, AuthorizationContext context) {
+    public RangerDorisAccessController(BackgroundLoadedRangerPlugin plugin, AuthorizationContext context) {
         this(plugin, Collections.emptyMap(), context);
     }
 
@@ -98,7 +98,7 @@ public class RangerDorisAccessController extends RangerAccessController {
      * out: the plugin is what polling the Ranger service costs, so it is shared, while everything a binding
      * configures - {@link #DEFER_TO_GLOBAL_SCOPE_AUTHORITY} - belongs to the controller and so to the binding.
      */
-    public RangerDorisAccessController(RangerBasePlugin plugin, Map<String, String> properties,
+    public RangerDorisAccessController(BackgroundLoadedRangerPlugin plugin, Map<String, String> properties,
             AuthorizationContext context) {
         super(properties, context);
         dorisPlugin = Objects.requireNonNull(plugin, "ranger plugin is required");
@@ -455,7 +455,7 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     @Override
-    protected RangerBasePlugin getPlugin() {
+    protected BackgroundLoadedRangerPlugin getPlugin() {
         return dorisPlugin;
     }
 

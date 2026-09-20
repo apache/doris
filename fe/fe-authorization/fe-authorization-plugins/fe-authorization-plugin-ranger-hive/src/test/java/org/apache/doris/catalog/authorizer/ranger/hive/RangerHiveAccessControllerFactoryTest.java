@@ -136,7 +136,7 @@ public class RangerHiveAccessControllerFactoryTest {
      * both detach a catalog's access controller and attach a new one, so the count of bindings on a service
      * passes through zero as a matter of course. Stopped there and rebuilt, the plugin costs a
      * {@code cleanup()} on the DDL thread - it interrupts the policy refresher and joins it with no timeout -
-     * and two synchronous admin REST calls on the way back up.
+     * and its whole first load on the way back up, before the catalog answers a single check again.
      */
     @Test
     public void testAReAcquireWithinTheGraceKeepsThePluginUp() {

@@ -34,7 +34,6 @@ import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
 import org.apache.ranger.plugin.policyengine.RangerPolicyEngine;
 import org.apache.ranger.plugin.service.RangerAuthContextListener;
-import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -432,7 +431,7 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     @Override
-    protected RangerBasePlugin getPlugin() {
+    protected RangerHivePlugin getPlugin() {
         return hivePlugin;
     }
 

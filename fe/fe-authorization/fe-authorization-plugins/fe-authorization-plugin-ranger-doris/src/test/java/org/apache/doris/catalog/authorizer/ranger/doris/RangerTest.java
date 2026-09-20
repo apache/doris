@@ -27,6 +27,7 @@ import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.ResourceKind;
 import org.apache.doris.authorization.spi.AuthorizationContext;
+import org.apache.doris.catalog.authorizer.ranger.BackgroundLoadedRangerPlugin;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -51,7 +52,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class RangerTest {
 
-    public static class DorisTestPlugin extends RangerBasePlugin {
+    public static class DorisTestPlugin extends BackgroundLoadedRangerPlugin {
         /** The access type the last masking lookup asked with; see testDataMaskLookupAsksWithTheReadAccessType. */
         private String lastDataMaskAccessType;
         /** How many questions reached the policy engine, for the cases about not asking it at all. */
@@ -59,7 +60,7 @@ public class RangerTest {
 
         public DorisTestPlugin(String serviceName) {
             super(serviceName, null, null);
-            // super.init();
+            // Never init(): it answers out of the overrides below, not out of a Ranger service.
         }
 
         @Override
@@ -152,7 +153,7 @@ public class RangerTest {
      * Grants one action per level of the hierarchy and counts what was asked, so that an action a level
      * already granted being asked about again further down is observable.
      */
-    public static class LevelledPlugin extends RangerBasePlugin {
+    public static class LevelledPlugin extends BackgroundLoadedRangerPlugin {
         private final AtomicInteger requests = new AtomicInteger();
 
         public LevelledPlugin() {

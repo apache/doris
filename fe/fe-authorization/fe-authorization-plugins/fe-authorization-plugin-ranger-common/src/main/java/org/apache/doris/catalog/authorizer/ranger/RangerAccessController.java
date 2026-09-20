@@ -35,7 +35,6 @@ import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResourceImpl;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
-import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -58,6 +57,11 @@ import java.util.function.Supplier;
  * give - its policy engine not yet initialized, or being cleaned up - is a refusal too, not an empty policy
  * set. Getting the second one wrong is silent: the engine reads "no row filter, no column mask" as licence to
  * read the table whole and in the clear.
+ *
+ * <p>A plugin still on its first load is neither: it is about to have an answer, and every question here
+ * waits for it ({@link BackgroundLoadedRangerPlugin#awaitLoaded()}) before anything else - before the
+ * lifecycle fence above all, so that a load the Ranger admin is slow to serve is waited for with no lock
+ * held, and closing this controller meanwhile is not queued behind it.
  */
 public abstract class RangerAccessController implements AuthorizationPlugin {
     private static final Logger LOG = LogManager.getLogger(RangerAccessController.class);
@@ -181,6 +185,7 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     @Override
     public final void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
             AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
+        getPlugin().awaitLoaded();
         checkWhileOpen(resource, () -> checkPrivilegeInternal(subject, resource, requirement, context));
     }
 
@@ -334,6 +339,7 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     @Override
     public List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
             AccessContext context) {
+        getPlugin().awaitLoaded();
         return whileOpen(() -> evalRowFilterPolicies(subject, table, context));
     }
 
@@ -383,6 +389,7 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     @Override
     public Map<String, DataMaskSpec> getDataMasks(AuthorizedSubject subject, AuthorizedResource.Table table,
             Set<String> columns, AccessContext context) {
+        getPlugin().awaitLoaded();
         return whileOpen(() -> {
             Map<String, DataMaskSpec> masks = new HashMap<>();
             for (String column : columns) {
@@ -520,7 +527,7 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
 
     protected abstract RangerAccessResourceImpl createResource(String ctl, String db, String tbl, String col);
 
-    protected abstract RangerBasePlugin getPlugin();
+    protected abstract BackgroundLoadedRangerPlugin getPlugin();
 
     protected abstract RangerAccessResultProcessor getAccessResultProcessor();
 }
