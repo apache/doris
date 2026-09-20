@@ -164,16 +164,29 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     <T> T withIcebergTable(ExternalTable dorisTable, Function<Table, T> action) {
+        return withIcebergTableGeneration(dorisTable,
+                (table, enableMappingVarbinary, enableMappingTimestampTz) -> action.apply(table));
+    }
+
+    <T> T withIcebergTableGeneration(ExternalTable dorisTable, TableGenerationAction<T> action) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         IcebergTableCacheValue.Lease lease = statementLease(nameMapping);
         if (lease != null) {
-            return executeForGeneration(lease.getValue(), nameMapping.getCtlId(),
-                    ignored -> action.apply(lease.getIcebergTable()));
+            IcebergTableCacheValue value = lease.getValue();
+            return executeForGeneration(value, nameMapping.getCtlId(), ignored -> action.apply(
+                    lease.getIcebergTable(), value.isEnableMappingVarbinary(), value.isEnableMappingTimestampTz()));
         }
         try (IcebergTableCacheValue.Lease operationLease = borrow(nameMapping)) {
-            return executeForGeneration(operationLease.getValue(), nameMapping.getCtlId(),
-                    ignored -> action.apply(operationLease.getIcebergTable()));
+            IcebergTableCacheValue value = operationLease.getValue();
+            return executeForGeneration(value, nameMapping.getCtlId(), ignored -> action.apply(
+                    operationLease.getIcebergTable(), value.isEnableMappingVarbinary(),
+                    value.isEnableMappingTimestampTz()));
         }
+    }
+
+    @FunctionalInterface
+    interface TableGenerationAction<T> {
+        T apply(Table table, boolean enableMappingVarbinary, boolean enableMappingTimestampTz);
     }
 
     @VisibleForTesting

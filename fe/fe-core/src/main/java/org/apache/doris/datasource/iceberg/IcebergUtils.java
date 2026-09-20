@@ -1235,6 +1235,12 @@ public class IcebergUtils {
         return icebergExternalMetaCache(dorisTable).withIcebergTable(dorisTable, action);
     }
 
+    /** The action must return metadata derived from one retained table generation. */
+    static <T> T withIcebergTableGeneration(
+            ExternalTable dorisTable, IcebergExternalMetaCache.TableGenerationAction<T> action) {
+        return icebergExternalMetaCache(dorisTable).withIcebergTableGeneration(dorisTable, action);
+    }
+
     private static IcebergExternalMetaCache icebergExternalMetaCache(ExternalCatalog catalog) {
         Preconditions.checkNotNull(catalog, "catalog can not be null");
         return Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(catalog.getId());

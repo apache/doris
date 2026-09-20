@@ -301,16 +301,18 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
             return getBaseSchema(full);
         }
         try {
-            return IcebergUtils.withIcebergTable(this, table -> {
-                // Schema-only changes need not advance the current snapshot. Resolve the current
-                // table schema and hidden columns from one retained metadata generation.
-                Table retainedTable = IcebergSnapshotCacheValue.retainTableGeneration(table);
-                List<Column> schema = IcebergUtils.parseSchemaForDisplay(retainedTable.schema(),
-                        catalog.getEnableMappingVarbinary(), catalog.getEnableMappingTimestampTz());
-                new SchemaCacheValue(schema).validateSchema();
-                schema = appendHiddenColumns(schema, retainedTable);
-                return full ? schema : schema.stream().filter(Column::isVisible).collect(Collectors.toList());
-            });
+            return IcebergUtils.withIcebergTableGeneration(this,
+                    (table, enableMappingVarbinary, enableMappingTimestampTz) -> {
+                        // Schema-only changes need not advance the current snapshot. Resolve the current
+                        // table schema and hidden columns from one retained metadata generation.
+                        Table retainedTable = IcebergSnapshotCacheValue.retainTableGeneration(table);
+                        List<Column> schema = IcebergUtils.parseSchemaForDisplay(retainedTable.schema(),
+                                enableMappingVarbinary, enableMappingTimestampTz);
+                        new SchemaCacheValue(schema).validateSchema();
+                        schema = appendHiddenColumns(schema, retainedTable);
+                        return full ? schema
+                                : schema.stream().filter(Column::isVisible).collect(Collectors.toList());
+                    });
         } catch (Exception e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
         }

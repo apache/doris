@@ -101,6 +101,13 @@ class IcebergSchemaDisplayTest {
                     Function<org.apache.iceberg.Table, Object> action = invocation.getArgument(1);
                     return action.apply(new BaseTable(operations, "required_tbl"));
                 });
+        icebergUtils.when(() -> IcebergUtils.withIcebergTableGeneration(
+                        Mockito.eq(table),
+                        Mockito.<IcebergExternalMetaCache.TableGenerationAction<Object>>any()))
+                .thenAnswer(invocation -> {
+                    IcebergExternalMetaCache.TableGenerationAction<Object> action = invocation.getArgument(1);
+                    return action.apply(new BaseTable(operations, "required_tbl"), true, false);
+                });
         // Model the cached scan schema. Displaying a table must never mutate these shared columns.
         scanColumns = IcebergUtils.parseSchema(schema, true, false);
         Mockito.doReturn(scanColumns).when(table).getFullSchema();
@@ -171,6 +178,31 @@ class IcebergSchemaDisplayTest {
     }
 
     @Test
+    void testDisplayUsesMappingOptionsFromRetainedGeneration() {
+        icebergUtils.when(() -> IcebergUtils.withIcebergTableGeneration(
+                        Mockito.eq(table),
+                        Mockito.<IcebergExternalMetaCache.TableGenerationAction<Object>>any()))
+                .thenAnswer(invocation -> {
+                    // Model an ALTER/reset from G1(true, false) to G2(false, true) after the
+                    // table generation is retained but before display conversion starts.
+                    Mockito.doReturn(false).when(catalog).getEnableMappingVarbinary();
+                    Mockito.doReturn(true).when(catalog).getEnableMappingTimestampTz();
+                    IcebergExternalMetaCache.TableGenerationAction<Object> action = invocation.getArgument(1);
+                    return action.apply(new BaseTable(operations, "required_tbl"), true, false);
+                });
+        Mockito.clearInvocations(catalog);
+
+        List<Column> displayed = table.getBaseSchemaForDisplay(true);
+
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.DATETIMEV2,
+                displayed.get(4).getType().getPrimitiveType());
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.VARBINARY,
+                displayed.get(5).getType().getPrimitiveType());
+        Mockito.verify(catalog, Mockito.never()).getEnableMappingVarbinary();
+        Mockito.verify(catalog, Mockito.never()).getEnableMappingTimestampTz();
+    }
+
+    @Test
     void testHiddenColumnsFollowExistingVisibilityRules() throws Exception {
         Mockito.when(operations.current()).thenReturn(metadata.upgradeToFormatVersion(3));
         Assertions.assertEquals(schema.columns().size(), describe().size());
@@ -234,8 +266,9 @@ class IcebergSchemaDisplayTest {
             Assertions.assertFalse(result.getColumns().get(1).getColumnDesc().isIsAllowNull());
             Assertions.assertTrue(result.getColumns().get(2).getColumnDesc().isIsAllowNull());
             Assertions.assertEquals("value doc", result.getColumns().get(1).getComment());
-            icebergUtils.verify(() -> IcebergUtils.withIcebergTable(
-                    Mockito.eq(table), Mockito.<Function<org.apache.iceberg.Table, Object>>any()));
+            icebergUtils.verify(() -> IcebergUtils.withIcebergTableGeneration(
+                    Mockito.eq(table),
+                    Mockito.<IcebergExternalMetaCache.TableGenerationAction<Object>>any()));
         }
         Assertions.assertTrue(scanColumns.stream().allMatch(Column::isAllowNull));
         Assertions.assertTrue(scanColumns.get(3).getChildren().get(0).isAllowNull());
