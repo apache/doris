@@ -28,6 +28,12 @@
 3	8	27	4
 4	16	256	4
 
+-- !square_shape_equality --
+0	true	true	true	true
+1	true	true	true	true
+2	false	false	false	false
+3	false	false	false	false
+
 -- !other_exponents --
 0	1	-2	0.25	-8	NaN
 1	1	-1	1	-1	NaN

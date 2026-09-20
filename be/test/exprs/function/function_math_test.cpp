@@ -16,6 +16,7 @@
 // under the License.
 
 #include <array>
+#include <bit>
 #include <climits>
 #include <cmath>
 #include <cstdint>
@@ -328,6 +329,8 @@ static void check_pow_square_result(const IColumn& result, std::span<const doubl
     const auto& nested =
             nullable ? assert_cast<const ColumnNullable&>(result).get_nested_column() : result;
     const auto& data = assert_cast<const ColumnFloat64&>(nested).get_data();
+    // Keep the reference call on libm rather than letting the compiler turn pow(x, 2) into x * x.
+    volatile double exponent = 2.0;
     for (size_t i = 0; i < values.size(); ++i) {
         const bool expect_null = nullable && !const_base && i == values.size() - 1;
         if (nullable) {
@@ -337,12 +340,12 @@ static void check_pow_square_result(const IColumn& result, std::span<const doubl
             continue;
         }
         const double base = values[const_base ? 0 : i];
-        const double expected = base * base;
+        const double expected = std::pow(base, exponent);
         if (std::isnan(expected)) {
             EXPECT_TRUE(std::isnan(data[i]));
         } else {
-            EXPECT_DOUBLE_EQ(data[i], expected);
-            EXPECT_EQ(std::signbit(data[i]), std::signbit(expected));
+            EXPECT_EQ(std::bit_cast<uint64_t>(data[i]), std::bit_cast<uint64_t>(expected))
+                    << "row=" << i << " base=" << base;
         }
     }
 }
@@ -351,7 +354,10 @@ static void check_pow_square_column_shapes(const std::string& name, bool nullabl
     SCOPED_TRACE(testing::Message()
                  << name << " nullable=" << nullable << " const_mask=" << const_mask);
     const double inf = std::numeric_limits<double>::infinity();
-    const std::array values = {-1.5,
+    // The first value differs by one ULP between libm pow(x, 2) and x * x. Keep it first
+    // so that the constant-base cases also exercise it; approximate equality would miss this.
+    const std::array values = {1.1500729535343723e-17,
+                               -1.5,
                                0.0,
                                -0.0,
                                1.0,

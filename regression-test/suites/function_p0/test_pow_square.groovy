@@ -37,6 +37,25 @@ suite("test_pow_square") {
         order by number
     """
 
+    // The first two rows have an exponent of 2, but y remains a vector because later rows
+    // have an exponent of 3. These bases expose a one-ULP difference between pow(x, 2) and x * x.
+    // Derive x from number to keep alias evaluation in BE rather than FE constant folding.
+    // Do not guard the equality with y = 2: predicate inference can simplify it away.
+    qt_square_shape_equality """
+        select number,
+               pow(x, 2.0) = pow(x, y),
+               power(x, 2.0) = power(x, y),
+               dpow(x, 2.0) = dpow(x, y),
+               fpow(x, 2.0) = fpow(x, y)
+        from (
+            select number,
+                   cast(2 * number - 1 as double)
+                       * cast('1.1500729535343723e-17' as double) as x,
+                   if(number < 2, 2.0, 3.0) as y
+            from numbers("number" = "4")
+        ) t order by number
+    """
+
     qt_other_exponents """
         select number, pow(x, 0.0), pow(x, 1.0), pow(x, -2.0), pow(x, 3.0), pow(x, 0.5)
         from (select number, cast(number - 2 as double) as x
