@@ -1,0 +1,62 @@
+--- a/print.c
++++ b/print.c
+@@ -35,41 +35,2 @@
+-	char upath[128];
+-	FILE *res;
+-
+-	if (updates)
+-		{
+-		if (update > 0) /* updates */
+-			if ( insert_segments )
+-				{
+-				int this_segment;
+-				if(strcmp(tdefs[table].name,"orders.tbl"))
+-					this_segment=++insert_orders_segment;
+-				else
+-					this_segment=++insert_lineitem_segment;
+-				sprintf(upath, "%s%c%s.u%d.%d",
+-					env_config(PATH_TAG, PATH_DFLT),
+-					PATH_SEP, tdefs[table].name, update%10000,this_segment);
+-				}
+-			else
+-				{
+-				sprintf(upath, "%s%c%s.u%d",
+-				env_config(PATH_TAG, PATH_DFLT),
+-				PATH_SEP, tdefs[table].name, update);
+-				}
+-		else /* deletes */
+-			if ( delete_segments )
+-				{
+-				++delete_segment;
+-				sprintf(upath, "%s%cdelete.u%d.%d",
+-					env_config(PATH_TAG, PATH_DFLT), PATH_SEP, -update%10000,
+-					delete_segment);
+-				}
+-			else
+-				{
+-				sprintf(upath, "%s%cdelete.%d",
+-				env_config(PATH_TAG, PATH_DFLT), PATH_SEP, -update);
+-				}
+-		return(fopen(upath, "w"));
+-        }
+-    res = tbl_open(table, "w");
+-    OPEN_CHECK(res, tdefs[table].name);
+-    return(res);
++    /* Each connector scan generates exactly one table into its stdout pipe. */
++    return stdout;
+--- a/rnd.c
++++ b/rnd.c
+@@ -28 +28,4 @@
+-	Seed[stream].usage += 1;
++	/* UnifInt maps SSB-only streams 97 and 98 to stream 0. They have no
++     * per-row usage counter; do not write beyond the Seed array. */
++    if (stream >= 0 && stream <= MAX_STREAM)
++        Seed[stream].usage += 1;
+--- a/config.h
++++ b/config.h
+@@ -100,0 +101,5 @@
++/* Use the existing 64-bit generator path, including large RNG skip counts. */
++#define SUPPORT_64BITS
++#define DSS_HUGE long long
++#define HUGE_COUNT 1
++#define HUGE_FORMAT "%lld"
