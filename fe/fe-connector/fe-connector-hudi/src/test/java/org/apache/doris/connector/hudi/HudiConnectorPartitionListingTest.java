@@ -33,7 +33,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -42,6 +41,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.Callable;
+import java.util.stream.Collectors;
 
 /**
  * Tests the Hudi MVCC / listPartitions / freshness surface added so a PARTITIONED hudi-on-HMS table, served
@@ -224,11 +224,80 @@ public class HudiConnectorPartitionListingTest {
         Assertions.assertEquals(ConnectorPartitionInfo.UNKNOWN, first.getFileCount());
     }
 
+    /**
+     * The three spellings a null hudi partition arrives in, all of which must reach the engine as a NULL flag
+     * rather than as a literal. It decides how the engine prunes - {@code col IS NULL} against
+     * {@code col = '<sentinel>'} - while the scan side decides what those predicates match, and the two must
+     * agree. The scan half of this rule has a test; the listing half is what this change touched, and did not.
+     */
+    @Test
+    public void nullPartitionValuesAreFlaggedInEverySpellingHudiUses() {
+        List<String> singleKey = Collections.singletonList("dt");
+        List<ConnectorPartitionInfo> infos = HudiConnectorMetadata.buildPartitionInfos(
+                Arrays.asList("dt=__HIVE_DEFAULT_PARTITION__", "dt=\\N", "dt=2024-01-01"),
+                singleKey, 1704110400000L);
+
+        Assertions.assertEquals(Collections.singletonList(true), infos.get(0).getPartitionValueNullFlags(),
+                "the hive-canonical sentinel is a SQL NULL");
+        Assertions.assertEquals(Collections.singletonList(true), infos.get(1).getPartitionValueNullFlags(),
+                "hudi's older \\N spelling is the same SQL NULL - a table written that way used to be listed"
+                        + " as the literal and scanned as NULL, so `col IS NULL` returned no rows");
+        Assertions.assertEquals(Collections.singletonList(false), infos.get(2).getPartitionValueNullFlags(),
+                "an ordinary value must not be flagged");
+        // The value itself is carried through untouched either way: fe-core reads the flag, not the string.
+        Assertions.assertEquals("2024-01-01", infos.get(2).getOrderedPartitionValues().get(0));
+    }
+
+    /**
+     * The pinned listing, driven end to end. {@code restrictToPin} decides which partitions a
+     * {@code FOR TIME AS OF} query may prune to, and until this test it could not be reached from a test at
+     * all: the only seam was the unpinned one, so half the listing path was covered and the half this change
+     * added was not.
+     */
+    @Test
+    public void pinnedListingKeepsOnlyThePartitionsThatHeldDataAtThePin() {
+        HudiConnectorMetadata md = metadata(false, new RecordingHmsClient(null),
+                stub(HudiConnectorMetadata.pinnedListing(99L,
+                        Arrays.asList("2024/01", "2024/02", "2024/03"),
+                        1704110400000L, Arrays.asList("2024/01", "2024/03"))));
+
+        List<ConnectorPartitionInfo> parts = md.listPartitions(null, partitioned(), Optional.empty());
+
+        Assertions.assertEquals(Arrays.asList("year=2024/month=01", "year=2024/month=03"),
+                parts.stream().map(ConnectorPartitionInfo::getPartitionName).collect(Collectors.toList()),
+                "a partition that held no data at the pin must not be listed");
+        for (ConnectorPartitionInfo part : parts) {
+            // The pin, not "now": at a pin the partitions are frozen, and reporting the current instant would
+            // tell the engine a past snapshot keeps changing.
+            Assertions.assertEquals(1704110400000L, part.getLastModifiedMillis());
+        }
+    }
+
+    /**
+     * ...and it restricts by VALUE, over the listing's own strings. Both sides come from one
+     * {@code listAllPartitionPaths}, which is what makes the comparison exact - the names and values handed
+     * out stay the ones the unpinned listing produced.
+     */
+    @Test
+    public void pinnedListingReportsTheUnpinnedListingsOwnNamesAndValues() {
+        HudiConnectorMetadata md = metadata(false, new RecordingHmsClient(null),
+                stub(HudiConnectorMetadata.pinnedListing(99L,
+                        Collections.singletonList("2024/01"),
+                        7L, Collections.singletonList("2024/01"))));
+
+        ConnectorPartitionInfo only = md.listPartitions(null, partitioned(), Optional.empty()).get(0);
+
+        Assertions.assertEquals("year=2024/month=01", only.getPartitionName());
+        Assertions.assertEquals("2024", only.getPartitionValues().get("year"));
+        Assertions.assertEquals("01", only.getPartitionValues().get("month"));
+        Assertions.assertEquals(Arrays.asList(false, false), only.getPartitionValueNullFlags());
+    }
+
     @Test
     public void listPartitionNamesMatchesListPartitions() {
         HudiConnectorMetadata md = metadata(false,
-                new RecordingHmsClient(null), stub(new AbstractMap.SimpleImmutableEntry<>(
-                        99L, Arrays.asList("2024/01", "2024/02"))));
+                new RecordingHmsClient(null),
+                stub(HudiConnectorMetadata.unpinnedListing(99L, Arrays.asList("2024/01", "2024/02"))));
         ConnectorTableHandle handle = partitioned();
 
         List<String> names = md.listPartitionNames(null, handle);
@@ -271,7 +340,7 @@ public class HudiConnectorPartitionListingTest {
         // (the prune-to-zero guard), stamped with the metaClient instant — NOT return zero partitions.
         RecordingHmsClient hms = new RecordingHmsClient(Collections.emptyList());
         HudiConnectorMetadata md = metadata(true, hms,
-                stub(new AbstractMap.SimpleImmutableEntry<>(5L, Collections.singletonList("2024/01"))));
+                stub(HudiConnectorMetadata.unpinnedListing(5L, Collections.singletonList("2024/01"))));
 
         List<ConnectorPartitionInfo> parts = md.listPartitions(null, partitioned(), Optional.empty());
 
@@ -285,7 +354,7 @@ public class HudiConnectorPartitionListingTest {
     public void nonHiveSyncTableNeverConsultsHms() {
         RecordingHmsClient hms = new RecordingHmsClient(null); // throws if listPartitionNames is called
         HudiConnectorMetadata md = metadata(false, hms,
-                stub(new AbstractMap.SimpleImmutableEntry<>(88L, Collections.singletonList("2024/01"))));
+                stub(HudiConnectorMetadata.unpinnedListing(88L, Collections.singletonList("2024/01"))));
 
         List<ConnectorPartitionInfo> parts = md.listPartitions(null, partitioned(), Optional.empty());
 
@@ -320,6 +389,27 @@ public class HudiConnectorPartitionListingTest {
         Assertions.assertTrue(snapshot.isPresent());
         Assertions.assertEquals(20240101120000000L, snapshot.get().getSnapshotId());
         Assertions.assertFalse(snapshot.get().isLastModifiedFreshness());
+    }
+
+    // ── the snapshot-exact-listing capability ─────────────────────────────────────────────────────────
+
+    /**
+     * The capability has to be answered per table, because only one of the two listing sources can keep the
+     * promise. Claiming it for the hive-sync branch makes fe-core prune a {@code FOR TIME AS OF} query against
+     * a partition set that is a SUBSET of the pin - {@code collectPartitions} starts from what HMS holds now
+     * and can only remove - so a partition dropped and unsynced after the pin is pruned away and the query
+     * silently returns fewer rows, with a perfectly normal EXPLAIN.
+     */
+    @Test
+    public void snapshotExactListingIsClaimedOnlyWhereItHolds() {
+        HmsClient hms = new RecordingHmsClient(null);
+        HudiMetaClientExecutor executor = new DirectHudiMetaClientExecutor();
+        ConnectorTableHandle handle = partitioned();
+
+        Assertions.assertTrue(metadata(false, hms, executor).listsPartitionsAtSnapshot(null, handle),
+                "the metadata-table listing enumerates exactly the partitions holding data at the pin");
+        Assertions.assertFalse(metadata(true, hms, executor).listsPartitionsAtSnapshot(null, handle),
+                "the hive-sync listing starts from HMS-now, so it must not claim to be snapshot-exact");
     }
 
     // ── item 7: dead-code guard (SPI defaults hold) ────────────────────────────────────────────────────

@@ -44,10 +44,12 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
 #include "core/typeid_cast.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/variant_util.h"
@@ -68,6 +70,7 @@ enum class ValueKind : uint8_t {
     DECIMAL,
     DATE,
     TIMESTAMP_NTZ,
+    TIMESTAMP_NTZ_NANOS,
     TIMESTAMP_TZ,
     STRING,
     JSONB_REF,
@@ -193,10 +196,11 @@ ValueKind value_kind(VariantRef value) {
         return ValueKind::TIMESTAMP_TZ;
     case VariantPrimitiveId::TIMESTAMP_NTZ_MICROS:
         return ValueKind::TIMESTAMP_NTZ;
+    case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
+        return ValueKind::TIMESTAMP_NTZ_NANOS;
     case VariantPrimitiveId::BINARY:
     case VariantPrimitiveId::TIME_NTZ_MICROS:
     case VariantPrimitiveId::TIMESTAMP_NANOS:
-    case VariantPrimitiveId::TIMESTAMP_NTZ_NANOS:
     case VariantPrimitiveId::UUID:
         return ValueKind::JSONB_REF;
     }
@@ -254,6 +258,10 @@ DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = null
             return jsonb_type();
         }
         static const DataTypePtr type = std::make_shared<DataTypeDateTimeV2>(6);
+        return type;
+    }
+    case ValueKind::TIMESTAMP_NTZ_NANOS: {
+        static const DataTypePtr type = std::make_shared<DataTypeTimeStampNs>();
         return type;
     }
     case ValueKind::TIMESTAMP_TZ: {
@@ -347,6 +355,10 @@ DataTypePtr path_least_common_type(const DataTypePtr& left, const DataTypePtr& r
     }
     const PrimitiveType left_primitive = left->get_primitive_type();
     const PrimitiveType right_primitive = right->get_primitive_type();
+    if ((left_primitive == TYPE_TIMESTAMP_NS && right_primitive == TYPE_DATETIMEV2) ||
+        (left_primitive == TYPE_DATETIMEV2 && right_primitive == TYPE_TIMESTAMP_NS)) {
+        return left_primitive == TYPE_TIMESTAMP_NS ? left : right;
+    }
     const bool left_decimal = left_primitive == TYPE_DECIMAL128I;
     const bool right_decimal = right_primitive == TYPE_DECIMAL128I;
     // get_least_supertype_jsonb() treats equal primitive ids as the same type. Decimal128(38, 2)
@@ -447,6 +459,15 @@ bool value_is_representable(VariantRef value, const DataTypePtr& target_type) {
     case TYPE_DATETIMEV2:
         return kind == ValueKind::TIMESTAMP_NTZ &&
                timestamp_fits_doris_range(value.get_timestamp_ntz_micros());
+    case TYPE_TIMESTAMP_NS: {
+        if (kind == ValueKind::TIMESTAMP_NTZ_NANOS) {
+            return true;
+        }
+        int64_t nanos = 0;
+        return kind == ValueKind::TIMESTAMP_NTZ &&
+               !__builtin_mul_overflow(value.get_timestamp_ntz_micros(),
+                                       TimeStampNsValue::NANOS_PER_MICROSECOND, &nanos);
+    }
     case TYPE_TIMESTAMPTZ:
         return kind == ValueKind::TIMESTAMP_TZ &&
                timestamp_fits_doris_range(value.get_timestamp_micros());
@@ -518,6 +539,7 @@ void write_path_jsonb(VariantRef value, JsonbWriter* writer) {
     case ValueKind::BOOL:
     case ValueKind::DATE:
     case ValueKind::TIMESTAMP_NTZ:
+    case ValueKind::TIMESTAMP_NTZ_NANOS:
     case ValueKind::TIMESTAMP_TZ:
     case ValueKind::STRING:
     case ValueKind::JSONB_REF: {
@@ -538,6 +560,7 @@ void append_jsonb(VariantRef value, ColumnString* column) {
     case ValueKind::BOOL:
     case ValueKind::DATE:
     case ValueKind::TIMESTAMP_NTZ:
+    case ValueKind::TIMESTAMP_NTZ_NANOS:
     case ValueKind::TIMESTAMP_TZ:
     case ValueKind::STRING:
     case ValueKind::JSONB_REF:
@@ -654,10 +677,25 @@ void append_date(VariantRef value, IColumn* target) {
 
 void append_timestamp(VariantRef value, PrimitiveType target_type, IColumn* target) {
     const ValueKind kind = value_kind(value);
-    if (kind != ValueKind::TIMESTAMP_NTZ && kind != ValueKind::TIMESTAMP_TZ) {
+    if (kind != ValueKind::TIMESTAMP_NTZ && kind != ValueKind::TIMESTAMP_NTZ_NANOS &&
+        kind != ValueKind::TIMESTAMP_TZ) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Cannot append Variant value to timestamp path builder");
     }
+    if (target_type == TYPE_TIMESTAMP_NS) {
+        int64_t nanos = 0;
+        if (kind == ValueKind::TIMESTAMP_NTZ_NANOS) {
+            nanos = value.get_timestamp_ntz_nanos();
+        } else if (kind != ValueKind::TIMESTAMP_NTZ ||
+                   __builtin_mul_overflow(value.get_timestamp_ntz_micros(),
+                                          TimeStampNsValue::NANOS_PER_MICROSECOND, &nanos)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Variant timestamp cannot be represented as TIMESTAMP_NS");
+        }
+        assert_cast<ColumnTimeStampNs&>(*target).insert_value(TimeStampNsValue(nanos));
+        return;
+    }
+    DORIS_CHECK(kind != ValueKind::TIMESTAMP_NTZ_NANOS);
     const int64_t micros = kind == ValueKind::TIMESTAMP_NTZ ? value.get_timestamp_ntz_micros()
                                                             : value.get_timestamp_micros();
     cctz::civil_second civil;
@@ -816,6 +854,7 @@ void append_value(VariantRef value, const DataTypePtr& target_type, IColumn* tar
         append_date(value, target);
         return;
     case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMP_NS:
     case TYPE_TIMESTAMPTZ:
         append_timestamp(value, target_type->get_primitive_type(), target);
         return;

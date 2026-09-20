@@ -355,7 +355,6 @@ nonExplainableDmlStatement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
-    | replayCommand                                                    #replay
     | COPY INTO selectHint? name=multipartIdentifier columns=identifierList? FROM
             (stageAndPattern | (LEFT_PAREN SELECT selectColumnClause
                 FROM stageAndPattern whereClause? RIGHT_PAREN))
@@ -1418,12 +1417,6 @@ planType
     | ALL // default type
     ;
 
-replayCommand
-    : PLAN REPLAYER replayType;
-
-replayType
-    : DUMP query;
-
 mergeType
     : APPEND
     | DELETE
@@ -2148,6 +2141,7 @@ primitiveColType
     | type=DATEV1
     | type=DATETIMEV1
     | type=TIMESTAMPTZ
+    | type=TIMESTAMP_NS
     | type=BITMAP
     | type=QUANTILE_STATE
     | type=HLL
@@ -2215,18 +2209,15 @@ tableSnapshot
 // replace identifier with errorCapturingIdentifier where the immediate follow symbol is not an expression, otherwise
 // valid expressions such as "a-b" can be recognized as an identifier
 errorCapturingIdentifier
-    : identifier errorCapturingIdentifierExtra
+    : identifier errorCapturingIdentifierExtra?
     ;
 
 // extra left-factoring grammar
 errorCapturingIdentifierExtra
     : (SUBTRACT identifier)+ #errorIdent
-    |                        #realIdent
     ;
 finally {
-    if ($ctx instanceof ErrorIdentContext) {
-        reportUnquotedIdentifier((ErrorIdentContext) $ctx);
-    }
+    reportUnquotedIdentifier((ErrorIdentContext) $ctx);
 }
 
 identifier
@@ -2552,7 +2543,6 @@ nonReserved
     | REPEATABLE
     | REPLACE
     | REPLACE_IF_NOT_NULL
-    | REPLAYER
     | REPOSITORIES
     | REPOSITORY
     | RESOURCE
@@ -2622,6 +2612,7 @@ nonReserved
     | TIME
     | TIMESTAMP
     | TIMESTAMPTZ
+    | TIMESTAMP_NS
     | TRANSACTION
     | TREE
     | TRIGGERS

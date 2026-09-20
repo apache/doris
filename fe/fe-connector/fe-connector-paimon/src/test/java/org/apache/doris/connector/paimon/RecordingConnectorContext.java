@@ -70,6 +70,9 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
     // ---- C2: getStorageProperties hook (FE-bound fe-filesystem storage props) ----
     /** Storage properties the fake returns from {@link #getStorageProperties()} (default: none). */
     List<StorageProperties> storageProperties = Collections.emptyList();
+    Map<String, String> backendStorageProperties = Collections.emptyMap();
+    Map<String, String> backendProbeProperties = Collections.emptyMap();
+    int fileSystemExistsCount;
 
     // ---- FIX-URI-NORMALIZE / FIX-REST-VENDED-URI-NORMALIZE: normalizeStorageUri hook ----
     /** Number of times the connector invoked {@link #normalizeStorageUri}. */
@@ -138,11 +141,28 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
     // decorator that forgets to forward it hands the connector null instead of this instance.
     final FileSystem engineFileSystem = (FileSystem) java.lang.reflect.Proxy.newProxyInstance(
             RecordingConnectorContext.class.getClassLoader(), new Class<?>[] {FileSystem.class},
-            (proxy, method, args) -> null);
+            (proxy, method, args) -> {
+                if (method.getName().equals("exists")) {
+                    fileSystemExistsCount++;
+                    return false;
+                }
+                return null;
+            });
 
     @Override
     public FileSystem getFileSystem(ConnectorSession session) {
         return engineFileSystem;
+    }
+
+    @Override
+    public Map<String, String> getBackendStorageProperties() {
+        return backendStorageProperties;
+    }
+
+    @Override
+    public void testBackendStorageConnectivity(int storageBackendTypeValue,
+            Map<String, String> backendProperties) {
+        backendProbeProperties = new java.util.HashMap<>(backendProperties);
     }
 
 }

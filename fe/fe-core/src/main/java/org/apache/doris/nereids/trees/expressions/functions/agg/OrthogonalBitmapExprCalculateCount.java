@@ -35,7 +35,8 @@ import java.util.List;
 
 /** OrthogonalBitmapExprCalculateCount */
 public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunction
-        implements OrthogonalBitmapFunction, ExplicitlyCastableSignature {
+        implements OrthogonalBitmapFunction, ExplicitlyCastableSignature,
+        NullIgnoringAggregateFunction {
 
     static final List<FunctionSignature> FUNCTION_SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE)

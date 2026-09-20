@@ -502,22 +502,12 @@ std::optional<DateV2Value<DateTimeV2ValueType>> datetime_v2_from_orc_millis(
     }
     const auto extra_nanos = std::max<int32_t>(nanos_tail, 0);
     constexpr int64_t NANOS_PER_MICROSECOND = 1000;
-    constexpr int64_t MICROS_PER_SECOND = 1000000;
     // Stripe statistics split the timestamp into milliseconds and the remaining nanoseconds. Use
-    // the same half-up rule as row decoding so zone-map pruning observes identical values.
-    const auto rounded_extra_microseconds =
-            (extra_nanos + NANOS_PER_MICROSECOND / 2) / NANOS_PER_MICROSECOND;
-    const auto microseconds_with_carry = millis_remainder * 1000 + rounded_extra_microseconds;
-    // Calendar bounds depend on the target timezone, so only reject arithmetic overflow here and
-    // let the converted value below decide whether the statistic is representable by Doris.
-    int64_t rounded_seconds;
-    if (__builtin_add_overflow(seconds, microseconds_with_carry / MICROS_PER_SECOND,
-                               &rounded_seconds)) {
-        return std::nullopt;
-    }
-    const auto microseconds = cast_set<uint64_t>(microseconds_with_carry % MICROS_PER_SECOND);
+    // the same truncation as row decoding so zone-map pruning observes identical values.
+    const auto microseconds =
+            cast_set<uint64_t>(millis_remainder * 1000 + extra_nanos / NANOS_PER_MICROSECOND);
     DateV2Value<DateTimeV2ValueType> value;
-    value.from_unixtime(rounded_seconds, timezone);
+    value.from_unixtime(seconds, timezone);
     value.set_microsecond(microseconds);
     if (!value.is_valid_date()) {
         return std::nullopt;
@@ -541,6 +531,13 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
             dynamic_cast<const ::orc::TimestampColumnStatistics*>(&statistics);
     if (timestamp_statistics == nullptr || !timestamp_statistics->hasMinimum() ||
         !timestamp_statistics->hasMaximum()) {
+        return false;
+    }
+    // ORC substitutes these conservative tails when ORC-611 nanos fields are absent. The public
+    // statistics API cannot distinguish those sentinels from equal serialized values, so fall
+    // back to a row scan rather than expose an inexact bound as an exact aggregate result.
+    if (timestamp_statistics->getMinimumNanos() == 0 ||
+        timestamp_statistics->getMaximumNanos() == 999999) {
         return false;
     }
     const auto min_endpoint =
@@ -778,6 +775,7 @@ struct OrcReaderScanState {
     std::vector<StripeRange> selected_stripe_ranges;
     size_t current_stripe_range = 0;
     bool stripe_pruning_applied = false;
+    size_t next_row_id = 0;
 
     bool row_reader_created = false;
 };
@@ -945,8 +943,15 @@ Status OrcReader::init(RuntimeState* state) {
         if (is_orc_stop(_io_ctx.get(), e)) {
             return Status::EndOfFile("stop");
         }
+        // invoker maybe just skip Status.NotFound and continue
+        // so we need distinguish between it and other kinds of errors
+        const std::string err_msg = e.what();
+        if (err_msg.find("No such file or directory") != std::string::npos ||
+            err_msg.find("NoSuchKey") != std::string::npos) {
+            return Status::NotFound(err_msg);
+        }
         return Status::InternalError("Failed to open ORC file {}: {}", _file_description->path,
-                                     e.what());
+                                     err_msg);
     }
     return Status::OK();
 }
@@ -1232,6 +1237,7 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
         return Status::Uninitialized("OrcReader is not open");
     }
     RETURN_IF_ERROR(format::FileReader::open(std::move(request)));
+    _state->next_row_id = 0;
 
     if (_request->local_positions.empty()) {
         size_t next_position = 0;
@@ -1289,6 +1295,16 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
     _apply_current_stripe_range();
 
     RETURN_IF_ERROR(_create_row_reader());
+    if (_request->row_ids.has_value()) {
+        for (const int64_t row_id : *_request->row_ids) {
+            if (static_cast<uint64_t>(row_id) < _state->row_reader_range_first_row ||
+                static_cast<uint64_t>(row_id) >= _state->row_reader_range_end_row) {
+                return Status::InvalidArgument(
+                        "ORC row id {} is outside the current split row range [{}, {})", row_id,
+                        _state->row_reader_range_first_row, _state->row_reader_range_end_row);
+            }
+        }
+    }
     _eof = get_total_rows() == 0;
     return Status::OK();
 }
@@ -1643,7 +1659,12 @@ Status OrcReader::_create_row_reader() {
                 _state->orc_lazy_read_enabled ? _orc_filter.get() : nullptr);
         _state->selected_type = &_state->row_reader->getSelectedType();
         DORIS_CHECK(_state->selected_type->getKind() == ::orc::TypeKind::STRUCT);
-        _state->batch = _state->row_reader->createRowBatch(DEFAULT_ORC_READ_BATCH_SIZE);
+        // Row-id fetch seeks before every read; a one-row batch preserves exact selection instead
+        // of also returning the sequential rows that follow the requested position.
+        const uint64_t batch_size = _request != nullptr && _request->row_ids.has_value()
+                                            ? 1
+                                            : DEFAULT_ORC_READ_BATCH_SIZE;
+        _state->batch = _state->row_reader->createRowBatch(batch_size);
         _state->orc_lazy_selection_valid = false;
         _state->orc_lazy_selected_rows.clear();
         _state->orc_lazy_input_rows = 0;
@@ -1940,11 +1961,23 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     bool has_next = false;
+    std::optional<uint64_t> fetched_row_id;
     while (true) {
         try {
+            if (_request->row_ids.has_value()) {
+                if (_state->next_row_id >= _request->row_ids->size()) {
+                    _eof = true;
+                    *eof = true;
+                    return Status::OK();
+                }
+                fetched_row_id = static_cast<uint64_t>((*_request->row_ids)[_state->next_row_id]);
+                _state->row_reader->seekToRow(*fetched_row_id);
+            }
             // Condition-cache seeks can perform I/O, so keep them in the same cancellation
             // boundary as next().
-            _skip_condition_cache_false_granules(rows, eof);
+            if (!_request->row_ids.has_value()) {
+                _skip_condition_cache_false_granules(rows, eof);
+            }
             if (*eof) {
                 return Status::OK();
             }
@@ -1952,6 +1985,9 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             _state->orc_lazy_selected_rows.clear();
             _state->orc_lazy_input_rows = 0;
             has_next = _state->row_reader->next(*_state->batch);
+            if (_request->row_ids.has_value() && has_next) {
+                ++_state->next_row_id;
+            }
         } catch (const std::exception& e) {
             if (is_orc_stop(_io_ctx.get(), e)) {
                 file_block->clear_column_data(file_block->columns());
@@ -1972,6 +2008,10 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             }
             break;
         }
+        if (_request->row_ids.has_value()) {
+            return Status::InternalError("ORC row id {} could not be read from the current split",
+                                         *fetched_row_id);
+        }
         bool advanced = false;
         RETURN_IF_ERROR(_advance_to_next_stripe_range(&advanced));
         if (!advanced) {
@@ -1982,7 +2022,7 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     const auto batch_rows = static_cast<size_t>(_state->batch->numElements);
-    const auto batch_first_row = _state->row_reader->getRowNumber();
+    const auto batch_first_row = fetched_row_id.value_or(_state->row_reader->getRowNumber());
     _state->current_batch_first_row = batch_first_row;
     _state->condition_cache_next_row = _state->current_batch_first_row + batch_rows;
     auto* struct_batch = dynamic_cast<::orc::StructVectorBatch*>(_state->batch.get());

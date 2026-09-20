@@ -15,14 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 package org.apache.doris.udf;
-import org.apache.log4j.Logger;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.time.LocalDate;
 
 public class MyDayDate {
-    private static final Logger LOG = Logger.getLogger(MyDayDate.class);
     public static class State {
         public LocalDate counter;
         public boolean inited = false;

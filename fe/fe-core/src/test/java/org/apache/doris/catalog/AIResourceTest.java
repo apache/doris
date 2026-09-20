@@ -17,10 +17,12 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.property.constants.AIProperties;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -28,9 +30,12 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
@@ -97,11 +102,21 @@ public class AIResourceTest {
                     .thenReturn(true);
 
             // resource with default settings
-            CreateResourceCommand createResourceCommand = new CreateResourceCommand(
+            CreateResourceCommand initialCreateResourceCommand = new CreateResourceCommand(
                     new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
-            createResourceCommand.getInfo().validate();
+            initialCreateResourceCommand.getInfo().validate();
 
-            AIResource aiResource = (AIResource) Resource.fromCommand(createResourceCommand);
+            AIResource legacyAIResource = (AIResource) Resource.fromCommand(initialCreateResourceCommand);
+            Assertions.assertFalse(legacyAIResource.isCreatedByRoot());
+
+            AIResource rootCreatedAIResource =
+                    (AIResource) Resource.fromCommand(initialCreateResourceCommand, UserIdentity.ROOT);
+            Assertions.assertTrue(rootCreatedAIResource.isCreatedByRoot());
+
+            AIResource aiResource =
+                    (AIResource) Resource.fromCommand(initialCreateResourceCommand, UserIdentity.ADMIN);
+            Assertions.assertFalse(aiResource.isCreatedByRoot());
+
             Assertions.assertEquals(name, aiResource.getName());
             Assertions.assertEquals(type, aiResource.getType().name().toLowerCase());
             Assertions.assertEquals(endpoint, aiResource.getProperty(AIProperties.ENDPOINT));
@@ -124,7 +139,7 @@ public class AIResourceTest {
             aiProperties.put(AIProperties.MAX_RETRIES, maxRetries);
             aiProperties.put(AIProperties.RETRY_DELAY_SECOND, retryDelaySecond);
 
-            createResourceCommand = new CreateResourceCommand(
+            CreateResourceCommand createResourceCommand = new CreateResourceCommand(
                     new CreateResourceInfo(true, false, name, ImmutableMap.copyOf(aiProperties)));
             createResourceCommand.getInfo().validate();
 
@@ -233,7 +248,9 @@ public class AIResourceTest {
         DataOutputStream aiDos = new DataOutputStream(Files.newOutputStream(path));
 
         AIResource aiResource1 = new AIResource("ai_1");
-        aiResource1.write(aiDos);
+        JsonObject legacyResourceJson = JsonParser.parseString(GsonUtils.GSON.toJson(aiResource1)).getAsJsonObject();
+        legacyResourceJson.remove("createdByRoot");
+        Text.writeString(aiDos, legacyResourceJson.toString());
 
         ImmutableMap<String, String> properties = ImmutableMap.of(
                 "ai.endpoint", endpoint,
@@ -243,6 +260,7 @@ public class AIResourceTest {
                 "ai.validity_check", "false"
         );
         AIResource aiResource2 = new AIResource("ai_2");
+        aiResource2.setCreatedByRoot(true);
         aiResource2.setProperties(properties);
         aiResource2.write(aiDos);
 
@@ -256,6 +274,8 @@ public class AIResourceTest {
 
         Assertions.assertEquals("ai_1", rAiResource1.getName());
         Assertions.assertEquals("ai_2", rAiResource2.getName());
+        Assertions.assertFalse(rAiResource1.isCreatedByRoot());
+        Assertions.assertTrue(rAiResource2.isCreatedByRoot());
 
         Assertions.assertEquals(rAiResource2.getProperty(AIProperties.ENDPOINT), endpoint);
         Assertions.assertEquals(rAiResource2.getProperty(AIProperties.PROVIDER_TYPE), providerType.toUpperCase());

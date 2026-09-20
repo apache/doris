@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <string_view>
 
 namespace doris::snii::format {
@@ -28,6 +29,18 @@ inline constexpr std::string_view kPhraseBigramTermMarker =
 
 inline bool is_phrase_bigram_term(std::string_view term) {
     return term.starts_with(kPhraseBigramTermMarker);
+}
+
+// SNII term keys are raw analyzed bytes, without escaping. The only internal namespace is the
+// phrase-bigram marker above, starting with \x1F. Queries whose user terms or expansion prefixes
+// overlap this marker must bypass SNII to avoid matching internal terms.
+inline bool term_overlaps_internal_namespace(std::string_view term) {
+    return term.starts_with(kPhraseBigramTermMarker);
+}
+
+inline bool prefix_overlaps_internal_namespace(std::string_view prefix) {
+    const size_t common = std::min(prefix.size(), kPhraseBigramTermMarker.size());
+    return prefix.substr(0, common) == kPhraseBigramTermMarker.substr(0, common);
 }
 
 } // namespace doris::snii::format

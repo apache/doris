@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -476,7 +477,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             return estimateColumnEqualToConstant(cp, statsForLeft, statsForRight, context);
         } else {
             // literal Map used to covert dateLiteral back to stringLiteral
-            Map<DateLiteral, StringLiteral> literalMap = new HashMap<>();
+            Map<LiteralExpr, StringLiteral> literalMap = new HashMap<>();
             DataType compareType = cp.left().getDataType();
             Optional<ColumnStatistic> statsForLeftMayConvertedOpt =
                     tryConvertStringColStatsToDateColStats(statsForLeft, literalMap);
@@ -524,7 +525,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private ColumnStatistic convertDateColStatsToStringColStats(ColumnStatistic colStats,
-            Map<DateLiteral, StringLiteral> literalMap) {
+            Map<LiteralExpr, StringLiteral> literalMap) {
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
         if (colStats.minExpr != null) {
             builder.setMinExpr(literalMap.get(colStats.minExpr))
@@ -554,18 +555,18 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private Optional<ColumnStatistic> tryConvertStringColStatsToDateColStats(ColumnStatistic colStats,
-            Map<DateLiteral, StringLiteral> literalMap) {
+            Map<LiteralExpr, StringLiteral> literalMap) {
         if (colStats.minExpr == null || colStats.maxExpr == null) {
             return Optional.empty();
         }
         if (!(colStats.minExpr instanceof StringLiteral) || !(colStats.maxExpr instanceof StringLiteral)) {
             return Optional.empty();
         }
-        Optional<DateLiteral> newMinExpr = tryConvertStrLiteralToDateLiteral(colStats.minExpr);
+        Optional<LiteralExpr> newMinExpr = tryConvertStrLiteralToDateLiteral(colStats.minExpr);
         if (!newMinExpr.isPresent()) {
             return Optional.empty();
         }
-        Optional<DateLiteral> newMaxExpr = tryConvertStrLiteralToDateLiteral(colStats.maxExpr);
+        Optional<LiteralExpr> newMaxExpr = tryConvertStrLiteralToDateLiteral(colStats.maxExpr);
         if (!newMaxExpr.isPresent()) {
             return Optional.empty();
         }
@@ -579,7 +580,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         if (colStats.hotValues != null) {
             for (Literal oneHot : colStats.hotValues.keySet()) {
                 try {
-                    DateTimeLiteral oneHotDate = new DateTimeLiteral(oneHot.getStringValue());
+                    Literal oneHotDate = newMinExpr.get().getType().isTimeStampNs()
+                            ? new org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral(
+                                    oneHot.getStringValue())
+                            : new DateTimeLiteral(oneHot.getStringValue());
                     newHotValues.put(oneHotDate,
                                 colStats.hotValues.get(oneHot));
                 } catch (Exception e) {
@@ -589,15 +593,15 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         }
 
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(colStats);
-        return Optional.of(builder.setMinValue(newMinExpr.get().getDoubleValueAsDateTime())
+        return Optional.of(builder.setMinValue(getDoubleValueAsDateTime(newMinExpr.get()))
                 .setMinExpr(newMinExpr.get())
-                .setMaxValue(newMaxExpr.get().getDoubleValueAsDateTime())
+                .setMaxValue(getDoubleValueAsDateTime(newMaxExpr.get()))
                 .setMaxExpr(newMaxExpr.get())
                 .setHotValues(newHotValues.isEmpty() ? null : newHotValues)
                 .build());
     }
 
-    private Optional<DateLiteral> tryConvertStrLiteralToDateLiteral(LiteralExpr literal) {
+    private Optional<LiteralExpr> tryConvertStrLiteralToDateLiteral(LiteralExpr literal) {
         if (literal == null) {
             return Optional.empty();
         }
@@ -605,14 +609,23 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             return Optional.empty();
         }
 
-        DateLiteral dt = null;
+        LiteralExpr dt = null;
         try {
-            dt = DateLiteralUtils.createDateLiteral(literal.getStringValue(), null);
+            dt = DateLiteralUtils.createLiteral(literal.getStringValue(), null);
             dt.checkValueValid();
         } catch (Exception e) {
             // ignore
         }
         return dt == null ? Optional.empty() : Optional.of(dt);
+    }
+
+    private double getDoubleValueAsDateTime(LiteralExpr literal) {
+        if (literal instanceof DateLiteral) {
+            return ((DateLiteral) literal).getDoubleValueAsDateTime();
+        }
+        Preconditions.checkState(literal instanceof TimeStampNsLiteral,
+                "Expected a date-like literal, but got %s", literal.getClass());
+        return ((TimeStampNsLiteral) literal).getDoubleValueAsDateTime();
     }
 
     private Statistics estimateColumnEqualToConstant(ComparisonPredicate cp, ColumnStatistic statsForLeft,

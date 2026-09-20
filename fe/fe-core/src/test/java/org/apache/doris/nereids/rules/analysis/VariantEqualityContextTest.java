@@ -49,8 +49,8 @@ class VariantEqualityContextTest extends TestWithFeService {
                 "SELECT * FROM t1 JOIN t2 ON CAST(t1.v AS STRING) = CAST(t2.v AS STRING)",
                 "SELECT v FROM t1 INTERSECT SELECT v FROM t2",
                 "SELECT v FROM t1 EXCEPT SELECT v FROM t2",
-                "SELECT v FROM t1 UNION SELECT v FROM t2");
-        assertRejected("SELECT COUNT(DISTINCT v) FROM t1", "COUNT DISTINCT");
+                "SELECT v FROM t1 UNION SELECT v FROM t2",
+                "SELECT COUNT(DISTINCT v) FROM t1");
     }
 
     @Test

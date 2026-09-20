@@ -20,6 +20,7 @@ package org.apache.doris.connector.spi;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
@@ -29,7 +30,9 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
@@ -45,8 +48,9 @@ import java.util.TreeSet;
  * on a plugin author and nothing fails when either surface quietly changes. The plugin API version in
  * {@code <connector.plugin.api.version>} is the contract that says which FE a given plugin may load into,
  * and the rule attached to it is blunt: <em>any</em> change to the surface below — adding a type, method, or
- * enum constant just as much as removing or re-signing one — is a MAJOR change. No unit test can prove somebody
- * bumped the property (a test sees only the current state, never the delta), so this is a speed bump, not a
+ * enum constant or engine-read property key just as much as removing or re-signing one — is a MAJOR change.
+ * No unit test can prove somebody bumped the property (a test sees only the current state, never the delta),
+ * so this is a speed bump, not a
  * gate: it makes the change visible in review, in the same commit, with the reason spelled out in the
  * failure message.
  *
@@ -55,9 +59,15 @@ import java.util.TreeSet;
  * {@code fe/fe-connector/pom.xml} in the SAME commit.
  *
  * <p>{@code Plugin} / {@code PluginFactory} / {@code PluginContext} from fe-extension-spi are frozen here
- * too, and identically in the other three families' baselines. They are loaded parent-first for every family
- * (see {@code ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES}), so a change to them breaks all four
- * plugin kinds at once — and turns all four baselines red at once, each asking for its own bump.
+ * too. They are loaded parent-first for every family (see
+ * {@code ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES}), so a change to them breaks all five plugin
+ * kinds at once — but it does not turn all five baselines red at once, and waiting for four more red tests
+ * is the wrong way to read one. This renderer records erased signatures: no declaration kind, no
+ * constructors, no modifiers, no type parameters. A method signature changing does turn all five red;
+ * a {@code final} removed from {@code PluginContext}, a constructor added to it, or one of its type
+ * parameters changed shows up in the AUTHORIZATION baseline alone, which is the only renderer that records
+ * those. Until this one records what that one does, treat a change to a shared type as a five-family bump by
+ * reading the change. See {@code fe/fe-authorization/AGENTS.md}, obligation 1.
  *
  * <p>Signatures are recorded with their return type, unlike the older
  * {@code connector-metadata-methods.txt} baseline: a changed return type is a MAJOR change by the same
@@ -75,9 +85,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Storage predicate pruning added a public ConnectorCapability constant. Major 7 lets an older FE
-        // reject a plugin using it before resolving the missing enum field.
-        Assertions.assertEquals("7.0", version.getProperty("api.version"));
+        // OpenCSV scan properties require major 9: inlined keys cannot fail JVM linkage on an older FE.
+        Assertions.assertEquals("9.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -87,6 +96,8 @@ public class ConnectorPluginSurfaceTest {
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorTableSchema.class,
+            org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.class,
+            org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
             ConnectorWriteHandle.class,
             ConnectorWritePlanProvider.class,
@@ -99,7 +110,7 @@ public class ConnectorPluginSurfaceTest {
             Arrays.asList(ConnectorCapability.class);
 
     @Test
-    public void pluginApiSurfaceMatchesRecordedBaseline() throws IOException {
+    public void pluginApiSurfaceMatchesRecordedBaseline() throws IOException, IllegalAccessException {
         TreeSet<String> actual = renderSurface();
         TreeSet<String> expected = readBaseline();
 
@@ -123,8 +134,15 @@ public class ConnectorPluginSurfaceTest {
      * happens to declare it: what matters is what a plugin can call on the type it was handed, so moving a
      * default method up or down a super-interface chain is not by itself a surface change.
      */
-    private static TreeSet<String> renderSurface() {
+    private static TreeSet<String> renderSurface() throws IllegalAccessException {
         TreeSet<String> rendered = new TreeSet<>();
+        // String constants are inlined into plugins, so both their names and wire values are API surface.
+        for (Field field : ScanNodePropertyKeys.class.getFields()) {
+            Assertions.assertEquals(String.class, field.getType());
+            Assertions.assertTrue(Modifier.isStatic(field.getModifiers()) && Modifier.isFinal(field.getModifiers()));
+            rendered.add(ScanNodePropertyKeys.class.getName() + "#field:" + field.getName()
+                    + ":" + field.getType().getTypeName() + "=" + field.get(null));
+        }
         for (Class<? extends Enum<?>> frozen : FROZEN_ENUM_TYPES) {
             for (Enum<?> constant : frozen.getEnumConstants()) {
                 rendered.add(frozen.getName() + "#enum:" + constant.name());

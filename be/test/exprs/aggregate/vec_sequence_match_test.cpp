@@ -26,6 +26,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
@@ -98,6 +99,15 @@ public:
 
     Arena arena;
 };
+
+TEST(VSequenceMatchTimeStampNsTest, FactoryCreatesBothFunctions) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types = {std::make_shared<DataTypeString>(),
+                            std::make_shared<DataTypeTimeStampNs>(),
+                            std::make_shared<DataTypeUInt8>(), std::make_shared<DataTypeUInt8>()};
+    EXPECT_NE(factory.get("sequence_match", data_types, nullptr, false, -1), nullptr);
+    EXPECT_NE(factory.get("sequence_count", data_types, nullptr, false, -1), nullptr);
+}
 
 TEST_F(VSequenceMatchTest, testMatchEmpty) {
     std::unique_ptr<char[]> memory(new char[agg_function_sequence_match->size_of_data()]);

@@ -126,13 +126,13 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
             adapter.setOrigStmt(new OriginStatement(mtmv.getQuerySql(), 0));
 
             // Execute on a dedicated internal executor (admin identity, MV session variables)
-            // and stream each batch to the client's real mysql channel. The internal executor
-            // owns a fresh query id that KILL QUERY cannot reach, so forward cancellations of
-            // the outer statement (Ctrl+C / KILL / timeout) to it while it runs.
+            // and stream each batch to the client through this session's result sender. The
+            // internal executor owns a fresh query id that KILL QUERY cannot reach, so forward
+            // cancellations of the outer statement (Ctrl+C / KILL / timeout) to it while it runs.
             StmtExecutor internalExecutor = new StmtExecutor(internalCtx, adapter);
             internalCtx.setExecutor(internalExecutor);
             executor.setCancelDelegate(internalExecutor::cancel);
-            internalExecutor.executeInternalQueryAndSend(adapter, ctx.getMysqlChannel());
+            internalExecutor.executeInternalQueryAndSend(adapter, ctx.getResultSender());
             ctx.getState().setEof();
         } finally {
             executor.clearCancelDelegate();
@@ -186,13 +186,13 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                             "EXPLAIN REFRESH INCREMENTAL only supports IVM materialized views");
                 }
                 statementContext.setIvmRewriteContext(Optional.of(
-                        IvmRewriteContext.incremental(mtmv, includeExhaustedStreams)));
+                        IvmRewriteContext.incrementalExplain(mtmv, includeExhaustedStreams)));
                 // Excluded trigger tables must not be validated for binlog / key-type support.
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
                 return createIvmIncrRefreshManager().buildInsertCommand(mtmv);
             case COMPLETE:
                 if (mtmv.isIvm()) {
-                    statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+                    statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.fullExplain(mtmv)));
                 }
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
                 return UpdateMvByPartitionCommand.from(
@@ -216,6 +216,9 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
         if (explainPlan != null) {
             return;
         }
+        // createRefreshCommand installs an EXPLAIN-kind rewrite context for both the
+        // INCREMENTAL and COMPLETE branches, so guards that protect real execution (and
+        // dry-run data reads) skip plan-only generation.
         LogicalPlan refreshCommand = createRefreshCommand(mtmv, statementContext);
         if (refreshCommand instanceof Explainable) {
             Explainable explainable = (Explainable) refreshCommand;

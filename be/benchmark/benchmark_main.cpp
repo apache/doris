@@ -22,9 +22,11 @@
 #include <iostream>
 #include <vector>
 
+#include "benchmark_array_range.hpp"
 #include "benchmark_arrow_validation.hpp"
 #include "benchmark_binary_arithmetic.hpp"
 #include "benchmark_bit_pack.hpp"
+#include "benchmark_case_expr.hpp"
 #include "benchmark_column_array_view.hpp"
 #include "benchmark_column_array_view_distance.hpp"
 #include "benchmark_fastunion.hpp"

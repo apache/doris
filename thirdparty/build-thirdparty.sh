@@ -616,12 +616,28 @@ build_snappy() {
         sed -i 's/-fno-rtti/-frtti/g' CMakeLists.txt
     fi
 
+    local snappy_cxx_flags="-O3"
+    case "$(uname -m)" in
+    x86_64)
+        # Match the BE's SSE4.2 baseline and optional AVX2 target.
+        snappy_cxx_flags+=" -msse4.2"
+        case "${USE_AVX2:-ON}" in
+        0 | OFF | off | FALSE | false | NO | no) ;;
+        *) snappy_cxx_flags+=" -mavx2" ;;
+        esac
+        ;;
+    aarch64 | arm64)
+        # Match the BE ARM baseline so Snappy can use NEON CRC32 hashing.
+        snappy_cxx_flags+=" -march=${ARM_MARCH:-armv8-a+crc}"
+        ;;
+    esac
+
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
     rm -rf CMakeCache.txt CMakeFiles/
 
-    CFLAGS="-O3" CXXFLAGS="-O3" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+    CFLAGS="-O3" CXXFLAGS="${snappy_cxx_flags}" "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_INSTALL_INCLUDEDIR="${TP_INCLUDE_DIR}"/snappy \
@@ -1818,7 +1834,9 @@ build_libunwind() {
         # LIBUNWIND_IS_NATIVE_ONLY: https://lists.llvm.org/pipermail/cfe-commits/Week-of-Mon-20160523/159802.html
         # -nostdinc++ only required for gcc compilation
         cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti -Wno-error=incompatible-pointer-types"
-        CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static
+        # Only the library is consumed; the test programs and man pages are not.
+        CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
+            --disable-tests --disable-documentation
 
         make -j "${PARALLEL}"
         make install

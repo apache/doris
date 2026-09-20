@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 
@@ -46,24 +45,16 @@ public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNu
             FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
-            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE)
     );
-
-    private Expression buckets;
 
     public Ntile(Expression buckets) {
         super("ntile", buckets);
-        this.buckets = buckets;
     }
 
     /** constructor for withChildren and reuse signature */
     private Ntile(WindowFunctionParams functionParams) {
         super(functionParams);
-    }
-
-    public Expression getBuckets() {
-        return buckets;
     }
 
     @Override
@@ -74,16 +65,23 @@ public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNu
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType type = getBuckets().getDataType();
+        Expression buckets = getArgument(0);
+        DataType type = buckets.getDataType();
         if (!type.isIntegralType()) {
             throw new AnalysisException("The bucket of NTILE must be a integer: " + this.toSql());
         }
-        if (!getBuckets().isConstant()) {
+        if (type.isLargeIntType()) {
+            // NTILE always returns BIGINT, and backend computes the bucket index with an int64 value,
+            // so a LARGEINT bucket can not be handled.
+            throw new AnalysisException("The bucket of NTILE must be an integer within the range of BIGINT, "
+                    + "but got " + type.toSql() + ": " + this.toSql());
+        }
+        if (!buckets.isConstant()) {
             throw new AnalysisException(
                 "The bucket of NTILE must be a constant value: " + this.toSql());
         }
-        if (getBuckets() instanceof Literal) {
-            if (((Literal) getBuckets()).getDouble() <= 0) {
+        if (buckets instanceof Literal) {
+            if (((Literal) buckets).getDouble() <= 0) {
                 throw new AnalysisException(
                     "The bucket parameter of NTILE must be a constant positive integer: " + this.toSql());
             }

@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -35,7 +36,6 @@ import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.scan.ExternalScanNode;
 import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.load.loadv2.LoadJob;
@@ -78,7 +78,6 @@ import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
@@ -89,7 +88,6 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
@@ -159,7 +157,6 @@ import org.jetbrains.annotations.NotNull;
 import org.joda.time.DateTime;
 
 import java.security.SecureRandom;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -370,16 +367,8 @@ public class Coordinator implements CoordInterface {
         }
         setFromUserProperty(context);
 
-        this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
-        this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
+        CoordinatorContext.refreshQueryGlobals(this.queryGlobals, context);
         this.queryGlobals.setLoadZeroTolerance(false);
-        if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-        } else {
-            this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-        }
-        this.queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();
 
@@ -402,10 +391,7 @@ public class Coordinator implements CoordInterface {
         this.queryOptions = new TQueryOptions();
         this.queryOptions.setEnableProfile(enableProfile);
         this.queryOptions.setProfileLevel(2);
-        this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
-        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
-        this.queryGlobals.setTimeZone(timezone);
-        this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
+        CoordinatorContext.setQueryGlobalsForLoad(this.queryGlobals, timezone, loadZeroTolerance);
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setNewVersionUnixTimestamp(true);
         this.queryOptions.setNewVersionPercentile(true);
@@ -890,7 +876,7 @@ public class Coordinator implements CoordInterface {
                             toBrpcHost(param.host), this.timeoutDeadline,
                             context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
                 } else {
-                    Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                    // The client pulls the result from the backend (Arrow Flight SQL); register where.
                     TUniqueId finstId;
                     if (enableParallelResultSink) {
                         finstId = queryId;

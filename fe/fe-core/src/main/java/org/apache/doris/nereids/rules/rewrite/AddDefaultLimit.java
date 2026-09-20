@@ -22,6 +22,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -66,7 +67,12 @@ public class AddDefaultLimit extends DefaultPlanRewriter<StatementContext> imple
     @Override
     public Plan visitLogicalCTEAnchor(LogicalCTEAnchor<? extends Plan, ? extends Plan> cteAnchor,
             StatementContext context) {
-        return cteAnchor.withChildren(cteAnchor.child(0), cteAnchor.child(1));
+        return cteAnchor.withChildren(cteAnchor.child(0), cteAnchor.child(1).accept(this, context));
+    }
+
+    @Override
+    public Plan visitLogicalCTEProducer(LogicalCTEProducer<? extends Plan> cteProducer, StatementContext context) {
+        return super.visit(cteProducer, context);
     }
 
     // we should keep that sink node is the top node of the plan tree.

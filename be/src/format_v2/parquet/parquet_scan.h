@@ -242,6 +242,7 @@ private:
     Status prefetch_current_row_group_columns(
             ParquetFileContext& file_context,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            const format::FileScanRequest& request,
             const std::vector<format::LocalColumnIndex>& scan_columns, bool* prefetched);
 
     Status read_current_row_group_batch(

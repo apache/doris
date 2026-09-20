@@ -4402,6 +4402,42 @@ TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredStructOutputProjection)
     EXPECT_TRUE(request.is_predicate_only(LocalColumnId(0)));
 }
 
+TEST(ColumnMapperTest, RejectedMissingStructPredicateRestoresFullOutputMapping) {
+    auto table_renamed = field_id_col("renamed", 2, i64());
+    auto table_keep = field_id_col("keep", 3, i64());
+    auto table_added = field_id_col("added", 6, i64());
+    auto table_struct = struct_col("s", 1, {table_renamed, table_keep});
+    auto full_table_struct = struct_col("s", 1, {table_renamed, table_keep, table_added});
+    table_struct.type = full_table_struct.type;
+    table_struct.has_predicate_access_paths = true;
+    table_struct.predicate_children = {table_added};
+
+    auto file_removed = field_id_col("removed", 7, i64(), 0);
+    auto file_renamed = field_id_col("rename_me", 2, i64(), 1);
+    auto file_keep = field_id_col("keep", 3, i64(), 2);
+    auto file_struct = struct_col("s", 1, {file_removed, file_renamed, file_keep}, 0);
+
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+
+    auto added = struct_element(table_slot(0, 0, table_struct.type, "s"), i64(), "added");
+    TableFilter filter {.conjunct = VExprContext::create_shared(null_predicate(added, true)),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
+    EXPECT_TRUE(request.predicate_columns.empty());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1) << request.debug_string();
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    const auto& mapping = mapper.mappings()[0];
+    ASSERT_EQ(mapping.projected_file_children.size(), 3);
+    EXPECT_EQ(mapping.projected_file_children[0].name, "removed");
+    EXPECT_EQ(mapping.projected_file_children[1].name, "rename_me");
+    EXPECT_EQ(mapping.projected_file_children[2].name, "keep");
+}
+
 TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredVariantRootProjection) {
     auto table_variant = field_id_col("v", 10, variant_v2());
     table_variant.has_predicate_access_paths = true;

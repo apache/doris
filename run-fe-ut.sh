@@ -195,6 +195,28 @@ EXTRA_FE_MODULES="${EXTRA_FE_MODULES:-}"
 parse_extra_fe_modules "${EXTRA_FE_MODULES}"
 
 FE_MODULES=("fe-common" "fe-core")
+# The BE Java plugin modules. Nothing else runs these tests: no be-java-extensions module is
+# upstream of fe-core, so -am never reaches one, build.sh builds the reactor with -DskipTests, and
+# no GitHub workflow mentions the directory at all. What is in there is the evidence that the
+# plugin boundary holds - the isolation suite loads real jars and asserts a plugin class is NOT the
+# same Class object as BE's, SpiVersionTest and JniPluginSurfaceTest pin the version contract, and
+# BePluginAddressTableTest pins the (plugin, factory) pairs BE addresses against what the plugins
+# actually publish.
+#
+# What is NOT in there, and is worth knowing before trusting a green run: nothing loads a plugin out
+# of its DEPLOYED directory. Surefire puts `provided` dependencies on the test classpath, so a
+# dependency wrongly scoped is invisible to every test here; the only check on a deployed closure is
+# the static one build.sh runs (tools/be-java-plugins/check_plugin_layout.py), and that one says so
+# itself about anything reached by ServiceLoader or reflection.
+#
+# Listed one by one rather than as the aggregator: -pl on an aggregator selects that pom and none
+# of its children. Keep in sync with the module list in build.sh, which is the other complete
+# enumeration of this directory.
+for be_java_extension in jni-spi jni-bootstrap plugin-toolkit hive-apache-shade hive-udf-shade \
+    hadoop-deps iceberg-metadata-scanner hadoop-hudi-scanner java-udf jdbc-scanner paimon-scanner \
+    max-compute-connector trino-connector-scanner java-writer; do
+    FE_MODULES+=("be-java-extensions/${be_java_extension}")
+done
 for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
     FE_MODULES+=("${extra_module_path}")
 done

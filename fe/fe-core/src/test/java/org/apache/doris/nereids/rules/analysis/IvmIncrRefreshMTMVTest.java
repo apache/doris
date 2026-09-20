@@ -77,7 +77,7 @@ class IvmIncrRefreshMTMVTest {
     void testCreateRewriteContextKeepsPlanUnchanged() {
         LogicalOlapTableSink<Plan> sink = newSink(mtmv, scan);
         RecordingRule rule = new RecordingRule(scan);
-        IvmRewriteContext context = new IvmRewriteContext(IvmRewriteContext.Mode.CREATE, null, false);
+        IvmRewriteContext context = IvmRewriteContext.create("test_mtmv");
 
         Plan result = rule.rewriteRoot(sink, newJobContext(sink, context, newRewriteResult(SIGNATURE)));
 
@@ -92,7 +92,7 @@ class IvmIncrRefreshMTMVTest {
 
         IvmException exception = Assertions.assertThrows(IvmException.class,
                 () -> rule.rewriteRoot(sink, newJobContext(sink,
-                        IvmRewriteContext.incremental(mtmv, false), null)));
+                        IvmRewriteContext.incremental(mtmv), null)));
 
         Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, exception.getFailureReason());
         Assertions.assertEquals(0, rule.rewriter.callCount);
@@ -104,7 +104,7 @@ class IvmIncrRefreshMTMVTest {
 
         IvmException exception = Assertions.assertThrows(IvmException.class,
                 () -> rule.rewriteRoot(scan, newJobContext(scan,
-                        IvmRewriteContext.incremental(mtmv, false), newRewriteResult(SIGNATURE))));
+                        IvmRewriteContext.incremental(mtmv), newRewriteResult(SIGNATURE))));
 
         Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, exception.getFailureReason());
         Assertions.assertTrue(exception.getMessage().contains("LogicalOlapTableSink"));
@@ -178,7 +178,7 @@ class IvmIncrRefreshMTMVTest {
 
         IvmException exception = Assertions.assertThrows(IvmException.class,
                 () -> rule.rewriteRoot(sink, newJobContext(sink,
-                        IvmRewriteContext.incremental(mtmv, false), newRewriteResult(SIGNATURE))));
+                        IvmRewriteContext.incremental(mtmv), newRewriteResult(SIGNATURE))));
 
         Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, exception.getFailureReason());
         Assertions.assertTrue(exception.getMessage().contains("target table mismatch"));
@@ -194,7 +194,7 @@ class IvmIncrRefreshMTMVTest {
         RecordingRule rule = new RecordingRule(deltaPlan);
         IvmRewriteResult rewriteResult = newRewriteResult(SIGNATURE);
         JobContext jobContext = newJobContext(sink,
-                IvmRewriteContext.incremental(mtmv, true), rewriteResult);
+                IvmRewriteContext.incrementalExplain(mtmv, true), rewriteResult);
 
         Plan result = rule.rewriteRoot(sink, jobContext);
 
@@ -234,7 +234,7 @@ class IvmIncrRefreshMTMVTest {
         RecordingRule rule = new RecordingRule(deltaPlan);
 
         Plan result = rule.rewriteRoot(sink, newJobContext(sink,
-                IvmRewriteContext.incremental(mtmv, false), newRewriteResult(SIGNATURE)));
+                IvmRewriteContext.incremental(mtmv), newRewriteResult(SIGNATURE)));
 
         LogicalOlapTableSink<?> rewrittenSink = (LogicalOlapTableSink<?>) result;
         Assertions.assertSame(deltaPlan, rewrittenSink.child());
@@ -251,7 +251,7 @@ class IvmIncrRefreshMTMVTest {
         RecordingRule rule = new RecordingRule(deltaPlan);
         IvmRewriteResult rewriteResult = newRewriteResult(SIGNATURE);
         JobContext jobContext = newJobContext(sink,
-                IvmRewriteContext.incremental(mtmv, false), rewriteResult);
+                IvmRewriteContext.incremental(mtmv), rewriteResult);
 
         Plan firstResult = rule.rewriteRoot(sink, jobContext);
         Plan secondResult = rule.rewriteRoot(firstResult, jobContext);
@@ -266,7 +266,7 @@ class IvmIncrRefreshMTMVTest {
         RecordingRule rule = new RecordingRule(null);
 
         Plan result = rule.rewriteRoot(sink, newJobContext(sink,
-                IvmRewriteContext.incremental(mtmv, false), newRewriteResult(SIGNATURE)));
+                IvmRewriteContext.incremental(mtmv), newRewriteResult(SIGNATURE)));
 
         Assertions.assertInstanceOf(LogicalOlapTableSink.class, result);
         LogicalOlapTableSink<?> rewrittenSink = (LogicalOlapTableSink<?>) result;
@@ -278,7 +278,7 @@ class IvmIncrRefreshMTMVTest {
     @Test
     void testIncrementalContextRejectsNullMtmv() {
         Assertions.assertThrows(NullPointerException.class,
-                () -> IvmRewriteContext.incremental(null, false));
+                () -> IvmRewriteContext.incremental(null));
     }
 
     private JobContext newJobContext(Plan root, IvmRewriteContext rewriteContext,

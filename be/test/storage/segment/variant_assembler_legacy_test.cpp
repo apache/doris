@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/jsonb_value.h"
+#include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "storage/segment/variant/v2/variant_assembler.h"
@@ -349,6 +350,12 @@ TEST(VariantAssemblerLegacyTest, BinaryExtractScalarTypeMatrixPreservesTypedStat
                                          binary_cast<TimestampTzValue, UInt64>(timestamp_two))},
             TYPE_TIMESTAMPTZ,
             {R"("1970-01-01 00:00:01.000000+00:00")", R"("1970-01-01 00:00:02.000000+00:00")"});
+
+    expect_typed_cells(
+            {scaled_storage_cell<Int64>(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, 9, -1),
+             scaled_storage_cell<Int64>(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, 9, 123456789)},
+            TYPE_TIMESTAMP_NS,
+            {R"("1969-12-31 23:59:59.999999999")", R"("1970-01-01 00:00:00.123456789")"});
 
     expect_typed_cells(
             {decimal_storage_cell<int32_t>(FieldType::OLAP_FIELD_TYPE_DECIMAL32, 9, 2, 1234),
@@ -1402,7 +1409,7 @@ TEST(VariantAssemblerLegacyTest, EmptyDocRowKeepsRawOrderedMaterializedPaths) {
               R"({"a":{"b":"1970-01-03"},"a-":"1970-01-02"})");
 }
 
-TEST(VariantAssemblerLegacyTest, EmptyPhysicalRowsPublishAsNull) {
+TEST(VariantAssemblerLegacyTest, EmptyPhysicalRowsPreserveOuterNullBoundary) {
     VariantAssemblerOptions root_options;
     root_options.has_root = true;
     auto root_assembler = create_assembler(std::move(root_options));
@@ -1421,7 +1428,7 @@ TEST(VariantAssemblerLegacyTest, EmptyPhysicalRowsPublishAsNull) {
     ASSERT_TRUE(root_assembler->assemble(root_batch, &root_output).ok());
     EXPECT_EQ(json_at(assembled_values(root_output), 0), "null");
     EXPECT_EQ(json_at(assembled_values(root_output), 1), "null");
-    EXPECT_EQ(root_output->get_null_map_data(), (PaddedPODArray<uint8_t> {1, 1}));
+    EXPECT_EQ(root_output->get_null_map_data(), (PaddedPODArray<uint8_t> {0, 1}));
 
     VariantAssemblerOptions subtree_options;
     subtree_options.requested_path = PathInData("a");

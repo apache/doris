@@ -27,6 +27,7 @@
 #include "core/types.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
+#include "util/simd/vstring_function.h"
 
 namespace doris {
 
@@ -115,7 +116,8 @@ bool RegexpSplit::get(const char*& token_begin, const char*& token_end) {
             }
         }
 
-        _pos += 1;
+        const auto utf8_byte_length = get_utf8_byte_length(static_cast<uint8_t>(*_pos));
+        _pos += std::min<size_t>(utf8_byte_length, _end - _pos);
         token_end = _pos;
         ++_splits;
     } else {

@@ -60,6 +60,7 @@ public class PasswordPolicy {
     private static final String PASSWORD_LOCK_SECONDS = "password_policy.password_lock_seconds";
     private static final String FAILED_LOGIN_COUNTER = "password_policy.failed_login_counter";
     private static final String LOCK_TIME = "password_policy.lock_time";
+    private static final String ACCOUNT_LOCKED = "password_policy.account_locked";
 
     @SerializedName(value = "expirePolicy")
     private ExpirePolicy expirePolicy = new ExpirePolicy();
@@ -78,6 +79,13 @@ public class PasswordPolicy {
     public void checkAccountLockedAndPasswordExpiration(UserIdentity curUser) throws AuthenticationException {
         lock.readLock().lock();
         try {
+            // MySQL-compatible ACCOUNT_LOCK: an administrative lock refuses authentication outright.
+            // As in MySQL it is an AUTHENTICATION check only: sessions that already authenticated
+            // are not terminated, and a proxying session is judged by the proxy's own account.
+            if (failedLoginPolicy.isManuallyLocked()) {
+                throw new AuthenticationException(ErrorCode.ERR_ACCOUNT_HAS_BEEN_LOCKED,
+                        curUser.getQualifiedUser(), curUser.getHost());
+            }
             if (expirePolicy.isExpire()) {
                 throw new AuthenticationException(ErrorCode.ERR_MUST_CHANGE_PASSWORD_LOGIN);
             }
@@ -119,6 +127,13 @@ public class PasswordPolicy {
             historyPolicy.update(password, passwordOptions.getHistoryPolicy());
             failedLoginPolicy.updateNumFailedLogin(passwordOptions.getLoginAttempts());
             failedLoginPolicy.updatePasswordLockSeconds(passwordOptions.getPasswordLockSecond());
+            // CREATE USER ... ACCOUNT_LOCK | ACCOUNT_UNLOCK (ALTER USER routes the two through
+            // their own AlterUserOpType so they journal as their own operation)
+            if (passwordOptions.getAccountUnlocked() == FailedLoginPolicy.LOCK_ACCOUNT) {
+                failedLoginPolicy.lockAccount();
+            } else if (passwordOptions.getAccountUnlocked() == FailedLoginPolicy.UNLOCK_ACCOUNT) {
+                failedLoginPolicy.unlockAccount();
+            }
         } finally {
             lock.writeLock().unlock();
         }
@@ -153,9 +168,27 @@ public class PasswordPolicy {
     public void unlockAccount() {
         lock.writeLock().lock();
         try {
-            failedLoginPolicy.unlock();
+            failedLoginPolicy.unlockAccount();
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    public void lockAccount() {
+        lock.writeLock().lock();
+        try {
+            failedLoginPolicy.lockAccount();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public boolean isAccountLocked() {
+        lock.readLock().lock();
+        try {
+            return failedLoginPolicy.isManuallyLocked();
+        } finally {
+            lock.readLock().unlock();
         }
     }
 
@@ -350,6 +383,14 @@ public class PasswordPolicy {
         // Same as failedLoginCounter, not persist
         public AtomicLong lockTime = new AtomicLong(0);
 
+        // MySQL-compatible ACCOUNT_LOCK: an administrative lock, set by CREATE USER ... ACCOUNT_LOCK
+        // or ALTER USER ... ACCOUNT_LOCK and cleared by ALTER USER ... ACCOUNT_UNLOCK. Unlike the
+        // failed-login lock above it IS persisted (image) and journaled (OP_ALTER_USER), so it
+        // survives a restart and holds on every FE. Absent in images written before this field
+        // (GSON default: false).
+        @SerializedName(value = "manuallyLocked")
+        public boolean manuallyLocked = false;
+
         // Return true if the account is being locked.
         // Return false if nothing happen.
         public boolean onFailedLogin() {
@@ -409,6 +450,21 @@ public class PasswordPolicy {
             this.lockTime.set(0);
         }
 
+        public void lockAccount() {
+            this.manuallyLocked = true;
+        }
+
+        // ALTER USER ... ACCOUNT_UNLOCK clears the administrative lock AND the failed-login state,
+        // as MySQL's ACCOUNT UNLOCK resets failed-login tracking too.
+        public void unlockAccount() {
+            this.manuallyLocked = false;
+            unlock();
+        }
+
+        public boolean isManuallyLocked() {
+            return manuallyLocked;
+        }
+
         private String passwordLockSecondsToString() {
             if (passwordLockSeconds == -1) {
                 return "UNBOUNDED";
@@ -441,10 +497,14 @@ public class PasswordPolicy {
             List<String> row4 = Lists.newArrayList();
             row4.add(LOCK_TIME);
             row4.add(lockTime.get() == 0 ? "" : TimeUtils.longToTimeString(lockTime.get()));
+            List<String> row5 = Lists.newArrayList();
+            row5.add(ACCOUNT_LOCKED);
+            row5.add(String.valueOf(manuallyLocked));
             rows.add(row1);
             rows.add(row2);
             rows.add(row3);
             rows.add(row4);
+            rows.add(row5);
         }
     }
 }

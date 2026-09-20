@@ -102,6 +102,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -409,6 +410,7 @@ public class DatetimeFunctionBinder {
     }
 
     private Expression processDateFloor(TimeUnit unit, Expression timeStamp, Expression amount) {
+        boolean isTimeStampNs = timeStamp.getDataType() instanceof TimeStampNsType;
         boolean hasTimezone = false;
         if (timeStamp.getDataType() instanceof TimeStampTzType) {
             hasTimezone = true;
@@ -419,21 +421,21 @@ public class DatetimeFunctionBinder {
         Expression e = hasTimezone ? TimestampTzLiteral.USE_IN_FLOOR_CEIL : DateTimeV2Literal.USE_IN_FLOOR_CEIL;
         switch (unit) {
             case YEAR:
-                return new YearFloor(timeStamp, amount, e);
+                return isTimeStampNs ? new YearFloor(timeStamp, amount) : new YearFloor(timeStamp, amount, e);
             case QUARTER:
-                return new QuarterFloor(timeStamp, amount, e);
+                return isTimeStampNs ? new QuarterFloor(timeStamp, amount) : new QuarterFloor(timeStamp, amount, e);
             case MONTH:
-                return new MonthFloor(timeStamp, amount, e);
+                return isTimeStampNs ? new MonthFloor(timeStamp, amount) : new MonthFloor(timeStamp, amount, e);
             case WEEK:
-                return new WeekFloor(timeStamp, amount, e);
+                return isTimeStampNs ? new WeekFloor(timeStamp, amount) : new WeekFloor(timeStamp, amount, e);
             case DAY:
-                return new DayFloor(timeStamp, amount, e);
+                return isTimeStampNs ? new DayFloor(timeStamp, amount) : new DayFloor(timeStamp, amount, e);
             case HOUR:
-                return new HourFloor(timeStamp, amount, e);
+                return isTimeStampNs ? new HourFloor(timeStamp, amount) : new HourFloor(timeStamp, amount, e);
             case MINUTE:
-                return new MinuteFloor(timeStamp, amount, e);
+                return isTimeStampNs ? new MinuteFloor(timeStamp, amount) : new MinuteFloor(timeStamp, amount, e);
             case SECOND:
-                return new SecondFloor(timeStamp, amount, e);
+                return isTimeStampNs ? new SecondFloor(timeStamp, amount) : new SecondFloor(timeStamp, amount, e);
             default:
                 throw new AnalysisException("Unsupported time stamp floor time unit: " + unit
                         + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");
@@ -441,6 +443,7 @@ public class DatetimeFunctionBinder {
     }
 
     private Expression processDateCeil(TimeUnit unit, Expression timeStamp, Expression amount) {
+        boolean isTimeStampNs = timeStamp.getDataType() instanceof TimeStampNsType;
         boolean hasTimezone = false;
         if (timeStamp.getDataType() instanceof TimeStampTzType) {
             hasTimezone = true;
@@ -451,21 +454,21 @@ public class DatetimeFunctionBinder {
         Expression e = hasTimezone ? TimestampTzLiteral.USE_IN_FLOOR_CEIL : DateTimeV2Literal.USE_IN_FLOOR_CEIL;
         switch (unit) {
             case YEAR:
-                return new YearCeil(timeStamp, amount, e);
+                return isTimeStampNs ? new YearCeil(timeStamp, amount) : new YearCeil(timeStamp, amount, e);
             case QUARTER:
-                return new QuarterCeil(timeStamp, amount, e);
+                return isTimeStampNs ? new QuarterCeil(timeStamp, amount) : new QuarterCeil(timeStamp, amount, e);
             case MONTH:
-                return new MonthCeil(timeStamp, amount, e);
+                return isTimeStampNs ? new MonthCeil(timeStamp, amount) : new MonthCeil(timeStamp, amount, e);
             case WEEK:
-                return new WeekCeil(timeStamp, amount, e);
+                return isTimeStampNs ? new WeekCeil(timeStamp, amount) : new WeekCeil(timeStamp, amount, e);
             case DAY:
-                return new DayCeil(timeStamp, amount, e);
+                return isTimeStampNs ? new DayCeil(timeStamp, amount) : new DayCeil(timeStamp, amount, e);
             case HOUR:
-                return new HourCeil(timeStamp, amount, e);
+                return isTimeStampNs ? new HourCeil(timeStamp, amount) : new HourCeil(timeStamp, amount, e);
             case MINUTE:
-                return new MinuteCeil(timeStamp, amount, e);
+                return isTimeStampNs ? new MinuteCeil(timeStamp, amount) : new MinuteCeil(timeStamp, amount, e);
             case SECOND:
-                return new SecondCeil(timeStamp, amount, e);
+                return isTimeStampNs ? new SecondCeil(timeStamp, amount) : new SecondCeil(timeStamp, amount, e);
             default:
                 throw new AnalysisException("Unsupported time stamp ceil time unit: " + unit
                         + ", supported time unit: YEAR/QUARTER/MONTH/WEEK/DAY/HOUR/MINUTE/SECOND");

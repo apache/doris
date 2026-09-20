@@ -38,6 +38,7 @@
 #include "storage/segment/encoding_info.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
+#include "storage/utils.h"
 #include "util/slice.h"
 #include "util/unaligned.h"
 
@@ -78,11 +79,33 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
     };
 
     auto field_type = data_type->get_storage_field_type();
+
+    // has_nan arrived with NaN-aware float/double zone maps, so its absence means the writer could
+    // not report NaN and the bounds came from a comparison that never selects one: a hidden NaN
+    // cannot be ruled out. Doris orders NaN above every other value, so `x > c` can be true for a
+    // row that these bounds say cannot exist. Treat such a zone map as covering everything instead
+    // of as NaN-free. A zone with no non-null value never received one, so it has no NaN to hide;
+    // leaving it usable keeps the three ColumnPredicate checks that start from has_not_null: the
+    // null predicates, each comparison predicate's early return, and the in-list one's.
+    if ((field_type == FieldType::OLAP_FIELD_TYPE_FLOAT ||
+         field_type == FieldType::OLAP_FIELD_TYPE_DOUBLE) &&
+        zone_map.has_not_null() && !zone_map.has_has_nan()) {
+        zone_map_info.pass_all = true;
+    }
+
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
         if (!zone_map_info.pass_all) {
             parse_bound(zone_map.min(), zone_map_info.min_value);
             parse_bound(zone_map.max(), zone_map_info.max_value);
+        }
+
+        // A max of all 0xff carries past its first byte and ends up all zero, which stands above
+        // nothing. Give up the range instead of ruling out rows with it.
+        if (!zone_map_info.pass_all && is_string_type(field_type) &&
+            zone_map.max().size() == MAX_ZONE_MAP_INDEX_SIZE &&
+            zone_map.max().find_first_not_of('\0') == std::string::npos) {
+            zone_map_info.pass_all = true;
         }
 
         // NaN and infinity only set the flags below, never min/max, so a page holding nothing
@@ -232,11 +255,18 @@ void TypedZoneMapIndexWriter<Type>::modify_index_before_flush(
     // slightly larger than any real string that shares the same 512-byte prefix, ensuring no false negatives —
     // the zone map will never incorrectly skip a page that contains matching data.
     //
-    // In UTF8 encoding, here do not appear 0xff in last byte
+    // A string column holds arbitrary bytes, so the last byte can be 0xff. Adding one to it wraps
+    // to 0x00 and leaves a max below the data, so carry into the byte before it.
     if constexpr (Type == TYPE_CHAR || Type == TYPE_VARCHAR || Type == TYPE_STRING) {
         auto& str = zone_map.max_value.get<Type>();
         if (str.size() == MAX_ZONE_MAP_INDEX_SIZE) {
-            str[str.size() - 1] += 1;
+            for (size_t i = str.size(); i > 0; --i) {
+                auto byte = static_cast<uint8_t>(str[i - 1]) + 1;
+                str[i - 1] = static_cast<char>(byte);
+                if (static_cast<uint8_t>(byte) != 0) {
+                    break;
+                }
+            }
         }
     }
 }
@@ -384,6 +414,7 @@ ZoneMapIndexReader::~ZoneMapIndexReader() = default;
     M(TYPE_DATETIME)             \
     M(TYPE_DATEV2)               \
     M(TYPE_DATETIMEV2)           \
+    M(TYPE_TIMESTAMP_NS)         \
     M(TYPE_TIMESTAMPTZ)          \
     M(TYPE_IPV4)                 \
     M(TYPE_IPV6)                 \

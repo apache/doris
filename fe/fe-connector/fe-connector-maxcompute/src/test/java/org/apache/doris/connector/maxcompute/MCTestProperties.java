@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.maxcompute;
 
+import org.apache.doris.connector.spi.ConnectorContext;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -30,6 +32,20 @@ final class MCTestProperties {
     static final String ENDPOINT = "http://service.cn-beijing.maxcompute.aliyun-inc.com/api";
 
     private MCTestProperties() {
+    }
+
+    static ConnectorContext context() {
+        return new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "maxcompute_test";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 91001L;
+            }
+        };
     }
 
     /** A mutable map carrying only what of() requires. */

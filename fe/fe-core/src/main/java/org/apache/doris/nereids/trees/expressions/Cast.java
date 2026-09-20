@@ -18,9 +18,12 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -32,6 +35,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
@@ -42,6 +46,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -55,24 +60,41 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     // CAST can be from SQL Query or Type Coercion. true for explicitly cast from SQL query.
     protected final boolean isExplicitType; //FIXME: now not useful
 
+    // Some system-inserted casts are part of correctness-sensitive normalization and must fail
+    // instead of producing NULL, independently of the session's enable_strict_cast setting.
+    protected final boolean isStrict;
+
     protected final DataType targetType;
 
     public Cast(Expression child, DataType targetType) {
-        this(child, targetType, false);
+        this(child, targetType, false, false);
     }
 
     public Cast(Expression child, DataType targetType, boolean isExplicitType) {
-        this(ImmutableList.of(child), targetType, isExplicitType);
+        this(child, targetType, isExplicitType, false);
+    }
+
+    public Cast(Expression child, DataType targetType, boolean isExplicitType, boolean isStrict) {
+        this(ImmutableList.of(child), targetType, isExplicitType, isStrict);
     }
 
     protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType) {
+        this(child, targetType, isExplicitType, false);
+    }
+
+    protected Cast(List<Expression> child, DataType targetType, boolean isExplicitType, boolean isStrict) {
         super(child);
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
         this.isExplicitType = isExplicitType;
+        this.isStrict = isStrict;
     }
 
     public boolean isExplicitType() {
         return isExplicitType;
+    }
+
+    public boolean isStrict() {
+        return isStrict;
     }
 
     @Override
@@ -113,13 +135,22 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         // StringLike to other type is always nullable.
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
-        } else if ((childDataType.isDateTimeType() || childDataType.isDateTimeV2Type()
-                || childDataType.isTimeStampTzType())
-                && (targetType.isDateTimeType() || targetType.isDateTimeV2Type())) {
-            // datetime to datetime is always nullable
+        } else if ((childDataType.isDateLikeType() || childDataType.isTimeType())
+                && targetType instanceof TimeStampNsType) {
+            // Temporal inputs can fail because TIMESTAMP_NS has a narrower signed epoch-nanos range.
             return true;
-        } else if (childDataType.isDateTimeV2Type() && targetType.isTimeStampTzType()) {
-            // Datetime to timestamptz is always nullable
+        } else if (childDataType.isDateTimeV2Type() && targetType.isDateTimeV2Type()) {
+            // BE's generic datelike cast creates a nullable result for DATETIMEV2 scale changes:
+            // reducing scale can overflow while rounding at the maximum datetime boundary.
+            // Exact-type casts have already returned above.
+            return true;
+        } else if (childDataType.isTimeStampTzType() && targetType.isDateTimeV2Type()) {
+            // The BE TIMESTAMPTZ -> DATETIMEV2 kernel can fail while converting the instant in the
+            // session time zone, and its non-strict implementation returns a nullable column.
+            return true;
+        } else if ((childDataType.isDateTimeV2Type() || childDataType.isTimeStampNsType())
+                && targetType.isTimeStampTzType()) {
+            // Datetime and timestamp_ns to timestamptz are always nullable
             return true;
         } else if (childDataType.isTimeStampTzType() && targetType.isTimeStampTzType()) {
             // timestamptz to timestamptz is always nullable
@@ -143,7 +174,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                 return childDataType.isSmallIntType() && targetType.isTinyIntType();
             } else if (targetType.isDecimalLikeType()) {
                 // Integral to decimal
-                int range = targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getRange()
+                int range = targetType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_RANGE
                         : ((DecimalV3Type) targetType).getRange();
                 if (childDataType.isTinyIntType() && range < TinyIntType.RANGE) {
                     return true;
@@ -169,7 +200,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             if (targetType.isIntegralType()) {
                 int range = 0;
                 if (childDataType.isDecimalV2Type()) {
-                    range = ((DecimalV2Type) childDataType).getRange();
+                    range = DecimalV2Type.EXECUTION_RANGE;
                 } else {
                     range = ((DecimalV3Type) childDataType).getRange();
                 }
@@ -188,9 +219,23 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                 return targetType.isBigIntType() && range >= BigIntType.RANGE;
             } else if (targetType.isDecimalLikeType()) {
                 // Decimal to decimal
-                int targetRange = targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getRange()
+                if (childDataType.isDecimalV2Type() && targetType.isDecimalV3Type()) {
+                    DecimalV2Type sourceDecimal = (DecimalV2Type) childDataType;
+                    DecimalV3Type targetDecimal = (DecimalV3Type) targetType;
+                    int sourceRange = sourceDecimal.getRange();
+                    int targetRange = targetDecimal.getRange();
+                    // DECIMALV2 values are evaluated as DECIMAL(27, 9), but BE's D2-to-D3
+                    // specialization deliberately uses the source type's original precision and
+                    // scale to decide whether its physical result is ColumnNullable. It applies
+                    // this wrapper in both strict and non-strict modes. Mirror that decision here;
+                    // otherwise VExpr rejects the nullable BE column against a non-nullable FE slot.
+                    return sourceRange > targetRange
+                            || (sourceRange == targetRange
+                                && sourceDecimal.getScale() > targetDecimal.getScale());
+                }
+                int targetRange = targetType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_RANGE
                         : ((DecimalV3Type) targetType).getRange();
-                int sourceRange = childDataType.isDecimalV2Type() ? ((DecimalV2Type) childDataType).getRange()
+                int sourceRange = childDataType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_RANGE
                         : ((DecimalV3Type) childDataType).getRange();
                 if (sourceRange > targetRange) {
                     return true;
@@ -201,9 +246,9 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
                 // When source range == target range, if source precision is larger than target precision,
                 // it is possible to be null when fraction part overflow.
                 // e.g. decimal(3, 2) to decimal(2, 1), 9.99 to decimal(2, 1) overflow, result is null.
-                int targetPrecision = targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getPrecision()
+                int targetPrecision = targetType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_PRECISION
                         : ((DecimalV3Type) targetType).getPrecision();
-                int sourcePrecision = childDataType.isDecimalV2Type() ? ((DecimalV2Type) childDataType).getPrecision()
+                int sourcePrecision = childDataType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_PRECISION
                         : ((DecimalV3Type) childDataType).getPrecision();
                 return sourcePrecision > targetPrecision;
             } else if (targetType.isTimeType() || targetType.isDateLikeType()) {
@@ -212,7 +257,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             }
         } else if (childDataType.isBooleanType() && targetType.isDecimalLikeType()) {
             // Boolean to decimal
-            return (targetType.isDecimalV2Type() ? ((DecimalV2Type) targetType).getRange()
+            return (targetType.isDecimalV2Type() ? DecimalV2Type.EXECUTION_RANGE
                     : ((DecimalV3Type) targetType).getRange()) < 1;
         } else if (childDataType.isJsonType() && !targetType.isJsonType()) {
             // Json to other type is always nullable
@@ -227,13 +272,13 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
     @Override
     public Cast withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Cast(children, targetType, isExplicitType);
+        return new Cast(children, targetType, isExplicitType, isStrict);
     }
 
     /** Return this cast with a different immutable target type. */
     public Cast withTargetType(DataType targetType) {
         return this.targetType.equals(targetType)
-                ? this : new Cast(children, targetType, isExplicitType);
+                ? this : new Cast(children, targetType, isExplicitType, isStrict);
     }
 
     @Override
@@ -268,12 +313,12 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
         Cast cast = (Cast) o;
-        return Objects.equals(targetType, cast.targetType);
+        return isStrict == cast.isStrict && Objects.equals(targetType, cast.targetType);
     }
 
     @Override
     public int computeHashCode() {
-        return Objects.hash(super.computeHashCode(), targetType);
+        return Objects.hash(super.computeHashCode(), targetType, isStrict);
     }
 
     @Override
@@ -288,7 +333,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
 
     @Override
     public Expression withConstantArgs(Expression literal) {
-        return new Cast(literal, targetType, isExplicitType);
+        return new Cast(literal, targetType, isExplicitType, isStrict);
     }
 
     @Override
@@ -298,15 +343,38 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
 
-        if (childType instanceof TimeStampTzType && targetType instanceof DateTimeV2Type) {
-            return isTimeStampTzToDateTimeV2Monotonic(
-                    (TimeStampTzType) childType, (DateTimeV2Type) targetType, lower, upper);
+        if (targetType instanceof TimeStampNsType && !isRangeWithinTimeStampNs(lower, upper)) {
+            return false;
+        }
+
+        if (childType instanceof TimeStampTzType
+                && (targetType instanceof DateTimeV2Type || targetType instanceof TimeStampNsType)) {
+            int destinationScale = targetType instanceof DateTimeV2Type
+                    ? ((DateTimeV2Type) targetType).getScale() : TimeStampNsType.SCALE;
+            return isTimeStampTzToLocalDateTimeMonotonic(
+                    (TimeStampTzType) childType, destinationScale, lower, upper);
+        }
+        if (childType instanceof TimeStampNsType && targetType instanceof TimeStampTzType) {
+            return isTimeStampNsToTimeStampTzMonotonic(
+                    (TimeStampTzType) targetType, lower, upper);
         }
         return true;
     }
 
-    private boolean isTimeStampTzToDateTimeV2Monotonic(
-            TimeStampTzType sourceType, DateTimeV2Type destinationType, Literal lower, Literal upper) {
+    private boolean isRangeWithinTimeStampNs(Literal lower, Literal upper) {
+        if (lower == null || upper == null) {
+            return false;
+        }
+        try {
+            return !(lower.checkedCastTo(targetType) instanceof NullLiteral)
+                    && !(upper.checkedCastTo(targetType) instanceof NullLiteral);
+        } catch (AnalysisException e) {
+            return false;
+        }
+    }
+
+    private boolean isTimeStampTzToLocalDateTimeMonotonic(
+            TimeStampTzType sourceType, int destinationScale, Literal lower, Literal upper) {
         ZoneId timeZone;
         try {
             timeZone = TimeUtils.getDorisZoneId();
@@ -318,7 +386,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         }
         // Scale reduction rounds the UTC value before applying the session timezone. That rounding
         // can move values across a fall-back transition just outside the original partition range.
-        if (destinationType.getScale() < sourceType.getScale()) {
+        if (destinationScale < sourceType.getScale()) {
             return false;
         }
         if (!(lower instanceof TimestampTzLiteral) || !(upper instanceof TimestampTzLiteral)) {
@@ -333,5 +401,36 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
         return !DateUtils.hasFallbackTransitionInInstantRange(timeZone, lowerInstant, upperInstant);
+    }
+
+    private boolean isTimeStampNsToTimeStampTzMonotonic(
+            TimeStampTzType destinationType, Literal lower, Literal upper) {
+        ZoneId timeZone;
+        try {
+            timeZone = TimeUtils.getDorisZoneId();
+        } catch (DateTimeException e) {
+            return false;
+        }
+        if (timeZone.getRules().isFixedOffset()) {
+            return true;
+        }
+        if (!(lower instanceof TimeStampNsLiteral) || !(upper instanceof TimeStampNsLiteral)) {
+            return false;
+        }
+        LocalDateTime lowerDateTime = roundTimeStampNs(
+                (TimeStampNsLiteral) lower, destinationType.getScale());
+        LocalDateTime upperDateTime = roundTimeStampNs(
+                (TimeStampNsLiteral) upper, destinationType.getScale());
+        if (upperDateTime.isBefore(lowerDateTime)) {
+            return false;
+        }
+        return !DateUtils.hasGapTransitionInLocalDateTimeRange(
+                timeZone, lowerDateTime, upperDateTime);
+    }
+
+    private LocalDateTime roundTimeStampNs(TimeStampNsLiteral literal, int scale) {
+        long factor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
+        LocalDateTime dateTime = literal.toJavaDateType().plusNanos(factor / 2);
+        return dateTime.withNano((int) (dateTime.getNano() / factor * factor));
     }
 }

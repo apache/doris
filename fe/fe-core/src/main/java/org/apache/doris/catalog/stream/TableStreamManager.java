@@ -32,7 +32,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.TableStreamCleanupInfo;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -57,9 +59,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 
 public class TableStreamManager extends MasterDaemon implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(TableStreamManager.class);
+    private static final String BASE_TABLE_NOT_FOUND_STALE_REASON = "Base table does not exist";
     @SerializedName(value = "dbStreamMap")
     private Map<Long, Set<Long>> dbStreamMap;
     protected MonitoredReentrantReadWriteLock rwLock;
@@ -166,7 +170,7 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
     public void cleanupStalePartitionOffsets() {
         List<Long> staleDbIds = new ArrayList<>();
         List<Pair<Long, Long>> staleStreamIds = new ArrayList<>();
-        List<TableStreamCleanupInfo.PartitionOffsetPruneEntry> pruneEntries = new ArrayList<>();
+        List<EditLogItem> editLogItems = new ArrayList<>();
         for (Map.Entry<Long, Set<Long>> entry : copyDbStreamMap().entrySet()) {
             Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getKey());
             if (!db.isPresent()) {
@@ -183,18 +187,18 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                     staleStreamIds.add(Pair.of(db.get().getId(), tableId));
                     continue;
                 }
-                cleanupStalePartitionOffsets((OlapTableStream) table.get()).ifPresent(pruneEntries::add);
+                cleanupStalePartitionOffsets((OlapTableStream) table.get()).ifPresent(editLogItems::add);
             }
         }
         removeStaleDbAndStream(staleDbIds, staleStreamIds);
-        if (!pruneEntries.isEmpty() || !staleDbIds.isEmpty() || !staleStreamIds.isEmpty()) {
-            Env.getCurrentEnv().getEditLog().logTableStreamCleanup(
-                    new TableStreamCleanupInfo(pruneEntries, staleDbIds, staleStreamIds));
+        if (!staleDbIds.isEmpty() || !staleStreamIds.isEmpty()) {
+            editLogItems.add(Env.getCurrentEnv().getEditLog().logTableStreamCleanup(
+                    new TableStreamCleanupInfo(Collections.emptyList(), staleDbIds, staleStreamIds)));
         }
+        editLogItems.forEach(EditLogItem::await);
     }
 
-    private Optional<TableStreamCleanupInfo.PartitionOffsetPruneEntry> cleanupStalePartitionOffsets(
-            OlapTableStream stream) {
+    private Optional<EditLogItem> cleanupStalePartitionOffsets(OlapTableStream stream) {
         if (!stream.tryReadLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("skip cleaning stream {} because stream read lock is busy", stream.getName());
@@ -215,7 +219,6 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
             stream.readUnlock();
         }
         // stream read lock is released
-        // base table read lock is held
         if (!baseTable.tryReadLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("skip cleaning stream {} because base table {} read lock is busy",
@@ -223,43 +226,47 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
             }
             return Optional.empty();
         }
-        Set<Long> validPartitionIds;
+        Set<Long> stalePartitionIds;
+        EditLogItem editLogItem;
         try {
             if (baseTable.isDropped) {
                 return Optional.empty();
             }
-            validPartitionIds = new HashSet<>(baseTable.getPartitionIds());
+            Set<Long> validPartitionIds = new HashSet<>(baseTable.getPartitionIds());
+            while (DebugPointUtil.getDebugParamOrDefault(
+                    "TableStreamManager.cleanupStalePartitionOffsets.blockAfterPartitionSnapshot", -1L)
+                    == stream.getId()) {
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
+            }
+            if (!stream.tryWriteLockIfExist(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("skip cleaning stream {} because it is busy or dropped", stream.getName());
+                }
+                return Optional.empty();
+            }
+            try {
+                if (stream.isDisabled() || stream.isStale()) {
+                    return Optional.empty();
+                }
+                stalePartitionIds = stream.unprotectedCollectStalePartitionOffsetIds(validPartitionIds);
+                if (stalePartitionIds.isEmpty()) {
+                    return Optional.empty();
+                }
+                stream.unprotectedPrunePartitionOffsets(stalePartitionIds);
+                TableStreamCleanupInfo.PartitionOffsetPruneEntry pruneEntry =
+                        new TableStreamCleanupInfo.PartitionOffsetPruneEntry(
+                                stream.getDatabase().getId(), stream.getId(), stalePartitionIds);
+                editLogItem = Env.getCurrentEnv().getEditLog().logTableStreamCleanup(
+                        new TableStreamCleanupInfo(Collections.singletonList(pruneEntry)));
+            } finally {
+                stream.writeUnlock();
+            }
         } finally {
             baseTable.readUnlock();
         }
-        // base table read lock is released
-        // stream write lock is held
-        if (!stream.tryWriteLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("skip cleaning stream {} because stream write lock is busy", stream.getName());
-            }
-            return Optional.empty();
-        }
-        Set<Long> stalePartitionIds;
-        try {
-            if (stream.isDisabled() || stream.isStale()) {
-                return Optional.empty();
-            }
-            stalePartitionIds = stream.unprotectedCollectStalePartitionOffsetIds(validPartitionIds);
-            if (stalePartitionIds.isEmpty()) {
-                return Optional.empty();
-            }
-            stream.unprotectedPrunePartitionOffsets(stalePartitionIds);
-        } finally {
-            stream.writeUnlock();
-        }
-        // stream write lock is released
-        if (stalePartitionIds.size() > 0) {
-            LOG.info("cleaned {} stale partition offset entries from stream {}.{} ({})",
-                    stalePartitionIds.size(), stream.getDatabase().getFullName(), stream.getName(), stream.getId());
-        }
-        return Optional.of(new TableStreamCleanupInfo.PartitionOffsetPruneEntry(
-                stream.getDatabase().getId(), stream.getId(), stalePartitionIds));
+        LOG.info("cleaned {} stale partition offset entries from stream {}.{} ({})",
+                stalePartitionIds.size(), stream.getDatabase().getFullName(), stream.getName(), stream.getId());
+        return Optional.of(editLogItem);
     }
 
     public void replayTableStreamCleanup(TableStreamCleanupInfo info) {
@@ -350,7 +357,8 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                             // STREAM_COMMENT
                             trow.addToColumnValue(new TCell().setStringVal(stream.getComment()));
                             TableIf baseTable = stream.getBaseTableNullable();
-                            if (baseTable == null) {
+                            boolean baseTableExists = baseTable != null;
+                            if (!baseTableExists) {
                                 // BASE_TABLE_NAME
                                 trow.addToColumnValue(new TCell().setStringVal("N/A"));
                                 // BASE_TABLE_DB
@@ -371,11 +379,13 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
                                 trow.addToColumnValue(new TCell().setStringVal(baseTable.getType().name()));
                             }
                             // ENABLED
-                            trow.addToColumnValue(new TCell().setBoolVal(!stream.isDisabled()));
+                            trow.addToColumnValue(
+                                    new TCell().setBoolVal(baseTableExists && !stream.isDisabled()));
                             // IS_STALE
-                            trow.addToColumnValue(new TCell().setBoolVal(stream.isStale()));
+                            trow.addToColumnValue(new TCell().setBoolVal(!baseTableExists || stream.isStale()));
                             // STALE_REASON
-                            trow.addToColumnValue(new TCell().setStringVal(stream.getStaleReason()));
+                            trow.addToColumnValue(new TCell().setStringVal(baseTableExists
+                                    ? stream.getStaleReason() : BASE_TABLE_NOT_FOUND_STALE_REASON));
                             dataBatch.add(trow);
                         } finally {
                             stream.readUnlock();

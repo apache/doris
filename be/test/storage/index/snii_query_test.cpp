@@ -901,9 +901,12 @@ struct OpaqueMatcherPlanCase {
     std::vector<bool> common;
 };
 
-constexpr std::string_view kReservedCommonGramPrefix =
+// Opaque terms in the internal namespace (starting with \x1f). These tests drive the phrase-plan
+// executor directly to verify that an opaque term spanning two positions matches ordinary
+// positions equivalently, independently of any particular analyzer.
+constexpr std::string_view kOpaqueInternalTermPrefix =
         "\x1f"
-        "DORIS_COMMON_GRAM_V1"
+        "SNII_TEST_OPAQUE"
         "\x1f";
 
 std::string opaque_gram(std::string_view left, std::string_view right) {
@@ -911,7 +914,7 @@ std::string opaque_gram(std::string_view left, std::string_view right) {
 }
 
 std::string reserved_marker_opaque_gram(std::string_view left, std::string_view right) {
-    return std::string(kReservedCommonGramPrefix) + "opaque:CG(" + std::string(left) + "," +
+    return std::string(kOpaqueInternalTermPrefix) + "opaque:CG(" + std::string(left) + "," +
            std::string(right) + ")";
 }
 
@@ -1381,9 +1384,9 @@ TEST(SniiPhraseQueryTest, RepeatedTermPhraseUsesCachedPostingSpan) {
     EXPECT_EQ(docids, expected);
 }
 
-TEST(SniiPhraseMatcherInvariantTest, OpaqueCommonGramPlansMatchPlainPositionOracle) {
+TEST(SniiPhraseMatcherInvariantTest, OpaqueInternalTermPlansMatchPlainPositionOracle) {
     const std::vector<OpaqueMatcherPlanCase> cases = opaque_matcher_plan_cases();
-    ASSERT_TRUE(cases[1].gram_plan[1].starts_with(kReservedCommonGramPrefix));
+    ASSERT_TRUE(cases[1].gram_plan[1].starts_with(kOpaqueInternalTermPrefix));
     MemoryFile file;
     reader::SniiSegmentReader segment_reader;
     reader::LogicalIndexReader index_reader;
@@ -1520,7 +1523,7 @@ TEST(SniiPhraseMatcherInvariantTest, ResolvedPlanRejectsInvalidCoverageAndOffset
     unused_unique.unique_terms.push_back(unused_unique.unique_terms.front());
     EXPECT_FALSE(unused_unique.is_valid());
 
-    // Since the selective CommonGrams postings change, position offsets are only
+    // Since an opaque term may cover two positions, position offsets are only
     // required to start at 0 and ascend STRICTLY -- gaps are legal (a gram
     // covers two positions, so the next clause's offset jumps past it). The
     // fatal invariants are a nonzero first offset and a non-ascending step.

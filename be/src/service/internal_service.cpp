@@ -74,7 +74,6 @@
 #include "format/generic_reader.h"
 #include "format/jni/jni_reader.h"
 #include "format/json/new_json_reader.h"
-#include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/text/text_reader.h"
@@ -158,12 +157,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_max_queue_size, Metric
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_max_threads, MetricUnit::NOUNIT);
 
 static bvar::LatencyRecorder g_process_remote_fetch_rowsets_latency("process_remote_fetch_rowsets");
-
-bthread_key_t btls_key;
-
-static void thread_context_deleter(void* d) {
-    delete static_cast<ThreadContext*>(d);
-}
 
 static int32_t resolved_brpc_peer_fetch_pool_threads() {
     return config::brpc_peer_fetch_pool_threads != -1 ? config::brpc_peer_fetch_pool_threads
@@ -285,7 +278,6 @@ PInternalService::PInternalService(ExecEnv* exec_env)
 
     _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
 
-    CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
 
@@ -314,7 +306,6 @@ PInternalService::~PInternalService() {
     DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_max_queue_size);
     DEREGISTER_HOOK_METRIC(arrow_flight_work_max_threads);
 
-    CHECK_EQ(0, bthread_key_delete(btls_key));
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }
 
@@ -883,11 +874,6 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             reader = OrcReader::create_unique(params, range, fetch_schema_batch_size, "", io_ctx);
             break;
         }
-        case TFileFormatType::FORMAT_NATIVE: {
-            reader = NativeReader::create_unique(profile.get(), params, range, io_ctx.get(),
-                                                 nullptr);
-            break;
-        }
         case TFileFormatType::FORMAT_JSON: {
             reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,
                                                   fetch_schema_batch_size, io_ctx.get(), io_ctx);
@@ -1050,6 +1036,10 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         params["jdbc_password"] = jdbc_table.jdbc_password;
         params["jdbc_driver_class"] = jdbc_table.jdbc_driver_class;
         params["jdbc_driver_url"] = driver_url;
+        // The catalog's expected MD5. Without it JdbcConnectionTester reads "" and
+        // JdbcDriverUtils.checksumVerifier("") is a no-op, so the one request whose entire job is
+        // to validate a catalog definition accepted any jar at all behind the driver URL.
+        params["jdbc_driver_checksum"] = jdbc_table.jdbc_driver_checksum;
         params["query_sql"] = request->query_str();
         params["catalog_id"] = std::to_string(jdbc_table.catalog_id);
         params["connection_pool_min_size"] = std::to_string(jdbc_table.connection_pool_min_size);
@@ -1116,8 +1106,7 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
 
         // Use JniReader to create JdbcConnectionTester, which tests
         // the connection in its open() method.
-        auto jni_reader =
-                std::make_unique<JniReader>("org/apache/doris/jdbc/JdbcConnectionTester", params);
+        auto jni_reader = std::make_unique<JniReader>(Jni::plugin::JDBC_CONNECTION_TESTER, params);
         st = jni_reader->open(nullptr, nullptr);
         st.to_protobuf(result->mutable_status());
 

@@ -18,8 +18,12 @@
 #define _GNU_SOURCE
 
 #include <fcntl.h>
+#include <pthread.h>
 #include <spawn.h>
+#include <stdlib.h>
+#include <sys/syscall.h>
 #include <sys/uio.h>
+#include <unistd.h>
 
 #if defined(__x86_64__)
 #define DORIS_GLIBC_BASE_VERSION "GLIBC_2.2.5"
@@ -41,6 +45,76 @@
 // glibc symbol, so it cannot recurse back into the hidden wrapper.
 #define DORIS_HIDDEN __attribute__((visibility("hidden")))
 
+typedef void (*doris_tls_destructor)(void*);
+
+struct doris_tls_destructor_entry {
+    doris_tls_destructor destructor;
+    void* object;
+    struct doris_tls_destructor_entry* next;
+};
+
+static pthread_key_t doris_tls_destructor_key;
+static pthread_once_t doris_tls_destructor_once = PTHREAD_ONCE_INIT;
+
+static void doris_run_tls_destructors(void* value) {
+    struct doris_tls_destructor_entry* entry = value;
+    while (entry != NULL) {
+        struct doris_tls_destructor_entry* next = entry->next;
+        doris_tls_destructor destructor = entry->destructor;
+        void* object = entry->object;
+
+        // Publish the remainder before invoking the destructor. A destructor
+        // may register another TLS destructor, which must run before the older
+        // entries that are still pending.
+        if (pthread_setspecific(doris_tls_destructor_key, next) != 0) {
+            abort();
+        }
+        free(entry);
+        destructor(object);
+        entry = pthread_getspecific(doris_tls_destructor_key);
+    }
+}
+
+static void doris_run_main_thread_tls_destructors(void) {
+    doris_run_tls_destructors(pthread_getspecific(doris_tls_destructor_key));
+}
+
+static void doris_init_tls_destructor_key(void) {
+    if (pthread_key_create(&doris_tls_destructor_key, doris_run_tls_destructors) != 0) {
+        abort();
+    }
+    // pthread_key_create() arranges for doris_run_tls_destructors() to be
+    // called automatically when an ordinary worker thread exits. However,
+    // returning from main() (which is equivalent to exit()) does not run the
+    // initial thread's pthread key destructors. Register an atexit handler so
+    // TLS destructors belonging to the thread that performs normal process
+    // termination are still invoked.
+    //
+    // This relies on Doris normally terminating the process from its initial
+    // thread. If another thread calls exit(), atexit handlers execute in that
+    // thread and pthread_getspecific() observes that thread's TLS state.
+    // atexit handlers are not invoked by abort(), _exit(), fatal signals, or
+    // SIGKILL; those paths are already abnormal process termination.
+    //
+    // Unlike glibc, this fallback puts the initial thread's TLS cleanup in the
+    // same LIFO list as atexit callbacks and static-object destructors. A static
+    // object initialized after this handler is registered is therefore destroyed
+    // before the TLS objects. We accept this limitation because Doris normally
+    // terminates with _exit(), and normal destructor processing is currently used
+    // only when enable_graceful_exit_check is enabled for sanitizer leak checks.
+    // TLS destructors on that diagnostic path must not access static-lifetime
+    // objects that may already have been destroyed. If graceful exit becomes a
+    // production path, the initial thread's TLS destructors must instead be run
+    // explicitly before the atexit/static-destructor list.
+    //
+    // A registration failure means that normal main-thread TLS cleanup cannot
+    // be guaranteed, so fail immediately instead of continuing with a partially
+    // installed compatibility implementation.
+    if (atexit(doris_run_main_thread_tls_destructors) != 0) {
+        abort();
+    }
+}
+
 extern __typeof__(posix_spawnp) __doris_old_posix_spawnp;
 DORIS_GLIBC_SYMVER(__doris_old_posix_spawnp, posix_spawnp, DORIS_GLIBC_BASE_VERSION);
 
@@ -53,8 +127,8 @@ DORIS_GLIBC_SYMVER(__doris_old_posix_spawn_file_actions_destroy, posix_spawn_fil
                    DORIS_GLIBC_BASE_VERSION);
 
 extern __typeof__(posix_spawn_file_actions_adddup2) __doris_old_posix_spawn_file_actions_adddup2;
-DORIS_GLIBC_SYMVER(__doris_old_posix_spawn_file_actions_adddup2,
-                   posix_spawn_file_actions_adddup2, DORIS_GLIBC_BASE_VERSION);
+DORIS_GLIBC_SYMVER(__doris_old_posix_spawn_file_actions_adddup2, posix_spawn_file_actions_adddup2,
+                   DORIS_GLIBC_BASE_VERSION);
 
 extern __typeof__(preadv) __doris_old_preadv;
 DORIS_GLIBC_SYMVER(__doris_old_preadv, preadv, DORIS_GLIBC_PREADV_VERSION);
@@ -89,4 +163,41 @@ DORIS_HIDDEN ssize_t preadv(int fd, const struct iovec* iov, int iov_count, off_
 DORIS_HIDDEN ssize_t splice(int fd_in, off64_t* offset_in, int fd_out, off64_t* offset_out,
                             size_t length, unsigned int flags) {
     return __doris_old_splice(fd_in, offset_in, fd_out, offset_out, length, flags);
+}
+
+// Rust std weak-links copy_file_range and otherwise issues the syscall itself.
+// Provide that syscall path locally so linking on glibc 2.27 does not attach a
+// GLIBC_2.27 version requirement. Old kernels return ENOSYS and Rust falls back
+// to its generic copy loop.
+DORIS_HIDDEN ssize_t copy_file_range(int fd_in, off64_t* offset_in, int fd_out, off64_t* offset_out,
+                                     size_t length, unsigned int flags) {
+    return (ssize_t)syscall(SYS_copy_file_range, fd_in, offset_in, fd_out, offset_out, length,
+                            flags);
+}
+
+// Rust std weak-links this glibc 2.18 entry point and has an internal fallback
+// when it is absent. Since the LDB sysroot exposes it, the final linker would
+// otherwise record GLIBC_2.18. Supply equivalent pthread-key based registration
+// locally. All callers are linked into doris_be, so dso_symbol tracking for
+// dlclose is intentionally unnecessary.
+// See https://github.com/rust-lang/rust/issues/57497 for more details.
+DORIS_HIDDEN int __cxa_thread_atexit_impl(doris_tls_destructor destructor, void* object,
+                                          void* dso_symbol) {
+    (void)dso_symbol;
+    if (pthread_once(&doris_tls_destructor_once, doris_init_tls_destructor_key) != 0) {
+        abort();
+    }
+
+    struct doris_tls_destructor_entry* entry = malloc(sizeof(*entry));
+    if (entry == NULL) {
+        abort();
+    }
+    entry->destructor = destructor;
+    entry->object = object;
+    entry->next = pthread_getspecific(doris_tls_destructor_key);
+    if (pthread_setspecific(doris_tls_destructor_key, entry) != 0) {
+        free(entry);
+        abort();
+    }
+    return 0;
 }

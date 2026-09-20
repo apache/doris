@@ -388,6 +388,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364V2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U128;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3U64V2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NanoSecondsAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NanoSecondsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NanoSecondsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nanosecond;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Negative;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NextDay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NgramSearch;
@@ -497,6 +501,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryTyp
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeomfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StIntersects;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StIsClosed;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinefromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StLinestringfromtext;
@@ -979,6 +984,10 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MurmurHash364V2.class, "murmur_hash3_64_v2"),
             scalar(MurmurHash3U128.class, "murmur_hash3_u128"),
             scalar(MurmurHash3U64V2.class, "murmur_hash3_u64_v2"),
+            scalar(Nanosecond.class, "nanosecond"),
+            scalar(NanoSecondsAdd.class, "nanoseconds_add"),
+            scalar(NanoSecondsDiff.class, "nanoseconds_diff"),
+            scalar(NanoSecondsSub.class, "nanoseconds_sub"),
             scalar(Negative.class, "negative"),
             scalar(NextDay.class, "next_day"),
             scalar(NonNullable.class, "non_nullable"),
@@ -1088,6 +1097,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StTouches.class, "st_touches"),
             scalar(StLength.class, "st_length"),
             scalar(StGeometryType.class, "st_geometrytype"),
+            scalar(StIsClosed.class, "st_isclosed"),
             scalar(StNumGeometries.class, "st_numgeometries"),
             scalar(StGeometries.class, "st_geometries"),
             scalar(StNumPoints.class, "st_numpoints", "st_npoints"),

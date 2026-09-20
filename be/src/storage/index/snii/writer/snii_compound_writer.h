@@ -131,10 +131,10 @@ public:
     // every rejection is terminal here because posting bytes may already have
     // entered the compound output; all later calls return the first error.
     Status push_term(StreamedTermPostings&& tp);
-    // Binds the semantic (plain-token) count after the merge's single postings
-    // pass. Complete scoring metadata requires exactly one call, including for
-    // an empty destination whose count is zero.
-    Status set_semantic_token_count(uint64_t token_count);
+    // Supply this destination segment's norms, rebuilt alongside postings during compaction.
+    // Sessions declaring write_norms must call this exactly once before finish, with doc_count
+    // entries.
+    Status set_encoded_norms(TrackedEncodedNorms encoded_norms);
     // Seals this index: flushes the trailing DICT block, streams the DICT region
     // right after the posting region and records the placements. A failed finish
     // leaves the session unfinished (and the container unsealable) -- there is
@@ -149,10 +149,7 @@ public:
 private:
     friend class SniiCompoundWriter;
     SniiStreamedIndexSession(SniiCompoundWriter* owner, SniiIndexInput in,
-                             TrackedNullDocids null_docids, TrackedEncodedNorms encoded_norms);
-    static SniiIndexInput attach_encoded_norms(SniiIndexInput in,
-                                               TrackedEncodedNorms* encoded_norms,
-                                               uint64_t reserved_bytes);
+                             TrackedNullDocids null_docids);
 
     SniiCompoundWriter* owner_;
     // The reservation precedes input_ so input_.encoded_norms is destroyed
@@ -163,8 +160,8 @@ private:
     SniiIndexInput input_;
     std::unique_ptr<LogicalIndexWriter> writer_;
     uint64_t post_off_ = 0;
-    bool semantic_token_count_required_ = false;
-    bool semantic_token_count_set_ = false;
+    bool norms_required_ = false;
+    bool norms_set_ = false;
     bool finished_ = false;
 };
 
@@ -226,10 +223,8 @@ public:
     // rejected while a session is unfinished, as is finish(). The returned
     // handle is owned by this writer and valid for its lifetime.
     Status begin_streamed_index(SniiIndexInput in, SniiStreamedIndexSession** session);
+    // Sessions with in.write_norms=true must supply norms through set_encoded_norms before finish.
     Status begin_streamed_index(SniiIndexInput in, TrackedNullDocids null_docids,
-                                SniiStreamedIndexSession** session);
-    Status begin_streamed_index(SniiIndexInput in, TrackedNullDocids null_docids,
-                                TrackedEncodedNorms encoded_norms,
                                 SniiStreamedIndexSession** session);
 
     // Writes bootstrap header + all index sections + adjacent metadata groups +

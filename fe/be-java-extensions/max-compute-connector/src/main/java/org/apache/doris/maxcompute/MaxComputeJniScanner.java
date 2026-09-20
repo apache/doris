@@ -17,8 +17,8 @@
 
 package org.apache.doris.maxcompute;
 
-import org.apache.doris.common.jni.JniScanner;
-import org.apache.doris.common.jni.vec.ColumnType;
+import org.apache.doris.jni.spi.JniScanner;
+import org.apache.doris.jni.spi.vec.ColumnType;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.table.configuration.CompressionCodec;
@@ -35,7 +35,8 @@ import com.google.common.base.Strings;
 import org.apache.arrow.vector.BaseVariableWidthVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.log4j.Logger;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -58,7 +59,7 @@ public class MaxComputeJniScanner extends JniScanner {
         System.setProperty("arrow.enable_null_check_for_get", "false");
     }
 
-    private static final Logger LOG = Logger.getLogger(MaxComputeJniScanner.class);
+    private static final Logger LOG = LoggerFactory.getLogger(MaxComputeJniScanner.class);
 
     // 256MB byte budget per scanner batch — limits the C++ Block size at the source.
     // With large rows (e.g. 585KB/row STRING), batch_size=4096 would create ~2.4GB Blocks.
@@ -200,7 +201,7 @@ public class MaxComputeJniScanner extends JniScanner {
     }
 
     @Override
-    public void open() throws IOException {
+    protected void openInternal() throws IOException {
         try {
             InputSplit split;
             if (splitType == SplitType.BYTE_SIZE) {
@@ -223,7 +224,7 @@ public class MaxComputeJniScanner extends JniScanner {
     }
 
     @Override
-    public void close() throws IOException {
+    protected void closeInternal() throws IOException {
         if (currentSplitReader != null) {
             try {
                 currentSplitReader.close();

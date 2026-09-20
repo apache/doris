@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -28,6 +29,7 @@ import org.apache.doris.thrift.schema.external.TNestedField;
 import org.apache.doris.thrift.schema.external.TSchema;
 import org.apache.doris.thrift.schema.external.TStructField;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SingleValueParser;
 import org.apache.iceberg.Table;
@@ -213,8 +215,15 @@ public final class IcebergSchemaUtils {
      * name-mapping property, and a present (possibly empty) map when it does — the distinction #65784 relies on
      * to make a table-level mapping AUTHORITATIVE (an unmapped field then materializes its default/NULL instead
      * of silently matching a physical column by its current name; see {@link #buildField}). Port of legacy
-     * {@code IcebergScanNode.extractNameMapping} + {@code IcebergUtils.getNameMapping} (#65784); fail-soft (a
-     * parse error logs + yields {@code Optional.empty()}, so a malformed property never breaks the scan).
+     * {@code IcebergScanNode.extractNameMapping} + {@code IcebergUtils.getNameMapping} (#65784).
+     *
+     * <p>A property that is present but cannot be parsed is a metadata fault, not an absent mapping: Iceberg
+     * readers refuse such tables (Spark parses {@code schema.name-mapping.default} while constructing the file
+     * reader), so fail instead of degrading to current-schema aliases. Those aliases cannot resolve the old
+     * physical columns of ID-less files after a rename — the scan would silently return NULL, or bind the wrong
+     * physical column once a name has been reused.
+     *
+     * @throws DorisConnectorException if the property is present but cannot be parsed as a name mapping
      */
     static Optional<Map<Integer, List<String>>> extractNameMapping(Table table) {
         String nameMappingJson = table.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
@@ -230,9 +239,14 @@ public final class IcebergSchemaUtils {
             collectNameMappings(mapping.asMappedFields(), result);
             return Optional.of(result);
         } catch (Exception e) {
-            // If name mapping parsing fails, continue without it (legacy parity).
-            LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
-            return Optional.empty();
+            LOG.warn("Failed to parse name mapping of table {}", table.name(), e);
+            throw new DorisConnectorException(String.format(
+                    "Invalid table property '%s' of Iceberg table %s: %s. "
+                            + "The value must be an Iceberg name mapping JSON array; please fix or drop "
+                            + "the property (for example with ALTER TABLE ... UNSET TBLPROPERTIES in "
+                            + "Spark) and refresh the table.",
+                    TableProperties.DEFAULT_NAME_MAPPING, table.name(),
+                    ExceptionUtils.getRootCauseMessage(e)), e);
         }
     }
 
@@ -381,6 +395,13 @@ public final class IcebergSchemaUtils {
         TColumnType columnType = new TColumnType();
         if (type.isPrimitiveType()) {
             tField.setType(buildPrimitiveColumnType(type, enableVarbinary, enableTimestampTz));
+            return tField;
+        }
+        if (type.isVariantType()) {
+            // Variant object keys are data, not schema fields. BE resolves a Variant access path nested in a
+            // STRUCT/ARRAY/MAP only when this leaf keeps its VARIANT type instead of a scalar placeholder.
+            columnType.setType(TPrimitiveType.VARIANT);
+            tField.setType(columnType);
             return tField;
         }
 

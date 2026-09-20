@@ -63,6 +63,22 @@ under the License.
     </description>
 
     <dependencies>
+        <!-- DLF's Hive-3 client must be shaded with the same thrift namespace as the Hive metastore
+             classes below. Keeping that invariant lets Iceberg load ProxyMetaStoreClient entirely
+             from its plugin instead of falling back to the removed host-side fat shade. -->
+        <dependency>
+            <groupId>com.aliyun.datalake</groupId>
+            <artifactId>metastore-client-hive3</artifactId>
+            <version>0.2.14</version>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion><groupId>com.aliyun</groupId><artifactId>tea</artifactId></exclusion>
+                <exclusion><groupId>com.aliyun</groupId><artifactId>tea-openapi</artifactId></exclusion>
+                <exclusion><groupId>com.aliyun</groupId><artifactId>tea-util</artifactId></exclusion>
+                <exclusion><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk15on</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
         <!-- hive-standalone-metastore 3.1.3 supplies the REAL metastore implementation:
              org.apache.hadoop.hive.metastore.api.* (ThriftHiveMetastore + ~200 structs),
              IMetaStoreClient / MetastoreConf / MetaStoreUtils / HadoopThriftAuthBridge / txn.TxnUtils,
@@ -195,9 +211,9 @@ under the License.
             </exclusions>
         </dependency>
 
-        <!-- iceberg-hive-metastore 1.10.1 supplies org.apache.iceberg.hive.HiveCatalog (the hms flavor);
+        <!-- iceberg-hive-metastore supplies org.apache.iceberg.hive.HiveCatalog (the hms flavor);
              only fe-connector-iceberg loads it. iceberg-core/api/common/bundled-guava + caffeine + slf4j
-             are excluded — the iceberg plugin already ships iceberg-core 1.10.1 (which brings api/common/
+             are excluded — the iceberg plugin already ships the matching iceberg-core version (which brings api/common/
              guava/caffeine) as its own child-first jar, so re-bundling them here would create duplicate
              classes. Only the org.apache.iceberg.hive.* classes are kept, and the relocation below rewrites
              their org.apache.thrift refs to the shared private prefix so they link against the same
@@ -205,7 +221,8 @@ under the License.
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-hive-metastore</artifactId>
-            <version>1.10.1</version>
+            <!-- Keep HiveCatalog bytecode aligned with the Iceberg core loaded by the connector. -->
+            <version>${iceberg.version}</version>
             <optional>true</optional>
             <exclusions>
                 <exclusion><groupId>org.apache.iceberg</groupId><artifactId>iceberg-core</artifactId></exclusion>
@@ -330,6 +347,8 @@ under the License.
                                  do not. commons-lang (2.x) stays for HiveConf.<clinit>. -->
                             <artifactSet>
                                 <includes>
+                                    <include>com.aliyun.datalake:*</include>
+                                    <include>com.aliyun:datalake20200710</include>
                                     <include>org.apache.hive:hive-standalone-metastore</include>
                                     <include>org.apache.hive:hive-common</include>
                                     <include>org.apache.hive:hive-serde</include>
@@ -376,6 +395,10 @@ under the License.
                                 <relocation>
                                     <pattern>org.apache.thrift</pattern>
                                     <shadedPattern>shade.doris.hive.org.apache.thrift</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>com.aliyun.tea</pattern>
+                                    <shadedPattern>shade.doris.hive.com.aliyun.tea</shadedPattern>
                                 </relocation>
                                 <!-- defensive: hive drags an ancient fastutil via some transitives; relocate
                                      it so it cannot shadow the modern it.unimi.dsi:fastutil(-core) on the FE

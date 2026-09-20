@@ -107,7 +107,6 @@ class ConnectProcessorDelegatedCredentialTest {
 
         private RecordingConnectProcessor(ConnectContext context) {
             super(context);
-            this.connectType = ConnectType.MYSQL;
         }
 
         private void handle(String originStmt) throws Exception {

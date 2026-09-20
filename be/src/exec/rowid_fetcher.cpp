@@ -42,7 +42,9 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
+#include "exec/scan/file_scanner_v2.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/io_common.h"
@@ -437,6 +439,28 @@ const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRowsRead
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSegmentsRead =
         "TopNLazyMaterializationSecondPhaseSegmentsRead";
 
+bool RowIdStorageReader::should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                                    const TFileScanRangeParams& scan_params,
+                                                    const TFileRangeDesc& range) {
+    const auto format_type =
+            range.__isset.format_type ? range.format_type : scan_params.format_type;
+    // Phase two inherits the query options, including the Thrift presence bit. Reuse phase one's
+    // policy so disabling V2 (or an older payload omitting the option) also keeps row fetches on V1.
+    return FileScanLocalState::should_use_file_scanner_v2(query_options, false, scan_params) &&
+           (format_type == TFileFormatType::FORMAT_PARQUET ||
+            format_type == TFileFormatType::FORMAT_ORC) &&
+           FileScannerV2::is_supported(scan_params, range);
+}
+
+TFileRangeDesc RowIdStorageReader::build_external_fetch_range(const TFileRangeDesc& source_range) {
+    // Rows were selected after delete filtering. Preserve the original path and row lineage
+    // needed by virtual columns, and do not mutate the FileMapping shared by other fetches.
+    auto range = source_range;
+    range.table_format_params.iceberg_params.__set_delete_files({});
+    range.table_format_params.transactional_hive_params = TTransactionalHiveDesc {};
+    return range;
+}
+
 Status RowIdStorageReader::read_external_row_from_file_mapping(
         size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
         const std::shared_ptr<FileMapping>& file_mapping,
@@ -467,25 +491,30 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     scan_blocks[idx] = Block(scan_slots, read_ids.size());
 
     auto& external_info = file_mapping->get_external_file_info();
-    auto& scan_range_desc = external_info.scan_range_desc;
-
-    // Clear to avoid reading iceberg position delete file...
-    scan_range_desc.table_format_params.iceberg_params = TIcebergFileDesc {};
-
-    // Clear to avoid reading hive transactional delete delta file...
-    scan_range_desc.table_format_params.transactional_hive_params = TTransactionalHiveDesc {};
+    auto scan_range_desc = build_external_fetch_range(external_info.scan_range_desc);
 
     std::unique_ptr<RuntimeProfile> sub_runtime_profile =
             std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
     {
-        std::unique_ptr<FileScanner> vfile_scanner_ptr =
-                FileScanner::create_unique(runtime_state.get(), sub_runtime_profile.get(),
-                                           &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
-
-        RETURN_IF_ERROR(vfile_scanner_ptr->prepare_for_read_lines(scan_range_desc));
-        RETURN_IF_ERROR(vfile_scanner_ptr->read_lines_from_range(
-                scan_range_desc, read_ids, &scan_blocks[idx], external_info,
-                &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
+        if (should_use_file_scanner_v2(runtime_state->query_options(), rpc_scan_params,
+                                       scan_range_desc)) {
+            auto file_scanner = FileScannerV2::create_unique(
+                    runtime_state.get(), sub_runtime_profile.get(), &rpc_scan_params,
+                    &colname_to_slot_id, &tuple_desc);
+            RETURN_IF_ERROR(file_scanner->read_by_rows(scan_range_desc, read_ids, &scan_blocks[idx],
+                                                       &fetch_statistics[idx].init_reader_ms,
+                                                       &fetch_statistics[idx].get_block_ms));
+        } else {
+            // Phase one can still use V1 for table-format variants unsupported by V2, so keep the
+            // matching phase-two path instead of turning a previously valid query into an error.
+            auto file_scanner =
+                    FileScanner::create_unique(runtime_state.get(), sub_runtime_profile.get(),
+                                               &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
+            RETURN_IF_ERROR(file_scanner->prepare_for_read_lines(scan_range_desc));
+            RETURN_IF_ERROR(file_scanner->read_lines_from_range(
+                    scan_range_desc, read_ids, &scan_blocks[idx], external_info,
+                    &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
+        }
     }
 
     if (scan_blocks[idx].rows() != read_ids.size()) {
@@ -506,7 +535,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     }
 
     auto file_read_bytes_counter =
-            sub_runtime_profile->get_counter(FileScanner::FileReadBytesProfile);
+            sub_runtime_profile->get_counter(FileScannerV2::FileReadBytesProfile);
 
     if (file_read_bytes_counter != nullptr) {
         fetch_statistics[idx].file_read_bytes = PrettyPrinter::print(
@@ -514,7 +543,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     }
 
     auto file_read_times_counter =
-            sub_runtime_profile->get_counter(FileScanner::FileReadTimeProfile);
+            sub_runtime_profile->get_counter(FileScannerV2::FileReadTimeProfile);
     if (file_read_times_counter != nullptr) {
         fetch_statistics[idx].file_read_times = PrettyPrinter::print(
                 file_read_times_counter->value(), file_read_times_counter->type());
@@ -609,6 +638,47 @@ Status RowIdStorageReader::submit_external_scan_tasks(
     return scan_status.ok() ? Status::OK() : scan_status.status();
 }
 
+TFileScanRangeParams RowIdStorageReader::build_external_scan_params(
+        const TFileScanRangeParams& source_params, const TFileRangeDesc& range,
+        const std::vector<SlotDescriptor>& scan_slots,
+        const std::vector<uint32_t>& scan_column_idxs) {
+    DORIS_CHECK(scan_slots.size() == scan_column_idxs.size());
+    auto params = source_params;
+    params.required_slots.clear();
+    params.column_idxs.clear();
+    params.slot_name_to_schema_pos.clear();
+    const std::set partition_names(range.columns_from_path_keys.begin(),
+                                   range.columns_from_path_keys.end());
+    for (size_t slot_idx = 0; slot_idx < scan_slots.size(); ++slot_idx) {
+        const auto& slot = scan_slots[slot_idx];
+        const auto column_idx = scan_column_idxs[slot_idx];
+        TFileScanSlotInfo slot_info;
+        slot_info.__set_slot_id(slot.id());
+        // Hive V2 checks the Thrift presence bit before trusting is_file_slot. Without it,
+        // partition columns consume physical file indexes and invalidate the rebuilt projection.
+        bool is_file_slot = !partition_names.contains(slot.col_name());
+        if (source_params.__isset.column_name_to_category) {
+            // Lazy metadata slots may be absent from phase one's required_slots and have new
+            // slot IDs here. The pinned schema's name map preserves their original categories.
+            const auto it = source_params.column_name_to_category.find(slot.col_name());
+            const auto category = it != source_params.column_name_to_category.end()
+                                          ? it->second
+                                          : TColumnCategory::REGULAR;
+            slot_info.__set_category(category);
+            is_file_slot =
+                    category == TColumnCategory::REGULAR || category == TColumnCategory::GENERATED;
+        }
+        slot_info.__set_is_file_slot(is_file_slot);
+        if (is_file_slot) {
+            params.column_idxs.emplace_back(column_idx);
+        }
+        params.default_value_of_src_slot.emplace(slot.id(), TExpr {});
+        params.required_slots.emplace_back(slot_info);
+        params.slot_name_to_schema_pos.emplace(slot.col_name(), column_idx);
+    }
+    return params;
+}
+
 Status RowIdStorageReader::read_batch_external_row(
         const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
         std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
@@ -641,15 +711,6 @@ Status RowIdStorageReader::read_batch_external_row(
 
         DCHECK(id_file_map->get_external_scan_params().contains(plan_node_id));
         const auto* old_scan_params = &(id_file_map->get_external_scan_params().at(plan_node_id));
-        rpc_scan_params = *old_scan_params;
-
-        rpc_scan_params.required_slots.clear();
-        rpc_scan_params.column_idxs.clear();
-        rpc_scan_params.slot_name_to_schema_pos.clear();
-
-        std::set partition_name_set(first_scan_range_desc.columns_from_path_keys.begin(),
-                                    first_scan_range_desc.columns_from_path_keys.end());
-
         std::unordered_map<std::string, size_t> source_column_to_scan_idx;
 
         result_column_to_scan_column.reserve(slots.size());
@@ -668,24 +729,12 @@ Status RowIdStorageReader::read_batch_external_row(
             }
         }
 
-        for (auto slot_idx = 0; slot_idx < scan_slots.size(); ++slot_idx) {
-            auto& slot = scan_slots[slot_idx];
+        for (auto& slot : scan_slots) {
             tuple_desc.add_slot(&slot);
             colname_to_slot_id[slot.col_name()] = slot.id();
-            TFileScanSlotInfo slot_info;
-            slot_info.slot_id = slot.id();
-            auto column_idx = scan_column_idxs[slot_idx];
-            if (partition_name_set.contains(slot.col_name())) {
-                //This is partition column.
-                slot_info.is_file_slot = false;
-            } else {
-                rpc_scan_params.column_idxs.emplace_back(column_idx);
-                slot_info.is_file_slot = true;
-            }
-            rpc_scan_params.default_value_of_src_slot.emplace(slot.id(), TExpr {});
-            rpc_scan_params.required_slots.emplace_back(slot_info);
-            rpc_scan_params.slot_name_to_schema_pos.emplace(slot.col_name(), column_idx);
         }
+        rpc_scan_params = build_external_scan_params(*old_scan_params, first_scan_range_desc,
+                                                     scan_slots, scan_column_idxs);
 
         const auto& query_options = id_file_map->get_query_options();
         const auto& query_globals = id_file_map->get_query_globals();
@@ -866,9 +915,9 @@ Status RowIdStorageReader::read_batch_external_row(
                                          std::to_string(*init_reader_avg_ms) + "ms");
         runtime_profile->add_info_string(FileReadLinesProfile,
                                          fmt::to_string(file_read_lines_buffer));
-        runtime_profile->add_info_string(FileScanner::FileReadBytesProfile,
+        runtime_profile->add_info_string(FileScannerV2::FileReadBytesProfile,
                                          fmt::to_string(file_read_bytes_buffer));
-        runtime_profile->add_info_string(FileScanner::FileReadTimeProfile,
+        runtime_profile->add_info_string(FileScannerV2::FileReadTimeProfile,
                                          fmt::to_string(file_read_times_buffer));
     }
 

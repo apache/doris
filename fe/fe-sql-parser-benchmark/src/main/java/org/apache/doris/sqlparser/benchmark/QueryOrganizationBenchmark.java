@@ -19,7 +19,6 @@ package org.apache.doris.sqlparser.benchmark;
 
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.parser.ParseErrorListener;
-import org.apache.doris.nereids.parser.PostProcessor;
 import org.apache.doris.sqlparser.DorisSqlParser;
 
 import org.antlr.v4.runtime.CommonTokenStream;
@@ -58,7 +57,6 @@ public class QueryOrganizationBenchmark {
     @Param({"plainSelect", "orderedSelect", "unionTail", "parenthesizedUnion", "inlineValues"})
     public String workload;
 
-    private final PostProcessor postProcessor = new PostProcessor();
     private final ParseErrorListener errorListener = new ParseErrorListener();
 
     private DorisSqlParser facade;
@@ -104,7 +102,6 @@ public class QueryOrganizationBenchmark {
         CommonTokenStream stream = new CommonTokenStream(new ListTokenSource(tokens));
         DorisParser parser = new DorisParser(stream);
         parser.ansiSQLSyntax = ansi;
-        parser.addParseListener(postProcessor);
         parser.removeErrorListeners();
         parser.addErrorListener(errorListener);
         parser.getInterpreter().setPredictionMode(PredictionMode.SLL);

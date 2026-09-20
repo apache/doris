@@ -69,6 +69,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -123,7 +124,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.HttpStreamParams;
@@ -135,10 +135,10 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
-import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.statistics.analysis.AnalysisManager;
 import org.apache.doris.statistics.analysis.TableStatsMeta;
 import org.apache.doris.statistics.cache.InvalidateStatsTarget;
@@ -156,6 +156,8 @@ import org.apache.doris.tablefunction.MetadataGenerator;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TAbortRemoteTxnRequest;
 import org.apache.doris.thrift.TAbortRemoteTxnResult;
+import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceRequest;
+import org.apache.doris.thrift.TAcquireTimeBasedChangeReadFenceResult;
 import org.apache.doris.thrift.TAddOrDropPartitionsRequest;
 import org.apache.doris.thrift.TAddOrDropPartitionsResult;
 import org.apache.doris.thrift.TAutoIncrementRangeRequest;
@@ -231,6 +233,7 @@ import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TGroupCommitInfo;
+import org.apache.doris.thrift.TIncrWindowNotReady;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TInsertOverwriteRecordRequest;
@@ -1158,7 +1161,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         logForwardRequest(params);
         ConnectContext context = createForwardContext(params, requester);
-        ConnectProcessor processor = createForwardProcessor(context);
+        // createForwardContext() always builds a MySQL proxy context: the master replays the
+        // forwarded statement over a ProxyMysqlChannel and hands the packets back to the
+        // origin FE, whatever protocol the client is speaking there.
+        ConnectProcessor processor = new MysqlConnectProcessor(context);
         Runnable clearCallback = registerProxyQuery(params, context);
         try {
             return executeForward(params, context, processor);
@@ -1258,7 +1264,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private ConnectContext createForwardContext(TMasterOpRequest params, Frontend requester) {
-        ConnectContext context = new ConnectContext(null, true, params.getSessionId());
+        ConnectContext context = ConnectContext.forMysqlProxy(params.getSessionId());
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
@@ -1268,16 +1274,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             context.setCloudCluster(params.getCloudCluster());
         }
         return context;
-    }
-
-    private ConnectProcessor createForwardProcessor(ConnectContext context) throws TException {
-        if (context.getConnectType().equals(ConnectType.MYSQL)) {
-            return new MysqlConnectProcessor(context);
-        }
-        if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-            return new FlightSqlConnectProcessor(context);
-        }
-        throw new TException("unknown ConnectType: " + context.getConnectType());
     }
 
     private Runnable registerProxyQuery(TMasterOpRequest params, ConnectContext context) {
@@ -3393,6 +3389,43 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
+    @Override
+    public TAcquireTimeBasedChangeReadFenceResult acquireTimeBasedChangeReadFence(
+            TAcquireTimeBasedChangeReadFenceRequest request) throws TException {
+        TAcquireTimeBasedChangeReadFenceResult result = new TAcquireTimeBasedChangeReadFenceResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        if (status.getStatusCode() != TStatusCode.OK) {
+            return result;
+        }
+
+        try {
+            TimeBasedChangeVisibleWaiter.ChangeReadFence fence =
+                    TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
+                            request.getDbToTableIds(),
+                            request.isSetEndTimestampMs() ? request.getEndTimestampMs() : null,
+                            request.getTimeoutMs(), request.isWaitForTransactions(), request.isAllEndsExplicit());
+            result.setCurrentTso(fence.getCurrentTso());
+            result.setMaxJournalId(fence.getMaxJournalId());
+            result.setCommittedTso(fence.getCommittedTso());
+        } catch (IncrWindowNotReadyException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getDetailMessage());
+            result.setWindowNotReady(new TIncrWindowNotReady(
+                    e.getRequestedEndTimestampMs(), e.getCommittedTso(), e.getRetryAfterMs())
+                    .setCurrentTso(e.getCurrentTso()).setErrorCode(e.getMysqlErrorCode().getCode())
+                    .setTimeoutMs(e.getTimeoutMs()).setReason(e.getReason()));
+        } catch (UserException e) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(e.getDetailMessage());
+        } catch (RuntimeException e) {
+            LOG.warn("failed to acquire time-based change read fence", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
+    }
+
     private TNetworkAddress getClientAddr() {
         ThriftServerContext connectionContext = ThriftServerEventProcessor.getConnectionContext();
         // For NonBlockingServer, we can not get client ip.
@@ -3544,6 +3577,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
         TPrivilegeCtrl privCtrl = request.getPrivCtrl();
         TPrivilegeHier privHier = privCtrl.getPrivHier();
+        // Every name below is optional in the IDL and this is the one caller whose names come off the wire, so
+        // a request naming none of what its hierarchy is about is refused here. An authorization source is
+        // asked about an object, not about the absence of one: the sources answer that question by walking
+        // names they were handed, so a missing one used to be read as "no match, so no" and is now a malformed
+        // request - refused as one, rather than as a thrift-level failure out of a null name deep inside.
+        String missing = missingPrivilegeName(privHier, privCtrl);
+        if (missing != null) {
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs("a " + privHier + " privilege check must name the " + missing
+                    + ", but this request named none");
+            return result;
+        }
         if (privHier == TPrivilegeHier.GLOBAL) {
             if (!accessManager.checkGlobalPriv(currentUser.get(0), predicate)) {
                 status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
@@ -3589,6 +3634,38 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs("Privilege control error");
         }
         return result;
+    }
+
+    /**
+     * Which name a {@code checkAuth} request left out, or null when it named everything its hierarchy needs.
+     *
+     * <p>The {@code COLUMNS} branch is the one exception: it hard-codes the internal catalog, so a request
+     * leaving {@code ctl} out is answered there rather than refused. Every other branch passes the name the
+     * request carries straight through to a constructor that requires it.
+     */
+    private static String missingPrivilegeName(TPrivilegeHier privHier, TPrivilegeCtrl privCtrl) {
+        if (privHier == null) {
+            return null;
+        }
+        switch (privHier) {
+            case CATALOG:
+                return privCtrl.getCtl() == null ? "catalog" : null;
+            case DATABASE:
+                return privCtrl.getCtl() == null ? "catalog" : privCtrl.getDb() == null ? "database" : null;
+            case TABLE:
+                return privCtrl.getCtl() == null ? "catalog"
+                        : privCtrl.getDb() == null ? "database" : privCtrl.getTbl() == null ? "table" : null;
+            case COLUMNS:
+                if (privCtrl.getDb() == null) {
+                    return "database";
+                }
+                // The empty column list is refused by checkColumnsPriv itself, which says so in its own terms.
+                return privCtrl.getTbl() == null ? "table" : null;
+            case RESOURSE:
+                return privCtrl.getRes() == null ? "resource" : null;
+            default:
+                return null;
+        }
     }
 
     private PrivPredicate getPrivPredicate(TPrivilegeType privType) {
@@ -3972,7 +4049,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (syncJournal) {
-                ConnectContext ctx = new ConnectContext(null);
+                ConnectContext ctx = new ConnectContext();
                 ctx.setDatabase(request.getDb());
                 ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
                 ctx.setEnv(Env.getCurrentEnv());

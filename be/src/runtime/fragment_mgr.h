@@ -53,6 +53,7 @@ extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
 class PipelineFragmentContext;
 class QueryContext;
+class DescriptorTbl;
 class ExecEnv;
 struct FrontendInfo;
 class ThreadPool;
@@ -218,6 +219,10 @@ private:
 
     void _check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
                                const BrpcItem& brpc_item);
+
+    static Status _build_external_scan_selected_columns(
+            const TPlanFragment& plan_fragment, const DescriptorTbl& desc_tbl,
+            std::vector<TScanColumnDesc>* selected_columns);
 
     // This is input params
     ExecEnv* _exec_env = nullptr;
