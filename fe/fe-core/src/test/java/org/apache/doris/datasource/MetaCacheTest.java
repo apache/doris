@@ -895,6 +895,98 @@ public class MetaCacheTest {
         }
     }
 
+    @Test
+    public void testBulkInvalidationDoesNotSplitEventObjectAndIdRoute() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        CountDownLatch objectUpdateReached = new CountDownLatch(1);
+        CountDownLatch releaseObjectUpdate = new CountDownLatch(1);
+        CountDownLatch invalidationStarted = new CountDownLatch(1);
+        MetaCache<String> cache = new MetaCache<>(
+                "databaseCache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> Lists.newArrayList(),
+                key -> Optional.of(key),
+                (key, value, cause) -> { });
+        installBlockingObjectCache(cache, "local-1", objectUpdateReached, releaseObjectUpdate);
+
+        try {
+            Future<?> update = callers.submit(() -> cache.updateCache("remote-1", "local-1", "meta-1", 1));
+            Assert.assertTrue(objectUpdateReached.await(3, TimeUnit.SECONDS));
+            Future<?> invalidation = callers.submit(() -> {
+                invalidationStarted.countDown();
+                cache.invalidateObjects();
+            });
+            Assert.assertTrue(invalidationStarted.await(3, TimeUnit.SECONDS));
+
+            try {
+                invalidation.get(1, TimeUnit.SECONDS);
+                Assert.fail("Bulk invalidation must not split an in-flight event publication");
+            } catch (TimeoutException expected) {
+                // The generation swap waits for the short object/ID publication section.
+            }
+            releaseObjectUpdate.countDown();
+            update.get(3, TimeUnit.SECONDS);
+            invalidation.get(3, TimeUnit.SECONDS);
+
+            Assert.assertFalse(cache.tryGetMetaObj("local-1").isPresent());
+            Assert.assertFalse(cache.getMetaObjById(1).isPresent());
+        } finally {
+            releaseObjectUpdate.countDown();
+            callers.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Assert.assertTrue(callers.awaitTermination(3, TimeUnit.SECONDS));
+            Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testExecuteIfCurrentRejectsActionRacingBulkInvalidation() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService callers = Executors.newSingleThreadExecutor();
+        CountDownLatch actionStarted = new CountDownLatch(1);
+        CountDownLatch releaseAction = new CountDownLatch(1);
+        MetaCache<String> cache = new MetaCache<>(
+                "databaseCache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> Lists.newArrayList(),
+                key -> Optional.of(key),
+                (key, value, cause) -> { });
+        cache.updateCache("remote-1", "local-1", "meta-1", 1);
+
+        try {
+            Future<Boolean> action = callers.submit(() -> cache.executeIfMetaObjCurrent(
+                    "local-1", "meta-1", () -> {
+                        actionStarted.countDown();
+                        try {
+                            return releaseAction.await(3, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new CompletionException(e);
+                        }
+                    }));
+            Assert.assertTrue(actionStarted.await(3, TimeUnit.SECONDS));
+            cache.invalidateObjects();
+            releaseAction.countDown();
+
+            Assert.assertFalse(action.get(3, TimeUnit.SECONDS));
+            Assert.assertFalse(cache.tryGetMetaObj("local-1").isPresent());
+            Assert.assertFalse(cache.getMetaObjById(1).isPresent());
+        } finally {
+            releaseAction.countDown();
+            callers.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Assert.assertTrue(callers.awaitTermination(3, TimeUnit.SECONDS));
+            Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private void installBlockingObjectCache(MetaCache<String> cache, String blockedName,
             CountDownLatch objectUpdateReached, CountDownLatch releaseObjectUpdate) throws Exception {
