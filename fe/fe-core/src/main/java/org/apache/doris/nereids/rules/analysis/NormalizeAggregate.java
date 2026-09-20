@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
@@ -302,10 +303,42 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
                 }
             }
             if (!missingSlotsInAggregate.isEmpty()) {
-                if (SqlModeHelper.hasOnlyFullGroupBy()) {
-                    throw new AnalysisException(String.format("%s not in aggregate's output", missingSlotsInAggregate
-                            .stream().map(NamedExpression::getName).collect(Collectors.joining(", "))));
-                } else {
+                // Under only_full_group_by, a non-grouped, non-aggregated output column that is constant for
+                // every input row (uniform and not null) is valid (MySQL functional dependency), e.g.
+                //   SELECT a AS b, b AS c FROM (SELECT 1 AS a, 2 AS b) t GROUP BY b, c
+                // where 'a' is a constant column of the derived table. We add such a column to the group-by
+                // keys rather than wrapping it in any_value(): grouping by a constant does not change the
+                // grouping, makes the column a valid output, and changes no exprId, so references in ancestors
+                // (e.g. the result sink) stay valid -- any_value() would need a new exprId that this rule
+                // cannot propagate upward. The redundant uniform key is later removed by
+                // EliminateGroupByKeyByUniform. Only done when the aggregate already has group-by keys; for a
+                // global aggregate adding a key would change empty-input semantics. isUniformAndNotNull (not
+                // isUniform) excludes the nullable side of an outer join, which holds the uniform value on
+                // matched rows but NULL on unmatched rows of the same group.
+                Set<Slot> constantMissingSlots = new HashSet<>();
+                if (SqlModeHelper.hasOnlyFullGroupBy() && !normalizedGroupExprs.isEmpty()) {
+                    DataTrait childTrait = aggregate.child().getLogicalProperties().getTrait();
+                    for (Slot slot : missingSlotsInAggregate) {
+                        if (childTrait.isUniformAndNotNull(slot)) {
+                            constantMissingSlots.add(slot);
+                        }
+                    }
+                }
+                if (!constantMissingSlots.isEmpty()) {
+                    bottomProjects = Sets.union(bottomProjects, constantMissingSlots);
+                    normalizedGroupExprs = ImmutableList.<Expression>builder()
+                            .addAll(normalizedGroupExprs).addAll(constantMissingSlots).build();
+                    for (Slot slot : constantMissingSlots) {
+                        normalizedAggOutputBuilder.add(slot);
+                    }
+                    missingSlotsInAggregate.removeAll(constantMissingSlots);
+                }
+                if (!missingSlotsInAggregate.isEmpty()) {
+                    if (SqlModeHelper.hasOnlyFullGroupBy()) {
+                        throw new AnalysisException(String.format(
+                                "%s not in aggregate's output", missingSlotsInAggregate.stream()
+                                        .map(NamedExpression::getName).collect(Collectors.joining(", "))));
+                    }
                     // for any slots missing in aggregate's output, we should add a any_value(slot) into
                     // aggregate's output list and slot itself into bottom project's output list
                     bottomProjects = Sets.union(bottomProjects, missingSlotsInAggregate);
@@ -333,8 +366,12 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         LogicalAggregate<?> newAggregate =
                 aggregate.withNormalized(normalizedGroupExprs, normalizedAggOutputBuilder.build(), bottomPlan);
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx);
+        // Use the current aggregate output (newAggregate already contains the constant group-key slots added
+        // for missing slots above), not the stale normalizedAggOutput snapshot, so constant group-key
+        // elimination keeps those outputs and does not leave dangling references in upperProjects.
         LogicalProject<Plan> project = eliminateGroupByConstant(groupByExprContext, rewriteContext,
-                normalizedGroupExprs, normalizedAggOutput, bottomProjects, aggregate, upperProjects, newAggregate);
+                normalizedGroupExprs, newAggregate.getOutputExpressions(), bottomProjects, aggregate,
+                upperProjects, newAggregate);
 
         if (having.isPresent()) {
             Set<Slot> havingUsedSlots = having.get().getInputSlots();
