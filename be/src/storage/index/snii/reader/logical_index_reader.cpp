@@ -878,6 +878,18 @@ ALWAYS_INLINE Status LogicalIndexReader::consume_lookup_wave(
     DORIS_CHECK(state->owner_ == this);
     DORIS_CHECK(state->wave_ == &fetcher);
     for (const PendingBatchLookupBlock& block : state->pending_) {
+        index_query::MemoryBudget::Reservation decode_memory;
+        if (auto* budget = fetcher.memory_budget(); budget != nullptr) {
+            DictBlockScanMemory memory;
+            RETURN_IF_ERROR(
+                    dict_block_scan_memory(state->groups_[block.group_index].ordinal, &memory));
+            // The fetcher owns the disk bytes; raw blocks also borrow their decoded payload.
+            uint64_t bytes = memory.decode_bytes - block.ref.length;
+            if ((block.ref.flags & format::block_ref_flags::kZstd) == 0) {
+                bytes -= block.ref.length;
+            }
+            RETURN_IF_ERROR(budget->reserve(bytes, &decode_memory));
+        }
         const Slice on_disk = fetcher.get(block.handle);
         std::vector<uint8_t> decoded;
         Slice payload = on_disk;

@@ -395,6 +395,165 @@ TEST(SniiQueryTermResolutionBatch, ResidentDictionaryDoesNotChargeTheRequestCach
     EXPECT_EQ(budget.used_bytes(), 0U);
 }
 
+TEST(SniiQueryTermResolutionBatch, DictionaryWaveRequiresBudgetForDecodeWorkspace) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    for (const std::string& term : {std::string("alpha"), std::string(4096, 'a')}) {
+        SCOPED_TRACE(term.size());
+        MemoryFile file;
+        assert_ok(write_index(&file, {term}, 8192));
+        CountingReader counting(&file);
+        reader::SniiSegmentReader segment;
+        assert_ok(reader::SniiSegmentReader::open(&counting, &segment));
+        reader::LogicalIndexReader index;
+        assert_ok(segment.open_index(kIndexId, kIndexSuffix, &index));
+        const std::vector<std::string> terms {term};
+        std::vector<reader::LogicalIndexReader::BatchLookupResult> results;
+        reader::LogicalIndexReader::BatchLookupState state;
+        assert_ok(index.prepare_lookup_batch(terms, &results, &state));
+        const uint64_t read_bytes = index.section_refs().dict_region.length;
+        index_query::MemoryBudget budget(read_bytes);
+        io::BatchRangeFetcher fetcher(&counting, 0, &budget);
+        assert_ok(index.prepare_lookup_wave(&state, &fetcher));
+        counting.reset_counts();
+        assert_ok(fetcher.fetch());
+        ASSERT_EQ(budget.used_bytes(), read_bytes);
+        const uint64_t rounds = counting.rounds();
+        const Status status = index.consume_lookup_wave(&state, fetcher);
+        EXPECT_TRUE(status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << status.to_string();
+        EXPECT_EQ(counting.rounds(), rounds);
+        EXPECT_EQ(budget.used_bytes(), read_bytes);
+        EXPECT_FALSE(results.front().found);
+        fetcher.clear();
+        EXPECT_EQ(budget.used_bytes(), 0U);
+    }
+}
+
+TEST(SniiQueryTermResolutionBatch, DictionaryWaveReleasesDecodeWorkspaceAfterConsumption) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    for (const std::string& term : {std::string("alpha"), std::string(4096, 'a')}) {
+        SCOPED_TRACE(term.size());
+        MemoryFile file;
+        assert_ok(write_index(&file, {term}, 8192));
+        CountingReader counting(&file);
+        reader::SniiSegmentReader segment;
+        assert_ok(reader::SniiSegmentReader::open(&counting, &segment));
+        reader::LogicalIndexReader index;
+        assert_ok(segment.open_index(kIndexId, kIndexSuffix, &index));
+        reader::DictBlockScanMemory memory;
+        assert_ok(index.dict_block_scan_memory(0, &memory));
+        index_query::MemoryBudget budget(memory.decode_bytes);
+        io::BatchRangeFetcher fetcher(&counting, 0, &budget);
+        const std::vector<std::string> terms {term};
+        std::vector<reader::LogicalIndexReader::BatchLookupResult> results;
+        reader::LogicalIndexReader::BatchLookupState state;
+        assert_ok(index.prepare_lookup_batch(terms, &results, &state));
+        assert_ok(index.prepare_lookup_wave(&state, &fetcher));
+        counting.reset_counts();
+        assert_ok(fetcher.fetch());
+        const uint64_t read_bytes = budget.used_bytes();
+        const uint64_t rounds = counting.rounds();
+        assert_ok(index.consume_lookup_wave(&state, fetcher));
+        EXPECT_TRUE(state.done());
+        EXPECT_TRUE(results.front().found);
+        EXPECT_EQ(results.front().entry.term, term);
+        EXPECT_EQ(counting.rounds(), rounds);
+        EXPECT_GT(budget.peak_bytes(), read_bytes);
+        EXPECT_LE(budget.peak_bytes(), budget.limit_bytes());
+        EXPECT_EQ(budget.used_bytes(), read_bytes);
+        fetcher.clear();
+        EXPECT_EQ(budget.used_bytes(), 0U);
+    }
+}
+
+TEST(SniiQueryTermResolutionBatch, DictionaryWaveReleasesDecodeWorkspaceOnCorruption) {
+    class CorruptingReader final : public io::FileReader {
+    public:
+        explicit CorruptingReader(io::FileReader* inner) : inner_(inner) {}
+        Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override {
+            RETURN_IF_ERROR(inner_->read_at(offset, len, out));
+            if (corrupt && !out->empty()) {
+                out->back() ^= 1;
+            }
+            return Status::OK();
+        }
+        uint64_t size() const override { return inner_->size(); }
+        bool corrupt = false;
+
+    private:
+        io::FileReader* inner_;
+    };
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    MemoryFile file;
+    assert_ok(write_index(&file, {"alpha"}, 8192));
+    CorruptingReader corrupting(&file);
+    reader::SniiSegmentReader segment;
+    assert_ok(reader::SniiSegmentReader::open(&corrupting, &segment));
+    reader::LogicalIndexReader index;
+    assert_ok(segment.open_index(kIndexId, kIndexSuffix, &index));
+    reader::DictBlockScanMemory memory;
+    assert_ok(index.dict_block_scan_memory(0, &memory));
+    index_query::MemoryBudget budget(memory.decode_bytes);
+    io::BatchRangeFetcher fetcher(&corrupting, 0, &budget);
+    const std::vector<std::string> terms {"alpha"};
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> results;
+    reader::LogicalIndexReader::BatchLookupState state;
+    assert_ok(index.prepare_lookup_batch(terms, &results, &state));
+    assert_ok(index.prepare_lookup_wave(&state, &fetcher));
+    corrupting.corrupt = true;
+    assert_ok(fetcher.fetch());
+    const uint64_t read_bytes = budget.used_bytes();
+    const Status status = index.consume_lookup_wave(&state, fetcher);
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status.to_string();
+    EXPECT_GT(budget.peak_bytes(), read_bytes);
+    EXPECT_EQ(budget.used_bytes(), read_bytes);
+    fetcher.clear();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(SniiQueryTermResolutionBatch, DictionaryWaveReusesWorkspaceAcrossBlocks) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    MemoryFile file;
+    std::vector<std::string> terms {"alpha", "bravo", "omega"};
+    for (std::string& term : terms) {
+        term.append(4096, 'a');
+    }
+    assert_ok(write_index(&file, terms, 1));
+    CountingReader counting(&file);
+    reader::SniiSegmentReader segment;
+    assert_ok(reader::SniiSegmentReader::open(&counting, &segment));
+    reader::LogicalIndexReader index;
+    assert_ok(segment.open_index(kIndexId, kIndexSuffix, &index));
+    ASSERT_EQ(index.n_dict_blocks(), terms.size());
+    uint64_t max_decode_bytes = 0;
+    for (uint32_t ordinal = 0; ordinal < index.n_dict_blocks(); ++ordinal) {
+        reader::DictBlockScanMemory memory;
+        assert_ok(index.dict_block_scan_memory(ordinal, &memory));
+        max_decode_bytes = std::max(max_decode_bytes, memory.decode_bytes);
+    }
+    const uint64_t read_bytes = index.section_refs().dict_region.length;
+    ASSERT_LT(read_bytes, max_decode_bytes);
+    index_query::MemoryBudget budget(read_bytes + max_decode_bytes);
+    io::BatchRangeFetcher fetcher(&counting, 0, &budget);
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> results;
+    reader::LogicalIndexReader::BatchLookupState state;
+    assert_ok(index.prepare_lookup_batch(terms, &results, &state));
+    assert_ok(index.prepare_lookup_wave(&state, &fetcher));
+    counting.reset_counts();
+    assert_ok(fetcher.fetch());
+    assert_ok(index.consume_lookup_wave(&state, fetcher));
+    EXPECT_TRUE(state.done());
+    ASSERT_EQ(results.size(), terms.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        EXPECT_TRUE(results[i].found);
+        EXPECT_EQ(results[i].entry.term, terms[i]);
+    }
+    EXPECT_EQ(counting.rounds(), 1U);
+    EXPECT_EQ(budget.used_bytes(), read_bytes);
+    EXPECT_LE(budget.peak_bytes(), budget.limit_bytes());
+    fetcher.clear();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
 TEST(SniiQueryTermResolutionBatch, ResolvesColdDictBlocksInOnePhysicalBatch) {
     ScopedEnv dict_resident_max("SNII_DICT_RESIDENT_MAX", "0");
 
