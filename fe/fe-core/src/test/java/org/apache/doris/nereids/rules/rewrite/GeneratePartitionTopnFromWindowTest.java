@@ -119,6 +119,57 @@ public class GeneratePartitionTopnFromWindowTest implements MemoPatternMatchSupp
     }
 
     @Test
+    public void testPartitionTopNPrunesPartitionKeyFromLogicalOrderKeys() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().setEnablePartitionTopN(true);
+        NamedExpression gender = scan.getOutput().get(1).toSlot();
+        NamedExpression age = scan.getOutput().get(3).toSlot();
+
+        List<Expression> partitionKeyList = ImmutableList.of(gender);
+        List<OrderExpression> orderKeyList = ImmutableList.of(
+                new OrderExpression(new OrderKey(gender, true, true)),
+                new OrderExpression(new OrderKey(age, true, true)));
+        List<OrderExpression> expectedOrderKeyList = ImmutableList.of(
+                new OrderExpression(new OrderKey(age, true, true)));
+        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        WindowExpression window1 = new WindowExpression(new RowNumber(), partitionKeyList, orderKeyList, windowFrame);
+        Alias windowAlias1 = new Alias(window1, window1.toSql());
+        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scan);
+        Expression filterPredicate = new LessThanEqual(window.getOutput().get(4).toSlot(), Literal.of(100));
+
+        LogicalPlan plan = new LogicalPlanBuilder(window)
+                .filter(filterPredicate)
+                .project(ImmutableList.of(0))
+                .build();
+
+        // EliminateOrderByKey prunes the order key that repeats the partition key (gender) from the window;
+        // CreatePartitionTopNFromWindow then generates a PartitionTopN that inherits the pruned order keys.
+        PlanChecker.from(context, plan)
+                .applyTopDown(new EliminateOrderByKey())
+                .applyTopDown(new CreatePartitionTopNFromWindow())
+                .matches(
+                    logicalProject(
+                        logicalFilter(
+                            logicalWindow(
+                                logicalPartitionTopN(
+                                    logicalOlapScan()
+                                ).when(logicalPartitionTopN -> logicalPartitionTopN.getFunction()
+                                        == WindowFuncType.ROW_NUMBER
+                                        && logicalPartitionTopN.getPartitionKeys().equals(partitionKeyList)
+                                        && logicalPartitionTopN.getOrderKeys().equals(expectedOrderKeyList)
+                                        && !logicalPartitionTopN.hasGlobalLimit()
+                                        && logicalPartitionTopN.getPartitionLimit() == 100)
+                            ).when(logicalWindow -> logicalWindow.getActualWindowExpressions().get(0)
+                                    .getOrderKeys().equals(expectedOrderKeyList))
+                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(filterPredicate)))
+                    )
+                );
+    }
+
+    @Test
     public void testMultipleWindowsWithDifferentOrders() {
         ConnectContext context = MemoTestUtils.createConnectContext();
         context.getSessionVariable().setEnablePartitionTopN(true);
