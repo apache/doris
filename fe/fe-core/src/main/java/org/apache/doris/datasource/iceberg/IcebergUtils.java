@@ -939,6 +939,20 @@ public class IcebergUtils {
         return partitionInfoMap;
     }
 
+    /**
+     * Whether <b>any</b> partition spec of the table is partitioned. Scan planning must use this instead of
+     * the current default spec: after evolving to an unpartitioned spec, data files written under an older
+     * partitioned spec still carry their partition metadata (identity values, spec id, partition data).
+     */
+    public static boolean hasPartitionedSpec(Table table) {
+        for (PartitionSpec spec : table.specs().values()) {
+            if (spec.isPartitioned()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static List<String> getIdentityPartitionColumns(Table table) {
         return getIdentityPartitionColumns(table, false, false);
     }

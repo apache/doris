@@ -190,6 +190,25 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testHasPartitionedSpecLooksAtEverySpecNotOnlyTheCurrentOne() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "p", Types.IntegerType.get()));
+        PartitionSpec identity = PartitionSpec.builderFor(schema).identity("p").withSpecId(0).build();
+        PartitionSpec unpartitioned = PartitionSpec.unpartitioned();
+
+        // A table that evolved identity(p) -> unpartitioned still has files carrying p in their
+        // partition metadata, so scan planning must keep sending those values.
+        Table evolved = Mockito.mock(Table.class);
+        Mockito.when(evolved.specs()).thenReturn(ImmutableMap.of(0, identity, 1, unpartitioned));
+        Assert.assertTrue(IcebergUtils.hasPartitionedSpec(evolved));
+
+        Table neverPartitioned = Mockito.mock(Table.class);
+        Mockito.when(neverPartitioned.specs()).thenReturn(ImmutableMap.of(0, unpartitioned));
+        Assert.assertFalse(IcebergUtils.hasPartitionedSpec(neverPartitioned));
+    }
+
+    @Test
     public void testEmptyNameMappingStillParsesAsAuthoritativeMapping() throws Exception {
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.properties()).thenReturn(
