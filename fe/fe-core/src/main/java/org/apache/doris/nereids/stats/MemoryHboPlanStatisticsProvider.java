@@ -37,6 +37,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -53,6 +54,21 @@ public class MemoryHboPlanStatisticsProvider implements HboPlanStatisticsProvide
                 Config.hbo_plan_stats_cache_num,
                 Config.expire_hbo_plan_stats_cache_in_fe_second
         );
+    }
+
+    @Override
+    public void putHboPlanStatsByFingerprint(String fingerprint, RecentRunsPlanStatistics planStatistics) {
+        hboPlanStatsCache.put(fingerprint, planStatistics);
+    }
+
+    @Override
+    public void removeHboPlanStats(String fingerprint) {
+        hboPlanStatsCache.invalidate(fingerprint);
+    }
+
+    @Override
+    public Map<String, RecentRunsPlanStatistics> getAllHboPlanStats() {
+        return Collections.unmodifiableMap(hboPlanStatsCache.asMap());
     }
 
     @Override
