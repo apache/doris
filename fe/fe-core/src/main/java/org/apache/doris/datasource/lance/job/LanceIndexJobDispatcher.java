@@ -23,7 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
-import org.apache.doris.datasource.lance.LanceStorageOptions;
+import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
