@@ -29,24 +29,21 @@ import java.io.IOException;
 
 /** The durable allocation window and readable transaction prefix, published as one snapshot. */
 public final class TSOServiceState implements Writable {
-    // Keep the old TSOTimestamp JSON fields and image checksum for journal/image compatibility.
-    @SerializedName("physicalTimestamp")
-    private final long windowEndPhysicalTime;
-    @SerializedName("logicalCounter")
-    private final long logicalCounter = 0;
+    @SerializedName("windowEndPhysicalTimeMs")
+    private final long windowEndPhysicalTimeMs;
     @SerializedName("committedTso")
     private final long committedTso;
 
-    public TSOServiceState(long windowEndPhysicalTime, long committedTso) {
-        this.windowEndPhysicalTime = windowEndPhysicalTime;
+    public TSOServiceState(long windowEndPhysicalTimeMs, long committedTso) {
+        this.windowEndPhysicalTimeMs = windowEndPhysicalTimeMs;
         this.committedTso = committedTso;
     }
 
-    public long getPhysicalTimestamp() {
-        return windowEndPhysicalTime;
+    public long getWindowEndPhysicalTimeMs() {
+        return windowEndPhysicalTimeMs;
     }
 
-    /** Zero means no readable prefix has been established, including records written by older FEs. */
+    /** Zero means no readable prefix has been established. */
     public long getCommittedTso() {
         return committedTso;
     }

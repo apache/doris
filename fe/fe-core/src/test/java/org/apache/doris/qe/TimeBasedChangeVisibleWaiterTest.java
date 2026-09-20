@@ -295,7 +295,7 @@ public class TimeBasedChangeVisibleWaiterTest {
                 ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT}) {
             Env master = mockMasterEnv();
             TSOService service = mockTsoService(master, CURRENT_TSO);
-            String reason = code == ErrorCode.ERR_INCR_WINDOW_NOT_READY ? "TSO_RECOVERING" : "VISIBLE_WAIT_TIMEOUT";
+            String reason = code == ErrorCode.ERR_INCR_WINDOW_NOT_READY ? "TSO_MASTER_CHANGED" : "VISIBLE_WAIT_TIMEOUT";
             IncrWindowNotReadyException failure = new IncrWindowNotReadyException(code, reason,
                     CURRENT_PHYSICAL_TIME_MS, CURRENT_TSO, 0, 1000, 1000);
             Mockito.doThrow(failure).when(service)

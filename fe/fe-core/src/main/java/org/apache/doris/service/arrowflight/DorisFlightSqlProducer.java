@@ -312,7 +312,6 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             ErrorFlightMetadata metadata = new ErrorFlightMetadata();
             metadata.insert("doris-error-code", Integer.toString(state.getErrorCode().getCode()));
             metadata.insert("doris-error-name", state.getErrorCode().name());
-            // The description preserves the requested end, committed prefix and retry delay from QueryState.
             return CallStatus.UNAVAILABLE.withDescription(message).withCause(cause)
                     .withMetadata(metadata).toRuntimeException();
         }
@@ -329,7 +328,6 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             if (e instanceof FlightRuntimeException) {
                 FlightRuntimeException flightError = (FlightRuntimeException) e;
                 ErrorFlightMetadata metadata = flightError.status().metadata();
-                // Only the two incremental-window errors bypass the original INTERNAL wrapper.
                 if (metadata.containsKey("doris-error-code")) {
                     String code = metadata.get("doris-error-code");
                     if (Integer.toString(ErrorCode.ERR_INCR_WINDOW_NOT_READY.getCode()).equals(code)

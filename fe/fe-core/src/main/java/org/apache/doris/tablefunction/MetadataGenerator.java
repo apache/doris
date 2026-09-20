@@ -2347,7 +2347,7 @@ public class MetadataGenerator {
 
         long currentTso = statusSnapshot.getCurrentTso();
         TRow row = new TRow();
-        row.addToColumnValue(new TCell().setLongVal(statusSnapshot.getWindowEndPhysicalTime()));
+        row.addToColumnValue(new TCell().setLongVal(statusSnapshot.getWindowEndPhysicalTimeMs()));
         row.addToColumnValue(new TCell().setLongVal(currentTso));
         row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractPhysicalTime(currentTso)));
         row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractLogicalCounter(currentTso)));
