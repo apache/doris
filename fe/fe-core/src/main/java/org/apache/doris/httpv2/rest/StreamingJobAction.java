@@ -113,7 +113,7 @@ public class StreamingJobAction extends RestBaseController {
     private void checkAuth(HttpServletRequest request) {
         String authToken = request.getHeader("token");
         if (Strings.isNullOrEmpty(authToken)) {
-            throw new UnauthorizedException("Miss token");
+            throw new UnauthorizedException("Missing token");
         }
         if (!checkClusterToken(authToken)) {
             throw new UnauthorizedException("Invalid token");

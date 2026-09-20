@@ -572,6 +572,15 @@ public class DorisBatchStreamLoad implements Serializable {
                                         taskId);
                                 return;
                             }
+                            JsonNode data = root.get("data");
+                            JsonNode msg = root.get("msg");
+                            if (data != null && data.isTextual()
+                                    && StringUtils.isNotBlank(data.asText())) {
+                                reason = data.asText();
+                            } else if (msg != null && msg.isTextual()
+                                    && StringUtils.isNotBlank(msg.asText())) {
+                                reason = msg.asText();
+                            }
                         }
                         LOG.error(
                                 "commit offset failed with {}, reason {}, to retry",
