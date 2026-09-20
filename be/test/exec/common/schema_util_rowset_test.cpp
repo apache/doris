@@ -532,7 +532,6 @@ TEST_F(SchemaUtilRowsetTest, collect_path_stats_and_get_extended_compaction_sche
 
     // key3 is in the sparse column, return variant type
     StorageReadOptions type_opts;
-    type_opts.tablet_schema = out_rowset->tablet_schema();
     type_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     TabletColumn non_variant_column;
     non_variant_column.set_name("non_variant_column");
@@ -667,8 +666,9 @@ TabletSchemaSPtr create_compaction_schema_common(StorageEngine* _engine_ref,
 
     // 4. get compaction schema
     TabletSchemaSPtr compaction_schema = tablet_schema;
+    VariantCompactionPathsMap compaction_paths;
     auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            rowsets, compaction_schema);
+            rowsets, compaction_schema, compaction_paths);
     EXPECT_TRUE(st.ok()) << st.msg();
 
     // 5. check compaction schema
@@ -785,8 +785,9 @@ TEST_F(SchemaUtilRowsetTest, typed_path_to_sparse_column) {
 
     // 4. get compaction schema
     TabletSchemaSPtr compaction_schema = tablet_schema;
+    VariantCompactionPathsMap compaction_paths;
     auto st = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-            rowsets, compaction_schema);
+            rowsets, compaction_schema, compaction_paths);
     EXPECT_TRUE(st.ok()) << st.msg();
     for (const auto& column : compaction_schema->columns()) {
         if (column->is_extracted_column()) {
