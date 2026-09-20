@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
+import org.apache.doris.connector.cache.JvmSizeUtils;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
@@ -60,6 +61,8 @@ import java.util.function.LongSupplier;
 final class PaimonMetaCacheCatalog extends DelegateCatalog {
 
     private static final int DATABASE_CACHE_CAPACITY = 100;
+    private static final long TABLE_ENTRY_OVERHEAD_BYTES = JvmSizeUtils.saturatedAdd(
+            JvmSizeUtils.instanceSize(ExpiringValue.class), JvmSizeUtils.instanceSize(AtomicLong.class));
 
     private final CatalogMetaCache metaCache;
     private final MetaCache<Identifier, ExpiringValue<Table>> tableCache;
@@ -113,7 +116,8 @@ final class PaimonMetaCacheCatalog extends DelegateCatalog {
         this.tableCache = metaCache.create(MetaCacheDefinition
                 .<Identifier, ExpiringValue<Table>>builder("paimon-table", tableSpec,
                         id -> ScopePath.table(id.getDatabaseName(), id.getTableName()))
-                .sizeEstimator(MetaCacheSizeEstimators.reflective())
+                .sizeEstimator((id, value) -> PaimonCacheSizeEstimator.estimateTable(
+                        id, value.value, TABLE_ENTRY_OVERHEAD_BYTES))
                 .build());
         CacheSpec dbSpec = CacheSpec.of(cacheEnabled, cacheEnabled
                 ? CacheSpec.CACHE_NO_TTL : CacheSpec.CACHE_TTL_DISABLE_CACHE, DATABASE_CACHE_CAPACITY);

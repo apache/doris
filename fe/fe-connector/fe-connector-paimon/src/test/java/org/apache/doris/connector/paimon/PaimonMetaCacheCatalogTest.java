@@ -20,6 +20,7 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheBudgetManager;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.ScopePath;
 
@@ -27,22 +28,30 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.rest.RESTCatalog;
+import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 class PaimonMetaCacheCatalogTest {
     private static final Identifier TABLE = Identifier.create("db", "t");
@@ -243,6 +252,36 @@ class PaimonMetaCacheCatalogTest {
     }
 
     @Test
+    void realFileStoreTableIsAdmittedByTheWeightGovernedCache(@TempDir java.nio.file.Path warehouse)
+            throws Exception {
+        LocalFileIO fileIO = LocalFileIO.create();
+        org.apache.paimon.fs.Path tablePath = new org.apache.paimon.fs.Path(
+                warehouse.resolve("weighted-table").toUri());
+        Schema schema = Schema.newBuilder()
+                .column("id", DataTypes.INT())
+                .column("payload", DataTypes.STRING())
+                .option("file.format", "parquet")
+                .build();
+        new SchemaManager(fileIO, tablePath).createTable(schema);
+
+        RecordingCatalog recording = new RecordingCatalog();
+        recording.tableSupplier = () -> FileStoreTableFactory.create(fileIO, tablePath);
+        MetaCacheBudgetManager budgetManager = new MetaCacheBudgetManager(OptionalLong.of(1024L * 1024L));
+        try (CatalogMetaCache owner = new CatalogMetaCache(
+                budgetManager, 67996L, "paimon", Collections.emptyMap())) {
+            PaimonMetaCacheCatalog catalog = new PaimonMetaCacheCatalog(recording.catalog(), owner,
+                    100, 100, cacheOptions(Duration.ofDays(1), Duration.ofDays(1)),
+                    true, System::nanoTime);
+
+            Table first = catalog.getTable(TABLE);
+            Assertions.assertSame(first, catalog.getTable(TABLE));
+            Assertions.assertEquals(1, recording.tableLoads.get());
+            Assertions.assertTrue(budgetManager.getGlobalUsedWeight() > 0L);
+        }
+        Assertions.assertEquals(0L, budgetManager.getGlobalUsedWeight());
+    }
+
+    @Test
     void restDispatchSeesThroughTheMetaCacheWrapper() {
         Options options = cacheOptions(Duration.ofDays(1), Duration.ofDays(1));
         options.set("uri", "http://localhost:1");
@@ -309,6 +348,7 @@ class PaimonMetaCacheCatalogTest {
         private final AtomicReference<Identifier> failAfterDrop = new AtomicReference<>();
         private final Catalog catalog;
         private boolean fileStoreTables;
+        private Supplier<Table> tableSupplier = this::newTable;
 
         private RecordingCatalog() {
             AtomicReference<Catalog> self = new AtomicReference<>();
@@ -319,7 +359,7 @@ class PaimonMetaCacheCatalogTest {
                                 Identifier identifier = (Identifier) args[0];
                                 lastLoadedTable.set(identifier);
                                 tableLoads.incrementAndGet();
-                                return newTable();
+                                return tableSupplier.get();
                             case "getDatabase":
                                 databaseLoads.incrementAndGet();
                                 return Database.of((String) args[0]);
