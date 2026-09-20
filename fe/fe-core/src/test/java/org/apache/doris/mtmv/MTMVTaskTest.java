@@ -25,6 +25,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -225,6 +226,63 @@ public class MTMVTaskTest {
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
         List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
         Assertions.assertEquals(Lists.newArrayList("PARTITIONS"), toNames(attempts));
+    }
+
+    @Test
+    public void testBuildAttemptsGoesStraightToCompleteWhenTheStreamIsUnusable() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        Mockito.when(mtmv.getFullQualifiers()).thenReturn(Lists.newArrayList("internal", "db", "t1"));
+        // The MV's database holds no stream for the base table.
+        Mockito.when(mtmv.getDatabase()).thenReturn(Mockito.mock(Database.class));
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class))).thenReturn(mtmv);
+
+        MTMVTask task = new MTMVTask(mtmv, relationWithOneBaseTable(), MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        // Neither the incremental rewrite nor a partition refresh can read a stream that is not there,
+        // and the IVM attempt would be rejected while a baseline barrier is pending, so the refresh goes
+        // to the only attempt that reconciles the streams.
+        Assertions.assertEquals(Lists.newArrayList("COMPLETE"), toNames(attempts));
+        Assertions.assertEquals(IvmFailureReason.STREAM_UNSUPPORTED.name(),
+                Deencapsulation.getField(task, "ivmFallbackReason"));
+    }
+
+    @Test
+    public void testBuildAttemptsKeepsTheChainWhenTheStreamsAreUsable() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getId()).thenReturn(7L);
+        Mockito.when(mtmv.getFullQualifiers()).thenReturn(Lists.newArrayList("internal", "db", "t1"));
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
+        Mockito.when(stream.getBaseTableFullQualifiers())
+                .thenReturn(Lists.newArrayList("internal", "db", "t1"));
+        Mockito.when(stream.isDisabled()).thenReturn(false);
+        Mockito.when(stream.isStale()).thenReturn(false);
+        Mockito.when(stream.getBaseTableNullable()).thenReturn(mtmv);
+        Database mvDb = Mockito.mock(Database.class);
+        Mockito.when(mvDb.getTableNullable(Mockito.anyString())).thenReturn(stream);
+        Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class))).thenReturn(mtmv);
+
+        MTMVTask task = new MTMVTask(mtmv, relationWithOneBaseTable(), MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        // A usable stream is not a reason to refresh more than the request asked for.
+        Assertions.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), toNames(attempts));
+    }
+
+    private MTMVRelation relationWithOneBaseTable() {
+        return new MTMVRelation(Sets.newHashSet(Mockito.mock(BaseTableInfo.class)), Sets.newHashSet(),
+                Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet());
     }
 
     private static List<String> toNames(List<?> attempts) {
@@ -748,6 +806,33 @@ public class MTMVTaskTest {
         // The barrier is released by the caller once the reshaped attempts have run.
         Mockito.verify(mtmv, Mockito.never()).releaseIvmBaselineRebuild(Mockito.anyLong());
     }
+
+
+
+
+    @Test
+    public void testCompleteAttemptWritesTheBarrierBeforeReconcilingStreams() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getPartitionNames()).thenReturn(Sets.newHashSet(poneName));
+        // The reconcile starts from the MV's database, which is what makes it visible to the order check.
+        Mockito.when(mtmv.getDatabase()).thenReturn(Mockito.mock(Database.class));
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        InOrder inOrder = Mockito.inOrder(mtmv);
+
+        try {
+            Deencapsulation.invoke(task, "executeCompleteAttempt",
+                    Mockito.mock(MTMVRefreshContext.class), new ConnectContext());
+        } catch (Exception expected) {
+            // How far the rebuild itself gets is not what this test is about.
+        }
+
+        // A recreated stream starts from the base table's current rows, so the barrier that makes the
+        // next refresh rebuild the MV has to be durable before the stream is replaced. The other order
+        // loses those rows with no error anywhere.
+        inOrder.verify(mtmv).persistIvmBaselineGuard(Mockito.any(), Mockito.anySet(), Mockito.anyLong());
+        inOrder.verify(mtmv).getDatabase();
+    }
+
 
     @Test
     public void testDroppedBaselinePartitionsReleaseBarrierWithoutRebuild() throws Exception {

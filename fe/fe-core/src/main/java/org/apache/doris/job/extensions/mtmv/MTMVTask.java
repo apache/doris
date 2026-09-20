@@ -445,6 +445,17 @@ public class MTMVTask extends AbstractTask {
         if (shouldUseCompleteForInitialIvmRefresh(containsOneRowRelation)) {
             return Lists.newArrayList(RefreshAttemptType.COMPLETE);
         }
+        // A base table without a usable stream makes every other attempt fail: the incremental rewrite
+        // reads the stream of every base table, and a partition refresh reads those of the PCT tables it
+        // realigns as well. Only the COMPLETE attempt reconciles streams, so it is the one that has to
+        // run. Deciding it here keeps the attempt that cannot succeed -- and the baseline barrier a
+        // partition refresh writes before it starts -- out of the way altogether.
+        if (request.allowFallback && mtmv.isIvm() && hasUnusableIvmStream()) {
+            ivmFallbackReason = IvmFailureReason.STREAM_UNSUPPORTED.name();
+            LOG.warn("IVM stream is unusable, mv={}, taskId={}. Continuing with COMPLETE refresh.",
+                    mtmv.getName(), getTaskId());
+            return Lists.newArrayList(RefreshAttemptType.COMPLETE);
+        }
         List<RefreshAttemptType> attempts = Lists.newArrayList();
         switch (request.refreshMode) {
             case AUTO:
@@ -546,6 +557,21 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
+    /**
+     * Makes the barrier that says "these MV partitions must be rebuilt before their IVM offsets may be
+     * used again" durable. Every caller writes it as soon as it has decided the partition set and
+     * before anything that touches MV data or base table streams, so that a crash or a rejection can
+     * only ever leave a barrier with no rebuild behind it, which merely costs one extra rebuild, and
+     * never a rebuild with no barrier, which silently loses rows.
+     */
+    private void writeIvmBaselineBarrier(RefreshMode refreshMode) throws JobException {
+        if (mtmv.isIvm()) {
+            // Persist the guard before the first baseline data transaction.
+            mtmv.persistIvmBaselineGuard(refreshMode, Sets.newHashSet(needRefreshPartitions),
+                    mtmvSchemaChangeVersion);
+        }
+    }
+
     private void executeCompleteAttempt(MTMVRefreshContext context, ConnectContext ctx)
             throws JobException, AnalysisException {
         this.needRefreshPartitions = Lists.newArrayList(mtmv.getPartitionNames());
@@ -553,9 +579,13 @@ public class MTMVTask extends AbstractTask {
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
             return;
         }
+        // The barrier goes first: a stream this rebuild reconciles carries the base table's current
+        // rows as its initial snapshot, and a later incremental refresh that consumed it as a delta
+        // against data still built from the old baseline would double-count them.
+        writeIvmBaselineBarrier(RefreshMode.COMPLETE);
         // A complete rebuild resets the stream baselines, so reconcile missing or unusable streams
-        // first. Only COMPLETE may do this: a stream baseline is global, resetting it during a
-        // partial refresh would corrupt the partitions that refresh does not touch.
+        // before reading anything. Only COMPLETE may do this: a stream baseline is global, resetting
+        // it during a partial refresh would corrupt the partitions that refresh does not touch.
         if (mtmv.isIvm()) {
             reconcileIvmStreams(ctx);
         }
@@ -609,6 +639,11 @@ public class MTMVTask extends AbstractTask {
             baselinePartitions.sort(String::compareTo);
             this.needRefreshPartitions = baselinePartitions;
             this.refreshMode = generateRefreshMode(baselinePartitions);
+            writeIvmBaselineBarrier(RefreshMode.PARTITIONS);
+            // An unusable stream is decided before this point, by the attempt list: it holds no
+            // partition attempt then, so this rebuild is not reached. Anything else that fails here is
+            // reported as it is -- leaving the barrier behind would make the IVM attempt that follows
+            // reject the task with "baseline rebuild is pending" instead of the real reason.
             executePartitionBasedRefresh(context, RefreshMode.PARTITIONS, ctx);
         }
         mtmv.releaseIvmBaselineRebuild(mtmvSchemaChangeVersion);
@@ -778,6 +813,7 @@ public class MTMVTask extends AbstractTask {
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
             return true;
         }
+        writeIvmBaselineBarrier(RefreshMode.PARTITIONS);
         executePartitionBasedRefresh(partitionPlan.context, RefreshMode.PARTITIONS, ctx);
         return true;
     }
@@ -787,11 +823,6 @@ public class MTMVTask extends AbstractTask {
             throws JobException, AnalysisException {
         boolean useIvmFallbackStreams = mtmv.isIvm();
         Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
-        if (useIvmFallbackStreams) {
-            // Persist the guard before the first baseline data transaction.
-            mtmv.persistIvmBaselineGuard(refreshMode, Sets.newHashSet(needRefreshPartitions),
-                    mtmvSchemaChangeVersion);
-        }
         this.completedPartitions = Lists.newCopyOnWriteArrayList();
         try {
             // Snapshot persistence happens after refresh partitions are split into execution groups. Load the
@@ -858,6 +889,51 @@ public class MTMVTask extends AbstractTask {
                 mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
     }
 
+    /**
+     * Whether a base table of the MV has no stream that can be read, which no attempt other than
+     * COMPLETE can work around.
+     *
+     * <p>A base table that cannot be resolved is skipped rather than judged: it says nothing about the
+     * streams, and the refresh fails on it for its own reasons -- the attempt that runs reports that,
+     * this one only decides which attempt that should be.
+     */
+    private boolean hasUnusableIvmStream() {
+        Database mvDb = (Database) mtmv.getDatabase();
+        if (mvDb == null) {
+            // Nothing to look the streams up in, so there is nothing to decide here.
+            return false;
+        }
+        Set<TableNameInfo> excluded = mtmv.getExcludedTriggerTables();
+        for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+            OlapTable baseTable;
+            try {
+                baseTable = (OlapTable) MTMVUtil.getTable(baseTableInfo);
+            } catch (Exception e) {
+                LOG.warn("Cannot resolve base table {} of mv={}", baseTableInfo, mtmv.getName(), e);
+                continue;
+            }
+            if (MTMVPartitionUtil.isTableExcluded(excluded,
+                    new TableNameInfo(baseTable.getFullQualifiers()))) {
+                continue;
+            }
+            if (usableIvmStream(mvDb, baseTable) == null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The MV's stream for the base table, or null when it is missing or cannot be used. */
+    private BaseTableStream usableIvmStream(Database mvDb, OlapTable baseTable) {
+        TableIf stream = mvDb.getTableNullable(
+                IvmUtil.streamName(mtmv.getId(), baseTable.getFullQualifiers()));
+        if (stream instanceof BaseTableStream
+                && IvmUtil.isIvmStreamUsable((BaseTableStream) stream, baseTable)) {
+            return (BaseTableStream) stream;
+        }
+        return null;
+    }
+
     private void reconcileIvmStreams(ConnectContext ctx) throws JobException {
         try {
             Database mvDb = (Database) mtmv.getDatabase();
@@ -868,10 +944,7 @@ public class MTMVTask extends AbstractTask {
                         new TableNameInfo(baseTable.getFullQualifiers()))) {
                     continue;
                 }
-                String streamName = IvmUtil.streamName(mtmv.getId(), baseTable.getFullQualifiers());
-                TableIf stream = mvDb.getTableNullable(streamName);
-                if (stream instanceof BaseTableStream
-                        && IvmUtil.isIvmStreamUsable((BaseTableStream) stream, baseTable)) {
+                if (usableIvmStream(mvDb, baseTable) != null) {
                     continue;
                 }
                 CreateMTMVCommand.createTableStream(ctx, mvDb, mtmv, baseTable);
