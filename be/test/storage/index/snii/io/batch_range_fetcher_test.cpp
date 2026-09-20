@@ -430,3 +430,21 @@ TEST(IndexQueryMemoryBudget, ConcurrentReservationsRespectTheSharedLimit) {
     EXPECT_EQ(budget.peak_bytes(), 32U);
     EXPECT_EQ(budget.used_bytes(), 0U);
 }
+
+TEST(IndexQueryMemoryBudget, ResizePreservesChargesOnFailureAndReleasesOnlyTheDifference) {
+    doris::index_query::MemoryBudget budget(12);
+    doris::index_query::MemoryBudget::Reservation first;
+    doris::index_query::MemoryBudget::Reservation second;
+    ASSERT_TRUE(budget.reserve(8, &first).ok());
+    ASSERT_TRUE(budget.reserve(4, &second).ok());
+    EXPECT_TRUE(first.resize(9).is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>());
+    EXPECT_EQ(first.bytes(), 8U);
+    EXPECT_EQ(budget.used_bytes(), 12U);
+    ASSERT_TRUE(second.resize(0).ok());
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    ASSERT_TRUE(first.resize(12).ok());
+    EXPECT_EQ(budget.used_bytes(), 12U);
+    ASSERT_TRUE(first.resize(3).ok());
+    EXPECT_EQ(budget.used_bytes(), 3U);
+    EXPECT_EQ(budget.peak_bytes(), 12U);
+}
