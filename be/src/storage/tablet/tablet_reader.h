@@ -45,6 +45,7 @@
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/rowset/rowset_reader_context.h"
+#include "storage/segment/variant/variant_compaction_paths.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet_fwd.h"
 
@@ -127,6 +128,8 @@ public:
 
         BaseTabletSPtr tablet;
         TabletSchemaSPtr tablet_schema;
+        // Set only by compaction, alongside its extended tablet_schema.
+        VariantCompactionPathsSPtr variant_compaction_paths = nullptr;
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool read_row_binlog = false;
         bool direct_mode = false;

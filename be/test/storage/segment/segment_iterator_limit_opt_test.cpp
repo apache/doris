@@ -77,7 +77,6 @@ protected:
     // The segment pointer is null — only _opts and internal maps are accessed.
     std::unique_ptr<SegmentIterator> make_iter() {
         auto iter = std::make_unique<SegmentIterator>(nullptr, _read_schema);
-        iter->_opts.tablet_schema = _tablet_schema;
         iter->_opts.stats = &_stats;
         // delete_condition_predicates is default-constructed (empty)
         return iter;

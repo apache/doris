@@ -423,12 +423,16 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
                   << " elapsed_ms=" << import_elapsed_ms << std::endl;
         if (i == 0) {
             RowsetReaderContext input_reader_context;
-            input_reader_context.tablet_schema = tablet_schema;
             input_reader_context.need_ordered_result = false;
             std::vector<uint32_t> input_return_columns = {1};
             auto input_read_schema = std::make_shared<ReadSchema>(
                     project_columns_by_ordinal(tablet_schema->columns(), input_return_columns));
             input_reader_context.read_schema = input_read_schema;
+            EXPECT_TRUE(input_read_schema
+                                ->init_from_tablet_schema(*tablet_schema,
+                                                          /*merge_by_sequence_mapping=*/false,
+                                                          /*map_row_binlog_columns=*/false)
+                                .ok());
             RowsetReaderSharedPtr input_rs_reader;
             create_and_init_rowset_reader(rowset.get(), input_reader_context, &input_rs_reader);
 
@@ -472,12 +476,16 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
     ASSERT_EQ(static_cast<int64_t>(kRowsPerSegment) * 10, out_rowset->rowset_meta()->num_rows());
 
     RowsetReaderContext reader_context;
-    reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
     std::vector<uint32_t> return_columns = {0};
     auto read_schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(tablet_schema->columns(), return_columns));
     reader_context.read_schema = read_schema;
+    EXPECT_TRUE(read_schema
+                        ->init_from_tablet_schema(*tablet_schema,
+                                                  /*merge_by_sequence_mapping=*/false,
+                                                  /*map_row_binlog_columns=*/false)
+                        .ok());
     RowsetReaderSharedPtr output_rs_reader;
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);
 
