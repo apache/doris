@@ -35,26 +35,40 @@ def source_group(event):
 
 
 def load_events(paths):
-    """Read whole log files, retaining sequence continuity checks before query filtering."""
+    """Read JSONL (or legacy INFO) files and check completeness before query filtering."""
     events = {}
+    checkpoints = {}
+    jsonl_processes = set()
     warnings = []
     for path in paths:
         opener = gzip.open if path.endswith(".gz") else open
         with opener(path, "rt", encoding="utf-8") as stream:
             for number, line in enumerate(stream, 1):
-                if "READ_IO_TRACE_LIMIT " in line:
-                    warnings.append("Trace event limit reached; capture is incomplete")
                 marker = "READ_IO_TRACE "
-                if marker not in line:
-                    continue
+                legacy = not line.lstrip().startswith("{")
+                if legacy:
+                    if "READ_IO_TRACE_LIMIT " in line:
+                        warnings.append("Trace event limit reached; capture is incomplete")
+                    if marker not in line:
+                        continue
                 try:
-                    event = json.loads(line.split(marker, 1)[1])
+                    event = json.loads(line.split(marker, 1)[1] if legacy else line)
+                    if event.get("kind") == "read_io_trace_status":
+                        if event["v"] != 1:
+                            raise ValueError("unsupported trace checkpoint version")
+                        previous = checkpoints.get(event["process"], (0, 0))
+                        checkpoints[event["process"]] = (
+                            max(previous[0], event["written_events"]),
+                            max(previous[1], event["dropped_events"]))
+                        continue
                     if event["v"] != 1 or source_group(event) not in SOURCES:
                         raise ValueError("unsupported trace version or source")
                     key = (event["process"], event["seq"])
                     if key in events and events[key] != event:
                         raise ValueError("conflicting records for the same process/sequence")
                     events[key] = event  # rotated/symlinked log copies must not count twice
+                    if not legacy:
+                        jsonl_processes.add(event["process"])
                 except (ValueError, KeyError) as error:
                     raise ValueError(f"{path}:{number}: {error}") from error
     sequences = collections.defaultdict(list)
@@ -64,6 +78,15 @@ def load_events(paths):
         missing = max(values) - min(values) + 1 - len(values)
         if missing:
             warnings.append(f"{process}: {missing} missing trace events inside capture")
+    for process, (written, dropped) in checkpoints.items():
+        if dropped:
+            warnings.append(f"{process}: trace writer lost {dropped} events; capture is incomplete")
+        captured = len(sequences[process])
+        if captured != written:
+            warnings.append(f"{process}: checkpoint reports {written} written events, "
+                            f"but files contain {captured}; copy the complete drained trace")
+    for process in jsonl_processes - checkpoints.keys():
+        warnings.append(f"{process}: missing flush checkpoint; capture may have an incomplete tail")
     if not events:
         warnings.append("No trace events found")
     return list(events.values()), sorted(set(warnings))
@@ -215,7 +238,8 @@ def analyze(events, query_id=None, max_examples=5, expected_s3_bytes=None, warni
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("logs", nargs="+", help="complete be.INFO log files, optionally .gz")
+    parser.add_argument("logs", nargs="+",
+                        help="complete read_io_trace/*.jsonl files (or legacy be.INFO), optionally .gz")
     parser.add_argument("--query-id", help="exact query field from the trace")
     parser.add_argument("--examples", type=int, default=5, help="maximum overlap examples per query")
     parser.add_argument("--expected-s3-bytes", type=int,
