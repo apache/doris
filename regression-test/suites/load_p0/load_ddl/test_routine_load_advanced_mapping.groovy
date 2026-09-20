@@ -175,8 +175,8 @@ suite("test_routine_load_advanced_mapping","p0") {
                 def state = job.State.toString()
                 if (state != "RUNNING") {
                     count++
-                    assert count <= 60: "Timed out waiting for routine load ${jobName} to run: "
-                            + "state=${state}, reason=${job.ReasonOfStateChanged}, errorLogUrls=${job.ErrorLogUrls}"
+                    assert count <= 60: ("Timed out waiting for routine load ${jobName} to run: " +
+                            "state=${state}, reason=${job.ReasonOfStateChanged}, errorLogUrls=${job.ErrorLogUrls}")
                     continue;
                 }
                 log.info("routine load job properties: ${job.JobProperties}")
@@ -191,9 +191,9 @@ suite("test_routine_load_advanced_mapping","p0") {
                 def json = parseJson(job.Statistic)
                 if (json.unselectedRows.toString() != "19") {
                     count++
-                    assert count <= 60: "Timed out waiting for routine load ${jobName} unselectedRows=19: "
-                            + "state=${job.State}, reason=${job.ReasonOfStateChanged}, "
-                            + "statistic=${job.Statistic}, errorLogUrls=${job.ErrorLogUrls}"
+                    assert count <= 60: ("Timed out waiting for routine load ${jobName} unselectedRows=19: " +
+                            "state=${job.State}, reason=${job.ReasonOfStateChanged}, " +
+                            "statistic=${job.Statistic}, errorLogUrls=${job.ErrorLogUrls}")
                     continue;
                 }
                 break;
