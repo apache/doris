@@ -570,7 +570,7 @@ public class UnequalPredicateInfer {
             return inputs;
         }
         inferGraph.deduce(inferGraph.graph);
-        Set<Expression> newPredicates = new LinkedHashSet<>();
+        Set<Expression> newPredicates = new LinkedHashSet<>(inputs);
         newPredicates.addAll(inferGraph.generatePredicates(inferGraph.graph));
         newPredicates.addAll(inferGraph.otherPredicates);
         return newPredicates;
