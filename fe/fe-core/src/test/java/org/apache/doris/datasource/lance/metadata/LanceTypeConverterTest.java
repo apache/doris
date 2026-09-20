@@ -18,8 +18,10 @@
 package org.apache.doris.datasource.lance.metadata;
 
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 
@@ -30,11 +32,13 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.DictionaryEncoding;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 public class LanceTypeConverterTest {
 
@@ -270,6 +274,54 @@ public class LanceTypeConverterTest {
                         Collections.singletonMap("ARROW:extension:name", "lance.blob.v2")),
                 Collections.emptyList());
         Assertions.assertEquals(Type.UNSUPPORTED, LanceTypeConverter.toDorisType(blobField));
+    }
+
+    @Test
+    public void testDorisSchemaRoundTripForSupportedTypes() {
+        StructType struct = new StructType(new StructField(
+                "required", Type.BOOLEAN, "nested comment", false));
+        List<Column> columns = Arrays.asList(
+                new Column("id", Type.INT, false, "identifier"),
+                new Column("tags", new ArrayType(Type.STRING), true),
+                new Column("attrs", new MapType(Type.STRING, Type.BIGINT, false, true), true),
+                new Column("payload", struct, true),
+                new Column("document", Type.JSONB, true));
+
+        Schema schema = LanceTypeConverter.toArrowSchema(columns);
+
+        Assertions.assertEquals(5, schema.getFields().size());
+        Assertions.assertEquals("identifier", schema.findField("id").getMetadata().get("comment"));
+        Assertions.assertFalse(schema.findField("id").isNullable());
+        Assertions.assertEquals("arrow.json",
+                schema.findField("document").getMetadata().get("ARROW:extension:name"));
+        Assertions.assertFalse(schema.findField("payload").getChildren().get(0).isNullable());
+        Assertions.assertEquals("nested comment",
+                schema.findField("payload").getChildren().get(0).getMetadata().get("comment"));
+
+        for (int i = 0; i < columns.size(); i++) {
+            Assertions.assertEquals(columns.get(i).getType(),
+                    LanceTypeConverter.toDorisType(schema.getFields().get(i)));
+        }
+    }
+
+    @Test
+    public void testDorisDecimalSelectsArrowBitWidth() {
+        Schema schema = LanceTypeConverter.toArrowSchema(Arrays.asList(
+                new Column("decimal128", ScalarType.createDecimalV3Type(38, 4), true),
+                new Column("decimal256", ScalarType.createDecimalV3Type(40, 4), true)));
+
+        Assertions.assertEquals(128,
+                ((ArrowType.Decimal) schema.findField("decimal128").getType()).getBitWidth());
+        Assertions.assertEquals(256,
+                ((ArrowType.Decimal) schema.findField("decimal256").getType()).getBitWidth());
+    }
+
+    @Test
+    public void testUnsupportedDorisTypeFailsBeforeTableCreation() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceTypeConverter.toArrowSchema(
+                        Collections.singletonList(new Column("large", Type.LARGEINT, true))));
+        Assertions.assertTrue(exception.getMessage().contains("largeint"));
     }
 
     /** Creates a field with Arrow extension metadata. */
