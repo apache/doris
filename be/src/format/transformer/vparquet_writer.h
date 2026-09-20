@@ -89,24 +89,20 @@ struct ParquetFileOptions {
     std::optional<std::string> int96_timezone = std::nullopt;
 };
 
-// a wrapper of parquet output stream
-class VParquetTransformer : public VFileFormatTransformer {
+// Writes Doris blocks as Parquet files, including schema and Arrow conversion.
+class VParquetWriter : public VFileFormatTransformer {
 public:
-    VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                        const VExprContextSPtrs& output_vexpr_ctxs,
-                        std::vector<std::string> column_names, bool output_object_data,
-                        const ParquetFileOptions& parquet_options,
-                        std::unique_ptr<ArrowBlockConvertor> arrow_block_convertor =
-                                std::make_unique<ArrowFlightArrowBlockConvertor>());
+    VParquetWriter(RuntimeState* state, doris::io::FileWriter* file_writer,
+                   const VExprContextSPtrs& output_vexpr_ctxs,
+                   std::vector<std::string> column_names, bool output_object_data,
+                   const ParquetFileOptions& parquet_options);
 
-    VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                        const VExprContextSPtrs& output_vexpr_ctxs,
-                        std::vector<TParquetSchema> parquet_schemas, bool output_object_data,
-                        const ParquetFileOptions& parquet_options,
-                        std::unique_ptr<ArrowBlockConvertor> arrow_block_convertor =
-                                std::make_unique<ArrowFlightArrowBlockConvertor>());
+    VParquetWriter(RuntimeState* state, doris::io::FileWriter* file_writer,
+                   const VExprContextSPtrs& output_vexpr_ctxs,
+                   std::vector<TParquetSchema> parquet_schemas, bool output_object_data,
+                   const ParquetFileOptions& parquet_options);
 
-    ~VParquetTransformer() override = default;
+    ~VParquetWriter() override = default;
 
     Status open() override;
 
@@ -117,12 +113,16 @@ public:
     int64_t written_len() override;
 
 protected:
-    std::unique_ptr<ArrowBlockConvertor> _arrow_block_convertor;
+    // A writer chooses its protocol together with its schema; callers cannot mix the two.
+    virtual const ArrowBlockConvertor& _get_arrow_block_convertor() const {
+        return _arrow_block_convertor;
+    }
 
     virtual Status _parse_schema(std::shared_ptr<arrow::Schema>* schema);
     std::shared_ptr<::parquet::FileMetaData> _file_metadata() const { return _writer->metadata(); }
 
 private:
+    ArrowFlightArrowBlockConvertor _arrow_block_convertor;
     Status _parse_properties();
     arrow::Status _open_file_writer();
 

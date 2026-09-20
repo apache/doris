@@ -223,7 +223,7 @@ void expect_paimon_variant_bytes(const IColumn& column, const ColumnVariantV2& e
     DataTypePtr type = std::make_shared<DataTypeVariantV2>();
     const auto serde = type->get_serde();
     const auto field = arrow::field("payload", binary_variant_arrow_type(), true);
-    const Status status = paimon::paimon_arrow_block_convertor().write_column(
+    const Status status = paimon::PaimonArrowBlockConvertor().write_column(
             type, *serde, column, null_map, field, builder.get(), 0, column.size(),
             cctz::utc_time_zone());
     ASSERT_TRUE(status.ok()) << status;
@@ -481,7 +481,7 @@ TEST(PaimonArrowBlockConvertorTest, NestedArrayUsesPaimonSerdeRecursively) {
     ASSERT_TRUE(arrow::MakeBuilder(arrow::default_memory_pool(), arrow_type, &builder).ok());
 
     const auto serde = array_type->get_serde();
-    Status status = paimon::paimon_arrow_block_convertor().write_column(
+    Status status = paimon::PaimonArrowBlockConvertor().write_column(
             array_type, *serde, *array, nullptr, field, builder.get(), 0, array->size(),
             cctz::utc_time_zone());
     ASSERT_TRUE(status.ok()) << status;
@@ -518,7 +518,7 @@ TEST(PaimonArrowBlockConvertorTest, BinaryStructRejectsUnsupportedPaimonPrimitiv
     DataTypePtr type = std::make_shared<DataTypeVariantV2>();
     const auto serde = type->get_serde();
     const auto field = arrow::field("payload", binary_variant_arrow_type(), true);
-    const Status status = paimon::paimon_arrow_block_convertor().write_column(
+    const Status status = paimon::PaimonArrowBlockConvertor().write_column(
             type, *serde, *encoded, nullptr, field, arrow_builder.get(), 0, encoded->size(),
             cctz::utc_time_zone());
     EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);

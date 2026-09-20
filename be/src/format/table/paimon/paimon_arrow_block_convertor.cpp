@@ -36,10 +36,5 @@ Status PaimonArrowBlockConvertor::write_column(const std::shared_ptr<const IData
                                               start, end, ctz);
 }
 
-const PaimonArrowBlockConvertor& paimon_arrow_block_convertor() {
-    static const PaimonArrowBlockConvertor converter;
-    return converter;
-}
-
 #include "common/compile_check_end.h"
 } // namespace doris::paimon

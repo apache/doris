@@ -19,6 +19,7 @@
 
 #include "core/data_type/data_type_varbinary.h"
 #include "exprs/function/function_test_util.h"
+#include "exprs/function/in.h"
 
 namespace doris {
 
@@ -39,13 +40,18 @@ TEST(function_binary_test, comparisons_preserve_zero_bytes) {
     check_function_all_arg_comb<DataTypeUInt8, true>("lt", types, less);
 }
 
-TEST(function_binary_test, in_preserves_zero_bytes) {
-    const InputTypeSet types = {TYPE_VARBINARY, TYPE_VARBINARY, TYPE_VARBINARY};
-    const DataSet data = {{{VARBINARY("a"), VARBINARY("a\0", 2), VARBINARY("b")}, uint8_t(0)},
-                          {{VARBINARY("\0", 1), VARBINARY(""), VARBINARY("\0", 1)}, uint8_t(1)},
-                          {{VARBINARY("a"), VARBINARY("b"), Null()}, Null()},
-                          {{Null(), VARBINARY(""), VARBINARY("\0", 1)}, Null()}};
-    check_function_all_arg_comb<DataTypeUInt8, true>("in", types, data);
+TEST(function_binary_test, in_and_not_in_are_not_supported) {
+    RuntimeState state;
+    for (const auto& type : DataTypes {std::make_shared<DataTypeVarbinary>(),
+                                       make_nullable(std::make_shared<DataTypeVarbinary>())}) {
+        const DataTypes arguments {type, type};
+        auto context = FunctionContext::create_context(
+                &state, make_nullable(std::make_shared<DataTypeUInt8>()), arguments);
+        EXPECT_EQ(FunctionIn<false>().open(context.get(), FunctionContext::FRAGMENT_LOCAL).code(),
+                  ErrorCode::NOT_IMPLEMENTED_ERROR);
+        EXPECT_EQ(FunctionIn<true>().open(context.get(), FunctionContext::FRAGMENT_LOCAL).code(),
+                  ErrorCode::NOT_IMPLEMENTED_ERROR);
+    }
 }
 
 TEST(function_binary_test, function_binary_length_test) {

@@ -97,12 +97,11 @@ struct OwnedBinaryField {
     StringView view;
     char* bytes = nullptr;
 
-    explicit OwnedBinaryField(const StringView& value) : view(value) {
-        if (!value.isInline()) {
-            bytes = new char[value.size()];
-            memcpy(bytes, value.data(), value.size());
-            view = StringView(bytes, value.size());
-        }
+    explicit OwnedBinaryField(const StringView& value) {
+        // The Field must remain valid after the source column or decoder page is released.
+        bytes = new char[value.size()];
+        memcpy(bytes, value.data(), value.size());
+        view = StringView(bytes, value.size());
     }
     OwnedBinaryField(const OwnedBinaryField&) = delete;
     OwnedBinaryField& operator=(const OwnedBinaryField&) = delete;

@@ -36,18 +36,26 @@
 #include "core/string_ref.h"
 #include "core/string_view.h"
 #include "core/types.h"
+#include "exec/common/sip_hash.h"
 #include "util/raw_value.h"
 
 namespace doris {
 
-TEST(ColumnVarbinaryStorageTest, TabletRoutingHashesRawBinaryBytes) {
-    for (const std::string& value :
-         {std::string(), std::string("abc"), std::string("\0\xff", 2), std::string(64, '\x80')}) {
-        for (uint32_t seed : {0U, 31U}) {
-            EXPECT_EQ(HashUtil::zlib_crc_hash(value.data(), static_cast<uint32_t>(value.size()),
-                                              seed),
-                      RawValue::zlib_crc32(value.data(), value.size(), TYPE_VARBINARY, seed));
-        }
+TEST(ColumnVarbinaryStorageTest, FieldsOwnValuesAcrossInlineBoundary) {
+    for (size_t size : {0U, 1U, 12U, 13U, 64U}) {
+        SCOPED_TRACE(size);
+        const std::string expected(size, '\xff');
+        std::string source = expected;
+        auto field = Field::create_field<TYPE_VARBINARY>(StringView(source));
+        Field copied = field;
+        source.assign(size, 'x');
+        EXPECT_EQ(field.get<TYPE_VARBINARY>().str(), expected);
+        EXPECT_EQ(copied.get<TYPE_VARBINARY>().str(), expected);
+        field = Field::create_field<TYPE_VARBINARY>(StringView("replacement"));
+        Field moved = std::move(copied);
+        EXPECT_EQ(moved.get<TYPE_VARBINARY>().str(), expected);
+        moved = field;
+        EXPECT_EQ(moved.get<TYPE_VARBINARY>().str(), "replacement");
     }
 }
 
@@ -157,53 +165,29 @@ TEST_F(ColumnVarbinaryTest, BasicInsertGetPopClear) {
     EXPECT_EQ(col->byte_size(), 0U);
 }
 
-TEST_F(ColumnVarbinaryTest, HashingPreservesRawBytesAndNullMasks) {
-    auto binary = ColumnVarbinary::create();
-    auto strings = ColumnString::create();
-    const std::vector<std::string> values {"", std::string("\0", 1), "a", std::string("a\0", 2),
-                                           make_bytes(32)};
-    for (const auto& value : values) {
-        binary->insert_data(value.data(), value.size());
-        strings->insert_data(value.data(), value.size());
+TEST_F(ColumnVarbinaryTest, TabletRoutingHashIsNotSupported) {
+    for (const char* value : {static_cast<const char*>(nullptr), "", "binary"}) {
+        EXPECT_THROW(RawValue::zlib_crc32(value, value == nullptr ? 0 : strlen(value),
+                                          TYPE_VARBINARY, 0),
+                     Exception);
     }
-    const uint8_t null_map[] = {0, 1, 0, 0, 0};
-    // Exchange and aggregation must hash bytes, not StringView pointer/inline representations.
-    for (const uint8_t* mask : {static_cast<const uint8_t*>(nullptr), null_map}) {
-        std::vector<uint64_t> expected64(values.size(), 17), actual64(values.size(), 17);
-        strings->update_hashes_with_value(expected64.data(), mask);
-        EXPECT_NO_THROW(binary->update_hashes_with_value(actual64.data(), mask));
-        EXPECT_EQ(expected64, actual64);
-        uint64_t expected_range64 = 17, actual_range64 = 17;
-        strings->update_xxHash_with_value(0, values.size(), expected_range64, mask);
-        EXPECT_NO_THROW(binary->update_xxHash_with_value(0, values.size(), actual_range64, mask));
-        EXPECT_EQ(expected_range64, actual_range64);
+}
 
-        std::vector<uint32_t> expected32(values.size(), 23), actual32(values.size(), 23);
-        strings->update_crcs_with_value(expected32.data(), TYPE_STRING,
-                                        static_cast<uint32_t>(values.size()), 0, mask);
-        EXPECT_NO_THROW(binary->update_crcs_with_value(
-                actual32.data(), TYPE_VARBINARY, static_cast<uint32_t>(values.size()), 0, mask));
-        EXPECT_EQ(expected32, actual32);
-        uint32_t expected_range32 = 23, actual_range32 = 23;
-        strings->update_crc_with_value(0, values.size(), expected_range32, mask);
-        EXPECT_NO_THROW(binary->update_crc_with_value(0, values.size(), actual_range32, mask));
-        EXPECT_EQ(expected_range32, actual_range32);
-        expected32.assign(values.size(), 23);
-        actual32.assign(values.size(), 23);
-        strings->update_crc32c_batch(expected32.data(), mask);
-        EXPECT_NO_THROW(binary->update_crc32c_batch(actual32.data(), mask));
-        EXPECT_EQ(expected32, actual32);
-        expected_range32 = actual_range32 = 23;
-        strings->update_crc32c_single(0, values.size(), expected_range32, mask);
-        EXPECT_NO_THROW(binary->update_crc32c_single(0, values.size(), actual_range32, mask));
-        EXPECT_EQ(expected_range32, actual_range32);
-    }
-    for (size_t row = 0; row < values.size(); ++row) {
-        SipHash expected, actual;
-        strings->update_hash_with_value(row, expected);
-        EXPECT_NO_THROW(binary->update_hash_with_value(row, actual));
-        EXPECT_EQ(expected.get64(), actual.get64());
-    }
+TEST_F(ColumnVarbinaryTest, HashingIsNotSupported) {
+    auto binary = ColumnVarbinary::create();
+    binary->insert_data("\0\xff", 2);
+    SipHash sip;
+    uint64_t hash64 = 17;
+    uint32_t hash32 = 23;
+    EXPECT_THROW(binary->update_hash_with_value(0, sip), Exception);
+    EXPECT_THROW(binary->update_hashes_with_value(&hash64, nullptr), Exception);
+    EXPECT_THROW(binary->update_xxHash_with_value(0, 1, hash64, nullptr), Exception);
+    EXPECT_THROW(binary->update_crcs_with_value(&hash32, TYPE_VARBINARY, 1, 0, nullptr), Exception);
+    EXPECT_THROW(binary->update_crc_with_value(0, 1, hash32, nullptr), Exception);
+    EXPECT_THROW(binary->update_crc32c_batch(&hash32, nullptr), Exception);
+    EXPECT_THROW(binary->update_crc32c_single(0, 1, hash32, nullptr), Exception);
+    EXPECT_EQ(hash64, 17);
+    EXPECT_EQ(hash32, 23);
 }
 
 TEST_F(ColumnVarbinaryTest, InsertFromAndRanges) {

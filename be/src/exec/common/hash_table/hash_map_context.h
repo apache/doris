@@ -389,16 +389,9 @@ struct MethodStringNoCache : public MethodBase<TData> {
         if (nested_column.is_column_string64()) {
             const auto& column_string = assert_cast<const ColumnString64&>(nested_column);
             serialized_str(column_string, stored_keys);
-        } else if (nested_column.is_column_string()) {
+        } else {
             const auto& column_string = assert_cast<const ColumnString&>(nested_column);
             serialized_str(column_string, stored_keys);
-        } else {
-            // VARBINARY stores StringViews, not a character buffer plus offsets. Keep raw payload
-            // references so nullable single-key joins use the same key layout on build and probe.
-            stored_keys.resize(num_rows);
-            for (size_t row = 0; row < num_rows; ++row) {
-                stored_keys[row] = nested_column.get_data_at(row);
-            }
         }
         Base::keys = stored_keys.data();
     }

@@ -137,11 +137,13 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
     case PrimitiveType::TYPE_BITMAP:
     case PrimitiveType::TYPE_HLL:
     case PrimitiveType::TYPE_QUANTILE_STATE:
-    // The owning column-backed state also preserves long binary values across input blocks.
-    case PrimitiveType::TYPE_VARBINARY:
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataComplexType>>>(
                 argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_VARBINARY:
+        // Owning binary values for IO must not implicitly enable single-value aggregates.
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "VARBINARY aggregate {} is not supported",
+                        name);
     default:
         return nullptr;
     }

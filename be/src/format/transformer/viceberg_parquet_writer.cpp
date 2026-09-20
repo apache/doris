@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/transformer/viceberg_parquet_transformer.h"
+#include "format/transformer/viceberg_parquet_writer.h"
 
 #include <parquet/api/reader.h>
 #include <parquet/schema.h>
@@ -29,22 +29,22 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-VIcebergParquetTransformer::VIcebergParquetTransformer(
-        RuntimeState* state, io::FileWriter* file_writer,
-        const VExprContextSPtrs& output_vexpr_ctxs, std::vector<std::string> column_names,
-        bool output_object_data, const ParquetFileOptions& parquet_options,
-        const std::string* iceberg_schema_json, const iceberg::Schema& iceberg_schema)
-        : VParquetTransformer(state, file_writer, output_vexpr_ctxs, std::move(column_names),
-                              output_object_data, parquet_options,
-                              std::make_unique<iceberg::IcebergArrowBlockConvertor>(
-                                      iceberg_schema, iceberg_schema_json)) {}
+VIcebergParquetWriter::VIcebergParquetWriter(RuntimeState* state, io::FileWriter* file_writer,
+                                             const VExprContextSPtrs& output_vexpr_ctxs,
+                                             std::vector<std::string> column_names,
+                                             bool output_object_data,
+                                             const ParquetFileOptions& parquet_options,
+                                             const std::string* iceberg_schema_json,
+                                             const iceberg::Schema& iceberg_schema)
+        : VParquetWriter(state, file_writer, output_vexpr_ctxs, std::move(column_names),
+                         output_object_data, parquet_options),
+          _iceberg_arrow_block_convertor(iceberg_schema, iceberg_schema_json) {}
 
-Status VIcebergParquetTransformer::_parse_schema(std::shared_ptr<arrow::Schema>* schema) {
-    return static_cast<const iceberg::IcebergArrowBlockConvertor&>(*_arrow_block_convertor)
-            .arrow_schema(_state->timezone(), schema);
+Status VIcebergParquetWriter::_parse_schema(std::shared_ptr<arrow::Schema>* schema) {
+    return _iceberg_arrow_block_convertor.arrow_schema(_state->timezone(), schema);
 }
 
-Status VIcebergParquetTransformer::collect_file_statistics_after_close(TIcebergColumnStats* stats) {
+Status VIcebergParquetWriter::collect_file_statistics_after_close(TIcebergColumnStats* stats) {
     std::shared_ptr<::parquet::FileMetaData> file_metadata = _file_metadata();
     if (file_metadata == nullptr) {
         return Status::InternalError("File metadata is not available");

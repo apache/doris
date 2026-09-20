@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 
 #include <arrow/io/type_fwd.h>
 #include <arrow/memory_pool.h>
@@ -177,33 +177,27 @@ void ParquetBuildHelper::build_version(::parquet::WriterProperties::Builder& bui
     }
 }
 
-VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                                         const VExprContextSPtrs& output_vexpr_ctxs,
-                                         std::vector<std::string> column_names,
-                                         bool output_object_data,
-                                         const ParquetFileOptions& parquet_options,
-                                         std::unique_ptr<ArrowBlockConvertor> arrow_block_convertor)
+VParquetWriter::VParquetWriter(RuntimeState* state, doris::io::FileWriter* file_writer,
+                               const VExprContextSPtrs& output_vexpr_ctxs,
+                               std::vector<std::string> column_names, bool output_object_data,
+                               const ParquetFileOptions& parquet_options)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
-          _arrow_block_convertor(std::move(arrow_block_convertor)),
           _column_names(std::move(column_names)),
           _parquet_options(parquet_options) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
-VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
-                                         const VExprContextSPtrs& output_vexpr_ctxs,
-                                         std::vector<TParquetSchema> parquet_schemas,
-                                         bool output_object_data,
-                                         const ParquetFileOptions& parquet_options,
-                                         std::unique_ptr<ArrowBlockConvertor> arrow_block_convertor)
+VParquetWriter::VParquetWriter(RuntimeState* state, doris::io::FileWriter* file_writer,
+                               const VExprContextSPtrs& output_vexpr_ctxs,
+                               std::vector<TParquetSchema> parquet_schemas, bool output_object_data,
+                               const ParquetFileOptions& parquet_options)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
-          _arrow_block_convertor(std::move(arrow_block_convertor)),
           _parquet_schemas(std::move(parquet_schemas)),
           _parquet_options(parquet_options) {
     _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
 }
 
-Status VParquetTransformer::_parse_properties() {
+Status VParquetWriter::_parse_properties() {
     try {
         arrow::MemoryPool* pool = get_arrow_memory_pool();
 
@@ -235,7 +229,7 @@ Status VParquetTransformer::_parse_properties() {
     return Status::OK();
 }
 
-Status VParquetTransformer::_parse_schema(std::shared_ptr<arrow::Schema>* schema) {
+Status VParquetWriter::_parse_schema(std::shared_ptr<arrow::Schema>* schema) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     // INT96 has no logical timezone. Its schema and DATETIMEV2 conversion must use
     // the same writer-local timezone, including UTC for a wall-clock carrier.
@@ -252,14 +246,14 @@ Status VParquetTransformer::_parse_schema(std::shared_ptr<arrow::Schema>* schema
     return Status::OK();
 }
 
-Status VParquetTransformer::write(const Block& block) {
+Status VParquetWriter::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
     }
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(_arrow_block_convertor->convert_to_arrow(
+    RETURN_IF_ERROR(_get_arrow_block_convertor().convert_to_arrow(
             block, _arrow_schema, get_arrow_memory_pool(), &result, _timezone_obj));
     if (_write_size == 0) {
         RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
@@ -272,14 +266,14 @@ Status VParquetTransformer::write(const Block& block) {
     return Status::OK();
 }
 
-arrow::Status VParquetTransformer::_open_file_writer() {
+arrow::Status VParquetWriter::_open_file_writer() {
     ARROW_ASSIGN_OR_RAISE(_writer, ::parquet::arrow::FileWriter::Open(
                                            *_arrow_schema, get_arrow_memory_pool(), _outstream,
                                            _parquet_writer_properties, _arrow_properties));
     return arrow::Status::OK();
 }
 
-Status VParquetTransformer::open() {
+Status VParquetWriter::open() {
     _timezone = _state->timezone();
     _timezone_obj = _state->timezone_obj();
     if (_parquet_options.enable_int96_timestamps && _parquet_options.int96_timezone.has_value()) {
@@ -303,11 +297,11 @@ Status VParquetTransformer::open() {
     return Status::OK();
 }
 
-int64_t VParquetTransformer::written_len() {
+int64_t VParquetWriter::written_len() {
     return _outstream->get_written_len();
 }
 
-Status VParquetTransformer::close() {
+Status VParquetWriter::close() {
     try {
         if (_writer != nullptr) {
             RETURN_DORIS_STATUS_IF_ERROR(_writer->Close());

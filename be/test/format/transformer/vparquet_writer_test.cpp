@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 
 #include <arrow/io/api.h>
 #include <arrow/table.h>
@@ -39,7 +39,7 @@
 #include "exec/sink/writer/vhive_partition_writer.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "format/table/iceberg/schema_parser.h"
-#include "format/transformer/viceberg_parquet_transformer.h"
+#include "format/transformer/viceberg_parquet_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
@@ -48,7 +48,7 @@
 
 namespace doris {
 
-class VParquetTransformerTest : public testing::Test {
+class VParquetWriterTest : public testing::Test {
 protected:
     static void SetUpTestSuite() {
         // RuntimeState resolves named zones from the cache normally populated during BE startup.
@@ -56,7 +56,7 @@ protected:
     }
 
     void SetUp() override {
-        _file_path = "./vparquet_transformer_" + UniqueId::gen_uid().to_string() + ".parquet";
+        _file_path = "./vparquet_writer_" + UniqueId::gen_uid().to_string() + ".parquet";
         _fs = io::global_local_filesystem();
     }
 
@@ -66,7 +66,7 @@ protected:
     std::shared_ptr<io::FileSystem> _fs;
 };
 
-TEST_F(VParquetTransformerTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
+TEST_F(VParquetWriterTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
     auto variant_type = std::make_shared<DataTypeVariantV2>();
     auto nullable_variant_type = make_nullable(variant_type);
     VExprContextSPtrs output_exprs =
@@ -90,8 +90,8 @@ TEST_F(VParquetTransformerTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
                                 .enable_int96_timestamps = false};
     // Iceberg Variant uses a physical struct, so its schema and converter must be selected
     // together.
-    VIcebergParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"payload"},
-                                           false, options, &schema_json, *schema);
+    VIcebergParquetWriter transformer(&state, file_writer.get(), output_exprs, {"payload"}, false,
+                                      options, &schema_json, *schema);
     ASSERT_TRUE(transformer.open().ok());
 
     JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
@@ -144,7 +144,7 @@ TEST_F(VParquetTransformerTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
     EXPECT_EQ(-1, payload_group.field(1)->field_id());
 }
 
-TEST_F(VParquetTransformerTest, WritesInt64TimestampSemantics) {
+TEST_F(VParquetWriterTest, WritesInt64TimestampSemantics) {
     DataTypes types {DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6),
                      DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6)};
     VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(types);
@@ -157,9 +157,8 @@ TEST_F(VParquetTransformerTest, WritesInt64TimestampSemantics) {
                                 .parquet_version = TParquetVersion::PARQUET_1_0,
                                 .parquet_disable_dictionary = false,
                                 .enable_int96_timestamps = false};
-    VParquetTransformer transformer(&state, file_writer.get(), output_exprs,
-                                    std::vector<std::string> {"local_time", "instant"}, false,
-                                    options);
+    VParquetWriter transformer(&state, file_writer.get(), output_exprs,
+                               std::vector<std::string> {"local_time", "instant"}, false, options);
     ASSERT_TRUE(transformer.open().ok());
     ASSERT_TRUE(transformer.close().ok());
 
@@ -174,7 +173,7 @@ TEST_F(VParquetTransformerTest, WritesInt64TimestampSemantics) {
               root->field(1)->logical_type()->ToString().find("isAdjustedToUTC=true"));
 }
 
-TEST_F(VParquetTransformerTest, WritesInt96DatetimeUsingWriterTimezone) {
+TEST_F(VParquetWriterTest, WritesInt96DatetimeUsingWriterTimezone) {
     auto datetime_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
     VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(DataTypes {datetime_type});
 
@@ -186,8 +185,8 @@ TEST_F(VParquetTransformerTest, WritesInt96DatetimeUsingWriterTimezone) {
                                 .parquet_version = TParquetVersion::PARQUET_1_0,
                                 .parquet_disable_dictionary = false,
                                 .enable_int96_timestamps = true};
-    VParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"local_time"}, false,
-                                    options);
+    VParquetWriter transformer(&state, file_writer.get(), output_exprs, {"local_time"}, false,
+                               options);
     ASSERT_TRUE(transformer.open().ok());
 
     DateV2Value<DateTimeV2ValueType> datetime;
@@ -228,7 +227,7 @@ TEST_F(VParquetTransformerTest, WritesInt96DatetimeUsingWriterTimezone) {
     EXPECT_EQ(1681920000123456LL, epoch_micros);
 }
 
-TEST_F(VParquetTransformerTest, HiveInt96HonorsCatalogTimezoneContract) {
+TEST_F(VParquetWriterTest, HiveInt96HonorsCatalogTimezoneContract) {
     auto datetime_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
     VExprContextSPtrs output_exprs = MockSlotRef::create_mock_contexts(DataTypes {datetime_type});
     const std::map<std::string, std::string> hadoop_conf;
@@ -285,7 +284,7 @@ TEST_F(VParquetTransformerTest, HiveInt96HonorsCatalogTimezoneContract) {
     }
 }
 
-TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {
+TEST_F(VParquetWriterTest, WritesNestedIcebergVariant) {
     auto variant_type = std::make_shared<DataTypeVariantV2>();
     auto array_type = std::make_shared<DataTypeArray>(variant_type);
     auto nullable_array_type = make_nullable(array_type);
@@ -318,8 +317,8 @@ TEST_F(VParquetTransformerTest, WritesNestedIcebergVariant) {
                                 .parquet_version = TParquetVersion::PARQUET_1_0,
                                 .parquet_disable_dictionary = false,
                                 .enable_int96_timestamps = false};
-    VIcebergParquetTransformer transformer(&state, file_writer.get(), output_exprs, {"events"},
-                                           false, options, &schema_json, *schema);
+    VIcebergParquetWriter transformer(&state, file_writer.get(), output_exprs, {"events"}, false,
+                                      options, &schema_json, *schema);
     ASSERT_TRUE(transformer.open().ok());
 
     JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,

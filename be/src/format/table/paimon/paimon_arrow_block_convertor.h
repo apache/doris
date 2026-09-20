@@ -21,6 +21,9 @@
 
 namespace doris::paimon {
 
+// Paimon reads use native Parquet/ORC or the JNI scanner, which apply the table's
+// timestamp and nested-type semantics. This adapter implements the Arrow write protocol only;
+// convert_from_arrow deliberately inherits NotSupported instead of a generic SerDe fallback.
 class PaimonArrowBlockConvertor final : public ArrowBlockConvertor {
 protected:
     Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
@@ -29,7 +32,5 @@ protected:
                         arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                         const cctz::time_zone& ctz) const override;
 };
-
-const PaimonArrowBlockConvertor& paimon_arrow_block_convertor();
 
 } // namespace doris::paimon

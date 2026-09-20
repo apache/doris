@@ -120,6 +120,10 @@ std::shared_ptr<arrow::DataType> extension_storage_type(
     }
 }
 
+// `type` is the Doris logical type; `plain_arrow_type` is its ordinary SerDe mapping;
+// `target_type` is the Arrow representation requested by the consumer. For example,
+// DATETIMEV2(6) may bind timestamp(us) without a timezone, but TIMESTAMPTZ(6) must
+// retain a timezone to preserve instant semantics. Nested bindings obey the same rule.
 bool is_declared_plain_arrow_binding(const DataTypePtr& type,
                                      const std::shared_ptr<arrow::DataType>& plain_arrow_type,
                                      const std::shared_ptr<arrow::DataType>& target_type) {

@@ -17,25 +17,32 @@
 
 #pragma once
 
+#include "format/table/iceberg/iceberg_arrow_block_convertor.h"
 #include "format/table/iceberg/schema.h"
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
-class VIcebergParquetTransformer final : public VParquetTransformer {
+class VIcebergParquetWriter final : public VParquetWriter {
 public:
-    VIcebergParquetTransformer(RuntimeState* state, io::FileWriter* file_writer,
-                               const VExprContextSPtrs& output_vexpr_ctxs,
-                               std::vector<std::string> column_names, bool output_object_data,
-                               const ParquetFileOptions& parquet_options,
-                               const std::string* iceberg_schema_json,
-                               const iceberg::Schema& iceberg_schema);
+    VIcebergParquetWriter(RuntimeState* state, io::FileWriter* file_writer,
+                          const VExprContextSPtrs& output_vexpr_ctxs,
+                          std::vector<std::string> column_names, bool output_object_data,
+                          const ParquetFileOptions& parquet_options,
+                          const std::string* iceberg_schema_json,
+                          const iceberg::Schema& iceberg_schema);
 
     Status collect_file_statistics_after_close(TIcebergColumnStats* stats);
 
 protected:
     Status _parse_schema(std::shared_ptr<arrow::Schema>* schema) override;
+    const ArrowBlockConvertor& _get_arrow_block_convertor() const override {
+        return _iceberg_arrow_block_convertor;
+    }
+
+private:
+    iceberg::IcebergArrowBlockConvertor _iceberg_arrow_block_convertor;
 };
 
 } // namespace doris

@@ -49,28 +49,27 @@ suite("test_varbinary_sql_support") {
         assertEquals([[5], [8]], sql("SELECT id FROM ${table} WHERE payload = X'AB' ORDER BY id"))
         assertEquals([[6], [7], [9]], sql("SELECT id FROM ${table} WHERE payload > X'AB' ORDER BY id"))
         assertEquals([[0]], sql("SELECT id FROM ${table} WHERE payload <=> NULL"))
-        assertEquals([[1], [2]], sql("SELECT id FROM ${table} WHERE payload IN (X'', X'00', NULL) ORDER BY id"))
         assertEquals([[1]], sql("SELECT id FROM ${table} WHERE payload = ''"))
         assertEquals([[1, 0]], sql("SELECT CAST(X'616263' = 'abc' AS INT), CAST(X'AB' = 'AB' AS INT)"))
         assertEquals([[5], [6], [7], [8]], sql("SELECT id FROM ${table} "
                 + "WHERE payload BETWEEN X'AB' AND X'AB0001' ORDER BY id"))
         assertEquals([[0, 1, 1]], sql("SELECT CAST(X'AB' = X'AB00' AS INT), "
                 + "CAST(X'AB' < X'AB0001' AS INT), CAST(X'7F' < X'80' AS INT)"))
-        assertEquals([[null, 1L], ["", 1L], ["00", 1L], ["7F", 1L], ["80", 1L],
-                      ["AB", 2L], ["AB00", 1L], ["AB0001", 1L], ["FF", 1L]],
-                sql("SELECT from_binary(payload), count(*) FROM ${table} GROUP BY payload ORDER BY payload"))
-        assertEquals([[8L]], sql("SELECT count(DISTINCT payload) FROM ${table}"))
-        assertEquals(bytes.collect { [it[0], 1L] },
-                sql("SELECT id, count(*) FROM ${table} GROUP BY id, payload ORDER BY id"))
-        // Leave runtime filters enabled: the planner must not instantiate text-only filters for binary joins.
-        assertEquals([[11L]], sql("SELECT count(*) FROM ${table} a JOIN ${table} b ON a.payload = b.payload"))
-        assertEquals([[12L]], sql("SELECT count(*) FROM ${table} a JOIN ${table} b ON a.payload <=> b.payload"))
-        assertEquals([[35L]], sql("SELECT count(*) FROM ${table} a JOIN ${table} b ON a.payload < b.payload"))
-        assertEquals([[9L]], sql("SELECT count(*) FROM ${table} a JOIN ${table} b "
-                + "ON a.id = b.id AND a.payload = b.payload"))
-        assertEquals([[9L]], sql("SELECT count(*) FROM ${table} WHERE payload IN (SELECT payload FROM ${table})"))
-        assertEquals([[0L]], sql("SELECT count(*) FROM ${table} WHERE payload NOT IN (SELECT payload FROM ${table})"))
-        assertEquals([["", "FF"]], sql("SELECT from_binary(min(payload)), from_binary(max(payload)) FROM ${table}"))
+        // Binary read/write support must not enable hash keys, IN sets, or aggregate kernels.
+        ["SELECT payload, count(*) FROM ${table} GROUP BY payload",
+         "SELECT id, count(*) FROM ${table} GROUP BY id, payload",
+         "SELECT count(*) FROM ${table} a JOIN ${table} b ON a.payload = b.payload",
+         "SELECT count(*) FROM ${table} a JOIN ${table} b ON a.payload <=> b.payload",
+         "SELECT count(*) FROM ${table} a JOIN ${table} b ON a.id = b.id AND a.payload = b.payload",
+         "SELECT count(*) FROM ${table} WHERE payload IN (X'', X'00', NULL)",
+         "SELECT count(*) FROM ${table} WHERE payload NOT IN (X'', X'00', NULL)",
+         "SELECT min(payload) FROM ${table}",
+         "SELECT max(payload) FROM ${table}"].each { query ->
+            test {
+                sql query
+                exception "not supported"
+            }
+        }
 
         // Unsupported binary collection kernels must fail in analysis, not with a BE internal error.
         def binaryArray = "array(payload, X'', X'0080FF', NULL)"
@@ -116,13 +115,15 @@ suite("test_varbinary_sql_support") {
                 sql("SELECT id, from_binary(a[1]), from_binary(m['key']), from_binary(s.b) "
                 + "FROM ${nested} ORDER BY id"))
 
-        // Long execution values must outlive source batches and retain their byte-exact hash keys.
+        // Long execution values must outlive source batches and retain their bytes.
         sql """INSERT INTO ${source} SELECT number + 100,
                concat(repeat('FF', 700), '00AB') FROM numbers('number'='2048')"""
         assertEquals([[2048L]], sql("SELECT count(*) FROM ${table} "
                 + "WHERE payload = to_binary(concat(repeat('FF', 700), '00AB'))"))
-        assertEquals([["", "FF" * 700 + "00AB"]],
-                sql("SELECT from_binary(min(payload)), from_binary(max(payload)) FROM ${table}"))
+        test {
+            sql "SELECT count(*) FROM ${table} WHERE payload IN (to_binary(concat(repeat('FF', 700), '00AB')), X'00', NULL)"
+            exception "not supported"
+        }
     } finally {
         cleanup()
     }

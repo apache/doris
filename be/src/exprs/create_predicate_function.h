@@ -19,7 +19,6 @@
 
 #include "common/exception.h"
 #include "common/status.h"
-#include "core/column/column_varbinary.h"
 #include "core/data_type/define_primitive_type.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
@@ -107,6 +106,9 @@ typename Traits::BasePtr create_predicate_function(PrimitiveType type, bool null
     using Creator = PredicateFunctionCreator<Traits>;
 
     switch (type) {
+    case TYPE_VARBINARY:
+        // Binary read/write support does not provide storage or runtime predicate kernels.
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "VARBINARY predicates are not supported");
     case TYPE_BOOLEAN: {
         return Creator::template create<TYPE_BOOLEAN, N>(null_aware);
     }
@@ -131,11 +133,7 @@ inline auto create_minmax_filter(PrimitiveType type, bool null_aware) {
 }
 
 template <size_t N = 0>
-inline HybridSetBase* create_set(PrimitiveType type, bool null_aware) {
-    if (type == TYPE_VARBINARY) {
-        // IN owns byte-exact keys, while its probe column remains VARBINARY rather than STRING.
-        return new StringSet<DynamicContainer<std::string>, ColumnVarbinary>(null_aware);
-    }
+inline auto create_set(PrimitiveType type, bool null_aware) {
     return create_predicate_function<HybridSetTraits, N>(type, null_aware);
 }
 

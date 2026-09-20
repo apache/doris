@@ -22,6 +22,8 @@
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
+#include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/transport/TBufferTransports.h>
 
 #include <algorithm>
 #include <chrono>
@@ -74,6 +76,44 @@
 #include "util/timezone_utils.h"
 
 namespace doris::format {
+
+TEST(TableReaderTest, Int96TimezoneOverridePreservesIntermediateSchemas) {
+    TFileScanRangeParams params;
+    EXPECT_FALSE(TableReader::_get_int96_timezone_override(nullptr).has_value());
+    EXPECT_FALSE(TableReader::_get_int96_timezone_override(&params).has_value());
+    // Field 36 predates the version marker; its explicit value is already a complete contract.
+    for (const std::string zone : {"Asia/Shanghai", "UTC", ""}) {
+        using namespace apache::thrift::protocol;
+        auto buffer = std::make_shared<apache::thrift::transport::TMemoryBuffer>();
+        TBinaryProtocol protocol(buffer);
+        protocol.writeStructBegin("TFileScanRangeParams");
+        protocol.writeFieldBegin("hive_parquet_time_zone", T_STRING, 36);
+        protocol.writeString(zone);
+        protocol.writeFieldEnd();
+        protocol.writeFieldStop();
+        protocol.writeStructEnd();
+        params.read(&protocol);
+        EXPECT_FALSE(params.__isset.parquet_timestamp_semantics_version);
+        ASSERT_TRUE(TableReader::_get_int96_timezone_override(&params).has_value());
+        EXPECT_EQ(*TableReader::_get_int96_timezone_override(&params), zone);
+    }
+
+    params.__set_hive_parquet_time_zone("Asia/Shanghai");
+    params.__set_parquet_timestamp_semantics_version(1);
+    ASSERT_TRUE(TableReader::_get_int96_timezone_override(&params).has_value());
+    EXPECT_EQ(*TableReader::_get_int96_timezone_override(&params), "Asia/Shanghai");
+
+    params.__isset.hive_parquet_time_zone = false;
+    ASSERT_TRUE(TableReader::_get_int96_timezone_override(&params).has_value());
+    EXPECT_TRUE(TableReader::_get_int96_timezone_override(&params)->empty());
+
+    params.__set_parquet_timestamp_semantics_version(0);
+    EXPECT_FALSE(TableReader::_get_int96_timezone_override(&params).has_value());
+    params.__set_hive_parquet_time_zone("UTC");
+    ASSERT_TRUE(TableReader::_get_int96_timezone_override(&params).has_value());
+    EXPECT_EQ("UTC", *TableReader::_get_int96_timezone_override(&params));
+}
+
 namespace {
 
 std::vector<int32_t> projection_ids(const std::vector<LocalColumnIndex>& projections) {

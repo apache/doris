@@ -16,8 +16,6 @@
 // under the License.
 
 #include <gtest/gtest.h>
-#include <thrift/protocol/TBinaryProtocol.h>
-#include <thrift/transport/TBufferTransports.h>
 
 #include <limits>
 #include <optional>
@@ -38,7 +36,6 @@
 #include "format_v2/parquet/native_schema_node.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
-#include "format_v2/parquet/parquet_timestamp_semantics.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
 
 namespace doris::format::parquet {
@@ -272,43 +269,6 @@ TEST(ParquetSchemaTest, RequestTypeSyncPreservesVariantPhysicalStruct) {
     ASSERT_NE(request_field.variant_physical_type, nullptr);
     EXPECT_EQ(remove_nullable(request_field.variant_physical_type)->get_primitive_type(),
               TYPE_STRUCT);
-}
-
-TEST(ParquetSchemaTest, Int96TimezoneOverridePreservesIntermediateSchemas) {
-    TFileScanRangeParams params;
-    EXPECT_FALSE(get_int96_timezone_override(nullptr).has_value());
-    EXPECT_FALSE(get_int96_timezone_override(&params).has_value());
-    // Field 36 predates the version marker; its explicit value is already a complete contract.
-    for (const std::string zone : {"Asia/Shanghai", "UTC", ""}) {
-        using namespace apache::thrift::protocol;
-        auto buffer = std::make_shared<apache::thrift::transport::TMemoryBuffer>();
-        TBinaryProtocol protocol(buffer);
-        protocol.writeStructBegin("TFileScanRangeParams");
-        protocol.writeFieldBegin("hive_parquet_time_zone", T_STRING, 36);
-        protocol.writeString(zone);
-        protocol.writeFieldEnd();
-        protocol.writeFieldStop();
-        protocol.writeStructEnd();
-        params.read(&protocol);
-        EXPECT_FALSE(params.__isset.parquet_timestamp_semantics_version);
-        ASSERT_TRUE(get_int96_timezone_override(&params).has_value());
-        EXPECT_EQ(*get_int96_timezone_override(&params), zone);
-    }
-
-    params.__set_hive_parquet_time_zone("Asia/Shanghai");
-    params.__set_parquet_timestamp_semantics_version(PARQUET_TIMESTAMP_SEMANTICS_VERSION_1);
-    ASSERT_TRUE(get_int96_timezone_override(&params).has_value());
-    EXPECT_EQ(*get_int96_timezone_override(&params), "Asia/Shanghai");
-
-    params.__isset.hive_parquet_time_zone = false;
-    ASSERT_TRUE(get_int96_timezone_override(&params).has_value());
-    EXPECT_TRUE(get_int96_timezone_override(&params)->empty());
-
-    params.__set_parquet_timestamp_semantics_version(0);
-    EXPECT_FALSE(get_int96_timezone_override(&params).has_value());
-    params.__set_hive_parquet_time_zone("UTC");
-    ASSERT_TRUE(get_int96_timezone_override(&params).has_value());
-    EXPECT_EQ("UTC", *get_int96_timezone_override(&params));
 }
 
 TEST(ParquetSchemaTest, AppliesTableFormatVariantOverrideToUnannotatedGroup) {

@@ -620,12 +620,21 @@ TEST(DataTypeSerDeArrowTest, IcebergCommonScalarTypesUseDeclaredConverter) {
             iceberg::iceberg_arrow_block_convertor());
 }
 
+TEST(DataTypeSerDeArrowTest, PaimonDoesNotReadThroughGenericArrowSerde) {
+    paimon::PaimonArrowBlockConvertor converter;
+    Block output;
+    const auto batch = arrow::RecordBatch::Make(arrow::schema({}), 0, arrow::ArrayVector {});
+    const auto status = converter.convert_from_arrow(batch, {}, &output, cctz::utc_time_zone());
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(output.columns(), 0);
+}
+
 TEST(DataTypeSerDeArrowTest, PaimonCommonScalarTypesUseDeclaredConverter) {
     expect_target_converter_matches_plain(
             {TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_FLOAT,
              TYPE_DOUBLE, TYPE_STRING, TYPE_VARCHAR, TYPE_CHAR, TYPE_VARBINARY, TYPE_DECIMAL32,
              TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DATEV2},
-            paimon::paimon_arrow_block_convertor());
+            paimon::PaimonArrowBlockConvertor());
 }
 
 TEST(DataTypeSerDeArrowTest, PlainArrowWritesAggregateStateBinaryTypes) {
@@ -666,7 +675,7 @@ TEST(DataTypeSerDeArrowTest, PlainArrowWritesTimeV2) {
 TEST(DataTypeSerDeArrowTest, TargetConvertersRecurseThroughOrdinaryComplexTypes) {
     const std::vector<PrimitiveType> complex_types = {TYPE_ARRAY, TYPE_MAP, TYPE_STRUCT};
     expect_target_converter_matches_plain(complex_types, iceberg::iceberg_arrow_block_convertor());
-    expect_target_converter_matches_plain(complex_types, paimon::paimon_arrow_block_convertor());
+    expect_target_converter_matches_plain(complex_types, paimon::PaimonArrowBlockConvertor());
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
@@ -751,11 +760,11 @@ TEST(DataTypeSerDeArrowTest, PaimonTimestampBindsTargetTimezone) {
     };
 
     std::shared_ptr<arrow::RecordBatch> ntz_batch;
-    Status status = convert(ntz_schema, paimon::paimon_arrow_block_convertor(), &ntz_batch);
+    Status status = convert(ntz_schema, paimon::PaimonArrowBlockConvertor(), &ntz_batch);
     EXPECT_TRUE(status.ok()) << status;
 
     std::shared_ptr<arrow::RecordBatch> ltz_batch;
-    status = convert(ltz_schema, paimon::paimon_arrow_block_convertor(), &ltz_batch);
+    status = convert(ltz_schema, paimon::PaimonArrowBlockConvertor(), &ltz_batch);
     EXPECT_TRUE(status.ok()) << status;
     const auto& ntz_values = assert_cast<const arrow::TimestampArray&>(*ntz_batch->column(0));
     const auto& ltz_values = assert_cast<const arrow::TimestampArray&>(*ltz_batch->column(0));
@@ -773,7 +782,7 @@ TEST(DataTypeSerDeArrowTest, PaimonTimestampBindsTargetTimezone) {
     auto wrong_unit_schema =
             arrow::schema({arrow::field("0", arrow::timestamp(arrow::TimeUnit::MICRO), false)});
     std::shared_ptr<arrow::RecordBatch> unused_batch;
-    status = convert(wrong_unit_schema, paimon::paimon_arrow_block_convertor(), &unused_batch);
+    status = convert(wrong_unit_schema, paimon::PaimonArrowBlockConvertor(), &unused_batch);
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
     EXPECT_NE(std::string::npos, status.to_string().find("Paimon timestamp writer has no binding"));
 
@@ -812,7 +821,7 @@ TEST(DataTypeSerDeArrowTest, TargetConvertersWriteNullableTimestampTz) {
     std::shared_ptr<arrow::RecordBatch> iceberg_batch;
     ASSERT_TRUE(convert(iceberg::iceberg_arrow_block_convertor(), &iceberg_batch).ok());
     std::shared_ptr<arrow::RecordBatch> paimon_batch;
-    ASSERT_TRUE(convert(paimon::paimon_arrow_block_convertor(), &paimon_batch).ok());
+    ASSERT_TRUE(convert(paimon::PaimonArrowBlockConvertor(), &paimon_batch).ok());
 
     EXPECT_TRUE(iceberg_batch->Equals(*plain_batch));
     EXPECT_TRUE(paimon_batch->Equals(*plain_batch));
@@ -838,7 +847,7 @@ TEST(DataTypeSerDeArrowTest, PaimonTimestampTzPreservesBothSidesOfDstFold) {
     std::shared_ptr<arrow::RecordBatch> batch;
     ASSERT_TRUE(convert_to_arrow_batch(block, schema, arrow::default_memory_pool(), &batch,
                                        timezone, 0, block.rows(),
-                                       paimon::paimon_arrow_block_convertor())
+                                       paimon::PaimonArrowBlockConvertor())
                         .ok());
     ASSERT_TRUE(batch->ValidateFull().ok());
     const auto& timestamps = assert_cast<const arrow::TimestampArray&>(*batch->column(0));

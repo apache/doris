@@ -52,7 +52,6 @@
 #include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
-#include "format_v2/parquet/parquet_timestamp_semantics.h"
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
@@ -60,6 +59,25 @@
 #include "util/string_util.h"
 
 namespace doris::format {
+
+std::optional<std::string> TableReader::_get_int96_timezone_override(
+        const TFileScanRangeParams* params) {
+    if (params == nullptr) {
+        return std::nullopt;
+    }
+    // The timezone field predates the version marker. Honor intermediate FEs that send it alone,
+    // including an explicit empty value selecting wall-clock semantics.
+    if (params->__isset.hive_parquet_time_zone) {
+        return params->hive_parquet_time_zone;
+    }
+    // Only a plan lacking both an explicit timezone and the new contract uses the legacy session.
+    if (!params->__isset.parquet_timestamp_semantics_version ||
+        params->parquet_timestamp_semantics_version < 1) {
+        return std::nullopt;
+    }
+    return std::string {};
+}
+
 namespace {
 
 std::optional<uint64_t> build_predicate_snapshot_digest(const VExprContextSPtrs& conjuncts) {
@@ -1456,7 +1474,7 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
                                     : file.range_size;
     auto cache_digest = _condition_cache_digest;
     if (_format == FileFormat::PARQUET) {
-        const auto timezone = parquet::get_int96_timezone_override(_scan_params);
+        const auto timezone = _get_int96_timezone_override(_scan_params);
         if (timezone.has_value()) {
             // A cached false granule is valid only under the same INT96 interpretation. The
             // helper normalizes versioned omission to explicit empty; legacy absence keeps
@@ -1664,7 +1682,7 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                                           _scan_params->__isset.enable_mapping_varbinary &&
                                           _scan_params->enable_mapping_varbinary;
     const std::optional<std::string> hive_parquet_time_zone =
-            parquet::get_int96_timezone_override(_scan_params);
+            _get_int96_timezone_override(_scan_params);
     if (_format == FileFormat::PARQUET) {
         // V2 must honor the scan contract directly; otherwise Hive STRING columns backed by an
         // unannotated BYTE_ARRAY are silently exposed as VARBINARY and predicate bytes no longer

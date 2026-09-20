@@ -27,6 +27,7 @@
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 #include "format/parquet/arrow_memory_pool.h"
+#include "format/table/paimon/paimon_arrow_block_convertor.h"
 #include "runtime/runtime_profile.h"
 
 namespace arrow {
@@ -112,6 +113,7 @@ private:
 
     // Arrow resources owned by this writer adapter.
     ArrowMemoryPool<> _arrow_pool;
+    paimon::PaimonArrowBlockConvertor _arrow_block_convertor;
     std::shared_ptr<arrow::Schema> _arrow_schema;
 };
 

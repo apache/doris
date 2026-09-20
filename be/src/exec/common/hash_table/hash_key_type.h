@@ -102,6 +102,13 @@ inline HashKeyType get_hash_key_type_fixed(const std::vector<DataTypePtr>& data_
 }
 
 inline HashKeyType get_hash_key_type(const std::vector<DataTypePtr>& data_types) {
+    // Reject binary before the multi-key serialization fallback can enable joins or grouping.
+    for (const auto& type : data_types) {
+        if (type->get_primitive_type() == TYPE_VARBINARY) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                            "VARBINARY hash keys are not supported");
+        }
+    }
     if (data_types.size() > 1) {
         return get_hash_key_type_fixed(data_types);
     }
@@ -121,7 +128,7 @@ inline HashKeyType get_hash_key_type(const std::vector<DataTypePtr>& data_types)
     // serialized cannot be used in the case of single column, because the join operator will have some processing of column nullable, resulting in incorrect serialized results.
     if (!t->have_maximum_size_of_value()) {
         if (is_string_type(t->get_primitive_type()) || t->get_primitive_type() == TYPE_ARRAY ||
-            t->get_primitive_type() == TYPE_JSONB || t->get_primitive_type() == TYPE_VARBINARY) {
+            t->get_primitive_type() == TYPE_JSONB) {
             return HashKeyType::string_key;
         }
         throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}", t->get_name());

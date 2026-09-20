@@ -64,27 +64,9 @@ TEST_F(HybridSetTest, bool) {
     EXPECT_TRUE(set->find(&a));
 }
 
-TEST_F(HybridSetTest, VarbinaryOwnsKeysAndProbesBinaryColumns) {
-    std::unique_ptr<HybridSetBase> set(create_set(TYPE_VARBINARY, true));
-    const std::string long_value(64, '\xff');
-    auto values = ColumnVarbinary::create();
-    values->insert_data("", 0);
-    values->insert_data("\0", 1);
-    values->insert_data(long_value.data(), long_value.size());
-    set->insert_range_from(values->get_ptr(), 0, values->size());
-    values->clear();
-    EXPECT_EQ(set->size(), 3);
-    StringRef key(long_value);
-    EXPECT_TRUE(set->find(&key));
-    auto probe = ColumnVarbinary::create();
-    probe->insert_data("", 0);
-    probe->insert_data("\0\0", 2);
-    probe->insert_data(long_value.data(), long_value.size());
-    ColumnUInt8::Container result(3, 0);
-    set->find_batch(*probe, probe->size(), result, nullptr);
-    EXPECT_EQ(result[0], 1);
-    EXPECT_EQ(result[1], 0);
-    EXPECT_EQ(result[2], 1);
+TEST_F(HybridSetTest, StoragePredicateFactoryRejectsBinary) {
+    EXPECT_THROW(std::unique_ptr<HybridSetBase>(create_set(TYPE_VARBINARY, true)), Exception);
+    EXPECT_THROW(delete create_minmax_filter(TYPE_VARBINARY, true), Exception);
 }
 
 #define TEST_NUMERIC(primitive_type)                                               \

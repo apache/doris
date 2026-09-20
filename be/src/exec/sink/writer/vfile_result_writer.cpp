@@ -45,7 +45,7 @@
 #include "format/transformer/vcsv_transformer.h"
 #include "format/transformer/vnative_transformer.h"
 #include "format/transformer/vorc_transformer.h"
-#include "format/transformer/vparquet_transformer.h"
+#include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
 #include "io/fs/broker_file_system.h"
 #include "io/fs/file_system.h"
@@ -138,7 +138,7 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                 _file_opts->with_bom, _file_opts->compression_type));
         break;
     case TFileFormatType::FORMAT_PARQUET:
-        _vfile_writer.reset(new VParquetTransformer(
+        _vfile_writer.reset(new VParquetWriter(
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
                 _output_object_data,
                 {_file_opts->parquet_commpression_type, _file_opts->parquet_version,

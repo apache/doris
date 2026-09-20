@@ -78,25 +78,6 @@
 
 namespace doris {
 
-TEST(ExprBinaryZoneMapTest, MaterializesBinaryInSetAsBinaryLiterals) {
-    std::unique_ptr<HybridSetBase> set(create_set(TYPE_VARBINARY, true));
-    const std::vector<std::string> values = {"", std::string("\0", 1), std::string("a\0", 2),
-                                             std::string(64, '\xff')};
-    auto column = ColumnVarbinary::create();
-    for (const auto& value : values) {
-        column->insert_data(value.data(), value.size());
-    }
-    set->insert_range_from(column->get_ptr(), 0, column->size());
-    column->clear();
-    expr_zonemap::InZonemapMaterializedSet result;
-    ASSERT_TRUE(expr_zonemap::materialize_hybrid_set_for_zonemap_filter(
-                        *set, std::make_shared<DataTypeVarbinary>(), &result)
-                        .ok());
-    EXPECT_EQ(result.values.size(), values.size());
-    EXPECT_EQ(result.min_value.get<TYPE_VARBINARY>().str(), values.front());
-    EXPECT_EQ(result.max_value.get<TYPE_VARBINARY>().str(), values.back());
-}
-
 namespace {
 
 Field int_field(int32_t value) {
@@ -1152,6 +1133,21 @@ TEST(ExprZonemapFilterTest, VInPredicateDictionaryAndBloomUseMaterializedValues)
     auto matching_bloom_ctx = make_bloom_filter_context(matching_bloom_filter.get(), type);
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               in_predicate->evaluate_bloom_filter(matching_bloom_ctx));
+}
+
+TEST(ExprZonemapFilterTest, BinaryInDoesNotMaterializeStoragePredicates) {
+    auto type = std::make_shared<DataTypeVarbinary>();
+    for (bool negative : {false, true}) {
+        auto predicate = std::make_shared<VInPredicate>(make_in_predicate_node(negative, 2));
+        predicate->add_child(make_slot(0, type));
+        auto field = Field::create_field<TYPE_VARBINARY>(StringView("\0\xff", 2));
+        predicate->add_child(
+                std::make_shared<VLiteral>(create_texpr_node_from(field, TYPE_VARBINARY, 0, 0)));
+        ASSERT_TRUE(predicate->_materialize_for_zonemap_filter(nullptr).ok());
+        EXPECT_FALSE(predicate->can_evaluate_zonemap_filter());
+        EXPECT_FALSE(predicate->can_evaluate_dictionary_filter());
+        EXPECT_FALSE(predicate->can_evaluate_bloom_filter());
+    }
 }
 
 TEST(ExprZonemapFilterTest, VInPredicateMaterializesNestedBloomValuesDuringOpen) {

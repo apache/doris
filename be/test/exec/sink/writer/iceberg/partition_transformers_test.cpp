@@ -34,44 +34,27 @@ public:
     virtual ~PartitionTransformersTest() = default;
 };
 
-TEST_F(PartitionTransformersTest, binary_transforms_preserve_raw_bytes) {
-    auto type = std::make_shared<DataTypeVarbinary>();
-    auto column = type->create_column();
-    const std::vector<std::string> values = {std::string("\xC3\xA9\0\xFF", 4), "", "abc"};
-    for (const auto& value : values) {
-        column->insert_data(value.data(), value.size());
+TEST_F(PartitionTransformersTest, human_hour_floors_negative_ordinals) {
+    const std::vector<std::pair<int, std::string>> cases = {
+            {-25, "1969-12-30-23"}, {-24, "1969-12-31-00"}, {-1, "1969-12-31-23"},
+            {0, "1970-01-01-00"},   {23, "1970-01-01-23"},  {24, "1970-01-02-00"}};
+    for (const auto& [ordinal, expected] : cases) {
+        EXPECT_EQ(expected, PartitionColumnTransformUtils::human_hour(ordinal));
     }
-    Block block({{column->get_ptr(), type, "binary_key"}});
-    auto truncate = PartitionColumnTransforms::create(
-            iceberg::PartitionField(1, 1000, "key_prefix", "truncate[1]"), type);
-    auto truncated = truncate->apply(block, 0);
-    // Binary truncation counts bytes, not UTF-8 code points, and keeps its physical type.
-    EXPECT_EQ(TYPE_VARBINARY, truncated.type->get_primitive_type());
-    EXPECT_EQ(std::string("\xC3", 1), truncated.column->get_data_at(0).to_string());
-    EXPECT_EQ("", truncated.column->get_data_at(1).to_string());
-    EXPECT_EQ("a", truncated.column->get_data_at(2).to_string());
+}
 
-    auto bucket = PartitionColumnTransforms::create(
-            iceberg::PartitionField(1, 1001, "key_bucket", "bucket[16]"), type);
-    auto bucketed = bucket->apply(block, 0);
-    const auto& buckets = assert_cast<const ColumnInt32&>(*bucketed.column).get_data();
-    for (size_t i = 0; i < values.size(); ++i) {
-        EXPECT_EQ(
-                (HashUtil::murmur_hash3_32(values[i].data(), values[i].size(), 0) & INT32_MAX) % 16,
-                buckets[i]);
+TEST_F(PartitionTransformersTest, binary_computation_transforms_are_not_supported) {
+    const auto type = std::make_shared<DataTypeVarbinary>();
+    for (const auto& source_type : DataTypes {type, make_nullable(type)}) {
+        for (const auto& transform : {"truncate[1]", "bucket[16]"}) {
+            EXPECT_THROW(
+                    PartitionColumnTransforms::create(
+                            iceberg::PartitionField(1, 1000, "binary_key", transform), source_type),
+                    Exception);
+        }
     }
     IdentityPartitionColumnTransform identity(type);
-    EXPECT_EQ("0xc3a900ff", identity.get_partition_value(type, values[0]));
-    auto null_map = ColumnUInt8::create();
-    null_map->get_data().assign({0, 1, 0});
-    Block nullable_block(
-            {{ColumnNullable::create(block.get_by_position(0).column, std::move(null_map)),
-              make_nullable(type), "binary_key"}});
-    for (auto* transform : {truncate.get(), bucket.get()}) {
-        auto result = transform->apply(nullable_block, 0);
-        EXPECT_TRUE(result.column->is_null_at(1));
-        EXPECT_FALSE(result.column->is_null_at(0));
-    }
+    EXPECT_EQ("0xc3a900ff", identity.get_partition_value(type, std::string("\xc3\xa9\0\xff", 4)));
 }
 
 TEST_F(PartitionTransformersTest, timestamp_transforms_use_utc_calendar_and_microseconds) {
@@ -345,7 +328,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_bucket_transform) {
     Block block({test_timestamp});
     auto source_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
-    TimestampBucketPartitionColumnTransform transform(source_type, 16);
+    TimestampBucketPartitionColumnTransform<TYPE_DATETIMEV2> transform(source_type, 16);
 
     auto result = transform.apply(block, 0);
 
@@ -418,7 +401,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_year_transform) {
     Block block({test_timestamp});
     auto source_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
-    TimestampYearPartitionColumnTransform transform(source_type);
+    TimestampYearPartitionColumnTransform<TYPE_DATETIMEV2> transform(source_type);
 
     auto result = transform.apply(block, 0);
 
@@ -472,7 +455,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_month_transform) {
     Block block({test_timestamp});
     auto source_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
-    TimestampMonthPartitionColumnTransform transform(source_type);
+    TimestampMonthPartitionColumnTransform<TYPE_DATETIMEV2> transform(source_type);
 
     auto result = transform.apply(block, 0);
 
@@ -526,7 +509,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_day_transform) {
     Block block({test_timestamp});
     auto source_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
-    TimestampDayPartitionColumnTransform transform(source_type);
+    TimestampDayPartitionColumnTransform<TYPE_DATETIMEV2> transform(source_type);
 
     auto result = transform.apply(block, 0);
 
@@ -553,7 +536,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_hour_transform) {
     Block block({test_timestamp});
     auto source_type =
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DATETIMEV2, false);
-    TimestampHourPartitionColumnTransform transform(source_type);
+    TimestampHourPartitionColumnTransform<TYPE_DATETIMEV2> transform(source_type);
 
     auto result = transform.apply(block, 0);
 

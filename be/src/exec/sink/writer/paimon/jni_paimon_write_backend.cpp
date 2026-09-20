@@ -469,8 +469,8 @@ Status JniPaimonWriter::write(RuntimeState* state, Block& block) {
     // Variant layout are fixed before the first write. Arrow builders remain on the Doris side and
     // are charged to the current query's MemTracker through ArrowMemoryPool.
     std::shared_ptr<arrow::RecordBatch> record_batch;
-    RETURN_IF_ERROR(paimon::paimon_arrow_block_convertor().convert_to_arrow(
-            block, _arrow_schema, &_arrow_pool, &record_batch, state->timezone_obj()));
+    RETURN_IF_ERROR(_arrow_block_convertor.convert_to_arrow(block, _arrow_schema, &_arrow_pool,
+                                                            &record_batch, state->timezone_obj()));
 
     ArrowArray c_array {};
     ArrowSchema c_schema {};
