@@ -338,6 +338,9 @@ struct TReportExecStatusParams {
   32: optional list<DataSinks.TMCCommitData> mc_commit_datas
 
   33: optional string first_error_msg
+
+  // Opaque, connector-owned commit fragments; FE routes them to the transaction.
+  34: optional list<binary> connector_commit_data
 }
 
 struct TFeResult {

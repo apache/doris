@@ -22,6 +22,7 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -64,6 +65,20 @@ public final class CommitDataSerializer {
             throw new RuntimeException("failed to initialize connector commit-data serialization", e);
         } catch (CommitDataSerializationException e) {
             throw new RuntimeException("failed to serialize connector commit data", e.getCause());
+        }
+    }
+
+    /**
+     * Delivers opaque commit fragments without interpreting connector-owned bytes in FE core.
+     * Thrift exposes binary values as {@link ByteBuffer}; copy each remaining slice before
+     * passing it to a transaction, which may keep the byte array after the RPC is released.
+     */
+    public static void feedRaw(Transaction txn, List<ByteBuffer> fragments) {
+        for (ByteBuffer fragment : fragments) {
+            ByteBuffer source = fragment.duplicate();
+            byte[] bytes = new byte[source.remaining()];
+            source.get(bytes);
+            txn.addCommitData(bytes);
         }
     }
 
