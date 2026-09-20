@@ -274,13 +274,15 @@ IndexPolicyMgr::build_analyzer_config_from_policy(const TIndexPolicy& index_poli
         builder.with_tokenizer_config(normalized_tokenizer_name, {});
     }
 
-    process_filter_configs(index_policy_analyzer, PROP_CHAR_FILTER, "char filter",
+    process_filter_configs(index_policy_analyzer, PROP_CHAR_FILTER, TIndexPolicyType::CHAR_FILTER,
+                           "char filter",
                            [&builder](const std::string& name,
                                       const segment_v2::inverted_index::Settings& settings) {
                                builder.add_char_filter_config(name, settings);
                            });
 
-    process_filter_configs(index_policy_analyzer, PROP_TOKEN_FILTER, "token filter",
+    process_filter_configs(index_policy_analyzer, PROP_TOKEN_FILTER, TIndexPolicyType::TOKEN_FILTER,
+                           "token filter",
                            [&builder](const std::string& name,
                                       const segment_v2::inverted_index::Settings& settings) {
                                builder.add_token_filter_config(name, settings);
@@ -306,13 +308,15 @@ AnalyzerPtr IndexPolicyMgr::build_normalizer_from_policy(
         const TIndexPolicy& index_policy_normalizer) {
     segment_v2::inverted_index::CustomNormalizerConfig::Builder builder;
 
-    process_filter_configs(index_policy_normalizer, PROP_CHAR_FILTER, "char filter",
+    process_filter_configs(index_policy_normalizer, PROP_CHAR_FILTER, TIndexPolicyType::CHAR_FILTER,
+                           "char filter",
                            [&builder](const std::string& name,
                                       const segment_v2::inverted_index::Settings& settings) {
                                builder.add_char_filter_config(name, settings);
                            });
 
-    process_filter_configs(index_policy_normalizer, PROP_TOKEN_FILTER, "token filter",
+    process_filter_configs(index_policy_normalizer, PROP_TOKEN_FILTER,
+                           TIndexPolicyType::TOKEN_FILTER, "token filter",
                            [&builder](const std::string& name,
                                       const segment_v2::inverted_index::Settings& settings) {
                                builder.add_token_filter_config(name, settings);
@@ -325,7 +329,7 @@ AnalyzerPtr IndexPolicyMgr::build_normalizer_from_policy(
 
 void IndexPolicyMgr::process_filter_configs(
         const TIndexPolicy& index_policy_analyzer, const std::string& prop_name,
-        const std::string& error_prefix,
+        TIndexPolicyType::type expected_type, const std::string& error_prefix,
         std::function<void(const std::string&, const segment_v2::inverted_index::Settings&)>
                 add_config_func) {
     auto filter_it = index_policy_analyzer.properties.find(prop_name);
@@ -346,6 +350,12 @@ void IndexPolicyMgr::process_filter_configs(
         if (const auto* filter_policy = find_policy_by_name_locked(filter_name);
             filter_policy != nullptr) {
             // Nested filter policy
+            if (filter_policy->type != expected_type) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Referenced policy '" + filter_name + "' has type " +
+                                        to_string(filter_policy->type) + " but expected " +
+                                        to_string(expected_type));
+            }
             auto type_it = filter_policy->properties.find(PROP_TYPE);
             if (type_it == filter_policy->properties.end()) {
                 throw Exception(

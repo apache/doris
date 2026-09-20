@@ -337,6 +337,56 @@ public class PolicyValidatorTests {
     }
 
     @Test
+    public void testReplayedPoliciesRejectWrongExactNestedFilterTypes() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                80, "AnalyzerToken", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                81, "analyzertoken", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                82, "wrong_analyzer_token_filter", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "AnalyzerToken")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                90, "AnalyzerChar", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                91, "analyzerchar", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                92, "wrong_analyzer_char_filter", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "AnalyzerChar")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                100, "NormalizerToken", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                101, "normalizertoken", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                102, "wrong_normalizer_token_filter", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "NormalizerToken")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                110, "NormalizerChar", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                111, "normalizerchar", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                112, "wrong_normalizer_char_filter", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("char_filter", "NormalizerChar")));
+
+        IndexPolicyMgr restored = roundTrip(manager);
+        DdlException analyzerTokenException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("wrong_analyzer_token_filter"));
+        Assertions.assertTrue(analyzerTokenException.getMessage().contains("expected TOKEN_FILTER"));
+        DdlException analyzerCharException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("wrong_analyzer_char_filter"));
+        Assertions.assertTrue(analyzerCharException.getMessage().contains("expected CHAR_FILTER"));
+        DdlException normalizerTokenException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateNormalizerExists("wrong_normalizer_token_filter"));
+        Assertions.assertTrue(normalizerTokenException.getMessage().contains("expected TOKEN_FILTER"));
+        DdlException normalizerCharException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateNormalizerExists("wrong_normalizer_char_filter"));
+        Assertions.assertTrue(normalizerCharException.getMessage().contains("expected CHAR_FILTER"));
+    }
+
+    @Test
     public void testIfNotExistsKeepsReplayedBuiltinTokenizerNameIdempotent() {
         IndexPolicyMgr manager = new IndexPolicyMgr();
         IndexPolicy replayed = new IndexPolicy(

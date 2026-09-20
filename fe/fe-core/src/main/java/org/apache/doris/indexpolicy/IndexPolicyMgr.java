@@ -195,16 +195,40 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
 
         String tokenFilterNames = analyzerProperties.get(IndexPolicy.PROP_TOKEN_FILTER);
-        if (tokenFilterNames == null || tokenFilterNames.isEmpty()) {
+        if (tokenFilterNames != null && !tokenFilterNames.isEmpty()) {
+            for (String tokenFilterName : tokenFilterNames.split(",\\s*")) {
+                IndexPolicy tokenFilter = getPolicyByNameLocked(tokenFilterName);
+                if (tokenFilter != null && tokenFilter.getType() != IndexPolicyTypeEnum.TOKEN_FILTER) {
+                    throw new DdlException("Referenced policy '" + tokenFilterName + "' is of type "
+                            + tokenFilter.getType() + " but expected " + IndexPolicyTypeEnum.TOKEN_FILTER);
+                }
+                if (tokenFilter != null && tokenFilter.isInvalid()) {
+                    throw new DdlException("Analyzer '" + analyzerName + "' references token filter '"
+                            + tokenFilterName + "' of type '"
+                            + tokenFilter.getProperties().get(IndexPolicy.PROP_TYPE)
+                            + "', which is no longer supported");
+                }
+            }
+        }
+
+        validateReferencedFilterTypesLocked(analyzerProperties.get(IndexPolicy.PROP_CHAR_FILTER),
+                IndexPolicyTypeEnum.CHAR_FILTER);
+    }
+
+    private void validateReferencedFilterTypesLocked(String filterNames, IndexPolicyTypeEnum expectedType)
+            throws DdlException {
+        if (filterNames == null || filterNames.isEmpty()) {
             return;
         }
-        for (String tokenFilterName : tokenFilterNames.split(",\\s*")) {
-            IndexPolicy tokenFilter = getPolicyByNameLocked(tokenFilterName);
-            if (tokenFilter != null && tokenFilter.isInvalid()) {
-                throw new DdlException("Analyzer '" + analyzerName + "' references token filter '"
-                        + tokenFilterName + "' of type '"
-                        + tokenFilter.getProperties().get(IndexPolicy.PROP_TYPE)
-                        + "', which is no longer supported");
+        for (String filterName : filterNames.split(",\\s*")) {
+            IndexPolicy filter = getPolicyByNameLocked(filterName);
+            if (filter != null && filter.getType() != expectedType) {
+                throw new DdlException("Referenced policy '" + filterName + "' is of type "
+                        + filter.getType() + " but expected " + expectedType);
+            }
+            if (filter != null && filter.isInvalid()) {
+                throw new DdlException("Referenced " + expectedType + " policy '" + filterName
+                        + "' is invalid");
             }
         }
     }
@@ -226,6 +250,13 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             }
             if (policy.isInvalid()) {
                 throw new DdlException("Normalizer '" + normalizerName + "' is invalid");
+            }
+            Map<String, String> properties = policy.getProperties();
+            if (properties != null) {
+                validateReferencedFilterTypesLocked(properties.get(IndexPolicy.PROP_TOKEN_FILTER),
+                        IndexPolicyTypeEnum.TOKEN_FILTER);
+                validateReferencedFilterTypesLocked(properties.get(IndexPolicy.PROP_CHAR_FILTER),
+                        IndexPolicyTypeEnum.CHAR_FILTER);
             }
         } finally {
             readUnlock();

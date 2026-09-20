@@ -20,7 +20,9 @@
 #include <unicode/normalizer2.h>
 
 #include <memory>
+#include <span>
 #include <string>
+#include <vector>
 
 #include "storage/index/inverted/token_filter/token_filter.h"
 
@@ -34,9 +36,15 @@ public:
     Token* next(Token* t) override;
     void reset() override;
 
+    std::span<const int32_t> get_source_byte_offsets() const override;
+    std::span<const int32_t> get_source_byte_end_offsets() const override;
+
 private:
     std::shared_ptr<const icu::Normalizer2> _normalizer;
     std::string _output_buffer;
+    std::vector<int32_t> _source_byte_offsets;
+    std::vector<int32_t> _source_byte_end_offsets;
+    bool _has_normalized_offsets = false;
 };
 using ICUNormalizerFilterPtr = std::shared_ptr<ICUNormalizerFilter>;
 

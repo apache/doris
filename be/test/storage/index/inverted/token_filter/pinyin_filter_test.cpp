@@ -25,6 +25,7 @@
 
 #include "CLucene.h"
 #include "storage/index/inverted/char_filter/icu_normalizer_char_filter_factory.h"
+#include "storage/index/inverted/token_filter/icu_normalizer_filter_factory.h"
 #include "storage/index/inverted/token_filter/pinyin_filter_factory.h"
 #include "storage/index/inverted/token_filter/word_delimiter_filter_factory.h"
 #include "storage/index/inverted/tokenizer/ik/ik_tokenizer_factory.h"
@@ -327,6 +328,43 @@ TEST_F(PinyinFilterTest, TestKeywordAndStandardOffsetsComposeWithICUNormalizerAn
         assertToken(filter, &token, "d", 9, 12);
         assertEndOfTokens(filter, &token);
     }
+}
+
+TEST_F(PinyinFilterTest, TestICUNormalizerFilterUsesConservativeSourceSpansAndReset) {
+    const std::string text = std::string("\xEF\xAC\x81") + "\xE5\x88\x98";
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+
+    KeywordTokenizerFactory tokenizer_factory;
+    tokenizer_factory.initialize({});
+    auto tokenizer = tokenizer_factory.create();
+    tokenizer->set_reader(reader);
+    tokenizer->reset();
+
+    ICUNormalizerFilterFactory normalizer_factory;
+    normalizer_factory.initialize({});
+    auto normalized = normalizer_factory.create(tokenizer);
+
+    Settings settings;
+    settings.set("keep_first_letter", "false");
+    settings.set("keep_full_pinyin", "true");
+    settings.set("keep_original", "false");
+    settings.set("keep_none_chinese", "false");
+    settings.set("ignore_pinyin_offset", "false");
+    PinyinFilterFactory pinyin_factory;
+    pinyin_factory.initialize(settings);
+    auto filter = pinyin_factory.create(normalized);
+
+    Token token;
+    assertToken(filter, &token, "liu", 0, 6);
+    assertEndOfTokens(filter, &token);
+
+    const std::string reset_text = std::string("\xEF\xAC\x82") + "\xE6\xB5\x8B";
+    reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
+    tokenizer->set_reader(reader);
+    filter->reset();
+    assertToken(filter, &token, "ce", 0, 6);
+    assertEndOfTokens(filter, &token);
 }
 
 TEST_F(PinyinFilterTest, TestPinyinTrimmedKeywordOffsetsPreserveSourceBoundariesAndReset) {

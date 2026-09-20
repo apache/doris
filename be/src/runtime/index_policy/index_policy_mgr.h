@@ -64,7 +64,7 @@ private:
 
     void process_filter_configs(
             const TIndexPolicy& index_policy_analyzer, const std::string& prop_name,
-            const std::string& error_prefix,
+            TIndexPolicyType::type expected_type, const std::string& error_prefix,
             std::function<void(const std::string&, const segment_v2::inverted_index::Settings&)>
                     add_config_func);
 

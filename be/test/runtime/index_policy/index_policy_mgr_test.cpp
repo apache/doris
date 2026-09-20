@@ -280,6 +280,67 @@ TEST_F(IndexPolicyMgrTest, TestTokenFilterProcessing) {
     ASSERT_NE(emptyAnalyzer, nullptr);
 }
 
+TEST_F(IndexPolicyMgrTest, ReplayedPoliciesRejectWrongExactNestedFilterTypes) {
+    IndexPolicyMgr manager;
+
+    auto make_filter = [](int64_t id, std::string name, TIndexPolicyType::type policy_type,
+                          std::string factory_type) {
+        TIndexPolicy policy;
+        policy.id = id;
+        policy.name = std::move(name);
+        policy.type = policy_type;
+        policy.properties["type"] = std::move(factory_type);
+        return policy;
+    };
+    auto make_container = [](int64_t id, std::string name, TIndexPolicyType::type policy_type,
+                             std::string property, std::string filter_name) {
+        TIndexPolicy policy;
+        policy.id = id;
+        policy.name = std::move(name);
+        policy.type = policy_type;
+        if (policy_type == TIndexPolicyType::ANALYZER) {
+            policy.properties["tokenizer"] = "keyword";
+        }
+        policy.properties[std::move(property)] = std::move(filter_name);
+        return policy;
+    };
+
+    manager.apply_policy_changes(
+            {make_filter(120, "AnalyzerToken", TIndexPolicyType::CHAR_FILTER, "char_replace"),
+             make_filter(121, "analyzertoken", TIndexPolicyType::TOKEN_FILTER, "lowercase"),
+             make_container(122, "wrong_analyzer_token_filter", TIndexPolicyType::ANALYZER,
+                            "token_filter", "AnalyzerToken"),
+             make_filter(130, "AnalyzerChar", TIndexPolicyType::TOKEN_FILTER, "lowercase"),
+             make_filter(131, "analyzerchar", TIndexPolicyType::CHAR_FILTER, "char_replace"),
+             make_container(132, "wrong_analyzer_char_filter", TIndexPolicyType::ANALYZER,
+                            "char_filter", "AnalyzerChar"),
+             make_filter(140, "NormalizerToken", TIndexPolicyType::CHAR_FILTER, "char_replace"),
+             make_filter(141, "normalizertoken", TIndexPolicyType::TOKEN_FILTER, "lowercase"),
+             make_container(142, "wrong_normalizer_token_filter", TIndexPolicyType::NORMALIZER,
+                            "token_filter", "NormalizerToken"),
+             make_filter(150, "NormalizerChar", TIndexPolicyType::TOKEN_FILTER, "lowercase"),
+             make_filter(151, "normalizerchar", TIndexPolicyType::CHAR_FILTER, "char_replace"),
+             make_container(152, "wrong_normalizer_char_filter", TIndexPolicyType::NORMALIZER,
+                            "char_filter", "NormalizerChar")},
+            {});
+
+    auto expect_type_mismatch = [&manager](const std::string& name,
+                                           const std::string& expected_type) {
+        try {
+            manager.get_policy_by_name(name);
+            FAIL() << "Expected a nested filter type mismatch for " << name;
+        } catch (const Exception& exception) {
+            EXPECT_NE(std::string(exception.what()).find("expected " + expected_type),
+                      std::string::npos);
+        }
+    };
+
+    expect_type_mismatch("wrong_analyzer_token_filter", "TOKEN_FILTER");
+    expect_type_mismatch("wrong_analyzer_char_filter", "CHAR_FILTER");
+    expect_type_mismatch("wrong_normalizer_token_filter", "TOKEN_FILTER");
+    expect_type_mismatch("wrong_normalizer_char_filter", "CHAR_FILTER");
+}
+
 TEST_F(IndexPolicyMgrTest, BuiltinTokenizerNamesAreCaseInsensitive) {
     TIndexPolicy analyzer;
     analyzer.id = 20;

@@ -19,6 +19,7 @@
 
 #include <unicode/normalizer2.h>
 #include <unicode/unistr.h>
+#include <unicode/utf8.h>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -35,6 +36,9 @@ ICUNormalizerFilter::ICUNormalizerFilter(TokenStreamPtr in,
 }
 
 Token* ICUNormalizerFilter::next(Token* t) {
+    _has_normalized_offsets = false;
+    _source_byte_offsets.clear();
+    _source_byte_end_offsets.clear();
     if (!_in->next(t)) {
         return nullptr;
     }
@@ -60,6 +64,25 @@ Token* ICUNormalizerFilter::next(Token* t) {
     _output_buffer.clear();
     result16.toUTF8String(_output_buffer);
 
+    if (std::string_view(buffer, length) != std::string_view(_output_buffer)) {
+        int32_t offset = 0;
+        int32_t rune_count = 0;
+        const auto normalized_length = static_cast<int32_t>(_output_buffer.size());
+        while (offset < normalized_length) {
+            UChar32 code_point;
+            U8_NEXT(_output_buffer, offset, normalized_length, code_point);
+            DORIS_CHECK_GE(code_point, 0);
+            ++rune_count;
+        }
+
+        const int32_t source_length = t->endOffset() - t->startOffset();
+        DORIS_CHECK_GE(source_length, 0);
+        _source_byte_offsets.assign(rune_count + 1, 0);
+        _source_byte_offsets.back() = source_length;
+        _source_byte_end_offsets.assign(rune_count, source_length);
+        _has_normalized_offsets = true;
+    }
+
     set_text(t, std::string_view(_output_buffer.data(), _output_buffer.size()));
 
     return t;
@@ -67,6 +90,19 @@ Token* ICUNormalizerFilter::next(Token* t) {
 
 void ICUNormalizerFilter::reset() {
     DorisTokenFilter::reset();
+    _has_normalized_offsets = false;
+    _source_byte_offsets.clear();
+    _source_byte_end_offsets.clear();
+}
+
+std::span<const int32_t> ICUNormalizerFilter::get_source_byte_offsets() const {
+    return _has_normalized_offsets ? std::span<const int32_t> {_source_byte_offsets}
+                                   : DorisTokenFilter::get_source_byte_offsets();
+}
+
+std::span<const int32_t> ICUNormalizerFilter::get_source_byte_end_offsets() const {
+    return _has_normalized_offsets ? std::span<const int32_t> {_source_byte_end_offsets}
+                                   : DorisTokenFilter::get_source_byte_end_offsets();
 }
 
 } // namespace doris::segment_v2::inverted_index
