@@ -26,8 +26,10 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <chrono>
 #include <memory>
 #include <ostream>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -132,6 +134,35 @@ TEST_F(ResultQueueMgrTest, fetch_result_end) {
     EXPECT_TRUE(queue_mgr.fetch_result(query_id, &result, &eos).ok());
     EXPECT_TRUE(eos);
     EXPECT_TRUE(result == nullptr);
+}
+
+TEST_F(ResultQueueMgrTest, fetch_result_failure_before_eos_sentinel) {
+    ResultQueueMgr queue_mgr;
+    TUniqueId query_id;
+    query_id.lo = 10;
+    query_id.hi = 100;
+
+    BlockQueueSharedPtr block_queue_t;
+    queue_mgr.create_queue(query_id, &block_queue_t);
+    EXPECT_TRUE(block_queue_t != nullptr);
+
+    // Simulate the sink thread failing the fragment: it publishes the failure
+    // status right before putting the eos sentinel, while the fetch thread is
+    // already blocked in blocking_get. fetch_result must surface the failure
+    // instead of returning a silent eos.
+    std::thread sink_thread([&]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        queue_mgr.update_queue_status(query_id, Status::InternalError("fragment failed"));
+        block_queue_t->blocking_put(nullptr);
+    });
+
+    std::shared_ptr<arrow::RecordBatch> result;
+    bool eos = false;
+    Status st = queue_mgr.fetch_result(query_id, &result, &eos);
+    sink_thread.join();
+
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(std::string::npos, st.to_string().find("fragment failed"));
 }
 
 TEST_F(ResultQueueMgrTest, normal_cancel) {
