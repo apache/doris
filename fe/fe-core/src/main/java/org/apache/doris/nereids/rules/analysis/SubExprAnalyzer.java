@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -144,6 +146,23 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             // read that value from a scan which does not produce it.
             validateTheNodesOfTheSubqueryReadTheOuterSlotsThroughFilters(analyzedResult.getLogicalPlan(),
                     new CorrelatedSlotsValidator(ImmutableSet.copyOf(analyzedResult.correlatedSlots)));
+            if (containsAWindow(analyzedResult.getLogicalPlan())) {
+                // The rewrite reads the value which the IN compares from the aggregation of the domain
+                // of an outer row (the aggregation of the rewrite groups the rows of one correlation
+                // key), so the nodes of the subquery which sit above the correlated predicate are
+                // evaluated on the rows of one domain. A window is evaluated on the rows of the node
+                // it sits in, so the window of the rewrite is evaluated over the rows of every
+                // correlation key together, while the window of the subquery of the query is
+                // evaluated over the rows of one domain: the subquery of
+                //
+                //     select k from o where k in (
+                //         select sum(i.g) over () from i where i.k = o.k group by i.g)
+                //
+                // is reported as unsupported for that reason.
+                throw new AnalysisException(
+                        "access outer query's column before window function is not supported "
+                                + analyzedResult.getLogicalPlan());
+            }
         }
         checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
         checkRootIsLimit(analyzedResult);
@@ -574,5 +593,15 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         for (Plan child : plan.children()) {
             validateTheNodesOfTheSubqueryReadTheOuterSlotsThroughFilters(child, validator);
         }
+    }
+
+    /** whether a node of the plan of the subquery computes a window (see visitInSubquery) */
+    private static boolean containsAWindow(Plan plan) {
+        boolean containsAWindowExpression = plan.getExpressions().stream()
+                .anyMatch(expression -> expression.containsType(WindowExpression.class));
+        if (plan instanceof LogicalWindow || containsAWindowExpression) {
+            return true;
+        }
+        return plan.children().stream().anyMatch(SubExprAnalyzer::containsAWindow);
     }
 }

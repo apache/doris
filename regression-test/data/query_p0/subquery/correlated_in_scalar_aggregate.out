@@ -108,6 +108,20 @@
 2	true
 7	true
 
+-- !in_with_correlated_filters_above_and_below_a_projection_count --
+\N	\N
+-1	false
+1	false
+2	false
+7	false
+
+-- !in_with_correlated_filters_above_and_below_a_projection_eq --
+\N	\N
+-1	false
+1	true
+2	false
+7	false
+
 -- !scalar_lt_count --
 \N	0
 -1	0
@@ -144,11 +158,11 @@
 7	\N
 
 -- !scalar_having_count_eq_0 --
-\N	0
--1	0
+\N	\N
+-1	\N
 1	\N
 2	\N
-7	0
+7	\N
 
 -- !scalar_having_count_gt_0 --
 \N	\N
@@ -162,4 +176,38 @@
 
 -- !in_nested_aggregation_having --
 1
+
+-- !not_in_nested_aggregation --
+2
+
+-- !in_nested_aggregation_as_value --
+\N	\N
+-1	\N
+1	true
+2	false
+7	\N
+
+-- !not_in_having_of_the_domain_aggregation --
+\N	\N
+-1	\N
+1	false
+2	true
+7	\N
+
+-- !in_having_of_the_domain_aggregation_as_value --
+\N	\N
+-1	\N
+1	true
+2	false
+7	\N
+
+-- !in_having_of_the_domain_aggregation --
+1
+
+-- !in_with_a_value_exposed_for_the_empty_input --
+\N	true
+-1	true
+1	false
+2	false
+7	true
 

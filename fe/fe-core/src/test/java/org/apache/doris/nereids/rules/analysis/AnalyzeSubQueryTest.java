@@ -327,6 +327,22 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    public void testInSubqueryWhichComputesAWindowIsRejected() {
+        // The rewrite of a correlated IN subquery groups the aggregation of its domain by the
+        // correlation key of the outer row, so the nodes of the subquery which sit above the correlated
+        // predicate are evaluated on the rows of one correlation key. A window is evaluated on the rows
+        // of the node it sits in, so the window of the rewrite would be evaluated over the rows of every
+        // correlation key together, while the window of the subquery of the query is evaluated over the
+        // rows of one domain.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT sum(T2.score) OVER () FROM T2"
+                                + " WHERE T2.id = T1.id GROUP BY T2.score)"));
+        Assertions.assertTrue(exception.getMessage().contains("before window function"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
     public void testExistsCorrelatedScalarAggUnionOrderBy() {
         // Correlated EXISTS over scalar aggregate + UNION ALL + ORDER BY.
         // Must fold to TRUE/FALSE before checkNoCorrelatedSlotsUnderSetOp().

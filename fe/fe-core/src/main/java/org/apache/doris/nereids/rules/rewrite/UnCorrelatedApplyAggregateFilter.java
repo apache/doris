@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
@@ -526,7 +527,46 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                     belowAggregate = belowAggregate.child(0);
                     continue;
                 }
-                domainFilter = (LogicalFilter<Plan>) belowAggregate;
+                // The filter restricts the rows of the subquery (the predicate which defines the
+                // domain of an outer row is one of its conjuncts), and the filters below it restrict
+                // those rows as well: the whole chain is the filter of the WHERE clause of the
+                // subquery. The rewrite replaces that filter with the aggregation which reads its
+                // child, so the predicates of the chain are collected into one filter over the child
+                // of the deepest one, which is kept as it is. For example the subquery of
+                //
+                //     select k from o where k in (
+                //         select count(*) from (select i.k from i where i.k = o.k) x where x.k > o.k)
+                //
+                // keeps the predicate i.k = o.k in the filter below the projection of the derived
+                // table and the predicate x.k > o.k in the filter above it, and the rewrite of the
+                // subquery has to evaluate both of them on the rows of the domain. Only the filters
+                // which the projections between them pass the columns of the nodes below them
+                // through are collected: a projection which computes a column of its own cannot be
+                // dropped, so the filters below such a projection stay where they are (see the
+                // check below).
+                List<Expression> domainConjuncts = Lists.newArrayList();
+                Plan deepestFilter = belowAggregate;
+                while (true) {
+                    domainConjuncts.addAll(((LogicalFilter<Plan>) deepestFilter).getConjuncts());
+                    Plan belowTheProjections = deepestFilter.child(0);
+                    while (belowTheProjections instanceof LogicalProject) {
+                        belowTheProjections = belowTheProjections.child(0);
+                    }
+                    // the filters below the one which holds the predicate of the outer row are the
+                    // filters of the same WHERE clause, and the projections between the two filters
+                    // are dropped when they are merged (the merged filter reads the child of the
+                    // deepest one, which is kept as it is): a projection which computes a column
+                    // cannot be dropped, so the filters below such a projection stay where they are,
+                    // below the filter which reads the columns it produces
+                    if (!(belowTheProjections instanceof LogicalFilter)
+                            || !carriesTheColumnsBelowItThrough(deepestFilter.child(0), belowTheProjections)) {
+                        break;
+                    }
+                    deepestFilter = belowTheProjections;
+                }
+                domainFilter = deepestFilter == belowAggregate
+                        ? (LogicalFilter<Plan>) belowAggregate
+                        : new LogicalFilter<>(Sets.newLinkedHashSet(domainConjuncts), deepestFilter.child(0));
                 break;
             }
             return Optional.empty();
@@ -535,6 +575,18 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             return Optional.empty();
         }
         return Optional.of(new TheAggregation(chain, filtersAboveTheAggregation, havingFilter, domainFilter));
+    }
+
+    /** whether the projections between these two nodes only carry the columns below them through */
+    private static boolean carriesTheColumnsBelowItThrough(Plan upper, Plan lower) {
+        for (Plan between = upper; between != lower; between = between.child(0)) {
+            for (NamedExpression project : ((LogicalProject<?>) between).getProjects()) {
+                if (!(project instanceof Slot)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -689,12 +741,15 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 .filter(slot -> newAggregations.get(aggregation.topAggregation()).getOutput().contains(slot))
                 .filter(slot -> !keysToExpose.contains(slot))
                 .collect(ImmutableSet.toImmutableSet());
+        // the predicates of the apply are evaluated on the nodes above the aggregation of the
+        // subquery, which produce the outputs of that aggregation themselves, so no output of it has
+        // to be appended to the projections below them
         return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryType(), apply.isNot(),
                 apply.getCompareExpr(), apply.getTypeCoercionExpr(),
                 ExpressionUtils.optionalAnd(newCorrelationFilter), apply.getMarkJoinSlotReference(),
                 apply.isNeedAddSubOutputToProjects(), apply.isMarkJoinSlotNotNull(), apply.left(),
                 rebuildTheAggregationChain(apply.right(), aggregation, newAggregations, keysToExpose,
-                        outputsOfTheTopAggregation));
+                        outputsOfTheTopAggregation, null, ImmutableSet.of(), false));
     }
 
     /**
@@ -709,12 +764,120 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      * rebuildTheAggregationChain).
      */
     private static LogicalAggregate<?> withTheKeysInTheGroupBy(LogicalAggregate<?> aggregate,
-            List<? extends Expression> keys) {
+            List<? extends Expression> keys, Slot matchMarkerOfTheEmptyDomain,
+            boolean exposesTheMatchMarker) {
         List<Expression> groupBy = Lists.newArrayList(keys);
         groupBy.addAll(aggregate.getGroupByExpressions());
-        List<NamedExpression> outputs = Lists.newArrayList(aggregate.getOutputExpressions());
+        if (matchMarkerOfTheEmptyDomain != null && exposesTheMatchMarker) {
+            // The marker of the row which is kept for an empty domain is read by the guard of the
+            // aggregates above the aggregation of the domain and by the projections and the filters
+            // between the aggregates (see rebuildTheAggregationChain), so those aggregates expose it.
+            // The marker is null for the row which is kept for an empty domain, so the grouping of the
+            // rows of a correlation key does not change. The top aggregate does not expose it: the rows
+            // which it produces are the rows of the subquery, and the marker belongs to the rows below
+            // it (the aggregates above the aggregation of the domain read it from their own input).
+            groupBy.add(matchMarkerOfTheEmptyDomain);
+        }
+        List<NamedExpression> outputs = Lists.newArrayList();
+        if (matchMarkerOfTheEmptyDomain == null) {
+            outputs.addAll(aggregate.getOutputExpressions());
+        } else {
+            // The row which the rewrite keeps for a correlation key whose rows below the aggregation of
+            // the domain are missing reaches this aggregate as well (its marker is null for that row),
+            // and the aggregation of the original subquery computes the aggregate out of the empty
+            // input: the guard of the arguments makes the aggregates ignore that row, so that they
+            // return the value of an empty input for it (see guardAggregateArguments), which is the
+            // value the original subquery computes above this aggregate as well.
+            Set<AggregateFunction> aggregates = Sets.newLinkedHashSet();
+            for (NamedExpression output : aggregate.getOutputExpressions()) {
+                aggregates.addAll(output.collect(AggregateFunction.class::isInstance));
+            }
+            Map<Expression, Expression> compensated = guardAggregateArguments(aggregates,
+                    matchMarkerOfTheEmptyDomain);
+            if (compensated == null) {
+                // an aggregate of the aggregation cannot be guarded, so the row which is kept for an
+                // empty input cannot be told apart from a row of the rows below the aggregation
+                return null;
+            }
+            for (NamedExpression output : aggregate.getOutputExpressions()) {
+                outputs.add((NamedExpression) ExpressionUtils.replace(output, compensated));
+            }
+        }
         keys.forEach(key -> outputs.add((NamedExpression) key));
         return new LogicalAggregate<>(groupBy, outputs, aggregate.child(0));
+    }
+
+    /**
+     * Whether the rewrite of the outer side has to keep one row for the correlation keys whose rows
+     * below the aggregation of the domain are missing, although that aggregation returns no row of its
+     * own for them: every aggregate above it is global, so the aggregation of the original subquery
+     * produces one row for the empty input of such a key, and the aggregates which the rewrite builds
+     * above that aggregation can be guarded with the marker of the row which is kept for it (see
+     * guardAggregateArguments and withTheKeysInTheGroupBy). The value which that row exposes is then
+     * the value which the original subquery exposes for the key. For example the subquery of
+     *
+     *     select o.k from o where o.k in (
+     *         select coalesce(max(c), 0) from
+     *             (select count(*) as c from i where i.k = o.k group by i.g) x)
+     *
+     * returns one row whose value is 0 for the outer rows whose correlated domain is empty (the max of
+     * the empty derived table is null and the coalesce turns that null into the 0), so the outer row
+     * of the value 0 matches the subquery: the rewrite keeps a row for such a key, the max above it
+     * ignores that row and returns the null of its empty input, and the coalesce of the plan of the
+     * subquery turns that null into the 0 as well.
+     *
+     * An EXISTS subquery reads whether the row of such a key exists instead of the value it exposes,
+     * so the row has to be kept when the HAVING clause of the subquery keeps the row of the empty
+     * input (see the EXISTS branch below).
+     */
+    private static boolean keepsTheRowOfAnEmptyDomain(LogicalApply<?, ?> apply, TheAggregation aggregation,
+            CorrelatedAggregatePredicates predicates) {
+        List<LogicalAggregate<?>> chain = aggregation.aggregationChain();
+        List<LogicalAggregate<?>> aboveTheDomain = chain.subList(0, chain.size() - 1);
+        if (aboveTheDomain.isEmpty()) {
+            // the aggregation of the domain is the only aggregation of the subquery: the rewrite of the
+            // outer side keeps a row of its own for an empty domain when that aggregation is global,
+            // and no aggregate above it observes such a row
+            return false;
+        }
+        if (aboveTheDomain.stream().anyMatch(aggregate -> !aggregate.getGroupByExpressions().isEmpty())) {
+            // an aggregate above the aggregation of the domain groups the rows which it reads, so the
+            // row which is kept for an empty domain builds a group of its own in that aggregate, while
+            // the aggregation of the original subquery produces no row at all for such an empty input
+            return false;
+        }
+        if (!chain.stream()
+                .flatMap(aggregate -> aggregate.getOutputExpressions().stream())
+                .flatMap(output -> output.collect(AggregateFunction.class::isInstance).stream())
+                .allMatch(function -> function instanceof NullIgnoringAggregateFunction)) {
+            // only the aggregates which ignore null arguments can be guarded, so that the row which is
+            // kept for an empty domain does not contribute to them (see guardAggregateArguments)
+            return false;
+        }
+        if (apply.isExist()) {
+            // The row which the aggregation of an empty correlated domain produces exists for the
+            // subquery when the HAVING clause of the aggregation above the one of the domain holds for
+            // the values of that empty input (see havingMayHoldWithEmptyInput): the EXISTS of the
+            // subquery of
+            //
+            //     select t1.c1 from t1 where exists (select max(c) from (select count(*) as c from t2
+            //         where t2.c1 = t1.c1 group by t2.c2) x having max(c) is null)
+            //
+            // is true for the outer rows whose correlated domain is empty (the max of the empty
+            // derived table is null and the HAVING clause keeps that row). The rewrite keeps the row of
+            // such a key and lets the aggregates above the aggregation of the domain return the values
+            // of an empty input for it, so that the nodes above the aggregation decide on the row the
+            // way the original subquery does (see rebuildTheAggregationChain and
+            // guardAggregateArguments). A HAVING clause which rejects the row of the empty input
+            // (having max(c) > 0, for example) drops it, and the nodes above the aggregation reject
+            // the row which the rewrite keeps for such a key as well.
+            List<Expression> havingConjuncts = predicates.havingPredicates();
+            return aboveTheDomain.stream()
+                    .filter(aggregate -> aggregate.getGroupByExpressions().isEmpty())
+                    .anyMatch(aggregate -> havingMayHoldWithEmptyInput(aggregate,
+                            Sets.newLinkedHashSet(havingConjuncts)));
+        }
+        return true;
     }
 
     /**
@@ -732,18 +895,42 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      *         where t2.c1 = t1.c1 group by t2.c2) x having max(c) is null)
      *
      * is true for the outer rows whose correlated domain is empty, because the max of the empty
-     * derived table is null and the HAVING clause keeps that row, while the rewrite produces no row
-     * for those keys and the semi join drops the outer row. Neither the aggregation of the inner
-     * side (a global aggregate above the aggregation of the domain would aggregate the rows of every
-     * correlation key together) nor the aggregation of the outer side (it groups that aggregate by
-     * the correlation key) is equivalent for such subqueries, so the caller reports them.
+     * derived table is null and the HAVING clause keeps that row, while a rewrite which dropped the
+     * key would produce no row for it and the semi join would drop the outer row. The aggregation of
+     * the inner side is not equivalent for such subqueries, and the aggregation of the outer side is
+     * only equivalent when it keeps a row for the empty domain and lets the aggregates above the
+     * aggregation of the domain return the values of an empty input for it (see
+     * keepsTheRowOfAnEmptyDomain); the caller reports the subqueries which neither of them can
+     * rewrite.
      */
     private static boolean observesTheEmptyInputOfAGlobalAggregate(LogicalApply<?, ?> apply,
             TheAggregation aggregation, CorrelatedAggregatePredicates predicates) {
+        if (keepsTheRowOfAnEmptyDomain(apply, aggregation, predicates)) {
+            // the rewrite of the outer side keeps the row which such a key is missing (see
+            // keepsTheRowOfAnEmptyDomain), so the subquery is not reported
+            return false;
+        }
+        return theEmptyInputOfAGlobalAggregateIsObservable(apply, aggregation, predicates);
+    }
+
+    /**
+     * The detection of observesTheEmptyInputOfAGlobalAggregate on its own: the subqueries
+     * which this detection reports are the subqueries whose rewrite would drop the row which the
+     * aggregation of the original subquery returns for a correlation key whose rows below the
+     * aggregation of the domain are missing. The rewrite of the outer side keeps that row and lets the
+     * aggregates above the aggregation of the domain return the values of an empty input for it when
+     * every one of them is a global aggregate which ignores null arguments (see
+     * keepsTheRowOfAnEmptyDomain), and those subqueries are rewritten instead of reported.
+     */
+    private static boolean theEmptyInputOfAGlobalAggregateIsObservable(LogicalApply<?, ?> apply,
+            TheAggregation aggregation, CorrelatedAggregatePredicates predicates) {
         List<LogicalAggregate<?>> chain = aggregation.aggregationChain();
-        if (chain.get(chain.size() - 1).getGroupByExpressions().isEmpty()) {
+        if (chain.get(chain.size() - 1).getGroupByExpressions().isEmpty()
+                && theFiltersBetweenTheAggregationOfTheDomainAndTheOneAboveIt(aggregation).isEmpty()) {
             // the aggregation of the domain returns a row for every correlation key, so no
-            // aggregate above it can observe an empty input
+            // aggregate above it can observe an empty input (a filter between those aggregations is
+            // the HAVING clause of the aggregation of the domain: it decides on the row of the empty
+            // input and may reject it, which the aggregates above it observe)
             return false;
         }
         // the aggregates above the deepest one: the deepest one reads the rows of the domain of a
@@ -778,6 +965,19 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // match either, so an aggregation of nullable aggregates alone is left alone).
         if (aboveTheDomain.stream()
                 .anyMatch(UnCorrelatedApplyAggregateFilter::returnsAValueForAnEmptyInput)) {
+            return true;
+        }
+        // The nodes above the aggregation of the domain may expose a value of their own for the empty
+        // input as well, even though the aggregates are nullable: the projection of the subquery of
+        //
+        //     select o.k from o where o.k in (
+        //         select coalesce(max(c), 0) from
+        //             (select count(*) as c from i where i.k = o.k group by i.g) x)
+        //
+        // turns the null which the max of the empty derived table returns into the 0 which an outer
+        // row with the value 0 compares with, while the rewrite has no row to compare it with and the
+        // semi join drops that row (see exposesAValueForAnEmptyInput).
+        if (exposesAValueForAnEmptyInput(apply, aggregation, aboveTheDomain)) {
             return true;
         }
         // The missing row of a key is observable when the result of the IN is not read as the decision
@@ -819,6 +1019,97 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
+     * The filters which sit between the aggregation of the domain and the aggregation above it: they
+     * decide on the rows which the aggregation of the domain produces (they are the HAVING clauses of
+     * the aggregation below them), so they are not evaluated for a correlation key whose rows below
+     * that aggregation are missing (see keepsTheRowOfAnEmptyDomain).
+     */
+    private static Set<LogicalFilter> theFiltersBetweenTheAggregationOfTheDomainAndTheOneAboveIt(
+            TheAggregation aggregation) {
+        if (aggregation.topAggregation() == aggregation.domainAggregation()) {
+            // the aggregation of the domain is the only aggregation of the subquery, so there is no
+            // aggregation above it and no filter between such aggregations either (the filter of the
+            // domain itself reads the rows of the domain and is not a filter between the aggregates)
+            return ImmutableSet.of();
+        }
+        List<LogicalAggregate<?>> chain = aggregation.aggregationChain();
+        Plan below = chain.get(chain.size() - 2).child(0);
+        Set<LogicalFilter> filters = Sets.newLinkedHashSet();
+        while (below != aggregation.domainAggregation()) {
+            if (below instanceof LogicalFilter) {
+                filters.add((LogicalFilter) below);
+            }
+            below = below.child(0);
+        }
+        return filters;
+    }
+
+    /**
+     * Whether the nodes above the top aggregate expose a value of their own for the empty input of a
+     * correlation key: the input of such a key is empty when the aggregation of the domain has no row
+     * for it and a global aggregate above that aggregation returns no row for that key in the
+     * rewrite, while the aggregation of the original subquery computes the nodes above it out of the
+     * row of the empty input. The projection of the subquery of
+     *
+     *     select o.k from o where o.k in (
+     *         select coalesce(max(c), 0) from
+     *             (select count(*) as c from i where i.k = o.k group by i.g) x)
+     *
+     * turns the null which the max of the empty derived table returns into the 0 which the outer row
+     * with the value 0 compares with, while the rewrite has no row to compare it with: the semi join
+     * would drop that outer row. The value which a node computes for the empty input is read by
+     * replacing the outputs of the top aggregate with the values they return for it and folding the
+     * expression.
+     */
+    private static boolean exposesAValueForAnEmptyInput(LogicalApply<?, ?> apply, TheAggregation aggregation,
+            List<LogicalAggregate<?>> aboveTheDomain) {
+        if (aboveTheDomain.stream().noneMatch(aggregate -> aggregate.getGroupByExpressions().isEmpty())) {
+            // every aggregate above the aggregation of the domain groups the rows it reads, so a key
+            // without rows below that aggregation has no group in those aggregates either
+            return false;
+        }
+        Map<Expression, Expression> emptyValues = Maps.newHashMap();
+        Set<Slot> outputsOfTheTopAggregation = Sets.newHashSet();
+        for (NamedExpression output : aggregation.topAggregation().getOutputExpressions()) {
+            Expression expression = output instanceof Alias ? ((Alias) output).child() : output;
+            if (!(expression instanceof AggregateFunction)) {
+                continue;
+            }
+            Expression emptyValue = emptyValueForEmptyInput((AggregateFunction) expression);
+            if (emptyValue == null) {
+                // the aggregate declares no value for an empty input: it returns the null of the empty
+                // input (the max of no row, for example)
+                emptyValue = new NullLiteral(output.getDataType());
+            }
+            emptyValues.put(output.toSlot(), emptyValue);
+            outputsOfTheTopAggregation.add(output.toSlot());
+        }
+        if (emptyValues.isEmpty()) {
+            return false;
+        }
+        Plan below = apply.right();
+        while (below != aggregation.topAggregation()) {
+            if (below instanceof LogicalProject) {
+                for (NamedExpression project : ((LogicalProject<?>) below).getProjects()) {
+                    Expression expression = project instanceof Alias ? ((Alias) project).child() : project;
+                    if (Sets.intersection(expression.getInputSlots(), outputsOfTheTopAggregation).isEmpty()) {
+                        // the projection does not read the aggregation of the domain
+                        continue;
+                    }
+                    Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(
+                            ExpressionUtils.replace(expression, emptyValues));
+                    if (folded instanceof Literal && !(folded instanceof NullLiteral)) {
+                        // the nodes above the aggregation expose this value for the empty input
+                        return true;
+                    }
+                }
+            }
+            below = below.child(0);
+        }
+        return false;
+    }
+
+    /**
      * Replace every aggregate of the chain with its rewritten version and expose the keys through
      * the projections between them, so that every aggregate above the deepest one can group by the
      * keys. The walk stops at the deepest aggregate: its rewritten version already reads the rows of
@@ -843,16 +1134,33 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      */
     private static Plan rebuildTheAggregationChain(Plan plan, TheAggregation aggregation,
             Map<LogicalAggregate<?>, Plan> newAggregations, Set<Slot> keysToExpose,
-            Set<Slot> outputsOfTheTopAggregation) {
+            Set<Slot> outputsOfTheTopAggregation, Slot matchMarkerOfTheEmptyDomain,
+            Set<LogicalFilter> filtersWhichKeepTheRowOfAnEmptyDomain, boolean belowTheTopAggregate) {
         Plan replacement = newAggregations.get(plan);
         if (plan == aggregation.domainAggregation()) {
             return replacement;
         }
         // the nodes below the top aggregate cannot produce its outputs, so they only carry the keys
         Plan child = rebuildTheAggregationChain(plan.child(0), aggregation, newAggregations, keysToExpose,
-                plan == aggregation.topAggregation() ? ImmutableSet.of() : outputsOfTheTopAggregation);
+                plan == aggregation.topAggregation() ? ImmutableSet.of() : outputsOfTheTopAggregation,
+                matchMarkerOfTheEmptyDomain, filtersWhichKeepTheRowOfAnEmptyDomain,
+                belowTheTopAggregate || plan == aggregation.topAggregation());
         if (replacement != null) {
             return replacement.withChildren(child);
+        }
+        if (filtersWhichKeepTheRowOfAnEmptyDomain.contains(plan)) {
+            // The row which the rewrite keeps for an empty domain is not a row of the rows below this
+            // filter (its marker is null), and the aggregation of the original subquery does not
+            // evaluate the filter for the empty input of such a key either: the row passes the filter,
+            // so that the aggregates above it return the values of an empty input for the key (see
+            // keepsTheRowOfAnEmptyDomain). Without the relaxation the filter would remove the row which
+            // the rewrite keeps for the key, and the aggregates above it (which the rewrite grouped by
+            // the correlation key) would produce no row at all for the key.
+            List<Expression> conjuncts = Lists.newArrayList();
+            for (Expression conjunct : ((LogicalFilter<Plan>) plan).getConjuncts()) {
+                conjuncts.add(ExpressionUtils.or(conjunct, new IsNull(matchMarkerOfTheEmptyDomain)));
+            }
+            return new LogicalFilter<>(Sets.newLinkedHashSet(conjuncts), child);
         }
         if (plan instanceof LogicalProject) {
             // the projections between the aggregates carry the columns which the aggregates above
@@ -873,6 +1181,15 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                     projects.add(output);
                     added = true;
                 }
+            }
+            if (belowTheTopAggregate && matchMarkerOfTheEmptyDomain != null
+                    && !exposed.contains(matchMarkerOfTheEmptyDomain)) {
+                // the aggregates above the aggregation of the domain read the marker of the row which is
+                // kept for an empty domain from their own input, and the filters between those
+                // aggregations read it as well, so the projections below the top aggregate carry it
+                // (the projections above that aggregate are not read by any node which needs it)
+                projects.add(matchMarkerOfTheEmptyDomain);
+                added = true;
             }
             if (added) {
                 return new LogicalProject<>(projects, project.isDistinct(), project.getAsteriskOutputs(), child);
@@ -1266,6 +1583,17 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // every kind of subquery keeps the error of the original rewrite for these predicates
             return false;
         }
+        if (theEmptyInputOfAGlobalAggregateIsObservable(apply, aggregation, predicates)
+                && keepsTheRowOfAnEmptyDomain(apply, aggregation, predicates)) {
+            // The aggregation of the original subquery produces one row for a correlation key whose
+            // rows below the aggregation of the domain are missing, and every aggregate above that
+            // aggregation is global: the aggregation of the outer side keeps such a row as well (it
+            // marks the row which it keeps for the key, so the aggregates above it return the values of
+            // an empty input, see pullUpCorrelatedPredicateByAggregatingOuter), while the aggregation
+            // of the inner side drops the key entirely (it adds the keys to the group by of every
+            // aggregate, see withTheKeysInTheGroupBy).
+            return true;
+        }
         if (apply.isScalar()) {
             // The left outer join of a scalar subquery pairs the outer row with the groups of the
             // inner side whose key is the value of the outer row, which is the aggregation of the
@@ -1634,7 +1962,8 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // row of nulls" apart, and count(*) also counts the kept row itself, so the counts are
         // replaced by counts of the projected marker, which is null for the rows which were kept for
         // an empty correlated domain.
-        boolean keepEmptyDomain = agg.getGroupByExpressions().isEmpty();
+        boolean keepsTheRowOfAnEmptyDomain = keepsTheRowOfAnEmptyDomain(apply, aggregation, predicates);
+        boolean keepEmptyDomain = agg.getGroupByExpressions().isEmpty() || keepsTheRowOfAnEmptyDomain;
         Slot matchMarker = null;
         // The left outer join below reports the columns of the side which it fills with nulls as
         // nullable (see JoinUtils.getJoinOutput): the expressions above it have to read the nullable
@@ -1719,6 +2048,16 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // compares the outer value with) and the value which a scalar subquery exposes, and neither
         // of them may move
         newOutputs.addAll(keyExpressions);
+        if (keepsTheRowOfAnEmptyDomain) {
+            // The aggregates above the aggregation of the domain have to tell the row which is kept
+            // for an empty domain apart from the rows below them, so that they return the values of an
+            // empty input for it (see withTheKeysInTheGroupBy), and the filters between those
+            // aggregations let the row pass (see rebuildTheAggregationChain): the aggregation of the
+            // domain exposes the marker of that row up to them. The marker is the same for every row of
+            // one correlation key, so the grouping of the rows of a key does not change.
+            newGroupBy.add(matchMarker);
+            newOutputs.add(matchMarker);
+        }
         LogicalAggregate<Plan> newAggregate = new LogicalAggregate<>(newGroupBy, newOutputs, domainJoin);
 
         // the predicates which were pulled into the apply are not part of the plan of the subquery
@@ -1745,7 +2084,15 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // the aggregates above the deepest one read the rows it produces, so they keep the rows
             // of one correlation key together as well (the keys are appended to their output, so
             // that the aggregate above them can group by them)
-            newAggregations.put(aggregate, withTheKeysInTheGroupBy(aggregate, keyExpressions));
+            LogicalAggregate<?> withTheKeys = withTheKeysInTheGroupBy(aggregate, keyExpressions,
+                    keepsTheRowOfAnEmptyDomain ? matchMarker : null,
+                    aggregate != aggregation.topAggregation());
+            if (withTheKeys == null) {
+                // an aggregate above the aggregation of the domain cannot be guarded, so the row which
+                // is kept for an empty domain would contribute to it
+                return null;
+            }
+            newAggregations.put(aggregate, withTheKeys);
         }
         // the nodes above the aggregation of the subquery (the HAVING clause, the filters over the
         // projection of the select list, that projection) are kept as they are: they are evaluated on
@@ -1753,11 +2100,23 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // the correlation key of one outer row
         Set<Slot> keysToExpose = keyExpressions.stream().map(NamedExpression::toSlot)
                 .collect(ImmutableSet.toImmutableSet());
+        Set<LogicalFilter> filtersWhichKeepTheRowOfAnEmptyDomain = ImmutableSet.of();
+        if (keepsTheRowOfAnEmptyDomain) {
+            // The filters between the aggregation of the domain and the aggregation above it read the
+            // marker of the row which is kept for an empty domain, so that the row passes them (see
+            // rebuildTheAggregationChain). The projections below the top aggregation carry the marker
+            // up to the aggregates above the aggregation of the domain, which guard their arguments
+            // with it, while the projections above the top aggregation are not read by a node which
+            // needs the marker (the marker is not an output of the subquery).
+            filtersWhichKeepTheRowOfAnEmptyDomain =
+                    theFiltersBetweenTheAggregationOfTheDomainAndTheOneAboveIt(aggregation);
+        }
         // the predicates of the apply are evaluated on the nodes above the aggregation of the
         // subquery, which produce the outputs of that aggregation themselves, so no output of it has
         // to be appended to the projections below them
         Plan newRight = rebuildTheAggregationChain(apply.right(), aggregation, newAggregations, keysToExpose,
-                ImmutableSet.of());
+                ImmutableSet.of(), keepsTheRowOfAnEmptyDomain ? matchMarker : null,
+                filtersWhichKeepTheRowOfAnEmptyDomain, false);
         if (!movedPredicates.isEmpty() && !aggregation.onlyTheAggregationOfTheDomain()) {
             newRight = new LogicalFilter<>(movedPredicates, newRight);
         }

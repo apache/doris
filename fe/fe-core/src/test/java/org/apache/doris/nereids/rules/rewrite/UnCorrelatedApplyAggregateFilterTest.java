@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -92,6 +94,9 @@ import java.util.function.Function;
  *                    +-- R
  */
 class UnCorrelatedApplyAggregateFilterTest {
+
+    /** the name of the column which marks the rows which the rewrite keeps for an empty domain */
+    private static final String CORRELATION_MATCH_MARKER = "$correlation_match_marker";
 
     @Test
     public void testNonEqualityCorrelatedPredicateWithHaving() {
@@ -966,6 +971,51 @@ class UnCorrelatedApplyAggregateFilterTest {
     }
 
     @Test
+    public void testComputingProjectionBetweenTwoFiltersOfTheDomain() {
+        // select t1.c1, (select t2.c2 + 0 from t2 where t2.c1 = t1.c1 and t2.c2 < 4) from t1:
+        // the wrapper which SubqueryToApply adds to a scalar subquery whose output is read in the
+        // outer scope takes the any_value of the value which the projection of the subquery computes,
+        // and the predicate of the WHERE clause of the subquery sits in two filters: the correlated
+        // one above the projection which computes the value, and another one below it. The rewrite
+        // evaluates both of them, but it cannot merge the two filters, because the projection
+        // between them computes a column of its own which the merged filter (which reads the child
+        // of the deepest filter) cannot produce: the filters stay where they are and the rewrite
+        // goes on (the walk accepts the shape instead of leaving the apply alone)
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+        Slot r2 = right.getOutput().get(1); // t2.name
+
+        Alias computed = new Alias(new Add(r2, new BigIntLiteral(0)), "v");
+        LogicalProject<LogicalFilter<LogicalOlapScan>> valueProjection = new LogicalProject<>(
+                ImmutableList.of(computed), new LogicalFilter<>(
+                        ImmutableSet.of(new LessThan(r2, new BigIntLiteral(4))), right));
+        LogicalFilter<LogicalProject<LogicalFilter<LogicalOlapScan>>> correlatedFilter = new LogicalFilter<>(
+                ImmutableSet.of(new EqualTo(r1, x)), valueProjection);
+        Alias wrapperCount = new Alias(new Count(), "cnt");
+        Alias value = new Alias(new AnyValue(computed.toSlot()), "v");
+        Plan wrapperOfTheScalarSubquery = new LogicalAggregate<>(ImmutableList.of(),
+                ImmutableList.of(wrapperCount, value), correlatedFilter);
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x),
+                LogicalApply.SubQueryType.SCALAR_SUBQUERY, false, Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), true, false, left, wrapperOfTheScalarSubquery);
+
+        ConnectContext connectContext = new ConnectContext();
+        Rule rule = new UnCorrelatedApplyAggregateFilter().buildRules().get(0);
+        List<Plan> transformed = rule.transform(apply, MemoTestUtils.createCascadesContext(connectContext, apply));
+        Assertions.assertEquals(1, transformed.size(),
+                "the two filters of the domain have to be evaluated even though the projection "
+                        + "between them computes the value of the subquery");
+        Plan rewritten = transformed.get(0);
+        List<LogicalApply<?, ?>> applies = rewritten.collectToList(LogicalApply.class::isInstance);
+        Assertions.assertTrue(applies.isEmpty() || applies.get(0).getCorrelationFilter().isPresent(),
+                "the predicate of the domain has to be pulled up into the apply");
+        assertEveryProjectIsResolvable(rewritten);
+        assertJoinConditionsResolvable(rewritten);
+    }
+
+    @Test
     public void testHavingWhichReadsTheOutputOfTheAggregateAboveTheAggregation() {
         // x in (select max(c) from (select count(*) c from R where r1 = x group by r2) y
         //     having max(c) <= x)
@@ -1090,25 +1140,31 @@ class UnCorrelatedApplyAggregateFilterTest {
     }
 
     @Test
-    public void testNestedNullableAggregationOfANotInSubqueryIsRejected() {
+    public void testNestedNullableAggregationOfANotInSubqueryIsRewritten() {
         // select o.k from o where o.k not in (select max(c) from
         //     (select count(*) as c from i where i.k = o.k group by i.g) x)
         // The aggregation of an empty correlated domain of the subquery returns one row (the max of an
         // empty derived table is null), so the NOT IN of such an outer row is unknown and the row is
-        // not returned, while the aggregation of the rewrite produces no row for that key and its NOT
-        // IN would be true: the subquery is reported instead of rewritten (see
-        // observesTheEmptyInputOfAGlobalAggregate)
-        Assertions.assertThrows(AnalysisException.class,
-                () -> rewriteANestedNullableAggregation(LogicalApply.SubQueryType.IN_SUBQUERY, true, false));
+        // not returned. The rewrite keeps a row for such a key as well: the max above the aggregation
+        // of the domain ignores that row (its marker is null) and returns the null of its empty input,
+        // so the NOT IN of the outer row is unknown as well (see keepsTheRowOfAnEmptyDomain).
+        Plan rewritten = rewriteANestedNullableAggregation(LogicalApply.SubQueryType.IN_SUBQUERY, true, false);
+        assertEveryProjectIsResolvable(rewritten);
+        Assertions.assertTrue(containsTheGuardOfTheKeptRow(rewritten),
+                "the max above the aggregation of the domain has to ignore the row which is kept "
+                        + "for an empty domain");
     }
 
     @Test
-    public void testNestedNullableAggregationOfAnInSubqueryWhichIsUsedAsAValueIsRejected() {
+    public void testNestedNullableAggregationOfAnInSubqueryWhichIsUsedAsAValueIsRewritten() {
         // the value of an IN which is used as a value is its mark, so the null which the aggregation of
-        // an empty derived table returns for an outer row and the false which the rewrite returns for
-        // that row are observable as well
-        Assertions.assertThrows(AnalysisException.class,
-                () -> rewriteANestedNullableAggregation(LogicalApply.SubQueryType.IN_SUBQUERY, false, true));
+        // an empty derived table returns for an outer row and the false which the rewrite would return
+        // for that row are observable as well
+        Plan rewritten = rewriteANestedNullableAggregation(LogicalApply.SubQueryType.IN_SUBQUERY, false, true);
+        assertEveryProjectIsResolvable(rewritten);
+        Assertions.assertTrue(containsTheGuardOfTheKeptRow(rewritten),
+                "the max above the aggregation of the domain has to ignore the row which is kept "
+                        + "for an empty domain");
     }
 
     @Test
@@ -1120,6 +1176,153 @@ class UnCorrelatedApplyAggregateFilterTest {
         Assertions.assertFalse(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty(),
                 "the IN subquery has to stay an apply for the rule which compares the outer value with "
                         + "the value of its aggregation");
+    }
+
+    @Test
+    public void testCorrelatedFiltersOnBothSidesOfTheProjectionOfADerivedTableAreRewritten() {
+        // select k from o where k in (
+        //     select count(*) from (select i.k from i where i.k = o.k) x where x.k > o.k)
+        // The predicate below the projection of the derived table and the predicate above it both
+        // restrict the rows of the domain of an outer row: the walk of the rule reaches the filter
+        // above the projection first, and it has to keep the walk going through the projection to the
+        // filter below it (the rewrite replaces the filter of the WHERE clause of the subquery with the
+        // aggregation which reads its child, so both predicates have to be pulled into the apply)
+        Plan rewritten = rewriteTheTwoFiltersAroundTheProjectionOfADerivedTable();
+        assertEveryProjectIsResolvable(rewritten);
+        assertJoinConditionsResolvable(rewritten);
+        List<Expression> conditions = new ArrayList<>();
+        List<LogicalJoin> joins = rewritten.collectToList(LogicalJoin.class::isInstance);
+        for (LogicalJoin<?, ?> join : joins) {
+            conditions.addAll(join.getHashJoinConjuncts());
+            conditions.addAll(join.getOtherJoinConjuncts());
+        }
+        List<Expression> conjuncts = conditions.stream()
+                .flatMap(condition -> ExpressionUtils.extractConjunction(condition).stream())
+                .collect(ImmutableList.toImmutableList());
+        Assertions.assertTrue(conjuncts.stream().anyMatch(conjunct -> conjunct instanceof GreaterThan),
+                "the predicate of the filter above the projection has to be pulled into the join: " + conjuncts);
+        Assertions.assertTrue(conjuncts.stream()
+                        .anyMatch(conjunct -> conjunct instanceof EqualTo || conjunct instanceof NullSafeEqual),
+                "the predicate of the filter below the projection has to be pulled into the join: " + conjuncts);
+    }
+
+    @Test
+    public void testGlobalAggregationUnderAHavingOfTheDomainAggregationIsRewrittenForNotIn() {
+        // select o.k from o where o.k not in (
+        //     select max(c) from (select count(*) as c from i where i.k = o.k having count(*) > 0) x)
+        // The HAVING clause removes the row of the count of an empty domain (the count 0 does not
+        // satisfy it), so the max above it returns one row whose value is null: the NOT IN of such an
+        // outer row is unknown and the row is not returned, while the rewrite would produce no row for
+        // that key and its NOT IN would be true. The rewrite keeps a row for the key as well and lets
+        // it pass the HAVING clause (see rebuildTheAggregationChain), so the max above it ignores that
+        // row and returns the null of its empty input.
+        Plan rewritten = rewriteAGlobalAggregationUnderAHaving(LogicalApply.SubQueryType.IN_SUBQUERY, true, false);
+        assertEveryProjectIsResolvable(rewritten);
+        Assertions.assertTrue(containsTheGuardOfTheKeptRow(rewritten),
+                "the max above the aggregation of the domain has to ignore the row which is kept "
+                        + "for an empty domain");
+        Assertions.assertTrue(containsTheRelaxationOfTheKeptRow(rewritten),
+                "the row which is kept for an empty domain has to pass the HAVING clause of the "
+                        + "aggregation of the domain");
+    }
+
+    @Test
+    public void testGlobalAggregationUnderAHavingOfTheDomainAggregationIsRewrittenForAMarkIn() {
+        // the value of such an IN is its mark, so the null which the aggregation of the empty input
+        // returns for the outer row and the false which the rewrite would return for it are observable
+        Plan rewritten = rewriteAGlobalAggregationUnderAHaving(LogicalApply.SubQueryType.IN_SUBQUERY, false, true);
+        assertEveryProjectIsResolvable(rewritten);
+        Assertions.assertTrue(containsTheGuardOfTheKeptRow(rewritten),
+                "the max above the aggregation of the domain has to ignore the row which is kept "
+                        + "for an empty domain");
+        Assertions.assertTrue(containsTheRelaxationOfTheKeptRow(rewritten),
+                "the row which is kept for an empty domain has to pass the HAVING clause of the "
+                        + "aggregation of the domain");
+    }
+
+    @Test
+    public void testGlobalAggregationUnderAHavingOfTheDomainAggregationIsRewrittenForAFilterIn() {
+        // the same subquery as the filter of the outer rows: the null of the aggregation of the empty
+        // input and the false which the rewrite returns for such a key reject the outer row alike
+        Plan rewritten = rewriteAGlobalAggregationUnderAHaving(LogicalApply.SubQueryType.IN_SUBQUERY, false, false);
+        Assertions.assertFalse(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty(),
+                "the IN subquery has to stay an apply for the rule which compares the outer value with "
+                        + "the value of its aggregation");
+    }
+
+    @Test
+    public void testAggregationWhichExposesAValueForAnEmptyInputIsRewritten() {
+        // select o.k from o where o.k in (
+        //     select coalesce(max(c), 0) from (select count(*) as c from i where i.k = o.k group by i.g) x)
+        // The max of the empty derived table is null for an outer row whose domain has no group, and
+        // the coalesce above it turns that null into the 0 which an outer row with the value 0 compares
+        // with: the row matches the subquery, while the rewrite would have no row to compare it with and
+        // the semi join would drop the outer row. The rewrite keeps a row for the key as well: the max
+        // above the aggregation of the domain ignores it and returns the null of its empty input, and
+        // the coalesce of the plan of the subquery turns that null into the 0 as well.
+        Plan rewritten = rewriteAnAggregationWhichExposesAValueForAnEmptyInput();
+        assertEveryProjectIsResolvable(rewritten);
+        Assertions.assertTrue(containsTheGuardOfTheKeptRow(rewritten),
+                "the max above the aggregation of the domain has to ignore the row which is kept "
+                        + "for an empty domain");
+    }
+
+    @Test
+    public void testExistsWhichObservesTheRowOfAnEmptyDomainIsRewritten() {
+        // select t1.id from t1 where exists (select max(c) from
+        //     (select count(*) as c from t2 where t2.id = t1.id group by t2.name) x
+        //     having max(c) is null)
+        // The HAVING clause keeps the row which the max returns for the empty derived table of a
+        // correlation key whose domain is empty (the max of an empty input is null), so the EXISTS
+        // reports those outer rows, while a rewrite which dropped the key would have no row for them
+        // and the semi join would drop the outer rows. The rewrite keeps the row of such a key and lets
+        // the max above the aggregation of the domain return the null of its empty input for it, so
+        // that the HAVING clause decides on the row the way the original subquery does.
+        Plan rewritten = rewriteAnExistsWhichObservesTheRowOfAnEmptyDomain();
+        assertEveryProjectIsResolvable(rewritten);
+        Assertions.assertTrue(containsTheGuardOfTheKeptRow(rewritten),
+                "the max above the aggregation of the domain has to ignore the row which is kept "
+                        + "for an empty domain");
+        List<LogicalJoin> joins = rewritten.collectToList(LogicalJoin.class::isInstance);
+        Assertions.assertTrue(joins.stream().anyMatch(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN),
+                "the EXISTS has to keep its semi join: " + joins);
+    }
+
+    /**
+     * Whether the plan guards an aggregate above the aggregation of the domain with the marker of the
+     * row which the rewrite keeps for an empty correlated domain (see guardAggregateArguments): the
+     * guard is an If which reads the marker, and it makes the aggregate ignore that row, so that the
+     * aggregate returns the value of an empty input for the key.
+     */
+    private static boolean containsTheGuardOfTheKeptRow(Plan plan) {
+        for (LogicalAggregate<?> aggregate : plan.<LogicalAggregate>collectToList(LogicalAggregate.class::isInstance)) {
+            for (NamedExpression output : aggregate.getOutputExpressions()) {
+                for (If guard : output.<If>collectToList(If.class::isInstance)) {
+                    if (guard.getCondition() instanceof Slot
+                            && CORRELATION_MATCH_MARKER.equals(((Slot) guard.getCondition()).getName())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether the plan lets the row which the rewrite keeps for an empty correlated domain pass the
+     * filters between the aggregation of the domain and the aggregation above it (see
+     * rebuildTheAggregationChain): the relaxation is an Or whose right side is the null marker.
+     */
+    private static boolean containsTheRelaxationOfTheKeptRow(Plan plan) {
+        for (LogicalFilter<?> filter : plan.<LogicalFilter>collectToList(LogicalFilter.class::isInstance)) {
+            for (Expression conjunct : filter.getConjuncts()) {
+                if (conjunct instanceof Or && ((Or) conjunct).getArguments().stream()
+                        .anyMatch(argument -> argument instanceof IsNull)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** whether every projection of the plan only reads columns which its child produces */
@@ -1177,6 +1380,161 @@ class UnCorrelatedApplyAggregateFilterTest {
             LogicalApply.SubQueryType subQueryType, Function<Slot, AggregateFunction> aggregationFunction) {
         return rewriteAGlobalAggregation(predicate, subQueryType, aggregationFunction,
                 PlanConstructor.newLogicalOlapScan(1, "t2", 1));
+    }
+
+    /**
+     * build the plan of
+     *
+     *     L (select [aggregationFunction] from R where [predicate(r1, x)])
+     *
+     * over the given inner scan and apply the rule which matches an apply on top of a filtered
+     * global aggregation.
+     */
+    private static Plan rewriteAGlobalAggregation(BiFunction<Slot, Slot, Expression> predicate,
+            LogicalApply.SubQueryType subQueryType, Function<Slot, AggregateFunction> aggregationFunction,
+            LogicalOlapScan innerScan) {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        Slot r1 = innerScan.getOutput().get(0); // the first column of the inner scan
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(
+                ImmutableSet.of(predicate.apply(r1, x)), innerScan);
+        Alias value = new Alias(aggregationFunction.apply(r1), "c");
+        Plan subquery = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(value), where);
+        boolean outputUsedInOuterScope = subQueryType == LogicalApply.SubQueryType.SCALAR_SUBQUERY;
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x), subQueryType,
+                false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                outputUsedInOuterScope, false, left, subquery);
+        return applyTheRule(apply);
+    }
+
+    /**
+     * build the plan of
+     *
+     *     o in (select count(*) from (select i.k from i where i.k = o.k) x where x.k > o.k)
+     *
+     * whose correlated predicate sits in the filter below the projection of the derived table and whose
+     * second predicate sits in the filter above it, and apply the rule.
+     */
+    private static Plan rewriteTheTwoFiltersAroundTheProjectionOfADerivedTable() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+
+        LogicalFilter<LogicalOlapScan> filterBelowTheProjection =
+                new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Plan projection = new LogicalProject<>(ImmutableList.of(r1), filterBelowTheProjection);
+        LogicalFilter<Plan> filterAboveTheProjection = new LogicalFilter<>(
+                ImmutableSet.of(new GreaterThan(r1, x)), projection);
+        Alias count = new Alias(new Count(), "c");
+        Plan aggregation = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(count),
+                filterAboveTheProjection);
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x),
+                LogicalApply.SubQueryType.IN_SUBQUERY, false, Optional.of(x), Optional.empty(),
+                Optional.empty(), Optional.empty(), false, false, left, aggregation);
+        return applyTheRule(apply);
+    }
+
+    /**
+     * build the plan of
+     *
+     *     o [subqueryType] (select max(c) from (select count(*) as c from i where i.k = o.k
+     *         having count(*) > 0) x)
+     *
+     * whose aggregation of the domain is a global one whose row a HAVING clause may remove, and apply
+     * the rule. The subquery is negated when isNot is set, and it is compared with the value of the
+     * outer row (its plan is a mark join) when comparesTheValue is set.
+     */
+    private static Plan rewriteAGlobalAggregationUnderAHaving(LogicalApply.SubQueryType subQueryType,
+            boolean isNot, boolean comparesTheValue) {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Alias count = new Alias(new Count(), "c");
+        Plan aggregationOfTheCount =
+                new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(count), where);
+        LogicalFilter<Plan> having = new LogicalFilter<>(
+                ImmutableSet.of(new GreaterThan(count.toSlot(), new BigIntLiteral(0))), aggregationOfTheCount);
+        Alias max = new Alias(new Max(count.toSlot()), "m");
+        Plan aggregationOfTheMax = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(max), having);
+        Plan projection = new LogicalProject<>(ImmutableList.of(max.toSlot()), aggregationOfTheMax);
+        Optional<Expression> compareExpr = subQueryType == LogicalApply.SubQueryType.IN_SUBQUERY
+                ? Optional.of(x) : Optional.empty();
+        Optional<MarkJoinSlotReference> markJoinSlotReference = comparesTheValue
+                ? Optional.of(new MarkJoinSlotReference("mark"))
+                : Optional.empty();
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x), subQueryType,
+                isNot, compareExpr, Optional.empty(), Optional.empty(), markJoinSlotReference,
+                false, false, left, projection);
+        return applyTheRule(apply);
+    }
+
+    /**
+     * build the plan of
+     *
+     *     o in (select coalesce(max(c), 0) from
+     *         (select count(*) as c from i where i.k = o.k group by i.g) x)
+     *
+     * whose projection above the global aggregation of the value exposes a value of its own for the
+     * empty input of a correlation key, and apply the rule.
+     */
+    private static Plan rewriteAnAggregationWhichExposesAValueForAnEmptyInput() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+        Slot r2 = right.getOutput().get(1); // t2.name
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Alias count = new Alias(new Count(), "c");
+        Plan aggregationOfTheCount =
+                new LogicalAggregate<>(ImmutableList.of(r2), ImmutableList.of(r2, count), where);
+        Alias max = new Alias(new Max(count.toSlot()), "m");
+        Plan aggregationOfTheMax = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(max),
+                aggregationOfTheCount);
+        Alias exposed = new Alias(new Coalesce(max.toSlot(), new BigIntLiteral(0)), "v");
+        Plan projection = new LogicalProject<>(ImmutableList.of(exposed), aggregationOfTheMax);
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x),
+                LogicalApply.SubQueryType.IN_SUBQUERY, false, Optional.of(x), Optional.empty(),
+                Optional.empty(), Optional.empty(), false, false, left, projection);
+        return applyTheRule(apply);
+    }
+
+    /**
+     * build the plan of
+     *
+     *     exists (select max(c) from (select count(*) as c from R where r1 = x group by r2) y
+     *         having max(c) is null)
+     *
+     * and apply the rule: the HAVING clause is the filter which sits between the apply and the
+     * aggregation of the max, and it reads the output of that aggregation. The HAVING clause holds for
+     * the row which the max returns for the empty input of a correlation key (the max of the empty
+     * derived table is null), so that row exists for the subquery and the rewrite keeps it.
+     */
+    private static Plan rewriteAnExistsWhichObservesTheRowOfAnEmptyDomain() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+        Slot r2 = right.getOutput().get(1); // t2.name
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Alias count = new Alias(new Count(), "c");
+        Plan aggregationOfTheCount =
+                new LogicalAggregate<>(ImmutableList.of(r2), ImmutableList.of(r2, count), where);
+        Alias max = new Alias(new Max(count.toSlot()), "m");
+        Plan aggregationOfTheMax = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(max),
+                aggregationOfTheCount);
+        LogicalFilter<Plan> having = new LogicalFilter<>(ImmutableSet.of(new IsNull(max.toSlot())),
+                aggregationOfTheMax);
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x),
+                LogicalApply.SubQueryType.EXITS_SUBQUERY, false, Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), false, false, left, having);
+        return applyTheRule(apply);
     }
 
     /**
@@ -1243,32 +1601,6 @@ class UnCorrelatedApplyAggregateFilterTest {
         LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x), subQueryType,
                 isNot, compareExpr, Optional.empty(), Optional.empty(), markJoinSlotReference,
                 false, false, left, globalAggregate);
-        return applyTheRule(apply);
-    }
-
-    /**
-     * build the plan of
-     *
-     *     L (select [aggregationFunction] from R where [predicate(r1, x)])
-     *
-     * over the given inner scan and apply the rule which matches an apply on top of a filtered
-     * global aggregation.
-     */
-    private static Plan rewriteAGlobalAggregation(BiFunction<Slot, Slot, Expression> predicate,
-            LogicalApply.SubQueryType subQueryType, Function<Slot, AggregateFunction> aggregationFunction,
-            LogicalOlapScan innerScan) {
-        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
-        Slot x = left.getOutput().get(0); // t1.id
-        Slot r1 = innerScan.getOutput().get(0); // the first column of the inner scan
-
-        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(
-                ImmutableSet.of(predicate.apply(r1, x)), innerScan);
-        Alias value = new Alias(aggregationFunction.apply(r1), "c");
-        Plan subquery = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(value), where);
-        boolean outputUsedInOuterScope = subQueryType == LogicalApply.SubQueryType.SCALAR_SUBQUERY;
-        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x), subQueryType,
-                false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                outputUsedInOuterScope, false, left, subquery);
         return applyTheRule(apply);
     }
 }

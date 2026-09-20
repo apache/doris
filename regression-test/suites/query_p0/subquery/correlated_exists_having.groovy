@@ -352,22 +352,47 @@ suite("correlated_exists_having") {
         ORDER BY e.k
     """
     // the max of the derived table of an empty correlated domain is null, and the HAVING clause
-    // keeps that row: the rewrite groups the max by the correlation key as well, so it produces no
-    // row at all for those outer rows and the semi join would drop them
-    test {
-        sql "SELECT e.k FROM ceh_e e" +
-                " WHERE EXISTS (SELECT max(c) FROM (SELECT count(*) AS c FROM ceh_i i" +
-                " WHERE i.k = e.k GROUP BY i.g) x HAVING max(c) IS NULL)"
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
-    }
+    // keeps that row: the row of the aggregation of such a key exists for the subquery, although
+    // the aggregation of the domain returns no row of its own for it. The rewrite keeps the row of
+    // the key as well and lets the max above the aggregation of the domain return the null of its
+    // empty input for it, so that the HAVING clause decides on the row like the original subquery
+    // does, while the rewrite without that row would drop the outer row
+    order_qt_exists_having_of_the_domain_aggregation """
+        SELECT e.k FROM ceh_e e
+        WHERE EXISTS (SELECT max(c) FROM (SELECT count(*) AS c FROM ceh_i i
+            WHERE i.k = e.k GROUP BY i.g) x HAVING max(c) IS NULL)
+        ORDER BY e.k
+    """
+    order_qt_not_exists_having_of_the_domain_aggregation """
+        SELECT e.k FROM ceh_e e
+        WHERE NOT EXISTS (SELECT max(c) FROM (SELECT count(*) AS c FROM ceh_i i
+            WHERE i.k = e.k GROUP BY i.g) x HAVING max(c) IS NULL)
+        ORDER BY e.k
+    """
+    // the HAVING clause rejects the row of the empty input (the null of the max does not satisfy
+    // max(c) > 0), and the rewrite without a kept row drops that row as well: the two agree
+    order_qt_exists_having_which_rejects_the_empty_input """
+        SELECT e.k FROM ceh_e e
+        WHERE EXISTS (SELECT max(c) FROM (SELECT count(*) AS c FROM ceh_i i
+            WHERE i.k = e.k GROUP BY i.g) x HAVING max(c) > 0)
+        ORDER BY e.k
+    """
     // the count of the derived table of an empty correlated domain is 0, which the IN subquery
-    // compares with the outer value, and the rewrite has no row to compare
-    test {
-        sql "SELECT e.k FROM ceh_e e" +
-                " WHERE e.k IN (SELECT count(*) FROM (SELECT count(*) AS c FROM ceh_i i" +
-                " WHERE i.k = e.k GROUP BY i.g) x)"
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
-    }
+    // compares with the outer value, while an aggregate which reads the rows of the derived table
+    // has no group at all for a key whose rows below it are missing when the rewrite adds the
+    // correlation keys to its group by. The rewrite keeps a row for such a key and hands the marker
+    // of that row to the count in place of the rows it has to count, so that the count of the kept
+    // row is the count of the empty input and an outer row whose value is 0 matches the subquery
+    order_qt_in_count_of_nested_aggregation """
+        SELECT e.k FROM ceh_e e
+        WHERE e.k IN (SELECT count(*) FROM (SELECT count(*) AS c FROM ceh_i i WHERE i.k = e.k GROUP BY i.g) x)
+        ORDER BY e.k
+    """
+    order_qt_in_count_of_nested_aggregation_as_value """
+        SELECT e.k, e.k IN (SELECT count(*) FROM
+            (SELECT count(*) AS c FROM ceh_i i WHERE i.k = e.k GROUP BY i.g) x) AS v
+        FROM ceh_e e ORDER BY e.k
+    """
     // the aggregation of the subquery can only be evaluated for the correlation keys of the outer
     // rows when the two evaluations of the outer plan return the same rows, when the correlation
     // keys of the two evaluations are the same, and when the predicates of the subquery do not have

@@ -151,6 +151,22 @@ suite("correlated_in_scalar_aggregate") {
             WHERE x.k > o.k) AS v
         FROM cisa_o o ORDER BY o.k
     """
+    // the same two filters around the projection of the derived table, with an aggregation above
+    // them: the filter above the projection and the filter below it both restrict the rows of the
+    // domain of an outer row (the predicates contradict each other here, so the domain of every
+    // outer row holds no row and the count of the domain of every outer row is 0)
+    order_qt_in_with_correlated_filters_above_and_below_a_projection_count """
+        SELECT o.k, o.k IN (SELECT count(*) FROM (SELECT i.k FROM cisa_i i WHERE i.k = o.k) x
+            WHERE x.k > o.k) AS v
+        FROM cisa_o o ORDER BY o.k
+    """
+    // the predicate below the projection of the derived table is the one which restricts the rows of
+    // the domain, and the predicate above it is evaluated on those rows as well
+    order_qt_in_with_correlated_filters_above_and_below_a_projection_eq """
+        SELECT o.k, o.k IN (SELECT count(*) FROM (SELECT i.k FROM cisa_i i WHERE i.k = o.k) x
+            WHERE x.k = o.k) AS v
+        FROM cisa_o o ORDER BY o.k
+    """
 
     // The scalar subquery whose correlated predicate is not an equality between the outer side and
     // the inner side is evaluated on the aggregation of the domain of every outer row as well: the
@@ -214,22 +230,20 @@ suite("correlated_in_scalar_aggregate") {
     """
     // A NOT IN whose select list is a global aggregation above the aggregation of the derived table:
     // the aggregation of an empty correlated domain returns one row whose value is null (the max of
-    // an empty derived table), so the NOT IN of that row is unknown and the row is not returned,
-    // while the aggregation of the rewrite produces no row at all for such a key and the NOT IN
-    // would be true. The subquery cannot be rewritten, so it is reported as unsupported instead of
-    // returning a wrong result (the same holds for an IN which is used as a value, whose plan is a
-    // mark join)
-    test {
-        sql "SELECT o.k FROM cisa_o o" +
-                " WHERE o.k NOT IN (SELECT max(c) FROM" +
-                " (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x)"
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
-    }
-    test {
-        sql "SELECT o.k, o.k IN (SELECT max(c) FROM" +
-                " (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x) AS v FROM cisa_o o"
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
-    }
+    // an empty derived table), so the NOT IN of that row is unknown and the row is not returned. The
+    // rewrite keeps the row of such a key and the max above it ignores that row and returns the null
+    // of its empty input, so the outer row of an empty domain is dropped by the unknown of the null
+    // comparison as well (the same holds for an IN which is used as a value, whose plan is a mark
+    // join and which returns the unknown null for those rows)
+    order_qt_not_in_nested_aggregation """
+        SELECT o.k FROM cisa_o o
+        WHERE o.k NOT IN (SELECT max(c) FROM (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x)
+        ORDER BY o.k
+    """
+    order_qt_in_nested_aggregation_as_value """
+        SELECT o.k, o.k IN (SELECT max(c) FROM (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x) AS v
+        FROM cisa_o o ORDER BY o.k
+    """
     // an IN subquery whose select list reads the outer query cannot be unnested: the rewrite reads
     // the value it compares from the aggregation of the domain, which cannot aggregate the value of
     // the outer row
@@ -237,6 +251,53 @@ suite("correlated_in_scalar_aggregate") {
         sql "SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT sum(i.g + o.k) FROM cisa_i i)"
         exception "access outer query's column in aggregate is not supported"
     }
+    // a window of a correlated IN subquery cannot be rewritten either: the rewrite groups the
+    // aggregation of the subquery by the correlation key, so the window of the rewrite would be
+    // evaluated over the rows of every correlation key together, while the window of the subquery
+    // of the query is evaluated over the rows of one domain
+    test {
+        sql "SELECT o.k FROM cisa_o o WHERE o.k IN" +
+                " (SELECT sum(i.g) OVER () FROM cisa_i i WHERE i.k = o.k GROUP BY i.g)"
+        exception "access outer query's column before window function is not supported"
+    }
+    // A global aggregation above the aggregation of the derived table loses its key when the HAVING
+    // clause of the aggregation of the derived table removes the row of an empty domain (the count 0
+    // does not satisfy count(*) > 0): the original subquery compares the outer value with the null of
+    // the max of the empty derived table, while a rewrite which dropped the key would compare it with
+    // nothing. The rewrite keeps the row of such a key and lets it pass the HAVING clause, and the
+    // max above it ignores that row and returns the null of its empty input, so a NOT IN and an IN
+    // which is used as a value return the unknown of the null comparison for those rows
+    order_qt_not_in_having_of_the_domain_aggregation """
+        SELECT o.k, o.k NOT IN (SELECT max(c) FROM
+            (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k HAVING count(*) > 0) x) AS v
+        FROM cisa_o o ORDER BY o.k
+    """
+    order_qt_in_having_of_the_domain_aggregation_as_value """
+        SELECT o.k, o.k IN (SELECT max(c) FROM
+            (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k HAVING count(*) > 0) x) AS v
+        FROM cisa_o o ORDER BY o.k
+    """
+    // a HAVING clause of the aggregation of the domain decides whether the row of an empty domain
+    // survives, and the outer value of a positive IN is compared with the row which the aggregation
+    // above it returns for that empty input: the value of the subquery of an outer row whose domain is
+    // empty is null here (the count 0 does not satisfy the HAVING clause, so the max of the empty
+    // derived table is null), and a null matches no outer value, so those rows are not returned
+    order_qt_in_having_of_the_domain_aggregation """
+        SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT max(c) FROM
+            (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k HAVING count(*) > 0) x)
+        ORDER BY o.k
+    """
+    // The nodes above the aggregation of the domain may expose a value of their own for the empty
+    // input (the coalesce of the subquery below turns the null of the max of the empty derived table
+    // into the 0 which an outer value compares with): the rewrite keeps the row of such a key, the
+    // max above it ignores that row and returns the null of its empty input, and the coalesce of the
+    // plan of the subquery turns that null into the 0 as well, so an outer value of 0 matches the
+    // subquery
+    order_qt_in_with_a_value_exposed_for_the_empty_input """
+        SELECT o.k, 0 IN (SELECT coalesce(max(c), 0) FROM
+            (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x) AS v
+        FROM cisa_o o ORDER BY o.k
+    """
 
     // The shapes below are not supported by the scalar and IN subquery rewrites: they must be
     // rejected with a user error and must never return a wrong result silently.
