@@ -56,6 +56,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.UnaryOperator;
 
 /**
@@ -158,11 +159,28 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         Map<HiveScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
                 memoKey, () -> new ConcurrentHashMap<>());
         HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle);
-        return scanReuse.computeIfAbsent(reuseKey,
-                key -> Collections.unmodifiableList(doPlanScan(session, request)));
+        AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();
+        List<ConnectorScanRange> cached = scanReuse.computeIfAbsent(reuseKey, key -> {
+            PlanCompleteness completeness = new PlanCompleteness();
+            List<ConnectorScanRange> planned = Collections.unmodifiableList(
+                    doPlanScan(session, request, completeness));
+            if (!completeness.isComplete()) {
+                // ConcurrentHashMap does not install a mapping when the loader returns null. Return this
+                // caller's partial result below, but let the next identical alias retry the failed directory.
+                uncached.set(planned);
+                return null;
+            }
+            return planned;
+        });
+        return cached != null ? cached : Objects.requireNonNull(uncached.get());
     }
 
     private List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request) {
+        return doPlanScan(session, request, null);
+    }
+
+    private List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request,
+            PlanCompleteness completeness) {
         HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
         String dbName = hiveHandle.getDbName();
         String tableName = hiveHandle.getTableName();
@@ -199,7 +217,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 HiveFileFormat partFormat = partition.fileFormat != null
                         ? partition.fileFormat : fileFormat;
                 listAndSplitFiles(dbName, tableName, partition, partFormat,
-                        splittable, isLzo, targetSplitSize, fs, ranges);
+                        splittable, isLzo, targetSplitSize, fs, ranges, completeness);
             }
         }
 
@@ -310,7 +328,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             HiveFileFormat partFormat = partition.fileFormat != null
                     ? partition.fileFormat : fileFormat;
             listAndSplitFiles(dbName, tableName, partition, partFormat,
-                    splittable, isLzo, targetSplitSize, fs, ranges);
+                    splittable, isLzo, targetSplitSize, fs, ranges, null);
         }
         return ranges;
     }
@@ -623,7 +641,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     private void listAndSplitFiles(String dbName, String tableName,
             PartitionScanInfo partition, HiveFileFormat fileFormat,
             boolean splittable, boolean isLzo, long targetSplitSize, FileSystem fs,
-            List<ConnectorScanRange> ranges) {
+            List<ConnectorScanRange> ranges, PlanCompleteness completeness) {
         List<HiveFileStatus> files;
         try {
             files = fileListingCache.listDataFiles(dbName, tableName, partition.location,
@@ -636,6 +654,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             if (isLocationNotFound(e) && !catalogProperties.isIgnoreAbsentPartitions()) {
                 throw new DorisConnectorException(
                         "Partition location does not exist: " + partition.location, e);
+            }
+            if (completeness != null) {
+                completeness.markIncomplete();
             }
             LOG.warn("Cannot list files in partition: {}", partition.location, e);
             return;
@@ -650,6 +671,18 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
             splitFile(file.getPath(), file.getLength(), file.getModificationTime(),
                     partition, fileFormat, splittable, targetSplitSize, null, null, ranges);
+        }
+    }
+
+    private static final class PlanCompleteness {
+        private boolean complete = true;
+
+        private void markIncomplete() {
+            complete = false;
+        }
+
+        private boolean isComplete() {
+            return complete;
         }
     }
 

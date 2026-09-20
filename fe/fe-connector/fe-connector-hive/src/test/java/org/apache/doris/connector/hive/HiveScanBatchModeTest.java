@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -415,6 +416,31 @@ public class HiveScanBatchModeTest {
     }
 
     @Test
+    public void statementReuseRetriesAListingThatFailedOnce() {
+        FailOnceLister lister = new FailOnceLister();
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .build();
+        ConnectorSession session = new ScopeSession(7L, "same-statement", new TestStatementScope());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle, Collections.<ConnectorColumnHandle>emptyList()).build();
+
+        List<ConnectorScanRange> degraded = provider.planScan(session, request);
+        List<ConnectorScanRange> recovered = provider.planScan(session, request);
+        List<ConnectorScanRange> reused = provider.planScan(session, request);
+
+        Assertions.assertTrue(degraded.isEmpty(), "the tolerated first listing failure skips its partition");
+        Assertions.assertEquals(1, recovered.size(), "the next alias must retry and recover the skipped partition");
+        Assertions.assertSame(recovered, reused, "only the complete retry result should enter statement reuse");
+        Assertions.assertEquals(2, lister.totalCalls,
+                "the transient failure must not be sticky, while the successful retry should be reused");
+    }
+
+    @Test
     public void missingReusePropertyDoesNotReuse() {
         CountingLister lister = new CountingLister();
         HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
@@ -623,7 +649,8 @@ public class HiveScanBatchModeTest {
         Assertions.assertTrue(provider(null, new CountingLister()).usesHiveParquetInt96TimeZone());
     }
 
-    private static HiveScanPlanProvider provider(HmsClient hmsClient, CountingLister lister) {
+    private static HiveScanPlanProvider provider(
+            HmsClient hmsClient, HiveFileListingCache.DirectoryLister lister) {
         return new HiveScanPlanProvider(hmsClient, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 new HiveReadTransactionManager(), new HiveFileListingCache(HiveTestProperties.minimal(), lister));
     }
@@ -645,6 +672,20 @@ public class HiveScanBatchModeTest {
             totalCalls++;
             callsPerLocation.merge(location, 1, Integer::sum);
             return new ArrayList<>(Collections.singletonList(new HiveFileStatus(location + "/000000_0", 10L, 1L)));
+        }
+    }
+
+    private static final class FailOnceLister implements HiveFileListingCache.DirectoryLister {
+        private int totalCalls;
+
+        @Override
+        public List<HiveFileStatus> list(String location, FileSystem fs) {
+            totalCalls++;
+            if (totalCalls == 1) {
+                throw new HiveDirectoryListingException("transient listing failure", new IOException("retry"));
+            }
+            return new ArrayList<>(Collections.singletonList(
+                    new HiveFileStatus(location + "/000000_0", 10L, 1L)));
         }
     }
 

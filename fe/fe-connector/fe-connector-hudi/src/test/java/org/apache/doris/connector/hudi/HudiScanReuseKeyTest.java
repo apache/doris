@@ -24,6 +24,9 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -34,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /** Statement-scoped scan reuse key construction for Hudi (offline; no table environment needed). */
@@ -167,6 +171,27 @@ class HudiScanReuseKeyTest {
     }
 
     @Test
+    void statementReuseRetriesASchemaResolutionThatFailedOnce() {
+        RecordingScanProvider provider = new RecordingScanProvider();
+        provider.failNextSchemaIdResolution = true;
+        ConnectorSession session = new MemoSession(new MemoScope());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle().toBuilder().prunedPartitionPaths(null).build(),
+                Collections.<ConnectorColumnHandle>emptyList()).build();
+
+        List<ConnectorScanRange> degraded = provider.planScan(session, request);
+        List<ConnectorScanRange> recovered = provider.planScan(session, request);
+        List<ConnectorScanRange> reused = provider.planScan(session, request);
+
+        Assertions.assertNotSame(degraded, recovered,
+                "a BY_NAME fallback caused by transient schema resolution must not enter statement reuse");
+        Assertions.assertSame(recovered, reused,
+                "the successful schema-resolution retry should enter statement reuse");
+        Assertions.assertEquals(2, provider.planCalls,
+                "the second alias must retry once, while the third alias reuses the recovered plan");
+    }
+
+    @Test
     void statementReuseCanBeDisabled() {
         RecordingScanProvider provider = new RecordingScanProvider();
         ConnectorSession session = new MemoSession(new MemoScope(),
@@ -231,6 +256,7 @@ class HudiScanReuseKeyTest {
         private final HudiStatementTable statementTable =
                 new HudiStatementTable(null, "generation-a", new Configuration(false));
         private int planCalls;
+        private boolean failNextSchemaIdResolution;
         private HudiStatementTable plannedTable;
         private HudiStatementTable propertiesTable;
 
@@ -257,6 +283,28 @@ class HudiScanReuseKeyTest {
                 HudiStatementTable statementTable) {
             plannedTable = statementTable;
             return doPlanScan(session, request);
+        }
+
+        @Override
+        PlannedScan doPlanScanForReuse(ConnectorSession session, ConnectorScanRequest request,
+                HudiStatementTable statementTable) {
+            PlanCompleteness completeness = new PlanCompleteness();
+            HudiSchemaUtils.ResolvedInternalSchema baseSchema = new HudiSchemaUtils.ResolvedInternalSchema(
+                    new InternalSchema(1L, Types.RecordType.get(Collections.emptyList())), true);
+            Function<String, Long> resolver = buildSchemaIdResolver(baseSchema, null, completeness);
+            resolver.apply("/warehouse/t/file.parquet");
+            List<ConnectorScanRange> ranges = doPlanScan(session, request, statementTable);
+            return new PlannedScan(ranges, completeness.isComplete());
+        }
+
+        @Override
+        long resolveFileSchemaId(String filePath, HudiSchemaUtils.ResolvedInternalSchema baseSchema,
+                HoodieTableMetaClient metaClient) {
+            if (failNextSchemaIdResolution) {
+                failNextSchemaIdResolution = false;
+                throw new IllegalStateException("transient schema lookup failure");
+            }
+            return 1L;
         }
 
         @Override

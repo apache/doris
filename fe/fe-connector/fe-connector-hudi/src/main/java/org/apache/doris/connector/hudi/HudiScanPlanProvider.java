@@ -74,6 +74,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
@@ -219,8 +220,19 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 memoKey, () -> new ConcurrentHashMap<>());
         HudiScanReuseKey reuseKey = hudiScanReuseKey(
                 (HudiTableHandle) request.getTableHandle(), statementTable.generation);
-        return scanReuse.computeIfAbsent(reuseKey,
-                key -> Collections.unmodifiableList(doPlanScan(session, request, statementTable)));
+        AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();
+        List<ConnectorScanRange> cached = scanReuse.computeIfAbsent(reuseKey, key -> {
+            PlannedScan plannedScan = doPlanScanForReuse(session, request, statementTable);
+            List<ConnectorScanRange> planned = Collections.unmodifiableList(plannedScan.ranges);
+            if (!plannedScan.cacheable) {
+                // ConcurrentHashMap does not install a mapping when the loader returns null. Return this
+                // caller's degraded result below, but let the next identical alias retry schema resolution.
+                uncached.set(planned);
+                return null;
+            }
+            return planned;
+        });
+        return cached != null ? cached : Objects.requireNonNull(uncached.get());
     }
 
     /**
@@ -260,6 +272,20 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request,
             HudiStatementTable statementTable) {
+        return doPlanScan(session, request, statementTable, null);
+    }
+
+    // Package-private so statement-reuse tests can model a transient degraded schema lookup without opening
+    // a real Hudi table. Production planning marks the result uncacheable at each tolerated schema fallback.
+    PlannedScan doPlanScanForReuse(ConnectorSession session, ConnectorScanRequest request,
+            HudiStatementTable statementTable) {
+        PlanCompleteness completeness = new PlanCompleteness();
+        return new PlannedScan(doPlanScan(session, request, statementTable, completeness),
+                completeness.isComplete());
+    }
+
+    private List<ConnectorScanRange> doPlanScan(ConnectorSession session, ConnectorScanRequest request,
+            HudiStatementTable statementTable, PlanCompleteness completeness) {
         HudiTableHandle hudiHandle = (HudiTableHandle) request.getTableHandle();
         String basePath = hudiHandle.getBasePath();
         HoodieTableMetaClient metaClient = statementTable.metaClient;
@@ -318,6 +344,9 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     .map(f -> HudiTypeMapping.toHiveTypeString(f.schema()))
                     .collect(Collectors.toList());
         } catch (Exception e) {
+            if (completeness != null) {
+                completeness.markIncomplete();
+            }
             LOG.warn("Failed to resolve Hudi schema for JNI reader, JNI splits may fail: {}",
                     e.getMessage());
             columnNames = Collections.emptyList();
@@ -335,6 +364,9 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 resolvedSchema = HudiSchemaUtils.resolveTableInternalSchema(
                         new TableSchemaResolver(metaClient), avroSchema);
             } catch (Exception e) {
+                if (completeness != null) {
+                    completeness.markIncomplete();
+                }
                 LOG.warn("Failed to resolve Hudi InternalSchema for schema_id; native reads fall back to BY_NAME: {}",
                         e.getMessage());
             }
@@ -344,16 +376,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         // (base schema unresolved -> BY_NAME). A per-file resolution failure logs and returns null for that file
         // (BY_NAME) rather than failing the whole scan. Runs on this TCCL-pinned scan thread.
         final HudiSchemaUtils.ResolvedInternalSchema baseSchema = resolvedSchema;
-        Function<String, Long> schemaIdResolver = baseSchema == null ? null
-                : filePath -> {
-                    try {
-                        return HudiSchemaUtils.resolveFileInternalSchema(filePath,
-                                baseSchema.enableSchemaEvolution, baseSchema.internalSchema, metaClient).schemaId();
-                    } catch (Exception e) {
-                        LOG.warn("Failed to resolve Hudi per-file schema_id for {}: {}", filePath, e.getMessage());
-                        return null;
-                    }
-                };
+        Function<String, Long> schemaIdResolver = buildSchemaIdResolver(baseSchema, metaClient, completeness);
 
         String inputFormat = hudiHandle.getInputFormat();
         String serdeLib = hudiHandle.getSerdeLib();
@@ -414,6 +437,54 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                     hudiHandle.getHudiTableType(), partitionPaths.size(), ranges.size());
 
             return ranges;
+        }
+    }
+
+    Function<String, Long> buildSchemaIdResolver(HudiSchemaUtils.ResolvedInternalSchema baseSchema,
+            HoodieTableMetaClient metaClient, PlanCompleteness completeness) {
+        if (baseSchema == null) {
+            return null;
+        }
+        return filePath -> {
+            try {
+                return resolveFileSchemaId(filePath, baseSchema, metaClient);
+            } catch (Exception e) {
+                if (completeness != null) {
+                    completeness.markIncomplete();
+                }
+                LOG.warn("Failed to resolve Hudi per-file schema_id for {}: {}", filePath, e.getMessage());
+                return null;
+            }
+        };
+    }
+
+    // Package-private test seam for a fail-once resolver; the production implementation remains the single
+    // HudiSchemaUtils lookup used by every native snapshot split.
+    long resolveFileSchemaId(String filePath, HudiSchemaUtils.ResolvedInternalSchema baseSchema,
+            HoodieTableMetaClient metaClient) {
+        return HudiSchemaUtils.resolveFileInternalSchema(filePath,
+                baseSchema.enableSchemaEvolution, baseSchema.internalSchema, metaClient).schemaId();
+    }
+
+    static final class PlannedScan {
+        private final List<ConnectorScanRange> ranges;
+        private final boolean cacheable;
+
+        PlannedScan(List<ConnectorScanRange> ranges, boolean cacheable) {
+            this.ranges = ranges;
+            this.cacheable = cacheable;
+        }
+    }
+
+    static final class PlanCompleteness {
+        private boolean complete = true;
+
+        void markIncomplete() {
+            complete = false;
+        }
+
+        boolean isComplete() {
+            return complete;
         }
     }
 
