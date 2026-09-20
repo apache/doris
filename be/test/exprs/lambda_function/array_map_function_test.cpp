@@ -884,6 +884,55 @@ TEST(ArrayEnumerateUniqFunctionTest, MappedAndOriginalNullableArraysUseLogicalRo
     EXPECT_EQ(values.get_data(), ColumnInt64::Container({1, 1}));
 }
 
+TEST(ArraySortByFunctionTest, MappedAndOriginalNullableArraysUseLogicalRowOffsets) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int_type = make_nullable(int_type);
+    auto array_int_type = std::make_shared<DataTypeArray>(nullable_int_type);
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto source = make_nullable_int_array_column({{9, 8}, {2, 1}}, {1, 0});
+
+    auto map = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, 2));
+    auto lambda =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(nullable_int_type, {"x"}));
+    lambda->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", nullable_int_type)));
+    map->add_child(lambda);
+    map->add_child(std::make_shared<MockColumnExpr>(source, nullable_array_int_type, "source"));
+
+    VExprContext map_context(map);
+    open_expr(map, &map_context);
+    Block input_block;
+    ColumnPtr mapped;
+    auto status = map->execute_column(&map_context, &input_block, nullptr, 2, mapped);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    Block block;
+    block.insert({std::move(mapped), nullable_array_int_type, "mapped"});
+    block.insert({std::move(source), nullable_array_int_type, "source"});
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "array_sortby", block.get_columns_with_type_and_name(), nullable_array_int_type);
+    ASSERT_NE(function, nullptr);
+
+    FunctionUtils function_utils(nullable_array_int_type,
+                                 {nullable_array_int_type, nullable_array_int_type}, false);
+    auto* function_context = function_utils.get_fn_ctx();
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    block.insert({nullptr, nullable_array_int_type, "result"});
+    status = function->execute(function_context, block, {0, 1}, 2, 2);
+    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    EXPECT_EQ(result.get_null_map_data(), ColumnUInt8::Container({1, 0}));
+    const auto& result_array = assert_cast<const ColumnArray&>(result.get_nested_column());
+    EXPECT_EQ(result_array.get_offsets(), ColumnArray::Offsets64({0, 2}));
+    const auto& values = assert_cast<const ColumnInt32&>(
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+    EXPECT_EQ(values.get_data(), ColumnInt32::Container({1, 2}));
+}
+
 TEST(ArrayEnumerateUniqFunctionTest, AllNullLaterArgumentSkipsEarlierConstantExpansion) {
     constexpr size_t row_count = 512;
     constexpr size_t array_size = 4096;
