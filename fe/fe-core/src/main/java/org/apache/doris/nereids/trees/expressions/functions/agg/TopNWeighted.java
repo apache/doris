@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
@@ -67,6 +68,8 @@ public class TopNWeighted extends NullableAggregateFunction
                     .args(SmallIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE))
                     .args(TinyIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
+                    .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
                                     .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
                             FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
@@ -102,6 +105,8 @@ public class TopNWeighted extends NullableAggregateFunction
                     .args(SmallIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE))
                     .args(TinyIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
+                    .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
                                     .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE,
                                                     IntegerType.INSTANCE),
