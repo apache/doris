@@ -309,7 +309,7 @@ private:
     // map column unique id ---> it's inner data type
     std::map<int32_t, std::shared_ptr<const IDataType>> _file_column_types;
 
-    // used to guarantee that short key index will be loaded at most once in a thread-safe way
+    // used to guarantee that the short key or primary key index is loaded at most once
     DorisCallOnce<Status> _load_index_once;
     // used to guarantee that primary key bloom filter will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_pk_bf_once;
@@ -326,7 +326,7 @@ private:
     // short key index decoder
     // all content is in memory
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
-    // primary key index reader
+    // Created in _open before the segment is shared; PK index and BF are loaded independently.
     std::unique_ptr<PrimaryKeyIndexReader> _pk_index_reader;
     std::mutex _open_lock;
     // inverted index file reader
