@@ -189,7 +189,7 @@ Status has_bloom_filter_index(const TabletSchemaSPtr& schema, std::string_view f
 
     std::shared_ptr<ColumnReader> column_reader;
     OlapReaderStatistics stats;
-    RETURN_IF_ERROR(segment->get_column_reader(1, &column_reader, &stats));
+    RETURN_IF_ERROR(segment->get_physical_column_reader(1, &column_reader, &stats));
     has_bloom_filter = column_reader->has_bloom_filter_index(false);
     return Status::OK();
 }

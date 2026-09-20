@@ -998,8 +998,9 @@ Status RowIdStorageReader::read_doris_format_row(
         segment = seg_item.segment;
     }
 
-    // if row_store_read_struct not empty, means the line we should read from row_store
-    if (!row_store_read_struct.default_values.empty()) {
+    const bool use_row_store = !row_store_read_struct.default_values.empty();
+    const size_t old_rows = result_block.rows();
+    if (use_row_store) {
         if (!tablet->tablet_schema()->has_row_store_for_all_columns()) {
             return Status::InternalError("Tablet {} does not have row store for all columns",
                                          tablet->tablet_id());
@@ -1027,27 +1028,38 @@ Status RowIdStorageReader::read_doris_format_row(
                     row_store_read_struct.col_uid_to_idx, result_columns,
                     row_store_read_struct.default_values, {}));
         }
-    } else {
-        for (int x = 0; x < slots.size(); ++x) {
-            auto column_guard = result_block.mutate_column_scoped(x);
-            MutableColumnPtr& column = column_guard.mutable_column();
-            IteratorKey iterator_key {.tablet_id = tablet_id,
-                                      .rowset_id = rowset_id,
-                                      .segment_id = segment_id,
-                                      .slot_id = slots[x].id()};
-            IteratorItem& iterator_item = iterator_map[iterator_key];
-            if (iterator_item.segment == nullptr) {
-                iterator_map[iterator_key].segment = segment;
-                iterator_item.storage_read_options.stats = &stats;
-                iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-                iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
-                        file_cache_miss_policy;
-            }
-            set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
-            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                    full_read_schema, &slots[x], row_ids, column,
-                    iterator_item.storage_read_options, iterator_item.iterator));
+    }
+    for (int x = 0; x < slots.size(); ++x) {
+        // JSONB retains the sink-time TSO placeholder. Keep the row-store fast path for
+        // ordinary columns and resolve only commit TSO through the logical iterator.
+        if (use_row_store && slots[x].col_name() != COMMIT_TSO_COL) {
+            continue;
         }
+        auto column_guard = result_block.mutate_column_scoped(x);
+        MutableColumnPtr& column = column_guard.mutable_column();
+        if (use_row_store) {
+            column->resize(old_rows);
+        }
+        IteratorKey iterator_key {.tablet_id = tablet_id,
+                                  .rowset_id = rowset_id,
+                                  .segment_id = segment_id,
+                                  .slot_id = slots[x].id()};
+        IteratorItem& iterator_item = iterator_map[iterator_key];
+        if (iterator_item.segment == nullptr) {
+            iterator_map[iterator_key].segment = segment;
+            iterator_item.storage_read_options.stats = &stats;
+            iterator_item.storage_read_options.tablet_schema = rowset->tablet_schema();
+            iterator_item.storage_read_options.rowset_id = rowset->rowset_id();
+            iterator_item.storage_read_options.version = rowset->version();
+            iterator_item.storage_read_options.commit_tso = rowset->commit_tso();
+            iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+            iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
+                    file_cache_miss_policy;
+        }
+        set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
+        RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, &slots[x], row_ids,
+                                                        column, iterator_item.storage_read_options,
+                                                        iterator_item.iterator));
     }
     return Status::OK();
 }

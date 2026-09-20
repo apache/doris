@@ -912,8 +912,8 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
-            RETURN_IF_ERROR(
-                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
+            RETURN_IF_ERROR(segment->get_physical_column_reader(column->unique_id(), &column_reader,
+                                                                &stats));
             if (!column_reader) {
                 continue;
             }
@@ -957,8 +957,8 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
-            RETURN_IF_ERROR(
-                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
+            RETURN_IF_ERROR(segment->get_physical_column_reader(column->unique_id(), &column_reader,
+                                                                &stats));
             if (!column_reader) {
                 continue;
             }
@@ -1672,7 +1672,8 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
                 }
                 std::shared_ptr<ColumnReader> column_reader;
                 OlapReaderStatistics stats;
-                st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
+                st = segment->get_physical_column_reader(column->unique_id(), &column_reader,
+                                                         &stats);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get column reader for column: " << column->name()
                                  << " error: " << st.to_string();

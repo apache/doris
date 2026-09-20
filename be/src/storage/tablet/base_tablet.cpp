@@ -106,6 +106,10 @@ Status _init_segment_column_iterator(const segment_v2::SegmentSharedPtr& segment
                                      const io::IOContext* input_io_ctx = nullptr) {
     StorageReadOptions opts;
     opts.stats = stats;
+    opts.tablet_schema = rowset->tablet_schema();
+    opts.rowset_id = rowset->rowset_id();
+    opts.version = rowset->version();
+    opts.commit_tso = rowset->commit_tso();
     if (input_io_ctx != nullptr) {
         opts.io_ctx = *input_io_ctx;
     }
@@ -1019,8 +1023,21 @@ Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
         default_values[i] = tablet_column.default_value();
         serdes[i] = type->get_serde();
     }
+    const size_t old_rows = block.rows();
     RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx,
                                                        block, default_values, {}));
+    // The row-store payload contains the sink-time TSO placeholder. Resolve this column through
+    // the same rowset-aware iterator as column-store historical reads.
+    for (size_t i = 0; i < cids.size(); ++i) {
+        if (cids[i] == tablet_schema.commit_tso_col_idx()) {
+            auto guard = block.mutate_column_scoped(i);
+            auto& dst = guard.mutable_column();
+            dst->resize(old_rows);
+            RETURN_IF_ERROR(fetch_value_by_rowids(input_rowset, segid, rowids,
+                                                  tablet_schema.column(cids[i]), dst));
+            break;
+        }
+    }
     return Status::OK();
 }
 
