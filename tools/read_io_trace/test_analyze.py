@@ -1,0 +1,135 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+import json
+import os
+import random
+import tempfile
+import unittest
+
+from analyze import analyze, load_events, summarize_query
+
+
+def get(seq, source, offset, size, start=10, end=20, query="q", file="s3://b/f",
+        process="be1", outcome="success", parent=0):
+    return {
+        "v": 1, "process": process, "seq": seq, "event": "s3_get",
+        "source": source, "query": query, "file": file, "id": seq,
+        "parent_id": parent, "offset": offset, "size": size, "bytes": size,
+        "time_ns": end, "start_ns": start, "status": 0, "attempt": 0,
+        "outcome": outcome, "available_bytes": 0,
+    }
+
+
+class ReadIOTraceAnalysisTest(unittest.TestCase):
+    def test_three_reads_are_not_pairwise_double_counted(self):
+        events = [get(1, "read_ahead", 0, 1024),
+                  get(2, "hole_fill", 128, 896),
+                  get(3, "hole_fill", 128, 896)]
+        summary = summarize_query(events)
+        self.assertEqual(summary["successful_get_bytes"], 2816)
+        self.assertEqual(summary["unique_bytes"], 1024)
+        self.assertEqual(summary["duplicate_bytes"], 1792)
+        self.assertEqual(summary["foreground_hole_fill_shared_bytes"], 896)
+        self.assertEqual(summary["within_source_duplicate_bytes"]["hole_fill"], 896)
+
+    def test_disjoint_and_adjacent_ranges_have_no_overlap(self):
+        result = summarize_query([get(1, "read_ahead", 0, 10), get(2, "hole_fill", 10, 10),
+                                  get(3, "read_ahead", 30, 10)])
+        self.assertEqual(result["unique_bytes"], 30)
+        self.assertEqual(result["duplicate_bytes"], 0)
+        self.assertEqual(result["examples"], [])
+
+    def test_failures_do_not_enter_successful_union(self):
+        result = summarize_query([get(1, "hole_fill", 0, 10, outcome="failed_or_short"),
+                                  get(2, "hole_fill", 0, 10)])
+        self.assertEqual(result["successful_get_bytes"], 10)
+        self.assertEqual(result["duplicate_bytes"], 0)
+        self.assertEqual(result["failed_or_short_get_attempts"], 1)
+
+    def test_query_process_and_object_boundaries(self):
+        events = [get(1, "read_ahead", 0, 10), get(2, "hole_fill", 0, 10, query="q2"),
+                  get(3, "hole_fill", 0, 10, file="s3://b/f2"),
+                  get(1, "hole_fill", 0, 10, process="be2")]
+        result = analyze(events)
+        self.assertEqual(sum(item["duplicate_bytes"] for item in result["queries"]), 0)
+        self.assertEqual(result["captured_successful_s3_bytes"], 40)
+        self.assertEqual(len(result["queries"]), 3)
+
+    def test_examples_link_gets_to_consumption_and_active_ignored_fragment(self):
+        events = [get(1, "read_ahead", 0, 10, start=10, end=20, parent=50),
+                  get(2, "hole_fill", 0, 10, start=30, end=40, parent=60)]
+        for seq, name, identity, parent, time in [
+            (3, "hole_active", 60, 0, 25), (4, "range_writeback", 50, 0, 35),
+            (5, "fragment_ignored_active", 60, 50, 36),
+        ]:
+            events.append({**get(seq, "read_ahead", 0, 10), "event": name,
+                           "id": identity, "parent_id": parent, "time_ns": time, "outcome": ""})
+        example = summarize_query(events)["examples"][0]
+        self.assertEqual(example["order"], "foreground_completed_before_hole_get")
+        self.assertEqual([item["event"] for item in example["lifecycle"]],
+                         ["hole_active", "range_writeback", "fragment_ignored_active"])
+
+    def test_concurrent_and_reverse_order(self):
+        for foreground_times, expected in [
+            ((10, 40), "overlapping_get_lifetimes"),
+            ((40, 50), "hole_completed_before_foreground_get"),
+        ]:
+            events = [get(1, "read_ahead", 0, 10, *foreground_times),
+                      get(2, "hole_fill", 0, 10, start=20, end=30)]
+            self.assertEqual(summarize_query(events)["examples"][0]["order"], expected)
+
+    def test_random_sweep_matches_bytewise_oracle(self):
+        generator = random.Random(31)
+        for _ in range(100):
+            events = [get(index + 1, generator.choice(["read_ahead", "sync", "hole_fill", "other"]),
+                          generator.randrange(32), generator.randrange(1, 20))
+                      for index in range(50)]
+            result = summarize_query(events, 0)
+            coverage = [set(range(event["offset"], event["offset"] + event["bytes"]))
+                        for event in events]
+            union = set().union(*coverage)
+            foreground = set().union(*(coverage[index] for index, event in enumerate(events)
+                                       if event["source"] in ("read_ahead", "sync")))
+            hole = set().union(*(coverage[index] for index, event in enumerate(events)
+                                if event["source"] == "hole_fill"))
+            self.assertEqual(result["unique_bytes"], len(union))
+            self.assertEqual(result["duplicate_bytes"], sum(map(len, coverage)) - len(union))
+            self.assertEqual(result["foreground_hole_fill_shared_bytes"], len(foreground & hole))
+
+    def test_input_dedup_gaps_and_budget_limit_are_reported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "be.INFO")
+            with open(path, "w", encoding="utf-8") as stream:
+                for event in [get(1, "sync", 0, 10), get(3, "hole_fill", 0, 10)]:
+                    stream.write("I0000 READ_IO_TRACE " + json.dumps(event) + "\n")
+                stream.write("W0000 READ_IO_TRACE_LIMIT max_events=3\n")
+            events, warnings = load_events([path, path])
+        self.assertEqual(len(events), 2)
+        self.assertEqual(len(warnings), 2)
+        report = analyze(events, expected_s3_bytes=25, warnings=warnings)
+        self.assertFalse(report["s3_bytes_reconciled"])
+        self.assertEqual(len(report["capture_warnings"]), 3)
+
+    def test_missing_capture_cannot_be_treated_as_zero(self):
+        report = analyze([], query_id="q", expected_s3_bytes=10)
+        self.assertTrue(report["capture_warnings"])
+        self.assertFalse(report["s3_bytes_reconciled"])
+
+
+if __name__ == "__main__":
+    unittest.main()
