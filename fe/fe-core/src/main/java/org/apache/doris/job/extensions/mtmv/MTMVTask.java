@@ -688,9 +688,11 @@ public class MTMVTask extends AbstractTask {
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return Lists.newArrayList(mtmv.getPartitionNames());
         }
-        // An incomplete baseline cannot be checked by isMTMVSync, because the current exclude rules may
-        // skip the changed base tables and incorrectly mark the MV as fresh. Rebuild it with a full refresh.
-        if (!mtmv.hasCompleteRefreshSnapshot()) {
+        // A baseline that was invalidated as a whole cannot be checked by isMTMVSync, because the current
+        // exclude rules may skip the changed base tables and incorrectly mark the MV as fresh. Rebuild it
+        // with a full refresh. A partition that partition sync has just added is not such a case: it has no
+        // snapshot yet but is still compared per partition below, so only the new partition gets refreshed.
+        if (!mtmv.hasRefreshSnapshot()) {
             return Lists.newArrayList(mtmv.getPartitionNames());
         }
         // check if data is fresh

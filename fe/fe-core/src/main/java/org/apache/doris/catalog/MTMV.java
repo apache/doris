@@ -455,12 +455,14 @@ public class MTMV extends OlapTable {
         return refreshSnapshot;
     }
 
-    public boolean hasCompleteRefreshSnapshot() {
-        Set<String> partitionNames = getPartitionNames();
+    public boolean hasRefreshSnapshot() {
         readMvLock();
         try {
-            // A refresh baseline is complete only when every current MV partition has a snapshot.
-            return refreshSnapshot.getPartitionSnapshots().keySet().containsAll(partitionNames);
+            // The baseline is invalidated only when the snapshot map is emptied as a whole, which is what
+            // ALTER excluded_trigger_tables and a status change do. A newly added MV partition legitimately
+            // has no snapshot yet, and must not turn a single-partition change into a full refresh: the
+            // per-partition comparison decides for it instead.
+            return refreshSnapshot != null && !MapUtils.isEmpty(refreshSnapshot.getPartitionSnapshots());
         } finally {
             readMvUnlock();
         }
