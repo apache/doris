@@ -48,9 +48,6 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-extern bvar::Adder<uint64_t> g_fragment_executing_count;
-extern bvar::Status<uint64_t> g_fragment_last_active_time;
-
 class PipelineFragmentContext;
 class QueryContext;
 class DescriptorTbl;
@@ -271,4 +268,6 @@ private:
 
 uint64_t get_fragment_executing_count();
 uint64_t get_fragment_last_active_time();
+void increment_fragment_executing_count();
+void decrement_fragment_executing_count();
 } // namespace doris
