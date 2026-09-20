@@ -66,6 +66,19 @@ Status DataTypeArray::check_column(const IColumn& column) const {
     return nested->check_column(column_array->get_data());
 }
 
+Status DataTypeArray::check_column_value(const IColumn& column, size_t row_num) const {
+    const auto* column_array = check_and_get_column_with_const<ColumnArray>(column);
+    DCHECK(column_array != nullptr);
+    const size_t actual_row = is_column_const(column) ? 0 : row_num;
+    const auto& offsets = column_array->get_offsets();
+    const size_t begin = offsets[actual_row - 1];
+    const size_t end = offsets[actual_row];
+    for (size_t element_row = begin; element_row < end; ++element_row) {
+        RETURN_IF_ERROR(nested->check_column_value(column_array->get_data(), element_row));
+    }
+    return Status::OK();
+}
+
 bool DataTypeArray::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this) &&
            nested->equals(*static_cast<const DataTypeArray&>(rhs).nested);

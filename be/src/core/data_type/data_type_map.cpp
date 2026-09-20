@@ -57,6 +57,19 @@ Status DataTypeMap::check_column(const IColumn& column) const {
     return Status::OK();
 }
 
+Status DataTypeMap::check_column_value(const IColumn& column, size_t row_num) const {
+    const auto* column_map = check_and_get_column_with_const<ColumnMap>(column);
+    DCHECK(column_map != nullptr);
+    const size_t actual_row = is_column_const(column) ? 0 : row_num;
+    const size_t begin = column_map->offset_at(actual_row);
+    const size_t end = column_map->get_offsets()[actual_row];
+    for (size_t element_row = begin; element_row < end; ++element_row) {
+        RETURN_IF_ERROR(key_type->check_column_value(column_map->get_keys(), element_row));
+        RETURN_IF_ERROR(value_type->check_column_value(column_map->get_values(), element_row));
+    }
+    return Status::OK();
+}
+
 void DataTypeMap::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     auto key_children = col_meta->add_children();

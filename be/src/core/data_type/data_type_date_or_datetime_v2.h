@@ -112,6 +112,7 @@ public:
     }
 
     bool equals(const IDataType& rhs) const override;
+    Status check_column_value(const IColumn& column, size_t row_num) const override;
     bool equals_ignore_precision(const IDataType& rhs) const override {
         return rhs.get_primitive_type() == PrimitiveType::TYPE_DATETIMEV2;
     }
