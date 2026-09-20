@@ -20,7 +20,13 @@ suite("self_fk_limit") {
         sql "alter table self_fk_limit drop constraint self_fk_limit_fk"
     } catch (Exception ignored) {
     }
+    try {
+        sql "alter table self_fk_mixed_alias_foreign drop constraint self_fk_mixed_alias_fk"
+    } catch (Exception ignored) {
+    }
     sql "drop table if exists self_fk_limit"
+    sql "drop table if exists self_fk_mixed_alias_foreign"
+    sql "drop table if exists self_fk_mixed_alias_primary"
     sql """
         create table self_fk_limit (
             id int not null,
@@ -40,12 +46,52 @@ suite("self_fk_limit") {
         foreign key (parent_id) references self_fk_limit(id)
     """
 
+    sql """
+        create table self_fk_mixed_alias_primary (
+            a int not null,
+            b int not null
+        ) unique key(a, b)
+        distributed by hash(a) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        create table self_fk_mixed_alias_foreign (
+            fa int not null,
+            fb int not null
+        ) duplicate key(fa, fb)
+        distributed by hash(fa) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql "insert into self_fk_mixed_alias_primary values (1, 1), (2, 2)"
+    sql "insert into self_fk_mixed_alias_foreign values (1, 1), (2, 2)"
+    sql """
+        alter table self_fk_mixed_alias_primary add constraint self_fk_mixed_alias_pk
+        primary key (a, b)
+    """
+    sql """
+        alter table self_fk_mixed_alias_foreign add constraint self_fk_mixed_alias_fk
+        foreign key (fa, fb) references self_fk_mixed_alias_primary(a, b)
+    """
+
     explain {
         sql """
             shape plan
             select f.parent_id
             from (select id from self_fk_limit order by id limit 1) p
             inner join self_fk_limit f on p.id = f.parent_id
+        """
+        contains "INNER_JOIN"
+    }
+
+    explain {
+        sql """
+            shape plan
+            select f1.fa, f2.fb
+            from self_fk_mixed_alias_primary p
+            inner join (
+                self_fk_mixed_alias_foreign f1
+                cross join self_fk_mixed_alias_foreign f2
+            ) on p.a = f1.fa and p.b = f2.fb
         """
         contains "INNER_JOIN"
     }
@@ -124,5 +170,15 @@ suite("self_fk_limit") {
         from (select id from self_fk_limit order by id limit 1) p
         inner join self_fk_limit f on p.id = f.parent_id
         order by f.parent_id
+    """
+
+    order_qt_composite_fk_mixed_alias """
+        select f1.fa, f2.fb
+        from self_fk_mixed_alias_primary p
+        inner join (
+            self_fk_mixed_alias_foreign f1
+            cross join self_fk_mixed_alias_foreign f2
+        ) on p.a = f1.fa and p.b = f2.fb
+        order by f1.fa, f2.fb
     """
 }

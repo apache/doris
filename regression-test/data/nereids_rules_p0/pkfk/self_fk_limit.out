@@ -7,3 +7,7 @@
 
 -- !limited_primary --
 1
+
+-- !composite_fk_mixed_alias --
+1	1
+2	2

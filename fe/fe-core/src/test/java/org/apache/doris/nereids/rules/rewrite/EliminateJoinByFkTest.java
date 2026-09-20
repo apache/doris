@@ -17,7 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.TableScanParams;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -27,22 +32,28 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -99,6 +110,16 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                         + ")\n"
                         + "DUPLICATE KEY(fa, fb)\n"
                         + "DISTRIBUTED BY HASH(fa) BUCKETS 10\n"
+                        + "PROPERTIES (\"replication_num\" = \"1\")\n",
+                "CREATE TABLE IF NOT EXISTS wide_composite_pri (\n"
+                        + "    c01 int not null, c02 int not null, c03 int not null, c04 int not null,\n"
+                        + "    c05 int not null, c06 int not null, c07 int not null, c08 int not null,\n"
+                        + "    c09 int not null, c10 int not null, c11 int not null, c12 int not null,\n"
+                        + "    c13 int not null, c14 int not null, c15 int not null, c16 int not null\n"
+                        + ")\n"
+                        + "UNIQUE KEY(c01, c02, c03, c04, c05, c06, c07, c08, "
+                        + "c09, c10, c11, c12, c13, c14, c15, c16)\n"
+                        + "DISTRIBUTED BY HASH(c01) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n"
         );
         addConstraint("Alter table pri add constraint pk primary key (id1)");
@@ -113,6 +134,8 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
         addConstraint("Alter table composite_pri add constraint composite_pk primary key (a, b)");
         addConstraint("Alter table composite_foreign add constraint composite_fk foreign key (fa, fb)\n"
                 + "references composite_pri(a, b)");
+        addConstraint("Alter table wide_composite_pri add constraint wide_composite_pk primary key "
+                + "(c01, c02, c03, c04, c05, c06, c07, c08, c09, c10, c11, c12, c13, c14, c15, c16)");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
     }
 
@@ -261,6 +284,67 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .rewrite()
                 .nonMatch(logicalJoin())
                 .printlnTree();
+    }
+
+    @Test
+    void testCompositeForeignKeyCannotMixRelationInstances() {
+        String sql = "select f1.fa, f2.fb from composite_pri p "
+                + "inner join (composite_foreign f1 cross join composite_foreign f2) "
+                + "on p.a = f1.fa and p.b = f2.fb";
+        Plan rewritten = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .getPlan();
+        Assertions.assertEquals(2,
+                rewritten.<LogicalJoin<?, ?>>collectToList(LogicalJoin.class::isInstance).size());
+    }
+
+    @Test
+    void testExternalScanSelectorsCannotActivatePrimaryKey() {
+        Slot primaryKeySlot = Mockito.mock(Slot.class);
+        Set<Slot> primaryKey = ImmutableSet.of(primaryKeySlot);
+        LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
+        LogicalProperties logicalProperties = Mockito.mock(LogicalProperties.class);
+        DataTrait trait = Mockito.mock(DataTrait.class);
+        Mockito.when(scan.getLogicalProperties()).thenReturn(logicalProperties);
+        Mockito.when(logicalProperties.getTrait()).thenReturn(trait);
+        Mockito.when(trait.isUnique(primaryKey)).thenReturn(true);
+        Mockito.when(scan.getSelectedPartitions()).thenReturn(LogicalFileScan.SelectedPartitions.NOT_PRUNED);
+        Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
+        Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.empty());
+        Mockito.when(scan.getScanParams()).thenReturn(Optional.empty());
+
+        ForeignKeyContext context = new ForeignKeyContext();
+        Assertions.assertTrue(context.canActivatePrimaryKey(scan, primaryKey));
+
+        Mockito.when(scan.getTableSample()).thenReturn(Optional.of(new TableSample(1, false, 0)));
+        Assertions.assertFalse(context.canActivatePrimaryKey(scan, primaryKey));
+        Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
+
+        Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.of(TableSnapshot.versionOf("1")));
+        Assertions.assertFalse(context.canActivatePrimaryKey(scan, primaryKey));
+        Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.empty());
+
+        TableScanParams scanParams = new TableScanParams(
+                TableScanParams.TAG, ImmutableMap.of(), ImmutableList.of("v1"));
+        Mockito.when(scan.getScanParams()).thenReturn(Optional.of(scanParams));
+        Assertions.assertFalse(context.canActivatePrimaryKey(scan, primaryKey));
+    }
+
+    @Test
+    void testCompositePrimaryKeyAliasStateGrowsLinearly() {
+        String sql = "select c01 as a01, c02 as a02, c03 as a03, c04 as a04, "
+                + "c05 as a05, c06 as a06, c07 as a07, c08 as a08, "
+                + "c09 as a09, c10 as a10, c11 as a11, c12 as a12, "
+                + "c13 as a13, c14 as a14, c15 as a15, c16 as a16 "
+                + "from wide_composite_pri";
+        Plan analyzed = PlanChecker.from(connectContext).analyze(sql).getPlan();
+        LogicalProject<?> project = analyzed.<LogicalProject<?>>collectToList(
+                LogicalProject.class::isInstance).get(0);
+        ForeignKeyContext context = new ForeignKeyContext().collectForeignKeyConstraint(project);
+
+        Assertions.assertEquals(32, context.activePrimaryKeySlotCount());
+        Assertions.assertEquals(1, context.activePrimaryKeyProofCount());
     }
 
     @Test
