@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogIf;
@@ -568,6 +569,9 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                             retainedTable);
         } catch (AnalysisException e) {
             throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
+        } catch (UserException e) {
+            // AnalysisException subclasses UserException, so the more specific type comes first.
+            throw new RuntimeException(e.getMessage(), e);
         }
     }
 
