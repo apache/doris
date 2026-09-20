@@ -235,7 +235,7 @@ suite("test_hive_topn_lazy_mat", "p0,external,hive,external_docker,external_dock
         explain {
             sql """ select a.name,length(a.name),a.value,b.*,a.* from  parquet_topn_lazy_mat_table as a    
             join  orc_topn_lazy_mat_table as b on a.id = b.id order by a.name    limit 10 """
-            contains("projectList:[name, FunctionCallExpr{type=int}, value, id, name, value, active, score, file_id, id, name, value, active, score, file_id]")
+            contains("projectList:[name, FunctionCallExpr{id=null, type=int, sel=-1.0, #distinct=-1, scale=-1}, value, id, name, value, active, score, file_id, id, name, value, active, score, file_id]")
             contains("column_descs_lists[[`value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL], [`name` text NULL, `value` double NULL, `active` boolean NULL, `score` double NULL, `file_id` int NULL]]")
             contains("locations: [[3, 4, 5, 6], [7, 8, 9, 10, 11]]")
             contains("column_idxs_lists: [[2, 3, 4, 5], [1, 2, 3, 4, 5]]")
