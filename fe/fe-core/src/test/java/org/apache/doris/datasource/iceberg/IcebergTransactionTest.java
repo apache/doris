@@ -351,6 +351,17 @@ public class IcebergTransactionTest {
                         table, ops, testRuntimeContext(), false, false, () -> { }));
     }
 
+    private void mockTableGeneration(MockedStatic<IcebergUtils> mockedUtils,
+            IcebergExternalTable dorisTable, Table table) {
+        mockedUtils.when(() -> IcebergUtils.withIcebergTableGeneration(
+                        Mockito.eq(dorisTable),
+                        Mockito.<IcebergExternalMetaCache.TableGenerationAction<Object>>any()))
+                .thenAnswer(invocation -> {
+                    IcebergExternalMetaCache.TableGenerationAction<Object> action = invocation.getArgument(1);
+                    return action.apply(table, false, false);
+                });
+    }
+
     private IcebergRuntimeContext testRuntimeContext() {
         @SuppressWarnings("unchecked")
         MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> manifestEntry =
@@ -667,10 +678,6 @@ public class IcebergTransactionTest {
         Mockito.when(dorisTable.getName()).thenReturn(tableName);
         Mockito.when(dorisTable.getCatalog()).thenReturn(spyExternalCatalog);
         Mockito.when(dorisTable.getIcebergTable()).thenReturn(table);
-        IcebergWriteSchemaContext context =
-                IcebergWriteSchemaContext.create(dorisTable, Optional.empty());
-        IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
-        insertContext.setWriteSchemaContext(Optional.of(context));
         TIcebergCommitData commitData = new TIcebergCommitData();
         commitData.setFilePath(table.location() + "/data/output.parquet");
         commitData.setFileContent(TFileContent.DATA);
@@ -682,6 +689,11 @@ public class IcebergTransactionTest {
         try (MockedStatic<IcebergUtils> mockedUtils =
                 Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
             mockWritableTable(mockedUtils, table);
+            mockTableGeneration(mockedUtils, dorisTable, table);
+            IcebergWriteSchemaContext context =
+                    IcebergWriteSchemaContext.create(dorisTable, Optional.empty());
+            IcebergInsertCommandContext insertContext = new IcebergInsertCommandContext();
+            insertContext.setWriteSchemaContext(Optional.of(context));
             txn.beginInsert(dorisTable, Optional.of(insertContext));
             txn.finishInsert(NameMapping.createForTest(dbName, tableName));
 
