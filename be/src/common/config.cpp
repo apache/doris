@@ -1789,9 +1789,12 @@ DEFINE_mInt32(query_segment_file_cache_prefetch_block_size, "2");
 // Enable exact range read-ahead for query data pages
 DEFINE_mBool(enable_query_read_ahead, "false");
 DEFINE_mBool(enable_read_io_trace, "false");
-// Process-lifetime cap on diagnostic events, including range/fragment lifecycle records.
-DEFINE_mInt64(read_io_trace_max_events, "1000000");
-DEFINE_Validator(read_io_trace_max_events, [](int64_t value) { return value > 0; });
+// Separate diagnostic files; empty uses the BE log directory's read_io_trace subdirectory.
+DEFINE_String(read_io_trace_dir, "");
+DEFINE_Int64(read_io_trace_flush_bytes, "1048576"); // 1 MiB
+DEFINE_Validator(read_io_trace_flush_bytes, [](int64_t value) { return value > 0; });
+DEFINE_Int32(read_io_trace_flush_interval_ms, "1000");
+DEFINE_Validator(read_io_trace_flush_interval_ms, [](int32_t value) { return value > 0; });
 // Query-level resident read-ahead buffer limit
 DEFINE_Int64(read_ahead_max_bytes_per_query, "268435456"); // 256 MiB
 DEFINE_Validator(read_ahead_max_bytes_per_query, [](int64_t value) { return value > 0; });

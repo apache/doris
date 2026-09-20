@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 #include <rapidjson/document.h>
 
-#include <limits>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -30,14 +29,11 @@
 
 namespace doris::io {
 
-// Scoped capture of the actual JSON passed to logging, shared by end-to-end IO tests.
+// Scoped capture of the actual JSON submitted to the writer, shared by end-to-end IO tests.
 class ReadIOTraceCapture {
 public:
-    ReadIOTraceCapture()
-            : _old_enabled(config::enable_read_io_trace),
-              _old_limit(config::read_io_trace_max_events) {
+    ReadIOTraceCapture() : _old_enabled(config::enable_read_io_trace) {
         config::enable_read_io_trace = true;
-        config::read_io_trace_max_events = std::numeric_limits<int64_t>::max();
         SyncPoint::get_instance()->set_call_back(
                 "ReadIOTrace::record",
                 [this](auto&& args) {
@@ -51,7 +47,6 @@ public:
     ~ReadIOTraceCapture() {
         SyncPoint::get_instance()->disable_processing();
         config::enable_read_io_trace = _old_enabled;
-        config::read_io_trace_max_events = _old_limit;
     }
 
     std::vector<rapidjson::Document> events(const char* event_name) {
@@ -73,7 +68,6 @@ public:
 
 private:
     const bool _old_enabled;
-    const int64_t _old_limit;
     std::mutex _mutex;
     std::vector<std::string> _lines;
     SyncPoint::CallbackGuard _guard;
