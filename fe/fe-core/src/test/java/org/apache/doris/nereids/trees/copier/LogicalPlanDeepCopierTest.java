@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.copier;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.JoinSkewInfo;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -223,5 +224,38 @@ public class LogicalPlanDeepCopierTest {
             Assertions.assertTrue(output.contains(slot.getExprId()),
                     "the hint of a join has to read the slots of its own branch: " + slot);
         }
+    }
+
+    @Test
+    public void testTheHintOfACopyReportsItsRewritesToTheHintWhichItWasCopiedFrom() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        Slot skew = left.getOutput().get(0);
+        DistributeHint hint = new DistributeHint(DistributeType.NONE,
+                new JoinSkewInfo(skew, ImmutableList.of(new BigIntLiteral(0)), false));
+        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(left.getOutput().get(0), right.getOutput().get(0))),
+                ImmutableList.of(), hint, Optional.empty(), left, right, null);
+
+        LogicalJoin<?, ?> copy = (LogicalJoin<?, ?>) join.accept(
+                LogicalPlanDeepCopier.INSTANCE, new DeepCopierContext());
+
+        // SaltJoin rewrites the join of the copy and records that rewrite on the hint of the copy (see
+        // SaltJoin.transform), and the copy reports it to the hint which the query wrote: the explain
+        // of the query prints the hint of the query (see LeadingHint.getExplainString), so without
+        // that report the explain would print the hint as if its skew had never been rewritten
+        copy.getDistributeHint().setStatus(Hint.HintStatus.SUCCESS);
+        copy.getDistributeHint().setSkewInfo(copy.getDistributeHint().getSkewInfo().withSuccessInSaltJoin(true));
+        copy.getDistributeHint().reportTheRewritesToTheHintWhichWasCopied();
+
+        Assertions.assertEquals(Hint.HintStatus.SUCCESS, join.getDistributeHint().getStatus());
+        Assertions.assertTrue(join.getDistributeHint().isSuccessInSkewRewrite(),
+                "the hint of the query has to report the skew rewrite of the copy");
+        // the report does not share the skew expression: the two branches keep the expression which
+        // reads their own slots
+        Assertions.assertNotSame(join.getDistributeHint().getSkewExpr(),
+                copy.getDistributeHint().getSkewExpr());
+        assertSkewExprReadsTheSlotsOfItsOwnBranch(join);
+        assertSkewExprReadsTheSlotsOfItsOwnBranch(copy);
     }
 }

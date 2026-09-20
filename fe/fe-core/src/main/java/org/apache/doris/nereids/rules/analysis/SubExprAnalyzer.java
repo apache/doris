@@ -129,6 +129,22 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         // the rewrite which unnests it (UnCorrelatedApplyAggregateFilter) computes the aggregation
         // of the domain of every outer row, the empty correlated domain included, so that the value
         // which the IN compares exists for every outer row
+        if (analyzedResult.isCorrelated()) {
+            // The rewrite only carries the outer slots through the filters of the subquery: it keeps
+            // the aggregation of the domain as it is (the outer predicate becomes the condition
+            // which pairs the outer row with the rows of the domain) and it reads the value which
+            // the IN compares from the aggregation itself. An outer slot which the subquery reads
+            // from its aggregation, its projections or its joins is therefore rejected here, the way
+            // the scalar subquery path rejects it (see visitScalarSubquery): the subquery of
+            //
+            //     select k from o where k in (select sum(i.v + o.k) from i)
+            //
+            // cannot be unnested, because the aggregation of the domain of an outer row would have
+            // to aggregate the value of the outer row as well, and the plan of the rewrite would
+            // read that value from a scan which does not produce it.
+            validateTheNodesOfTheSubqueryReadTheOuterSlotsThroughFilters(analyzedResult.getLogicalPlan(),
+                    new CorrelatedSlotsValidator(ImmutableSet.copyOf(analyzedResult.correlatedSlots)));
+        }
         checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
         checkRootIsLimit(analyzedResult);
 
@@ -540,5 +556,23 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             }
         }
         nodeInfoList.remove(nodeInfoList.size() - 1);
+    }
+
+    /**
+     * Whether every node of the plan of the subquery reads the outer slots the way the rewrites of a
+     * correlated subquery can carry them: the validator rejects the outer slots of an aggregation, a
+     * projection, a join or a sort (the filters of the subquery may read them wherever they are, see
+     * CorrelatedSlotsValidator). The scalar subquery path checks the order of the nodes of the
+     * subquery as well (see validateNodeInfoList, which the caller of the validator of that path
+     * runs), because only one aggregation may sit below the correlated predicate there; the rewrites
+     * of an IN subquery read the correlated predicate below every aggregation of the chain, so only
+     * the nodes which read the outer slots are validated here.
+     */
+    private void validateTheNodesOfTheSubqueryReadTheOuterSlotsThroughFilters(
+            Plan plan, CorrelatedSlotsValidator validator) {
+        plan.accept(validator, null);
+        for (Plan child : plan.children()) {
+            validateTheNodesOfTheSubqueryReadTheOuterSlotsThroughFilters(child, validator);
+        }
     }
 }

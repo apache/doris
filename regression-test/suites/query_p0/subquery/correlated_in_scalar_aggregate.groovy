@@ -212,6 +212,31 @@ suite("correlated_in_scalar_aggregate") {
             HAVING max(c) <= o.k)
         ORDER BY o.k
     """
+    // A NOT IN whose select list is a global aggregation above the aggregation of the derived table:
+    // the aggregation of an empty correlated domain returns one row whose value is null (the max of
+    // an empty derived table), so the NOT IN of that row is unknown and the row is not returned,
+    // while the aggregation of the rewrite produces no row at all for such a key and the NOT IN
+    // would be true. The subquery cannot be rewritten, so it is reported as unsupported instead of
+    // returning a wrong result (the same holds for an IN which is used as a value, whose plan is a
+    // mark join)
+    test {
+        sql "SELECT o.k FROM cisa_o o" +
+                " WHERE o.k NOT IN (SELECT max(c) FROM" +
+                " (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x)"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
+    test {
+        sql "SELECT o.k, o.k IN (SELECT max(c) FROM" +
+                " (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x) AS v FROM cisa_o o"
+        exception "Unsupported correlated subquery with grouping and/or aggregation"
+    }
+    // an IN subquery whose select list reads the outer query cannot be unnested: the rewrite reads
+    // the value it compares from the aggregation of the domain, which cannot aggregate the value of
+    // the outer row
+    test {
+        sql "SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT sum(i.g + o.k) FROM cisa_i i)"
+        exception "access outer query's column in aggregate is not supported"
+    }
 
     // The shapes below are not supported by the scalar and IN subquery rewrites: they must be
     // rejected with a user error and must never return a wrong result silently.
@@ -227,10 +252,12 @@ suite("correlated_in_scalar_aggregate") {
         exception "Unsupported correlated subquery with correlated predicate"
     }
     // an IN subquery whose select list is the correlated column itself keeps the correlated column
-    // in the projection of the subquery, which the rewrites of the IN subquery cannot expose
+    // in the projection of the subquery, which the rewrites of the IN subquery cannot expose: the
+    // plan of the subquery reads the outer column from that projection, so it is rejected when the
+    // subquery is analyzed
     test {
         sql "SELECT o.k FROM cisa_o o" +
                 " WHERE o.k IN (SELECT o.k FROM cisa_i i WHERE i.k = o.k HAVING count(*) >= o.k - 4)"
-        exception "Unsupported correlated subquery with grouping and/or aggregation"
+        exception "access outer query's column in project is not supported"
     }
 }

@@ -290,6 +290,43 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    public void testInSubqueryWhichReadsTheOuterColumnInItsAggregationIsRejected() {
+        // The rewrite of a correlated IN subquery reads the value which the IN compares from the
+        // aggregation of the domain of every outer row (see UnCorrelatedApplyAggregateFilter), so the
+        // subquery may not read the outer column from its aggregation: the plan of the rewrite would
+        // aggregate the value of the outer row and read it from a scan which does not produce it.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT sum(T2.score + T1.score) FROM T2)"));
+        Assertions.assertTrue(exception.getMessage().contains("access outer query's column in aggregate"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testInSubqueryWhichReadsTheOuterColumnInItsProjectionIsRejected() {
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(
+                        "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT T1.score FROM T2 WHERE T2.id = T1.id)"));
+        Assertions.assertTrue(exception.getMessage().contains("access outer query's column in project"),
+                "unexpected message: " + exception.getMessage());
+    }
+
+    @Test
+    public void testNestedAggregatedInSubqueryWhichReadsTheOuterColumnInItsFilterIsAnalyzed() {
+        // the outer column of a filter below the aggregation of the subquery is the one which the
+        // rewrite carries: the predicates of that filter become the condition of the join which pairs
+        // an outer row with the rows of its domain, and the aggregations above it are grouped by the
+        // correlation key of that row, however many of them the subquery has
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT max(c) FROM"
+                        + " (SELECT count(*) AS c FROM T2 WHERE T2.id = T1.id GROUP BY T2.score) x)");
+        PlanChecker.from(connectContext).analyze(
+                "SELECT T1.id FROM T1 WHERE T1.id IN (SELECT max(c) FROM"
+                        + " (SELECT count(*) AS c FROM T2 WHERE T2.id = T1.id GROUP BY T2.score) x"
+                        + " HAVING max(c) <= T1.score)");
+    }
+
+    @Test
     public void testExistsCorrelatedScalarAggUnionOrderBy() {
         // Correlated EXISTS over scalar aggregate + UNION ALL + ORDER BY.
         // Must fold to TRUE/FALSE before checkNoCorrelatedSlotsUnderSetOp().

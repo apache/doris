@@ -324,13 +324,17 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         // copy, so writing it into the hint of the original join leaves that join with a skew
         // expression which its children do not output. SaltJoin then skips the branch of the
         // original join at the output-membership check of its skew expression, and the two branches
-        // would record one status together.
+        // would record one status together. The copy reports the rewrites of its hint to the hint
+        // which it was copied from, so that the hint of the query reports them as well (see
+        // DistributeHint.reportTheRewritesToTheHintWhichWasCopied): the explain of the query prints
+        // the hints which the query wrote.
         DistributeHint hint = join.getDistributeHint();
         if (hint.getSkewInfo() != null) {
             Expression skewExpr = ExpressionDeepCopier.INSTANCE.deepCopy(hint.getSkewExpr(), context);
             DistributeHint copiedHint = new DistributeHint(hint.distributeType,
                     hint.getSkewInfo().withSkewExpr(skewExpr));
             copiedHint.setSuccessInLeading(hint.isSuccessInLeading());
+            copiedHint.setHintWhichWasCopied(hint);
             hint = copiedHint;
         }
         return new LogicalJoin<>(join.getJoinType(), hashJoinConjuncts, otherJoinConjuncts, markJoinConjuncts,

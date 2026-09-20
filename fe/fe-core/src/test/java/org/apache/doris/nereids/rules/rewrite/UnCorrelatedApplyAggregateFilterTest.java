@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
@@ -1049,6 +1050,78 @@ class UnCorrelatedApplyAggregateFilterTest {
                         + columnsOfTheInnerSide);
     }
 
+    @Test
+    public void testTheValueOfAScalarSubqueryIsComputedBetweenTheAggregations() {
+        // select o.k, (select count(*) + 1 from i where i.k = o.k group by i.g) from o: the value of
+        // the scalar subquery is computed by the projection between the aggregation which counts the
+        // rows of a correlation key (the wrapper which the scalar subquery rewrite adds) and the
+        // aggregation of the domain, so the rewrite has to carry that projection and to read the
+        // value it computes (the projection is not a projection which only passes the columns below it
+        // through, see locateAggregate)
+        Plan rewritten = rewriteAScalarSubqueryWhichComputesItsValue();
+        List<LogicalApply<?, ?>> applies = rewritten.collectToList(LogicalApply.class::isInstance);
+        Assertions.assertEquals(1, applies.size(),
+                "the scalar subquery has to stay an apply for the rule which unnests it");
+        Assertions.assertTrue(applies.get(0).getCorrelationFilter().isPresent(),
+                "the rule has to pull the predicate of the WHERE clause of the subquery into the apply");
+        assertEveryProjectIsResolvable(rewritten);
+        List<Alias> computedProjects = new ArrayList<>();
+        for (LogicalProject<?> project : rewritten.<LogicalProject>collectToList(LogicalProject.class::isInstance)) {
+            for (NamedExpression expression : project.getProjects()) {
+                if (expression instanceof Alias && ((Alias) expression).child() instanceof Add) {
+                    computedProjects.add((Alias) expression);
+                }
+            }
+        }
+        Assertions.assertFalse(computedProjects.isEmpty(),
+                "the projection which computes the value of the subquery has to be kept");
+        Slot value = computedProjects.get(0).toSlot();
+        boolean theAggregationReadsTheValue = false;
+        List<LogicalAggregate> aggregates = rewritten.collectToList(LogicalAggregate.class::isInstance);
+        for (LogicalAggregate<?> aggregate : aggregates) {
+            for (NamedExpression output : aggregate.getOutputExpressions()) {
+                if (output.getInputSlots().contains(value)) {
+                    theAggregationReadsTheValue = true;
+                }
+            }
+        }
+        Assertions.assertTrue(theAggregationReadsTheValue,
+                "the aggregation above the projection has to read the value which it computes");
+    }
+
+    @Test
+    public void testNestedNullableAggregationOfANotInSubqueryIsRejected() {
+        // select o.k from o where o.k not in (select max(c) from
+        //     (select count(*) as c from i where i.k = o.k group by i.g) x)
+        // The aggregation of an empty correlated domain of the subquery returns one row (the max of an
+        // empty derived table is null), so the NOT IN of such an outer row is unknown and the row is
+        // not returned, while the aggregation of the rewrite produces no row for that key and its NOT
+        // IN would be true: the subquery is reported instead of rewritten (see
+        // observesTheEmptyInputOfAGlobalAggregate)
+        Assertions.assertThrows(AnalysisException.class,
+                () -> rewriteANestedNullableAggregation(LogicalApply.SubQueryType.IN_SUBQUERY, true, false));
+    }
+
+    @Test
+    public void testNestedNullableAggregationOfAnInSubqueryWhichIsUsedAsAValueIsRejected() {
+        // the value of an IN which is used as a value is its mark, so the null which the aggregation of
+        // an empty derived table returns for an outer row and the false which the rewrite returns for
+        // that row are observable as well
+        Assertions.assertThrows(AnalysisException.class,
+                () -> rewriteANestedNullableAggregation(LogicalApply.SubQueryType.IN_SUBQUERY, false, true));
+    }
+
+    @Test
+    public void testNestedNullableAggregationOfTheFilterOfAnInSubqueryIsRewritten() {
+        // the same subquery as the filter of the outer rows: the null which the aggregation of an empty
+        // derived table returns and the false which the rewrite returns for such a key reject the outer
+        // row alike, so the rewrite is equivalent
+        Plan rewritten = rewriteANestedNullableAggregation(LogicalApply.SubQueryType.IN_SUBQUERY, false, false);
+        Assertions.assertFalse(rewritten.collectToList(LogicalApply.class::isInstance).isEmpty(),
+                "the IN subquery has to stay an apply for the rule which compares the outer value with "
+                        + "the value of its aggregation");
+    }
+
     /** whether every projection of the plan only reads columns which its child produces */
     private static void assertEveryProjectIsResolvable(Plan plan) {
         for (LogicalProject<?> project : plan.<LogicalProject>collectToList(LogicalProject.class::isInstance)) {
@@ -1104,6 +1177,73 @@ class UnCorrelatedApplyAggregateFilterTest {
             LogicalApply.SubQueryType subQueryType, Function<Slot, AggregateFunction> aggregationFunction) {
         return rewriteAGlobalAggregation(predicate, subQueryType, aggregationFunction,
                 PlanConstructor.newLogicalOlapScan(1, "t2", 1));
+    }
+
+    /**
+     * build the plan of
+     *
+     *     o (select count(*) + 1 from i where i.k = o.k group by i.g)
+     *
+     * the way SubqueryToApply builds a scalar subquery: the aggregation which counts the rows of a
+     * correlation key and reads the value of the subquery (count(*)/any_value(*)), the projection
+     * which computes that value (count(*) + 1), the aggregation of the rows below it and the filter
+     * of the WHERE clause, and apply the rule.
+     */
+    private static Plan rewriteAScalarSubqueryWhichComputesItsValue() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+        Slot r2 = right.getOutput().get(1); // t2.name
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Alias count = new Alias(new Count(), "c");
+        Plan aggregation = new LogicalAggregate<>(ImmutableList.of(r2), ImmutableList.of(r2, count), where);
+        Alias computed = new Alias(new Add(count.toSlot(), new BigIntLiteral(1)), "v");
+        Plan projection = new LogicalProject<>(ImmutableList.of(computed), aggregation);
+        Alias wrapperCount = new Alias(new Count(), "cnt");
+        Alias value = new Alias(new AnyValue(computed.toSlot()), "v");
+        Plan wrapperOfTheScalarSubquery =
+                new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(wrapperCount, value), projection);
+        LogicalApply<LogicalOlapScan, Plan> apply =
+                new LogicalApply<>(ImmutableList.of(x), LogicalApply.SubQueryType.SCALAR_SUBQUERY, false,
+                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), true, false,
+                        left, wrapperOfTheScalarSubquery);
+        return applyTheRule(apply);
+    }
+
+    /**
+     * build the plan of
+     *
+     *     o [subqueryType] (select max(c) from (select count(*) as c from i where i.k = o.k group by i.g) x)
+     *
+     * whose aggregation above the aggregation of the domain is a global one which returns null for an
+     * empty input, and apply the rule. The subquery is negated when isNot is set, and it is compared
+     * with the value of the outer row (its plan is a mark join) when comparesTheValue is set.
+     */
+    private static Plan rewriteANestedNullableAggregation(LogicalApply.SubQueryType subQueryType,
+            boolean isNot, boolean comparesTheValue) {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "t1", 1);
+        Slot x = left.getOutput().get(0); // t1.id
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "t2", 1);
+        Slot r1 = right.getOutput().get(0); // t2.id
+        Slot r2 = right.getOutput().get(1); // t2.name
+
+        LogicalFilter<LogicalOlapScan> where = new LogicalFilter<>(ImmutableSet.of(new EqualTo(r1, x)), right);
+        Alias count = new Alias(new Count(), "c");
+        Plan aggregation = new LogicalAggregate<>(ImmutableList.of(r2), ImmutableList.of(r2, count), where);
+        Plan projection = new LogicalProject<>(ImmutableList.of(count.toSlot()), aggregation);
+        Alias max = new Alias(new Max(count.toSlot()), "m");
+        Plan globalAggregate = new LogicalAggregate<>(ImmutableList.of(), ImmutableList.of(max), projection);
+        Optional<Expression> compareExpr = subQueryType == LogicalApply.SubQueryType.IN_SUBQUERY
+                ? Optional.of(x) : Optional.empty();
+        Optional<MarkJoinSlotReference> markJoinSlotReference = comparesTheValue
+                ? Optional.of(new MarkJoinSlotReference("mark"))
+                : Optional.empty();
+        LogicalApply<LogicalOlapScan, Plan> apply = new LogicalApply<>(ImmutableList.of(x), subQueryType,
+                isNot, compareExpr, Optional.empty(), Optional.empty(), markJoinSlotReference,
+                false, false, left, globalAggregate);
+        return applyTheRule(apply);
     }
 
     /**

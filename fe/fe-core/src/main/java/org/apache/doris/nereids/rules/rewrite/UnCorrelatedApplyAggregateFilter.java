@@ -476,11 +476,33 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         LogicalFilter<Plan> domainFilter = null;
         while (true) {
             if (belowAggregate instanceof LogicalProject) {
-                for (NamedExpression project : ((LogicalProject<?>) belowAggregate).getProjects()) {
-                    if (!(project instanceof Slot)) {
-                        // the projection computes the columns of the nodes above it itself, so it
-                        // cannot be replaced together with the aggregation below it
-                        return Optional.empty();
+                // the projections between the aggregates of the chain are kept by the rewrite, which
+                // exposes the keys through them (see rebuildTheAggregationChain), so a projection
+                // which computes its columns is accepted when it reads the rows of an aggregate of
+                // the chain: the aggregation below it and the aggregation above it are rebuilt
+                // around it. The projection which carries the columns of the rows below the
+                // aggregation of the domain into that aggregation, on the other hand, is dropped
+                // together with the filter of the WHERE clause (the rewritten aggregation reads the
+                // child of that filter), so it may only pass those columns through. For example the
+                // projection of the subquery of
+                //
+                //     select o.k, (select count(*) + 1 from i where i.k = o.k group by i.g) from o
+                //
+                // computes the value which the wrapper aggregation of the scalar subquery reads
+                // (count(*) + 1), and it sits between that aggregation and the aggregation of the
+                // count: it is kept, while the projection of the example of locateAggregate may only
+                // carry the column below it (the sum of the subquery aggregates that column).
+                Plan belowTheProjections = belowAggregate.child(0);
+                while (belowTheProjections instanceof LogicalProject) {
+                    belowTheProjections = belowTheProjections.child(0);
+                }
+                if (!(belowTheProjections instanceof LogicalAggregate)) {
+                    for (NamedExpression project : ((LogicalProject<?>) belowAggregate).getProjects()) {
+                        if (!(project instanceof Slot)) {
+                            // the projection computes the columns of the nodes above it itself, so it
+                            // cannot be replaced together with the aggregation below it
+                            return Optional.empty();
+                        }
                     }
                 }
                 belowAggregate = belowAggregate.child(0);
@@ -754,8 +776,29 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         // the value which a global aggregate returns for an empty input can match the outer value,
         // while the rewrite has no row to compare it with (a null value of the aggregation does not
         // match either, so an aggregation of nullable aggregates alone is left alone).
-        return aboveTheDomain.stream()
-                .anyMatch(UnCorrelatedApplyAggregateFilter::returnsAValueForAnEmptyInput);
+        if (aboveTheDomain.stream()
+                .anyMatch(UnCorrelatedApplyAggregateFilter::returnsAValueForAnEmptyInput)) {
+            return true;
+        }
+        // The missing row of a key is observable when the result of the IN is not read as the decision
+        // on the outer row alone: the null which the subquery of the original query compares with
+        // (the row of the aggregation of an empty derived table, for example) makes the IN unknown,
+        // while the rewrite compares with nothing, which is false for an IN and true for a NOT IN.
+        // The result of an IN which is used as a value is its mark, so its null and its false are
+        // observable as well (the plan of such an IN is a mark join). For example the subquery of
+        //
+        //     select o.k from o where o.k not in (
+        //         select max(c) from (select count(*) as c from i where i.k = o.k group by i.g) x)
+        //
+        // returns one row for the outer rows whose correlated domain is empty (the max of the empty
+        // derived table is null), so their NOT IN is unknown and those rows are not returned, while
+        // the rewrite produces no row for those keys and their NOT IN is true. A global aggregate
+        // above the aggregation of the domain is what makes such a row disappear: the key is added to
+        // the group by of that aggregate (see withTheKeysInTheGroupBy), so a key without rows below it
+        // has no group at all.
+        return (apply.isNot() || apply.getMarkJoinSlotReference().isPresent())
+                && aboveTheDomain.stream()
+                        .anyMatch(aggregate -> aggregate.getGroupByExpressions().isEmpty());
     }
 
     /**
