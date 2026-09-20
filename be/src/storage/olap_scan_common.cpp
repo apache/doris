@@ -24,16 +24,16 @@
 
 namespace doris {
 template <>
-const typename ColumnValueRange<TYPE_FLOAT>::CppType ColumnValueRange<TYPE_FLOAT>::TYPE_MIN =
+const typename ColumnValueRange<TYPE_FLOAT>::RangeValue ColumnValueRange<TYPE_FLOAT>::TYPE_MIN =
         -std::numeric_limits<float>::infinity();
 template <>
-const typename ColumnValueRange<TYPE_FLOAT>::CppType ColumnValueRange<TYPE_FLOAT>::TYPE_MAX =
+const typename ColumnValueRange<TYPE_FLOAT>::RangeValue ColumnValueRange<TYPE_FLOAT>::TYPE_MAX =
         std::numeric_limits<float>::quiet_NaN();
 template <>
-const typename ColumnValueRange<TYPE_DOUBLE>::CppType ColumnValueRange<TYPE_DOUBLE>::TYPE_MIN =
+const typename ColumnValueRange<TYPE_DOUBLE>::RangeValue ColumnValueRange<TYPE_DOUBLE>::TYPE_MIN =
         -std::numeric_limits<double>::infinity();
 template <>
-const typename ColumnValueRange<TYPE_DOUBLE>::CppType ColumnValueRange<TYPE_DOUBLE>::TYPE_MAX =
+const typename ColumnValueRange<TYPE_DOUBLE>::RangeValue ColumnValueRange<TYPE_DOUBLE>::TYPE_MAX =
         std::numeric_limits<double>::quiet_NaN();
 
 /// Convert the internal scan key pairs (_begin_scan_keys / _end_scan_keys)
