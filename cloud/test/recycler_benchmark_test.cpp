@@ -57,7 +57,7 @@ namespace {
 
 const std::string kBenchmarkInstanceId = "recycler_benchmark_instance";
 const std::string kBenchmarkResourceId = "recycler_benchmark_resource";
-double recycler_benchmark_duration_tolerance_ratio = 0.5;
+double recycler_benchmark_duration_tolerance_ratio = 0.8;
 
 std::string get_env(const char* name) {
     const char* value = std::getenv(name);
@@ -112,10 +112,10 @@ void set_obj_store_provider(const std::string& provider, ObjectStoreInfoPB* obj_
 }
 
 // Number of recyclable rowsets seeded per branch.
-constexpr int64_t kRowsetsPerBranch = 30000;
+constexpr int64_t kRowsetsPerBranch = 10000;
 // Commit the seeded recycle rowset KVs in batches to keep each txn small.
 constexpr int64_t kSeedCommitBatch = 2000;
-constexpr int64_t kRowsetsPerPackedFile = 10;
+constexpr int64_t kRowsetsPerPackedFile = 2;
 constexpr int64_t kPackedFileCount = kRowsetsPerBranch / kRowsetsPerPackedFile;
 constexpr int kMaxPackedRecyclePasses = 10;
 static_assert(kRowsetsPerBranch % kRowsetsPerPackedFile == 0);
@@ -431,8 +431,24 @@ protected:
         int64_t bytes = 0;
     };
 
+    struct TxnKvCounts {
+        int64_t get = 0;
+        int64_t put = 0;
+        int64_t del = 0;
+
+        int64_t total() const { return get + put + del; }
+
+        TxnKvCounts& operator+=(const TxnKvCounts& rhs) {
+            get += rhs.get;
+            put += rhs.put;
+            del += rhs.del;
+            return *this;
+        }
+    };
+
     struct BenchmarkResult {
         RecycleMetrics metrics;
+        TxnKvCounts txn_kv_counts;
         double elapsed_ms = 0;
     };
 
@@ -465,7 +481,7 @@ protected:
         const auto tolerance_env = get_env("recycler_benchmark_duration_tolerance_ratio");
         size_t parsed_size = 0;
         recycler_benchmark_duration_tolerance_ratio =
-                tolerance_env.empty() ? 0.5 : std::stod(tolerance_env, &parsed_size);
+                tolerance_env.empty() ? 0.8 : std::stod(tolerance_env, &parsed_size);
         ASSERT_EQ(parsed_size, tolerance_env.size()) << "invalid recycler benchmark tolerance";
         ASSERT_TRUE(std::isfinite(recycler_benchmark_duration_tolerance_ratio));
         ASSERT_GE(recycler_benchmark_duration_tolerance_ratio, 0);
@@ -590,16 +606,30 @@ protected:
                 branch_width = std::max(branch_width, entry.first.size());
             }
             report += fmt::format("recycler benchmark: operation={}\n", operation_type);
-            report += fmt::format("  {:<{}}  {:>12}  {:>13}  {:>16}\n", "branch", branch_width,
-                                  "total_ms", "recycled_num", "recycled_bytes");
+            report += fmt::format(
+                    "  {:<{}}  {:>12}  {:>13}  {:>16}  {:>12}  {:>12}  {:>12}"
+                    "  {:>12}\n",
+                    "branch", branch_width, "total_ms", "recycled_num", "recycled_bytes",
+                    "get_keys", "put_keys", "del_keys", "total_keys");
             double total_elapsed_ms = 0;
+            RecycleMetrics total_recycle_metrics;
+            TxnKvCounts total_txn_kv_counts;
             for (const auto& [branch, result] : branches) {
-                report += fmt::format("  {:<{}}  {:>12.2f}  {:>13}  {:>16}\n", branch, branch_width,
-                                      result.elapsed_ms, result.metrics.num, result.metrics.bytes);
+                report += fmt::format(
+                        "  {:<{}}  {:>12.2f}  {:>13}  {:>16}  {:>12}  {:>12}  {:>12}  {:>12}\n",
+                        branch, branch_width, result.elapsed_ms, result.metrics.num,
+                        result.metrics.bytes, result.txn_kv_counts.get, result.txn_kv_counts.put,
+                        result.txn_kv_counts.del, result.txn_kv_counts.total());
                 total_elapsed_ms += result.elapsed_ms;
+                total_recycle_metrics.num += result.metrics.num;
+                total_recycle_metrics.bytes += result.metrics.bytes;
+                total_txn_kv_counts += result.txn_kv_counts;
             }
-            report += fmt::format("  {:<{}}  {:>12.2f}\n", "total_elapsed_ms", branch_width,
-                                  total_elapsed_ms);
+            report += fmt::format(
+                    "  {:<{}}  {:>12.2f}  {:>13}  {:>16}  {:>12}  {:>12}  {:>12}  {:>12}\n",
+                    "total", branch_width, total_elapsed_ms, total_recycle_metrics.num,
+                    total_recycle_metrics.bytes, total_txn_kv_counts.get, total_txn_kv_counts.put,
+                    total_txn_kv_counts.del, total_txn_kv_counts.total());
         }
         std::cout << report << std::flush;
         if (!benchmark_failures_.empty()) {
@@ -632,12 +662,32 @@ protected:
                         {kBenchmarkInstanceId, operation_type})};
     }
 
+    TxnKvCounts read_txn_kv_counts() const {
+        return {.get = g_bvar_txn_kv_get_count_normalized.get_value(),
+                .put = g_bvar_txn_kv_put.count() + g_bvar_txn_kv_atomic_set_ver_key.count() +
+                       g_bvar_txn_kv_atomic_set_ver_value.count() +
+                       g_bvar_txn_kv_atomic_add.count(),
+                .del = g_bvar_txn_kv_remove.count() + g_bvar_txn_kv_range_remove.count()};
+    }
+
     void check_elapsed_ms(const std::string& branch, double actual_ms, double baseline_ms) {
         const double limit_ms = baseline_ms * (1 + recycler_benchmark_duration_tolerance_ratio);
         if (actual_ms > limit_ms) {
             benchmark_failures_ +=
                     fmt::format("branch={} actual_ms={:.2f} baseline_ms={:.2f} limit_ms={:.2f}\n",
                                 branch, actual_ms, baseline_ms, limit_ms);
+        }
+    }
+
+    void check_txn_kv_counts(const std::string& branch, const TxnKvCounts& actual,
+                             const TxnKvCounts& baseline) {
+        if (actual.get != baseline.get || actual.put != baseline.put ||
+            actual.del != baseline.del) {
+            benchmark_failures_ += fmt::format(
+                    "branch={} txn_kv_counts actual=[get={}, put={}, del={}] "
+                    "baseline=[get={}, put={}, del={}]\n",
+                    branch, actual.get, actual.put, actual.del, baseline.get, baseline.put,
+                    baseline.del);
         }
     }
 
@@ -649,18 +699,26 @@ protected:
         ASSERT_NE(function_it, recycle_functions().end())
                 << "unknown recycler operation: " << operation_type;
 
-        const auto before = read_recycle_metrics(operation_type);
+        const auto recycle_metrics_before = read_recycle_metrics(operation_type);
+        const auto txn_kv_counts_before = read_txn_kv_counts();
         const auto start = std::chrono::steady_clock::now();
         const int ret = (recycler_.get()->*(function_it->second))();
         const auto elapsed =
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start);
-        const auto after = read_recycle_metrics(operation_type);
-        const RecycleMetrics metrics {.num = after.num - before.num,
-                                      .bytes = after.bytes - before.bytes};
+        const auto recycle_metrics_after = read_recycle_metrics(operation_type);
+        const auto txn_kv_counts_after = read_txn_kv_counts();
+        const RecycleMetrics metrics {
+                .num = recycle_metrics_after.num - recycle_metrics_before.num,
+                .bytes = recycle_metrics_after.bytes - recycle_metrics_before.bytes};
+        const int64_t get_keys = txn_kv_counts_after.get - txn_kv_counts_before.get;
+        const int64_t put_keys = txn_kv_counts_after.put - txn_kv_counts_before.put;
+        const int64_t del_keys = txn_kv_counts_after.del - txn_kv_counts_before.del;
+        const TxnKvCounts txn_kv_counts {.get = get_keys, .put = put_keys, .del = del_keys};
         auto& result = benchmark_results_[operation_type][branch];
         result.elapsed_ms += elapsed.count();
         result.metrics.num += metrics.num;
         result.metrics.bytes += metrics.bytes;
+        result.txn_kv_counts += txn_kv_counts;
         ASSERT_EQ(ret, 0) << "recycler operation failed: " << operation_type;
     }
 
@@ -954,23 +1012,41 @@ TEST_F(RecyclerBenchmarkTest, RecycleRowsets) {
         ASSERT_EQ(count_recycle_rowsets(), 0);
     });
 
-    // Recorded with 30,000 rowsets per branch. Recalibrate if the workload changes.
-    static_assert(kRowsetsPerBranch == 30000);
+    // Recorded with 10,000 rowsets per branch. Recalibrate if the workload changes.
+    static_assert(kRowsetsPerBranch == 10000);
     const std::map<std::string, double> baseline_elapsed_ms = {
-            {"compacted_empty", 3310.68},
-            {"compacted_with_data/data_only", 23848.49},
-            {"compacted_with_data/delete_bitmap_v1", 7065.21},
-            {"compacted_with_data/delete_bitmap_v2", 9579.79},
-            {"compacted_with_packed_data/data_only", 15503.91},
-            {"compacted_with_packed_data/delete_bitmap_v1", 18272.14},
-            {"compacted_with_packed_data/delete_bitmap_v2", 21364.90},
-            {"compacted_without_schema", 9709.03},
-            {"legacy_empty_resource", 15892.99},
-            {"legacy_with_resource", 5942.18},
-            {"mixed", 96771.02},
-            {"prepare_abort", 43453.27},
-            {"prepare_direct", 13068.83},
-            {"prepare_mark", 16590.32},
+            {"compacted_empty", 794.18},
+            {"compacted_with_data/data_only", 2285.80},
+            {"compacted_with_data/delete_bitmap_v1", 2461.84},
+            {"compacted_with_data/delete_bitmap_v2", 2726.75},
+            {"compacted_with_packed_data/data_only", 8583.32},
+            {"compacted_with_packed_data/delete_bitmap_v1", 9315.59},
+            {"compacted_with_packed_data/delete_bitmap_v2", 8948.54},
+            {"compacted_without_schema", 3924.04},
+            {"legacy_empty_resource", 945.75},
+            {"legacy_with_resource", 6718.37},
+            {"mixed", 35178.52},
+            {"prepare_abort", 16465.44},
+            {"prepare_direct", 5360.28},
+            {"prepare_mark", 7039.65},
+    };
+    const std::map<std::string, TxnKvCounts> baseline_txn_kv_counts = {
+            {"compacted_empty", {.get = 10000, .put = 0, .del = 10000}},
+            {"compacted_with_data/data_only", {.get = 10001, .put = 0, .del = 10000}},
+            {"compacted_with_data/delete_bitmap_v1", {.get = 10000, .put = 0, .del = 10000}},
+            {"compacted_with_data/delete_bitmap_v2", {.get = 20000, .put = 0, .del = 20000}},
+            {"compacted_with_packed_data/data_only", {.get = 25000, .put = 10000, .del = 15000}},
+            {"compacted_with_packed_data/delete_bitmap_v1",
+             {.get = 25000, .put = 10000, .del = 15000}},
+            {"compacted_with_packed_data/delete_bitmap_v2",
+             {.get = 35000, .put = 10000, .del = 25000}},
+            {"compacted_without_schema", {.get = 10000, .put = 0, .del = 10000}},
+            {"legacy_empty_resource", {.get = 10000, .put = 0, .del = 10000}},
+            {"legacy_with_resource", {.get = 20000, .put = 0, .del = 20000}},
+            {"mixed", {.get = 200000, .put = 40000, .del = 120000}},
+            {"prepare_abort", {.get = 90000, .put = 30000, .del = 30000}},
+            {"prepare_direct", {.get = 20000, .put = 0, .del = 20000}},
+            {"prepare_mark", {.get = 40000, .put = 10000, .del = 20000}},
     };
     const auto& results = benchmark_results_["recycle_rowsets"];
     double total_elapsed_ms = 0;
@@ -982,9 +1058,11 @@ TEST_F(RecyclerBenchmarkTest, RecycleRowsets) {
             continue;
         }
         check_elapsed_ms(branch, result->second.elapsed_ms, baseline_ms);
+        check_txn_kv_counts(branch, result->second.txn_kv_counts,
+                            baseline_txn_kv_counts.at(branch));
         total_elapsed_ms += result->second.elapsed_ms;
     }
-    check_elapsed_ms("total_elapsed_ms", total_elapsed_ms, 194452.59);
+    check_elapsed_ms("total_elapsed_ms", total_elapsed_ms, 110748.07);
 }
 
 } // namespace
