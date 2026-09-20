@@ -37,9 +37,9 @@
 #include "common/status.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
+#include "format/parquet/parquet_arrow_block_convertor.h"
 #include "io/fs/file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -229,21 +229,11 @@ Status VParquetWriter::_parse_properties() {
     return Status::OK();
 }
 
-Status VParquetWriter::_parse_schema(std::shared_ptr<arrow::Schema>* schema) {
-    std::vector<std::shared_ptr<arrow::Field>> fields;
-    // INT96 has no logical timezone. Its schema and DATETIMEV2 conversion must use
-    // the same writer-local timezone, including UTC for a wall-clock carrier.
-    const bool datetime_naive = !_parquet_options.enable_int96_timestamps;
-    for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
-        std::shared_ptr<arrow::DataType> type;
-        RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->data_type(), &type,
-                                              _timezone, datetime_naive));
-        const auto& name = _parquet_schemas.empty() ? _column_names[i]
-                                                    : _parquet_schemas[i].schema_column_name;
-        fields.emplace_back(arrow::field(name, type, _output_vexpr_ctxs[i]->root()->is_nullable()));
-    }
-    *schema = arrow::schema(std::move(fields));
-    return Status::OK();
+std::unique_ptr<ArrowBlockConvertor> VParquetWriter::_create_arrow_block_convertor(
+        DataTypes types, std::vector<std::string> names, const cctz::time_zone& timezone,
+        bool enable_int96_timestamps) const {
+    return std::make_unique<ParquetArrowBlockConvertor>(std::move(types), std::move(names),
+                                                        timezone, enable_int96_timestamps);
 }
 
 Status VParquetWriter::write(const Block& block) {
@@ -253,8 +243,8 @@ Status VParquetWriter::write(const Block& block) {
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(_get_arrow_block_convertor().convert_to_arrow(
-            block, _arrow_schema, get_arrow_memory_pool(), &result, _timezone_obj));
+    RETURN_IF_ERROR(
+            _arrow_block_convertor->convert_to_arrow(block, get_arrow_memory_pool(), &result));
     if (_write_size == 0) {
         RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
     }
@@ -267,9 +257,10 @@ Status VParquetWriter::write(const Block& block) {
 }
 
 arrow::Status VParquetWriter::_open_file_writer() {
-    ARROW_ASSIGN_OR_RAISE(_writer, ::parquet::arrow::FileWriter::Open(
-                                           *_arrow_schema, get_arrow_memory_pool(), _outstream,
-                                           _parquet_writer_properties, _arrow_properties));
+    ARROW_ASSIGN_OR_RAISE(_writer,
+                          ::parquet::arrow::FileWriter::Open(
+                                  *_arrow_block_convertor->arrow_schema(), get_arrow_memory_pool(),
+                                  _outstream, _parquet_writer_properties, _arrow_properties));
     return arrow::Status::OK();
 }
 
@@ -284,7 +275,23 @@ Status VParquetWriter::open() {
         }
     }
     RETURN_IF_ERROR(_parse_properties());
-    RETURN_IF_ERROR(_parse_schema(&_arrow_schema));
+    DataTypes types;
+    types.reserve(_output_vexpr_ctxs.size());
+    for (const auto& context : _output_vexpr_ctxs) {
+        types.emplace_back(context->root()->data_type());
+    }
+    std::vector<std::string> names = _column_names;
+    if (!_parquet_schemas.empty()) {
+        names.clear();
+        names.reserve(_parquet_schemas.size());
+        for (const auto& schema : _parquet_schemas) {
+            names.emplace_back(schema.schema_column_name);
+        }
+    }
+    _arrow_block_convertor =
+            _create_arrow_block_convertor(std::move(types), std::move(names), _timezone_obj,
+                                          _parquet_options.enable_int96_timestamps);
+    RETURN_IF_ERROR(_arrow_block_convertor->init());
     try {
         RETURN_DORIS_STATUS_IF_ERROR(_open_file_writer());
     } catch (const ::parquet::ParquetStatusException& e) {

@@ -19,31 +19,28 @@
 
 #include "format/arrow/arrow_block_convertor.h"
 
-namespace doris::iceberg {
+namespace doris {
 
-class Schema;
-
-class IcebergArrowBlockConvertor final : public ArrowBlockConvertor {
+class ParquetArrowBlockConvertor : public ArrowBlockConvertor {
 public:
-    using ArrowBlockConvertor::ArrowBlockConvertor;
-    IcebergArrowBlockConvertor(const Schema& schema, const std::string* schema_json,
-                               const cctz::time_zone& timezone)
+    ParquetArrowBlockConvertor(DataTypes types, std::vector<std::string> names,
+                               const cctz::time_zone& timezone, bool enable_int96_timestamps)
             : ArrowBlockConvertor(nullptr, timezone),
-              _schema(&schema),
-              _schema_json(schema_json == nullptr ? "" : *schema_json) {}
-
+              _types(std::move(types)),
+              _names(std::move(names)),
+              _enable_int96_timestamps(enable_int96_timestamps) {}
     Status init() override;
 
 protected:
-    Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
-                        const IColumn& column, const NullMap* null_map,
-                        const std::shared_ptr<arrow::Field>& field,
-                        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                        const cctz::time_zone& ctz) const override;
+    Status write_column(const DataTypePtr& type, const DataTypeSerDe& serde, const IColumn& column,
+                        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+                        arrow::ArrayBuilder* builder, int64_t start, int64_t end,
+                        const cctz::time_zone& timezone) const override;
 
 private:
-    const Schema* _schema = nullptr;
-    std::string _schema_json;
+    DataTypes _types;
+    std::vector<std::string> _names;
+    bool _enable_int96_timestamps;
 };
 
-} // namespace doris::iceberg
+} // namespace doris

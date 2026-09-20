@@ -17,33 +17,22 @@
 
 #pragma once
 
-#include "format/table/iceberg/iceberg_arrow_block_convertor.h"
-#include "format/table/iceberg/schema.h"
+#include "format/table/hive/hive_arrow_block_convertor.h"
 #include "format/transformer/vparquet_writer.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
-class VIcebergParquetWriter final : public VParquetWriter {
+class VHiveParquetWriter final : public VParquetWriter {
 public:
-    VIcebergParquetWriter(RuntimeState* state, io::FileWriter* file_writer,
-                          const VExprContextSPtrs& output_vexpr_ctxs,
-                          std::vector<std::string> column_names, bool output_object_data,
-                          const ParquetFileOptions& parquet_options,
-                          const std::string* iceberg_schema_json,
-                          const iceberg::Schema& iceberg_schema);
-
-    Status collect_file_statistics_after_close(TIcebergColumnStats* stats);
+    using VParquetWriter::VParquetWriter;
 
 protected:
     std::unique_ptr<ArrowBlockConvertor> _create_arrow_block_convertor(
             DataTypes types, std::vector<std::string> names, const cctz::time_zone& timezone,
-            bool enable_int96_timestamps) const override;
-
-private:
-    const iceberg::Schema& _iceberg_schema;
-    std::string _iceberg_schema_json;
+            bool enable_int96_timestamps) const override {
+        return std::make_unique<hive::HiveArrowBlockConvertor>(std::move(types), std::move(names),
+                                                               timezone, enable_int96_timestamps);
+    }
 };
 
 } // namespace doris
-#include "common/compile_check_end.h"

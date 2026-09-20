@@ -113,16 +113,14 @@ public:
     int64_t written_len() override;
 
 protected:
-    // A writer chooses its protocol together with its schema; callers cannot mix the two.
-    virtual const ArrowBlockConvertor& _get_arrow_block_convertor() const {
-        return _arrow_block_convertor;
-    }
-
-    virtual Status _parse_schema(std::shared_ptr<arrow::Schema>* schema);
+    // Construct the schema and column bindings together for each writer instance.
+    virtual std::unique_ptr<ArrowBlockConvertor> _create_arrow_block_convertor(
+            DataTypes types, std::vector<std::string> names, const cctz::time_zone& timezone,
+            bool enable_int96_timestamps) const;
     std::shared_ptr<::parquet::FileMetaData> _file_metadata() const { return _writer->metadata(); }
 
 private:
-    ArrowFlightArrowBlockConvertor _arrow_block_convertor;
+    std::unique_ptr<ArrowBlockConvertor> _arrow_block_convertor;
     Status _parse_properties();
     arrow::Status _open_file_writer();
 
@@ -130,7 +128,6 @@ private:
     std::shared_ptr<::parquet::WriterProperties> _parquet_writer_properties;
     std::shared_ptr<::parquet::ArrowWriterProperties> _arrow_properties;
     std::unique_ptr<::parquet::arrow::FileWriter> _writer;
-    std::shared_ptr<arrow::Schema> _arrow_schema;
 
     std::vector<std::string> _column_names;
     std::vector<TParquetSchema> _parquet_schemas;

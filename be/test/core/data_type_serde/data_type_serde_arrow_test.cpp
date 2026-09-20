@@ -524,6 +524,27 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
+template <typename Convertor>
+std::unique_ptr<ArrowBlockConvertor> make_arrow_convertor(
+        const std::shared_ptr<arrow::Schema>& schema, const cctz::time_zone& timezone) {
+    return std::make_unique<Convertor>(schema, timezone);
+}
+
+using ArrowConvertorFactory = std::unique_ptr<ArrowBlockConvertor> (*)(
+        const std::shared_ptr<arrow::Schema>&, const cctz::time_zone&);
+
+// These binding tests supply target schemas intentionally, including unsupported bindings.
+// Production table writers construct converters from their native schema parameters instead.
+Status convert_to_arrow_batch_for_test(
+        const Block& block, const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
+        std::shared_ptr<arrow::RecordBatch>* result, const cctz::time_zone& timezone,
+        size_t start = 0, size_t end = 0,
+        ArrowConvertorFactory factory = make_arrow_convertor<DorisArrowBlockConvertor>) {
+    auto converter = factory(schema, timezone);
+    RETURN_IF_ERROR(converter->init());
+    return converter->convert_to_arrow(block, pool, result, start, end);
+}
+
 void block_converter_test(std::vector<PrimitiveType> cols, int row_num, bool is_nullable) {
     std::shared_ptr<Block> source_block = create_test_block(cols, row_num, is_nullable);
     std::shared_ptr<arrow::RecordBatch> record_batch;
@@ -534,13 +555,13 @@ void block_converter_test(std::vector<PrimitiveType> cols, int row_num, bool is_
     cctz::time_zone default_timezone;
     ASSERT_TRUE(
             TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, default_timezone));
-    status = convert_to_arrow_batch(*source_block, schema, arrow::default_memory_pool(),
-                                    &record_batch, default_timezone);
+    status = convert_to_arrow_batch_for_test(*source_block, schema, arrow::default_memory_pool(),
+                                             &record_batch, default_timezone);
     ASSERT_TRUE(status.ok() && record_batch) << status;
     auto target_block = std::make_shared<Block>(source_block->clone_empty());
     DataTypes source_data_types = source_block->get_data_types();
-    status = convert_from_arrow_batch(record_batch, source_data_types, &*target_block,
-                                      default_timezone);
+    status = DorisArrowBlockConvertor(record_batch->schema(), default_timezone)
+                     .convert_from_arrow(record_batch, source_data_types, &*target_block);
     ASSERT_TRUE(status.ok() && target_block);
     CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
 }
@@ -567,47 +588,37 @@ TEST(DataTypeSerDeArrowTest, ArrowBlockConvertorReusesBothDirectionsAndValidates
     auto source = create_test_block({TYPE_INT, TYPE_STRING, TYPE_VARBINARY}, 4, true);
     std::shared_ptr<arrow::Schema> schema;
     ASSERT_TRUE(get_arrow_schema_from_block(*source, &schema, "UTC").ok());
-    ArrowFlightArrowBlockConvertor convertor;
+    ArrowFlightArrowBlockConvertor convertor(schema, cctz::utc_time_zone());
     std::shared_ptr<arrow::RecordBatch> batch;
-    ASSERT_TRUE(convertor
-                        .convert_to_arrow(*source, schema, arrow::default_memory_pool(), &batch,
-                                          cctz::utc_time_zone())
-                        .ok());
+    ASSERT_TRUE(convertor.convert_to_arrow(*source, arrow::default_memory_pool(), &batch).ok());
     auto output = std::make_shared<Block>(source->clone_empty());
-    ASSERT_TRUE(convertor
-                        .convert_from_arrow(batch, source->get_data_types(), output.get(),
-                                            cctz::utc_time_zone())
-                        .ok());
+    ASSERT_TRUE(convertor.convert_from_arrow(batch, source->get_data_types(), output.get()).ok());
     CommonDataTypeSerdeTest::compare_two_blocks(source, output);
-    ASSERT_TRUE(convertor
-                        .convert_to_arrow(*source, schema, arrow::default_memory_pool(), &batch,
-                                          cctz::utc_time_zone(), 1, 3)
-                        .ok());
+    ASSERT_TRUE(
+            convertor.convert_to_arrow(*source, arrow::default_memory_pool(), &batch, 1, 3).ok());
     EXPECT_EQ(batch->num_rows(), 2);
-    EXPECT_FALSE(convertor
-                         .convert_to_arrow(*source, schema, arrow::default_memory_pool(), &batch,
-                                           cctz::utc_time_zone(), 3, 2)
-                         .ok());
-    EXPECT_FALSE(convertor
-                         .convert_to_arrow(*source, schema, arrow::default_memory_pool(), &batch,
-                                           cctz::utc_time_zone(), 5, 0)
-                         .ok());
+    EXPECT_FALSE(
+            convertor.convert_to_arrow(*source, arrow::default_memory_pool(), &batch, 3, 2).ok());
+    EXPECT_FALSE(
+            convertor.convert_to_arrow(*source, arrow::default_memory_pool(), &batch, 5, 0).ok());
 }
 
 void expect_target_converter_matches_plain(const std::vector<PrimitiveType>& types,
-                                           const ArrowBlockConvertor& target_converter) {
+                                           ArrowConvertorFactory target_converter) {
     auto block = create_test_block(types, 4, false);
     std::shared_ptr<arrow::Schema> schema;
     ASSERT_TRUE(get_arrow_schema_from_block(*block, &schema, "UTC").ok());
 
     std::shared_ptr<arrow::RecordBatch> plain_batch;
-    ASSERT_TRUE(convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(), &plain_batch,
-                                       cctz::utc_time_zone(), 1, block->rows(),
-                                       arrow_flight_block_convertor())
-                        .ok());
+    ASSERT_TRUE(
+            convert_to_arrow_batch_for_test(*block, schema, arrow::default_memory_pool(),
+                                            &plain_batch, cctz::utc_time_zone(), 1, block->rows(),
+                                            make_arrow_convertor<ArrowFlightArrowBlockConvertor>)
+                    .ok());
     std::shared_ptr<arrow::RecordBatch> target_batch;
-    ASSERT_TRUE(convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(), &target_batch,
-                                       cctz::utc_time_zone(), 1, block->rows(), target_converter)
+    ASSERT_TRUE(convert_to_arrow_batch_for_test(*block, schema, arrow::default_memory_pool(),
+                                                &target_batch, cctz::utc_time_zone(), 1,
+                                                block->rows(), target_converter)
                         .ok());
     ASSERT_TRUE(target_batch->ValidateFull().ok()) << target_batch->ValidateFull();
     EXPECT_TRUE(target_batch->Equals(*plain_batch));
@@ -617,14 +628,14 @@ TEST(DataTypeSerDeArrowTest, IcebergCommonScalarTypesUseDeclaredConverter) {
     expect_target_converter_matches_plain(
             {TYPE_BOOLEAN, TYPE_INT, TYPE_BIGINT, TYPE_FLOAT, TYPE_DOUBLE, TYPE_STRING,
              TYPE_VARBINARY, TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DATEV2},
-            iceberg::iceberg_arrow_block_convertor());
+            make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
 }
 
 TEST(DataTypeSerDeArrowTest, PaimonDoesNotReadThroughGenericArrowSerde) {
-    paimon::PaimonArrowBlockConvertor converter;
     Block output;
     const auto batch = arrow::RecordBatch::Make(arrow::schema({}), 0, arrow::ArrayVector {});
-    const auto status = converter.convert_from_arrow(batch, {}, &output, cctz::utc_time_zone());
+    paimon::PaimonArrowBlockConvertor converter(batch->schema(), cctz::utc_time_zone());
+    const auto status = converter.convert_from_arrow(batch, {}, &output);
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(output.columns(), 0);
 }
@@ -634,7 +645,7 @@ TEST(DataTypeSerDeArrowTest, PaimonCommonScalarTypesUseDeclaredConverter) {
             {TYPE_BOOLEAN, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT, TYPE_FLOAT,
              TYPE_DOUBLE, TYPE_STRING, TYPE_VARCHAR, TYPE_CHAR, TYPE_VARBINARY, TYPE_DECIMAL32,
              TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DATEV2},
-            paimon::PaimonArrowBlockConvertor());
+            make_arrow_convertor<paimon::PaimonArrowBlockConvertor>);
 }
 
 TEST(DataTypeSerDeArrowTest, PlainArrowWritesAggregateStateBinaryTypes) {
@@ -642,9 +653,9 @@ TEST(DataTypeSerDeArrowTest, PlainArrowWritesAggregateStateBinaryTypes) {
     std::shared_ptr<arrow::Schema> schema;
     ASSERT_TRUE(get_arrow_schema_from_block(*block, &schema, "UTC").ok());
     std::shared_ptr<arrow::RecordBatch> batch;
-    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(), &batch,
-                                           cctz::utc_time_zone(), 0, block->rows(),
-                                           arrow_flight_block_convertor());
+    Status status = convert_to_arrow_batch_for_test(
+            *block, schema, arrow::default_memory_pool(), &batch, cctz::utc_time_zone(), 0,
+            block->rows(), make_arrow_convertor<ArrowFlightArrowBlockConvertor>);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_TRUE(batch->ValidateFull().ok()) << batch->ValidateFull();
     ASSERT_EQ(3, batch->num_columns());
@@ -661,9 +672,9 @@ TEST(DataTypeSerDeArrowTest, PlainArrowWritesTimeV2) {
     ASSERT_EQ(arrow::Type::DOUBLE, schema->field(0)->type()->id());
 
     std::shared_ptr<arrow::RecordBatch> batch;
-    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(), &batch,
-                                           cctz::utc_time_zone(), 0, block->rows(),
-                                           arrow_flight_block_convertor());
+    Status status = convert_to_arrow_batch_for_test(
+            *block, schema, arrow::default_memory_pool(), &batch, cctz::utc_time_zone(), 0,
+            block->rows(), make_arrow_convertor<ArrowFlightArrowBlockConvertor>);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_TRUE(batch->ValidateFull().ok()) << batch->ValidateFull();
     const auto& values = assert_cast<const arrow::DoubleArray&>(*batch->column(0));
@@ -674,8 +685,10 @@ TEST(DataTypeSerDeArrowTest, PlainArrowWritesTimeV2) {
 
 TEST(DataTypeSerDeArrowTest, TargetConvertersRecurseThroughOrdinaryComplexTypes) {
     const std::vector<PrimitiveType> complex_types = {TYPE_ARRAY, TYPE_MAP, TYPE_STRUCT};
-    expect_target_converter_matches_plain(complex_types, iceberg::iceberg_arrow_block_convertor());
-    expect_target_converter_matches_plain(complex_types, paimon::PaimonArrowBlockConvertor());
+    expect_target_converter_matches_plain(
+            complex_types, make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
+    expect_target_converter_matches_plain(complex_types,
+                                          make_arrow_convertor<paimon::PaimonArrowBlockConvertor>);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
@@ -753,28 +766,32 @@ TEST(DataTypeSerDeArrowTest, PaimonTimestampBindsTargetTimezone) {
     ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
 
     const auto convert = [&](const std::shared_ptr<arrow::Schema>& schema,
-                             const ArrowBlockConvertor& converter,
+                             ArrowConvertorFactory converter,
                              std::shared_ptr<arrow::RecordBatch>* record_batch) {
-        return convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(), record_batch,
-                                      shanghai, 0, block->rows(), converter);
+        return convert_to_arrow_batch_for_test(*block, schema, arrow::default_memory_pool(),
+                                               record_batch, shanghai, 0, block->rows(), converter);
     };
 
     std::shared_ptr<arrow::RecordBatch> ntz_batch;
-    Status status = convert(ntz_schema, paimon::PaimonArrowBlockConvertor(), &ntz_batch);
+    Status status = convert(ntz_schema, make_arrow_convertor<paimon::PaimonArrowBlockConvertor>,
+                            &ntz_batch);
     EXPECT_TRUE(status.ok()) << status;
 
     std::shared_ptr<arrow::RecordBatch> ltz_batch;
-    status = convert(ltz_schema, paimon::PaimonArrowBlockConvertor(), &ltz_batch);
+    status = convert(ltz_schema, make_arrow_convertor<paimon::PaimonArrowBlockConvertor>,
+                     &ltz_batch);
     EXPECT_TRUE(status.ok()) << status;
     const auto& ntz_values = assert_cast<const arrow::TimestampArray&>(*ntz_batch->column(0));
     const auto& ltz_values = assert_cast<const arrow::TimestampArray&>(*ltz_batch->column(0));
     EXPECT_EQ(ntz_values.Value(0) - 8 * 60 * 60 * 1000, ltz_values.Value(0));
 
     std::shared_ptr<arrow::RecordBatch> iceberg_ntz_batch;
-    status = convert(ntz_schema, iceberg::iceberg_arrow_block_convertor(), &iceberg_ntz_batch);
+    status = convert(ntz_schema, make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>,
+                     &iceberg_ntz_batch);
     EXPECT_TRUE(status.ok()) << status;
     std::shared_ptr<arrow::RecordBatch> iceberg_ltz_batch;
-    status = convert(ltz_schema, iceberg::iceberg_arrow_block_convertor(), &iceberg_ltz_batch);
+    status = convert(ltz_schema, make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>,
+                     &iceberg_ltz_batch);
     EXPECT_TRUE(status.ok()) << status;
     EXPECT_TRUE(iceberg_ntz_batch->Equals(*ntz_batch));
     EXPECT_TRUE(iceberg_ltz_batch->Equals(*ltz_batch));
@@ -782,11 +799,13 @@ TEST(DataTypeSerDeArrowTest, PaimonTimestampBindsTargetTimezone) {
     auto wrong_unit_schema =
             arrow::schema({arrow::field("0", arrow::timestamp(arrow::TimeUnit::MICRO), false)});
     std::shared_ptr<arrow::RecordBatch> unused_batch;
-    status = convert(wrong_unit_schema, paimon::PaimonArrowBlockConvertor(), &unused_batch);
+    status = convert(wrong_unit_schema, make_arrow_convertor<paimon::PaimonArrowBlockConvertor>,
+                     &unused_batch);
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
     EXPECT_NE(std::string::npos, status.to_string().find("Paimon timestamp writer has no binding"));
 
-    status = convert(ntz_schema, arrow_flight_block_convertor(), &unused_batch);
+    status = convert(ntz_schema, make_arrow_convertor<ArrowFlightArrowBlockConvertor>,
+                     &unused_batch);
     EXPECT_TRUE(status.ok()) << status;
     EXPECT_TRUE(unused_batch->Equals(*ntz_batch));
 }
@@ -811,17 +830,19 @@ TEST(DataTypeSerDeArrowTest, TargetConvertersWriteNullableTimestampTz) {
     cctz::time_zone shanghai;
     ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
 
-    const auto convert = [&](const ArrowBlockConvertor& converter,
+    const auto convert = [&](ArrowConvertorFactory converter,
                              std::shared_ptr<arrow::RecordBatch>* batch) {
-        return convert_to_arrow_batch(block, schema, arrow::default_memory_pool(), batch, shanghai,
-                                      0, block.rows(), converter);
+        return convert_to_arrow_batch_for_test(block, schema, arrow::default_memory_pool(), batch,
+                                               shanghai, 0, block.rows(), converter);
     };
     std::shared_ptr<arrow::RecordBatch> plain_batch;
-    ASSERT_TRUE(convert(arrow_flight_block_convertor(), &plain_batch).ok());
+    ASSERT_TRUE(convert(make_arrow_convertor<ArrowFlightArrowBlockConvertor>, &plain_batch).ok());
     std::shared_ptr<arrow::RecordBatch> iceberg_batch;
-    ASSERT_TRUE(convert(iceberg::iceberg_arrow_block_convertor(), &iceberg_batch).ok());
+    ASSERT_TRUE(convert(make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>, &iceberg_batch)
+                        .ok());
     std::shared_ptr<arrow::RecordBatch> paimon_batch;
-    ASSERT_TRUE(convert(paimon::PaimonArrowBlockConvertor(), &paimon_batch).ok());
+    ASSERT_TRUE(
+            convert(make_arrow_convertor<paimon::PaimonArrowBlockConvertor>, &paimon_batch).ok());
 
     EXPECT_TRUE(iceberg_batch->Equals(*plain_batch));
     EXPECT_TRUE(paimon_batch->Equals(*plain_batch));
@@ -845,9 +866,9 @@ TEST(DataTypeSerDeArrowTest, PaimonTimestampTzPreservesBothSidesOfDstFold) {
     cctz::time_zone timezone;
     ASSERT_TRUE(cctz::load_time_zone("America/Los_Angeles", &timezone));
     std::shared_ptr<arrow::RecordBatch> batch;
-    ASSERT_TRUE(convert_to_arrow_batch(block, schema, arrow::default_memory_pool(), &batch,
-                                       timezone, 0, block.rows(),
-                                       paimon::PaimonArrowBlockConvertor())
+    ASSERT_TRUE(convert_to_arrow_batch_for_test(
+                        block, schema, arrow::default_memory_pool(), &batch, timezone, 0,
+                        block.rows(), make_arrow_convertor<paimon::PaimonArrowBlockConvertor>)
                         .ok());
     ASSERT_TRUE(batch->ValidateFull().ok());
     const auto& timestamps = assert_cast<const arrow::TimestampArray&>(*batch->column(0));
@@ -870,9 +891,9 @@ TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
     cctz::time_zone default_timezone;
-    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
-                                           &record_batch, default_timezone, 0, block->rows(),
-                                           iceberg::iceberg_arrow_block_convertor());
+    Status status = convert_to_arrow_batch_for_test(
+            *block, schema, arrow::default_memory_pool(), &record_batch, default_timezone, 0,
+            block->rows(), make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_NE(nullptr, record_batch);
     ASSERT_EQ(2, record_batch->num_rows());
@@ -900,8 +921,8 @@ TEST(DataTypeSerDeArrowTest, PlainArrowConverterDoesNotInferIcebergUuid) {
             arrow::schema({arrow::field("uuid_col", arrow::fixed_size_binary(16), true, metadata)});
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
-    const Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
-                                                 &record_batch, cctz::utc_time_zone());
+    const Status status = convert_to_arrow_batch_for_test(
+            block, schema, arrow::default_memory_pool(), &record_batch, cctz::utc_time_zone());
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
     EXPECT_NE(std::string::npos, status.to_string().find("Plain Arrow writer is not bound"));
 }
@@ -953,9 +974,9 @@ TEST(DataTypeSerDeArrowTest, IcebergVariantExtensionAndParquetSchema) {
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
     cctz::time_zone default_timezone;
-    Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
-                                           &record_batch, default_timezone, 0, block.rows(),
-                                           iceberg::iceberg_arrow_block_convertor());
+    Status status = convert_to_arrow_batch_for_test(
+            block, schema, arrow::default_memory_pool(), &record_batch, default_timezone, 0,
+            block.rows(), make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_NE(nullptr, record_batch);
     ASSERT_TRUE(record_batch->ValidateFull().ok());
@@ -1092,9 +1113,9 @@ TEST(DataTypeSerDeArrowTest, NestedIcebergVariantExtensionsAndParquetSchema) {
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
     cctz::time_zone default_timezone;
-    Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
-                                           &record_batch, default_timezone, 0, block.rows(),
-                                           iceberg::iceberg_arrow_block_convertor());
+    Status status = convert_to_arrow_batch_for_test(
+            block, schema, arrow::default_memory_pool(), &record_batch, default_timezone, 0,
+            block.rows(), make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_NE(nullptr, record_batch);
     ASSERT_TRUE(record_batch->ValidateFull().ok()) << record_batch->ValidateFull();
@@ -1173,9 +1194,9 @@ TEST(DataTypeSerDeArrowTest, NestedIcebergUuidStringToFixedSizeBinary) {
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
     cctz::time_zone default_timezone;
-    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
-                                           &record_batch, default_timezone, 0, block->rows(),
-                                           iceberg::iceberg_arrow_block_convertor());
+    Status status = convert_to_arrow_batch_for_test(
+            *block, schema, arrow::default_memory_pool(), &record_batch, default_timezone, 0,
+            block->rows(), make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
     ASSERT_TRUE(status.ok()) << status;
 
     auto struct_array = std::static_pointer_cast<arrow::StructArray>(record_batch->column(0));
@@ -1208,9 +1229,9 @@ TEST(DataTypeSerDeArrowTest, IcebergFixedVarbinaryPreservesRawBytesNullsAndRowRa
     auto schema = arrow::schema({arrow::field("fixed_col", arrow::fixed_size_binary(width), true)});
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
-    Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
-                                           &record_batch, cctz::utc_time_zone(), 1, 4,
-                                           iceberg::iceberg_arrow_block_convertor());
+    Status status = convert_to_arrow_batch_for_test(
+            block, schema, arrow::default_memory_pool(), &record_batch, cctz::utc_time_zone(), 1, 4,
+            make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(3, record_batch->num_rows());
     auto fixed = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(record_batch->column(0));
@@ -1224,7 +1245,7 @@ TEST(DataTypeSerDeArrowTest, IcebergFixedVarbinaryPreservesRawBytesNullsAndRowRa
 
 TEST(DataTypeSerDeArrowTest, IcebergFixedVarbinaryRejectsInvalidBindingsAndValues) {
     auto convert = [](DataTypePtr type, std::string_view value, int target_width,
-                      const ArrowBlockConvertor& converter) {
+                      ArrowConvertorFactory converter) {
         MutableColumnPtr column = type->create_column();
         column->insert_data(value.data(), value.size());
         Block block;
@@ -1232,11 +1253,12 @@ TEST(DataTypeSerDeArrowTest, IcebergFixedVarbinaryRejectsInvalidBindingsAndValue
         auto schema = arrow::schema(
                 {arrow::field("fixed_col", arrow::fixed_size_binary(target_width), true)});
         std::shared_ptr<arrow::RecordBatch> record_batch;
-        return convert_to_arrow_batch(block, schema, arrow::default_memory_pool(), &record_batch,
-                                      cctz::utc_time_zone(), 0, block.rows(), converter);
+        return convert_to_arrow_batch_for_test(block, schema, arrow::default_memory_pool(),
+                                               &record_batch, cctz::utc_time_zone(), 0,
+                                               block.rows(), converter);
     };
 
-    const auto& iceberg_converter = iceberg::iceberg_arrow_block_convertor();
+    const auto& iceberg_converter = make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>;
     Status status = convert(std::make_shared<DataTypeVarbinary>(4), "abc", 4, iceberg_converter);
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
     EXPECT_NE(std::string::npos,
@@ -1257,7 +1279,7 @@ TEST(DataTypeSerDeArrowTest, IcebergFixedVarbinaryRejectsInvalidBindingsAndValue
               status.to_string().find("Iceberg fixed writer requires Doris VARBINARY"));
 
     status = convert(std::make_shared<DataTypeVarbinary>(4), "abcd", 4,
-                     arrow_flight_block_convertor());
+                     make_arrow_convertor<ArrowFlightArrowBlockConvertor>);
     EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
     EXPECT_NE(std::string::npos, status.to_string().find("Plain Arrow writer is not bound"));
 }
@@ -1322,9 +1344,9 @@ TEST(DataTypeSerDeArrowTest, NestedIcebergFixedVarbinaryUsesIcebergConverterRecu
     });
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
-    Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
-                                           &record_batch, cctz::utc_time_zone(), 0, block.rows(),
-                                           iceberg::iceberg_arrow_block_convertor());
+    Status status = convert_to_arrow_batch_for_test(
+            block, schema, arrow::default_memory_pool(), &record_batch, cctz::utc_time_zone(), 0,
+            block.rows(), make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_TRUE(record_batch->ValidateFull().ok()) << record_batch->ValidateFull();
 
@@ -1359,8 +1381,8 @@ TEST(DataTypeSerDeArrowTest, StringToLargeBinary) {
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
     cctz::time_zone default_timezone;
-    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
-                                           &record_batch, default_timezone);
+    Status status = convert_to_arrow_batch_for_test(*block, schema, arrow::default_memory_pool(),
+                                                    &record_batch, default_timezone);
     ASSERT_TRUE(status.ok()) << status;
 
     auto binary_array = std::static_pointer_cast<arrow::LargeBinaryArray>(record_batch->column(0));
@@ -1434,8 +1456,8 @@ TEST(DataTypeSerDeArrowTest, DateTimeV2ArrowEncodingFollowsSchemaTimezone) {
     auto timezone_schema = arrow::schema(
             {arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO, "+08:00"), false)});
     std::shared_ptr<arrow::RecordBatch> timezone_batch;
-    auto status = convert_to_arrow_batch(block, timezone_schema, arrow::default_memory_pool(),
-                                         &timezone_batch, utc_plus_eight);
+    auto status = convert_to_arrow_batch_for_test(
+            block, timezone_schema, arrow::default_memory_pool(), &timezone_batch, utc_plus_eight);
     ASSERT_TRUE(status.ok()) << status;
 
     const auto timezone_type = std::static_pointer_cast<arrow::TimestampType>(
@@ -1449,8 +1471,8 @@ TEST(DataTypeSerDeArrowTest, DateTimeV2ArrowEncodingFollowsSchemaTimezone) {
     auto naive_schema =
             arrow::schema({arrow::field("ts", arrow::timestamp(arrow::TimeUnit::MICRO), false)});
     std::shared_ptr<arrow::RecordBatch> naive_batch;
-    status = convert_to_arrow_batch(block, naive_schema, arrow::default_memory_pool(), &naive_batch,
-                                    utc_plus_eight);
+    status = convert_to_arrow_batch_for_test(block, naive_schema, arrow::default_memory_pool(),
+                                             &naive_batch, utc_plus_eight);
     ASSERT_TRUE(status.ok()) << status;
 
     const auto naive_type =
@@ -1501,9 +1523,9 @@ TEST(DataTypeSerDeArrowTest, NestedDateTimeV2PlainArrowAcceptsNaiveSchema) {
     std::shared_ptr<arrow::Schema> naive_schema;
     ASSERT_TRUE(get_arrow_schema_from_block(block, &naive_schema, "Asia/Shanghai", true).ok());
     std::shared_ptr<arrow::RecordBatch> naive_batch;
-    const auto status =
-            convert_to_arrow_batch(block, naive_schema, arrow::default_memory_pool(), &naive_batch,
-                                   cctz::fixed_time_zone(std::chrono::hours(8)));
+    const auto status = convert_to_arrow_batch_for_test(
+            block, naive_schema, arrow::default_memory_pool(), &naive_batch,
+            cctz::fixed_time_zone(std::chrono::hours(8)));
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_TRUE(naive_batch->ValidateFull().ok()) << naive_batch->ValidateFull();
 }

@@ -135,9 +135,6 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
         input_block.insert(block.get_by_position(arguments[i]));
     }
 
-    std::shared_ptr<arrow::Schema> schema;
-    RETURN_IF_ERROR(
-            get_arrow_schema_from_block(input_block, &schema, TimezoneUtils::default_time_zone));
     std::shared_ptr<arrow::RecordBatch> input_batch;
     std::shared_ptr<arrow::RecordBatch> output_batch;
     cctz::time_zone timezone_obj;
@@ -146,11 +143,14 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
     if (!TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj)) {
         return Status::InternalError("Failed to resolve the default Python UDF timezone");
     }
+    PythonArrowBlockConvertor converter(input_block, timezone_obj);
+    RETURN_IF_ERROR(converter.init());
     if (arguments.empty()) {
-        RETURN_IF_ERROR(make_zero_column_arrow_batch(schema, input_rows, &input_batch));
+        RETURN_IF_ERROR(
+                make_zero_column_arrow_batch(converter.arrow_schema(), input_rows, &input_batch));
     } else {
-        RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema, arrow::default_memory_pool(),
-                                               &input_batch, timezone_obj));
+        RETURN_IF_ERROR(converter.convert_to_arrow(input_block, arrow::default_memory_pool(),
+                                                   &input_batch));
     }
     RETURN_IF_ERROR(client->evaluate(*input_batch, &output_batch));
     int64_t output_rows = output_batch->num_rows();
@@ -165,8 +165,8 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
                 "Python UDF output rows {} not equal to input rows {}", output_rows, input_rows));
     }
 
-    RETURN_IF_ERROR(
-            convert_from_arrow_batch(output_batch, {_return_type}, &output_block, timezone_obj));
+    RETURN_IF_ERROR(PythonArrowBlockConvertor(output_batch->schema(), timezone_obj)
+                            .convert_from_arrow(output_batch, {_return_type}, &output_block));
     DCHECK_EQ(output_block.columns(), 1);
     block.replace_by_position(result, std::move(output_block.get_by_position(0).column));
     return Status::OK();

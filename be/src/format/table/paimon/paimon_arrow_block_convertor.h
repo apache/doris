@@ -25,12 +25,23 @@ namespace doris::paimon {
 // timestamp and nested-type semantics. This adapter implements the Arrow write protocol only;
 // convert_from_arrow deliberately inherits NotSupported instead of a generic SerDe fallback.
 class PaimonArrowBlockConvertor final : public ArrowBlockConvertor {
+public:
+    using ArrowBlockConvertor::ArrowBlockConvertor;
+    PaimonArrowBlockConvertor(std::string serialized_schema, const cctz::time_zone& timezone)
+            : ArrowBlockConvertor(nullptr, timezone),
+              _serialized_schema(std::move(serialized_schema)) {}
+
+    Status init() override;
+
 protected:
     Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
                         const IColumn& column, const NullMap* null_map,
                         const std::shared_ptr<arrow::Field>& field,
                         arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                         const cctz::time_zone& ctz) const override;
+
+private:
+    std::string _serialized_schema;
 };
 
 } // namespace doris::paimon

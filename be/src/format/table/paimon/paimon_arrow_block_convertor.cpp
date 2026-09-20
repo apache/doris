@@ -18,10 +18,30 @@
 #include "format/table/paimon/paimon_arrow_block_convertor.h"
 
 #include <arrow/array/builder_base.h>
+#include <arrow/io/memory.h>
+#include <arrow/ipc/reader.h>
 #include <arrow/type.h>
 
 namespace doris::paimon {
 #include "common/compile_check_begin.h"
+
+Status PaimonArrowBlockConvertor::init() {
+    if (_arrow_schema != nullptr) {
+        return Status::OK();
+    }
+    // Decode the pinned table schema here; rebuilding it from Doris types would lose
+    // nested nullability, timestamp precision and Paimon's physical Variant layout.
+    auto input = std::make_shared<arrow::io::BufferReader>(
+            arrow::Buffer::FromString(_serialized_schema));
+    auto reader = arrow::ipc::RecordBatchStreamReader::Open(input);
+    if (!reader.ok()) {
+        return Status::InvalidArgument("Failed to deserialize Paimon Arrow schema: {}",
+                                       reader.status().ToString());
+    }
+    _arrow_schema = reader.ValueOrDie()->schema();
+    _serialized_schema.clear();
+    return Status::OK();
+}
 
 Status PaimonArrowBlockConvertor::write_column(const std::shared_ptr<const IDataType>& type,
                                                const DataTypeSerDe& serde, const IColumn& column,

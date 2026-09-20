@@ -324,35 +324,44 @@ Status ArrowBlockConvertor::write_plain_arrow_column(const std::shared_ptr<const
     return serde.write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
 }
 
-Status ArrowFlightArrowBlockConvertor::write_column(const std::shared_ptr<const IDataType>& type,
-                                                    const DataTypeSerDe& serde,
-                                                    const IColumn& column, const NullMap* null_map,
-                                                    const std::shared_ptr<arrow::Field>& field,
-                                                    arrow::ArrayBuilder* array_builder,
-                                                    int64_t start, int64_t end,
-                                                    const cctz::time_zone& ctz) const {
+Status DorisArrowBlockConvertor::write_column(const std::shared_ptr<const IDataType>& type,
+                                              const DataTypeSerDe& serde, const IColumn& column,
+                                              const NullMap* null_map,
+                                              const std::shared_ptr<arrow::Field>& field,
+                                              arrow::ArrayBuilder* array_builder, int64_t start,
+                                              int64_t end, const cctz::time_zone& ctz) const {
     return write_plain_arrow_column(type, serde, column, null_map, field, array_builder, start, end,
                                     ctz);
 }
 
-const ArrowFlightArrowBlockConvertor& arrow_flight_block_convertor() {
-    static const ArrowFlightArrowBlockConvertor convertor;
-    return convertor;
+Status ArrowBlockConvertor::init() {
+    if (_arrow_schema == nullptr) {
+        return Status::InvalidArgument("Arrow converter schema is not initialized");
+    }
+    return Status::OK();
+}
+
+Status DorisArrowBlockConvertor::init() {
+    if (_arrow_schema == nullptr) {
+        RETURN_IF_ERROR(get_arrow_schema_from_block(_header, &_arrow_schema, _timezone.name(),
+                                                    _datetime_naive));
+    }
+    return ArrowBlockConvertor::init();
 }
 
 Status ArrowBlockConvertor::convert_from_arrow(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                               const DataTypes& types, Block* block,
-                                               const cctz::time_zone& timezone_obj) const {
+                                               const DataTypes& types, Block* block) const {
     // Iceberg and Paimon physical layouts are not the generic Arrow SerDe read contract.
     return Status::NotSupported("This Arrow converter does not support reading");
 }
 
-Status ArrowBlockConvertor::convert_to_arrow(const Block& block,
-                                             const std::shared_ptr<arrow::Schema>& schema,
-                                             arrow::MemoryPool* pool,
+Status ArrowBlockConvertor::convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
                                              std::shared_ptr<arrow::RecordBatch>* out,
-                                             const cctz::time_zone& timezone_obj, size_t start_row,
-                                             size_t end_row) const {
+                                             size_t start_row, size_t end_row) const {
+    if (_arrow_schema == nullptr) {
+        return Status::InvalidArgument("Arrow converter schema is not initialized");
+    }
+    const auto& schema = _arrow_schema;
     int num_fields = schema->num_fields();
     if (block.columns() != num_fields) {
         return Status::InvalidArgument("number fields not match");
@@ -387,7 +396,7 @@ Status ArrowBlockConvertor::convert_to_arrow(const Block& block,
         try {
             const auto serde = entry.type->get_serde();
             RETURN_IF_ERROR(write_column(entry.type, *serde, *column, nullptr, schema->field(idx),
-                                         builder.get(), start_row, actual_end, timezone_obj));
+                                         builder.get(), start_row, actual_end, _timezone));
         } catch (std::exception& e) {
             return Status::InternalError(
                     "Fail to convert block data to arrow data, type: {}, name: {}, error: {}",
@@ -408,9 +417,9 @@ Status ArrowBlockConvertor::convert_to_arrow(const Block& block,
     return Status::OK();
 }
 
-Status ArrowFlightArrowBlockConvertor::convert_from_arrow(
-        const std::shared_ptr<arrow::RecordBatch>& batch, const DataTypes& types, Block* block,
-        const cctz::time_zone& timezone_obj) const {
+Status DorisArrowBlockConvertor::convert_from_arrow(
+        const std::shared_ptr<arrow::RecordBatch>& batch, const DataTypes& types,
+        Block* block) const {
     DCHECK(block);
     int num_fields = batch->num_columns();
     if ((size_t)num_fields != types.size()) {
@@ -425,34 +434,11 @@ Status ArrowFlightArrowBlockConvertor::convert_from_arrow(
         auto arrow_column = batch->column(idx);
         DCHECK_EQ(arrow_column->length(), num_rows);
         RETURN_IF_ERROR(doris_type->get_serde()->read_column_from_arrow(
-                *doris_column, &*arrow_column, 0, num_rows, timezone_obj));
+                *doris_column, &*arrow_column, 0, num_rows, _timezone));
         columns.emplace_back(std::move(doris_column), std::move(doris_type), std::to_string(idx));
     }
     block->swap(columns);
     return Status::OK();
-}
-
-Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
-                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
-                              const cctz::time_zone& timezone_obj) {
-    return arrow_flight_block_convertor().convert_to_arrow(block, schema, pool, result,
-                                                           timezone_obj);
-}
-
-Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
-                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
-                              const cctz::time_zone& timezone_obj, size_t start_row, size_t end_row,
-                              const ArrowBlockConvertor& convertor) {
-    return convertor.convert_to_arrow(block, schema, pool, result, timezone_obj, start_row,
-                                      end_row);
-}
-
-Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
-                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
-                              const cctz::time_zone& timezone_obj, size_t start_row,
-                              size_t end_row) {
-    return arrow_flight_block_convertor().convert_to_arrow(block, schema, pool, result,
-                                                           timezone_obj, start_row, end_row);
 }
 
 Status make_zero_column_arrow_batch(const std::shared_ptr<arrow::Schema>& schema, int64_t rows,
@@ -462,12 +448,6 @@ Status make_zero_column_arrow_batch(const std::shared_ptr<arrow::Schema>& schema
     }
     *result = arrow::RecordBatch::Make(schema, rows, std::vector<std::shared_ptr<arrow::Array>> {});
     return Status::OK();
-}
-
-Status convert_from_arrow_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
-                                const DataTypes& types, Block* block,
-                                const cctz::time_zone& timezone_obj) {
-    return arrow_flight_block_convertor().convert_from_arrow(batch, types, block, timezone_obj);
 }
 
 #include "common/compile_check_end.h"

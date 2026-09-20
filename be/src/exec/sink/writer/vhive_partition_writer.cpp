@@ -22,8 +22,8 @@
 #include "core/block/materialize_block.h"
 #include "core/column/column_map.h"
 #include "format/transformer/vcsv_transformer.h"
+#include "format/transformer/vhive_parquet_writer.h"
 #include "format/transformer/vorc_transformer.h"
-#include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
 #include "io/fs/s3_file_writer.h"
 #include "runtime/runtime_state.h"
@@ -107,9 +107,9 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
             parquet_options.int96_timezone =
                     _hive_parquet_time_zone->empty() ? "UTC" : *_hive_parquet_time_zone;
         }
-        _file_format_transformer =
-                std::make_unique<VParquetWriter>(state, _file_writer.get(), _write_output_expr_ctxs,
-                                                 _write_column_names, false, parquet_options);
+        _file_format_transformer = std::make_unique<VHiveParquetWriter>(
+                state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
+                parquet_options);
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {

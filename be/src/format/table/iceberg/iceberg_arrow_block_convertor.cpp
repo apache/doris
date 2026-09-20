@@ -26,18 +26,17 @@
 namespace doris::iceberg {
 #include "common/compile_check_begin.h"
 
-Status IcebergArrowBlockConvertor::arrow_schema(const std::string& timezone,
-                                                std::shared_ptr<arrow::Schema>* schema) const {
+Status IcebergArrowBlockConvertor::init() {
     if (_schema == nullptr) {
-        return Status::InvalidArgument("Iceberg schema is required for Arrow schema conversion");
+        return ArrowBlockConvertor::init();
     }
     // Field IDs, Variant storage and timestamp bindings must share the same target schema.
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    RETURN_IF_ERROR(ArrowSchemaUtil::convert(_schema, timezone, fields));
-    *schema = arrow::schema(std::move(fields));
-    if (_schema_json != nullptr) {
-        *schema = (*schema)->WithMetadata(
-                arrow::KeyValueMetadata::Make({"iceberg.schema"}, {*_schema_json}));
+    RETURN_IF_ERROR(ArrowSchemaUtil::convert(_schema, _timezone.name(), fields));
+    _arrow_schema = arrow::schema(std::move(fields));
+    if (!_schema_json.empty()) {
+        _arrow_schema = _arrow_schema->WithMetadata(
+                arrow::KeyValueMetadata::Make({"iceberg.schema"}, {_schema_json}));
     }
     return Status::OK();
 }
@@ -53,11 +52,6 @@ Status IcebergArrowBlockConvertor::write_column(const std::shared_ptr<const IDat
     return serde.write_column_to_iceberg_arrow(type, column, null_map,
                                                field->WithType(array_builder->type()),
                                                array_builder, start, end, ctz);
-}
-
-const IcebergArrowBlockConvertor& iceberg_arrow_block_convertor() {
-    static const IcebergArrowBlockConvertor converter;
-    return converter;
 }
 
 #include "common/compile_check_end.h"

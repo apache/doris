@@ -59,17 +59,16 @@ Status AggregatePythonUDAFData::add(int64_t place_id, const IColumn** columns,
                 ColumnWithTypeAndName(columns[i]->get_ptr(), argument_types[i], std::to_string(i)));
     }
 
-    std::shared_ptr<arrow::Schema> schema;
-    RETURN_IF_ERROR(
-            get_arrow_schema_from_block(input_block, &schema, TimezoneUtils::default_time_zone));
     cctz::time_zone timezone_obj;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
 
+    PythonArrowBlockConvertor converter(input_block, timezone_obj);
+    RETURN_IF_ERROR(converter.init());
     std::shared_ptr<arrow::RecordBatch> batch;
     // Zero-copy: convert only the specified range
-    RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema, arrow::default_memory_pool(),
-                                           &batch, timezone_obj, row_num_start, row_num_end));
-    // Send the batch (already sliced in convert_to_arrow_batch)
+    RETURN_IF_ERROR(converter.convert_to_arrow(input_block, arrow::default_memory_pool(), &batch,
+                                               row_num_start, row_num_end));
+    // Send the batch (already sliced by the converter)
     // Single place mode: no places column needed
     RETURN_IF_ERROR(client->accumulate(place_id, true, *batch, 0, batch->num_rows()));
     return Status::OK();
@@ -103,17 +102,16 @@ Status AggregatePythonUDAFData::add_batch(AggregateDataPtr* places, size_t place
             DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_BIGINT, false);
     input_block.insert(ColumnWithTypeAndName(std::move(places_col), places_type, "places"));
 
-    std::shared_ptr<arrow::Schema> schema;
-    RETURN_IF_ERROR(
-            get_arrow_schema_from_block(input_block, &schema, TimezoneUtils::default_time_zone));
     cctz::time_zone timezone_obj;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
 
+    PythonArrowBlockConvertor converter(input_block, timezone_obj);
+    RETURN_IF_ERROR(converter.init());
     std::shared_ptr<arrow::RecordBatch> batch;
     // Zero-copy: convert only the [start, end) range
     // This slice includes the places column automatically
-    RETURN_IF_ERROR(convert_to_arrow_batch(input_block, schema, arrow::default_memory_pool(),
-                                           &batch, timezone_obj, start, end));
+    RETURN_IF_ERROR(converter.convert_to_arrow(input_block, arrow::default_memory_pool(), &batch,
+                                               start, end));
     // Send entire batch (already contains places column) to Python
     // place_id=0 is ignored when is_single_place=false
     RETURN_IF_ERROR(client->accumulate(0, false, *batch, 0, slice_rows));
@@ -174,7 +172,8 @@ Status AggregatePythonUDAFData::get(IColumn& to, const DataTypePtr& result_type,
     DataTypes types = {result_type};
     cctz::time_zone timezone_obj;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
-    RETURN_IF_ERROR(convert_from_arrow_batch(result, types, &result_block, timezone_obj));
+    RETURN_IF_ERROR(PythonArrowBlockConvertor(result->schema(), timezone_obj)
+                            .convert_from_arrow(result, types, &result_block));
 
     // Insert the result value into output column
     if (result_block.rows() != 1) {
