@@ -167,6 +167,8 @@ void AdaptiveThreadPoolController::_cancel(const std::string& name) {
 
     // Signal the callback to stop re-registering.
     arg->stopped.store(true, std::memory_order_release);
+    // Once per removed registration, after stopped is visible. Cancelling a
+    // missing registration must not reach this synchronization point.
     TEST_SYNC_POINT("AdaptiveThreadPoolController::cancel_stopped");
 
     // A callback may have passed its stopped check and still be re-registering.

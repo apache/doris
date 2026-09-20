@@ -77,24 +77,36 @@ protected:
         auto* sp = SyncPoint::get_instance();
         sp->enable_processing();
         Defer disable_sync_points {[&] { sp->disable_processing(); }};
-        SyncPoint::CallbackGuard entered_guard;
-        SyncPoint::CallbackGuard cancelling_guard;
         std::promise<void> entered;
         std::promise<void> release;
         std::promise<void> cancelling;
         auto entered_future = entered.get_future();
         auto release_future = release.get_future().share();
         auto cancelling_future = cancelling.get_future();
+        std::atomic<int> entered_calls {0};
+        std::atomic<int> cancellations {0};
+        // Remove callbacks before destroying the state they capture.
+        SyncPoint::CallbackGuard entered_guard;
+        SyncPoint::CallbackGuard cancelling_guard;
         sp->set_call_back(
                 point,
                 [&](auto&&) {
-                    entered.set_value();
+                    // A timeout can release the callback before cancellation starts.
+                    // Report repeated entries through the count instead of throwing.
+                    if (entered_calls.fetch_add(1) == 0) {
+                        entered.set_value();
+                    }
                     release_future.wait();
                 },
                 &entered_guard);
         sp->set_call_back(
                 "AdaptiveThreadPoolController::cancel_stopped",
-                [&](auto&&) { cancelling.set_value(); }, &cancelling_guard);
+                [&](auto&&) {
+                    if (cancellations.fetch_add(1) == 0) {
+                        cancelling.set_value();
+                    }
+                },
+                &cancelling_guard);
 
         AdaptiveThreadPoolController controller;
         controller.add(
@@ -117,6 +129,8 @@ protected:
         release.set_value();
         cancelled.get();
         second_cancel.get();
+        EXPECT_EQ(entered_calls.load(), 1);
+        EXPECT_EQ(cancellations.load(), 1);
         EXPECT_EQ(controller.get_current_threads("race"), 0);
         _pool.reset();
         // A timer rearmed after the final stopped check must have been cancelled too.
@@ -497,6 +511,7 @@ TEST_F(AdaptiveThreadPoolControllerTest, ReplacingRegistrationDrainsOldTimer) {
     EXPECT_EQ(new_calls.load(), 1);
     EXPECT_EQ(old_calls.load(), 1);
     controller.cancel("same");
+    // Check registration removal; the barriers above verify callback completion.
     EXPECT_EQ(controller.get_current_threads("same"), 0);
     _pool2.reset();
 }
