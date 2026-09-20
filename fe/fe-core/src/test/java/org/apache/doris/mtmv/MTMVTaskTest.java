@@ -143,23 +143,6 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testCalculateNeedRefreshPartitionsManualComplete() throws AnalysisException, JobException {
-        MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, null, RefreshMode.COMPLETE);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertEquals(allPartitionNames, result);
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsManualPartitions() throws AnalysisException, JobException {
-        MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
-                RefreshMode.AUTO);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertEquals(Lists.newArrayList(poneName), result);
-    }
-
-    @Test
     public void testGenerateRefreshModeDistinguishesFullAndPartialScope() {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
 
@@ -253,15 +236,6 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testCalculateNeedRefreshPartitionsSystem() throws AnalysisException, JobException {
-        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertTrue(CollectionUtils.isEmpty(result));
-    }
-
-    @Test
     public void testPlanPartitionRefreshSelfManageWhenSync() throws Exception {
         Mockito.when(mtmvPartitionInfo.getPartitionType()).thenReturn(MTMVPartitionType.SELF_MANAGE);
         MTMVTask task = new MTMVTask(mtmv, relation,
@@ -273,63 +247,6 @@ public class MTMVTaskTest {
 
         Assertions.assertTrue((Boolean) Deencapsulation.getField(plan, "canRefreshByPartitions"));
         Assertions.assertTrue(CollectionUtils.isEmpty(Deencapsulation.getField(plan, "partitions")));
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsSystemComplete() throws AnalysisException, JobException {
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertEquals(allPartitionNames, result);
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsSystemIncompleteRefreshSnapshot() throws AnalysisException, JobException {
-        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
-        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
-
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-
-        Assertions.assertTrue(CollectionUtils.isEmpty(result));
-        mtmvPartitionUtilStatic.verify(() -> MTMVPartitionUtil.isMTMVSync(
-                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class)));
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsManualPartitionsIncompleteRefreshSnapshot()
-            throws AnalysisException, JobException {
-        Mockito.when(mtmv.hasRefreshSnapshot()).thenReturn(false);
-
-        MTMVTaskContext context = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
-                RefreshMode.PARTITIONS, false, null);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-
-        Assertions.assertEquals(Lists.newArrayList(poneName), result);
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsSystemNotSyncComplete() throws AnalysisException, JobException {
-        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class))).thenReturn(false);
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertEquals(allPartitionNames, result);
-    }
-
-    @Test
-    public void testCalculateNeedRefreshPartitionsSystemNotSyncAuto() throws AnalysisException, JobException {
-        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.isMTMVSync(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class))).thenReturn(false);
-
-        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
-
-        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class))).thenReturn(Lists.newArrayList(ptwoName));
-        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
-        MTMVTask task = new MTMVTask(mtmv, relation, context);
-        List<String> result = task.calculateNeedRefreshPartitions(null);
-        Assertions.assertEquals(Lists.newArrayList(ptwoName), result);
     }
 
     @Test
@@ -377,14 +294,14 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testMvDefaultUnknownRefreshMethodRejected() throws AnalysisException {
+    public void testMvDefaultUnknownRefreshMethodRejected() {
         Mockito.when(mtmv.getName()).thenReturn("test_mv");
         Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(null);
         MTMVTaskContext context = MTMVTaskContext.forMvDefault(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(mtmv, relation, context);
 
         JobException exception = Assertions.assertThrows(JobException.class,
-                () -> task.calculateNeedRefreshPartitions(null));
+                () -> Deencapsulation.invoke(task, "resolveRefreshRequest"));
 
         Assertions.assertTrue(exception.getMessage().contains("unknown refresh method"));
     }

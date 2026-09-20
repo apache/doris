@@ -1315,38 +1315,6 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    public List<String> calculateNeedRefreshPartitions(MTMVRefreshContext context)
-            throws AnalysisException, JobException {
-        RefreshRequest request = resolveRefreshRequest();
-        if (request.refreshMode == RefreshMode.COMPLETE) {
-            return Lists.newArrayList(mtmv.getPartitionNames());
-        }
-        // check whether the user manually triggers it
-        if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
-            if (!CollectionUtils.isEmpty(taskContext.getPartitions())) {
-                return taskContext.getPartitions();
-            }
-        }
-        // if refreshMethod is COMPLETE, we must FULL refresh, avoid external table MTMV always not refresh
-        if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
-            return Lists.newArrayList(mtmv.getPartitionNames());
-        }
-        // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
-        // to avoid rebuilding the baseTable and causing a change in the tableId
-        boolean fresh = MTMVPartitionUtil.isMTMVSync(context, relation.getBaseTablesOneLevelAndFromView(),
-                mtmv.getExcludedTriggerTables());
-        if (fresh) {
-            return Lists.newArrayList();
-        }
-        // current, if partitionType is SELF_MANAGE, we can only FULL refresh
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return Lists.newArrayList(mtmv.getPartitionNames());
-        }
-        // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
-        // to avoid rebuilding the baseTable and causing a change in the tableId
-        return MTMVPartitionUtil.getMTMVNeedRefreshPartitions(context, relation.getBaseTablesOneLevelAndFromView());
-    }
-
     public MTMVTaskContext getTaskContext() {
         return taskContext;
     }
