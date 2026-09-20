@@ -275,7 +275,8 @@ Status SegmentReadAhead::create_for_query(io::FileReaderSPtr source_reader, Exec
                 // Cache and inflight-buffer hits already have a complete cache-block owner.
                 if (write_epoch.has_value() && stats.file_cache.bytes_read_from_remote > 0) {
                     static_cast<void>(range_writeback->submit_consumed_range(
-                            read.range(), read.data(), *write_epoch, statistics.get()));
+                            read.range(), read.data(), *write_epoch, statistics.get(),
+                            read.trace_id()));
                 }
             };
         };

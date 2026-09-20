@@ -261,6 +261,11 @@ public:
                                                   size_t size, const CacheContext& context,
                                                   FileBlocks* blocks, bool* fully_covered);
 
+    /// Diagnostic snapshot of resident DOWNLOADED intervals, clipped to the requested range.
+    /// Handles irregular block boundaries; never loads metadata, reserves space or touches LRU.
+    std::vector<FileBlock::Range> downloaded_ranges(const UInt128Wrapper& hash, size_t offset,
+                                                    size_t size);
+
     /**
      * record blocks read directly by CachedRemoteFileReader
      */

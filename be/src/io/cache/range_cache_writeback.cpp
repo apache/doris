@@ -22,6 +22,7 @@
 #include "common/logging.h"
 #include "io/cache/partial_block_writeback_manager.h"
 #include "io/fs/read_ahead_metrics.h"
+#include "io/fs/read_io_trace.h"
 
 namespace doris::io {
 
@@ -44,11 +45,21 @@ std::optional<AsyncCacheWriteEpoch> RangeCacheWriteback::capture_write_epoch() c
 
 RangeWritebackDispatchResult RangeCacheWriteback::submit_consumed_range(
         const FileRange& range, Slice data, const AsyncCacheWriteEpoch& write_epoch,
-        ReadAheadStatistics* statistics) {
+        ReadAheadStatistics* statistics, uint64_t trace_id) {
     DORIS_CHECK(write_epoch.key_token != nullptr);
     SCOPED_TIMER(statistics != nullptr ? &statistics->writeback_time : nullptr);
     if (!_options.write_manager->accepting()) {
         return {};
+    }
+    if (ReadIOTrace::enabled()) {
+        auto trace_context = _options.io_context.io_context;
+        trace_context.read_trace_source = FileReadTraceSource::READ_AHEAD;
+        ReadIOTrace::record({.event = "range_writeback",
+                             .context = &trace_context,
+                             .file = _options.source_reader->path().native(),
+                             .id = trace_id,
+                             .offset = range.offset,
+                             .size = range.size});
     }
     RangeWritebackDispatcher dispatcher(
             _options.file_size, _options.block_size,
@@ -56,7 +67,7 @@ RangeWritebackDispatchResult RangeCacheWriteback::submit_consumed_range(
                 return _submit_complete_block(fragment, write_epoch, statistics);
             },
             [&](const FileCacheBlockFragment& fragment) {
-                return _submit_partial_block(fragment, write_epoch, statistics);
+                return _submit_partial_block(fragment, write_epoch, statistics, trace_id);
             });
     return dispatcher.dispatch(range, data);
 }
@@ -90,8 +101,12 @@ bool RangeCacheWriteback::_submit_complete_block(const FileCacheBlockFragment& f
 
 bool RangeCacheWriteback::_submit_partial_block(const FileCacheBlockFragment& fragment,
                                                 const AsyncCacheWriteEpoch& write_epoch,
-                                                ReadAheadStatistics* statistics) {
+                                                ReadAheadStatistics* statistics,
+                                                uint64_t trace_id) {
     DORIS_CHECK(!fragment.complete());
+    auto io_context = _options.io_context;
+    io_context.io_context.read_trace_id = trace_id;
+    io_context.io_context.read_trace_source = FileReadTraceSource::READ_AHEAD;
     const auto result = _options.partial_block_manager->try_submit(PartialBlockWritebackRequest {
             .write_manager = _options.write_manager,
             .inflight_index = _options.inflight_index,
@@ -103,7 +118,7 @@ bool RangeCacheWriteback::_submit_partial_block(const FileCacheBlockFragment& fr
             .data = fragment.data,
             .admission_ctx = _options.admission_ctx,
             .write_epoch = write_epoch,
-            .io_context = _options.io_context,
+            .io_context = std::move(io_context),
     });
     if (statistics != nullptr) {
         if (result == PartialBlockSubmitResult::QUEUED ||

@@ -39,6 +39,7 @@
 #include "io/cache/inflight_write_buffer_index.h"
 #include "io/fs/path.h"
 #include "io/fs/read_ahead_metrics.h"
+#include "io/fs/read_io_trace_test_util.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
 
@@ -803,6 +804,7 @@ TEST_F(PartialBlockWritebackManagerTest, ReplacesQueuedTaskAfterEpochInvalidatio
 }
 
 TEST_F(PartialBlockWritebackManagerTest, UsesReadWorkersConcurrentlyAndDeduplicatesActiveTask) {
+    ReadIOTraceCapture trace;
     auto& metrics = read_ahead_bvars();
     const auto pending_before = metrics.hole_fill_pending_bytes.get_value();
     const auto active_before = metrics.hole_fill_active_blocks.get_value();
@@ -852,6 +854,16 @@ TEST_F(PartialBlockWritebackManagerTest, UsesReadWorkersConcurrentlyAndDeduplica
     EXPECT_EQ(metrics.hole_fill_active_blocks.get_value(), active_before);
     EXPECT_EQ(metrics.hole_fill_remote_bytes.get_value() - bytes_before, 2 * (kBlockSize - 1024));
     EXPECT_EQ(metrics.hole_fill_write_submitted_blocks.get_value() - submitted_before, 2);
+    const auto ignored = trace.events("fragment_ignored_active");
+    ASSERT_EQ(ignored.size(), 1);
+    EXPECT_EQ(ignored[0]["offset"].GetUint64(), 1024);
+    EXPECT_EQ(ignored[0]["size"].GetUint64(), 512);
+    const auto plans = trace.events("hole_plan");
+    ASSERT_EQ(plans.size(), 2);
+    EXPECT_EQ(plans[0]["size"].GetUint64(), kBlockSize - 1024);
+    EXPECT_TRUE(plans[0]["id"].GetUint64() == ignored[0]["id"].GetUint64() ||
+                plans[1]["id"].GetUint64() == ignored[0]["id"].GetUint64());
+    EXPECT_EQ(trace.events("hole_done").size(), 2);
 }
 
 TEST_F(PartialBlockWritebackManagerTest, ReadsHolesConcurrentlyWithinOneBlock) {

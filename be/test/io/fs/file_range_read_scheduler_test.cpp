@@ -40,6 +40,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/path.h"
 #include "io/fs/read_ahead_metrics.h"
+#include "io/fs/read_io_trace_test_util.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
 
@@ -328,6 +329,7 @@ TEST(FileRangeReadSchedulerTest, RejectedResultPreservesReasonAndStatus) {
 }
 
 TEST(FileRangeReadSchedulerTest, ReadsExactRangesWithWorkerOwnedIOContext) {
+    ReadIOTraceCapture trace;
     auto scheduler = create_scheduler();
     auto file_reader = std::make_shared<ControllableFileReader>(alphabet(128));
     auto query = scheduler->create_context();
@@ -353,6 +355,15 @@ TEST(FileRangeReadSchedulerTest, ReadsExactRangesWithWorkerOwnedIOContext) {
                                           &caller_cache_stats, &caller_reader_stats));
     EXPECT_EQ(caller_cache_stats.num_remote_io_total, 0);
     EXPECT_EQ(caller_reader_stats.read_calls, 0);
+    auto events = trace.events("range_read_done");
+    ASSERT_EQ(events.size(), 2);
+    for (const auto& event : events) {
+        EXPECT_STREQ(event["source"].GetString(), "read_ahead");
+        const auto id = event["id"].GetUint64();
+        EXPECT_GT(id, 0);
+        EXPECT_TRUE(id == result.reads[0]->trace_id() || id == result.reads[1]->trace_id());
+        EXPECT_EQ(event["bytes"].GetUint64(), event["size"].GetUint64());
+    }
 }
 
 TEST(FileRangeReadSchedulerTest, ExecutorThreadCountControlsConcurrency) {

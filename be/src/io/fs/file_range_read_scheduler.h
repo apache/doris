@@ -170,6 +170,7 @@ public:
     void request_cancel();
     State state() const;
     const FileRange& range() const { return _range; }
+    uint64_t trace_id() const { return _trace_id; }
     /// Return the full buffer. The handle must be READY and owns the returned memory.
     Slice data() const;
     /// Return a checked subrange of a READY buffer.
@@ -196,6 +197,7 @@ private:
     void _publish_cancelled(FileRangeReadStats stats = {});
     void _publish_from_running(State state, Status status, FileRangeReadStats stats);
     const FileRange _range;
+    const uint64_t _trace_id;
     char* _data {nullptr};
     const std::shared_ptr<MemTrackerLimiter> _tracker;
     FileRangeReadReservation _reservation;

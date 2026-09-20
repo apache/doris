@@ -1788,6 +1788,10 @@ DEFINE_mBool(enable_query_segment_file_cache_prefetch, "false");
 DEFINE_mInt32(query_segment_file_cache_prefetch_block_size, "2");
 // Enable exact range read-ahead for query data pages
 DEFINE_mBool(enable_query_read_ahead, "false");
+DEFINE_mBool(enable_read_io_trace, "false");
+// Process-lifetime cap on diagnostic events, including range/fragment lifecycle records.
+DEFINE_mInt64(read_io_trace_max_events, "1000000");
+DEFINE_Validator(read_io_trace_max_events, [](int64_t value) { return value > 0; });
 // Query-level resident read-ahead buffer limit
 DEFINE_Int64(read_ahead_max_bytes_per_query, "268435456"); // 256 MiB
 DEFINE_Validator(read_ahead_max_bytes_per_query, [](int64_t value) { return value > 0; });
