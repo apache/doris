@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
@@ -68,8 +67,6 @@ public class TopNWeighted extends NullableAggregateFunction
                     .args(SmallIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE))
                     .args(TinyIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
-                    .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
                                     .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE),
                             FunctionSignature.ret(ArrayType.of(DateV2Type.INSTANCE))
@@ -105,8 +102,6 @@ public class TopNWeighted extends NullableAggregateFunction
                     .args(SmallIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(TinyIntType.INSTANCE))
                     .args(TinyIntType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(ArrayType.of(BooleanType.INSTANCE))
-                    .args(BooleanType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(ArrayType.of(FloatType.INSTANCE))
                                     .args(FloatType.INSTANCE, BigIntType.INSTANCE, IntegerType.INSTANCE,
                                                     IntegerType.INSTANCE),
@@ -203,6 +198,11 @@ public class TopNWeighted extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        // Reject BOOLEAN before signature matching can implicitly cast it to a numeric type.
+        if (getArgumentType(0).isBooleanType()) {
+            throw new AnalysisException(
+                    "topn_weighted does not support BOOLEAN as its first argument: " + toSql());
+        }
         if (!getArgument(2).isConstant()) {
             throw new AnalysisException(
                     "topn_weighted requires third parameter must be a constant: "

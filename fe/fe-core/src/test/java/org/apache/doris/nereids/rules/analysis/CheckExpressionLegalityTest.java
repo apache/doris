@@ -29,17 +29,67 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
+    @Test
+    public void testTopNWeightedRejectBooleanExpressions() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        for (String value : new String[] {"true", "false", "cast(null as boolean)", "1 = 1"}) {
+            for (String suffix : new String[] {", 1, 1)", ", 1, 1, 50)"}) {
+                for (String distinct : new String[] {"", "distinct "}) {
+                    ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                            "topn_weighted does not support BOOLEAN as its first argument", () ->
+                                    PlanChecker.from(connectContext)
+                                            .analyze("select topn_weighted(" + distinct + value + suffix));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testTopNWeightedRejectNullableBooleanSlot() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        String input = " from (select true as flag, 1 as w"
+                + " union all select cast(null as boolean), 2) t";
+        for (String arguments : new String[] {"flag, w, 1", "flag, w, 1, 50"}) {
+            ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                    "topn_weighted does not support BOOLEAN as its first argument", () ->
+                            PlanChecker.from(connectContext)
+                                    .analyze("select topn_weighted(" + arguments + ")" + input));
+        }
+    }
+
+    @Test
+    public void testTopNWeightedPreserveSupportedInputs() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        for (String suffix : new String[] {", 1, 1)", ", 1, 1, 50)"}) {
+            for (String value : new String[] {"cast(true as tinyint)", "cast(null as tinyint)"}) {
+                PlanChecker checker = PlanChecker.from(connectContext)
+                        .analyze("select topn_weighted(" + value + suffix);
+                Assertions.assertEquals(ArrayType.of(TinyIntType.INSTANCE),
+                        checker.getPlan().getOutput().get(0).getDataType());
+            }
+            for (String value : new String[] {"1", "'value'", "null"}) {
+                PlanChecker.from(connectContext).analyze("select topn_weighted(" + value + suffix);
+            }
+        }
+        // The restriction applies to the value argument, not existing weight conversions.
+        PlanChecker.from(connectContext).analyze("select topn_weighted(1, true, 1)");
+        PlanChecker.from(connectContext).analyze("select topn_weighted(1, true, 1, 50)");
+    }
+
     @Test
     public void testAvg() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
