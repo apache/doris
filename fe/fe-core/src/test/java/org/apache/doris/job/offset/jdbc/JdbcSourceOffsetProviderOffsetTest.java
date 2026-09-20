@@ -17,10 +17,12 @@
 
 package org.apache.doris.job.offset.jdbc;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
+import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 
 import org.junit.jupiter.api.Assertions;
@@ -31,6 +33,46 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class JdbcSourceOffsetProviderOffsetTest {
+
+    @Test
+    public void testValidateAlterOffsetAcceptsSourceSpecificPositions() throws Exception {
+        JdbcSourceOffsetProvider postgres = provider(DataSourceType.POSTGRES);
+        postgres.validateAlterOffset("{\"lsn\":12345678,\"txId\":\"7\"}");
+        postgres.validateAlterOffset("{\"lsn\":\"12345678\"}");
+
+        JdbcSourceOffsetProvider mysql = provider(DataSourceType.MYSQL);
+        mysql.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":154,\"kind\":\"SPECIFIC\"}");
+        mysql.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}");
+        mysql.validateAlterOffset("{\"gtids\":\"24bc7850-2c16-11ef-a0c9-0242ac120002:1-9\"}");
+
+        JdbcSourceOffsetProvider oceanBase = provider(DataSourceType.OCEANBASE);
+        oceanBase.validateAlterOffset("{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}");
+        oceanBase.validateAlterOffset("{\"gtids\":\"24bc7850-2c16-11ef-a0c9-0242ac120002:1-9\"}");
+    }
+
+    @Test
+    public void testValidateAlterOffsetRejectsInvalidSourceSpecificPositions() {
+        assertInvalidAlterOffsets(provider(DataSourceType.POSTGRES),
+                "{}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"154\"}",
+                "{\"lsn\":null}",
+                "{\"lsn\":\"abc\"}",
+                "{\"lsn\":\"-1\"}",
+                "{\"lsn\":\"9223372036854775808\"}");
+
+        assertInvalidAlterOffsets(provider(DataSourceType.MYSQL),
+                "{}",
+                "{\"lsn\":\"12345678\"}",
+                "{\"file\":\"mysql-bin.000001\"}",
+                "{\"file\":\"\",\"pos\":\"154\"}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":null}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"abc\"}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"-1\"}",
+                "{\"file\":\"mysql-bin.000001\",\"pos\":\"9223372036854775808\"}",
+                "{\"gtids\":\"\"}",
+                "{\"gtids\":123}",
+                "{\"gtids\":\"uuid:1-10\",\"file\":\"mysql-bin.000001\",\"pos\":\"abc\"}");
+    }
 
     @Test
     public void testSnapshotOffsetUsesConfiguredPersistInterval() {
@@ -294,6 +336,19 @@ public class JdbcSourceOffsetProviderOffsetTest {
         Assertions.assertNull(progress.getCurrentSplittingTable());
         Assertions.assertNull(progress.getNextSplitStart());
         Assertions.assertNull(progress.getNextSplitId());
+    }
+
+    private static JdbcSourceOffsetProvider provider(DataSourceType sourceType) {
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        provider.setSourceType(sourceType);
+        return provider;
+    }
+
+    private static void assertInvalidAlterOffsets(JdbcSourceOffsetProvider provider, String... offsets) {
+        for (String offset : offsets) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> provider.validateAlterOffset(offset), offset);
+        }
     }
 
     private static class TestJdbcSourceOffsetProvider extends JdbcSourceOffsetProvider {
