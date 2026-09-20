@@ -899,7 +899,15 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0 ||
          !_common_expr_ctxs_push_down.empty())) {
-        RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
+        // Start from the rows that are still alive instead of the whole segment: the
+        // bitmap already carries the key range and index pruning, so anything outside
+        // it cannot be pruned again. Starting from the whole segment would make the
+        // zone map / bloom filter counters report rows that were pruned earlier, e.g.
+        // a point lookup that already matched a single row reports the whole segment
+        // as zone-map filtered.
+        RowRanges condition_row_ranges =
+                RowRanges::create_single(static_cast<int64_t>(_row_bitmap.minimum()),
+                                         static_cast<int64_t>(_row_bitmap.maximum()) + 1);
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
         size_t pre_size = _row_bitmap.cardinality();
         _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
@@ -1180,11 +1188,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         pre_size = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                        condition_row_ranges);
-
-        size_t pre_size2 = condition_row_ranges->count();
-        RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
-                                       condition_row_ranges);
-        _opts.stats->rows_stats_rp_filtered += (pre_size2 - condition_row_ranges->count());
         _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
     }
 
