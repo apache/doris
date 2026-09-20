@@ -29,6 +29,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_foreach.h"
+#include "exprs/aggregate/aggregate_function_null.h"
 
 namespace doris {
 
@@ -58,10 +59,11 @@ struct PairSumAggregateState {
 class PairSumAggregateFunction final
         : public IAggregateFunctionDataHelper<PairSumAggregateState, PairSumAggregateFunction> {
 public:
-    PairSumAggregateFunction()
+    explicit PairSumAggregateFunction(std::vector<size_t>* observed_column_sizes = nullptr)
             : IAggregateFunctionDataHelper<PairSumAggregateState, PairSumAggregateFunction>(
                       DataTypes {std::make_shared<DataTypeInt32>(),
-                                 std::make_shared<DataTypeInt32>()}) {}
+                                 std::make_shared<DataTypeInt32>()}),
+              observed_column_sizes(observed_column_sizes) {}
 
     String get_name() const override { return "pair_sum"; }
 
@@ -69,6 +71,9 @@ public:
 
     void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
              Arena&) const override {
+        if (observed_column_sizes != nullptr) {
+            observed_column_sizes->push_back(columns[0]->size());
+        }
         data(place).value += assert_cast<const ColumnInt32&>(*columns[0]).get_data()[row_num] +
                              assert_cast<const ColumnInt32&>(*columns[1]).get_data()[row_num];
     }
@@ -88,6 +93,9 @@ public:
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         assert_cast<ColumnInt64&>(to).insert_value(data(place).value);
     }
+
+private:
+    std::vector<size_t>* observed_column_sizes;
 };
 
 class ThrowOnDeserializeAggregateFunction final
@@ -294,6 +302,130 @@ TEST_F(AggregateFunctionExceptionTest, ForEachReadsEachArgumentFromItsOwnRowOffs
     auto result = foreach_function.get_return_type()->create_column();
     foreach_function.insert_result_into(state.data(), *result);
     const auto& result_array = assert_cast<const ColumnArray&>(*result);
+    const auto& result_data = assert_cast<const ColumnInt64&>(
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+    EXPECT_EQ(result_data.get_data(), ColumnInt64::Container({330, 440}));
+}
+
+TEST_F(AggregateFunctionExceptionTest, ForEachNormalizesShiftedOffsetsOncePerBatch) {
+    std::vector<size_t> observed_column_sizes;
+    auto nested_function = std::make_shared<PairSumAggregateFunction>(&observed_column_sizes);
+    auto input_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    AggregateFunctionForEach foreach_function(nested_function, DataTypes {input_type, input_type});
+
+    auto compacted_data = ColumnInt32::create();
+    compacted_data->get_data().assign({30, 40});
+    auto compacted_offsets = ColumnArray::ColumnOffsets::create();
+    compacted_offsets->get_data().assign({0, 1, 2});
+    auto compacted = ColumnArray::create(std::move(compacted_data), std::move(compacted_offsets));
+
+    auto original_data = ColumnInt32::create();
+    original_data->get_data().assign({10, 20, 300, 400});
+    auto original_offsets = ColumnArray::ColumnOffsets::create();
+    original_offsets->get_data().assign({2, 3, 4});
+    auto original = ColumnArray::create(std::move(original_data), std::move(original_offsets));
+    const IColumn* columns[] = {compacted.get(), original.get()};
+
+    AggregateFunctionGuard state(&foreach_function);
+    std::array<AggregateDataPtr, 3> places {nullptr, state.data(), state.data()};
+    foreach_function.add_batch_selected(places.size(), places.data(), 0, columns, arena);
+
+    EXPECT_EQ(observed_column_sizes, std::vector<size_t>({2, 2}));
+    auto result = foreach_function.get_return_type()->create_column();
+    foreach_function.insert_result_into(state.data(), *result);
+    const auto& result_array = assert_cast<const ColumnArray&>(*result);
+    const auto& result_data = assert_cast<const ColumnInt64&>(
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+    EXPECT_EQ(result_data.get_data(), ColumnInt64::Container({770}));
+}
+
+TEST_F(AggregateFunctionExceptionTest, NullableForEachNormalizesVisibleRowsOncePerBatch) {
+    std::vector<size_t> observed_column_sizes;
+    auto nested_function = std::make_shared<PairSumAggregateFunction>(&observed_column_sizes);
+    auto input_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    auto* foreach_function =
+            new AggregateFunctionForEach(nested_function, DataTypes {input_type, input_type});
+    AggregateFunctionNullVariadicInline<AggregateFunctionForEach, true> nullable_foreach(
+            foreach_function, DataTypes {make_nullable(input_type), make_nullable(input_type)},
+            false);
+
+    auto compacted_data = ColumnInt32::create();
+    compacted_data->get_data().assign({30, 40});
+    auto compacted_offsets = ColumnArray::ColumnOffsets::create();
+    compacted_offsets->get_data().assign({0, 1, 2});
+    auto compacted = ColumnArray::create(std::move(compacted_data), std::move(compacted_offsets));
+    auto compacted_nullable =
+            ColumnNullable::create(std::move(compacted), ColumnUInt8::create(3, 0));
+    compacted_nullable->get_null_map_data()[0] = 1;
+
+    auto original_data = ColumnInt32::create();
+    original_data->get_data().assign({10, 20, 300, 400});
+    auto original_offsets = ColumnArray::ColumnOffsets::create();
+    original_offsets->get_data().assign({2, 3, 4});
+    auto original = ColumnArray::create(std::move(original_data), std::move(original_offsets));
+    auto original_nullable = ColumnNullable::create(std::move(original), ColumnUInt8::create(3, 0));
+    original_nullable->get_null_map_data()[0] = 1;
+    const IColumn* columns[] = {compacted_nullable.get(), original_nullable.get()};
+
+    AggregateFunctionGuard state(&nullable_foreach);
+    nullable_foreach.add_batch_single_place(3, state.data(), columns, arena);
+
+    EXPECT_EQ(observed_column_sizes, std::vector<size_t>({2, 2}));
+    auto result = nullable_foreach.get_return_type()->create_column();
+    nullable_foreach.insert_result_into(state.data(), *result);
+    const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+    ASSERT_EQ(nullable_result.get_null_map_data(), ColumnUInt8::Container({0}));
+    const auto& result_array = assert_cast<const ColumnArray&>(nullable_result.get_nested_column());
+    const auto& result_data = assert_cast<const ColumnInt64&>(
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+    EXPECT_EQ(result_data.get_data(), ColumnInt64::Container({770}));
+}
+
+TEST_F(AggregateFunctionExceptionTest, NullableForEachStreamingNormalizesVisibleRowsOncePerBatch) {
+    std::vector<size_t> observed_column_sizes;
+    auto nested_function = std::make_shared<PairSumAggregateFunction>(&observed_column_sizes);
+    auto input_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    auto* foreach_function =
+            new AggregateFunctionForEach(nested_function, DataTypes {input_type, input_type});
+    AggregateFunctionNullVariadicInline<AggregateFunctionForEach, true> nullable_foreach(
+            foreach_function, DataTypes {make_nullable(input_type), make_nullable(input_type)},
+            false);
+
+    auto compacted_data = ColumnInt32::create();
+    compacted_data->get_data().assign({30, 40});
+    auto compacted_offsets = ColumnArray::ColumnOffsets::create();
+    compacted_offsets->get_data().assign({0, 1, 2});
+    auto compacted = ColumnArray::create(std::move(compacted_data), std::move(compacted_offsets));
+    auto compacted_nullable =
+            ColumnNullable::create(std::move(compacted), ColumnUInt8::create(3, 0));
+    compacted_nullable->get_null_map_data()[0] = 1;
+
+    auto original_data = ColumnInt32::create();
+    original_data->get_data().assign({10, 20, 300, 400});
+    auto original_offsets = ColumnArray::ColumnOffsets::create();
+    original_offsets->get_data().assign({2, 3, 4});
+    auto original = ColumnArray::create(std::move(original_data), std::move(original_offsets));
+    auto original_nullable = ColumnNullable::create(std::move(original), ColumnUInt8::create(3, 0));
+    original_nullable->get_null_map_data()[0] = 1;
+    const IColumn* columns[] = {compacted_nullable.get(), original_nullable.get()};
+    MutableColumnPtr serialized = ColumnString::create();
+
+    nullable_foreach.streaming_agg_serialize_to_column(columns, serialized, 3, arena);
+
+    EXPECT_EQ(observed_column_sizes, std::vector<size_t>({2, 2}));
+    EXPECT_EQ(serialized->size(), 3);
+
+    auto result = nullable_foreach.get_return_type()->create_column();
+    const auto& serialized_column = assert_cast<const ColumnString&>(*serialized);
+    for (size_t row = 0; row < serialized_column.size(); ++row) {
+        AggregateFunctionGuard state(&nullable_foreach);
+        VectorBufferReader reader(serialized_column.get_data_at(row));
+        nullable_foreach.deserialize(state.data(), reader, arena);
+        nullable_foreach.insert_result_into(state.data(), *result);
+    }
+    const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+    EXPECT_EQ(nullable_result.get_null_map_data(), ColumnUInt8::Container({1, 0, 0}));
+    const auto& result_array = assert_cast<const ColumnArray&>(nullable_result.get_nested_column());
     const auto& result_data = assert_cast<const ColumnInt64&>(
             assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
     EXPECT_EQ(result_data.get_data(), ColumnInt64::Container({330, 440}));

@@ -884,6 +884,92 @@ TEST(ArrayEnumerateUniqFunctionTest, MappedAndOriginalNullableArraysUseLogicalRo
     EXPECT_EQ(values.get_data(), ColumnInt64::Container({1, 1}));
 }
 
+TEST(ArrayEnumerateUniqFunctionTest, EqualHiddenOffsetsReuseInputOffsets) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(make_nullable(int_type));
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto source = make_nullable_int_array_column({{100}, {1}}, {1, 0});
+    const auto& source_array = assert_cast<const ColumnArray&>(
+            assert_cast<const ColumnNullable&>(*source).get_nested_column());
+    const auto* source_offsets = source_array.get_offsets_ptr().get();
+
+    auto result_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt64>())));
+    Block block;
+    block.insert({source, nullable_array_int_type, "lhs"});
+    block.insert({source, nullable_array_int_type, "rhs"});
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "array_enumerate_uniq", block.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+
+    FunctionUtils function_utils(result_type, {nullable_array_int_type, nullable_array_int_type},
+                                 false);
+    auto* function_context = function_utils.get_fn_ctx();
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    block.insert({nullptr, result_type, "result"});
+    auto status = function->execute(function_context, block, {0, 1}, 2, 2);
+    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+    EXPECT_EQ(result.get_null_map_data(), ColumnUInt8::Container({1, 0}));
+    const auto& result_array = assert_cast<const ColumnArray&>(result.get_nested_column());
+    EXPECT_EQ(result_array.get_offsets_ptr().get(), source_offsets);
+    EXPECT_EQ(result_array.get_offsets(), ColumnArray::Offsets64({1, 2}));
+}
+
+TEST(ArrayEnumerateUniqFunctionTest, ValidatesLateMismatchBeforeCompacting) {
+    constexpr size_t row_count = 64;
+    constexpr size_t row_size = 2048;
+    constexpr int64_t max_execution_bytes = 256 * 1024;
+
+    std::vector<std::vector<int32_t>> lhs_rows(row_count, std::vector<int32_t>(row_size, 1));
+    std::vector<std::vector<int32_t>> rhs_rows(row_count, std::vector<int32_t>(row_size, 2));
+    lhs_rows[0] = {999};
+    rhs_rows[0].clear();
+    rhs_rows.back().pop_back();
+
+    std::vector<uint8_t> lhs_null_map(row_count, 0);
+    lhs_null_map[0] = 1;
+    auto lhs = make_nullable_int_array_column(lhs_rows, lhs_null_map);
+    auto rhs = make_int_array_column(rhs_rows);
+
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(make_nullable(int_type));
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto result_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt64>())));
+    Block block;
+    block.insert({std::move(lhs), nullable_array_int_type, "lhs"});
+    block.insert({std::move(rhs), array_int_type, "rhs"});
+    auto function = SimpleFunctionFactory::instance().get_function(
+            "array_enumerate_uniq", block.get_columns_with_type_and_name(), result_type);
+    ASSERT_NE(function, nullptr);
+
+    FunctionUtils function_utils(result_type, {nullable_array_int_type, array_int_type}, false);
+    auto* function_context = function_utils.get_fn_ctx();
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    block.insert({nullptr, result_type, "result"});
+
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "ArrayEnumerateValidateBeforeCompact");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t baseline = tracker->consumption();
+    auto status = function->execute(function_context, block, {0, 1}, 2, row_count);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t execution_peak = tracker->peak_consumption() - baseline;
+
+    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("must be equal"), std::string::npos) << status;
+    EXPECT_LT(execution_peak, max_execution_bytes);
+}
+
 TEST(ArraySortByFunctionTest, MappedAndOriginalNullableArraysUseLogicalRowOffsets) {
     auto int_type = std::make_shared<DataTypeInt32>();
     auto nullable_int_type = make_nullable(int_type);

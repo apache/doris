@@ -132,26 +132,38 @@ public:
             column_arrays[i] = &assert_cast<const ColumnArray&>(*array_column);
         }
 
-        bool has_hidden_nested_data = false;
-        if (result_null_map_data != nullptr) {
-            for (size_t row = 0; row < input_rows_count && !has_hidden_nested_data; ++row) {
-                if (!(*result_null_map_data)[row]) {
-                    continue;
-                }
-                for (size_t i = 0; i < num_element; ++i) {
-                    const size_t actual_row = index_check_const(row, column_is_const[i]);
-                    const auto& offsets = column_arrays[i]->get_offsets();
-                    if (offsets[actual_row] != offsets[actual_row - 1]) {
-                        has_hidden_nested_data = true;
-                        break;
+        bool offsets_aligned = true;
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            size_t first_row_size = 0;
+            size_t first_logical_offset = 0;
+            for (size_t i = 0; i < num_element; ++i) {
+                const size_t actual_row = index_check_const(row, column_is_const[i]);
+                const auto& offsets = column_arrays[i]->get_offsets();
+                const size_t row_begin = offsets[actual_row - 1];
+                const size_t row_size = offsets[actual_row] - row_begin;
+                const size_t logical_offset =
+                        column_is_const[i] ? (row + 1) * row_size : offsets[row];
+
+                if (i == 0) {
+                    first_row_size = row_size;
+                    first_logical_offset = logical_offset;
+                } else {
+                    if (result_null_map_data == nullptr || !(*result_null_map_data)[row]) {
+                        if (row_size != first_row_size) {
+                            return Status::RuntimeError(fmt::format(
+                                    "execute failed, function {}'s {}-th argument should have "
+                                    "same offsets with first argument",
+                                    get_name(), i + 1));
+                        }
                     }
+                    offsets_aligned &= logical_offset == first_logical_offset;
                 }
             }
         }
 
         Columns tuple_columns(num_element);
         ColumnPtr result_offsets;
-        if (!has_hidden_nested_data) {
+        if (offsets_aligned) {
             Columns materialized_columns(num_element);
             // Const arrays must be expanded, but prefer offsets already owned by a non-const input.
             size_t offsets_source = 0;
@@ -174,15 +186,6 @@ public:
                 }
                 materialized_columns[i] = std::move(column);
                 column_arrays[i] = &assert_cast<const ColumnArray&>(*materialized_columns[i]);
-            }
-
-            for (size_t i = 1; i < num_element; ++i) {
-                if (!column_arrays[i]->has_equal_offsets(*column_arrays[0])) {
-                    return Status::RuntimeError(fmt::format(
-                            "execute failed, function {}'s {}-th argument should have same "
-                            "offsets with first argument",
-                            get_name(), i + 1));
-                }
             }
 
             for (size_t i = 0; i < num_element; ++i) {
@@ -213,11 +216,6 @@ public:
                     const size_t current_size = offsets[actual_row] - row_begin;
                     if (i == 0) {
                         row_size = current_size;
-                    } else if (current_size != row_size) {
-                        return Status::RuntimeError(fmt::format(
-                                "execute failed, function {}'s {}-th argument should have same "
-                                "offsets with first argument",
-                                get_name(), i + 1));
                     }
                     mutable_tuple_columns[i]->insert_range_from(column_arrays[i]->get_data(),
                                                                 row_begin, row_size);

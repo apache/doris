@@ -158,19 +158,19 @@ public:
             array_columns[i] = array;
         }
 
-        bool has_hidden_nested_data = false;
-        if (result_null_map_data != nullptr) {
-            for (size_t row = 0; row < input_rows_count && !has_hidden_nested_data; ++row) {
-                if (!(*result_null_map_data)[row]) {
-                    continue;
-                }
-                for (const auto* array : array_columns) {
-                    const auto& current_offsets = array->get_offsets();
-                    if (current_offsets[row] != current_offsets[row - 1]) {
-                        has_hidden_nested_data = true;
-                        break;
+        bool offsets_aligned = true;
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            const auto& first_offsets = array_columns[0]->get_offsets();
+            const size_t first_row_size = first_offsets[row] - first_offsets[row - 1];
+            for (size_t i = 1; i < arguments.size(); ++i) {
+                const auto& current_offsets = array_columns[i]->get_offsets();
+                if (result_null_map_data == nullptr || !(*result_null_map_data)[row]) {
+                    if (current_offsets[row] - current_offsets[row - 1] != first_row_size) {
+                        return Status::RuntimeError(fmt::format(
+                                "lengths of all arrays of function {} must be equal.", get_name()));
                     }
                 }
+                offsets_aligned &= current_offsets[row] == first_offsets[row];
             }
         }
 
@@ -178,14 +178,10 @@ public:
         const ColumnArray::Offsets64* offsets = nullptr;
         ColumnPtr result_offsets;
         MutableColumns compacted_data_columns;
-        if (!has_hidden_nested_data) {
+        if (offsets_aligned) {
             offsets = &array_columns[0]->get_offsets();
             result_offsets = array_columns[0]->get_offsets_ptr();
             for (size_t i = 0; i < arguments.size(); ++i) {
-                if (i > 0 && *offsets != array_columns[i]->get_offsets()) {
-                    return Status::RuntimeError(fmt::format(
-                            "lengths of all arrays of function {} must be equal.", get_name()));
-                }
                 data_columns[i] = &array_columns[i]->get_data();
             }
         } else {
@@ -213,9 +209,6 @@ public:
                     const size_t current_row_size = current_offsets[row] - row_begin;
                     if (i == 0) {
                         row_size = current_row_size;
-                    } else if (current_row_size != row_size) {
-                        return Status::RuntimeError(fmt::format(
-                                "lengths of all arrays of function {} must be equal.", get_name()));
                     }
                     compacted_data_columns[i]->insert_range_from(array_columns[i]->get_data(),
                                                                  row_begin, row_size);

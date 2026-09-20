@@ -34,6 +34,8 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "testutil/function_utils.h"
 
 namespace doris {
@@ -142,12 +144,17 @@ TEST(function_array_zip_test, ignores_hidden_payload_of_outer_null_rows) {
     EXPECT_EQ(rhs_values.get_data()[0], 20);
 }
 
-TEST(function_array_zip_test, ignores_hidden_payload_when_input_offsets_are_equal) {
+TEST(function_array_zip_test, equal_hidden_offsets_reuse_input_columns) {
     auto lhs_array = create_array_column({{100}, {1}});
+    const auto& lhs_array_ref = assert_cast<const ColumnArray&>(*lhs_array);
+    const auto* lhs_data = lhs_array_ref.get_data_ptr().get();
+    const auto* lhs_offsets = lhs_array_ref.get_offsets_ptr().get();
     auto lhs_null_map = ColumnUInt8::create();
     lhs_null_map->get_data().assign({1, 0});
     auto lhs = ColumnNullable::create(std::move(lhs_array), std::move(lhs_null_map));
     auto rhs = create_array_column({{10}, {20}});
+    const auto& rhs_array = assert_cast<const ColumnArray&>(*rhs);
+    const auto* rhs_data = rhs_array.get_data_ptr().get();
 
     auto array_type = array_int_type();
     Block block;
@@ -159,17 +166,14 @@ TEST(function_array_zip_test, ignores_hidden_payload_when_input_offsets_are_equa
     EXPECT_EQ(result.get_null_map_data(), ColumnUInt8::Container({1, 0}));
 
     const auto& result_array = assert_cast<const ColumnArray&>(result.get_nested_column());
-    EXPECT_EQ(result_array.get_offsets(), ColumnArray::Offsets64({0, 1}));
+    EXPECT_EQ(result_array.get_offsets_ptr().get(), lhs_offsets);
+    EXPECT_EQ(result_array.get_offsets(), ColumnArray::Offsets64({1, 2}));
 
     const auto& nullable_tuple =
             assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column();
     const auto& tuple = assert_cast<const ColumnStruct&>(nullable_tuple);
-    const auto& lhs_values = assert_cast<const ColumnInt32&>(
-            assert_cast<const ColumnNullable&>(*tuple.get_columns()[0]).get_nested_column());
-    const auto& rhs_values = assert_cast<const ColumnInt32&>(
-            assert_cast<const ColumnNullable&>(*tuple.get_columns()[1]).get_nested_column());
-    EXPECT_EQ(lhs_values.get_data(), ColumnInt32::Container({1}));
-    EXPECT_EQ(rhs_values.get_data(), ColumnInt32::Container({20}));
+    EXPECT_EQ(tuple.get_columns()[0].get(), lhs_data);
+    EXPECT_EQ(tuple.get_columns()[1].get(), rhs_data);
 }
 
 TEST(function_array_zip_test, rejects_different_lengths_on_non_null_rows) {
@@ -179,6 +183,41 @@ TEST(function_array_zip_test, rejects_different_lengths_on_non_null_rows) {
                                     array_type, array_type, 1, &block);
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("same offsets"), std::string::npos) << status;
+}
+
+TEST(function_array_zip_test, validates_late_mismatch_before_compacting) {
+    constexpr size_t row_count = 64;
+    constexpr size_t row_size = 2048;
+    constexpr int64_t max_execution_bytes = 256 * 1024;
+
+    IntRows lhs_rows(row_count, std::vector<Int32>(row_size, 1));
+    IntRows rhs_rows(row_count, std::vector<Int32>(row_size, 2));
+    lhs_rows[0] = {999};
+    rhs_rows[0].clear();
+    rhs_rows.back().pop_back();
+
+    auto lhs_array = create_array_column(lhs_rows);
+    auto lhs_null_map = ColumnUInt8::create(row_count, 0);
+    lhs_null_map->get_data()[0] = 1;
+    auto lhs = ColumnNullable::create(std::move(lhs_array), std::move(lhs_null_map));
+    auto rhs = create_array_column(rhs_rows);
+
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "ArrayZipValidateBeforeCompact");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t baseline = tracker->consumption();
+
+    auto array_type = array_int_type();
+    Block block;
+    auto status = execute_array_zip(std::move(lhs), std::move(rhs), make_nullable(array_type),
+                                    array_type, row_count, &block);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t execution_peak = tracker->peak_consumption() - baseline;
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("same offsets"), std::string::npos) << status;
+    EXPECT_LT(execution_peak, max_execution_bytes);
 }
 
 TEST(function_array_zip_test, aligned_offsets_reuse_input_columns) {
