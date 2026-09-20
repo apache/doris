@@ -30,9 +30,11 @@
 #include "io/cache/hole_fill_planner.h"
 #include "io/cache/inflight_write_buffer_index.h"
 #include "io/fs/read_ahead_metrics.h"
+#include "io/fs/read_io_trace.h"
 #include "util/countdown_latch.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
+#include "util/time.h"
 
 namespace doris::io {
 namespace {
@@ -58,9 +60,11 @@ struct PartialBlockWritebackManager::Task {
 
     // A queued task may merge while the manager lock is free. Once activate() wins, later
     // fragments are deduplicated and the worker obtains their bytes from the source read instead.
-    std::optional<PartialBlockSubmitResult> try_merge(size_t fragment_offset, Slice data) {
+    std::optional<PartialBlockSubmitResult> try_merge(size_t fragment_offset, Slice data,
+                                                      const IOContext& fragment_context) {
         std::lock_guard lock(fragment_mutex);
         if (is_active()) {
+            trace_fragment("fragment_ignored_active", fragment_offset, data.size, fragment_context);
             return PartialBlockSubmitResult::ACTIVE_DEDUPLICATED;
         }
         if (!key.write_manager->is_current_write_epoch(write_epoch)) {
@@ -71,7 +75,21 @@ struct PartialBlockWritebackManager::Task {
         std::memcpy(buffer->data() + fragment_offset, data.data, data.size);
         covered_intervals.emplace_back(
                 FileRange {.offset = key.block_offset + fragment_offset, .size = data.size});
+        trace_fragment("fragment_merged", fragment_offset, data.size, fragment_context);
         return PartialBlockSubmitResult::MERGED;
+    }
+
+    void trace_fragment(std::string_view event, size_t offset, size_t size,
+                        const IOContext& fragment_context) const {
+        if (ReadIOTrace::enabled()) {
+            ReadIOTrace::record({.event = event,
+                                 .context = &fragment_context,
+                                 .file = source_reader->path().native(),
+                                 .id = io_context.io_context.read_trace_id,
+                                 .parent_id = fragment_context.read_trace_id,
+                                 .offset = key.block_offset + offset,
+                                 .size = size});
+        }
     }
 
     // Activation closes the merge window. Taking fragment_mutex here also includes a merge that
@@ -89,6 +107,7 @@ struct PartialBlockWritebackManager::Task {
     Status read_holes(const std::vector<FileRange>& read_ranges, ThreadPoolToken& token);
 
     void activate() {
+        activation_trace_ns = ReadIOTrace::enabled() ? MonotonicNanos() : 0;
         bool expected = false;
         DORIS_CHECK(active.compare_exchange_strong(expected, true, std::memory_order_acq_rel));
     }
@@ -117,6 +136,7 @@ struct PartialBlockWritebackManager::Task {
     FileRangeReadIOContext io_context;
     // Set at successful queue admission under the manager mutex; merges leave it unchanged.
     std::chrono::steady_clock::time_point enqueued_at;
+    int64_t activation_trace_ns {0}; // only read by the worker after taking the task
     // Valid only while this task is in the manager queue; accessed under the manager mutex.
     Queue::iterator queue_position;
     // A queued task may absorb foreground fragments while unrelated queue operations proceed.
@@ -263,6 +283,8 @@ PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
                         .block_offset = request.block_offset};
     const size_t fragment_offset = request.fragment_offset;
     const Slice fragment = request.data;
+    // Retain the submitting query/range identity even when a different query owns the task.
+    const IOContext fragment_context = request.io_context.io_context;
 
     TaskPtr existing;
     {
@@ -279,7 +301,8 @@ PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
     }
     if (existing != nullptr) {
         DORIS_CHECK(existing->block_valid_size == request.block_valid_size);
-        if (auto result = existing->try_merge(fragment_offset, fragment); result.has_value()) {
+        if (auto result = existing->try_merge(fragment_offset, fragment, fragment_context);
+            result.has_value()) {
             return *result;
         }
     }
@@ -293,12 +316,26 @@ PartialBlockSubmitResult PartialBlockWritebackManager::try_submit(
         existing.reset();
         switch (_enqueue_or_get_existing(candidate, &existing)) {
         case EnqueueResult::QUEUED:
+            if (ReadIOTrace::enabled()) {
+                ReadIOTrace::record(
+                        {.event = "hole_queued",
+                         .context = &fragment_context,
+                         .file = candidate->source_reader->path().native(),
+                         .id = candidate->io_context.io_context.read_trace_id,
+                         .parent_id = fragment_context.read_trace_id,
+                         .offset = key.block_offset + fragment_offset,
+                         .size = fragment.size,
+                         .time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                            candidate->enqueued_at.time_since_epoch())
+                                            .count()});
+            }
             return PartialBlockSubmitResult::QUEUED;
         case EnqueueResult::REJECTED:
             return PartialBlockSubmitResult::REJECTED;
         case EnqueueResult::EXISTING:
             DORIS_CHECK(existing != nullptr);
-            if (auto result = existing->try_merge(fragment_offset, fragment); result.has_value()) {
+            if (auto result = existing->try_merge(fragment_offset, fragment, fragment_context);
+                result.has_value()) {
                 return *result;
             }
             break;
@@ -342,6 +379,8 @@ PartialBlockWritebackManager::TaskPtr PartialBlockWritebackManager::Task::create
     task->io_context = std::move(request.io_context);
     task->io_context.io_context.should_stop = false;
     task->io_context.io_context.bypass_peer_read = true;
+    task->io_context.io_context.read_trace_source = FileReadTraceSource::HOLE_FILL;
+    task->io_context.io_context.read_trace_id = ReadIOTrace::next_id();
     return task;
 }
 
@@ -629,8 +668,27 @@ void PartialBlockWritebackManager::_discard_queued_task_locked(Queue::iterator i
 }
 
 void PartialBlockWritebackManager::_process_task(const TaskPtr& task, ThreadPoolToken& token) {
+    if (ReadIOTrace::enabled()) {
+        ReadIOTrace::record({.event = "hole_active",
+                             .context = &task->io_context.io_context,
+                             .file = task->source_reader->path().native(),
+                             .id = task->io_context.io_context.read_trace_id,
+                             .offset = task->key.block_offset,
+                             .size = task->block_valid_size,
+                             .time_ns = task->activation_trace_ns});
+    }
     bool write_submitted = false;
+    std::string_view trace_outcome = "skipped_before_read";
     Defer complete {[&]() {
+        if (ReadIOTrace::enabled()) {
+            ReadIOTrace::record({.event = "hole_done",
+                                 .context = &task->io_context.io_context,
+                                 .file = task->source_reader->path().native(),
+                                 .id = task->io_context.io_context.read_trace_id,
+                                 .offset = task->key.block_offset,
+                                 .size = task->block_valid_size,
+                                 .outcome = trace_outcome});
+        }
         if (!write_submitted) {
             read_ahead_bvars().hole_fill_dropped_blocks << 1;
         }
@@ -648,6 +706,7 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task, ThreadPool
     std::vector<FileRange> read_ranges;
     Status status = task->plan_hole_reads(_options.hole_fill_coalesce, &read_ranges);
     if (!status.ok()) {
+        trace_outcome = "plan_failed";
         read_ahead_bvars().hole_fill_failed_blocks << 1;
         LOG(WARNING) << "Plan partial block hole-fill reads failed, hash="
                      << task->key.cache_hash.to_string() << ", offset=" << task->key.block_offset
@@ -655,8 +714,22 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task, ThreadPool
         return;
     }
 
+    // This snapshot follows activation and the final queued merge. Its ranges are precisely
+    // what the remote-read pool will read; later fragments cannot change this plan.
+    if (ReadIOTrace::enabled()) {
+        for (const auto& range : read_ranges) {
+            ReadIOTrace::record({.event = "hole_plan",
+                                 .context = &task->io_context.io_context,
+                                 .file = task->source_reader->path().native(),
+                                 .id = task->io_context.io_context.read_trace_id,
+                                 .offset = range.offset,
+                                 .size = range.size});
+        }
+    }
+
     status = task->read_holes(read_ranges, token);
     if (!status.ok()) {
+        trace_outcome = "read_failed";
         read_ahead_bvars().hole_fill_failed_blocks << 1;
         LOG(WARNING) << "Read partial block holes failed, hash=" << task->key.cache_hash.to_string()
                      << ", block_offset=" << task->key.block_offset << ", status=" << status;
@@ -675,6 +748,7 @@ void PartialBlockWritebackManager::_process_task(const TaskPtr& task, ThreadPool
                     .inflight_index = task->inflight_index,
             });
     write_submitted = result == AsyncCacheWriteBlockSubmitResult::SUBMITTED;
+    trace_outcome = write_submitted ? "write_submitted" : "write_not_submitted";
     if (write_submitted) {
         read_ahead_bvars().hole_fill_write_submitted_blocks << 1;
     }
