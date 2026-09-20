@@ -114,6 +114,9 @@ public class PrepareCommand extends Command {
         }
         StatementContext statementContext = ctx.getStatementContext();
         statementContext.setPrepareStage(true);
+        // Forwarded EXECUTE reparses SQL into a new context before reconstructing PREPARE.
+        // The planner must use that context before the forwarded parameter packet is decoded.
+        executor.setStatementContext(statementContext);
         List<Slot> slots;
         if (logicalPlan instanceof Command) {
             if (logicalPlan instanceof InsertIntoTableCommand
