@@ -19,11 +19,13 @@
 
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "cctz/time_zone.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_nullable.h"
@@ -37,10 +39,6 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/url_coding.h"
-
-#include <chrono>
-
-#include "cctz/time_zone.h"
 
 namespace doris::format::paimon {
 namespace {
@@ -164,9 +162,8 @@ TEST_F(PaimonRustTableReaderTest, TableLevelCountEmitsSyntheticRows) {
     ASSERT_TRUE(reader.prepare_split(options).ok());
     EXPECT_TRUE(reader.current_split_uses_metadata_count());
 
-    Block block = Block({ColumnWithTypeAndName(
-            _projected_column.type->create_column(), _projected_column.type,
-            _projected_column.name)});
+    Block block = Block({ColumnWithTypeAndName(_projected_column.type->create_column(),
+                                               _projected_column.type, _projected_column.name)});
     bool eos = false;
     // The base-class count contract emits batches until a call finds remaining==0:
     // batch_size(3) splits 5 rows into 3 + 2, and only the following call reports eos.
@@ -203,9 +200,8 @@ TEST_F(PaimonRustTableReaderTest, TableLevelCountDisabledByConjuncts) {
     EXPECT_FALSE(status.ok());
     EXPECT_FALSE(reader.current_split_uses_metadata_count());
 
-    Block block = Block({ColumnWithTypeAndName(
-            _projected_column.type->create_column(), _projected_column.type,
-            _projected_column.name)});
+    Block block = Block({ColumnWithTypeAndName(_projected_column.type->create_column(),
+                                               _projected_column.type, _projected_column.name)});
     bool eos = false;
     const auto get_block_status = reader.get_block(&block, &eos);
     EXPECT_FALSE(get_block_status.ok());
@@ -228,9 +224,9 @@ TEST_F(PaimonRustTableReaderTest, FillsPartitionConstantsForMissingArrowColumns)
     partition_values.emplace("dt", Field::create_field<TYPE_STRING>("2024-01-01"));
     reader.TEST_set_partition_values(std::move(partition_values));
 
-    Block block = Block({ColumnWithTypeAndName(data_type->create_column(), data_type, "k"),
-                         ColumnWithTypeAndName(partition_type->create_column(), partition_type,
-                                               "dt")});
+    Block block =
+            Block({ColumnWithTypeAndName(data_type->create_column(), data_type, "k"),
+                   ColumnWithTypeAndName(partition_type->create_column(), partition_type, "dt")});
     const size_t rows = 4;
     ASSERT_TRUE(reader.TEST_fill_non_arrow_columns(&block, rows).ok());
 

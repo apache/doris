@@ -30,8 +30,8 @@
 #include "core/column/column_const.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
-#include "format_v2/table/paimon_rust_predicate_converter.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/table/paimon_rust_predicate_converter.h"
 #include "runtime/descriptors.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
@@ -52,14 +52,14 @@ constexpr const char* VALUE_KIND_FIELD = "_VALUE_KIND";
 // RAII wrappers over the paimon-rust C handles. Each handle is an opaque
 // pointer owned by Rust and released by a matching paimon_*_free function.
 // ---------------------------------------------------------------------------
-#define PAIMON_OWNED(type, freefn)                                  \
-    struct type##_deleter {                                         \
-        void operator()(paimon_##type* p) const {                   \
-            if (p) {                                                \
-                freefn(p);                                          \
-            }                                                       \
-        }                                                           \
-    };                                                              \
+#define PAIMON_OWNED(type, freefn)                \
+    struct type##_deleter {                       \
+        void operator()(paimon_##type* p) const { \
+            if (p) {                              \
+                freefn(p);                        \
+            }                                     \
+        }                                         \
+    };                                            \
     using type##_ptr = std::unique_ptr<paimon_##type, type##_deleter>
 
 PAIMON_OWNED(table, paimon_table_free);
@@ -166,8 +166,8 @@ Status PaimonRustTableReader::init(format::TableReadOptions&& options) {
             file_scan_profile::ensure_hierarchy(_scanner_profile);
             _rust_total_time = ADD_CHILD_TIMER(_scanner_profile, "PaimonRustReader",
                                                file_scan_profile::TABLE_READER);
-            _rust_open_split_time = ADD_CHILD_TIMER(_scanner_profile, "OpenSplitTime",
-                                                    "PaimonRustReader");
+            _rust_open_split_time =
+                    ADD_CHILD_TIMER(_scanner_profile, "OpenSplitTime", "PaimonRustReader");
             _rust_read_batch_time =
                     ADD_CHILD_TIMER(_scanner_profile, "ReadBatchTime", "PaimonRustReader");
             _rust_arrow_to_block_time =
@@ -380,8 +380,8 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
     // supplied table schema.
     auto options = _build_options();
 
-    auto opened_table_key = std::make_tuple(table_path, schema_json, db_name, table_name,
-                                            branch_opt, options);
+    auto opened_table_key =
+            std::make_tuple(table_path, schema_json, db_name, table_name, branch_opt, options);
     if (!_handles || !_handles->table || _opened_table_key != opened_table_key) {
         // A paimon scan reads one table, so the handle is opened at most once per
         // distinct identity (e.g. re-created after a close); splits of the same
@@ -583,8 +583,7 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
                                                                  batch->column(c).get(), 0, rows,
                                                                  _ctz));
             } catch (Exception& e) {
-                return Status::InternalError("Failed to convert from arrow to block: {}",
-                                             e.what());
+                return Status::InternalError("Failed to convert from arrow to block: {}", e.what());
             }
         }
     }
@@ -605,8 +604,8 @@ Status PaimonRustTableReader::_fill_non_arrow_columns(
             column.is_partition_key && value != nullptr) {
             // Partition values are split constants (same materialization the
             // TableColumnMapper builds for native readers).
-            constant_expr = VExprContext::create_shared(
-                    VLiteral::create_shared(column.type, *value));
+            constant_expr =
+                    VExprContext::create_shared(VLiteral::create_shared(column.type, *value));
         } else if (column.default_expr != nullptr) {
             constant_expr = column.default_expr;
         } else {
@@ -630,9 +629,9 @@ Status PaimonRustTableReader::_fill_non_arrow_columns(
 }
 
 Status PaimonRustTableReader::_materialize_constant_column(const VExprContextSPtr& expr,
-                                                            const DataTypePtr& type,
-                                                            const std::string& name, size_t rows,
-                                                            ColumnPtr* column) {
+                                                           const DataTypePtr& type,
+                                                           const std::string& name, size_t rows,
+                                                           ColumnPtr* column) {
     DORIS_CHECK(expr != nullptr);
     DORIS_CHECK(column != nullptr);
     RowDescriptor row_desc;
@@ -742,9 +741,8 @@ std::map<std::string, std::string> PaimonRustTableReader::_build_options() const
     } else if (_current_range.__isset.table_format_params &&
                _current_range.table_format_params.__isset.paimon_params &&
                _current_range.table_format_params.paimon_params.__isset.paimon_options) {
-        options.insert(
-                _current_range.table_format_params.paimon_params.paimon_options.begin(),
-                _current_range.table_format_params.paimon_params.paimon_options.end());
+        options.insert(_current_range.table_format_params.paimon_params.paimon_options.begin(),
+                       _current_range.table_format_params.paimon_params.paimon_options.end());
     }
 
     if (_scan_params && _scan_params->__isset.properties && !_scan_params->properties.empty()) {
@@ -754,8 +752,7 @@ std::map<std::string, std::string> PaimonRustTableReader::_build_options() const
     } else if (_current_range.__isset.table_format_params &&
                _current_range.table_format_params.__isset.paimon_params &&
                _current_range.table_format_params.paimon_params.__isset.hadoop_conf) {
-        for (const auto& kv :
-             _current_range.table_format_params.paimon_params.hadoop_conf) {
+        for (const auto& kv : _current_range.table_format_params.paimon_params.hadoop_conf) {
             options[kv.first] = kv.second;
         }
     }

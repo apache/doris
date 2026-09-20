@@ -37,8 +37,7 @@ extern "C" {
 #include "paimon_rust/paimon.h"
 }
 
-namespace doris {
-} // namespace doris
+namespace doris {} // namespace doris
 
 namespace doris {
 
