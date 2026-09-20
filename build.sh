@@ -1000,7 +1000,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
 
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
-    # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
+    # Third-party filesystem JARs and the Lance JNI library are packaged by post-build.sh
     "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
 
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/

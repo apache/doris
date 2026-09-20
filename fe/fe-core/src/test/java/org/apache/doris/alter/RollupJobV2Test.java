@@ -52,7 +52,13 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
+import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
 import mockit.Mock;
@@ -61,6 +67,8 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -128,6 +136,37 @@ public class RollupJobV2Test {
     public void tearDown() {
         File file = new File(fileName);
         file.delete();
+    }
+
+    @Test
+    public void testCommitWhileAbortingPreviousLoad() throws Exception {
+        long txnId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1), "commit_during_rollup_abort",
+                new TxnCoordinator(TxnSourceType.FE, 0, "missing", 0), LoadJobSourceType.FRONTEND, 60);
+        TransactionState txn = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, txnId);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        MaterializedViewHandler handler = masterEnv.getMaterializedViewHandler();
+        handler.process(Lists.newArrayList(clause), db, table);
+        RollupJobV2 job = (RollupJobV2) handler.getAlterJobsV2().values().iterator().next();
+        job.jobState = JobState.WAITING_TXN;
+        job.watershedTxnId = txnId + 1;
+
+        try (MockedStatic<GlobalTransactionMgr> mocked = Mockito.mockStatic(
+                GlobalTransactionMgr.class, Mockito.CALLS_REAL_METHODS)) {
+            mocked.when(() -> GlobalTransactionMgr.checkFailedTxns(Mockito.anyList())).thenAnswer(invocation -> {
+                List<TransactionState> failed = (List<TransactionState>) invocation.callRealMethod();
+                Assert.assertEquals(Lists.newArrayList(txn), failed);
+                txn.setTransactionStatus(TransactionStatus.COMMITTED);
+                return failed;
+            });
+            job.runWaitingTxnJob();
+            Assert.assertEquals(JobState.WAITING_TXN, job.getJobState());
+            Assert.assertEquals(TransactionStatus.COMMITTED, txn.getTransactionStatus());
+        }
+        Assert.assertFalse(job.checkFailedPreviousLoadAndAbort());
+        txn.setTransactionStatus(TransactionStatus.VISIBLE);
+        Assert.assertTrue(job.checkFailedPreviousLoadAndAbort());
     }
 
     @Test

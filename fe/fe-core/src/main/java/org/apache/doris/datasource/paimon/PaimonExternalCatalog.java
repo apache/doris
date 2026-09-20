@@ -28,6 +28,7 @@ import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
+import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -232,6 +233,22 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         // Validate only newly supplied dynamic options on ALTER. This lets an old image containing
         // a formerly accepted option survive an unrelated update while still rejecting new writes.
         PaimonReaderOptions.validateCatalogProperties(strictlyValidatedProperties);
+        // Mandatory, non-configurable security rule for the driver jar the jdbc flavor loads into the
+        // FE JVM (shared with the jdbc / iceberg-jdbc catalogs; see JdbcDriverUrlSecurity). Both this
+        // catalog's CREATE hook (checkProperties()) and its detached ALTER hook
+        // (validatePropertiesBeforeUpdate) funnel through here, and never the replay/rebuild path.
+        // Checked BEFORE the metastore-properties build below, which for the jdbc flavor already
+        // attempts to register the driver. Keys owned by PaimonJdbcMetaStoreProperties; only the jdbc
+        // flavor loads a jar, on every other flavor they are dead config that must not fail a catalog.
+        if ("jdbc".equalsIgnoreCase(property.getOrDefault(PAIMON_CATALOG_TYPE, ""))) {
+            for (String key : new String[] {"paimon.jdbc.driver_url", "jdbc.driver_url"}) {
+                try {
+                    JdbcDriverUrlSecurity.check(property.getOrDefault(key, null));
+                } catch (IllegalArgumentException e) {
+                    throw new DdlException(e.getMessage(), e);
+                }
+            }
+        }
         property.checkMetaStoreAndStorageProperties(AbstractPaimonProperties.class);
     }
 

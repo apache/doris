@@ -339,7 +339,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         checkVariantBackendCompatibility(projectsVariant, backends);
     }
 
-    private Optional<Map<Integer, List<String>>> extractNameMapping() {
+    private Optional<Map<Integer, List<String>>> extractNameMapping() throws UserException {
         Optional<MvccSnapshot> snapshot = getPinnedRelationSnapshot();
         if (snapshot.isPresent() && snapshot.get() instanceof IcebergMvccSnapshot) {
             // The mapping must come from the same metadata generation as the pinned schema; a
@@ -625,7 +625,11 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     public void createScanRangeLocations() throws UserException {
         Schema scanSchema = getQuerySchema();
-        Optional<Map<Integer, List<String>>> nameMapping = extractNameMapping();
+        // Metadata (system) table scans never resolve physical data columns by name, so a malformed
+        // name-mapping property must not fail them. Data scans are validated here instead: a
+        // malformed schema.name-mapping.default is a metadata fault that Iceberg would reject too.
+        Optional<Map<Integer, List<String>>> nameMapping =
+                isSystemTable ? Optional.empty() : extractNameMapping();
         Set<Integer> equalityDeleteFieldIds = Collections.emptySet();
         if (!isSystemTable) {
             ConnectContext context = Preconditions.checkNotNull(ConnectContext.get(),
@@ -1143,6 +1147,11 @@ public class IcebergScanNode extends FileQueryScanNode {
             ProjectedFieldRequirement requirement) {
         if (requiresIcebergField(column, fieldById, isTopLevel, requirement)) {
             return true;
+        }
+        if (column.getType().isVariantType()) {
+            // VARIANT has no Iceberg schema children. Any remaining components are object keys or
+            // array indexes inside the encoded value, not Iceberg field IDs or access tokens.
+            return false;
         }
         if (pathIndex == path.size()) {
             return requiresProjectedIcebergField(column, fieldById, requirement);
@@ -2570,17 +2579,17 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
-        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName())) {
+    protected TColumnCategory classifyColumn(String columnName, List<String> partitionKeys) {
+        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(columnName)) {
             return TColumnCategory.SYNTHESIZED;
         }
-        if (slot.getColumn().getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+        if (columnName.startsWith(Column.GLOBAL_ROWID_COL)) {
             return TColumnCategory.SYNTHESIZED;
         }
-        if (IcebergUtils.isIcebergRowLineageColumn(slot.getColumn())) {
+        if (IcebergUtils.isIcebergRowLineageColumn(columnName)) {
             return TColumnCategory.GENERATED;
         }
-        return super.classifyColumn(slot, partitionKeys);
+        return super.classifyColumn(columnName, partitionKeys);
     }
 
     private List<Split> doGetSplits(int numBackends) throws UserException {

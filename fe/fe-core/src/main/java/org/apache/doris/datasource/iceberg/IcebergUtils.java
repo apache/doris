@@ -117,7 +117,6 @@ import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.mapping.MappedField;
 import org.apache.iceberg.mapping.MappedFields;
-import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.transforms.Transforms;
@@ -1423,6 +1422,16 @@ public class IcebergUtils {
         return resSchema;
     }
 
+    /** Build independent display columns without changing the nullable columns used by scans. */
+    public static List<Column> parseSchemaForDisplay(Schema schema, boolean enableMappingVarbinary,
+            boolean enableMappingTimestampTz) {
+        List<Column> columns = parseSchema(schema, enableMappingVarbinary, enableMappingTimestampTz);
+        for (Column column : columns) {
+            column.setIsAllowNull(schema.findField(column.getUniqueId()).isOptional());
+        }
+        return columns;
+    }
+
     /** Convert one Iceberg field to a Doris column without using the generic Doris default-value channel. */
     public static Column parseField(Types.NestedField field, boolean enableMappingVarbinary,
             boolean enableMappingTimestampTz) {
@@ -2256,10 +2265,16 @@ public class IcebergUtils {
      */
     static IcebergSnapshotCacheValue newExplicitSnapshotValue(
             IcebergTableQueryInfo info, Table queryScopedTable, IcebergTableCacheValue generation) {
+        Optional<Map<Integer, List<String>>> nameMapping;
+        try {
+            nameMapping = getNameMapping(queryScopedTable);
+        } catch (UserException e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
         return new IcebergSnapshotCacheValue(
                 IcebergPartitionInfo.empty(),
                 new IcebergSnapshot(info.getSnapshotId(), info.getSchemaId()),
-                getNameMapping(queryScopedTable), queryScopedTable)
+                nameMapping, queryScopedTable)
                 .bindCapturedAuthenticator(generation.getAuthenticator());
     }
 
@@ -2337,9 +2352,19 @@ public class IcebergUtils {
 
     /**
      * Extract the Iceberg name mapping while retaining the distinction between an absent property
-     * and a valid empty mapping.
+     * and a valid (possibly empty) mapping.
+     *
+     * <p>A property that is present but cannot be parsed is a metadata fault rather than an absent
+     * mapping. Iceberg readers refuse such tables outright (Spark's {@code BaseReader} parses
+     * {@code schema.name-mapping.default} while constructing the file reader), so Doris reports the
+     * fault instead of silently degrading to the current column names. Degrading hides renamed
+     * columns behind NULLs when reading data files without field ids, and can even return wrong
+     * values once a column name has been reused.
+     *
+     * @throws UserException if the property is present but cannot be parsed as a name mapping
      */
-    public static Optional<Map<Integer, List<String>>> getNameMapping(Table icebergTable) {
+    public static Optional<Map<Integer, List<String>>> getNameMapping(Table icebergTable)
+            throws UserException {
         String nameMappingJson = icebergTable.properties().get(TableProperties.DEFAULT_NAME_MAPPING);
         if (nameMappingJson == null || nameMappingJson.isEmpty()) {
             return Optional.empty();
@@ -2353,13 +2378,14 @@ public class IcebergUtils {
             extractMappingsFromNameMapping(mapping.asMappedFields(), result);
             return Optional.of(result);
         } catch (Exception e) {
-            // Keep ID-less files readable by current names when a malformed property cannot provide
-            // authoritative aliases; Optional.empty() must remain reserved for an absent property.
-            LOG.warn("Failed to parse name mapping from Iceberg table properties", e);
-            Map<Integer, List<String>> fallback = new HashMap<>();
-            extractMappingsFromNameMapping(
-                    MappingUtil.create(icebergTable.schema()).asMappedFields(), fallback);
-            return Optional.of(fallback);
+            LOG.warn("Failed to parse name mapping of table {}", icebergTable.name(), e);
+            throw new UserException(String.format(
+                    "Invalid table property '%s' of Iceberg table %s: %s. "
+                            + "The value must be an Iceberg name mapping JSON array; please fix or drop "
+                            + "the property (for example with ALTER TABLE ... UNSET TBLPROPERTIES in "
+                            + "Spark) and refresh the table.",
+                    TableProperties.DEFAULT_NAME_MAPPING, icebergTable.name(),
+                    ExceptionUtils.getRootCauseMessage(e)), e);
         }
     }
 

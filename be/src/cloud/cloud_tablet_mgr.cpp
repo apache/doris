@@ -19,7 +19,10 @@
 
 #include <bthread/countdown_event.h>
 
+#include <algorithm>
 #include <chrono>
+#include <set>
+#include <utility>
 
 #include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_meta_mgr.h"
@@ -40,6 +43,8 @@ bvar::Adder<uint64_t> g_base_compaction_not_frozen_tablet_num(
         "base_compaction_not_frozen_tablet_num");
 bvar::Adder<uint64_t> g_cumu_compaction_not_frozen_tablet_num(
         "cumu_compaction_not_frozen_tablet_num");
+bvar::Adder<uint64_t> g_sync_tablets_meta_num("sync_tablets_meta_num");
+bvar::Adder<uint64_t> g_sync_tablets_rowsets_num("sync_tablets_rowsets_num");
 namespace {
 
 // port from
@@ -375,53 +380,93 @@ std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {
 
 void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
     LOG_INFO("begin to sync tablets");
-    int64_t last_sync_time_bound = ::time(nullptr) - config::tablet_sync_interval_s;
 
-    auto weak_tablets = get_weak_tablets();
+    // A tablet carries two staleness clocks and each one gates a different RPC:
+    //
+    //   last_sync_rowsets_time_s
+    //       how long since we pulled this tablet's ROWSETS from MS. Only sync_rowsets()
+    //       advances it, and only when it actually issues the RPC -- a query whose requested
+    //       version we already hold returns early and leaves the clock untouched.
+    //
+    //   last_sync_tablet_meta_time_s
+    //       how long since we pulled this tablet's META from MS, which is what carries
+    //       properties such as the file cache TTL. Only sync_meta() advances it.
+    //
+    // They have to be read separately. A tablet under continuous ingest keeps the rowsets
+    // clock permanently fresh, so selecting meta work by it -- as this used to -- means such a
+    // tablet never has its meta refreshed at all, and it keeps serving whatever TTL it was
+    // built with.
+    const int64_t stale_before = ::time(nullptr) - config::tablet_sync_interval_s;
 
-    // sort by last_sync_time
+    struct Work {
+        std::weak_ptr<CloudTablet> tablet;
+        bool needs_meta = false;
+        bool needs_rowsets = false;
+    };
+
+    // Ordered by the older of the two clocks, so that if we are told to stop half way, the
+    // tablets that have been waiting longest have already been served.
     static auto cmp = [](const auto& a, const auto& b) { return a.first < b.first; };
-    std::multiset<std::pair<int64_t, std::weak_ptr<CloudTablet>>, decltype(cmp)>
-            sync_time_tablet_set(cmp);
+    std::multiset<std::pair<int64_t, Work>, decltype(cmp)> due(cmp);
 
-    for (auto& weak_tablet : weak_tablets) {
-        if (auto tablet = weak_tablet.lock()) {
-            int64_t last_sync_time = tablet->last_sync_time_s;
-            if (last_sync_time <= last_sync_time_bound) {
-                sync_time_tablet_set.emplace(last_sync_time, weak_tablet);
-            }
+    for (auto& weak_tablet : get_weak_tablets()) {
+        auto tablet = weak_tablet.lock();
+        if (!tablet) {
+            continue;
         }
+        const bool needs_rowsets = tablet->last_sync_rowsets_time_s <= stale_before;
+        Work work {
+                .tablet = weak_tablet,
+                // Pulling rowsets implies pulling the tablet meta: the rowsets we are about
+                // to take are only as trustworthy as the meta they belong to, and this is
+                // the relationship the previous single pass had.
+                .needs_meta = needs_rowsets || tablet->last_sync_tablet_meta_time_s <= stale_before,
+                .needs_rowsets = needs_rowsets};
+        if (!work.needs_meta && !work.needs_rowsets) {
+            continue;
+        }
+        due.emplace(
+                std::min(tablet->last_sync_tablet_meta_time_s, tablet->last_sync_rowsets_time_s),
+                std::move(work));
     }
 
     int num_sync = 0;
-    for (auto&& [_, weak_tablet] : sync_time_tablet_set) {
+    int num_sync_meta = 0;
+    for (auto&& [_, work] : due) {
         if (stop_latch.count() <= 0) {
             break;
         }
+        auto tablet = work.tablet.lock();
+        if (!tablet) {
+            continue;
+        }
 
-        if (auto tablet = weak_tablet.lock()) {
-            if (tablet->last_sync_time_s > last_sync_time_bound) {
-                continue;
-            }
-
-            ++num_sync;
+        if (work.needs_meta) {
+            ++num_sync_meta;
+            g_sync_tablets_meta_num << 1;
             auto st = tablet->sync_meta();
             if (!st) {
                 LOG_WARNING("failed to sync tablet meta {}", tablet->tablet_id()).error(st);
                 if (st.is<ErrorCode::NOT_FOUND>()) {
+                    // the tablet is gone from MS, there is nothing left to sync
                     continue;
                 }
             }
+        }
+
+        if (work.needs_rowsets) {
+            ++num_sync;
+            g_sync_tablets_rowsets_num << 1;
             SyncOptions options;
             options.query_version = -1;
             options.merge_schema = true;
-            st = tablet->sync_rowsets(options);
+            auto st = tablet->sync_rowsets(options);
             if (!st) {
                 LOG_WARNING("failed to sync tablet rowsets {}", tablet->tablet_id()).error(st);
             }
         }
     }
-    LOG_INFO("finish sync tablets").tag("num_sync", num_sync);
+    LOG_INFO("finish sync tablets").tag("num_sync", num_sync).tag("num_sync_meta", num_sync_meta);
 }
 
 Status CloudTabletMgr::get_topn_tablets_to_compact(

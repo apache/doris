@@ -467,6 +467,8 @@ struct TSearchVector {
     1: optional TVectorElementType element_type
     2: optional i32 dimension
     3: optional binary values
+    // Present only for one multi-vector query; values contains a row-major matrix.
+    4: optional i32 num_vectors
 }
 
 // Logical result parameters for one vector query. `top_k` is the number of rows returned after
@@ -570,10 +572,15 @@ struct TLanceFileDesc {
     // most this many rows; the upper LIMIT operator still enforces the global bound.
     // Only set for ordinary scans whose predicates are fully pushed into Lance.
     4: optional i64 limit
-    // Physical vector or FTS index segments assigned to this distributed search split. Each value
-    // is one UUID encoded as 16 bytes in RFC 4122 order. Unset for ordinary and vector
-    // unindexed-fragment scans.
+    // Physical index segments assigned to this split. Each UUID is 16 bytes in RFC 4122 order.
+    // An ordinary scan accepts exactly one scalar segment and requires a fixed version and
+    // nonempty fragment_ids. Vector/FTS scans interpret these as their own index segments.
+    // Unset for fragment scans without an assigned segment.
     5: optional list<binary> index_segment_uuids
+    // Ordinary scans only. False for uncovered-fragment tasks in a scalar segment plan,
+    // so these tasks filter their rows without repeating global scalar-index evaluation.
+    // Unset preserves Lance's default; an explicit scalar segment must not be combined with false.
+    6: optional bool use_scalar_index
 }
 
 struct TLanceScanParams {
@@ -693,6 +700,9 @@ struct TFileScanRangeParams {
     35: optional string serialized_table_cache_key
     // 31-33 and 36 are used in master; do not allocate them in branch-4.1.
     37: optional TLanceScanParams lance_scan_params
+    // Non-regular columns in the pinned full schema, including columns pruned from phase one.
+    // When present, omitted names are REGULAR. Used to rebuild row-id fetch projections.
+    38: optional map<string, TColumnCategory> column_name_to_category
 }
 
 struct TFileRangeDesc {

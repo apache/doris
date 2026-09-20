@@ -95,12 +95,12 @@ suite("test_analyze_all_null") {
     sql """alter table invalidTest modify column col2 set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='0.0', 'data_size'='3.2E8', 'min_value'='min', 'max_value'='max');"""
     sql """alter table invalidTest modify column col3 set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='100', 'data_size'='3.2E8', 'min_value'='min', 'max_value'='max');"""
     result = sql """show column cached stats invalidTest"""
-    assertEquals(3, result.size())
+    assertEquals(2, result.size())
 
     explain {
         sql("memo plan select * from invalidTest")
         contains "col1#0 -> ndv=100.0000"
-        contains "col2#1 -> ndv=0.0000"
+        contains "col2#1 -> unknown("
         contains "col3#2 -> ndv=0.0000"
     }
 

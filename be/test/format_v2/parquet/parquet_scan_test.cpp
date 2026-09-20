@@ -25,7 +25,10 @@
 #include <parquet/arrow/writer.h>
 #include <parquet/encoding.h>
 
+#include <atomic>
 #include <bit>
+#include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -35,6 +38,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -50,6 +54,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
+#include "exec/scan/file_scanner_v2.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/runtime_filter_expr.h"
@@ -69,16 +74,25 @@
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/parquet/reader/native/block_split_bloom_filter.h"
+#include "format_v2/parquet/reader/native/column_reader.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
+#include "io/cache/block_file_cache.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/cached_remote_file_reader.h"
+#include "io/cache/fs_file_cache_storage.h"
+#include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "runtime/descriptor_helper.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/utils.h"
 #include "testutil/mock/mock_query_context.h"
 #include "util/coding.h"
+#include "util/defer_op.h"
+#include "util/threadpool.h"
 #include "util/thrift_util.h"
 
 namespace doris {
@@ -2594,6 +2608,381 @@ TEST_F(ParquetScanTest, GlobalRowIdUsesFileLocalPositionForScanRange) {
 
     EXPECT_EQ(ids, std::vector<int32_t>({3, 4}));
     EXPECT_EQ(row_ids, std::vector<uint32_t>({2, 3}));
+}
+
+TEST_F(ParquetScanTest, ReadsOnlyRequestedAbsoluteFileRowsAcrossRowGroups) {
+    write_int_pair_parquet_file(_file_path, 2);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    request->row_ids = {0, 3, 5};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> ids;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block({schema[0]});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = int32_data_column(*block.get_by_position(0).column);
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+        }
+    }
+
+    EXPECT_EQ(ids, std::vector<int32_t>({1, 4, 6}));
+}
+
+TEST_F(ParquetScanTest, StandaloneRowIdFetchRejectsMissingRows) {
+    write_int_pair_parquet_file(_file_path, 2);
+    TDescriptorTableBuilder descriptors_builder;
+    TTupleDescriptorBuilder tuple_builder;
+    tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                   .type(TYPE_INT)
+                                   .nullable(false)
+                                   .column_name("id")
+                                   .column_pos(0)
+                                   .build());
+    tuple_builder.build(&descriptors_builder);
+    ObjectPool pool;
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, descriptors_builder.desc_tbl(), &descriptors).ok());
+    auto* tuple = descriptors->get_tuple_descriptor(0);
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    params.__set_file_type(TFileType::FILE_LOCAL);
+    params.__set_src_tuple_id(0);
+    params.__set_dest_tuple_id(0);
+    TFileScanSlotInfo slot;
+    slot.__set_slot_id(0);
+    slot.__set_is_file_slot(true);
+    slot.__set_category(TColumnCategory::REGULAR);
+    params.__set_required_slots({slot});
+    params.__set_column_idxs({0});
+    params.__set_slot_name_to_schema_pos({{"id", 0}});
+    TFileRangeDesc range;
+    range.__set_path(_file_path);
+    range.__set_start_offset(0);
+    range.__set_size(std::filesystem::file_size(_file_path));
+    range.__set_file_size(range.size);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    state.set_desc_tbl(descriptors);
+    // EOF is valid for a scan, but exact fetches must not expose missing rows to reordering.
+    for (const auto& requested : {std::list<int64_t> {}, {0, 3, 5}, {0, 3, 6}, {6}}) {
+        RuntimeProfile profile("row_id_fetch");
+        FileScannerV2 scanner(&state, &profile, &params, nullptr, tuple);
+        Block block;
+        block.insert({ColumnInt32::create(), std::make_shared<DataTypeInt32>(), "id"});
+        int64_t init_ms = 0;
+        int64_t read_ms = 0;
+        auto status = scanner.read_by_rows(range, requested, &block, &init_ms, &read_ms);
+        if (requested.empty() || requested.back() < 6) {
+            ASSERT_TRUE(status.ok()) << status.to_string();
+            ASSERT_EQ(block.rows(), requested.size());
+            const auto& values = int32_data_column(*block.get_by_position(0).column);
+            size_t row = 0;
+            for (auto id : requested) {
+                EXPECT_EQ(values.get_element(row++), id + 1);
+            }
+        } else {
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("row-ID fetch"), std::string::npos);
+        }
+    }
+}
+
+TEST_F(ParquetScanTest, SparseRowIdsFillBatchesAcrossRangesAndRowGroups) {
+    std::vector<int32_t> ids(4096);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("id", arrow::int32(), false)}),
+                                    {build_int32_array(ids)});
+    write_table(_file_path, table, 500);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    reader->set_batch_size(128);
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0),
+                                      field_projection(format::ROW_POSITION_COLUMN_ID)};
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->local_positions.emplace(format::LocalColumnId(format::ROW_POSITION_COLUMN_ID),
+                                     format::LocalIndex(1));
+    request->row_ids.emplace();
+    for (int64_t id = 0; id < 4096; id += 4) {
+        request->row_ids->push_back(id);
+    }
+    ASSERT_TRUE(reader->open(request).ok());
+    size_t fetched = 0;
+    size_t batches = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block({schema[0], format::row_position_column_definition()});
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        EXPECT_LE(rows, 128);
+        const auto& column = int32_data_column(*block.get_by_position(0).column);
+        const auto& positions = int64_data_column(*block.get_by_position(1).column);
+        for (size_t row = 0; row < rows; ++row) {
+            ASSERT_LT(fetched, request->row_ids->size());
+            EXPECT_EQ(positions.get_element(row), (*request->row_ids)[fetched]);
+            EXPECT_EQ(column.get_element(row), (*request->row_ids)[fetched++]);
+        }
+        ++batches;
+    }
+    RecordProperty("nonempty_batches", std::to_string(batches));
+    EXPECT_EQ(fetched, 1024);
+    EXPECT_EQ(batches, 8);
+}
+
+TEST_F(ParquetScanTest, SparseRowIdsAppendNestedColumnsAcrossRanges) {
+    write_int_list_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    reader->set_batch_size(3);
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    request->row_ids = {0, 2};
+    ASSERT_TRUE(reader->open(request).ok());
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 2);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_element(0), 1);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_element(1), 3);
+    const IColumn* list_column = block.get_by_position(1).column.get();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*list_column)) {
+        list_column = &nullable->get_nested_column();
+    }
+    const auto& lists = assert_cast<const ColumnArray&>(*list_column);
+    ASSERT_EQ(lists.get_offsets().size(), 2);
+    EXPECT_EQ(lists.get_offsets()[0], 2);
+    EXPECT_EQ(lists.get_offsets()[1], 2);
+    const auto& elements = int32_data_column(lists.get_data());
+    ASSERT_EQ(elements.size(), 2);
+    EXPECT_EQ(elements.get_element(0), 1);
+    EXPECT_EQ(elements.get_element(1), 2);
+}
+
+class CountingParquetRemoteReader final : public io::FileReader {
+public:
+    explicit CountingParquetRemoteReader(io::FileReaderSPtr reader) : _reader(std::move(reader)) {}
+    Status close() override { return _reader->close(); }
+    const io::Path& path() const override { return _reader->path(); }
+    size_t size() const override { return _reader->size(); }
+    bool closed() const override { return _reader->closed(); }
+    int64_t mtime() const override { return _reader->mtime(); }
+    std::atomic<size_t> remote_bytes {0};
+    std::atomic<size_t> dryrun_bytes {0};
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        RETURN_IF_ERROR(_reader->read_at(offset, result, bytes_read, io_ctx));
+        remote_bytes += *bytes_read;
+        if (io_ctx != nullptr && io_ctx->is_dryrun) {
+            dryrun_bytes += *bytes_read;
+        }
+        return Status::OK();
+    }
+
+private:
+    io::FileReaderSPtr _reader;
+};
+
+TEST_F(ParquetScanTest, SparseRowIdsBoundWideProjectionReadAhead) {
+    using namespace format::parquet;
+    // Twenty leaves exceed the default aggregate budget if each retains 8 MiB of read-ahead.
+    constexpr int leaf_count = 20;
+    std::vector<int32_t> ids(3 * 1024 * 1024);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto values = build_int32_array(ids);
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    std::vector<std::shared_ptr<arrow::Array>> arrays;
+    for (int leaf = 0; leaf < leaf_count; ++leaf) {
+        fields.push_back(arrow::field("c" + std::to_string(leaf), arrow::int32(), false));
+        arrays.push_back(values);
+    }
+    auto table = arrow::Table::Make(arrow::schema(fields), arrays);
+    auto output = arrow::io::FileOutputStream::Open(_file_path).ValueOrDie();
+    ::parquet::WriterProperties::Builder writer_properties;
+    writer_properties.disable_dictionary();
+    writer_properties.compression(::parquet::Compression::UNCOMPRESSED);
+    writer_properties.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    // Arrow otherwise caps each row group at 1M rows, making every chunk smaller than 8 MiB.
+    writer_properties.max_row_group_length(ids.size());
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output,
+                                                      ids.size(), writer_properties.build()));
+    ASSERT_TRUE(output->Close().ok());
+    io::FileReaderSPtr local;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(_file_path, &local).ok());
+    auto remote = std::make_shared<CountingParquetRemoteReader>(local);
+    io::IOContext io_ctx;
+    io::FileDescription description;
+    description.path = _file_path;
+    description.file_size = local->size();
+    ParquetFileContext context;
+    ASSERT_TRUE(context.open(remote, &io_ctx, false, description).ok());
+    std::vector<std::unique_ptr<ParquetColumnSchema>> schema;
+    ASSERT_TRUE(build_parquet_column_schema(context.native_metadata->schema(), &schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    Block block;
+    for (int leaf = 0; leaf < leaf_count; ++leaf) {
+        request->non_predicate_columns.push_back(field_projection(leaf));
+        request->local_positions.emplace(format::LocalColumnId(leaf), format::LocalIndex(leaf));
+        block.insert({schema[leaf]->type->create_column(), schema[leaf]->type, schema[leaf]->name});
+    }
+    request->row_ids = {0};
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto plan = std::make_shared<RowGroupScanPlan>();
+    ASSERT_TRUE(plan_parquet_row_groups(*context.native_metadata, schema, *request, {}, false,
+                                        plan.get(), &state.timezone_obj(), &state, &context)
+                        .ok());
+    ParquetScanScheduler scheduler;
+    scheduler.set_plan(plan);
+    scheduler.set_batch_size(1);
+    scheduler.set_scan_request(request);
+    scheduler.set_runtime_state(&state);
+    scheduler.set_timezone(&state.timezone_obj());
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(scheduler.read_next_batch(context, schema, &block, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    for (int leaf = 0; leaf < leaf_count; ++leaf) {
+        EXPECT_EQ(int32_data_column(*block.get_by_position(leaf).column).get_element(0), 0);
+    }
+    size_t retained_buffer_bytes = 0;
+    ASSERT_EQ(scheduler._current_non_predicate_columns.size(), leaf_count);
+    for (const auto& [id, column_reader] : scheduler._current_non_predicate_columns) {
+        const auto* adapter = dynamic_cast<const NativeColumnReader*>(column_reader.get());
+        ASSERT_NE(adapter, nullptr);
+        const auto* scalar = dynamic_cast<const native::ScalarColumnReader<false, false>*>(
+                adapter->_native_reader.get());
+        ASSERT_NE(scalar, nullptr);
+        retained_buffer_bytes += scalar->_stream_reader->_buf_size;
+    }
+    RecordProperty("retained_buffer_bytes", std::to_string(retained_buffer_bytes));
+    RecordProperty("remote_bytes", std::to_string(remote->remote_bytes.load()));
+    EXPECT_LT(retained_buffer_bytes, size_t(config::parquet_rowgroup_max_buffer_mb) << 20);
+    EXPECT_LT(remote->remote_bytes.load(), size_t(config::parquet_rowgroup_max_buffer_mb) << 20);
+    EXPECT_EQ(remote->dryrun_bytes.load(), 0);
+}
+
+TEST_F(ParquetScanTest, SparseRowIdsAvoidCachedRemoteChunkPrefetch) {
+    using namespace format::parquet;
+    // Use multiple cache blocks so an eager chunk read cannot hide inside one demand read.
+    std::vector<int32_t> ids(1024 * 1024);
+    std::iota(ids.begin(), ids.end(), 0);
+    auto table = arrow::Table::Make(arrow::schema({arrow::field("id", arrow::int32(), false)}),
+                                    {build_int32_array(ids)});
+    write_table(_file_path, table, ids.size());
+
+    auto* env = ExecEnv::GetInstance();
+    auto* old_factory = env->file_cache_factory();
+    auto factory = std::make_unique<io::FileCacheFactory>();
+    const auto cache_path = (_test_dir / "cache").string();
+    io::FileCacheSettings settings;
+    settings.storage = "disk";
+    settings.capacity = 16 * 1024 * 1024;
+    settings.query_queue_size = settings.capacity;
+    settings.query_queue_elements = 1024;
+    settings.max_file_block_size = 64 * 1024;
+    const auto old_ttl_gc_interval = config::file_cache_background_ttl_gc_interval_ms;
+    const auto old_ttl_info_interval = config::file_cache_background_ttl_info_update_interval_ms;
+    // The TTL workers sleep between iterations, so bound the fixture's shutdown latency.
+    config::file_cache_background_ttl_gc_interval_ms = 100;
+    config::file_cache_background_ttl_info_update_interval_ms = 100;
+    const auto old_block_size = config::file_cache_each_block_size;
+    config::file_cache_each_block_size = settings.max_file_block_size;
+    auto old_fd_cache = std::move(env->_file_cache_open_fd_cache);
+    auto old_pool = std::move(env->_segment_prefetch_thread_pool);
+    Defer restore([&] {
+        env->_segment_prefetch_thread_pool.reset();
+        factory.reset();
+        env->set_file_cache_factory(old_factory);
+        env->_file_cache_open_fd_cache = std::move(old_fd_cache);
+        env->_segment_prefetch_thread_pool = std::move(old_pool);
+        config::file_cache_each_block_size = old_block_size;
+        config::file_cache_background_ttl_gc_interval_ms = old_ttl_gc_interval;
+        config::file_cache_background_ttl_info_update_interval_ms = old_ttl_info_interval;
+    });
+    env->set_file_cache_factory(factory.get());
+    env->_file_cache_open_fd_cache = std::make_unique<io::FDCache>();
+    ASSERT_TRUE(factory->create_file_cache(cache_path, settings).ok());
+    auto* cache = factory->get_by_path(cache_path);
+    ASSERT_NE(cache, nullptr);
+    for (int attempt = 0; attempt < 200 && !cache->get_async_open_success(); ++attempt) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    ASSERT_TRUE(cache->get_async_open_success());
+    ASSERT_TRUE(ThreadPoolBuilder("parquet_test_prefetch")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&ExecEnv::GetInstance()->_segment_prefetch_thread_pool)
+                        .ok());
+    io::FileReaderSPtr local;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(_file_path, &local).ok());
+    auto remote = std::make_shared<CountingParquetRemoteReader>(local);
+    io::FileReaderOptions options;
+    options.cache_type = io::FileCachePolicy::FILE_BLOCK_CACHE;
+    options.cache_base_path = cache_path;
+    options.cache_write_mode = io::CacheWriteMode::SYNC_WRITE;
+    auto cached = std::make_shared<io::CachedRemoteFileReader>(remote, options);
+    io::FileCacheStatistics cache_stats;
+    io::IOContext io_ctx;
+    io_ctx.file_cache_stats = &cache_stats;
+    io::FileDescription description;
+    description.path = _file_path;
+    description.file_size = local->size();
+    ParquetFileContext context;
+    ASSERT_TRUE(context.open(cached, &io_ctx, false, description).ok());
+    std::vector<std::unique_ptr<ParquetColumnSchema>> schema;
+    ASSERT_TRUE(build_parquet_column_schema(context.native_metadata->schema(), &schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->row_ids = {0};
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RowGroupScanPlan plan;
+    ASSERT_TRUE(plan_parquet_row_groups(*context.native_metadata, schema, *request, {}, false,
+                                        &plan, &state.timezone_obj(), &state, &context)
+                        .ok());
+    ParquetScanScheduler scheduler;
+    scheduler.set_plan(std::make_shared<RowGroupScanPlan>(std::move(plan)));
+    scheduler.set_scan_request(request);
+    scheduler.set_runtime_state(&state);
+    scheduler.set_timezone(&state.timezone_obj());
+    Block block;
+    block.insert({schema[0]->type->create_column(), schema[0]->type, "id"});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(scheduler.read_next_batch(context, schema, &block, &rows, &eof).ok());
+    ExecEnv::GetInstance()->segment_prefetch_thread_pool()->wait();
+    ASSERT_EQ(rows, 1);
+    EXPECT_EQ(int32_data_column(*block.get_by_position(0).column).get_element(0), 0);
+    EXPECT_FALSE(scheduler._current_merge_range_active);
+    EXPECT_FALSE(scheduler._current_non_predicate_prefetched);
+    EXPECT_LT(remote->remote_bytes.load(), local->size() / 2);
+    EXPECT_EQ(remote->dryrun_bytes.load(), 0);
+    // Source counters measure copied bytes; downloads can include cache-block alignment padding.
+    EXPECT_GT(cache_stats.bytes_read_from_remote, 0);
+    EXPECT_LE(cache_stats.bytes_read_from_remote, remote->remote_bytes.load());
 }
 
 TEST_F(ParquetScanTest, PredicateOnlyGlobalRowIdKeepsSignedFileLocalId) {

@@ -202,6 +202,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -4092,9 +4093,7 @@ public class Env {
             View view = (View) table;
 
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
-            if (StringUtils.isNotBlank(table.getComment())) {
-                sb.append(" COMMENT '").append(table.getComment()).append("'");
-            }
+            addViewComment(table, sb);
             sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
             return;
@@ -4513,9 +4512,7 @@ public class Env {
             sb.append("CREATE VIEW `").append(table.getName()).append("`");
             addColNameAndComment(view, sb);
             sb.append("\n");
-            if (StringUtils.isNotBlank(table.getComment())) {
-                sb.append(" COMMENT '").append(table.getComment()).append("'");
-            }
+            addViewComment(table, sb);
             sb.append(" AS ").append(view.getInlineViewDef());
             createTableStmt.add(sb + ";");
             return;
@@ -4552,7 +4549,8 @@ public class Env {
 
         sb.append(" (\n");
         int idx = 0;
-        List<Column> columns = table.getBaseSchema(false);
+        List<Column> columns = table instanceof IcebergExternalTable
+                ? ((IcebergExternalTable) table).getBaseSchemaForDisplay(false) : table.getBaseSchema(false);
         for (Column column : columns) {
             if (idx++ != 0) {
                 sb.append(",\n");
@@ -7484,6 +7482,19 @@ public class Env {
     private static void addTableComment(TableIf table, StringBuilder sb) {
         if (StringUtils.isNotBlank(table.getComment())) {
             sb.append("\nCOMMENT '").append(table.getComment(true)).append("'");
+        }
+    }
+
+    private static void addViewComment(TableIf table, StringBuilder sb) {
+        if (StringUtils.isNotBlank(table.getComment())) {
+            String comment = table.getComment();
+            sb.append(" COMMENT ");
+            // Keep the historical output unchanged when the comment is already safe in single quotes.
+            if (comment.indexOf('\'') >= 0 || comment.indexOf('\\') >= 0) {
+                sb.append(SqlLiteralUtils.quoteStringLiteral(comment));
+            } else {
+                sb.append('\'').append(comment).append('\'');
+            }
         }
     }
 

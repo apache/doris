@@ -349,4 +349,15 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
         Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
     }
+
+    @Test
+    public void testHyperscanFallbackPropagatesToBackends() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        Assertions.assertTrue(variable.toThrift().isEnableHyperscanFallback());
+
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.ENABLE_HYPERSCAN_FALLBACK, new StringLiteral("false")));
+
+        Assertions.assertFalse(variable.toThrift().isEnableHyperscanFallback());
+    }
 }

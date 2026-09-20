@@ -18,7 +18,7 @@
 
 ##############################################################
 # Post-build script for packaging third-party filesystem JARs
-# (JuiceFS, JindoFS) into Doris FE/BE output directories.
+# (JuiceFS, JindoFS) and the Lance JNI library into Doris output directories.
 #
 # This script is independent of the main build and can be
 # executed standalone or called from build.sh.
@@ -47,6 +47,7 @@ TARGET_ARCH="${TARGET_ARCH:-$(uname -m)}"
 # --- Source helper scripts ---
 . "${DORIS_HOME}/docker/thirdparties/juicefs-helpers.sh"
 . "${DORIS_HOME}/docker/thirdparties/jindofs-helpers.sh"
+. "${DORIS_HOME}/docker/thirdparties/lance-jni-helpers.sh"
 
 # --- JuiceFS wrapper functions (migrated from build.sh) ---
 
@@ -133,7 +134,8 @@ usage() {
 Usage: $0 [--fe] [--be] [--output <dir>] [--juicefs] [--jindofs]
 
 Package third-party filesystem JARs (JuiceFS, JindoFS) into Doris output directories.
-By default, no third-party JARs are packaged. Use --juicefs/--jindofs or environment variables to opt in.
+Linux x86_64 FE packaging automatically installs the glibc 2.17 Lance JNI library.
+Use --juicefs/--jindofs or environment variables to opt into filesystem JAR packaging.
 
 Options:
   --fe               Process FE output directory
@@ -220,6 +222,10 @@ for target_type in fe be; do
     fi
     if [[ "${target_type}" == "be" && "${PROCESS_BE}" -eq 0 ]]; then
         continue
+    fi
+
+    if [[ "${target_type}" == "fe" ]]; then
+        lance_jni_replace "${OUTPUT_DIR}" "${DORIS_THIRDPARTY}" "${TARGET_SYSTEM}" "${TARGET_ARCH}"
     fi
 
     if [[ "${BUILD_JINDOFS}" == "ON" ]]; then

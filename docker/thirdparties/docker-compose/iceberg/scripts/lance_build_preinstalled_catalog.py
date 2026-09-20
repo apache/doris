@@ -28,6 +28,7 @@ every "indexed" query in test_lance_vector_search silently ran a flat KNN scan.
 The generated catalog contains:
   - __manifest            Directory Namespace V2 manifest table (with its scalar indexes).
   - all_types.lance       The pre-existing compatibility-mode root table, re-registered as-is.
+  - nested_null.lance     Nullable Null leaves inside lists, structs, and maps.
   - The `doris` namespace with two full-text-search fixtures, one indexed vector table per cell of the
     algorithm x element type x metric matrix (hash-prefixed directories), listed in
     VECTOR_TABLES below; BREADTH_TABLE, one table carrying the remaining cells at plan
@@ -85,6 +86,8 @@ import lance
 import lance_namespace
 import pyarrow as pa
 import pyarrow.ipc as ipc
+from lance_build_multivector import build as build_multivector, check as check_multivector
+from lance_build_nested_null import build as build_nested_null, check as check_nested_null
 from lance_namespace_urllib3_client.models import (
     CreateNamespaceRequest,
     CreateTableRequest,
@@ -99,6 +102,7 @@ FRAGMENT_ROWS = 512
 NUM_PARTITIONS = 4
 NAMESPACE = "doris"
 ALL_TYPES_DIR = "all_types.lance"
+NESTED_NULL_DIR = "nested_null.lance"
 MANIFEST_DIR = "__manifest"
 
 # 4-bit PQ keeps codebook training comfortable on 1024 rows. This only serves fixture
@@ -385,7 +389,6 @@ VECTOR_TABLES = {
     },
 }
 
-
 # ---------------------------------------------------------------------------
 # Breadth tier
 # ---------------------------------------------------------------------------
@@ -394,16 +397,13 @@ VECTOR_TABLES = {
 # reached the index. That costs roughly 190KB per cell, so the tier deliberately covers one
 # representative cell per axis rather than the whole matrix.
 #
-# The breadth tier covers everything the depth tier leaves out, at plan level only. It is a
-# single table carrying one vector column per remaining cell, each with exactly one index -
-# one column per cell, never several indexes on one column, because only the first index
-# built on a column is reachable. Measured on Lance: with a cosine and a dot index on one
-# column, whichever was created first answers its metric from the index and the other falls
-# back to a silent brute-force scan. Doris lands in the same place by a different route -
-# LanceScanNode.selectIndexSegments keeps only the segments of the first index it finds for
-# the column's field id, so the second index is invisible to the planner and metricMatches
-# then rejects the query whose metric it does not carry. Either way a column is the unit that
-# can hold a testable index, and 64 rows is enough to train one.
+# The breadth tier covers every remaining cell at plan level only.
+# It is a single table carrying one vector column per remaining cell, each with exactly one
+# index. Keeping one index per column isolates every type x metric x algorithm cell;
+# same-column multi-index selection is covered by LanceScanNodeTest's metadata fixtures. A
+# column is not limited to one logical vector index: Doris groups physical segments by index
+# name and picks the first lexicographic group that matches the requested metric and can safely
+# plan splits. Sixty-four rows are enough to train each matrix index.
 #
 # What this tier proves is narrower than the depth tier's, and the documentation must not
 # conflate them: it shows Doris plans an indexed split and the backend answers it, NOT that
@@ -918,7 +918,8 @@ def build_multi_frag(root: Path) -> None:
     location = str(root / MULTI_FRAG_DIR)
     for index in range(MULTI_FRAG_NUM_FRAGMENTS):
         offset = index * MULTI_FRAG_FRAGMENT_ROWS
-        fragment = make_fragment_table(offset, offset + MULTI_FRAG_FRAGMENT_ROWS)
+        # The shared builder requires a vector profile even though embedding is dropped below.
+        fragment = make_fragment_table(COLLINEAR, pa.float32(), offset, offset + MULTI_FRAG_FRAGMENT_ROWS)
         fragment = fragment.drop_columns(["embedding"])
         # Match all_types.lance (data storage version 2.2) so every committed Lance data file
         # shares one on-disk format and the oldest reader (lance-rs 4.0.1) can open it.
@@ -933,6 +934,9 @@ def build_multi_frag(root: Path) -> None:
 def build(root: Path, all_types_source: Path) -> None:
     shutil.copytree(all_types_source, root / ALL_TYPES_DIR)
     build_multi_frag(root)
+    # Recreate this fixture in staging because promotion replaces the entire catalog tree.
+    build_nested_null(root / NESTED_NULL_DIR)
+    build_multivector(root / "multivector.lance")
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     namespace.register_table(
         RegisterTableRequest(id=["all_types"], location=ALL_TYPES_DIR)
@@ -1721,6 +1725,8 @@ def check_catalog(root: Path) -> None:
     assert nested_path.is_dir(), f"{NESTED_TABLE} location missing: {nested.location}"
     check_nested_dataset(nested.location)
     check_multi_frag(root)
+    check_nested_null(root / NESTED_NULL_DIR)
+    check_multivector(root / "multivector.lance")
 
     full_fts = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, FTS_TABLE]))
     check_fts_dataset(

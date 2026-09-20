@@ -140,7 +140,7 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testRetainedGenerationKeepsProjectionAtomic() {
+    public void testRetainedGenerationKeepsProjectionAtomic() throws Exception {
         Schema originalSchema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()));
         Schema evolvedSchema = new Schema(
@@ -174,20 +174,30 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testMalformedNameMappingFallsBackToCurrentSchemaNames() {
-        Schema schema = new Schema(
-                Types.NestedField.required(1, "id", Types.IntegerType.get()),
-                Types.NestedField.optional(2, "name", Types.StringType.get()));
+    public void testMalformedNameMappingFailsInsteadOfFallingBackToCurrentSchemaNames() {
         Table table = Mockito.mock(Table.class);
+        Mockito.when(table.name()).thenReturn("db.tbl");
         Mockito.when(table.properties()).thenReturn(Collections.singletonMap(
                 TableProperties.DEFAULT_NAME_MAPPING, "{not valid json"));
-        Mockito.when(table.schema()).thenReturn(schema);
+
+        // Iceberg (and therefore Spark) refuses to read a table whose name mapping cannot be
+        // parsed; silently rewriting the property into current-schema aliases would turn renamed
+        // columns of ID-less files into NULLs instead of reporting the metadata fault.
+        UserException exception = Assert.assertThrows(UserException.class,
+                () -> IcebergUtils.getNameMapping(table));
+        Assert.assertTrue(exception.getMessage().contains(TableProperties.DEFAULT_NAME_MAPPING));
+        Assert.assertTrue(exception.getMessage().contains("db.tbl"));
+    }
+
+    @Test
+    public void testEmptyNameMappingStillParsesAsAuthoritativeMapping() throws Exception {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(
+                Collections.singletonMap(TableProperties.DEFAULT_NAME_MAPPING, "[]"));
 
         Optional<Map<Integer, List<String>>> mapping = IcebergUtils.getNameMapping(table);
         Assert.assertTrue(mapping.isPresent());
-        Map<Integer, List<String>> fallback = mapping.get();
-        Assert.assertEquals(Collections.singletonList("id"), fallback.get(1));
-        Assert.assertEquals(Collections.singletonList("name"), fallback.get(2));
+        Assert.assertTrue(mapping.get().isEmpty());
     }
 
     @Test
