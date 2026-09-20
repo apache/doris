@@ -281,6 +281,7 @@ protected:
     FifoThreadPool _peer_fetch_pool;
     FifoThreadPool _light_work_pool;
     FifoThreadPool _arrow_flight_work_pool;
+    FifoThreadPool _rowid_fetch_pool;
 };
 
 // `StorageEngine` mixin for `PInternalService`

@@ -37,6 +37,7 @@ DEFINE_Int64(tablet_cache_capacity, "100000");
 DEFINE_Int64(tablet_cache_shards, "16");
 DEFINE_mInt32(tablet_sync_interval_s, "1800");
 DEFINE_mInt32(init_scanner_sync_rowsets_parallelism, "10");
+DEFINE_mInt32(rowid_fetch_parallel_max_concurrency, "8");
 DEFINE_mInt32(sync_rowsets_slow_threshold_ms, "1000");
 
 DEFINE_mInt64(min_compaction_failure_interval_ms, "5000");

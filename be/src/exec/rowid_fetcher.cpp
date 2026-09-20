@@ -27,14 +27,18 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
+#include <exception>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/signal_handler.h"
@@ -45,6 +49,7 @@
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/file_scanner_v2.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/io_common.h"
@@ -52,6 +57,7 @@
 #include "runtime/exec_env.h"      // ExecEnv
 #include "runtime/fragment_mgr.h"  // FragmentMgr
 #include "runtime/runtime_state.h" // RuntimeState
+#include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "semaphore"
 #include "storage/olap_common.h"
@@ -61,6 +67,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 #include "util/jsonb/serialize.h"
+#include "util/work_thread_pool.hpp"
 
 namespace doris {
 
@@ -198,83 +205,274 @@ static void scatter_scan_blocks_to_result_block(
     }
 }
 
-Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
-                                          PMultiGetResponseV2* response) {
-    if (request.request_block_descs_size()) {
-        auto tquery_id = ((UniqueId)request.query_id()).to_thrift();
-        // todo: use mutableBlock instead of block
-        std::vector<Block> result_blocks(request.request_block_descs_size());
+// Request-owned storage for internal reads. Workers touch disjoint segment blocks and
+// scatter entries; only their statistics are merged under a lock.
+struct RowIdStorageReader::InternalReadState {
+    const PRequestBlockDesc& request_block_desc;
+    std::shared_ptr<IdFileMap> id_file_map;
+    TUniqueId query_id;
+    io::FileCacheMissPolicy file_cache_miss_policy;
+    Block result_block;
+    std::vector<DorisFormatReadBatch> scan_batches;
+    std::vector<std::pair<size_t, size_t>> row_id_block_idx;
+    std::vector<Block> scan_blocks;
+    std::mutex stats_mutex;
+    OlapReaderStatistics stats;
+    int64_t acquire_tablet_ms = 0;
+    int64_t acquire_rowsets_ms = 0;
+    int64_t acquire_segments_ms = 0;
+    int64_t lookup_row_data_ms = 0;
 
-        OlapReaderStatistics stats;
-        int64_t acquire_tablet_ms = 0;
-        int64_t acquire_rowsets_ms = 0;
-        int64_t acquire_segments_ms = 0;
-        int64_t lookup_row_data_ms = 0;
+    InternalReadState(const PRequestBlockDesc& desc, std::shared_ptr<IdFileMap> mapping,
+                      TUniqueId id, io::FileCacheMissPolicy policy)
+            : request_block_desc(desc),
+              id_file_map(std::move(mapping)),
+              query_id(std::move(id)),
+              file_cache_miss_policy(policy) {}
 
-        int64_t external_init_reader_avg_ms = 0;
-        int64_t external_get_block_avg_ms = 0;
-        size_t external_scan_range_cnt = 0;
+    Status prepare(const std::vector<SlotDescriptor>& slots) {
+        result_block = Block(slots, request_block_desc.row_id_size());
+        // Phase 1: Group all row_ids by their (tablet_id, rowset_id, segment_id) key.
+        // Unlike the old code which only batched adjacent rows with the same file_id,
+        // this merges non-contiguous same-segment requests into a single batch,
+        // maximizing the number of rows read per seek_and_read_by_rowid call.
+        std::unordered_map<SegKey, size_t, HashOfSegKey> batch_idx_by_seg;
+        // (batch_idx, position_in_batch) for each row in the original request.
+        row_id_block_idx.resize(request_block_desc.row_id_size());
+        for (int j = 0; j < request_block_desc.row_id_size(); ++j) {
+            auto file_id = request_block_desc.file_id(j);
+            auto file_mapping = id_file_map->get_file_mapping(file_id);
+            if (!file_mapping) {
+                return Status::InternalError(
+                        "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                        BackendOptions::get_localhost(), print_id(query_id), file_id);
+            }
 
-        const auto file_cache_miss_policy =
-                request.file_cache_remote_only_on_miss()
-                        ? io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS
-                        : io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
+            // Derive segment key and group by it — rows from the same segment are batched together
+            // even if they are interleaved with rows from other segments in the request.
+            auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
+            SegKey seg_key {
+                    .tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
+            auto [it, inserted] = batch_idx_by_seg.emplace(seg_key, scan_batches.size());
+            if (inserted) {
+                // First time seeing this segment, create a new batch for it.
+                scan_batches.emplace_back();
+                scan_batches.back().file_mapping = file_mapping;
+            }
+            // Record (row_id, original_request_index) for later sorting and scattering.
+            scan_batches[it->second].row_ids_with_positions.emplace_back(
+                    request_block_desc.row_id(j), j);
+        }
 
-        // Add counters for different file mapping types
-        std::unordered_map<FileMappingType, int64_t> file_type_counts;
+        scan_blocks.resize(scan_batches.size());
+        return Status::OK();
+    }
 
-        auto id_file_map =
-                ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(request.query_id());
-        // if id_file_map is null, means the BE not have scan range, just return ok
+    Status read(size_t begin, size_t end) {
+        OlapReaderStatistics local_stats;
+        int64_t local_acquire_tablet_ms = 0;
+        int64_t local_acquire_rowsets_ms = 0;
+        int64_t local_acquire_segments_ms = 0;
+        int64_t local_lookup_row_data_ms = 0;
+        // Readers retain pointers into the schema, slots and statistics. Keep all of
+        // these task-local and alive until the task's iterator cache is destroyed.
+        TabletSchema full_read_schema;
+        for (const auto& column_pb : request_block_desc.column_descs()) {
+            full_read_schema.append_column(TabletColumn(column_pb));
+        }
+        std::vector<SlotDescriptor> local_slots;
+        local_slots.reserve(request_block_desc.slots_size());
+        for (const auto& pslot : request_block_desc.slots()) {
+            local_slots.push_back(SlotDescriptor(pslot));
+        }
+        std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
+        std::unordered_map<SegKey, SegItem, HashOfSegKey> seg_map;
+        std::string row_store_buffer;
+        RowStoreReadStruct row_store_read_struct(row_store_buffer);
+        if (request_block_desc.fetch_row_store()) {
+            for (int i = 0; i < local_slots.size(); ++i) {
+                row_store_read_struct.serdes.emplace_back(
+                        local_slots[i].get_data_type_ptr()->get_serde());
+                row_store_read_struct.col_uid_to_idx[local_slots[i].col_unique_id()] = i;
+                row_store_read_struct.default_values.emplace_back(
+                        local_slots[i].col_default_value());
+            }
+        }
+        for (size_t batch_idx = begin; batch_idx < end; ++batch_idx) {
+            auto& scan_batch = scan_batches[batch_idx];
+            auto& row_ids_with_positions = scan_batch.row_ids_with_positions;
+            std::ranges::sort(row_ids_with_positions, [](const auto& lhs, const auto& rhs) {
+                return lhs.first < rhs.first;
+            });
+
+            // Column iterators read rowids monotonically. Deduplicate consecutive identical row_ids
+            // (different file_ids may map to the same row), then scatter rows back to their original
+            // request positions.
+            std::vector<uint32_t> row_ids;
+            row_ids.reserve(row_ids_with_positions.size());
+
+            // Also builds the scatter map: row_id_block_idx[original_request_idx] ->
+            // (batch_idx, deduplicated_position_in_batch).
+            for (const auto& [row_id, result_idx] : row_ids_with_positions) {
+                if (row_ids.empty() || row_ids.back() != row_id) {
+                    row_ids.emplace_back(row_id);
+                }
+                row_id_block_idx[result_idx] = std::make_pair(batch_idx, row_ids.size() - 1);
+            }
+
+            scan_blocks[batch_idx] = Block(local_slots, row_ids.size());
+            RETURN_IF_ERROR(read_doris_format_row(
+                    id_file_map, scan_batch.file_mapping, row_ids, local_slots, full_read_schema,
+                    row_store_read_struct, local_stats, &local_acquire_tablet_ms,
+                    &local_acquire_rowsets_ms, &local_acquire_segments_ms,
+                    &local_lookup_row_data_ms, seg_map, iterator_map, file_cache_miss_policy,
+                    scan_blocks[batch_idx]));
+        }
+        // Tasks write disjoint scan blocks and scatter-map entries; only the shared
+        // statistics need synchronization. No storage reads occur under this lock.
+        std::lock_guard lock(stats_mutex);
+        stats.io_ns += local_stats.io_ns;
+        stats.compressed_bytes_read += local_stats.compressed_bytes_read;
+        stats.decompress_ns += local_stats.decompress_ns;
+        stats.uncompressed_bytes_read += local_stats.uncompressed_bytes_read;
+        stats.bytes_read += local_stats.bytes_read;
+        stats.total_pages_num += local_stats.total_pages_num;
+        stats.cached_pages_num += local_stats.cached_pages_num;
+        stats.file_cache_stats.merge_from(local_stats.file_cache_stats);
+        acquire_tablet_ms += local_acquire_tablet_ms;
+        acquire_rowsets_ms += local_acquire_rowsets_ms;
+        acquire_segments_ms += local_acquire_segments_ms;
+        lookup_row_data_ms += local_lookup_row_data_ms;
+        return Status::OK();
+    }
+
+    void scatter() {
+        scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
+    }
+};
+
+struct RowIdStorageReader::ReadRequestState {
+    const PMultiGetRequestV2& request;
+    PMultiGetResponseV2* response;
+    const TUniqueId tquery_id;
+    const int concurrency = config::rowid_fetch_parallel_max_concurrency;
+    std::shared_ptr<IdFileMap> id_file_map;
+    std::vector<Block> result_blocks;
+    std::vector<std::unique_ptr<InternalReadState>> internal_reads;
+    struct ReadTask {
+        int block;
+        size_t begin;
+        size_t end;
+    };
+    std::vector<ReadTask> tasks;
+    std::unordered_map<FileMappingType, int64_t> file_type_counts;
+    int64_t external_init_reader_avg_ms = 0;
+    int64_t external_get_block_avg_ms = 0;
+    size_t external_scan_range_cnt = 0;
+
+    ReadRequestState(const PMultiGetRequestV2& req, PMultiGetResponseV2* resp)
+            : request(req),
+              response(resp),
+              tquery_id(((UniqueId)req.query_id()).to_thrift()),
+              result_blocks(req.request_block_descs_size()),
+              internal_reads(req.request_block_descs_size()) {}
+
+    Status prepare_internal_block(int idx, const std::vector<SlotDescriptor>& slots,
+                                  io::FileCacheMissPolicy policy) {
+        const auto& desc = request.request_block_descs(idx);
+        auto read = std::make_unique<InternalReadState>(desc, id_file_map, tquery_id, policy);
+        RETURN_IF_ERROR(read->prepare(slots));
+        const size_t group_count = read->scan_batches.size();
+        const int batch_groups = request.parallel_batch_rows();
+        if (desc.fetch_row_store() || batch_groups <= 0 || concurrency <= 1 ||
+            std::cmp_less_equal(group_count, batch_groups)) {
+            RETURN_IF_ERROR(read->read(0, group_count));
+        } else {
+            for (size_t begin = 0; begin < group_count; begin += batch_groups) {
+                tasks.push_back({idx, begin, std::min(begin + batch_groups, group_count)});
+            }
+        }
+        internal_reads[idx] = std::move(read);
+        return Status::OK();
+    }
+
+    Status prepare() {
+        if (request.request_block_descs_size() == 0) {
+            return Status::OK();
+        }
+        id_file_map = ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(request.query_id());
         if (!id_file_map) {
-            // padding empty block to response
             LOG(INFO) << "id_file_map not found for query_id: " << print_id(request.query_id());
             for (int i = 0; i < request.request_block_descs_size(); ++i) {
                 response->add_blocks();
             }
             return Status::OK();
         }
-
+        const auto file_cache_miss_policy =
+                request.file_cache_remote_only_on_miss()
+                        ? io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS
+                        : io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
         for (int i = 0; i < request.request_block_descs_size(); ++i) {
-            const auto& request_block_desc = request.request_block_descs(i);
-            PMultiGetBlockV2* pblock = response->add_blocks();
-            if (request_block_desc.row_id_size() >= 1) {
-                // Since this block belongs to the same table, we only need to take the first type for judgment.
-                auto first_file_id = request_block_desc.file_id(0);
-                auto first_file_mapping = id_file_map->get_file_mapping(first_file_id);
-                if (!first_file_mapping) {
-                    return Status::InternalError(
-                            "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
-                            BackendOptions::get_localhost(), print_id(request.query_id()),
-                            first_file_id);
-                }
-                file_type_counts[first_file_mapping->type] += request_block_desc.row_id_size();
-
-                // prepare slots to build block
-                std::vector<SlotDescriptor> slots;
-                slots.reserve(request_block_desc.slots_size());
-                for (const auto& pslot : request_block_desc.slots()) {
-                    slots.push_back(SlotDescriptor(pslot));
-                }
-                try {
-                    if (first_file_mapping->type == FileMappingType::INTERNAL) {
-                        RETURN_IF_ERROR(read_batch_doris_format_row(
-                                request_block_desc, id_file_map, slots, tquery_id, result_blocks[i],
-                                stats, &acquire_tablet_ms, &acquire_rowsets_ms,
-                                &acquire_segments_ms, &lookup_row_data_ms, file_cache_miss_policy));
-                    } else {
-                        RETURN_IF_ERROR(read_batch_external_row(
-                                request.wg_id(), request_block_desc, id_file_map, slots,
-                                first_file_mapping, tquery_id, result_blocks[i],
-                                pblock->mutable_profile(), &external_init_reader_avg_ms,
-                                &external_get_block_avg_ms, &external_scan_range_cnt));
-                    }
-                } catch (const Exception& e) {
-                    return Status::Error<false>(e.code(), "Row id fetch failed because {}",
-                                                e.what());
-                }
+            const auto& desc = request.request_block_descs(i);
+            auto* pblock = response->add_blocks();
+            if (desc.row_id_size() == 0) {
+                continue;
             }
+            // Each block belongs to one table, so its first mapping determines the reader.
+            auto first_file_id = desc.file_id(0);
+            auto first_file_mapping = id_file_map->get_file_mapping(first_file_id);
+            if (!first_file_mapping) {
+                return Status::InternalError(
+                        "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                        BackendOptions::get_localhost(), print_id(request.query_id()),
+                        first_file_id);
+            }
+            file_type_counts[first_file_mapping->type] += desc.row_id_size();
 
+            std::vector<SlotDescriptor> slots;
+            slots.reserve(desc.slots_size());
+            for (const auto& pslot : desc.slots()) {
+                slots.push_back(SlotDescriptor(pslot));
+            }
+            if (first_file_mapping->type == FileMappingType::INTERNAL) {
+                RETURN_IF_ERROR(prepare_internal_block(i, slots, file_cache_miss_policy));
+            } else {
+                RETURN_IF_ERROR(read_batch_external_row(
+                        request.wg_id(), desc, id_file_map, slots, first_file_mapping, tquery_id,
+                        result_blocks[i], pblock->mutable_profile(), &external_init_reader_avg_ms,
+                        &external_get_block_avg_ms, &external_scan_range_cnt));
+            }
+        }
+        return Status::OK();
+    }
+
+    Status finish() {
+        if (!id_file_map) {
+            return Status::OK();
+        }
+        OlapReaderStatistics stats;
+        int64_t acquire_tablet_ms = 0;
+        int64_t acquire_rowsets_ms = 0;
+        int64_t acquire_segments_ms = 0;
+        int64_t lookup_row_data_ms = 0;
+        for (int i = 0; i < request.request_block_descs_size(); ++i) {
+            if (internal_reads[i]) {
+                auto& read = *internal_reads[i];
+                read.scatter();
+                result_blocks[i] = std::move(read.result_block);
+                stats.cached_pages_num += read.stats.cached_pages_num;
+                stats.total_pages_num += read.stats.total_pages_num;
+                stats.compressed_bytes_read += read.stats.compressed_bytes_read;
+                stats.io_ns += read.stats.io_ns;
+                stats.uncompressed_bytes_read += read.stats.uncompressed_bytes_read;
+                stats.bytes_read += read.stats.bytes_read;
+                stats.file_cache_stats.merge_from(read.stats.file_cache_stats);
+                acquire_tablet_ms += read.acquire_tablet_ms;
+                acquire_rowsets_ms += read.acquire_rowsets_ms;
+                acquire_segments_ms += read.acquire_segments_ms;
+                lookup_row_data_ms += read.lookup_row_data_ms;
+            }
+            auto* pblock = response->mutable_blocks(i);
             [[maybe_unused]] size_t compressed_size = 0;
             [[maybe_unused]] size_t uncompressed_size = 0;
             [[maybe_unused]] int64_t compress_time = 0;
@@ -283,7 +481,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                     be_exec_version, pblock->mutable_block(), &uncompressed_size, &compressed_size,
                     &compress_time, segment_v2::CompressionTypePB::LZ4));
         }
-
         // Build file type statistics string
         std::string file_type_stats;
         for (const auto& [type, count] : file_type_counts) {
@@ -312,104 +509,153 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         set_topn_lazy_materialization_file_cache_stats(
                 stats.file_cache_stats,
                 response->mutable_topn_lazy_materialization_file_cache_stats());
-    }
 
-    return Status::OK();
+        return Status::OK();
+    }
+};
+
+namespace {
+
+// Both storage reads and pool submission can throw. Convert exceptions on the
+// same pthread where they originated, before publishing completion.
+template <typename Func>
+Status rowid_read_status(Func&& func) {
+    Status status;
+    try {
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(status = func(), status);
+    } catch (const std::exception& e) {
+        status = Status::InternalError("Row id fetch failed because {}", e.what());
+    }
+    return status;
 }
 
-Status RowIdStorageReader::read_batch_doris_format_row(
-        const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
-        std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
-        OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
-        int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
-        io::FileCacheMissPolicy file_cache_miss_policy) {
-    if (result_block.is_empty_column()) [[likely]] {
-        result_block = Block(slots, request_block_desc.row_id_size());
-    }
-    TabletSchema full_read_schema;
-    for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
-        full_read_schema.append_column(TabletColumn(column_pb));
-    }
+struct RowIdReadDispatch {
+    size_t task_count = 0;
+    std::function<Status(size_t)> run_task;
+    std::function<void(Status)> on_complete;
+    std::atomic<size_t> next_task = 0;
+    // The submitting thread owns one reference until all submissions finish.
+    // Even inline/fast workers cannot finish the RPC during submission.
+    std::atomic<size_t> remaining = 1;
+    AtomicStatus status;
 
-    std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
-    std::unordered_map<SegKey, SegItem, HashOfSegKey> seg_map;
-    std::string row_store_buffer;
-    RowStoreReadStruct row_store_read_struct(row_store_buffer);
-    if (request_block_desc.fetch_row_store()) {
-        for (int i = 0; i < request_block_desc.slots_size(); ++i) {
-            row_store_read_struct.serdes.emplace_back(slots[i].get_data_type_ptr()->get_serde());
-            row_store_read_struct.col_uid_to_idx[slots[i].col_unique_id()] = i;
-            row_store_read_struct.default_values.emplace_back(slots[i].col_default_value());
-        }
-    }
-
-    // Phase 1: Group all row_ids by their (tablet_id, rowset_id, segment_id) key.
-    // Unlike the old code which only batched adjacent rows with the same file_id,
-    // this merges non-contiguous same-segment requests into a single batch,
-    // maximizing the number of rows read per seek_and_read_by_rowid call.
-    std::vector<DorisFormatReadBatch> scan_batches;
-    std::unordered_map<SegKey, size_t, HashOfSegKey> batch_idx_by_seg;
-    // (batch_idx, position_in_batch) for each row in the original request.
-    std::vector<std::pair<size_t, size_t>> row_id_block_idx(request_block_desc.row_id_size());
-    for (int j = 0; j < request_block_desc.row_id_size(); ++j) {
-        auto file_id = request_block_desc.file_id(j);
-        auto file_mapping = id_file_map->get_file_mapping(file_id);
-        if (!file_mapping) {
-            return Status::InternalError(
-                    "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
-                    BackendOptions::get_localhost(), print_id(query_id), file_id);
-        }
-
-        // Derive segment key and group by it — rows from the same segment are batched together
-        // even if they are interleaved with rows from other segments in the request.
-        auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
-        SegKey seg_key {.tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
-        auto [it, inserted] = batch_idx_by_seg.emplace(seg_key, scan_batches.size());
-        if (inserted) {
-            // First time seeing this segment, create a new batch for it.
-            scan_batches.emplace_back();
-            scan_batches.back().file_mapping = file_mapping;
-        }
-        // Record (row_id, original_request_index) for later sorting and scattering.
-        scan_batches[it->second].row_ids_with_positions.emplace_back(request_block_desc.row_id(j),
-                                                                     j);
-    }
-
-    // Phase 2: For each segment, sort row_ids ascending (required by ColumnIterator),
-    // deduplicate, then read all rows in a single batch call.
-    std::vector<Block> scan_blocks(scan_batches.size());
-    for (size_t batch_idx = 0; batch_idx < scan_batches.size(); ++batch_idx) {
-        auto& scan_batch = scan_batches[batch_idx];
-        auto& row_ids_with_positions = scan_batch.row_ids_with_positions;
-        std::sort(row_ids_with_positions.begin(), row_ids_with_positions.end(),
-                  [](const auto& lhs, const auto& rhs) { return lhs.first < rhs.first; });
-
-        // Column iterators read rowids monotonically. Deduplicate consecutive identical row_ids
-        // (different file_ids may map to the same row), then scatter rows back to their original
-        // request positions.
-        std::vector<uint32_t> row_ids;
-        row_ids.reserve(row_ids_with_positions.size());
-
-        // Also builds the scatter map: row_id_block_idx[original_request_idx] ->
-        // (batch_idx, deduplicated_position_in_batch).
-        for (const auto& [row_id, result_idx] : row_ids_with_positions) {
-            if (row_ids.empty() || row_ids.back() != row_id) {
-                row_ids.emplace_back(row_id);
+    ~RowIdReadDispatch() {
+        // Pool shutdown may destroy queued closures without executing them.
+        // The last closure can disappear only after all running reads have exited.
+        if (on_complete) {
+            SCOPED_INIT_THREAD_CONTEXT();
+            std::optional<AttachTask> task_context;
+            if (!thread_context()->is_attach_task()) {
+                task_context.emplace(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
             }
-            row_id_block_idx[result_idx] = std::make_pair(batch_idx, row_ids.size() - 1);
+            status.update(Status::Cancelled("Row id read tasks discarded by pool shutdown"));
+            complete();
         }
-
-        scan_blocks[batch_idx] = Block(slots, row_ids.size());
-        RETURN_IF_ERROR(read_doris_format_row(
-                id_file_map, scan_batch.file_mapping, row_ids, slots, full_read_schema,
-                row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
-                acquire_segments_ms, lookup_row_data_ms, seg_map, iterator_map,
-                file_cache_miss_policy, scan_blocks[batch_idx]));
     }
 
-    scatter_scan_blocks_to_result_block(row_id_block_idx, scan_blocks, result_block);
+    void complete() {
+        // Release request buffers while the rowid tracker is attached, even if
+        // the pool retains finished task closures for longer.
+        auto completion = std::move(on_complete);
+        completion(status.status());
+        run_task = {};
+    }
 
-    return Status::OK();
+    void finish_worker() {
+        if (remaining.fetch_sub(1) == 1) {
+            complete();
+        }
+    }
+};
+
+} // namespace
+
+void RowIdStorageReader::submit_internal_read_tasks(FifoThreadPool* pool, size_t task_count,
+                                                    int concurrency,
+                                                    std::function<Status(size_t)> run_task,
+                                                    std::function<void(Status)> on_complete) {
+    std::shared_ptr<RowIdReadDispatch> dispatch;
+    auto setup_status = rowid_read_status([&]() {
+        dispatch = std::make_shared<RowIdReadDispatch>();
+        dispatch->task_count = task_count;
+        dispatch->run_task = std::move(run_task);
+        dispatch->on_complete = std::move(on_complete);
+        return Status::OK();
+    });
+    if (!setup_status.ok()) {
+        on_complete(setup_status);
+        return;
+    }
+    // Launch only a bounded number of workers, each pulling the next segment range.
+    // Never block a pool thread waiting for work submitted to its own pool.
+    DCHECK_GT(concurrency, 0);
+    const size_t workers = std::min(task_count, static_cast<size_t>(concurrency));
+    for (size_t i = 0; i < workers; ++i) {
+        dispatch->remaining.fetch_add(1);
+        auto status = rowid_read_status([&]() {
+            // FifoThreadPool has no fallible bookkeeping after publishing a task.
+            // A rejection or exception therefore means this worker will never run.
+            if (!pool->try_offer([dispatch]() {
+                    std::optional<AttachTask> task_context;
+                    dispatch->status.update(rowid_read_status([&]() {
+                        task_context.emplace(
+                                ExecEnv::GetInstance()->rowid_storage_reader_tracker());
+                        while (dispatch->status.ok()) {
+                            const auto idx = dispatch->next_task.fetch_add(1);
+                            if (idx >= dispatch->task_count) {
+                                break;
+                            }
+                            RETURN_IF_ERROR(dispatch->run_task(idx));
+                        }
+                        return Status::OK();
+                    }));
+                    dispatch->finish_worker();
+                })) {
+                return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+                        "Row id fetch queue full or pool stopped: {}", pool->get_info());
+            }
+            return Status::OK();
+        });
+        if (!status.ok()) {
+            dispatch->status.update(status);
+            dispatch->finish_worker();
+            break;
+        }
+    }
+    dispatch->finish_worker();
+}
+
+void RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
+                                        PMultiGetResponseV2* response, FifoThreadPool* pool,
+                                        std::function<void(Status)> on_complete) {
+    std::shared_ptr<ReadRequestState> state;
+    auto status = rowid_read_status([&]() {
+        state = std::make_shared<ReadRequestState>(request, response);
+        return state->prepare();
+    });
+    if (!status.ok()) {
+        on_complete(status);
+        return;
+    }
+    auto finish = [state, on_complete = std::move(on_complete)](Status status) {
+        signal::set_signal_task_id(state->request.query_id());
+        if (status.ok()) {
+            status = rowid_read_status([&]() { return state->finish(); });
+        }
+        on_complete(status);
+    };
+    if (state->tasks.empty()) {
+        finish(Status::OK());
+        return;
+    }
+    submit_internal_read_tasks(
+            pool, state->tasks.size(), state->concurrency,
+            [state](size_t idx) {
+                signal::set_signal_task_id(state->request.query_id());
+                const auto& task = state->tasks[idx];
+                return state->internal_reads[task.block]->read(task.begin, task.end);
+            },
+            std::move(finish));
 }
 
 const std::string RowIdStorageReader::ScannersRunningTimeProfile = "ScannersRunningTime";
