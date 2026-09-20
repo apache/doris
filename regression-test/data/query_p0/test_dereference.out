@@ -75,3 +75,12 @@
 -- !alias_shadow_keep_alias_field --
 3
 
+-- !alias_shadow_lambda_order_by --
+3
+2
+1
+
+-- !alias_shadow_lambda_having --
+20
+30
+

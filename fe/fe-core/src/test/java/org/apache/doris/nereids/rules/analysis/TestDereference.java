@@ -72,7 +72,8 @@ public class TestDereference extends TestWithFeService {
                     "shadow_table", ImmutableList.of(
                             new Column("id", PrimitiveType.INT),
                             new Column("v", PrimitiveType.INT),
-                            new Column("s", new StructType(new StructField("v", Type.INT)))
+                            new Column("s", new StructType(new StructField("v", Type.INT))),
+                            new Column("arr", new ArrayType(Type.INT))
                     ),
                     "plain_table", ImmutableList.of(
                             new Column("id", PrimitiveType.INT)
@@ -260,6 +261,55 @@ public class TestDereference extends TestWithFeService {
         assertBoundToNestedField("select p.s as q from shadow_table p join plain_table q on p.id = q.id order by q.v");
         assertBoundToNestedField("select p.s as q from shadow_table p join plain_table q on p.id = q.id "
                 + "having q.v > 0");
+    }
+
+    @Test
+    public void testLambdaBodyBindsByEnclosingClauseScopes() {
+        // a name that is not a lambda argument is resolved the same way as outside the lambda,
+        // ORDER BY, HAVING and QUALIFY can see the child output behind the select output
+        List<String> sqls = ImmutableList.of(
+                "select id from shadow_table order by array_sum(array_map(x -> x + v, arr))",
+                "select id from shadow_table q order by array_sum(array_map(x -> x + q.v, q.arr))",
+                "select q.v as q from shadow_table q order by array_sum(array_map(x -> x + q.v, q.arr))",
+                "select q.v as q from shadow_table q having array_sum(array_map(x -> x + q.v, q.arr)) > 0",
+                "select q.id as q from shadow_table q group by q.id "
+                        + "having sum(array_sum(array_map(x -> x + q.v, q.arr))) > 0",
+                "select q.v as q from shadow_table q "
+                        + "qualify row_number() over (order by array_sum(array_map(x -> x + q.v, q.arr))) = 1"
+        );
+        for (String sql : sqls) {
+            Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).analyze(sql), sql);
+        }
+
+        // a nested lambda resolves through the lambda around it
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).analyze(
+                "select id from shadow_table q order by "
+                        + "array_sum(array_map(x -> array_sum(array_map(y -> y + x + q.v, q.arr)), q.arr))"));
+        // the enclosing clause is a join condition, both sides are its own scope rather than an outer scope
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext).analyze(
+                "select q.id from shadow_table q join plain_table p "
+                        + "on array_sum(array_map(x -> x + p.id, q.arr)) > 0"));
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("select id from shadow_table order by array_map(x -> x + unknown_column, arr)"));
+        Assertions.assertTrue(exception.getMessage().contains("Unknown column 'unknown_column'"),
+                exception.getMessage());
+    }
+
+    @Test
+    public void testLambdaBodyRegistersCorrelationSlot() {
+        // the enclosing analyzer of the subquery filter sees the outer scope, so does the lambda body
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze("select o.id from plain_table o where exists ("
+                        + "select 1 from shadow_table q where array_sum(array_map(x -> x + o.id, q.arr)) > 0)")
+                .getPlan();
+
+        LogicalApply<?, ?> apply = getOnlyApply(plan);
+        Assertions.assertEquals(1, apply.getCorrelationSlot().size());
+        Assertions.assertEquals("id", apply.getCorrelationSlot().get(0).getName());
+        List<String> qualifier = apply.getCorrelationSlot().get(0).getQualifier();
+        Assertions.assertEquals("o", qualifier.get(qualifier.size() - 1));
     }
 
     private void assertBoundToColumnV(String sql) {

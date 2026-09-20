@@ -282,6 +282,18 @@ suite("test_dereference") {
             ) x
             """
 
+    // a lambda body resolves names the same way as the clause around it
+    qt_alias_shadow_lambda_order_by """
+            select id from test_dereference_alias_shadow q
+            order by array_sum(array_map(x -> x + q.v, [1]))
+            """
+
+    qt_alias_shadow_lambda_having """
+            select q.v as q from test_dereference_alias_shadow q
+            having array_sum(array_map(x -> x + q.v, [1])) > 16
+            order by array_sum(array_map(x -> x + q.v, [1]))
+            """
+
     test {
         sql """
             select t1.id
