@@ -22,6 +22,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -43,6 +44,20 @@ TEST(BlockCheckType, test1) {
     st = block.check_type_and_column();
     EXPECT_FALSE(st.ok());
     std::cout << st.msg() << std::endl;
+}
+
+TEST(BlockCheckType, CheckDateTimeV2Scale) {
+    auto column = ColumnDateTimeV2::create();
+    DateV2Value<DateTimeV2ValueType> value;
+    value.unchecked_set_time(2026, 6, 6, 15, 54, 51, 1);
+    column->insert_value(value);
+
+    Block block {{column, std::make_shared<DataTypeDateTimeV2>(0), "datetime"}};
+    EXPECT_FALSE(block.check_type_and_column().ok());
+
+    value.set_microsecond(0);
+    column->get_data()[0] = value;
+    EXPECT_TRUE(block.check_type_and_column().ok());
 }
 
 TEST(BlockCheckType, CheckColumnAndTypeNotNull) {
