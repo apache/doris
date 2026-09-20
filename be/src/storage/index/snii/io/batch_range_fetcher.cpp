@@ -43,8 +43,9 @@ Status checked_size(uint64_t len, size_t* out) {
 
 } // namespace
 
-BatchRangeFetcher::BatchRangeFetcher(FileReader* reader, uint64_t coalesce_gap)
-        : reader_(reader), coalesce_gap_(coalesce_gap) {}
+BatchRangeFetcher::BatchRangeFetcher(FileReader* reader, uint64_t coalesce_gap,
+                                     index_query::MemoryBudget* budget)
+        : reader_(reader), coalesce_gap_(coalesce_gap), budget_(budget) {}
 
 size_t BatchRangeFetcher::add(uint64_t offset, uint64_t len) {
     reqs_.push_back(Req {offset, len});
@@ -134,6 +135,7 @@ Status BatchRangeFetcher::try_add(uint64_t offset, uint64_t len, uint64_t max_by
 void BatchRangeFetcher::clear() {
     reqs_.clear();
     phys_.clear();
+    read_memory_.reset();
     bounded_ranges_.clear();
     bounded_requests_ = 0;
     bounded_bytes_ = 0;
@@ -144,6 +146,7 @@ Status BatchRangeFetcher::fetch() {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "batch_range_fetcher: null reader");
     phys_.clear();
+    read_memory_.reset();
     if (reqs_.empty()) return Status::OK();
 
     std::vector<size_t> order(reqs_.size());
@@ -173,7 +176,19 @@ Status BatchRangeFetcher::fetch() {
         RETURN_IF_ERROR(checked_size(cur_end - cur_start, &segs.back().len));
     }
 
-    return reader_->read_batch(segs, &phys_);
+    if (budget_ != nullptr) {
+        uint64_t bytes = 0;
+        for (const Range& range : segs) {
+            bytes += range.len;
+        }
+        RETURN_IF_ERROR(budget_->reserve(bytes, &read_memory_));
+    }
+    Status status = reader_->read_batch(segs, &phys_);
+    if (!status.ok()) {
+        phys_.clear();
+        read_memory_.reset();
+    }
+    return status;
 }
 
 Slice BatchRangeFetcher::get(size_t h) const {

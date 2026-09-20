@@ -350,7 +350,18 @@ Status LogicalIndexReader::dict_block_reader_for_ordinal(
     DictBlockCache::Loader loader = [&](std::shared_ptr<const DecodedDictBlock>* slot) -> Status {
         BlockRef ref {};
         RETURN_IF_ERROR(dbd_.get(ordinal, &ref));
+        index_query::MemoryBudget::Reservation reservation;
+        if (cache != nullptr && cache->memory_budget() != nullptr) {
+            DictBlockScanMemory memory;
+            RETURN_IF_ERROR(dict_block_scan_memory(ordinal, &memory));
+            uint64_t bytes = 0;
+            RETURN_IF_ERROR(checked_memory_add(memory.decode_bytes, sizeof(DecodedDictBlock),
+                                               "logical_index: dict cache memory overflows",
+                                               &bytes));
+            RETURN_IF_ERROR(cache->reserve_memory(bytes, &reservation));
+        }
         auto block = std::make_shared<DecodedDictBlock>();
+        block->memory = std::move(reservation);
         RETURN_IF_ERROR(open_dict_block(reader_, ref, tier_, has_positions_, &block->bytes,
                                         &block->reader));
         *slot = std::move(block);

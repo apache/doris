@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "storage/index/query/spi/memory_budget.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/io/file_reader.h"
 
@@ -38,7 +39,10 @@ public:
     // coalesce_gap: requests separated by a gap <= this many bytes are merged into
     // one physical read (reads a few extra bytes to save a request). 0 merges only
     // overlapping/adjacent ranges.
-    explicit BatchRangeFetcher(FileReader* reader, uint64_t coalesce_gap = 0);
+    // The optional budget must outlive this fetcher. It accounts for coalesced
+    // read payloads; reader scratch space and request metadata are separate.
+    explicit BatchRangeFetcher(FileReader* reader, uint64_t coalesce_gap = 0,
+                               index_query::MemoryBudget* budget = nullptr);
 
     // Registers a desired range; returns a handle usable with get() after fetch().
     size_t add(uint64_t offset, uint64_t len);
@@ -48,6 +52,9 @@ public:
     Status try_add(uint64_t offset, uint64_t len, uint64_t max_bytes, size_t max_ranges,
                    bool* accepted, size_t* handle);
 
+    BatchRangeFetcher(const BatchRangeFetcher&) = delete;
+    BatchRangeFetcher& operator=(const BatchRangeFetcher&) = delete;
+
     // Coalesces and issues one batched read; fills internal buffers.
     Status fetch();
 
@@ -55,6 +62,7 @@ public:
     Slice get(size_t h) const;
 
     FileReader* reader() const { return reader_; }
+    index_query::MemoryBudget* memory_budget() const { return budget_; }
     size_t pending() const { return reqs_.size(); }
     void clear();
 
@@ -72,6 +80,8 @@ private:
     FileReader* reader_;
     uint64_t coalesce_gap_;
     std::vector<Req> reqs_;
+    index_query::MemoryBudget* budget_;
+    index_query::MemoryBudget::Reservation read_memory_;
     std::vector<std::vector<uint8_t>> phys_; // physical read buffers after fetch
     // Built only for bounded registration; the ordinary add/fetch path stays lazy.
     std::vector<Range> bounded_ranges_;

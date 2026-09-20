@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -30,6 +31,7 @@
 #include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/query/internal/docid_conjunction.h"
+#include "storage/index/snii/reader/dict_block_cache.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
@@ -134,6 +136,263 @@ std::vector<std::string> numbered_terms(size_t count) {
         terms.push_back(std::move(term));
     }
     return terms;
+}
+
+TEST(SniiQueryTermResolutionBatch, CacheBudgetRejectsBeforeReadingTheDictionary) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    MemoryFile file;
+    assert_ok(write_index(&file, {"alpha", "omega"}, 4096));
+    CountingReader counting(&file);
+    reader::SniiSegmentReader segment;
+    assert_ok(reader::SniiSegmentReader::open(&counting, &segment));
+    reader::LogicalIndexReader index;
+    assert_ok(segment.open_index(kIndexId, kIndexSuffix, &index));
+    counting.reset_counts();
+    index_query::MemoryBudget budget(0);
+    reader::DictBlockCache cache(8, &budget);
+    bool found = false;
+    format::DictEntry entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    const Status status = index.lookup("alpha", &found, &entry, &frq_base, &prx_base, &cache);
+    EXPECT_TRUE(status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << status.to_string();
+    EXPECT_EQ(counting.rounds(), 0U);
+    EXPECT_EQ(cache.size(), 0U);
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+// GTest assertions inflate the branch count for the cache lifetime checks.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(SniiQueryTermResolutionBatch, CacheBudgetEvictsBeforeLoadingAndPreservesHits) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    MemoryFile file;
+    assert_ok(write_index(&file, {"alpha", "omega"}, 1));
+    CountingReader counting(&file);
+    reader::SniiSegmentReader segment;
+    assert_ok(reader::SniiSegmentReader::open(&counting, &segment));
+    reader::LogicalIndexReader index;
+    assert_ok(segment.open_index(kIndexId, kIndexSuffix, &index));
+    ASSERT_EQ(index.n_dict_blocks(), 2U);
+    reader::DictBlockScanMemory first;
+    reader::DictBlockScanMemory second;
+    assert_ok(index.dict_block_scan_memory(0, &first));
+    assert_ok(index.dict_block_scan_memory(1, &second));
+    const uint64_t limit =
+            std::max(first.decode_bytes, second.decode_bytes) + sizeof(reader::DecodedDictBlock);
+    index_query::MemoryBudget budget(limit);
+    counting.reset_counts();
+    {
+        reader::DictBlockCache cache(8, &budget);
+        for (const std::string term : {"alpha", "alpha", "omega", "omega", "alpha"}) {
+            bool found = false;
+            format::DictEntry entry;
+            uint64_t frq_base = 0;
+            uint64_t prx_base = 0;
+            assert_ok(index.lookup(term, &found, &entry, &frq_base, &prx_base, &cache));
+            ASSERT_TRUE(found);
+            EXPECT_EQ(entry.term, term);
+            EXPECT_EQ(entry.df, 1U);
+            EXPECT_EQ(cache.size(), 1U);
+            EXPECT_GT(budget.used_bytes(), 0U);
+            EXPECT_LE(budget.used_bytes(), limit);
+        }
+        EXPECT_EQ(counting.read_at_calls(), 3U);
+        EXPECT_LE(budget.peak_bytes(), limit);
+    }
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+// GTest assertions inflate the branch count for the cache lifetime checks.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(SniiQueryTermResolutionBatch, CachePinsRetainOneChargeAfterEvictionAndCacheDestruction) {
+    index_query::MemoryBudget budget(8);
+    std::shared_ptr<const reader::DecodedDictBlock> pin;
+    int loads = 0;
+    {
+        reader::DictBlockCache cache(1, &budget);
+        const auto loader = [&](std::shared_ptr<const reader::DecodedDictBlock>* out) -> Status {
+            auto block = std::make_shared<reader::DecodedDictBlock>();
+            RETURN_IF_ERROR(cache.reserve_memory(8, &block->memory));
+            ++loads;
+            block->bytes.assign(8, 42);
+            *out = std::move(block);
+            return Status::OK();
+        };
+        assert_ok(cache.get_or_load(0, loader, &pin));
+        std::shared_ptr<const reader::DecodedDictBlock> alias;
+        assert_ok(cache.get_or_load(0, loader, &alias));
+        EXPECT_EQ(loads, 1);
+        EXPECT_EQ(budget.used_bytes(), 8U);
+        std::shared_ptr<const reader::DecodedDictBlock> next;
+        EXPECT_TRUE(cache.get_or_load(1, loader, &next).is<ErrorCode::MEM_LIMIT_EXCEEDED>());
+        EXPECT_EQ(cache.size(), 0U);
+        EXPECT_EQ(budget.used_bytes(), 8U);
+        EXPECT_EQ(pin->bytes.back(), 42);
+        pin.reset();
+        EXPECT_EQ(budget.used_bytes(), 8U);
+        EXPECT_EQ(alias->bytes.front(), 42);
+        alias.reset();
+        EXPECT_EQ(budget.used_bytes(), 0U);
+        assert_ok(cache.get_or_load(1, loader, &pin));
+        EXPECT_EQ(loads, 2);
+    }
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    EXPECT_EQ(pin->bytes.back(), 42);
+    pin.reset();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 8U);
+}
+
+TEST(SniiQueryTermResolutionBatch, CacheBudgetReleasesFailedReadsAndCorruptDecodes) {
+    class FaultReader final : public io::FileReader {
+    public:
+        explicit FaultReader(io::FileReader* inner) : inner_(inner) {}
+        Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override {
+            RETURN_IF_ERROR(inner_->read_at(offset, len, out));
+            if (fail) {
+                return Status::IOError("Injected dictionary read failure");
+            }
+            if (corrupt && !out->empty()) {
+                out->back() ^= 1;
+            }
+            return Status::OK();
+        }
+        uint64_t size() const override { return inner_->size(); }
+        bool fail = false;
+        bool corrupt = false;
+
+    private:
+        io::FileReader* inner_;
+    };
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    MemoryFile file;
+    assert_ok(write_index(&file, {"alpha"}, 4096));
+    FaultReader fault(&file);
+    reader::SniiSegmentReader segment;
+    assert_ok(reader::SniiSegmentReader::open(&fault, &segment));
+    reader::LogicalIndexReader index;
+    assert_ok(segment.open_index(kIndexId, kIndexSuffix, &index));
+    reader::DictBlockScanMemory memory;
+    assert_ok(index.dict_block_scan_memory(0, &memory));
+    const uint64_t limit = memory.decode_bytes + sizeof(reader::DecodedDictBlock);
+    index_query::MemoryBudget budget(limit);
+    reader::DictBlockCache cache(8, &budget);
+    bool found = false;
+    format::DictEntry entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    fault.fail = true;
+    EXPECT_FALSE(index.lookup("alpha", &found, &entry, &frq_base, &prx_base, &cache).ok());
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(cache.size(), 0U);
+    fault.fail = false;
+    fault.corrupt = true;
+    EXPECT_TRUE(index.lookup("alpha", &found, &entry, &frq_base, &prx_base, &cache)
+                        .is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(cache.size(), 0U);
+    fault.corrupt = false;
+    assert_ok(index.lookup("alpha", &found, &entry, &frq_base, &prx_base, &cache));
+    EXPECT_TRUE(found);
+    EXPECT_EQ(entry.term, "alpha");
+    EXPECT_EQ(budget.used_bytes(), limit);
+    EXPECT_EQ(budget.peak_bytes(), limit);
+}
+
+TEST(SniiQueryTermResolutionBatch, ReadPayloadAndDecodedBlocksShareOneBudget) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    MemoryFile file;
+    assert_ok(write_index(&file, {"alpha"}, 4096));
+    CountingReader counting(&file);
+    reader::SniiSegmentReader segment;
+    assert_ok(reader::SniiSegmentReader::open(&counting, &segment));
+    reader::LogicalIndexReader index;
+    assert_ok(segment.open_index(kIndexId, kIndexSuffix, &index));
+    reader::DictBlockScanMemory memory;
+    assert_ok(index.dict_block_scan_memory(0, &memory));
+    const uint64_t limit = memory.decode_bytes + sizeof(reader::DecodedDictBlock) + 8;
+    index_query::MemoryBudget budget(limit);
+    io::BatchRangeFetcher read(&counting, 0, &budget);
+    read.add(0, 8);
+    assert_ok(read.fetch());
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    {
+        reader::DictBlockCache cache(8, &budget);
+        bool found = false;
+        format::DictEntry entry;
+        uint64_t frq_base = 0;
+        uint64_t prx_base = 0;
+        assert_ok(index.lookup("alpha", &found, &entry, &frq_base, &prx_base, &cache));
+        ASSERT_TRUE(found);
+        EXPECT_EQ(budget.used_bytes(), limit);
+        io::BatchRangeFetcher blocked(&counting, 0, &budget);
+        blocked.add(16, 1);
+        const uint64_t rounds = counting.rounds();
+        EXPECT_TRUE(blocked.fetch().is<ErrorCode::MEM_LIMIT_EXCEEDED>());
+        EXPECT_EQ(counting.rounds(), rounds);
+    }
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    EXPECT_EQ(read.get(0).size(), 8U);
+    read.clear();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(SniiQueryTermResolutionBatch, CompressedCacheAdmissionIncludesDecodedMemory) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    MemoryFile file;
+    const std::string term(4096, 'a');
+    assert_ok(write_index(&file, {term}, 8192));
+    CountingReader counting(&file);
+    reader::SniiSegmentReader segment;
+    assert_ok(reader::SniiSegmentReader::open(&counting, &segment));
+    reader::LogicalIndexReader index;
+    assert_ok(segment.open_index(kIndexId, kIndexSuffix, &index));
+    ASSERT_LT(index.section_refs().dict_region.length, term.size());
+    counting.reset_counts();
+    index_query::MemoryBudget compressed_only(index.section_refs().dict_region.length);
+    reader::DictBlockCache rejected(8, &compressed_only);
+    bool found = false;
+    format::DictEntry entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    EXPECT_TRUE(index.lookup(term, &found, &entry, &frq_base, &prx_base, &rejected)
+                        .is<ErrorCode::MEM_LIMIT_EXCEEDED>());
+    EXPECT_EQ(counting.rounds(), 0U);
+    reader::DictBlockScanMemory memory;
+    assert_ok(index.dict_block_scan_memory(0, &memory));
+    const uint64_t limit = memory.decode_bytes + sizeof(reader::DecodedDictBlock);
+    index_query::MemoryBudget full(limit);
+    reader::DictBlockCache accepted(8, &full);
+    assert_ok(index.lookup(term, &found, &entry, &frq_base, &prx_base, &accepted));
+    EXPECT_TRUE(found);
+    EXPECT_EQ(entry.term, term);
+    EXPECT_EQ(full.used_bytes(), limit);
+    EXPECT_EQ(full.peak_bytes(), limit);
+    EXPECT_EQ(counting.read_at_calls(), 1U);
+}
+
+TEST(SniiQueryTermResolutionBatch, ResidentDictionaryDoesNotChargeTheRequestCache) {
+    ScopedEnv resident("SNII_DICT_RESIDENT_MAX", "1048576");
+    MemoryFile file;
+    assert_ok(write_index(&file, {"alpha"}, 4096));
+    CountingReader counting(&file);
+    reader::SniiSegmentReader segment;
+    assert_ok(reader::SniiSegmentReader::open(&counting, &segment));
+    reader::LogicalIndexReader index;
+    assert_ok(segment.open_index(kIndexId, kIndexSuffix, &index));
+    counting.reset_counts();
+    index_query::MemoryBudget budget(0);
+    reader::DictBlockCache cache(8, &budget);
+    bool found = false;
+    format::DictEntry entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    assert_ok(index.lookup("alpha", &found, &entry, &frq_base, &prx_base, &cache));
+    EXPECT_TRUE(found);
+    EXPECT_EQ(entry.term, "alpha");
+    EXPECT_EQ(counting.rounds(), 0U);
+    EXPECT_EQ(cache.size(), 0U);
+    EXPECT_EQ(budget.used_bytes(), 0U);
 }
 
 TEST(SniiQueryTermResolutionBatch, ResolvesColdDictBlocksInOnePhysicalBatch) {

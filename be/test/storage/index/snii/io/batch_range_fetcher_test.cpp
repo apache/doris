@@ -20,11 +20,14 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
+#include <barrier>
 #include <cstdint>
 #include <limits>
 #include <numeric>
 #include <random>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -297,4 +300,133 @@ TEST(SniiBatchRangeFetcher, BoundedAdmissionMatchesIndependentByteCoverage) {
         SCOPED_TRACE(trial);
         check_seeded_admission(&inner, &random, (trial % 9) * 16, trial % 5);
     }
+}
+
+TEST(SniiBatchRangeFetcher, SharedMemoryBudgetRejectsBeforeReadingAndReleasesOnClear) {
+    LocalFileReader inner;
+    ASSERT_TRUE(inner.open(MakeRampFile()).ok());
+    MeteredFileReader metered(&inner, 1);
+    doris::index_query::MemoryBudget budget(12);
+    BatchRangeFetcher first(&metered, 0, &budget);
+    BatchRangeFetcher second(&metered, 0, &budget);
+    first.add(0, 6);
+    first.add(4, 4);
+    ASSERT_TRUE(first.fetch().ok());
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    EXPECT_EQ(budget.peak_bytes(), 8U);
+    ASSERT_TRUE(first.fetch().ok());
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    second.add(16, 5);
+    const auto reads = metered.metrics().read_at_calls;
+    const Status status = second.fetch();
+    EXPECT_TRUE(status.is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>()) << status.to_string();
+    EXPECT_EQ(metered.metrics().read_at_calls, reads);
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    first.clear();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    ASSERT_TRUE(second.fetch().ok());
+    EXPECT_EQ(second.get(0)[4], 20U);
+    EXPECT_EQ(budget.used_bytes(), 5U);
+    second.clear();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(SniiBatchRangeFetcher, FailedReadReleasesTheWholeReservation) {
+    LocalFileReader inner;
+    ASSERT_TRUE(inner.open(MakeRampFile()).ok());
+    doris::index_query::MemoryBudget budget(16);
+    BatchRangeFetcher fetcher(&inner, 0, &budget);
+    fetcher.add(0, 8);
+    fetcher.add(255, 8);
+    EXPECT_FALSE(fetcher.fetch().ok());
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 16U);
+    fetcher.clear();
+    fetcher.add(32, 16);
+    ASSERT_TRUE(fetcher.fetch().ok());
+    EXPECT_EQ(fetcher.get(0)[15], 47U);
+    EXPECT_EQ(budget.used_bytes(), 16U);
+}
+
+TEST(SniiBatchRangeFetcher, DestructionReleasesGapBytesAtTheExactLimit) {
+    LocalFileReader inner;
+    ASSERT_TRUE(inner.open(MakeRampFile()).ok());
+    doris::index_query::MemoryBudget budget(12);
+    {
+        BatchRangeFetcher fetcher(&inner, 4, &budget);
+        fetcher.add(8, 4);
+        fetcher.add(16, 4);
+        ASSERT_TRUE(fetcher.fetch().ok());
+        EXPECT_EQ(budget.used_bytes(), 12U);
+        EXPECT_EQ(fetcher.get(1)[3], 19U);
+    }
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 12U);
+}
+
+TEST(IndexQueryMemoryBudget, MoveReleasesThePreviousOwnerAndPreservesTheNewCharge) {
+    doris::index_query::MemoryBudget budget(12);
+    {
+        doris::index_query::MemoryBudget::Reservation first;
+        doris::index_query::MemoryBudget::Reservation second;
+        ASSERT_TRUE(budget.reserve(8, &first).ok());
+        ASSERT_TRUE(budget.reserve(4, &second).ok());
+        second = std::move(first);
+        EXPECT_EQ(budget.used_bytes(), 8U);
+        EXPECT_EQ(second.bytes(), 8U);
+        doris::index_query::MemoryBudget::Reservation last(std::move(second));
+        EXPECT_EQ(budget.used_bytes(), 8U);
+        last.reset();
+        EXPECT_EQ(budget.used_bytes(), 0U);
+    }
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(IndexQueryMemoryBudget, ReservationsCanOutliveTheBudgetHandle) {
+    doris::index_query::MemoryBudget::Reservation pin;
+    {
+        doris::index_query::MemoryBudget budget(16);
+        ASSERT_TRUE(budget.reserve(16, &pin).ok());
+    }
+    EXPECT_EQ(pin.bytes(), 16U);
+    pin.reset();
+    EXPECT_EQ(pin.bytes(), 0U);
+}
+
+TEST(IndexQueryMemoryBudget, RejectsOverflowWithoutChangingExistingCharges) {
+    doris::index_query::MemoryBudget budget(std::numeric_limits<uint64_t>::max());
+    doris::index_query::MemoryBudget::Reservation first;
+    doris::index_query::MemoryBudget::Reservation rejected;
+    ASSERT_TRUE(budget.reserve(8, &first).ok());
+    const Status status = budget.reserve(std::numeric_limits<uint64_t>::max(), &rejected);
+    EXPECT_TRUE(status.is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>());
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    EXPECT_EQ(rejected.bytes(), 0U);
+}
+
+TEST(IndexQueryMemoryBudget, ConcurrentReservationsRespectTheSharedLimit) {
+    doris::index_query::MemoryBudget budget(32);
+    std::atomic<int> accepted {0};
+    std::atomic<int> rejected {0};
+    std::barrier barrier(8);
+    std::vector<std::thread> threads;
+    for (int i = 0; i < 8; ++i) {
+        threads.emplace_back([&] {
+            doris::index_query::MemoryBudget::Reservation reservation;
+            const Status status = budget.reserve(8, &reservation);
+            if (status.ok()) {
+                ++accepted;
+            } else if (status.is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+                ++rejected;
+            }
+            barrier.arrive_and_wait();
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    EXPECT_EQ(accepted, 4);
+    EXPECT_EQ(rejected, 4);
+    EXPECT_EQ(budget.peak_bytes(), 32U);
+    EXPECT_EQ(budget.used_bytes(), 0U);
 }
