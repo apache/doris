@@ -211,6 +211,7 @@ import org.apache.doris.thrift.TGetBinlogRequest;
 import org.apache.doris.thrift.TGetBinlogResult;
 import org.apache.doris.thrift.TGetColumnInfoRequest;
 import org.apache.doris.thrift.TGetColumnInfoResult;
+import org.apache.doris.thrift.TGetCurrentTsoResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetEncryptionKeysRequest;
@@ -6127,6 +6128,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
         }
         return status;
+    }
+
+    @Override
+    public TGetCurrentTsoResult getCurrentTso() {
+        TGetCurrentTsoResult result = new TGetCurrentTsoResult();
+        TStatus status = checkMaster();
+        result.setStatus(status);
+        if (status.getStatusCode() != TStatusCode.OK) {
+            return result;
+        }
+        try {
+            result.setTso(Env.getCurrentTSOService().getTSO());
+        } catch (RuntimeException e) {
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+        }
+        return result;
     }
 
     private static final class AdaptiveBucketSinkContext {

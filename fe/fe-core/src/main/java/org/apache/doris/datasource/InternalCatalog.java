@@ -2466,7 +2466,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 db.getBinlogConfigsForCreateTable(createTableInfo.getProperties());
         BinlogConfig dbBinlogConfig = binlogConfigs.first;
         BinlogConfig createTableBinlogConfig = binlogConfigs.second;
-        if (dbBinlogConfig.getEnable() && !createTableBinlogConfig.isEnableForCCR() && !createTableInfo.isTemp()) {
+        if (dbBinlogConfig.isEnableForCCR() && !createTableBinlogConfig.isEnableForCCR()
+                && !createTableInfo.isTemp()) {
             throw new DdlException("Cannot create table with binlog disabled when database binlog enable");
         }
         if (createTableInfo.isTemp() && createTableBinlogConfig.isEnableForCCR()) {

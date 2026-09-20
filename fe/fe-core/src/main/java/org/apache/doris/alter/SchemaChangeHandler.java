@@ -3086,7 +3086,7 @@ public class SchemaChangeHandler extends AlterHandler {
                         "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
             }
 
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                 int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
@@ -3957,6 +3957,9 @@ public class SchemaChangeHandler extends AlterHandler {
                             newBinlogConfig.mergeFromProperties(binlogConfigMap, false);
                     if (!mergePropertiesStatus.first) {
                         throw new AnalysisException(mergePropertiesStatus.second);
+                    }
+                    if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
+                        newBinlogConfig.applyExplicitRowTtl(newBinlogConfig.getTtlSeconds());
                     }
                 }
             } catch (AnalysisException e) {

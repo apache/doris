@@ -138,6 +138,8 @@ public class StatementContext implements Closeable {
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
+    private boolean rowBinlogReferenceTsoRequired;
+    private Long rowBinlogReferenceTso;
 
     private OriginStatement originStatement;
     // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the
@@ -760,6 +762,29 @@ public class StatementContext implements Closeable {
         return supplier.get();
     }
 
+    public synchronized void requireRowBinlogReferenceTso() {
+        rowBinlogReferenceTsoRequired = true;
+        getSqlCacheContext().ifPresent(cache -> cache.setHasUnsupportedTables(true));
+    }
+
+    public synchronized boolean isRowBinlogReferenceTsoRequired() {
+        return rowBinlogReferenceTsoRequired;
+    }
+
+    public synchronized long getOrRegisterRowBinlogReferenceTso(Supplier<Long> tsoSupplier) {
+        if (rowBinlogReferenceTso == null) {
+            rowBinlogReferenceTso = tsoSupplier.get();
+        }
+        return rowBinlogReferenceTso;
+    }
+
+    public synchronized long getRowBinlogReferenceTso() {
+        if (rowBinlogReferenceTso == null) {
+            throw new AnalysisException("Row binlog reference TSO was not initialized");
+        }
+        return rowBinlogReferenceTso;
+    }
+
     public synchronized BitSet getOrCacheDisableRules(SessionVariable sessionVariable) {
         if (this.disableRules != null) {
             return this.disableRules;
@@ -797,6 +822,8 @@ public class StatementContext implements Closeable {
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
+        rowBinlogReferenceTsoRequired = false;
+        rowBinlogReferenceTso = null;
     }
 
     /**

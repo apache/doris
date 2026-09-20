@@ -786,6 +786,7 @@ message TabletCompactionJobPB {
     optional int64 segment_size_input_rowsets = 28;
     optional int64 index_size_output_rowsets = 29;
     optional int64 segment_size_output_rowsets = 30;
+    optional int64 row_binlog_ttl_seconds = 31;
 }
 
 message TabletSchemaChangeJobPB {

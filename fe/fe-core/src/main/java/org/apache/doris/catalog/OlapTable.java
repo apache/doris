@@ -2419,6 +2419,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return getBinlogConfig().isEnableForStreaming();
     }
 
+    public boolean hasRowBinlogTtl() {
+        return getBinlogConfig().isRowTtlEnabled();
+    }
+
     // Whether the base table physically stores the row LSN column (dup table with row binlog).
     public boolean hasRowLsnColumn() {
         return getBaseSchema(true).stream().anyMatch(Column::isRowLsnColumn);
