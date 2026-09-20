@@ -318,6 +318,109 @@ TEST(EMBED_TEST, prefer_embed_resource_properties) {
     ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
 }
 
+TEST(EMBED_TEST, select_resource_properties_by_input_type) {
+    TAIResource ai_resource;
+    ai_resource.__set_endpoint("general-endpoint");
+    ai_resource.__set_provider_type("OPENAI");
+    ai_resource.__set_model_name("general-model");
+    ai_resource.__set_api_key("general-api-key");
+    ai_resource.__set_embed_endpoint("embed-endpoint");
+    ai_resource.__set_embed_provider_type("QWEN");
+    ai_resource.__set_embed_model_name("embed-model");
+    ai_resource.__set_embed_api_key("embed-api-key");
+    ai_resource.__set_embed_mm_endpoint("multimodal-endpoint");
+    ai_resource.__set_embed_mm_provider_type("GEMINI");
+    ai_resource.__set_embed_mm_model_name("multimodal-model");
+    ai_resource.__set_embed_mm_api_key("multimodal-api-key");
+
+    FunctionEmbed embed_function;
+    AIResource text_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(text_resource.endpoint, "embed-endpoint");
+    EXPECT_EQ(text_resource.provider_type, "QWEN");
+
+    AIResource multimodal_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(multimodal_resource.endpoint, "multimodal-endpoint");
+    EXPECT_EQ(multimodal_resource.provider_type, "GEMINI");
+}
+
+TEST(EMBED_TEST, multimodal_resource_fallback) {
+    TAIResource ai_resource;
+    ai_resource.__set_endpoint("general-endpoint");
+    ai_resource.__set_provider_type("OPENAI");
+    ai_resource.__set_model_name("general-model");
+    ai_resource.__set_api_key("general-api-key");
+    ai_resource.__set_embed_endpoint("embed-endpoint");
+    ai_resource.__set_embed_provider_type("QWEN");
+    ai_resource.__set_embed_model_name("embed-model");
+    ai_resource.__set_embed_api_key("embed-api-key");
+
+    FunctionEmbed embed_function;
+    AIResource embed_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(embed_resource.endpoint, "embed-endpoint");
+
+    TAIResource general_resource;
+    general_resource.__set_endpoint("general-endpoint");
+    general_resource.__set_provider_type("OPENAI");
+    general_resource.__set_model_name("general-model");
+    general_resource.__set_api_key("general-api-key");
+    AIResource fallback_resource =
+            embed_function.select_ai_resource(general_resource, PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(fallback_resource.endpoint, "general-endpoint");
+
+    general_resource.__set_embed_mm_endpoint("multimodal-endpoint");
+    general_resource.__set_embed_mm_provider_type("GEMINI");
+    general_resource.__set_embed_mm_model_name("multimodal-model");
+    general_resource.__set_embed_mm_api_key("multimodal-api-key");
+    AIResource text_resource =
+            embed_function.select_ai_resource(general_resource, PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(text_resource.endpoint, "general-endpoint");
+}
+
+TEST(EMBED_TEST, incomplete_dedicated_resource_fallback) {
+    TAIResource ai_resource;
+    ai_resource.__set_endpoint("general-endpoint");
+    ai_resource.__set_provider_type("OPENAI");
+    ai_resource.__set_model_name("general-model");
+    ai_resource.__set_api_key("general-api-key");
+    ai_resource.__set_embed_endpoint("incomplete-embed-endpoint");
+
+    FunctionEmbed embed_function;
+    AIResource text_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(text_resource.endpoint, "general-endpoint");
+    EXPECT_EQ(text_resource.provider_type, "OPENAI");
+
+    ai_resource.__set_embed_provider_type("QWEN");
+    ai_resource.__set_embed_model_name("embed-model");
+    ai_resource.__set_embed_api_key("embed-api-key");
+    ai_resource.__set_embed_mm_endpoint("incomplete-multimodal-endpoint");
+    AIResource multimodal_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(multimodal_resource.endpoint, "incomplete-embed-endpoint");
+    EXPECT_EQ(multimodal_resource.provider_type, "QWEN");
+}
+
+TEST(EMBED_TEST, empty_dedicated_resource_properties_fallback) {
+    TAIResource ai_resource;
+    ai_resource.__set_endpoint("general-endpoint");
+    ai_resource.__set_provider_type("OPENAI");
+    ai_resource.__set_model_name("general-model");
+    ai_resource.__set_api_key("general-api-key");
+    ai_resource.__set_embed_endpoint("");
+    ai_resource.__set_embed_provider_type("");
+    ai_resource.__set_embed_model_name("");
+    ai_resource.__set_embed_api_key("");
+
+    FunctionEmbed embed_function;
+    AIResource text_resource =
+            embed_function.select_ai_resource(ai_resource, PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(text_resource.endpoint, "general-endpoint");
+    EXPECT_EQ(text_resource.provider_type, "OPENAI");
+}
+
 TEST(EMBED_TEST, embed_function_text_multi_rows) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});

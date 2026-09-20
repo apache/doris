@@ -45,6 +45,7 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("elasticsearch.password");
         SENSITIVE_KEY.add("ai.api_key");
         SENSITIVE_KEY.add("ai.embed.api_key");
+        SENSITIVE_KEY.add("ai.embed.mm.api_key");
         SENSITIVE_KEY.addAll(Arrays.asList(
                 MCProperties.SECRET_KEY));
         // DLF 1.0 secret keys. Formerly reflected off AliyunDLFBaseProperties, removed with the DLF 1.0 thrift

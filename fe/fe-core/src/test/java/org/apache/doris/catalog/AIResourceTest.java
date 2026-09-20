@@ -32,6 +32,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AISentiment;
 import org.apache.doris.nereids.trees.expressions.functions.ai.Embed;
+import org.apache.doris.nereids.trees.expressions.literal.JsonLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
@@ -243,6 +244,52 @@ public class AIResourceTest {
     }
 
     @Test
+    public void testMultimodalEmbedOnlyResource() throws DdlException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(AIProperties.MULTIMODAL_EMBED_ENDPOINT,
+                "https://api.example.com/v1/multimodal-embeddings");
+        properties.put(AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE, "qwen");
+        properties.put(AIProperties.MULTIMODAL_EMBED_MODEL_NAME, "multimodal-embedding-model");
+        properties.put(AIProperties.MULTIMODAL_EMBED_API_KEY, "multimodal-embed-api-key");
+
+        AIResource aiResource = new AIResource("multimodal-embed-only-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(properties));
+
+        Assertions.assertEquals("QWEN", aiResource.getProperty(AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE));
+        Assertions.assertEquals("https://api.example.com/v1/multimodal-embeddings",
+                aiResource.getProperty(AIProperties.MULTIMODAL_EMBED_ENDPOINT));
+        Assertions.assertEquals("multimodal-embedding-model",
+                aiResource.getProperty(AIProperties.MULTIMODAL_EMBED_MODEL_NAME));
+        Assertions.assertEquals("multimodal-embed-api-key",
+                aiResource.getProperty(AIProperties.MULTIMODAL_EMBED_API_KEY));
+        Assertions.assertEquals("https://api.example.com/v1/multimodal-embeddings",
+                aiResource.toThrift().getEmbedMmEndpoint());
+        Assertions.assertEquals("QWEN", aiResource.toThrift().getEmbedMmProviderType());
+        Assertions.assertEquals("multimodal-embedding-model", aiResource.toThrift().getEmbedMmModelName());
+        Assertions.assertEquals("multimodal-embed-api-key", aiResource.toThrift().getEmbedMmApiKey());
+        Assertions.assertFalse(aiResource.toThrift().isSetEndpoint());
+        Assertions.assertFalse(aiResource.toThrift().isSetEmbedEndpoint());
+
+        BaseProcResult result = new BaseProcResult();
+        aiResource.getProcNodeData(result);
+        Assertions.assertTrue(result.getRows().stream().anyMatch(row ->
+                AIProperties.MULTIMODAL_EMBED_API_KEY.equals(row.get(2)) && "******".equals(row.get(3))));
+        Assertions.assertFalse(result.getRows().stream().anyMatch(row -> row.contains("multimodal-embed-api-key")));
+    }
+
+    @Test
+    public void testRejectPartialMultimodalEmbedProperties() {
+        Map<String, String> properties = new HashMap<>(aiProperties);
+        properties.put(AIProperties.MULTIMODAL_EMBED_ENDPOINT,
+                "https://api.example.com/v1/multimodal-embeddings");
+
+        AIResource aiResource = new AIResource("partial-multimodal-embed-resource");
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
+        Assertions.assertTrue(exception.getMessage().contains(AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE));
+    }
+
+    @Test
     public void testRejectEmbedOnlyResourceForNonEmbedScalarFunction() throws DdlException {
         AIResource aiResource = createEmbedOnlyResource();
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
@@ -291,6 +338,39 @@ public class AIResourceTest {
         }
     }
 
+    @Test
+    public void testAcceptMultimodalEmbedOnlyResourceForJsonEmbed() throws DdlException {
+        AIResource aiResource = createMultimodalEmbedOnlyResource();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            ResourceMgr resourceMgr = Mockito.mock(ResourceMgr.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
+            Mockito.when(resourceMgr.getResource("multimodal-embed-only-resource")).thenReturn(aiResource);
+
+            Embed function = new Embed(new StringLiteral("multimodal-embed-only-resource"),
+                    new JsonLiteral("{\"text\":\"hello\"}"));
+            Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
+        }
+    }
+
+    @Test
+    public void testRejectMultimodalEmbedOnlyResourceForTextEmbed() throws DdlException {
+        AIResource aiResource = createMultimodalEmbedOnlyResource();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            ResourceMgr resourceMgr = Mockito.mock(ResourceMgr.class);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
+            Mockito.when(resourceMgr.getResource("multimodal-embed-only-resource")).thenReturn(aiResource);
+
+            Embed function = new Embed(new StringLiteral("multimodal-embed-only-resource"),
+                    new StringLiteral("hello"));
+            Assertions.assertThrows(AnalysisException.class, function::checkLegalityBeforeTypeCoercion);
+        }
+    }
+
     private AIResource createEmbedOnlyResource() throws DdlException {
         Map<String, String> properties = new HashMap<>();
         properties.put(AIProperties.EMBED_ENDPOINT, "https://api.example.com/v1/embeddings");
@@ -299,6 +379,19 @@ public class AIResourceTest {
         properties.put(AIProperties.EMBED_API_KEY, "embed-api-key");
 
         AIResource aiResource = new AIResource("embed-only-resource");
+        aiResource.setProperties(ImmutableMap.copyOf(properties));
+        return aiResource;
+    }
+
+    private AIResource createMultimodalEmbedOnlyResource() throws DdlException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(AIProperties.MULTIMODAL_EMBED_ENDPOINT,
+                "https://api.example.com/v1/multimodal-embeddings");
+        properties.put(AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE, "qwen");
+        properties.put(AIProperties.MULTIMODAL_EMBED_MODEL_NAME, "multimodal-embedding-model");
+        properties.put(AIProperties.MULTIMODAL_EMBED_API_KEY, "multimodal-embed-api-key");
+
+        AIResource aiResource = new AIResource("multimodal-embed-only-resource");
         aiResource.setProperties(ImmutableMap.copyOf(properties));
         return aiResource;
     }

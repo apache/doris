@@ -428,7 +428,12 @@ private:
         DORIS_CHECK(ai_resources);
         auto it = ai_resources->find(resource_name);
         DORIS_CHECK(it != ai_resources->end());
-        config = assert_cast<const Derived&>(*this).select_ai_resource(it->second);
+        PrimitiveType input_type = INVALID_TYPE;
+        if (arguments.size() > 1) {
+            input_type =
+                    remove_nullable(block.get_by_position(arguments[1]).type)->get_primitive_type();
+        }
+        config = assert_cast<const Derived&>(*this).select_ai_resource(it->second, input_type);
 
         normalize_endpoint(config);
 
@@ -439,7 +444,7 @@ private:
         return Status::OK();
     }
 
-    AIResource select_ai_resource(const TAIResource& resource) const {
+    AIResource select_ai_resource(const TAIResource& resource, PrimitiveType /*input_type*/) const {
         return AIResource(resource);
     }
 

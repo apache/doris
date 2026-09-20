@@ -49,6 +49,11 @@ struct AIResource {
                           tai.embed_api_key);
     }
 
+    static AIResource from_multimodal_embed(const TAIResource& tai) {
+        return AIResource(tai, tai.embed_mm_endpoint, tai.embed_mm_provider_type,
+                          tai.embed_mm_model_name, tai.embed_mm_api_key);
+    }
+
     std::string endpoint;
     std::string provider_type;
     std::string model_name;

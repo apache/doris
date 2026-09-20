@@ -44,11 +44,18 @@ public:
 
     using PreparedFunctionImpl::execute;
 
-    AIResource select_ai_resource(const TAIResource& resource) const {
-        bool has_embed_properties =
-                resource.__isset.embed_endpoint || resource.__isset.embed_provider_type ||
-                resource.__isset.embed_model_name || resource.__isset.embed_api_key;
-        return has_embed_properties ? AIResource::from_embed(resource) : AIResource(resource);
+    AIResource select_ai_resource(const TAIResource& resource, PrimitiveType input_type) const {
+        bool has_complete_multimodal_embed_properties = _has_complete_resource_properties(
+                resource.embed_mm_endpoint, resource.embed_mm_provider_type,
+                resource.embed_mm_model_name, resource.embed_mm_api_key);
+        if (input_type == PrimitiveType::TYPE_JSONB && has_complete_multimodal_embed_properties) {
+            return AIResource::from_multimodal_embed(resource);
+        }
+        bool has_complete_embed_properties = _has_complete_resource_properties(
+                resource.embed_endpoint, resource.embed_provider_type, resource.embed_model_name,
+                resource.embed_api_key);
+        return has_complete_embed_properties ? AIResource::from_embed(resource)
+                                             : AIResource(resource);
     }
 
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -101,6 +108,14 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionEmbed>(); }
 
 private:
+    static bool _has_complete_resource_properties(std::string_view endpoint,
+                                                  std::string_view provider_type,
+                                                  std::string_view model_name,
+                                                  std::string_view api_key) {
+        return !endpoint.empty() && !provider_type.empty() && !model_name.empty() &&
+               (provider_type == "LOCAL" || !api_key.empty());
+    }
+
     static int32_t _get_embed_max_batch_size(FunctionContext* context) {
         QueryContext* query_ctx = context->state()->get_query_ctx();
         DORIS_CHECK(query_ctx != nullptr);

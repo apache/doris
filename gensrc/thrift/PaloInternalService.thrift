@@ -693,6 +693,10 @@ struct TAIResource {
   13: optional string embed_model_name
   14: optional string embed_api_key
   15: optional string effort
+  16: optional string embed_mm_endpoint
+  17: optional string embed_mm_provider_type
+  18: optional string embed_mm_model_name
+  19: optional string embed_mm_api_key
 }
 
 struct TCondition {

@@ -35,10 +35,14 @@ public class AIProperties extends BaseProperties {
     public static final String EMBED_ENDPOINT = "ai.embed.endpoint";
     public static final String EMBED_PROVIDER_TYPE = "ai.embed.provider_type";
     public static final String EMBED_MODEL_NAME = "ai.embed.model_name";
+    public static final String MULTIMODAL_EMBED_ENDPOINT = "ai.embed.mm.endpoint";
+    public static final String MULTIMODAL_EMBED_PROVIDER_TYPE = "ai.embed.mm.provider_type";
+    public static final String MULTIMODAL_EMBED_MODEL_NAME = "ai.embed.mm.model_name";
 
     // optional
     public static final String API_KEY = "ai.api_key";
     public static final String EMBED_API_KEY = "ai.embed.api_key";
+    public static final String MULTIMODAL_EMBED_API_KEY = "ai.embed.mm.api_key";
     public static final String TEMPERATURE = "ai.temperature";
     public static final String MAX_TOKEN = "ai.max_token";
     public static final String MAX_RETRIES = "ai.max_retries";
@@ -60,6 +64,9 @@ public class AIProperties extends BaseProperties {
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, PROVIDER_TYPE, MODEL_NAME);
     public static final List<String> EMBED_REQUIRED_FIELDS =
             Arrays.asList(EMBED_ENDPOINT, EMBED_PROVIDER_TYPE, EMBED_MODEL_NAME);
+    public static final List<String> MULTIMODAL_EMBED_REQUIRED_FIELDS =
+            Arrays.asList(MULTIMODAL_EMBED_ENDPOINT, MULTIMODAL_EMBED_PROVIDER_TYPE,
+                    MULTIMODAL_EMBED_MODEL_NAME);
     public static final List<String> PROVIDERS
             = Arrays.asList("OPENAI", "LOCAL", "GEMINI", "DEEPSEEK", "ANTHROPIC",
             "MOONSHOT", "QWEN", "MINIMAX", "ZHIPU", "BAICHUAN", "VOYAGEAI", "JINA");
@@ -73,7 +80,9 @@ public class AIProperties extends BaseProperties {
     public static void requiredAIProperties(Map<String, String> properties) throws DdlException {
         boolean hasGeneralProperties = hasAnyProperty(properties, REQUIRED_FIELDS, API_KEY);
         boolean hasEmbedProperties = hasAnyProperty(properties, EMBED_REQUIRED_FIELDS, EMBED_API_KEY);
-        if (!hasGeneralProperties && !hasEmbedProperties) {
+        boolean hasMultimodalEmbedProperties = hasAnyProperty(properties,
+                MULTIMODAL_EMBED_REQUIRED_FIELDS, MULTIMODAL_EMBED_API_KEY);
+        if (!hasGeneralProperties && !hasEmbedProperties && !hasMultimodalEmbedProperties) {
             throw new DdlException("At least one complete AI property group must be configured.");
         }
 
@@ -82,6 +91,10 @@ public class AIProperties extends BaseProperties {
         }
         if (hasEmbedProperties) {
             validatePropertyGroup(properties, EMBED_REQUIRED_FIELDS, EMBED_PROVIDER_TYPE, EMBED_API_KEY);
+        }
+        if (hasMultimodalEmbedProperties) {
+            validatePropertyGroup(properties, MULTIMODAL_EMBED_REQUIRED_FIELDS,
+                    MULTIMODAL_EMBED_PROVIDER_TYPE, MULTIMODAL_EMBED_API_KEY);
         }
 
         String effort = properties.get(EFFORT);

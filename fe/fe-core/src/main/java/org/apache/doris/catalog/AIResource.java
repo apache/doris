@@ -32,6 +32,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -104,6 +105,24 @@ public class AIResource extends Resource {
                         || !Strings.isNullOrEmpty(properties.get(AIProperties.API_KEY)));
     }
 
+    public boolean hasCompleteEmbedProperties() {
+        return hasCompleteProperties(AIProperties.EMBED_REQUIRED_FIELDS,
+                AIProperties.EMBED_PROVIDER_TYPE, AIProperties.EMBED_API_KEY);
+    }
+
+    public boolean hasCompleteMultimodalEmbedProperties() {
+        return hasCompleteProperties(AIProperties.MULTIMODAL_EMBED_REQUIRED_FIELDS,
+                AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE, AIProperties.MULTIMODAL_EMBED_API_KEY);
+    }
+
+    private boolean hasCompleteProperties(List<String> requiredFields,
+            String providerTypeField, String apiKeyField) {
+        return requiredFields.stream()
+                .allMatch(field -> !Strings.isNullOrEmpty(properties.get(field)))
+                && ("LOCAL".equalsIgnoreCase(properties.get(providerTypeField))
+                        || !Strings.isNullOrEmpty(properties.get(apiKeyField)));
+    }
+
     private boolean isNeedCheck(Map<String, String> newProperties) {
         boolean needCheck = !this.properties.containsKey(AIProperties.VALIDITY_CHECK)
                 || Boolean.parseBoolean(this.properties.get(AIProperties.VALIDITY_CHECK));
@@ -129,7 +148,8 @@ public class AIResource extends Resource {
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(changedProperties, kv.getKey(), kv.getValue());
             if (kv.getKey().equals(AIProperties.API_KEY)
-                    || kv.getKey().equals(AIProperties.EMBED_API_KEY)) {
+                    || kv.getKey().equals(AIProperties.EMBED_API_KEY)
+                    || kv.getKey().equals(AIProperties.MULTIMODAL_EMBED_API_KEY)) {
                 changedProperties.put(kv.getKey(), kv.getValue());
             } else if (kv.getKey().equals(AIProperties.EFFORT)
                     && Strings.isNullOrEmpty(kv.getValue())) {
@@ -161,7 +181,8 @@ public class AIResource extends Resource {
         result.addRow(Lists.newArrayList(name, lowerCaseType, "version", String.valueOf(version)));
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().equals(AIProperties.API_KEY)
-                    || entry.getKey().equals(AIProperties.EMBED_API_KEY)) {
+                    || entry.getKey().equals(AIProperties.EMBED_API_KEY)
+                    || entry.getKey().equals(AIProperties.MULTIMODAL_EMBED_API_KEY)) {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), "******"));
             } else {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
@@ -195,6 +216,18 @@ public class AIResource extends Resource {
         }
         if (properties.containsKey(AIProperties.EMBED_MODEL_NAME)) {
             tAIResource.setEmbedModelName(properties.get(AIProperties.EMBED_MODEL_NAME));
+        }
+        if (properties.containsKey(AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE)) {
+            tAIResource.setEmbedMmProviderType(properties.get(AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE));
+        }
+        if (properties.containsKey(AIProperties.MULTIMODAL_EMBED_ENDPOINT)) {
+            tAIResource.setEmbedMmEndpoint(properties.get(AIProperties.MULTIMODAL_EMBED_ENDPOINT));
+        }
+        if (properties.containsKey(AIProperties.MULTIMODAL_EMBED_API_KEY)) {
+            tAIResource.setEmbedMmApiKey(properties.get(AIProperties.MULTIMODAL_EMBED_API_KEY));
+        }
+        if (properties.containsKey(AIProperties.MULTIMODAL_EMBED_MODEL_NAME)) {
+            tAIResource.setEmbedMmModelName(properties.get(AIProperties.MULTIMODAL_EMBED_MODEL_NAME));
         }
         if (!Strings.isNullOrEmpty(properties.get(AIProperties.EFFORT))) {
             tAIResource.setEffort(properties.get(AIProperties.EFFORT));

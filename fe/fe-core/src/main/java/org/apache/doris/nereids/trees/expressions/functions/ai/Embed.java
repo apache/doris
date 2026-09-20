@@ -102,7 +102,7 @@ public class Embed extends AIFunction {
         if (arity() == 2) {
             String aiResourceName = requireStringLiteral(getArgument(0), "resource name",
                     "AI Function must accept literal for the resource name.");
-            validateAIResource(aiResourceName);
+            validateAIResource(aiResourceName, getArgument(1).getDataType().isJsonType());
             return;
         }
         throw new AnalysisException("Function EMBED only accepts 1 or 2 arguments");
@@ -124,10 +124,18 @@ public class Embed extends AIFunction {
         return value;
     }
 
-    private static void validateAIResource(String resourceName) {
+    private static void validateAIResource(String resourceName, boolean isMultimodal) {
         Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
         if (!(resource instanceof AIResource)) {
             throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
+        }
+        AIResource aiResource = (AIResource) resource;
+        boolean hasSupportedProperties = aiResource.hasCompleteEmbedProperties()
+                || aiResource.hasCompleteGeneralProperties()
+                || (isMultimodal && aiResource.hasCompleteMultimodalEmbedProperties());
+        if (!hasSupportedProperties) {
+            throw new AnalysisException("AI resource '" + resourceName
+                    + "' does not have properties required by EMBED");
         }
         Resource.registerUsedAIResourceName(resourceName);
     }
