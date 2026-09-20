@@ -15,18 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <array>
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
+#include <numbers>
 #include <random>
+#include <span>
 #include <string>
+#include <utility>
 
+#include "core/block/block.h"
 #include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/field.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
+#include "exprs/function/simple_function_factory.h"
+#include "exprs/function_context.h"
 #include "testutil/any_type.h"
 #include "testutil/column_helper.h"
 
@@ -297,16 +310,110 @@ TEST(MathFunctionTest, log_test) {
 }
 
 TEST(MathFunctionTest, pow_test) {
-    std::string func_name = "pow"; // pow(x,y)
+    const InputTypeSet input_types = {TYPE_DOUBLE, TYPE_DOUBLE};
+    const double inf = std::numeric_limits<double>::infinity();
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const DataSet data_set = {{{10.0, 1.0}, 10.0},     {{10.0, 10.0}, 10000000000.0},
+                              {{100.0, -2.0}, 0.0001}, {{2.0, 0.5}, std::numbers::sqrt2},
+                              {{-2.0, 3.0}, -8.0},     {{-2.0, 0.5}, nan},
+                              {{nan, 0.0}, 1.0},       {{1.0, nan}, 1.0},
+                              {{0.0, -2.0}, inf},      {{-0.0, -3.0}, -inf},
+                              {{Null(), 2.0}, Null()}, {{2.0, Null()}, Null()}};
+    check_function_all_arg_comb<DataTypeFloat64, true>("pow", input_types, data_set);
+}
 
-    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE};
+static void check_pow_square_result(const IColumn& result, std::span<const double> values,
+                                    bool nullable, bool const_base) {
+    ASSERT_EQ(result.size(), values.size());
+    const auto& nested =
+            nullable ? assert_cast<const ColumnNullable&>(result).get_nested_column() : result;
+    const auto& data = assert_cast<const ColumnFloat64&>(nested).get_data();
+    for (size_t i = 0; i < values.size(); ++i) {
+        const bool expect_null = nullable && !const_base && i == values.size() - 1;
+        if (nullable) {
+            EXPECT_EQ(result.is_null_at(i), expect_null);
+        }
+        if (expect_null) {
+            continue;
+        }
+        const double base = values[const_base ? 0 : i];
+        const double expected = base * base;
+        if (std::isnan(expected)) {
+            EXPECT_TRUE(std::isnan(data[i]));
+        } else {
+            EXPECT_DOUBLE_EQ(data[i], expected);
+            EXPECT_EQ(std::signbit(data[i]), std::signbit(expected));
+        }
+    }
+}
 
-    DataSet data_set = {{{10.0, 1.0}, 10.0},
-                        {{10.0, 10.0}, 10000000000.0},
-                        {{100.0, -2.0}, 0.0001},
-                        {{2.0, 0.5}, 1.4142135623730951}};
+static void check_pow_square_column_shapes(const std::string& name, bool nullable, int const_mask) {
+    SCOPED_TRACE(testing::Message()
+                 << name << " nullable=" << nullable << " const_mask=" << const_mask);
+    const double inf = std::numeric_limits<double>::infinity();
+    const std::array values = {-1.5,
+                               0.0,
+                               -0.0,
+                               1.0,
+                               -2.0,
+                               0.5,
+                               12345.125,
+                               1e154,
+                               1e-154,
+                               std::numeric_limits<double>::max(),
+                               std::numeric_limits<double>::min(),
+                               std::numeric_limits<double>::denorm_min(),
+                               inf,
+                               -inf,
+                               std::numeric_limits<double>::quiet_NaN(),
+                               3.0};
+    const size_t rows = values.size();
+    DataTypePtr type = std::make_shared<DataTypeFloat64>();
+    if (nullable) {
+        type = make_nullable(type);
+    }
+    auto bases = type->create_column();
+    for (double value : values) {
+        bases->insert(Field::create_field<TYPE_DOUBLE>(value));
+    }
+    if (nullable) {
+        bases->pop_back(1);
+        bases->insert_default();
+    }
+    auto exponents = type->create_column();
+    exponents->insert(Field::create_field<TYPE_DOUBLE>(2.0));
+    ColumnPtr left = std::move(bases);
+    if (const_mask & 1) {
+        left = ColumnConst::create(left->clone_resized(1), rows);
+    }
+    ColumnPtr right = ColumnConst::create(exponents->get_ptr(), rows);
+    if (!(const_mask & 2)) {
+        right = right->convert_to_full_column_if_const();
+    }
+    Block block({{left, type, "base"}, {right, type, "exponent"}});
+    auto function = SimpleFunctionFactory::instance().get_function(
+            name, block.get_columns_with_type_and_name(), type);
+    ASSERT_NE(function, nullptr);
+    block.insert({nullptr, type, "result"});
+    FunctionUtils fn_utils(type, {type, type}, false);
+    auto* context = fn_utils.get_fn_ctx();
+    ASSERT_TRUE(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+    const auto status = function->execute(context, block, {0, 1}, 2, rows);
+    EXPECT_TRUE(function->close(context, FunctionContext::THREAD_LOCAL).ok());
+    EXPECT_TRUE(function->close(context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    auto result = block.get_by_position(2).column->convert_to_full_column_if_const();
+    check_pow_square_result(*result, values, nullable, const_mask & 1);
+}
 
-    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
+TEST(MathFunctionTest, pow_square_column_shapes) {
+    for (const auto* name : {"pow", "power", "dpow", "fpow"}) {
+        for (int const_mask = 0; const_mask < 4; ++const_mask) {
+            check_pow_square_column_shapes(name, false, const_mask);
+            check_pow_square_column_shapes(name, true, const_mask);
+        }
+    }
 }
 
 TEST(MathFunctionTest, ceil_test) {

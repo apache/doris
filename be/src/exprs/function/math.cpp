@@ -643,6 +643,15 @@ private:
             auto& a = column_left_ptr->get_data();
             auto& c = column_result->get_data();
             size_t size = a.size();
+            if constexpr (std::is_same_v<Impl, PowImpl>) {
+                // Dispatch once per block, keeping libm calls out of the squaring loop.
+                if (column_right_ptr->template get_value<Impl::type>() == 2.0) {
+                    for (size_t i = 0; i < size; ++i) {
+                        c[i] = a[i] * a[i];
+                    }
+                    return column_result;
+                }
+            }
             for (size_t i = 0; i < size; ++i) {
                 c[i] = Impl::apply(a[i], column_right_ptr->template get_value<Impl::type>());
             }
