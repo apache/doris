@@ -30,9 +30,9 @@
 #include <vector>
 
 #include "common/status.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
-#include "storage/index/snii/query/docid_sink.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
@@ -160,7 +160,7 @@ LogicalIndexReader OpenMeteredIndex(io::MeteredFileReader* file, SniiSegmentRead
     return idx;
 }
 
-class RecordingSink final : public query::DocIdSink {
+class RecordingSink final : public ::doris::index_query::DocIdSink {
 public:
     Status append_sorted(std::span<const uint32_t> docids) override {
         ++chunks;
@@ -185,7 +185,7 @@ public:
     size_t max_chunk = 0;
 };
 
-class FailingSink final : public query::DocIdSink {
+class FailingSink final : public ::doris::index_query::DocIdSink {
 public:
     Status append_sorted(std::span<const uint32_t> docids) override {
         saw_docids = !docids.empty();

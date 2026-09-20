@@ -20,12 +20,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
-#include <utility>
 #include <vector>
 
-namespace doris::snii::query::internal {
+#include "storage/index/query/phrase/position_span.h"
 
-using PhrasePositionSpan = std::pair<const uint32_t*, const uint32_t*>;
+namespace doris::index_query {
 
 // Matches one candidate document at a time against already-decoded position
 // spans. Query-shape storage and all scratch buffers are allocated once and
@@ -44,8 +43,9 @@ private:
         PhrasePositionSpan positions;
         const uint32_t* next = nullptr;
         uint32_t raw_position = 0;
-        int64_t adjusted_position = 0;
         bool has_position = false;
+        int64_t adjusted_position = 0;
+        size_t preceding_repeats = 0;
     };
 
     bool initialize_unordered(std::span<const PhrasePositionSpan> positions);
@@ -73,4 +73,4 @@ private:
     std::vector<size_t> heap_;
 };
 
-} // namespace doris::snii::query::internal
+} // namespace doris::index_query

@@ -23,9 +23,9 @@
 
 #include "common/check.h"
 #include "common/status.h"
-#include "storage/index/snii/query/internal/position_math.h"
+#include "storage/index/query/phrase/position_math.h"
 
-namespace doris::snii::query::internal {
+namespace doris::index_query {
 namespace exact_phrase_stream_matcher_detail {
 
 template <typename Cursor>
@@ -76,6 +76,8 @@ void validate_exact_phrase_stream_inputs(std::span<Cursor> cursors,
     }
 }
 
+// Cursors advance within one document and validate skipped data in finish_doc().
+// Every referenced cursor is finished before a successful match returns.
 template <typename Cursor>
 Status match_exact_phrase_document(std::span<Cursor> cursors,
                                    std::span<const size_t> phrase_plan_index,
@@ -147,4 +149,4 @@ Status match_exact_phrase_document(std::span<Cursor> cursors,
     }
 }
 
-} // namespace doris::snii::query::internal
+} // namespace doris::index_query

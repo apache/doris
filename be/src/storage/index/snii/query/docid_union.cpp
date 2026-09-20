@@ -19,7 +19,7 @@
 
 #include <vector>
 
-#include "storage/index/snii/query/internal/docid_set_ops.h"
+#include "storage/index/query/docid_set_ops.h"
 
 namespace doris::snii::query::internal {
 
@@ -33,12 +33,13 @@ Status build_docid_union(const reader::LogicalIndexReader& idx,
 
     std::vector<std::vector<uint32_t>> docs_by_posting;
     RETURN_IF_ERROR(read_docid_postings_batched(idx, postings, &docs_by_posting));
-    *out = union_sorted_many(docs_by_posting);
+    *out = index_query::union_sorted_many(docs_by_posting);
     return Status::OK();
 }
 
 Status emit_docid_union(const reader::LogicalIndexReader& idx,
-                        const std::vector<ResolvedDocidPosting>& postings, DocIdSink* sink) {
+                        const std::vector<ResolvedDocidPosting>& postings,
+                        index_query::DocIdSink* sink) {
     if (sink == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("docid_union: null sink");
     if (postings.empty()) return Status::OK();

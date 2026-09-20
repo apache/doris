@@ -41,6 +41,8 @@ public:
     virtual ~NullBitmapResolver() = default;
     virtual segment_v2::IndexIterator* iterator_for(const Scorer& scorer,
                                                     const std::string& logical_field) const = 0;
+    // Converts field-wide NULL row IDs to this resolver's local document space.
+    virtual void localize_null_rows(roaring::Roaring& /*rows*/) const {}
 };
 
 class Scorer : public DocSet {
@@ -49,6 +51,9 @@ public:
     ~Scorer() override = default;
 
     virtual float score() = 0;
+
+    // A non-null view contains every TRUE row, independently of cursor progress.
+    virtual const roaring::Roaring* get_true_bitmap() const { return nullptr; }
 
     virtual bool has_null_bitmap(const NullBitmapResolver* /*resolver*/ = nullptr) { return false; }
 

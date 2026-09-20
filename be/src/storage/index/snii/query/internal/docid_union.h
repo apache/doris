@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
@@ -33,6 +33,7 @@ Status build_docid_union(const reader::LogicalIndexReader& idx,
                          std::vector<uint32_t>* out);
 
 Status emit_docid_union(const reader::LogicalIndexReader& idx,
-                        const std::vector<ResolvedDocidPosting>& postings, DocIdSink* sink);
+                        const std::vector<ResolvedDocidPosting>& postings,
+                        index_query::DocIdSink* sink);
 
 } // namespace doris::snii::query::internal

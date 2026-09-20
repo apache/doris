@@ -22,7 +22,7 @@
 #include <string_view>
 
 #include "common/status.h"
-#include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
 namespace doris::snii::query::internal {
@@ -42,6 +42,6 @@ Status visit_expanded_plain_terms(const reader::LogicalIndexReader& idx,
 // DictEntry and block bases, so callers avoid a second lookup per expanded term.
 Status emit_expanded_docid_union(const reader::LogicalIndexReader& idx,
                                  std::string_view enum_prefix, const TermMatcher& matches,
-                                 DocIdSink* const sink, int32_t max_expansions = 0);
+                                 index_query::DocIdSink* const sink, int32_t max_expansions = 0);
 
 } // namespace doris::snii::query::internal

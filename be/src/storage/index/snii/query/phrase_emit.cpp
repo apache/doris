@@ -28,6 +28,11 @@
 
 #include "common/check.h"
 #include "roaring/roaring.hh"
+#include "storage/index/query/docid_set_ops.h"
+#include "storage/index/query/phrase/exact_phrase_matcher.h"
+#include "storage/index/query/phrase/exact_phrase_stream_matcher.h"
+#include "storage/index/query/phrase/position_math.h"
+#include "storage/index/query/phrase/sloppy_phrase_matcher.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -38,15 +43,11 @@
 #include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/query/internal/docid_conjunction.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
-#include "storage/index/snii/query/internal/docid_set_ops.h"
 #include "storage/index/snii/query/internal/docid_union.h"
-#include "storage/index/snii/query/internal/exact_phrase_stream_matcher.h"
 #include "storage/index/snii/query/internal/phrase_query_split.h"
 #include "storage/index/snii/query/internal/plain_term_routing.h"
-#include "storage/index/snii/query/internal/position_math.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/query/internal/resolved_phrase_plan.h"
-#include "storage/index/snii/query/internal/sloppy_phrase_matcher.h"
 #include "storage/index/snii/query/internal/term_expansion.h"
 #include "storage/index/snii/query/phrase_prx_validation.h"
 #include "storage/index/snii/query/phrase_query.h"
@@ -295,110 +296,6 @@ private:
     std::vector<PhraseMatch>* matches_;
 };
 
-bool contains_two_term_phrase(std::pair<const uint32_t*, const uint32_t*> left_span,
-                              std::pair<const uint32_t*, const uint32_t*> right_span,
-                              uint32_t right_delta) {
-    const uint32_t* left = left_span.first;
-    const uint32_t* right = right_span.first;
-    if (left == left_span.second || right == right_span.second) {
-        return false;
-    }
-    const uint32_t max_start = std::numeric_limits<uint32_t>::max() - right_delta;
-    if (left + 1 == left_span.second && right + 1 == right_span.second) {
-        return *left <= max_start && *right == *left + right_delta;
-    }
-    while (left != left_span.second && right != right_span.second) {
-        if (*left > max_start) {
-            return false;
-        }
-        const uint32_t want = *left + right_delta;
-        while (right != right_span.second && *right < want) {
-            ++right;
-        }
-        if (right == right_span.second) {
-            return false;
-        }
-        if (*right == want) {
-            return true;
-        }
-        ++left;
-    }
-    return false;
-}
-
-size_t select_phrase_verification_pair(const std::vector<TermPlan>& plans,
-                                       const std::vector<size_t>& phrase_plan_index) {
-    size_t best_left = 0;
-    uint64_t best_score = std::numeric_limits<uint64_t>::max();
-    for (size_t left = 0; left + 1 < phrase_plan_index.size(); ++left) {
-        const uint64_t score = static_cast<uint64_t>(plans[phrase_plan_index[left]].df) +
-                               plans[phrase_plan_index[left + 1]].df;
-        if (score < best_score) {
-            best_score = score;
-            best_left = left;
-        }
-    }
-    return best_left;
-}
-
-class TwoTermPhraseStartCursor {
-public:
-    TwoTermPhraseStartCursor(std::pair<const uint32_t*, const uint32_t*> left_span,
-                             std::pair<const uint32_t*, const uint32_t*> right_span,
-                             uint32_t right_delta, uint32_t left_offset)
-            : left_(left_span.first),
-              left_end_(left_span.second),
-              right_(right_span.first),
-              right_end_(right_span.second),
-              right_delta_(right_delta),
-              left_offset_(left_offset),
-              max_left_(std::numeric_limits<uint32_t>::max() - right_delta) {}
-
-    bool next(uint32_t* start) {
-        DCHECK(start != nullptr);
-        while (left_ != left_end_ && right_ != right_end_) {
-            if (*left_ > max_left_) {
-                return false;
-            }
-            const uint32_t want = *left_ + right_delta_;
-            while (right_ != right_end_ && *right_ < want) {
-                ++right_;
-            }
-            if (right_ == right_end_) {
-                return false;
-            }
-            const uint32_t left_position = *left_++;
-            if (*right_ == want && left_position >= left_offset_) {
-                *start = left_position - left_offset_;
-                return true;
-            }
-        }
-        return false;
-    }
-
-private:
-    const uint32_t* left_;
-    const uint32_t* left_end_;
-    const uint32_t* right_;
-    const uint32_t* right_end_;
-    uint32_t right_delta_;
-    uint32_t left_offset_;
-    uint32_t max_left_;
-};
-
-uint32_t count_two_term_phrase(std::pair<const uint32_t*, const uint32_t*> left_span,
-                               std::pair<const uint32_t*, const uint32_t*> right_span,
-                               uint32_t right_delta) {
-    TwoTermPhraseStartCursor starts(left_span, right_span, right_delta, /*left_offset=*/0);
-    uint32_t frequency = 0;
-    uint32_t start = 0;
-    while (starts.next(&start)) {
-        DCHECK_NE(frequency, std::numeric_limits<uint32_t>::max());
-        ++frequency;
-    }
-    return frequency;
-}
-
 Status emit_two_term_phrase_streaming(const std::vector<size_t>& phrase_plan_index,
                                       const std::vector<uint32_t>& position_offsets,
                                       std::vector<PosSource>& srcs,
@@ -419,9 +316,10 @@ Status emit_two_term_phrase_streaming(const std::vector<size_t>& phrase_plan_ind
                 return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                         "phrase_query: repeated-term cursor/docid mismatch");
             }
-            const uint32_t frequency = collector->needs_frequency()
-                                               ? count_two_term_phrase(span, span, right_delta)
-                                               : contains_two_term_phrase(span, span, right_delta);
+            const uint32_t frequency =
+                    collector->needs_frequency()
+                            ? index_query::count_two_term_phrase(span, span, right_delta)
+                            : index_query::contains_two_term_phrase(span, span, right_delta);
             if (frequency != 0) {
                 collector->emit(docid, frequency);
             }
@@ -446,8 +344,8 @@ Status emit_two_term_phrase_streaming(const std::vector<size_t>& phrase_plan_ind
         }
         const uint32_t frequency =
                 collector->needs_frequency()
-                        ? count_two_term_phrase(left_span, right_span, right_delta)
-                        : contains_two_term_phrase(left_span, right_span, right_delta);
+                        ? index_query::count_two_term_phrase(left_span, right_span, right_delta)
+                        : index_query::contains_two_term_phrase(left_span, right_span, right_delta);
         if (frequency != 0) {
             collector->emit(expected_docid, frequency);
         }
@@ -462,9 +360,9 @@ Status emit_sloppy_phrase_streaming(const std::vector<size_t>& phrase_plan_index
                                     const PhraseQueryOptions& options,
                                     PhraseMatchCollector* collector) {
     PhrasePositionLoader loader(srcs.size(), srcs);
-    std::vector<internal::PhrasePositionSpan> spans(phrase_plan_index.size());
-    internal::SloppyPhraseMatcher matcher(phrase_plan_index, position_offsets, options.slop,
-                                          options.ordered);
+    std::vector<index_query::PhrasePositionSpan> spans(phrase_plan_index.size());
+    index_query::SloppyPhraseMatcher matcher(phrase_plan_index, position_offsets, options.slop,
+                                             options.ordered);
     for (uint32_t docid : candidates) {
         loader.begin_doc(docid);
         for (size_t i = 0; i < phrase_plan_index.size(); ++i) {
@@ -504,8 +402,8 @@ void emit_two_term_phrase_chunk_pair(const PosChunk& left, const PosChunk& right
                 right_decoder.positions_unchecked(ri);
         const uint32_t frequency =
                 collector->needs_frequency()
-                        ? count_two_term_phrase(left_span, right_span, right_delta)
-                        : contains_two_term_phrase(left_span, right_span, right_delta);
+                        ? index_query::count_two_term_phrase(left_span, right_span, right_delta)
+                        : index_query::contains_two_term_phrase(left_span, right_span, right_delta);
         if (frequency != 0) {
             collector->emit(left_docid, frequency);
         }
@@ -574,25 +472,6 @@ Status emit_two_term_phrase_chunk_merge(const std::vector<size_t>& phrase_plan_i
     return Status::OK();
 }
 
-bool phrase_start_matches_all_terms(
-        uint32_t start, size_t phrase_len, size_t pair_left, size_t pair_right,
-        const std::vector<uint32_t>& position_offsets,
-        const std::vector<std::pair<const uint32_t*, const uint32_t*>>& span) {
-    for (size_t t = 0; t < phrase_len; ++t) {
-        if (t == pair_left || t == pair_right) {
-            continue;
-        }
-        uint32_t want = 0;
-        if (!internal::add_position_offset(start, position_offsets[t], &want)) {
-            return false;
-        }
-        if (!std::binary_search(span[t].first, span[t].second, want)) {
-            return false;
-        }
-    }
-    return true;
-}
-
 Status emit_single_term_phrase_streaming(const std::vector<size_t>& phrase_plan_index,
                                          std::vector<PosSource>& srcs,
                                          const std::vector<uint32_t>& candidates,
@@ -617,82 +496,20 @@ Status emit_multi_term_phrase_streaming(const std::vector<TermPlan>& plans,
                                         std::vector<PosSource>& srcs,
                                         const std::vector<uint32_t>& candidates,
                                         PhraseMatchCollector* collector) {
-    const size_t phrase_len = phrase_plan_index.size();
     PhrasePositionLoader loader(plans.size(), srcs);
-    std::vector<std::pair<const uint32_t*, const uint32_t*>> span(phrase_len);
-    const size_t pair_left = select_phrase_verification_pair(plans, phrase_plan_index);
-    const size_t pair_right = pair_left + 1;
-    for (uint32_t d : candidates) {
-        loader.begin_doc(d);
-        std::pair<const uint32_t*, const uint32_t*> left_span;
-        std::pair<const uint32_t*, const uint32_t*> right_span;
-        RETURN_IF_ERROR(loader.positions_for_phrase_pos(phrase_plan_index, pair_left, &left_span));
-        RETURN_IF_ERROR(
-                loader.positions_for_phrase_pos(phrase_plan_index, pair_right, &right_span));
-
-        // `starts` retains raw pointers into the selected pair while the remaining
-        // clause spans are loaded below. Every unique plan owns an independent
-        // PostingCursor/PosChunkDecoder in PhrasePositionLoader; repeated phrase
-        // positions map back to one plan and reuse that plan's epoch-cached span.
-        TwoTermPhraseStartCursor starts(left_span, right_span,
-                                        position_offsets[pair_right] - position_offsets[pair_left],
-                                        position_offsets[pair_left]);
-        uint32_t start = 0;
-        if (!starts.next(&start)) {
-            continue;
-        }
-
-        span[pair_left] = left_span;
-        span[pair_right] = right_span;
-        for (size_t pp = 0; pp < phrase_len; ++pp) {
-            if (pp == pair_left || pp == pair_right) {
-                continue;
-            }
-            RETURN_IF_ERROR(loader.positions_for_phrase_pos(phrase_plan_index, pp, &span[pp]));
-        }
-
+    const size_t pair_left = index_query::select_phrase_verification_pair(
+            phrase_plan_index.size(),
+            [&](size_t clause) { return plans[phrase_plan_index[clause]].df; });
+    index_query::ExactPhraseMatcher matcher(position_offsets, pair_left);
+    const auto load_positions = [&](size_t clause, index_query::PhrasePositionSpan* span) {
+        return loader.positions_for_phrase_pos(phrase_plan_index, clause, span);
+    };
+    for (uint32_t docid : candidates) {
+        loader.begin_doc(docid);
         uint32_t frequency = 0;
-        bool has_previous_start = false;
-        uint32_t previous_start = 0;
-        const uint32_t* first_clause_position = span[0].first;
-        while (true) {
-            if (!collector->needs_frequency()) {
-                if (phrase_start_matches_all_terms(start, phrase_len, pair_left, pair_right,
-                                                   position_offsets, span)) {
-                    collector->emit(d, 1);
-                    break;
-                }
-            } else if (!has_previous_start || start != previous_start) {
-                has_previous_start = true;
-                previous_start = start;
-                if (phrase_start_matches_all_terms(start, phrase_len, pair_left, pair_right,
-                                                   position_offsets, span)) {
-                    uint32_t first_clause_want = 0;
-                    const bool representable = internal::add_position_offset(
-                            start, position_offsets[0], &first_clause_want);
-                    DCHECK(representable);
-                    while (first_clause_position != span[0].second &&
-                           *first_clause_position < first_clause_want) {
-                        ++first_clause_position;
-                    }
-                    const uint32_t* run_end = first_clause_position;
-                    while (run_end != span[0].second && *run_end == first_clause_want) {
-                        ++run_end;
-                    }
-                    const auto multiplicity =
-                            static_cast<uint32_t>(run_end - first_clause_position);
-                    DCHECK_NE(multiplicity, 0);
-                    DCHECK_LE(frequency, std::numeric_limits<uint32_t>::max() - multiplicity);
-                    frequency += multiplicity;
-                    first_clause_position = run_end;
-                }
-            }
-            if (!starts.next(&start)) {
-                break;
-            }
-        }
+        RETURN_IF_ERROR(matcher.match(load_positions, collector->needs_frequency(), &frequency));
         if (frequency != 0) {
-            collector->emit(d, frequency);
+            collector->emit(docid, frequency);
         }
     }
     return Status::OK();
@@ -742,14 +559,14 @@ Status emit_exact_phrase_streaming_positions(const std::vector<size_t>& phrase_p
     internal::testing::note_streaming_exact_phrase_execution();
 #endif
     std::vector<StreamingPostingCursor> cursors(srcs.size());
-    internal::validate_exact_phrase_stream_inputs(std::span(cursors), std::span(phrase_plan_index),
-                                                  std::span(position_offsets));
+    index_query::validate_exact_phrase_stream_inputs(
+            std::span(cursors), std::span(phrase_plan_index), std::span(position_offsets));
     for (size_t plan_index : phrase_plan_index) {
         cursors[plan_index].init(&srcs[plan_index]);
     }
     for (uint32_t docid : candidates) {
         bool matched = false;
-        RETURN_IF_ERROR(internal::match_exact_phrase_document(
+        RETURN_IF_ERROR(index_query::match_exact_phrase_document(
                 std::span(cursors), std::span(phrase_plan_index), std::span(position_offsets),
                 docid, &matched));
         if (matched) {
@@ -909,7 +726,7 @@ Status execute_phrase_plans(const LogicalIndexReader& idx, io::BatchRangeFetcher
                             format::PrxDecodeContext* observer_context,
                             std::vector<PhraseMatch>* matches, const PhraseQueryOptions& options) {
     std::vector<uint32_t> position_offsets;
-    if (!internal::build_position_offsets(phrase_plan_index.size(), &position_offsets)) {
+    if (!index_query::build_position_offsets(phrase_plan_index.size(), &position_offsets)) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "phrase_query: phrase length exceeds doc position range");
     }

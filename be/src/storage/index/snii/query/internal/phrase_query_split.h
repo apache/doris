@@ -30,6 +30,8 @@
 #include <vector>
 
 #include "common/check.h"
+#include "storage/index/query/docid_set_ops.h"
+#include "storage/index/query/phrase/position_math.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -39,10 +41,8 @@
 #include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/query/internal/docid_conjunction.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
-#include "storage/index/snii/query/internal/docid_set_ops.h"
 #include "storage/index/snii/query/internal/docid_union.h"
 #include "storage/index/snii/query/internal/plain_term_routing.h"
-#include "storage/index/snii/query/internal/position_math.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/query/internal/resolved_phrase_plan.h"
 #include "storage/index/snii/query/internal/term_expansion.h"

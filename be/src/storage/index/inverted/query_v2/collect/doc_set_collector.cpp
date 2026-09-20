@@ -18,6 +18,7 @@
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 
 #include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
+#include "storage/index/query/roaring_docid_sink.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -25,6 +26,7 @@ void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecution
                                    const std::string& binding_key,
                                    const std::shared_ptr<roaring::Roaring>& roaring,
                                    const CollectionSimilarityPtr& similarity, bool enable_scoring) {
+    index_query::RoaringDocIdSink sink(*roaring);
     for_each_index_segment(context, binding_key,
                            [&](const QueryExecutionContext& seg_ctx, uint32_t doc_base) {
                                auto scorer = weight->scorer(seg_ctx, binding_key);
@@ -35,7 +37,7 @@ void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecution
                                uint32_t doc = scorer->doc();
                                while (doc != TERMINATED) {
                                    uint32_t global_doc = doc + doc_base;
-                                   roaring->add(global_doc);
+                                   sink.append(global_doc);
                                    if (enable_scoring && similarity) {
                                        similarity->collect(global_doc, scorer->score());
                                    }

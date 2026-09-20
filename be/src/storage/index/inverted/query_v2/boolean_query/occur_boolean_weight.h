@@ -63,11 +63,13 @@ public:
 private:
     std::unordered_map<Occur, std::vector<ScorerPtr>> per_occur_scorers(
             const QueryExecutionContext& context, const std::string& binding_key = {});
-    AllAndEmptyScorerCounts remove_and_count_all_and_empty_scorers(std::vector<ScorerPtr>& scorers);
+    AllAndEmptyScorerCounts remove_and_count_all_and_empty_scorers(std::vector<ScorerPtr>& scorers,
+                                                                   bool preserve_all = false);
 
     template <typename CombinerT>
     SpecializedScorer complex_scorer(const QueryExecutionContext& context, CombinerT combiner,
-                                     const std::string& binding_key = {});
+                                     const std::string& binding_key = {},
+                                     roaring::Roaring* complete_nulls = nullptr);
 
     template <typename CombinerT>
     std::optional<CombinationMethod> build_should_opt(std::vector<ScorerPtr>& must_scorers,
@@ -96,6 +98,11 @@ private:
 
     template <typename CombinerT>
     ScorerPtr into_box_scorer(SpecializedScorer&& specialized, CombinerT combiner);
+
+    ScorerPtr build_nullable_scorer(std::vector<ScorerPtr>& required,
+                                    std::vector<ScorerPtr>& optional,
+                                    std::vector<ScorerPtr>& excluded,
+                                    const NullBitmapResolver* resolver);
 
     ScorerPtr build_exclude_opt(std::vector<ScorerPtr> must_not_scorers,
                                 const NullBitmapResolver* resolver,

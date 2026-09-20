@@ -94,7 +94,7 @@ Status visit_expanded_plain_terms(const reader::LogicalIndexReader& idx,
 
 Status emit_expanded_docid_union(const reader::LogicalIndexReader& idx,
                                  std::string_view enum_prefix, const TermMatcher& matches,
-                                 DocIdSink* const sink, int32_t max_expansions) {
+                                 index_query::DocIdSink* const sink, int32_t max_expansions) {
     if (sink == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("term_expansion: null sink");
     }

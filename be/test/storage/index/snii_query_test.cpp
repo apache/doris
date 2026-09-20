@@ -32,6 +32,7 @@
 #include <utility>
 #include <vector>
 
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/byte_source.h"
@@ -41,7 +42,6 @@
 #include "storage/index/snii/format/tail_pointer.h"
 #include "storage/index/snii/io/file_reader.h"
 #include "storage/index/snii/io/file_writer.h"
-#include "storage/index/snii/query/docid_sink.h"
 #include "storage/index/snii/query/internal/regex_prefix.h"
 #include "storage/index/snii/query/internal/resolved_phrase_plan.h"
 #include "storage/index/snii/query/internal/term_expansion.h"
@@ -84,7 +84,7 @@ concept CanExecuteResolvedPhrasePlan = requires(const reader::LogicalIndexReader
 static_assert(CanExecuteResolvedPhrasePlan<internal::ResolvedPhrasePlan>);
 static_assert(!CanExecuteResolvedPhrasePlan<internal::ResolvedPhrasePlan&>);
 
-class RecordingDocIdSink final : public DocIdSink {
+class RecordingDocIdSink final : public ::doris::index_query::DocIdSink {
 public:
     Status append_sorted(std::span<const uint32_t> docids) override {
         out.insert(out.end(), docids.begin(), docids.end());
@@ -704,7 +704,7 @@ TEST(SniiRegexpQueryTest, NullOutputReturnsInvalidArgument) {
     EXPECT_TRUE(regexp_query(index_reader, "order", null_docids)
                         .is<doris::ErrorCode::INVALID_ARGUMENT>());
 
-    DocIdSink* const null_sink = nullptr;
+    ::doris::index_query::DocIdSink* const null_sink = nullptr;
     EXPECT_TRUE(regexp_query(index_reader, "order", null_sink)
                         .is<doris::ErrorCode::INVALID_ARGUMENT>());
 }
@@ -804,7 +804,7 @@ TEST(SniiRegexpQueryTest, AnchoredPrefixEnumeratesSingleTerm) {
     auto count_matcher = [&](std::string_view prefix) {
         int calls = 0;
         std::vector<uint32_t> docids;
-        VectorDocIdSink sink(docids);
+        ::doris::index_query::VectorDocIdSink sink(docids);
         assert_ok(internal::emit_expanded_docid_union(
                 index_reader, prefix,
                 [&](std::string_view term) {

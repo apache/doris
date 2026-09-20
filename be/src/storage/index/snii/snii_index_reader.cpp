@@ -43,10 +43,11 @@
 #include "storage/index/inverted/common/single_flight.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/query/docid_sink.h"
+#include "storage/index/query/roaring_docid_sink.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/query/boolean_query.h"
 #include "storage/index/snii/query/count_query.h"
-#include "storage/index/snii/query/docid_sink.h"
 #include "storage/index/snii/query/internal/plain_term_routing.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/prefix_query.h"
@@ -97,34 +98,6 @@ uint64_t prx_execution_profile_scope_flush_count() {
 namespace doris::segment_v2 {
 
 namespace {
-
-class RoaringDocIdSink final : public ::doris::snii::query::DocIdSink {
-public:
-    explicit RoaringDocIdSink(roaring::Roaring* bitmap) : _bitmap(bitmap) {
-        DCHECK(_bitmap != nullptr);
-    }
-
-    Status append_sorted(std::span<const uint32_t> docids) override {
-        if (!docids.empty()) {
-            _bitmap->addMany(docids.size(), docids.data());
-        }
-        return Status::OK();
-    }
-
-    Status append_range(uint32_t first, uint64_t last_exclusive) override {
-        if (last_exclusive > first) {
-            _bitmap->addRange(first, last_exclusive);
-        }
-        return Status::OK();
-    }
-
-    // Roaring addMany/addRange deduplicate and order natively, so multi-term OR
-    // can stream each posting straight into the bitmap (no per-term vector + merge).
-    bool dedups() const override { return true; }
-
-private:
-    roaring::Roaring* _bitmap;
-};
 
 struct SniiQueryExecutionResult {
     std::shared_ptr<roaring::Roaring> bitmap;
@@ -358,7 +331,7 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
     result->phrase_matches.clear();
     DORIS_CHECK(!collect_phrase_frequency || uses_phrase_frequency_scoring(query_type, query_info));
     DORIS_CHECK(candidates == nullptr || consumes_candidates(query_type, terms.size()));
-    RoaringDocIdSink sink(result->bitmap.get());
+    index_query::RoaringDocIdSink sink(*result->bitmap);
     std::vector<uint32_t> docids;
     bool emitted_to_sink = false;
     Status status;

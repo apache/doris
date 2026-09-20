@@ -27,6 +27,8 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/query_v2/all_query/all_query.h"
+#include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 #include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
@@ -113,6 +115,38 @@ static std::shared_ptr<lucene::index::IndexReader> make_shared_reader(
             }};
 }
 
+class SegmentDomainNullIterator final : public IndexIterator {
+public:
+    SegmentDomainNullIterator() : _cache(1024 * 1024, 1) { _nulls.add(2); }
+
+    IndexReaderPtr get_reader(IndexReaderType /*type*/) const override { return nullptr; }
+    Status read_from_index(const IndexParam& /*param*/) override { return Status::OK(); }
+    Result<bool> has_null() override { return true; }
+    Status read_null_bitmap(InvertedIndexQueryCacheHandle* handle) override {
+        _cache.insert(_key, std::make_shared<roaring::Roaring>(_nulls), handle);
+        return Status::OK();
+    }
+
+private:
+    roaring::Roaring _nulls;
+    InvertedIndexQueryCache _cache;
+    InvertedIndexQueryCache::CacheKey _key {.index_path = "segment_domain_nulls",
+                                            .column_name = "title",
+                                            .query_type = InvertedIndexQueryType::UNKNOWN_QUERY,
+                                            .value = ""};
+};
+
+class SegmentDomainNullResolver final : public NullBitmapResolver {
+public:
+    IndexIterator* iterator_for(const Scorer& /*scorer*/,
+                                const std::string& /*logical_field*/) const override {
+        return &_iterator;
+    }
+
+private:
+    mutable SegmentDomainNullIterator _iterator;
+};
+
 TEST_F(MultiSegmentCollectorTest, CollectDocSetWithMultiReader) {
     auto* dir0 = FSDirectory::getDirectory((kTestDir + "/segment0").c_str());
     auto* dir1 = FSDirectory::getDirectory((kTestDir + "/segment1").c_str());
@@ -141,6 +175,89 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithMultiReader) {
 
     _CLDECDELETE(dir0);
     _CLDECDELETE(dir1);
+}
+
+TEST_F(MultiSegmentCollectorTest, DeletedDocumentsDoNotShrinkTheLocalDocIdDomain) {
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    readers[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    readers[0]->deleteDocument(0);
+    ASSERT_EQ(readers[0]->numDocs(), 1);
+    ASSERT_EQ(readers[0]->maxDoc(), 2);
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
+
+    const auto field = StringHelper::to_wstring("title");
+    OperatorBooleanQueryBuilder builder(OperatorType::OP_AND);
+    builder.add(std::make_shared<AllQuery>());
+    builder.add(std::make_shared<TermQuery>(std::make_shared<IndexQueryContext>(), field,
+                                            StringHelper::to_wstring("other")));
+    const auto weight = builder.build()->weight(false);
+    QueryExecutionContext context;
+    context.segment_num_rows = reader->maxDoc();
+    context.readers = {reader};
+    context.field_reader_bindings.emplace(field, reader);
+
+    auto actual = std::make_shared<roaring::Roaring>();
+    collect_multi_segment_doc_set(weight, context, "", actual, nullptr, false);
+    EXPECT_EQ(actual->cardinality(), 1);
+    EXPECT_TRUE(actual->contains(1));
+}
+
+TEST_F(MultiSegmentCollectorTest, GlobalNullRowsAreSlicedIntoEachLocalDocIdDomain) {
+    create_test_index(kTestDir + "/segment1", {"", "fleabag finale"});
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    readers[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
+    SegmentDomainNullResolver resolver;
+    QueryExecutionContext context;
+    context.segment_num_rows = reader->maxDoc();
+    context.readers = {reader};
+    context.field_reader_bindings.emplace(L"title", reader);
+    context.null_resolver = &resolver;
+    auto weight = std::make_shared<AllWeight>(L"title", true, false);
+
+    auto actual = std::make_shared<roaring::Roaring>();
+    collect_multi_segment_doc_set(weight, context, "", actual, nullptr, false);
+    EXPECT_EQ(actual->cardinality(), 3);
+    EXPECT_TRUE(actual->contains(0));
+    EXPECT_TRUE(actual->contains(1));
+    EXPECT_TRUE(actual->contains(3));
+    EXPECT_FALSE(actual->contains(2));
+
+    roaring::Roaring actual_nulls;
+    for_each_index_segment(context, "", [&](const QueryExecutionContext& local, uint32_t base) {
+        auto scorer = weight->scorer(local);
+        const auto* nulls = scorer->get_null_bitmap(local.null_resolver);
+        if (nulls != nullptr) {
+            for (const auto row : *nulls) {
+                actual_nulls.add(base + row);
+            }
+        }
+    });
+    EXPECT_EQ(actual_nulls.cardinality(), 1);
+    EXPECT_TRUE(actual_nulls.contains(2));
+}
+
+TEST_F(MultiSegmentCollectorTest, LocalNullRangesPreserveCompressionAndUint32Boundary) {
+    SegmentDomainNullResolver resolver;
+    QueryExecutionContext context;
+    context.null_resolver = &resolver;
+    for (const auto& [base, count] : {std::pair<uint32_t, uint32_t> {65535, 1000000},
+                                      std::pair<uint32_t, uint32_t> {UINT32_MAX - 11, 12}}) {
+        roaring::Roaring global_rows;
+        global_rows.addRange(base, uint64_t(base) + count);
+        global_rows.add(0);
+        global_rows.add(UINT32_MAX);
+        const auto original = global_rows;
+        SegmentNullBitmapResolver local(context, base, count);
+        local.localize_null_rows(global_rows);
+        EXPECT_EQ(global_rows.cardinality(), count);
+        EXPECT_TRUE(global_rows.containsRange(0, count));
+        EXPECT_LE(global_rows.getSizeInBytes(), 256);
+        EXPECT_TRUE(original.contains(base));
+        EXPECT_TRUE(original.contains(UINT32_MAX));
+    }
 }
 
 TEST_F(MultiSegmentCollectorTest, CollectTopKExcludesDeletedDocs) {

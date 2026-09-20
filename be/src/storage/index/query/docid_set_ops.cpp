@@ -15,19 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/snii/query/internal/docid_set_ops.h"
+#include "storage/index/query/docid_set_ops.h"
 
 #include <algorithm>
 #include <iterator>
 #include <queue>
 #include <utility>
 
-namespace doris::snii::query::internal {
+namespace doris::index_query {
 
 std::vector<uint32_t> intersect_sorted(const std::vector<uint32_t>& a,
                                        const std::vector<uint32_t>& b) {
     std::vector<uint32_t> out;
     out.reserve(std::min(a.size(), b.size()));
+    // Keep the iterator overload for the sparse-intersection loop.
+    // NOLINTNEXTLINE(modernize-use-ranges)
     std::set_intersection(a.begin(), a.end(), b.begin(), b.end(), std::back_inserter(out));
     return out;
 }
@@ -35,9 +37,50 @@ std::vector<uint32_t> intersect_sorted(const std::vector<uint32_t>& a,
 void union_sorted_into(std::vector<uint32_t>* acc, const std::vector<uint32_t>& next) {
     std::vector<uint32_t> merged;
     merged.reserve(acc->size() + next.size());
-    std::set_union(acc->begin(), acc->end(), next.begin(), next.end(), std::back_inserter(merged));
+    std::ranges::set_union(*acc, next, std::back_inserter(merged));
     *acc = std::move(merged);
 }
+
+namespace {
+
+std::vector<uint32_t> union_sorted_linear(const std::vector<std::vector<uint32_t>>& lists,
+                                          size_t reserve_hint) {
+    std::vector<size_t> offsets(lists.size(), 0);
+    std::vector<uint32_t> out;
+    out.reserve(reserve_hint);
+    bool has_last = false;
+    uint32_t last = 0;
+    for (;;) {
+        bool found = false;
+        uint32_t next = 0;
+        for (size_t i = 0; i < lists.size(); ++i) {
+            if (offsets[i] >= lists[i].size()) {
+                continue;
+            }
+            const uint32_t docid = lists[i][offsets[i]];
+            if (!found || docid < next) {
+                found = true;
+                next = docid;
+            }
+        }
+        if (!found) {
+            break;
+        }
+        if (!has_last || next != last) {
+            out.push_back(next);
+            last = next;
+            has_last = true;
+        }
+        for (size_t i = 0; i < lists.size(); ++i) {
+            while (offsets[i] < lists[i].size() && lists[i][offsets[i]] == next) {
+                ++offsets[i];
+            }
+        }
+    }
+    return out;
+}
+
+} // namespace
 
 std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>& lists,
                                         size_t reserve_cap) {
@@ -53,54 +96,34 @@ std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>
 
     size_t non_empty = 0;
     size_t total = 0;
-    std::priority_queue<Cursor, std::vector<Cursor>, GreaterDocId> heap;
-    for (size_t i = 0; i < lists.size(); ++i) {
-        if (lists[i].empty()) continue;
-        ++non_empty;
-        total += lists[i].size();
-        heap.push(Cursor {lists[i][0], i, 0});
+    for (const auto& docs : lists) {
+        if (!docs.empty()) {
+            ++non_empty;
+            total += docs.size();
+        }
     }
-    // The union is at most `total` (exactly that for disjoint inputs); reserve to it
-    // so the output grows in a single allocation rather than O(log) geometric
-    // reallocations. Cap guards against over-reserving for heavily-overlapping inputs.
+    // Reserve the combined input size, capped for heavily overlapping postings.
     const size_t reserve_hint = std::min(total, reserve_cap);
-    if (non_empty == 0) return {};
+    if (non_empty == 0) {
+        return {};
+    }
     if (non_empty == 1) {
         for (const std::vector<uint32_t>& docs : lists) {
-            if (!docs.empty()) return docs;
+            if (!docs.empty()) {
+                return docs;
+            }
         }
     }
 
     if (non_empty <= kLinearFanInMax) {
-        std::vector<size_t> offsets(lists.size(), 0);
-        std::vector<uint32_t> out;
-        out.reserve(reserve_hint);
-        bool has_last = false;
-        uint32_t last = 0;
-        for (;;) {
-            bool found = false;
-            uint32_t next = 0;
-            for (size_t i = 0; i < lists.size(); ++i) {
-                if (offsets[i] >= lists[i].size()) continue;
-                const uint32_t docid = lists[i][offsets[i]];
-                if (!found || docid < next) {
-                    found = true;
-                    next = docid;
-                }
-            }
-            if (!found) break;
-            if (!has_last || next != last) {
-                out.push_back(next);
-                last = next;
-                has_last = true;
-            }
-            for (size_t i = 0; i < lists.size(); ++i) {
-                while (offsets[i] < lists[i].size() && lists[i][offsets[i]] == next) {
-                    ++offsets[i];
-                }
-            }
+        return union_sorted_linear(lists, reserve_hint);
+    }
+
+    std::priority_queue<Cursor, std::vector<Cursor>, GreaterDocId> heap;
+    for (size_t i = 0; i < lists.size(); ++i) {
+        if (!lists[i].empty()) {
+            heap.push(Cursor {.docid = lists[i][0], .list = i, .offset = 0});
         }
-        return out;
     }
 
     std::vector<uint32_t> out;
@@ -118,10 +141,10 @@ std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>
         const size_t next_offset = cur.offset + 1;
         const std::vector<uint32_t>& docs = lists[cur.list];
         if (next_offset < docs.size()) {
-            heap.push(Cursor {docs[next_offset], cur.list, next_offset});
+            heap.push(Cursor {.docid = docs[next_offset], .list = cur.list, .offset = next_offset});
         }
     }
     return out;
 }
 
-} // namespace doris::snii::query::internal
+} // namespace doris::index_query

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/snii/query/internal/exact_phrase_stream_matcher.h"
+#include "storage/index/query/phrase/exact_phrase_stream_matcher.h"
 
 #include <gtest/gtest.h>
 
@@ -33,7 +33,7 @@
 
 #include "common/status.h"
 
-namespace doris::snii::query::internal {
+namespace doris::index_query {
 namespace {
 
 using DocumentPositions = std::map<uint32_t, std::vector<uint32_t>>;
@@ -366,4 +366,4 @@ TEST(ExactPhraseStreamMatcherTest, RejectsRepeatedCursorIndices) {
 }
 
 } // namespace
-} // namespace doris::snii::query::internal
+} // namespace doris::index_query

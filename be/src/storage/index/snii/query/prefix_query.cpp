@@ -32,7 +32,7 @@ Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix,
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("prefix_query: null out");
     }
     docids->clear();
-    VectorDocIdSink sink(*docids);
+    index_query::VectorDocIdSink sink(*docids);
     return prefix_query(idx, prefix, &sink, max_expansions);
 }
 
@@ -43,8 +43,8 @@ Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix,
     return prefix_query(idx, prefix, docids, max_expansions);
 }
 
-Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix, DocIdSink* const sink,
-                    int32_t max_expansions) {
+Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix,
+                    index_query::DocIdSink* const sink, int32_t max_expansions) {
     if (sink == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("prefix_query: null sink");
     }

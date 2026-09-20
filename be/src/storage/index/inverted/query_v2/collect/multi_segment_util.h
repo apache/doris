@@ -147,8 +147,42 @@ inline std::shared_ptr<lucene::index::IndexReader> reader_for_segment(
     return reader;
 }
 
+class SegmentNullBitmapResolver final : public NullBitmapResolver {
+public:
+    SegmentNullBitmapResolver(const QueryExecutionContext& source, uint32_t base, uint32_t count)
+            : _source(source.null_resolver),
+              _source_owner(source.null_resolver_owner),
+              _base(base),
+              _end(uint64_t(base) + count) {}
+
+    segment_v2::IndexIterator* iterator_for(const Scorer& scorer,
+                                            const std::string& logical_field) const override {
+        return _source->iterator_for(scorer, logical_field);
+    }
+
+    void localize_null_rows(roaring::Roaring& rows) const override {
+        _source->localize_null_rows(rows);
+        rows.removeRange(0, _base);
+        rows.removeRange(_end, uint64_t(1) << 32);
+        if (_base != 0 && !rows.isEmpty()) {
+            auto* shifted = roaring::api::roaring_bitmap_add_offset(&rows.roaring, -int64_t(_base));
+            if (shifted == nullptr) {
+                throw Exception(ErrorCode::MEM_ALLOC_FAILED, "Failed to rebase segment NULL rows");
+            }
+            rows = roaring::Roaring(shifted);
+        }
+    }
+
+private:
+    const NullBitmapResolver* _source;
+    std::shared_ptr<const NullBitmapResolver> _source_owner;
+    uint32_t _base;
+    uint64_t _end;
+};
+
 inline QueryExecutionContext create_segment_context(const QueryExecutionContext& original_ctx,
                                                     size_t segment_index, uint32_t segment_num_rows,
+                                                    uint32_t segment_doc_base,
                                                     const std::string& binding_key) {
     QueryExecutionContext seg_ctx;
 
@@ -171,7 +205,11 @@ inline QueryExecutionContext create_segment_context(const QueryExecutionContext&
     }
 
     seg_ctx.binding_fields = original_ctx.binding_fields;
-    seg_ctx.null_resolver = original_ctx.null_resolver;
+    if (original_ctx.null_resolver != nullptr) {
+        seg_ctx.null_resolver_owner = std::make_shared<SegmentNullBitmapResolver>(
+                original_ctx, segment_doc_base, segment_num_rows);
+        seg_ctx.null_resolver = seg_ctx.null_resolver_owner.get();
+    }
 
     return seg_ctx;
 }
@@ -197,8 +235,8 @@ void for_each_index_segment(const QueryExecutionContext& context, const std::str
     validate_segment_topologies(context, segmented_reader);
     for (size_t i = 0; i < sub_readers->length; ++i) {
         auto seg_base = segment_base(segmented_reader.get(), i);
-        QueryExecutionContext seg_ctx =
-                create_segment_context(context, i, (*sub_readers)[i]->numDocs(), binding_key);
+        QueryExecutionContext seg_ctx = create_segment_context(
+                context, i, (*sub_readers)[i]->maxDoc(), seg_base, binding_key);
         callback(seg_ctx, seg_base);
     }
 }

@@ -21,8 +21,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/format/dict_entry.h"
-#include "storage/index/snii/query/docid_sink.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
 namespace doris::snii::query::internal {
@@ -40,7 +40,7 @@ Status read_docid_posting(const reader::LogicalIndexReader& idx, const format::D
                           uint64_t frq_base, uint64_t prx_base, std::vector<uint32_t>* docids);
 
 Status read_docid_posting(const reader::LogicalIndexReader& idx, const format::DictEntry& entry,
-                          uint64_t frq_base, uint64_t prx_base, query::DocIdSink* sink);
+                          uint64_t frq_base, uint64_t prx_base, index_query::DocIdSink* sink);
 
 // Batch counterpart for multi-term docid-only operators. Windowed terms share one
 // prelude fetch round and one docid fetch round, so OR-style operators pay by
@@ -57,6 +57,6 @@ Status read_docid_postings_batched(const reader::LogicalIndexReader& idx,
 // materialized. The sink dedups/orders across postings. One I/O round is preserved.
 Status emit_docid_postings_streamed(const reader::LogicalIndexReader& idx,
                                     const std::vector<ResolvedDocidPosting>& postings,
-                                    query::DocIdSink* sink);
+                                    index_query::DocIdSink* sink);
 
 } // namespace doris::snii::query::internal

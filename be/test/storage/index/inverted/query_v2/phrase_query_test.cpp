@@ -654,4 +654,37 @@ TEST_F(PhraseQueryV2Test, test_phrase_query_bm25_similarity) {
     _CLDECDELETE(dir);
 }
 
+TEST_F(PhraseQueryV2Test, SloppyScorerPreservesForwardOnlyPositionsAcrossSeek) {
+    std::unique_ptr<lucene::store::Directory, DirectoryDeleter> directory(
+            FSDirectory::getDirectory(kTestDir.c_str()));
+    auto reader = make_shared_reader(lucene::index::IndexReader::open(directory.get(), true));
+    auto similarity = std::make_shared<BM25Similarity>(2.0F, 8.0F);
+    auto quick = make_term_ptr(L"content", L"quick");
+    auto brown = make_term_ptr(L"content", L"brown");
+    auto quick_positions = make_term_positions_ptr(reader.get(), quick.get(), true, nullptr);
+    auto brown_positions = make_term_positions_ptr(reader.get(), brown.get(), true, nullptr);
+    ASSERT_NE(quick_positions, nullptr);
+    ASSERT_NE(brown_positions, nullptr);
+    const std::vector<std::pair<size_t, query_v2::SegmentPostingsPtr>> terms {
+            {0, query_v2::make_segment_postings(std::move(quick_positions), true, similarity)},
+            {1, query_v2::make_segment_postings(std::move(brown_positions), true, similarity)}};
+
+    auto scorer = query_v2::PhraseScorer<query_v2::SegmentPostingsPtr>::create(terms, similarity, 1,
+                                                                               reader->maxDoc());
+    ASSERT_EQ(scorer->doc(), 0);
+    const float first_score = scorer->score();
+    EXPECT_EQ(scorer->seek(0), 0);
+    EXPECT_FLOAT_EQ(scorer->score(), first_score);
+    ASSERT_EQ(scorer->seek(6), 6);
+    EXPECT_EQ(scorer->seek(6), 6);
+    ASSERT_EQ(scorer->advance(), 8);
+    EXPECT_EQ(scorer->norm(), 0);
+    EXPECT_FLOAT_EQ(scorer->score(), similarity->score(0.5F, 0));
+    EXPECT_EQ(scorer->seek(8), 8);
+    EXPECT_FLOAT_EQ(scorer->score(), similarity->score(0.5F, 0));
+    EXPECT_EQ(scorer->advance(), 11);
+    EXPECT_EQ(scorer->advance(), 19);
+    EXPECT_EQ(scorer->advance(), query_v2::TERMINATED);
+}
+
 } // namespace doris::segment_v2

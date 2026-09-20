@@ -41,10 +41,10 @@
 #include <vector>
 
 #include "common/status.h"
+#include "storage/index/query/docid_set_ops.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/query/boolean_query.h"
-#include "storage/index/snii/query/docid_sink.h"
-#include "storage/index/snii/query/internal/docid_set_ops.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
@@ -54,15 +54,13 @@ using namespace doris::snii;
 using namespace doris::snii::snii_test;
 using doris::Status;
 
-namespace qi = doris::snii::query::internal;
-
 namespace {
 
 // A dedup-capable sink (dedups()==true) that records how each posting was handed
 // off: append_range for run-preserving dense windows, append_sorted otherwise. The
 // collected docids land in a std::set so equality checks are order-independent
 // (a real Roaring sink also dedups/orders internally).
-class CountingDedupSink final : public query::DocIdSink {
+class CountingDedupSink final : public ::doris::index_query::DocIdSink {
 public:
     Status append_sorted(std::span<const uint32_t> docids) override {
         ++sorted_calls;
@@ -85,6 +83,28 @@ public:
     std::set<uint32_t> ids;
     size_t sorted_calls = 0;
     size_t range_calls = 0;
+};
+
+class RejectingDocIdSink final : public ::doris::index_query::DocIdSink {
+public:
+    explicit RejectingDocIdSink(bool deduplicate) : _deduplicate(deduplicate) {}
+
+    Status append_sorted(std::span<const uint32_t>) override {
+        ++calls;
+        return Status::InternalError("Rejected result batch");
+    }
+
+    Status append_range(uint32_t, uint64_t) override {
+        ++calls;
+        return Status::InternalError("Rejected result batch");
+    }
+
+    bool dedups() const override { return _deduplicate; }
+
+    size_t calls = 0;
+
+private:
+    bool _deduplicate;
 };
 
 std::vector<uint32_t> closed_range(uint32_t begin, uint32_t end_exclusive) {
@@ -126,7 +146,7 @@ TEST(SniiB2OrRead, UnionReservesByTotalForDisjointLists) {
     const std::vector<std::vector<uint32_t>> lists = {{0, 3, 6, 9}, {1, 4, 7, 10}, {2, 5, 8, 11}};
     const size_t total = 12;
 
-    const std::vector<uint32_t> got = qi::union_sorted_many(lists);
+    const std::vector<uint32_t> got = ::doris::index_query::union_sorted_many(lists);
 
     EXPECT_EQ(got.size(), total);
     // reserve(total) + exactly `total` pushes -> a single allocation, so capacity is
@@ -140,7 +160,8 @@ TEST(SniiB2OrRead, UnionRespectsReserveCapOnHeavyOverlap) {
     const std::vector<std::vector<uint32_t>> lists(10, std::vector<uint32_t> {1, 2, 3, 4});
     const size_t union_size = 4;
 
-    const std::vector<uint32_t> got = qi::union_sorted_many(lists, /*reserve_cap=*/union_size);
+    const std::vector<uint32_t> got =
+            ::doris::index_query::union_sorted_many(lists, /*reserve_cap=*/union_size);
 
     EXPECT_EQ(got.size(), union_size);
     // Capped at reserve_cap rather than over-reserving 10x (= 40) on overlap.
@@ -156,7 +177,7 @@ TEST(SniiB2OrRead, UnionContentUnchangedByReserveFix) {
     }
     const std::vector<uint32_t> want(expected_set.begin(), expected_set.end());
 
-    EXPECT_EQ(qi::union_sorted_many(lists), want);
+    EXPECT_EQ(::doris::index_query::union_sorted_many(lists), want);
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +186,7 @@ TEST(SniiB2OrRead, UnionContentUnchangedByReserveFix) {
 
 TEST(SniiB2OrRead, DedupCapabilityGate) {
     std::vector<uint32_t> backing;
-    query::VectorDocIdSink vector_sink(backing);
+    ::doris::index_query::VectorDocIdSink vector_sink(backing);
     EXPECT_FALSE(vector_sink.dedups()) << "plain vector sink needs materialize+merge";
 
     CountingDedupSink dedup_sink;
@@ -224,7 +245,7 @@ TEST(SniiB2OrRead, NonDedupSinkFallsBackToMergeContract) {
     // A non-dedup sink (VectorDocIdSink) routed through the sink overload must keep
     // the merge path so its single globally-sorted-deduplicated span contract holds.
     std::vector<uint32_t> via_sink;
-    query::VectorDocIdSink vector_sink(via_sink);
+    ::doris::index_query::VectorDocIdSink vector_sink(via_sink);
     assert_ok(query::boolean_or(idx, terms, &vector_sink));
 
     std::vector<uint32_t> via_vector;
@@ -257,7 +278,7 @@ TEST(SniiB2OrRead, SingleTermAndBoundaryInputs) {
     EXPECT_TRUE(miss.ids.empty());
 
     // Null sink -> InvalidArgument.
-    query::DocIdSink* null_sink = nullptr;
+    ::doris::index_query::DocIdSink* null_sink = nullptr;
     const Status st = query::boolean_or(idx, {"failed"}, null_sink);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.is<doris::ErrorCode::INVALID_ARGUMENT>()) << st.to_string();
@@ -343,4 +364,19 @@ TEST(SniiB2OrRead, MultiTermOrDedupsSharedDictBlockReads) {
     EXPECT_LT(or_dict_reads, per_term_dict_reads)
             << "OR must not re-read a DICT block already decoded for another term";
     EXPECT_FALSE(got.empty());
+}
+
+TEST(SniiB2OrRead, PropagatesSinkErrorsForStreamedAndMergedUnion) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment;
+    reader::LogicalIndexReader index;
+    assert_ok(build_reader(&file, &segment, &index));
+    for (bool deduplicate : {false, true}) {
+        SCOPED_TRACE(deduplicate);
+        RejectingDocIdSink sink(deduplicate);
+        const Status status = query::boolean_or(index, {"failed", "sparse_left"}, &sink);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Rejected result batch"), std::string::npos);
+        EXPECT_EQ(sink.calls, 1);
+    }
 }

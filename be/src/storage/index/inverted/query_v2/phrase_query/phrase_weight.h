@@ -31,7 +31,8 @@ constexpr uint32_t LOADED_POSTINGS_DOC_FREQ_THRESHOLD = 100;
 class PhraseWeight : public Weight {
 public:
     PhraseWeight(IndexQueryContextPtr context, std::wstring field, std::vector<TermInfo> term_infos,
-                 SimilarityPtr similarity, bool enable_scoring, bool nullable)
+                 index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
+                 bool nullable)
             : _context(std::move(context)),
               _field(std::move(field)),
               _term_infos(std::move(term_infos)),
@@ -78,7 +79,7 @@ private:
 
     std::wstring _field;
     std::vector<TermInfo> _term_infos;
-    SimilarityPtr _similarity;
+    index_query::ScoringContextPtr<float> _similarity;
     bool _enable_scoring = false;
     bool _nullable = true;
 };

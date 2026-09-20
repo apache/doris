@@ -51,6 +51,7 @@ struct QueryExecutionContext {
             field_reader_bindings;
     std::unordered_map<std::string, FieldBindingContext> binding_fields;
     const NullBitmapResolver* null_resolver = nullptr;
+    std::shared_ptr<const NullBitmapResolver> null_resolver_owner;
 };
 
 class Weight {
@@ -139,7 +140,8 @@ protected:
 
     SegmentPostingsPtr create_term_posting(lucene::index::IndexReader* reader,
                                            const std::wstring& field, const std::string& term,
-                                           bool enable_scoring, const SimilarityPtr& similarity,
+                                           bool enable_scoring,
+                                           const index_query::ScoringContextPtr<float>& similarity,
                                            const io::IOContext* io_ctx) const {
         return create_term_posting(reader, field, StringHelper::to_wstring(term), enable_scoring,
                                    similarity, io_ctx);
@@ -147,25 +149,26 @@ protected:
 
     SegmentPostingsPtr create_term_posting(lucene::index::IndexReader* reader,
                                            const std::wstring& field, const std::wstring& term,
-                                           bool enable_scoring, const SimilarityPtr& similarity,
+                                           bool enable_scoring,
+                                           const index_query::ScoringContextPtr<float>& similarity,
                                            const io::IOContext* io_ctx) const {
         auto t = make_term_ptr(field.c_str(), term.c_str());
         auto iter = make_term_doc_ptr(reader, t.get(), enable_scoring, io_ctx);
         return iter ? make_segment_postings(std::move(iter), enable_scoring, similarity) : nullptr;
     }
 
-    SegmentPostingsPtr create_position_posting(lucene::index::IndexReader* reader,
-                                               const std::wstring& field, const std::string& term,
-                                               bool enable_scoring, const SimilarityPtr& similarity,
-                                               const io::IOContext* io_ctx) const {
+    SegmentPostingsPtr create_position_posting(
+            lucene::index::IndexReader* reader, const std::wstring& field, const std::string& term,
+            bool enable_scoring, const index_query::ScoringContextPtr<float>& similarity,
+            const io::IOContext* io_ctx) const {
         return create_position_posting(reader, field, StringHelper::to_wstring(term),
                                        enable_scoring, similarity, io_ctx);
     }
 
-    SegmentPostingsPtr create_position_posting(lucene::index::IndexReader* reader,
-                                               const std::wstring& field, const std::wstring& term,
-                                               bool enable_scoring, const SimilarityPtr& similarity,
-                                               const io::IOContext* io_ctx) const {
+    SegmentPostingsPtr create_position_posting(
+            lucene::index::IndexReader* reader, const std::wstring& field, const std::wstring& term,
+            bool enable_scoring, const index_query::ScoringContextPtr<float>& similarity,
+            const io::IOContext* io_ctx) const {
         auto t = make_term_ptr(field.c_str(), term.c_str());
         auto iter = make_term_positions_ptr(reader, t.get(), enable_scoring, io_ctx);
         return iter ? make_segment_postings(std::move(iter), enable_scoring, similarity) : nullptr;

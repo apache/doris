@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/snii/query/internal/sloppy_phrase_matcher.h"
+#include "storage/index/query/phrase/sloppy_phrase_matcher.h"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <map>
 #include <numeric>
 #include <random>
@@ -29,7 +30,7 @@
 #include "storage/index/inverted/query/phrase_query/sloppy_phrase_matcher.h"
 #include "storage/index/inverted/util/mock_iterator.h"
 
-namespace doris::snii::query::internal {
+namespace doris::index_query {
 namespace {
 
 std::vector<PhrasePositionSpan> make_spans(const std::vector<std::vector<uint32_t>>& positions) {
@@ -152,12 +153,12 @@ TEST(SniiSloppyPhraseMatcher, FrequenciesMatchV3Oracle) {
         std::vector<std::vector<uint32_t>> positions;
     };
     const std::vector<UnorderedCase> unordered_cases {
-            {{0, 1}, {{1, 5, 9}, {3, 7, 11}}},
-            {{0, 1}, {{1}, {0}}},
-            {{0, 1, 2}, {{0, 4}, {2, 6}, {1, 8}}},
-            {{0, 0}, {{3, 5, 7}, {3, 5, 7}}},
-            {{0, 0}, {{4}, {4}}},
-            {{0, 1}, {{1, 2, 3}, {1, 2, 3}}},
+            {.plan_index = {0, 1}, .positions = {{1, 5, 9}, {3, 7, 11}}},
+            {.plan_index = {0, 1}, .positions = {{1}, {0}}},
+            {.plan_index = {0, 1, 2}, .positions = {{0, 4}, {2, 6}, {1, 8}}},
+            {.plan_index = {0, 0}, .positions = {{3, 5, 7}, {3, 5, 7}}},
+            {.plan_index = {0, 0}, .positions = {{4}, {4}}},
+            {.plan_index = {0, 1}, .positions = {{1, 2, 3}, {1, 2, 3}}},
     };
     for (const auto& test_case : unordered_cases) {
         std::vector<uint32_t> sequential_offsets(test_case.positions.size());
@@ -195,6 +196,21 @@ TEST(SniiSloppyPhraseMatcher, FrequenciesMatchV3Oracle) {
     }
 }
 
+TEST(SniiSloppyPhraseMatcher, InterleavedClausesPreserveRepeatedTermCollisions) {
+    const std::vector<size_t> plan_index {0, 1, 0};
+    const std::vector<uint32_t> offsets {0, 1, 2};
+    const std::vector<std::vector<uint32_t>> positions {
+            {0, 4, 8, 12}, {1, 5, 9, 13}, {0, 4, 8, 12}};
+    const auto spans = make_spans(positions);
+    const float expected = v3_unordered_frequency(plan_index, positions, 4);
+    ASSERT_GT(expected, 0.0F);
+
+    SloppyPhraseMatcher matcher(plan_index, offsets, 4, false);
+    EXPECT_FLOAT_EQ(matcher.match(spans, true), expected);
+    EXPECT_EQ(matcher.match(spans, false), 1.0F);
+    EXPECT_FLOAT_EQ(matcher.match(spans, true), expected);
+}
+
 TEST(SniiSloppyPhraseMatcher, GeneratedCasesMatchV3Oracle) {
     std::mt19937 generator(0x27011U);
     std::uniform_int_distribution<size_t> clause_count_distribution(2, 4);
@@ -210,8 +226,8 @@ TEST(SniiSloppyPhraseMatcher, GeneratedCasesMatchV3Oracle) {
             plan_index.back() = plan_index.front();
             positions.back() = positions.front();
         } else if (iteration % 3 == 2) {
-            std::fill(plan_index.begin(), plan_index.end(), 0);
-            std::fill(positions.begin(), positions.end(), positions.front());
+            std::ranges::fill(plan_index, 0);
+            std::ranges::fill(positions, positions.front());
         }
 
         std::vector<uint32_t> offsets(clause_count);
@@ -233,4 +249,4 @@ TEST(SniiSloppyPhraseMatcher, GeneratedCasesMatchV3Oracle) {
 }
 
 } // namespace
-} // namespace doris::snii::query::internal
+} // namespace doris::index_query

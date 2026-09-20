@@ -51,9 +51,92 @@ size_t BatchRangeFetcher::add(uint64_t offset, uint64_t len) {
     return reqs_.size() - 1;
 }
 
+Status BatchRangeFetcher::refresh_bounded_ranges() {
+    if (bounded_requests_ == reqs_.size()) {
+        return Status::OK();
+    }
+    bounded_ranges_.clear();
+    bounded_bytes_ = 0;
+    for (const Req& req : reqs_) {
+        uint64_t end = 0;
+        size_t len = 0;
+        RETURN_IF_ERROR(checked_end(req.offset, req.len, &end));
+        RETURN_IF_ERROR(checked_size(req.len, &len));
+        bounded_ranges_.push_back({.offset = req.offset, .len = len});
+    }
+    std::ranges::sort(bounded_ranges_, {}, &Range::offset);
+    size_t count = 0;
+    for (const Range range : bounded_ranges_) {
+        const uint64_t end = range.offset + range.len;
+        if (count != 0) {
+            Range& previous = bounded_ranges_[count - 1];
+            const uint64_t previous_end = previous.offset + previous.len;
+            if (range.offset <= previous_end || range.offset - previous_end <= coalesce_gap_) {
+                RETURN_IF_ERROR(
+                        checked_size(std::max(end, previous_end) - previous.offset, &previous.len));
+                continue;
+            }
+        }
+        bounded_ranges_[count++] = range;
+    }
+    bounded_ranges_.resize(count);
+    for (const Range& range : bounded_ranges_) {
+        bounded_bytes_ += range.len;
+    }
+    bounded_requests_ = reqs_.size();
+    return Status::OK();
+}
+
+Status BatchRangeFetcher::try_add(uint64_t offset, uint64_t len, uint64_t max_bytes,
+                                  size_t max_ranges, bool* accepted, size_t* handle) {
+    DORIS_CHECK(accepted != nullptr);
+    DORIS_CHECK(handle != nullptr);
+    *accepted = false;
+    uint64_t merged_end = 0;
+    RETURN_IF_ERROR(checked_end(offset, len, &merged_end));
+    RETURN_IF_ERROR(refresh_bounded_ranges());
+    const uint64_t first_end = offset > coalesce_gap_ ? offset - coalesce_gap_ : 0;
+    auto first = std::ranges::lower_bound(bounded_ranges_, first_end, {}, [](const Range& range) {
+        return range.offset + range.len;
+    });
+    auto last = first;
+    uint64_t merged_start = offset;
+    uint64_t replaced_bytes = 0;
+    while (last != bounded_ranges_.end() &&
+           (last->offset <= merged_end || last->offset - merged_end <= coalesce_gap_)) {
+        merged_start = std::min(merged_start, last->offset);
+        merged_end = std::max(merged_end, last->offset + last->len);
+        replaced_bytes += last->len;
+        ++last;
+    }
+    const uint64_t merged_bytes = merged_end - merged_start;
+    const uint64_t bytes = bounded_bytes_ - replaced_bytes + merged_bytes;
+    const size_t ranges = bounded_ranges_.size() - (last - first) + 1;
+    if (bytes > max_bytes || ranges > max_ranges) {
+        return Status::OK();
+    }
+    size_t range_len = 0;
+    RETURN_IF_ERROR(checked_size(merged_bytes, &range_len));
+    const Range range {.offset = merged_start, .len = range_len};
+    if (first == last) {
+        bounded_ranges_.insert(first, range);
+    } else {
+        *first = range;
+        bounded_ranges_.erase(first + 1, last);
+    }
+    *handle = add(offset, len);
+    bounded_bytes_ = bytes;
+    bounded_requests_ = reqs_.size();
+    *accepted = true;
+    return Status::OK();
+}
+
 void BatchRangeFetcher::clear() {
     reqs_.clear();
     phys_.clear();
+    bounded_ranges_.clear();
+    bounded_requests_ = 0;
+    bounded_bytes_ = 0;
 }
 
 Status BatchRangeFetcher::fetch() {

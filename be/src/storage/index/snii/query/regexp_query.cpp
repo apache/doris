@@ -129,7 +129,7 @@ Status regexp_query(const reader::LogicalIndexReader& idx, std::string_view patt
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("regexp_query: null out");
     }
     docids->clear();
-    VectorDocIdSink sink(*docids);
+    index_query::VectorDocIdSink sink(*docids);
     return regexp_query(idx, pattern, &sink, max_expansions);
 }
 
@@ -141,7 +141,7 @@ Status regexp_query(const reader::LogicalIndexReader& idx, std::string_view patt
 }
 
 Status regexp_query(const reader::LogicalIndexReader& idx, std::string_view pattern,
-                    DocIdSink* const sink, int32_t max_expansions) {
+                    index_query::DocIdSink* const sink, int32_t max_expansions) {
     if (sink == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("regexp_query: null sink");
     }

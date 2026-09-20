@@ -17,31 +17,12 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
-#include <limits>
-#include <vector>
+#include <utility>
 
-namespace doris::snii::query::internal {
+namespace doris::index_query {
 
-inline bool build_position_offsets(size_t count, std::vector<uint32_t>* out) {
-    if (count >= std::numeric_limits<uint32_t>::max()) {
-        return false;
-    }
-    out->clear();
-    out->reserve(count);
-    uint32_t offset = 0;
-    while (out->size() < count) {
-        out->push_back(offset);
-        ++offset;
-    }
-    return true;
-}
+// Sources retain ownership and keep each span valid until matching finishes.
+using PhrasePositionSpan = std::pair<const uint32_t*, const uint32_t*>;
 
-inline bool add_position_offset(uint32_t start, uint32_t offset, uint32_t* out) {
-    if (start > std::numeric_limits<uint32_t>::max() - offset) return false;
-    *out = start + offset;
-    return true;
-}
-
-} // namespace doris::snii::query::internal
+} // namespace doris::index_query

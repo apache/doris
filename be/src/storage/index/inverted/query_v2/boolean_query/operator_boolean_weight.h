@@ -25,6 +25,7 @@
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
 #include "storage/index/inverted/query_v2/buffered_union_scorer.h"
+#include "storage/index/inverted/query_v2/complete_null_bitmap.h"
 #include "storage/index/inverted/query_v2/doc_set.h"
 #include "storage/index/inverted/query_v2/intersection_scorer.h"
 #include "storage/index/inverted/query_v2/match_all_docs_scorer.h"
@@ -149,127 +150,36 @@ private:
         return std::dynamic_pointer_cast<DoNothingCombiner>(_score_combiner) != nullptr;
     }
 
-    struct EvalResult {
-        roaring::Roaring true_bitmap;
-        roaring::Roaring null_bitmap;
-    };
-
-    static EvalResult collect_eval_result(ScorerPtr scorer, const NullBitmapResolver* resolver) {
-        EvalResult result;
-        if (!scorer) {
-            return result;
+    index_query::TruthSet evaluate_children(const QueryExecutionContext& context) {
+        index_query::TruthSet result;
+        if (_type == OperatorType::OP_AND) {
+            result.true_rows.addRange(0, context.segment_num_rows);
         }
-
-        uint32_t doc = scorer->doc();
-        if (doc == TERMINATED) {
-            doc = scorer->advance();
-        }
-        while (doc != TERMINATED) {
-            result.true_bitmap.add(doc);
-            doc = scorer->advance();
-        }
-
-        if (scorer->has_null_bitmap(resolver)) {
-            const auto* bitmap = scorer->get_null_bitmap(resolver);
-            if (bitmap != nullptr) {
-                result.null_bitmap = *bitmap;
-            }
-        }
-
-        return result;
-    }
-
-    static roaring::Roaring make_universe(uint32_t segment_num_rows) {
-        roaring::Roaring universe;
-        universe.addRange(0, segment_num_rows);
-        return universe;
-    }
-
-    static EvalResult combine_or(const std::vector<EvalResult>& children) {
-        EvalResult result;
-        for (const auto& child : children) {
-            result.true_bitmap |= child.true_bitmap;
-            result.null_bitmap |= child.null_bitmap;
-        }
-        result.null_bitmap -= result.true_bitmap;
-        return result;
-    }
-
-    static EvalResult combine_and(const std::vector<EvalResult>& children,
-                                  uint32_t segment_num_rows) {
-        EvalResult result;
-        if (children.empty()) {
-            result.true_bitmap = make_universe(segment_num_rows);
-            return result;
-        }
-
-        auto universe = make_universe(segment_num_rows);
-        roaring::Roaring true_bitmap = universe;
-        roaring::Roaring union_null;
-        roaring::Roaring false_bitmap;
-
-        for (const auto& child : children) {
-            true_bitmap &= child.true_bitmap;
-            union_null |= child.null_bitmap;
-
-            roaring::Roaring child_false = universe;
-            child_false -= child.true_bitmap;
-            child_false -= child.null_bitmap;
-            false_bitmap |= child_false;
-        }
-
-        result.true_bitmap = std::move(true_bitmap);
-        result.null_bitmap = std::move(union_null);
-        result.null_bitmap -= result.true_bitmap;
-        result.null_bitmap -= false_bitmap;
-        return result;
-    }
-
-    static EvalResult combine_not(const EvalResult& child, uint32_t segment_num_rows) {
-        EvalResult result;
-        auto universe = make_universe(segment_num_rows);
-        result.true_bitmap = std::move(universe);
-        result.true_bitmap -= child.true_bitmap;
-        result.true_bitmap -= child.null_bitmap;
-        result.null_bitmap = child.null_bitmap;
-        return result;
-    }
-
-    EvalResult evaluate_children(const QueryExecutionContext& context) {
-        std::vector<EvalResult> children;
-        children.reserve(_sub_weights.size());
         for (size_t i = 0; i < _sub_weights.size(); ++i) {
             auto scorer = _sub_weights[i]->scorer(context, _binding_keys[i]);
-            children.emplace_back(collect_eval_result(std::move(scorer), context.null_resolver));
-        }
-
-        switch (_type) {
-        case OperatorType::OP_AND:
-            return combine_and(children, context.segment_num_rows);
-        case OperatorType::OP_OR:
-            return combine_or(children);
-        case OperatorType::OP_NOT: {
-            EvalResult child_result;
-            if (!children.empty()) {
-                if (children.size() == 1) {
-                    child_result = children.front();
-                } else {
-                    child_result = combine_or(children);
-                }
+            const auto child = collect_truth_set(scorer, context.null_resolver);
+            switch (_type) {
+            case OperatorType::OP_AND:
+                result.intersect_with(child);
+                break;
+            case OperatorType::OP_OR:
+            case OperatorType::OP_NOT:
+                result.union_with(child);
+                break;
             }
-            return combine_not(child_result, context.segment_num_rows);
         }
-        default:
-            return EvalResult {};
+        if (_type == OperatorType::OP_NOT) {
+            result.negate(context.segment_num_rows);
         }
+        return result;
     }
 
     ScorerPtr build_three_value_scorer(const QueryExecutionContext& context) {
-        EvalResult result = evaluate_children(context);
-        auto true_ptr = std::make_shared<roaring::Roaring>(std::move(result.true_bitmap));
+        auto result = evaluate_children(context);
+        auto true_ptr = std::make_shared<roaring::Roaring>(std::move(result.true_rows));
         std::shared_ptr<roaring::Roaring> null_ptr;
-        if (!result.null_bitmap.isEmpty()) {
-            null_ptr = std::make_shared<roaring::Roaring>(std::move(result.null_bitmap));
+        if (!result.null_rows.isEmpty()) {
+            null_ptr = std::make_shared<roaring::Roaring>(std::move(result.null_rows));
         }
         return std::make_shared<BitSetScorer>(std::move(true_ptr), std::move(null_ptr));
     }

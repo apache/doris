@@ -22,7 +22,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/query/query_profile.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
@@ -37,7 +37,7 @@ Status boolean_or(const reader::LogicalIndexReader& idx, const std::vector<std::
 Status boolean_or(const reader::LogicalIndexReader& idx, const std::vector<std::string>& terms,
                   std::vector<uint32_t>* docids, QueryProfile* profile);
 Status boolean_or(const reader::LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                  DocIdSink* sink);
+                  index_query::DocIdSink* sink);
 
 // boolean_and (MATCH all-terms): sorted docid set of docs containing EVERY
 // term, no positional constraint. Valid on docs-only indexes. Empty terms or

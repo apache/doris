@@ -22,7 +22,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/query/query_profile.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
@@ -34,7 +34,8 @@ namespace doris::snii::query {
 
 Status term_query(const reader::LogicalIndexReader& idx, std::string_view term,
                   std::vector<uint32_t>* docids);
-Status term_query(const reader::LogicalIndexReader& idx, std::string_view term, DocIdSink* sink);
+Status term_query(const reader::LogicalIndexReader& idx, std::string_view term,
+                  index_query::DocIdSink* sink);
 Status term_query(const reader::LogicalIndexReader& idx, std::string_view term,
                   std::vector<uint32_t>* docids, QueryProfile* profile);
 

@@ -48,7 +48,7 @@ Status wildcard_query(const reader::LogicalIndexReader& idx, std::string_view pa
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("wildcard_query: null out");
     }
     docids->clear();
-    VectorDocIdSink sink(*docids);
+    index_query::VectorDocIdSink sink(*docids);
     return wildcard_query(idx, pattern, &sink, max_expansions);
 }
 
@@ -60,7 +60,7 @@ Status wildcard_query(const reader::LogicalIndexReader& idx, std::string_view pa
 }
 
 Status wildcard_query(const reader::LogicalIndexReader& idx, std::string_view pattern,
-                      DocIdSink* const sink, int32_t max_expansions) {
+                      index_query::DocIdSink* const sink, int32_t max_expansions) {
     if (sink == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("wildcard_query: null sink");
     }

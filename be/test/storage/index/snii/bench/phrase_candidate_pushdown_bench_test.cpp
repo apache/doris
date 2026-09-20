@@ -60,6 +60,7 @@
 #include "storage/index/snii/snii_index_reader.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
+#include "testutil/benchmark_control.h"
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
@@ -83,6 +84,12 @@ constexpr BenchQuery kQueries[] = {{.label = "exact_2",
                                    {.label = "exact_4",
                                     .type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
                                     .text = "retry attempt 2 job"},
+                                   {.label = "slop_2",
+                                    .type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                    .text = "retry job ~2"},
+                                   {.label = "ordered_2",
+                                    .type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                    .text = "retry job ~2+"},
                                    {.label = "prefix_2",
                                     .type = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
                                     .text = "order 12"},
@@ -92,6 +99,24 @@ constexpr BenchQuery kQueries[] = {{.label = "exact_2",
                                    {.label = "rare_exact",
                                     .type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
                                     .text = "request 424242 completed"}};
+
+constexpr BenchQuery kDocIdQueries[] = {
+        {.label = "term_dense", .type = InvertedIndexQueryType::MATCH_ANY_QUERY, .text = "latency"},
+        {.label = "or_dense",
+         .type = InvertedIndexQueryType::MATCH_ANY_QUERY,
+         .text = "retry order latency"},
+        {.label = "or_sparse",
+         .type = InvertedIndexQueryType::MATCH_ANY_QUERY,
+         .text = "424242 424241"},
+        {.label = "and_dense",
+         .type = InvertedIndexQueryType::MATCH_ALL_QUERY,
+         .text = "retry attempt"},
+        {.label = "and_sparse",
+         .type = InvertedIndexQueryType::MATCH_ALL_QUERY,
+         .text = "retry 1234"},
+        {.label = "and_empty",
+         .type = InvertedIndexQueryType::MATCH_ALL_QUERY,
+         .text = "retry order"}};
 
 uint32_t env_or(const char* name, uint32_t fallback) {
     const char* value = std::getenv(name);
@@ -235,8 +260,9 @@ protected:
     }
 
     std::string write_index(const std::vector<std::string>& docs,
-                            InvertedIndexStorageFormatPB format, std::string_view name) {
-        const std::string segment_path = fmt::format("{}/{}_0.dat", kBenchDir, name);
+                            InvertedIndexStorageFormatPB format, std::string_view name,
+                            std::string_view directory = kBenchDir) {
+        const std::string segment_path = fmt::format("{}/{}_0.dat", directory, name);
         const std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));
         io::FileWriterPtr file_writer;
         io::FileWriterOptions opts;
@@ -295,13 +321,25 @@ double run_query(InvertedIndexReader* reader, const BenchQuery& query,
     return elapsed;
 }
 
+uint64_t bitmap_checksum(const roaring::Roaring& result) {
+    uint64_t checksum = 14695981039346656037ULL;
+    for (uint32_t docid : result) {
+        checksum = (checksum ^ docid) * 1099511628211ULL;
+    }
+    return checksum;
+}
+
 double median_query_ms(InvertedIndexReader* reader, const BenchQuery& query,
                        const roaring::Roaring* candidates, uint32_t iterations,
-                       roaring::Roaring* result) {
+                       roaring::Roaring* result, std::string_view label) {
     std::vector<double> samples;
     bool consumed = false;
     for (uint32_t i = 0; i < iterations; ++i) {
-        samples.push_back(run_query(reader, query, candidates, result, &consumed));
+        benchmark::wait_for_turn(label, i);
+        const double elapsed_ms = run_query(reader, query, candidates, result, &consumed);
+        samples.push_back(elapsed_ms);
+        benchmark::report_sample(label, i, 1, static_cast<uint64_t>(elapsed_ms * 1000000.0),
+                                 bitmap_checksum(*result));
     }
     EXPECT_EQ(consumed, candidates != nullptr) << query.label;
     std::ranges::sort(samples);
@@ -317,10 +355,48 @@ void print_row(std::string_view format, const BenchQuery& query, std::string_vie
               << full_ms / restricted_ms << "x" << std::setw(10) << matches << '\n';
 }
 
+void benchmark_reader(InvertedIndexReader* reader, std::string_view format_name, uint32_t doc_count,
+                      uint32_t iterations) {
+    for (const BenchQuery& query : kDocIdQueries) {
+        roaring::Roaring full;
+        const std::string label = fmt::format("reader/{}/docids/{}/full", format_name, query.label);
+        median_query_ms(reader, query, nullptr, iterations, &full, label);
+    }
+    for (const BenchQuery& query : kQueries) {
+        roaring::Roaring full;
+        const std::string full_label = fmt::format("reader/{}/{}/full", format_name, query.label);
+        const double full_ms =
+                median_query_ms(reader, query, nullptr, iterations, &full, full_label);
+        for (const bool clustered : {false, true}) {
+            const std::string_view shape_name = clustered ? "range" : "random";
+            for (const double ratio : kCandidateRatios) {
+                const roaring::Roaring candidates = make_candidates(doc_count, ratio, clustered);
+                roaring::Roaring restricted;
+                const std::string label = fmt::format("reader/{}/{}/{}/{:.3f}", format_name,
+                                                      query.label, shape_name, ratio);
+                const double restricted_ms =
+                        median_query_ms(reader, query, &candidates, iterations, &restricted, label);
+                ASSERT_EQ(restricted, full & candidates) << query.label << " " << ratio;
+                print_row(format_name, query, shape_name, ratio, full_ms, restricted_ms,
+                          restricted.cardinality());
+            }
+        }
+    }
+}
+
 TEST_F(PhraseCandidatePushdownBench, DISABLED_RestrictedVersusFullPhrase) {
     const uint32_t doc_count = env_or("PHRASE_CANDIDATE_BENCH_DOCS", 200000);
     const uint32_t iterations = env_or("PHRASE_CANDIDATE_BENCH_ITERATIONS", 10);
-    const std::vector<std::string> docs = build_corpus(doc_count);
+    const char* shared_root = std::getenv("PHRASE_CANDIDATE_BENCH_INDEX_ROOT");
+    const bool prepare_shared = env_or("PHRASE_CANDIDATE_BENCH_PREPARE", 0) != 0;
+    ASSERT_TRUE(!prepare_shared || shared_root != nullptr)
+            << "PHRASE_CANDIDATE_BENCH_PREPARE requires PHRASE_CANDIDATE_BENCH_INDEX_ROOT";
+    if (prepare_shared) {
+        ASSERT_TRUE(io::global_local_filesystem()->create_directory(shared_root).ok());
+    }
+    const std::vector<std::string> docs = shared_root == nullptr || prepare_shared
+                                                  ? build_corpus(doc_count)
+                                                  : std::vector<std::string> {};
     std::cout << "docs=" << doc_count << " iterations=" << iterations
               << " (thread CPU ms, median)\n"
               << "format query       shape        ratio     full_ms  restricted_ms  speedup"
@@ -328,24 +404,23 @@ TEST_F(PhraseCandidatePushdownBench, DISABLED_RestrictedVersusFullPhrase) {
     for (const auto format :
          {InvertedIndexStorageFormatPB::V2, InvertedIndexStorageFormatPB::SNII}) {
         const bool is_snii = format == InvertedIndexStorageFormatPB::SNII;
-        const std::string prefix = write_index(docs, format, is_snii ? "snii" : "clucene");
-        const auto reader = open_reader(prefix, format, doc_count);
-        for (const BenchQuery& query : kQueries) {
-            roaring::Roaring full;
-            const double full_ms = median_query_ms(reader.get(), query, nullptr, iterations, &full);
-            for (const bool clustered : {false, true}) {
-                for (const double ratio : kCandidateRatios) {
-                    const roaring::Roaring candidates =
-                            make_candidates(doc_count, ratio, clustered);
-                    roaring::Roaring restricted;
-                    const double restricted_ms = median_query_ms(reader.get(), query, &candidates,
-                                                                 iterations, &restricted);
-                    ASSERT_EQ(restricted, full & candidates) << query.label << " " << ratio;
-                    print_row(is_snii ? "SNII" : "V2", query, clustered ? "range" : "random", ratio,
-                              full_ms, restricted_ms, restricted.cardinality());
-                }
-            }
+        const std::string_view format_name = is_snii ? "SNII" : "V2";
+        const std::string name = fmt::format("{}_{}", is_snii ? "snii" : "clucene", doc_count);
+        if (prepare_shared) {
+            write_index(docs, format, name, shared_root);
+            continue;
         }
+        const std::string prefix = shared_root == nullptr
+                                           ? write_index(docs, format, name)
+                                           : fmt::format("{}/{}_0", shared_root, name);
+        bool exists = false;
+        ASSERT_TRUE(
+                io::global_local_filesystem()
+                        ->exists(InvertedIndexDescriptor::get_index_file_path_v2(prefix), &exists)
+                        .ok());
+        ASSERT_TRUE(exists) << "Missing benchmark index: " << prefix;
+        const auto reader = open_reader(prefix, format, doc_count);
+        benchmark_reader(reader.get(), format_name, doc_count, iterations);
     }
 }
 

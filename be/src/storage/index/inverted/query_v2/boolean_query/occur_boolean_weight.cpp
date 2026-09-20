@@ -17,7 +17,11 @@
 
 #include "storage/index/inverted/query_v2/boolean_query/occur_boolean_weight.h"
 
+#include <algorithm>
+
+#include "core/custom_allocator.h"
 #include "storage/index/inverted/query_v2/all_query/all_query.h"
+#include "storage/index/inverted/query_v2/complete_null_bitmap.h"
 #include "storage/index/inverted/query_v2/disjunction_scorer.h"
 #include "storage/index/inverted/query_v2/exclude_scorer.h"
 #include "storage/index/inverted/query_v2/intersection.h"
@@ -56,19 +60,23 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::scorer(const QueryExecutionCont
     }
     if (_sub_weights.size() == 1) {
         const auto& [occur, weight] = _sub_weights[0];
-        if (occur == Occur::MUST_NOT) {
+        const size_t should_count = occur == Occur::SHOULD ? 1 : 0;
+        if (occur == Occur::MUST_NOT || _minimum_number_should_match > should_count) {
             return std::make_shared<EmptyScorer>();
         }
         return weight->scorer(context, binding_key);
     }
     _max_doc = context.segment_num_rows;
+    roaring::Roaring null_rows;
     if (_enable_scoring) {
-        auto specialized = complex_scorer(context, _score_combiner, binding_key);
-        return into_box_scorer(std::move(specialized), _score_combiner);
+        auto specialized = complex_scorer(context, _score_combiner, binding_key, &null_rows);
+        return make_complete_null_scorer(into_box_scorer(std::move(specialized), _score_combiner),
+                                         std::move(null_rows));
     } else {
         auto combiner = std::make_shared<DoNothingCombiner>();
-        auto specialized = complex_scorer(context, combiner, binding_key);
-        return into_box_scorer(std::move(specialized), combiner);
+        auto specialized = complex_scorer(context, combiner, binding_key, &null_rows);
+        return make_complete_null_scorer(into_box_scorer(std::move(specialized), combiner),
+                                         std::move(null_rows));
     }
 }
 
@@ -91,11 +99,11 @@ OccurBooleanWeight<ScoreCombinerPtrT>::per_occur_scorers(const QueryExecutionCon
 template <typename ScoreCombinerPtrT>
 AllAndEmptyScorerCounts
 OccurBooleanWeight<ScoreCombinerPtrT>::remove_and_count_all_and_empty_scorers(
-        std::vector<ScorerPtr>& scorers) {
+        std::vector<ScorerPtr>& scorers, bool preserve_all) {
     AllAndEmptyScorerCounts counts;
     auto it = scorers.begin();
     while (it != scorers.end()) {
-        if (dynamic_cast<AllScorer*>(it->get()) != nullptr) {
+        if (!preserve_all && dynamic_cast<AllScorer*>(it->get()) != nullptr) {
             counts.num_all_scorers++;
             it = scorers.erase(it);
         } else if (dynamic_cast<EmptyScorer*>(it->get()) != nullptr) {
@@ -222,16 +230,106 @@ SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::build_positive_opt(
 }
 
 template <typename ScoreCombinerPtrT>
+ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::build_nullable_scorer(
+        std::vector<ScorerPtr>& required, std::vector<ScorerPtr>& optional,
+        std::vector<ScorerPtr>& excluded, const NullBitmapResolver* resolver) {
+    if ((required.empty() && optional.empty()) || _minimum_number_should_match > optional.size()) {
+        return std::make_shared<EmptyScorer>();
+    }
+    if (required.size() == 1 && _minimum_number_should_match == 0 && excluded.empty()) {
+        if (!_enable_scoring || optional.empty()) {
+            return std::move(required.front());
+        }
+        auto optional_scorer = scorer_union(std::move(optional), _score_combiner);
+        return make_required_optional_scorer(
+                std::move(required.front()),
+                into_box_scorer(std::move(optional_scorer), _score_combiner), _score_combiner);
+    }
+    const auto has_nulls = [resolver](const std::vector<ScorerPtr>& scorers) {
+        return std::ranges::any_of(scorers, [resolver](const ScorerPtr& scorer) {
+            return scorer->has_null_bitmap(resolver);
+        });
+    };
+    if (!has_nulls(required) && !has_nulls(optional) && !has_nulls(excluded)) {
+        return nullptr;
+    }
+
+    if (!required.empty() && optional.empty() && excluded.empty()) {
+        return make_nullable_conjunction(required, _enable_scoring, _max_doc, resolver);
+    }
+
+    std::vector<ScorerPtr> score_sources;
+    if (_enable_scoring) {
+        score_sources.reserve(required.size() + optional.size());
+    }
+    const auto collect_positive = [&](ScorerPtr& scorer,
+                                      const roaring::Roaring* candidates = nullptr) {
+        if (_enable_scoring) {
+            scorer = materialize_scorer(std::move(scorer), true, resolver, candidates);
+            score_sources.push_back(scorer);
+        }
+        return collect_truth_set(scorer, resolver, candidates);
+    };
+    index_query::TruthSet result;
+    result.true_rows.addRange(0, _max_doc);
+    std::optional<roaring::Roaring> candidates;
+    for (auto& scorer : required) {
+        result.intersect_with(collect_positive(scorer, candidates ? &*candidates : nullptr));
+        if (result.true_rows.isEmpty() && result.null_rows.isEmpty()) {
+            return std::make_shared<EmptyScorer>();
+        }
+        candidates = result.true_rows | result.null_rows;
+    }
+    DorisVector<index_query::TruthSet> should_results;
+    should_results.reserve(optional.size());
+    for (auto& scorer : optional) {
+        should_results.push_back(collect_positive(scorer));
+    }
+    size_t minimum = _minimum_number_should_match;
+    if (required.empty() && minimum == 0) {
+        minimum = 1;
+    }
+    result.intersect_with(index_query::truth_at_least(should_results, minimum, _max_doc));
+    index_query::TruthSet negative;
+    for (const auto& scorer : excluded) {
+        negative.union_with(collect_truth_set(scorer, resolver));
+    }
+    result.exclude(negative);
+    if (_enable_scoring && required.empty() && minimum == 1 && excluded.empty()) {
+        auto scorer = make_buffered_union(score_sources, _score_combiner);
+        return make_complete_truth_scorer(std::move(scorer), std::move(result));
+    }
+    return make_truth_set_scorer(std::move(result), std::move(score_sources), _enable_scoring);
+}
+
+template <typename ScoreCombinerPtrT>
 template <typename CombinerT>
 SpecializedScorer OccurBooleanWeight<ScoreCombinerPtrT>::complex_scorer(
-        const QueryExecutionContext& context, CombinerT combiner, const std::string& binding_key) {
+        const QueryExecutionContext& context, CombinerT combiner, const std::string& binding_key,
+        roaring::Roaring* complete_nulls) {
     auto scorers_by_occur = per_occur_scorers(context, binding_key);
     auto must_scorers = std::move(scorers_by_occur[Occur::MUST]);
     auto should_scorers = std::move(scorers_by_occur[Occur::SHOULD]);
     auto must_not_scorers = std::move(scorers_by_occur[Occur::MUST_NOT]);
 
-    auto must_special_counts = remove_and_count_all_and_empty_scorers(must_scorers);
-    auto should_special_counts = remove_and_count_all_and_empty_scorers(should_scorers);
+    const auto shared = shared_null_bitmap({must_scorers, should_scorers, must_not_scorers},
+                                           context.null_resolver);
+    const bool valid_positive = (!must_scorers.empty() || !should_scorers.empty()) &&
+                                _minimum_number_should_match <= should_scorers.size();
+    if (shared.has_value() && valid_positive) {
+        if (complete_nulls != nullptr) {
+            *complete_nulls = *shared;
+        }
+    } else if (auto scorer = build_nullable_scorer(must_scorers, should_scorers, must_not_scorers,
+                                                   context.null_resolver);
+               scorer != nullptr) {
+        return scorer;
+    }
+
+    auto must_special_counts =
+            remove_and_count_all_and_empty_scorers(must_scorers, _enable_scoring);
+    auto should_special_counts =
+            remove_and_count_all_and_empty_scorers(should_scorers, _enable_scoring);
     auto exclude_special_counts = remove_and_count_all_and_empty_scorers(must_not_scorers);
 
     if (must_special_counts.num_empty_scorers > 0) {

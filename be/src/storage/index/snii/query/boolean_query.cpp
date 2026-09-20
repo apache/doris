@@ -22,8 +22,8 @@
 #include <utility>
 #include <vector>
 
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/format/dict_entry.h"
-#include "storage/index/snii/query/docid_sink.h"
 #include "storage/index/snii/query/internal/docid_conjunction.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/query/internal/docid_union.h"
@@ -86,7 +86,7 @@ Status boolean_or(const reader::LogicalIndexReader& idx, const std::vector<std::
 }
 
 Status boolean_or(const reader::LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                  DocIdSink* sink) {
+                  index_query::DocIdSink* sink) {
     if (sink == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("boolean_or: null sink");
     if (terms.empty()) return Status::OK();

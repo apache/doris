@@ -83,10 +83,8 @@ float BM25Similarity::score(float freq, int64_t encoded_norm) {
 }
 
 float BM25Similarity::max_score() {
-    // 2013265944 = byte4_to_int(int_to_byte4(MAX_INT32)) from Lucene's SmallFloat encoding,
-    // representing the maximum possible term frequency. Combined with norm=255 (shortest
-    // document length), this yields the theoretical upper-bound BM25 score for this term.
-    return score(static_cast<float>(2013265944), 255);
+    // Use the saturation limit so norm quantization cannot lower the bound.
+    return _weight;
 }
 
 int32_t BM25Similarity::number_of_leading_zeros(uint64_t value) {

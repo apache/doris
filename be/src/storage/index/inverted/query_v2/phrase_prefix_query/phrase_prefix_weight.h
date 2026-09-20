@@ -32,8 +32,9 @@ class PhrasePrefixWeight : public Weight {
 public:
     PhrasePrefixWeight(IndexQueryContextPtr context, std::wstring field,
                        std::vector<std::pair<size_t, std::string>> phrase_terms,
-                       std::pair<size_t, std::string> prefix, SimilarityPtr similarity,
-                       bool enable_scoring, int32_t max_expansions, bool nullable)
+                       std::pair<size_t, std::string> prefix,
+                       index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
+                       int32_t max_expansions, bool nullable)
             : _context(std::move(context)),
               _field(std::move(field)),
               _phrase_terms(std::move(phrase_terms)),
@@ -101,7 +102,7 @@ private:
     std::wstring _field;
     std::vector<std::pair<size_t, std::string>> _phrase_terms;
     std::pair<size_t, std::string> _prefix;
-    SimilarityPtr _similarity;
+    index_query::ScoringContextPtr<float> _similarity;
     bool _enable_scoring = false;
     int32_t _max_expansions = 50;
     bool _nullable = true;

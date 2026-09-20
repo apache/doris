@@ -36,7 +36,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/query/internal/wildcard_matcher.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/query/wildcard_query.h"
@@ -407,7 +407,7 @@ TEST(SniiWildcardQueryTest, NullArgumentsReturnInvalidArgument) {
     EXPECT_TRUE(wildcard_query(index_reader, "a*", null_docids)
                         .is<doris::ErrorCode::INVALID_ARGUMENT>());
 
-    DocIdSink* const null_sink = nullptr;
+    ::doris::index_query::DocIdSink* const null_sink = nullptr;
     EXPECT_TRUE(
             wildcard_query(index_reader, "a*", null_sink).is<doris::ErrorCode::INVALID_ARGUMENT>());
 }

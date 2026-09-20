@@ -42,6 +42,7 @@
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
+#include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/format/dict_block.h"
@@ -51,7 +52,6 @@
 #include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/format/sampled_term_index.h"
 #include "storage/index/snii/query/bm25_scorer.h"
-#include "storage/index/snii/query/docid_sink.h"
 #include "storage/index/snii/snii_index_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/slice.h"
@@ -379,7 +379,7 @@ TEST(SniiWriterNorms, WritesNormsFollowSharedNormsPolicy) {
 
 TEST(SniiDocIdSinkGrowth, AppendRangeGrowsGeometrically) {
     std::vector<uint32_t> docids;
-    doris::snii::query::VectorDocIdSink sink(docids);
+    ::doris::index_query::VectorDocIdSink sink(docids);
     constexpr uint32_t kRuns = 4096;
     size_t capacity_changes = 0;
     size_t last_cap = docids.capacity();

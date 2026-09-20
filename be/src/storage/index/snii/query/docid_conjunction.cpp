@@ -24,8 +24,8 @@
 #include <utility>
 
 #include "common/check.h"
+#include "storage/index/query/docid_set_ops.h"
 #include "storage/index/snii/format/frq_pod.h"
-#include "storage/index/snii/query/internal/docid_set_ops.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/reader/windowed_posting.h"
 
@@ -716,7 +716,7 @@ Status collect_docids_only(const LogicalIndexReader& idx, const io::BatchRangeFe
     if (source != nullptr) {
         return Status::OK();
     }
-    *out = intersect_sorted(*candidates, term_docids);
+    *out = index_query::intersect_sorted(*candidates, term_docids);
     return Status::OK();
 }
 

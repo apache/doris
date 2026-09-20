@@ -28,6 +28,8 @@
 
 #include "common/check.h"
 #include "roaring/roaring.hh"
+#include "storage/index/query/docid_set_ops.h"
+#include "storage/index/query/phrase/position_math.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/dict_entry.h"
@@ -37,11 +39,9 @@
 #include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/query/internal/docid_conjunction.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
-#include "storage/index/snii/query/internal/docid_set_ops.h"
 #include "storage/index/snii/query/internal/docid_union.h"
 #include "storage/index/snii/query/internal/phrase_query_split.h"
 #include "storage/index/snii/query/internal/plain_term_routing.h"
-#include "storage/index/snii/query/internal/position_math.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/query/internal/resolved_phrase_plan.h"
 #include "storage/index/snii/query/internal/term_expansion.h"
@@ -144,7 +144,7 @@ Status collect_expected_tail_positions(const std::vector<TermPlan>& plans,
                     continue; // the anchor term's position is satisfied by construction
                 }
                 uint32_t want = 0;
-                if (!internal::add_position_offset(start, position_offsets[t], &want)) {
+                if (!index_query::add_position_offset(start, position_offsets[t], &want)) {
                     ok = false;
                     break;
                 }
@@ -162,7 +162,7 @@ Status collect_expected_tail_positions(const std::vector<TermPlan>& plans,
                 }
             }
             uint32_t tail_pos = 0;
-            if (ok && internal::add_position_offset(start, position_offsets[n], &tail_pos)) {
+            if (ok && index_query::add_position_offset(start, position_offsets[n], &tail_pos)) {
                 out->positions.push_back(tail_pos);
             }
         }
@@ -191,7 +191,7 @@ Status collect_single_term_expected_tail_positions(std::vector<PosSource>& srcs,
         const size_t expected_begin = out->positions.size();
         for (const uint32_t* p = span.first; p != span.second; ++p) {
             uint32_t tail_pos = 0;
-            if (internal::add_position_offset(*p, tail_offset, &tail_pos)) {
+            if (index_query::add_position_offset(*p, tail_offset, &tail_pos)) {
                 out->positions.push_back(tail_pos);
             }
         }

@@ -22,18 +22,28 @@
 #include <limits>
 #include <vector>
 
-namespace doris::snii::query::internal {
+namespace doris::index_query {
 
-std::vector<uint32_t> intersect_sorted(const std::vector<uint32_t>& a,
-                                       const std::vector<uint32_t>& b);
+inline bool build_position_offsets(size_t count, std::vector<uint32_t>* out) {
+    if (count >= std::numeric_limits<uint32_t>::max()) {
+        return false;
+    }
+    out->clear();
+    out->reserve(count);
+    uint32_t offset = 0;
+    while (out->size() < count) {
+        out->push_back(offset);
+        ++offset;
+    }
+    return true;
+}
 
-void union_sorted_into(std::vector<uint32_t>* acc, const std::vector<uint32_t>& next);
+inline bool add_position_offset(uint32_t start, uint32_t offset, uint32_t* out) {
+    if (start > std::numeric_limits<uint32_t>::max() - offset) {
+        return false;
+    }
+    *out = start + offset;
+    return true;
+}
 
-// Sorted-deduplicated union of many sorted lists. The output is reserved by the
-// summed input size (the union is at most the total of all inputs; for disjoint
-// inputs it is exactly that), capped by `reserve_cap` so heavily-overlapping
-// inputs (union << total) do not over-reserve. Default cap = no cap.
-std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>& lists,
-                                        size_t reserve_cap = std::numeric_limits<size_t>::max());
-
-} // namespace doris::snii::query::internal
+} // namespace doris::index_query

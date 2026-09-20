@@ -23,7 +23,7 @@
 #include "storage/index/inverted/query_v2/term_query/term_scorer.h"
 #include "storage/index/inverted/query_v2/wand/block_wand.h"
 #include "storage/index/inverted/query_v2/weight.h"
-#include "storage/index/inverted/similarity/similarity.h"
+#include "storage/index/query/spi/scoring_context.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -34,7 +34,7 @@ public:
     using Weight::for_each_pruning;
 
     TermWeight(IndexQueryContextPtr context, std::wstring field, std::wstring term,
-               SimilarityPtr similarity, bool enable_scoring)
+               index_query::ScoringContextPtr<float> similarity, bool enable_scoring)
             : _context(std::move(context)),
               _field(std::move(field)),
               _term(std::move(term)),
@@ -84,7 +84,7 @@ private:
 
     std::wstring _field;
     std::wstring _term;
-    SimilarityPtr _similarity;
+    index_query::ScoringContextPtr<float> _similarity;
     bool _enable_scoring = false;
 };
 

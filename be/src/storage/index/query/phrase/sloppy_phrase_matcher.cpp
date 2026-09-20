@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/snii/query/internal/sloppy_phrase_matcher.h"
+#include "storage/index/query/phrase/sloppy_phrase_matcher.h"
 
 #include <algorithm>
 #include <limits>
 
 #include "common/check.h"
 
-namespace doris::snii::query::internal {
+namespace doris::index_query {
 
 SloppyPhraseMatcher::SloppyPhraseMatcher(std::span<const size_t> phrase_plan_index,
                                          std::span<const uint32_t> position_offsets, uint32_t slop,
@@ -36,13 +36,11 @@ SloppyPhraseMatcher::SloppyPhraseMatcher(std::span<const size_t> phrase_plan_ind
     DORIS_CHECK_GT(phrase_plan_index_.size(), 1);
     DORIS_CHECK_GT(slop_, 0);
     heap_.reserve(phrase_plan_index_.size());
-    for (size_t i = 0; i < phrase_plan_index_.size() && !has_repeats_; ++i) {
+    for (size_t i = 0; i < phrase_plan_index_.size(); ++i) {
         for (size_t j = 0; j < i; ++j) {
-            has_repeats_ = phrase_plan_index_[i] == phrase_plan_index_[j];
-            if (has_repeats_) {
-                break;
-            }
+            clauses_[i].preceding_repeats += phrase_plan_index_[i] == phrase_plan_index_[j];
         }
+        has_repeats_ |= clauses_[i].preceding_repeats > 0;
     }
 }
 
@@ -68,11 +66,7 @@ bool SloppyPhraseMatcher::initialize_unordered(std::span<const PhrasePositionSpa
 
     if (has_repeats_) {
         for (size_t i = 0; i < clauses_.size(); ++i) {
-            size_t preceding_repeats = 0;
-            for (size_t j = 0; j < i; ++j) {
-                preceding_repeats += phrase_plan_index_[i] == phrase_plan_index_[j];
-            }
-            for (size_t repeat = 0; repeat < preceding_repeats; ++repeat) {
+            for (size_t repeat = 0; repeat < clauses_[i].preceding_repeats; ++repeat) {
                 if (!advance_clause(i, false)) {
                     positioned_ = false;
                     return false;
@@ -134,6 +128,10 @@ bool SloppyPhraseMatcher::clause_greater(size_t left, size_t right) const {
 bool SloppyPhraseMatcher::advance_repeat_collisions(size_t clause_index) {
     size_t current = clause_index;
     size_t other = collision(current);
+    if (other == clauses_.size()) {
+        // The advanced clause is outside the heap, so the remaining order is unchanged.
+        return true;
+    }
     while (other != clauses_.size()) {
         current = clause_less(current, other) ? current : other;
         if (!advance_clause(current, true)) {
@@ -147,12 +145,12 @@ bool SloppyPhraseMatcher::advance_repeat_collisions(size_t clause_index) {
 
 void SloppyPhraseMatcher::rebuild_heap() {
     const auto greater = [this](size_t left, size_t right) { return clause_greater(left, right); };
-    std::make_heap(heap_.begin(), heap_.end(), greater);
+    std::ranges::make_heap(heap_, greater);
 }
 
 size_t SloppyPhraseMatcher::pop_heap() {
     const auto greater = [this](size_t left, size_t right) { return clause_greater(left, right); };
-    std::pop_heap(heap_.begin(), heap_.end(), greater);
+    std::ranges::pop_heap(heap_, greater);
     const size_t result = heap_.back();
     heap_.pop_back();
     return result;
@@ -161,7 +159,7 @@ size_t SloppyPhraseMatcher::pop_heap() {
 void SloppyPhraseMatcher::push_heap(size_t clause) {
     const auto greater = [this](size_t left, size_t right) { return clause_greater(left, right); };
     heap_.push_back(clause);
-    std::push_heap(heap_.begin(), heap_.end(), greater);
+    std::ranges::push_heap(heap_, greater);
 }
 
 bool SloppyPhraseMatcher::next_unordered_match(uint64_t* match_width) {
@@ -210,6 +208,7 @@ float SloppyPhraseMatcher::match_unordered(std::span<const PhrasePositionSpan> p
 
 bool SloppyPhraseMatcher::advance_ordered_to(size_t clause_index, int64_t target) {
     Clause& clause = clauses_[clause_index];
+    // NOLINTNEXTLINE(modernize-use-integer-sign-comparison): Every uint32_t position fits in int64_t.
     while (!clause.has_position || static_cast<int64_t>(clause.raw_position) < target) {
         if (clause.next == clause.positions.second) {
             return false;
@@ -263,4 +262,4 @@ float SloppyPhraseMatcher::match_ordered(std::span<const PhrasePositionSpan> pos
     return frequency;
 }
 
-} // namespace doris::snii::query::internal
+} // namespace doris::index_query

@@ -182,16 +182,16 @@ Status decode_flat_plan(const io::BatchRangeFetcher& fetcher, const FlatPlan& pl
 }
 
 Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
-                                 DocIdSink* sink);
+                                 index_query::DocIdSink* sink);
 
 Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
                                  std::vector<uint32_t>* out) {
-    VectorDocIdSink sink(*out);
+    index_query::VectorDocIdSink sink(*out);
     return decode_window_prefix_plan(fetcher, plan, &sink);
 }
 
 Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
-                                 DocIdSink* sink) {
+                                 index_query::DocIdSink* sink) {
     const DictEntry& entry = plan.posting->entry;
     const Slice prefix = fetcher.get(plan.prefix_handle);
     if (entry.prelude_len > prefix.size()) {
@@ -244,12 +244,12 @@ Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry,
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("docid_posting_reader: null out");
     }
     docids->clear();
-    VectorDocIdSink sink(*docids);
+    index_query::VectorDocIdSink sink(*docids);
     return read_docid_posting(idx, entry, frq_base, prx_base, &sink);
 }
 
 Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                          uint64_t prx_base, DocIdSink* sink) {
+                          uint64_t prx_base, index_query::DocIdSink* sink) {
     if (sink == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("docid_posting_reader: null sink");
     }
@@ -321,7 +321,7 @@ Status read_docid_postings_batched(const LogicalIndexReader& idx,
 
 Status emit_docid_postings_streamed(const LogicalIndexReader& idx,
                                     const std::vector<ResolvedDocidPosting>& postings,
-                                    DocIdSink* sink) {
+                                    index_query::DocIdSink* sink) {
     if (sink == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "docid_posting_reader: null streamed sink");

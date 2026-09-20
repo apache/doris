@@ -43,12 +43,18 @@ public:
     // Registers a desired range; returns a handle usable with get() after fetch().
     size_t add(uint64_t offset, uint64_t len);
 
+    // Adds a range only if the coalesced batch fits both read limits. A rejected
+    // range leaves the batch and handle unchanged; no I/O is performed.
+    Status try_add(uint64_t offset, uint64_t len, uint64_t max_bytes, size_t max_ranges,
+                   bool* accepted, size_t* handle);
+
     // Coalesces and issues one batched read; fills internal buffers.
     Status fetch();
 
     // Bytes for handle h (valid only after a successful fetch(), until clear()).
     Slice get(size_t h) const;
 
+    FileReader* reader() const { return reader_; }
     size_t pending() const { return reqs_.size(); }
     void clear();
 
@@ -61,10 +67,16 @@ private:
         size_t sub_offset = 0; // byte offset of this req within its physical read
     };
 
+    Status refresh_bounded_ranges();
+
     FileReader* reader_;
     uint64_t coalesce_gap_;
     std::vector<Req> reqs_;
     std::vector<std::vector<uint8_t>> phys_; // physical read buffers after fetch
+    // Built only for bounded registration; the ordinary add/fetch path stays lazy.
+    std::vector<Range> bounded_ranges_;
+    size_t bounded_requests_ = 0;
+    uint64_t bounded_bytes_ = 0;
 };
 
 } // namespace doris::snii::io

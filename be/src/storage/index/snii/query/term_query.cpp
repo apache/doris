@@ -32,11 +32,12 @@ Status term_query(const LogicalIndexReader& idx, std::string_view term,
     if (docids == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("term_query: null out");
     docids->clear();
-    VectorDocIdSink sink(*docids);
+    index_query::VectorDocIdSink sink(*docids);
     return term_query(idx, term, &sink);
 }
 
-Status term_query(const LogicalIndexReader& idx, std::string_view term, DocIdSink* sink) {
+Status term_query(const LogicalIndexReader& idx, std::string_view term,
+                  index_query::DocIdSink* sink) {
     if (sink == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("term_query: null sink");
 
