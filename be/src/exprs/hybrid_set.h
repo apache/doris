@@ -582,7 +582,7 @@ public:
     template <bool is_nullable, bool is_negative>
     void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMap* null_map,
                      doris::ColumnUInt8::Container& results, const uint8_t* __restrict filter) {
-        const auto& col = assert_cast<const ColumnString&>(column);
+        const auto& col = assert_cast<const doris::ColumnString&>(column);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
