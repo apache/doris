@@ -31,7 +31,7 @@
 #include "cctz/time_zone.h"
 #include "common/status.h"
 #include "format_v2/table_reader.h"
-#include "gen_cpp/PlanNodes_types.h"  // TVectorMetric
+#include "gen_cpp/PlanNodes_types.h" // TVectorMetric
 #include "runtime/runtime_profile.h"
 
 namespace arrow {

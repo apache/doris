@@ -38,9 +38,9 @@
 #include "core/data_type/data_type_string.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "exec/common/endian.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
-#include "exec/common/endian.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/table/paimon_rust_predicate_converter.h"
 #include "runtime/descriptors.h"
@@ -373,8 +373,8 @@ Status PaimonRustTableReader::_validate_rust_split(const TFileRangeDesc& range) 
     // DataSplit twice on the wire). An empty-but-set paimon_split therefore also
     // implies vector mode: reporting "missing paimon_split" for such a split would
     // point the reader at the wrong field when the real gap is the vector payload.
-    if (params.__isset.vector_payload
-        || (params.__isset.paimon_split && params.paimon_split.empty())) {
+    if (params.__isset.vector_payload ||
+        (params.__isset.paimon_split && params.paimon_split.empty())) {
         if (!params.__isset.vector_payload || params.vector_payload.bytes.empty()) {
             return Status::InternalError(
                     "missing vector_payload for paimon rust vector reader, possibly caused by "
@@ -406,8 +406,7 @@ Status PaimonRustTableReader::_validate_rust_split(const TFileRangeDesc& range) 
 }
 
 bool PaimonRustTableReader::_is_vector_mode(const TFileRangeDesc& range) {
-    return range.__isset.table_format_params &&
-           range.table_format_params.__isset.paimon_params &&
+    return range.__isset.table_format_params && range.table_format_params.__isset.paimon_params &&
            range.table_format_params.paimon_params.__isset.vector_payload;
 }
 
@@ -430,13 +429,11 @@ Status PaimonRustTableReader::_validate_external_search_request() const {
     // column
     if (!vector.__isset.column || vector.column.empty() ||
         vector.column.find('\0') != std::string::npos) {
-        return Status::InvalidArgument(
-                "paimon-rust vector search requires a non-empty column");
+        return Status::InvalidArgument("paimon-rust vector search requires a non-empty column");
     }
     // query_vector (TSearchVector)
     if (!vector.__isset.query_vector) {
-        return Status::InvalidArgument(
-                "paimon-rust vector search requires a query vector");
+        return Status::InvalidArgument("paimon-rust vector search requires a query vector");
     }
     const auto& query_vector = vector.query_vector;
     if (!query_vector.__isset.element_type || !query_vector.__isset.dimension ||
@@ -445,9 +442,8 @@ Status PaimonRustTableReader::_validate_external_search_request() const {
                 "paimon-rust query vector requires element_type, dimension, and values");
     }
     if (query_vector.dimension <= 0) {
-        return Status::InvalidArgument(
-                "paimon-rust query vector dimension must be positive: {}",
-                query_vector.dimension);
+        return Status::InvalidArgument("paimon-rust query vector dimension must be positive: {}",
+                                       query_vector.dimension);
     }
     if (query_vector.element_type != TVectorElementType::FLOAT32) {
         return Status::NotSupported(
@@ -462,20 +458,17 @@ Status PaimonRustTableReader::_validate_external_search_request() const {
     }
     // top_k / offset
     if (!vector.__isset.top_k || vector.top_k < 0) {
-        return Status::InvalidArgument(
-                "paimon-rust vector search top_k must be non-negative");
+        return Status::InvalidArgument("paimon-rust vector search top_k must be non-negative");
     }
     if (!vector.__isset.offset || vector.offset < 0) {
-        return Status::InvalidArgument(
-                "paimon-rust vector search offset must be non-negative");
+        return Status::InvalidArgument("paimon-rust vector search offset must be non-negative");
     }
     // metric is required (NOT advisory): BE uses it to undo the score transform.
     // paimon-rust only supports L2 and DOT_PRODUCT; parse_score_transform rejects
     // anything else, so validate __isset here and let parse_score_transform handle
     // the value.
     if (!vector.__isset.metric) {
-        return Status::InvalidArgument(
-                "paimon-rust vector search requires a metric");
+        return Status::InvalidArgument("paimon-rust vector search requires a metric");
     }
     // paimon_options (optional): only validate the map itself is present if set.
     if (request.__isset.paimon_options && request.paimon_options.__isset.options) {
@@ -504,8 +497,8 @@ Status PaimonRustTableReader::_open_paimon_table(const TFileRangeDesc& range) {
     // supplied table schema.
     auto options = _build_options();
 
-    auto opened_table_key = std::make_tuple(table_path, schema_json, db_name, table_name,
-                                            branch_opt, options);
+    auto opened_table_key =
+            std::make_tuple(table_path, schema_json, db_name, table_name, branch_opt, options);
     if (_handles && _handles->table && _opened_table_key == opened_table_key) {
         // A paimon scan reads one table, so the handle is opened at most once per
         // distinct identity; splits of the same table reuse it and only rebuild
@@ -533,8 +526,7 @@ Status PaimonRustTableReader::_open_paimon_table(const TFileRangeDesc& range) {
     const std::string& branch_str = branch_opt.has_value() ? branch_opt.value() : "main";
     paimon_result_get_table tbl_res = paimon_table_from_schema_json(
             table_path.c_str(), schema_json.c_str(), db_name.c_str(), table_name.c_str(),
-            branch_str.c_str(), c_options.empty() ? nullptr : c_options.data(),
-            c_options.size());
+            branch_str.c_str(), c_options.empty() ? nullptr : c_options.data(), c_options.size());
     if (tbl_res.error != nullptr) {
         return Status::InternalError(
                 "paimon-rust table_from_schema_json failed: db={} table={} err={}", db_name,
@@ -678,8 +670,8 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
     vector_search_builder_ptr vb(vb_res.builder);
 
     // 3a. Target vector column.
-    if (paimon_error* err = paimon_vector_search_builder_with_vector_column(
-                vb.get(), vector.column.c_str())) {
+    if (paimon_error* err =
+                paimon_vector_search_builder_with_vector_column(vb.get(), vector.column.c_str())) {
         return Status::InternalError("paimon-rust set vector column failed: {}",
                                      consume_error(err));
     }
@@ -698,8 +690,7 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
     }
     if (paimon_error* err = paimon_vector_search_builder_with_query_vector(
                 vb.get(), query_vector.data(), query_vector.size())) {
-        return Status::InternalError("paimon-rust set query vector failed: {}",
-                                     consume_error(err));
+        return Status::InternalError("paimon-rust set query vector failed: {}", consume_error(err));
     }
     // 3c. Retrieval limit (user_limit + user_offset, folded on FE). A negative
     // limit would wrap when cast to uintptr_t, so guard it.
@@ -766,8 +757,7 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
         paimon_predicate* predicate = converter.build(_conjuncts);
         if (predicate != nullptr) {
             // with_filter consumes the predicate on every path.
-            if (paimon_error* err = paimon_vector_search_builder_with_filter(vb.get(),
-                                                                             predicate)) {
+            if (paimon_error* err = paimon_vector_search_builder_with_filter(vb.get(), predicate)) {
                 return Status::InternalError("paimon-rust set vector filter failed: {}",
                                              consume_error(err));
             }
@@ -792,9 +782,8 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
             paimon_bucket_vector_search_split_deserialize(
                     reinterpret_cast<const uint8_t*>(split_bytes.data()), split_bytes.size());
     if (split_result.error != nullptr) {
-        return Status::InternalError(
-                "paimon-rust deserialize vector split failed: {}",
-                consume_error(split_result.error));
+        return Status::InternalError("paimon-rust deserialize vector split failed: {}",
+                                     consume_error(split_result.error));
     }
     bucket_vector_search_split_ptr split(split_result.split);
 
@@ -816,8 +805,8 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
     // whereas paimon_vector_scan_plan / execute_read replan from the table and
     // would ignore the split this scanner was given.
     const paimon_bucket_vector_search_split* splits[] = {split.get()};
-    paimon_result_vector_plan plan_result = paimon_vector_scan_plan_from_bucket_splits(
-            scan.get(), splits, 1);
+    paimon_result_vector_plan plan_result =
+            paimon_vector_scan_plan_from_bucket_splits(scan.get(), splits, 1);
     if (plan_result.error != nullptr) {
         return Status::InternalError("paimon-rust build vector plan failed: {}",
                                      consume_error(plan_result.error));
@@ -862,8 +851,8 @@ Status PaimonRustTableReader::parse_score_transform(TVectorMetric::type metric,
 }
 
 void PaimonRustTableReader::_convert_score_to_distance(Block* block, uint32_t block_idx,
-                                                        size_t row_offset, size_t num_rows,
-                                                        ScoreTransform transform) {
+                                                       size_t row_offset, size_t num_rows,
+                                                       ScoreTransform transform) {
     // Undo what paimon-rust's convert_distance_to_score did, so the column holds
     // what the Doris distance function is defined to return.
     switch (transform) {
@@ -913,13 +902,13 @@ void PaimonRustTableReader::_convert_score_to_distance(Block* block, uint32_t bl
         // Clamp those to distance 0; only scores past kScoreAboveOneTolerance are
         // treated as genuinely corrupt.
         if (UNLIKELY(score <= 0.0F)) {
-            LOG(WARNING) << "paimon-rust L2 score_to_distance: corrupt score " << score
-                         << " (row " << i << ", expect score in (0, 1]), "
+            LOG(WARNING) << "paimon-rust L2 score_to_distance: corrupt score " << score << " (row "
+                         << i << ", expect score in (0, 1]), "
                          << "sentinel " << kCorruptScoreNotPositive;
             (*data)[i] = kCorruptScoreNotPositive;
         } else if (UNLIKELY(score > 1.0F + kScoreAboveOneTolerance)) {
-            LOG(WARNING) << "paimon-rust L2 score_to_distance: corrupt score " << score
-                         << " (row " << i << ", expect score in (0, 1]), "
+            LOG(WARNING) << "paimon-rust L2 score_to_distance: corrupt score " << score << " (row "
+                         << i << ", expect score in (0, 1]), "
                          << "sentinel " << kCorruptScoreAboveOne;
             (*data)[i] = kCorruptScoreAboveOne;
         } else if (score > 1.0F) {

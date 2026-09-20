@@ -401,7 +401,7 @@ TEST_F(PaimonRustTableReaderTest, ConvertScoreToDistanceEmptyBatch) {
     // An empty batch must be a no-op rather than an out-of-range write.
     Block block = _score_block({0.5F}, /*nullable=*/false);
     PaimonRustTableReader::_convert_score_to_distance(&block, 0, /*row_offset=*/1,
-                                                     /*num_rows=*/0, L2);
+                                                      /*num_rows=*/0, L2);
     EXPECT_FLOAT_EQ(0.5F, _score_at(block, 0));
 }
 
@@ -426,9 +426,8 @@ TEST_F(PaimonRustTableReaderTest, ParseScoreTransformAcceptsSupportedMetrics) {
     ASSERT_TRUE(PaimonRustTableReader::parse_score_transform(TVectorMetric::L2, &transform).ok());
     EXPECT_EQ(L2, transform);
 
-    ASSERT_TRUE(
-            PaimonRustTableReader::parse_score_transform(TVectorMetric::DOT_PRODUCT, &transform)
-                    .ok());
+    ASSERT_TRUE(PaimonRustTableReader::parse_score_transform(TVectorMetric::DOT_PRODUCT, &transform)
+                        .ok());
     EXPECT_EQ(INNER_PRODUCT, transform);
 }
 
