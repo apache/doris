@@ -556,7 +556,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // this, a no-cache catalog or a schema change between two aliases can give alias A's ranges
         // to alias B's generation-B serialized table.
         Table table = resolveScanTableConsistent(session, paimonHandle);
-        long generation = resolvePaimonGeneration(table);
+        long generation = resolvePaimonGeneration(paimonHandle, table);
         // Statement-scoped reuse: within one statement the identical scan (same table, same
         // branch/options pin, same generation, same projection, same filter, same limit, same COUNT
         // pushdown) plans once and every duplicated relation shares the result. Session variables
@@ -571,7 +571,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         request.getLimit(), request.isCountPushdown(), table)));
     }
 
-    private long resolvePaimonGeneration(Table table) {
+    private long resolvePaimonGeneration(PaimonTableHandle handle, Table table) {
+        Map<String, String> scanOptions = effectiveScanOptions(handle);
+        if (PaimonScanParams.isPinnedEmptyScan(scanOptions)) {
+            return -1L;
+        }
+        String pinnedSnapshotId = scanOptions.get(CoreOptions.SCAN_SNAPSHOT_ID.key());
+        if (pinnedSnapshotId != null) {
+            // The resolved handle already owns this scan's immutable data identity. Re-reading the
+            // table's live latest pointer here would both add remote I/O for every alias and make two
+            // aliases pinned to the same snapshot miss reuse when a later commit advances latest.
+            return Long.parseLong(pinnedSnapshotId);
+        }
         if (catalogOps == null) {
             return -1L;
         }
@@ -2646,12 +2657,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * Statement-scoped cache key for one Paimon scan.
      *
      * <p>Includes every input that changes the planned split list: table identity, the branch pin,
-     * the whole scan-options map (snapshot / tag / incremental / options pins), the resolved table
-     * generation (latestSnapshotId), the projected columns in order, the pushed filter, the limit
-     * and the COUNT pushdown flag. The generation fences the key against same-path table recreation
-     * or schema change between two aliases: without it, alias A's ranges (from generation A) could
-     * be paired with alias B's serialized table (from generation B). System tables are excluded
-     * upstream, and session variables are statement-constant, so both stay out of the key.
+     * the whole scan-options map (snapshot / tag / incremental / options pins), the resolved scan
+     * generation (the pinned snapshot for fixed identities, or live latest for latest-dependent
+     * selectors), the projected columns in order, the pushed filter, the limit and the COUNT
+     * pushdown flag. The generation fences latest-dependent scans against same-path table
+     * recreation or schema change between two aliases: without it, alias A's ranges (from
+     * generation A) could be paired with alias B's serialized table (from generation B). System
+     * tables are excluded upstream, and session variables are statement-constant, so both stay out
+     * of the key.
      */
     private static final class PaimonScanReuseKey {
         private final String databaseName;

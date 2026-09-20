@@ -98,6 +98,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -321,6 +322,133 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertEquals(4, ctx.authCount,
                     "two scans must authenticate one memoized table load, two generation lookups, "
                             + "and one memoized split enumeration");
+        }
+    }
+
+    @Test
+    public void fixedSnapshotAliasesDoNotReReadLiveGeneration(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "fixed_reuse");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            long pinnedSnapshotId = table.latestSnapshot().orElseThrow(AssertionError::new).id();
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "fixed_reuse", Collections.emptyList(), Collections.emptyList())
+                    .withScanOptions(Collections.singletonMap(
+                            CoreOptions.SCAN_SNAPSHOT_ID.key(), Long.toString(pinnedSnapshotId)));
+            ConnectorSession session = sessionWithProps(
+                    Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                    new TestStatementScope());
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
+
+            ops.latestSnapshotId = OptionalLong.of(pinnedSnapshotId);
+            List<ConnectorScanRange> first = provider.planScan(session, request);
+            ops.latestSnapshotId = OptionalLong.of(pinnedSnapshotId + 1);
+            List<ConnectorScanRange> second = provider.planScan(session, request);
+
+            Assertions.assertSame(first, second,
+                    "aliases pinned to one snapshot must reuse even when live latest advances");
+            Assertions.assertFalse(ops.log.contains("latestSnapshotId"),
+                    "a fixed snapshot identity must not probe the live latest pointer");
+        }
+    }
+
+    @Test
+    public void latestDependentIncrementalScanStillFencesOnLiveGeneration(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "incremental_reuse");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            long latestSnapshotId = table.latestSnapshot().orElseThrow(AssertionError::new).id();
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "incremental_reuse", Collections.emptyList(), Collections.emptyList())
+                    .withScanOptions(Collections.singletonMap(
+                            "incremental-between-timestamp", "0," + Long.MAX_VALUE));
+            ConnectorSession session = sessionWithProps(
+                    Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                    new TestStatementScope());
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
+
+            ops.latestSnapshotId = OptionalLong.of(latestSnapshotId);
+            List<ConnectorScanRange> first = provider.planScan(session, request);
+            ops.latestSnapshotId = OptionalLong.of(latestSnapshotId + 1);
+            List<ConnectorScanRange> second = provider.planScan(session, request);
+
+            Assertions.assertNotSame(first, second,
+                    "an open-ended incremental scan must not reuse across a live generation change");
+            Assertions.assertEquals(2, ops.log.stream().filter("latestSnapshotId"::equals).count(),
+                    "latest-dependent scans must retain one live generation fence per alias");
+        }
+    }
+
+    @Test
+    public void pinnedEmptyAliasesDoNotProbeLatest(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "empty_reuse");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "empty_reuse", Collections.emptyList(), Collections.emptyList())
+                    .withScanOptions(PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), -1L));
+            ConnectorSession session = sessionWithProps(
+                    Collections.singletonMap("enable_external_scan_task_reuse", "true"),
+                    new TestStatementScope());
+            ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
+
+            List<ConnectorScanRange> first = provider.planScan(session, request);
+            ops.latestSnapshotId = OptionalLong.of(1L);
+            List<ConnectorScanRange> second = provider.planScan(session, request);
+
+            Assertions.assertSame(first, second, "the statement's pinned-empty plan must remain empty and reusable");
+            Assertions.assertTrue(first.isEmpty());
+            Assertions.assertFalse(ops.log.contains("latestSnapshotId"),
+                    "a pinned-empty identity must not probe the live latest pointer");
         }
     }
 
