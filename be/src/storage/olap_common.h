@@ -281,7 +281,6 @@ struct OlapReaderStatistics {
     int64_t output_col_ns = 0;
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
-    int64_t rows_stats_rp_filtered = 0;
     int64_t expr_zonemap_filtered_segments = 0;
     int64_t expr_zonemap_filtered_pages = 0;
     int64_t expr_zonemap_unusable_evals = 0;
