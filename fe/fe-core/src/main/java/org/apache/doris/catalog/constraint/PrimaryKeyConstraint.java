@@ -19,6 +19,7 @@ package org.apache.doris.catalog.constraint;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
@@ -27,11 +28,12 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class PrimaryKeyConstraint extends Constraint {
+public class PrimaryKeyConstraint extends Constraint implements GsonPostProcessable {
     public static final Logger LOG = LogManager.getLogger(PrimaryKeyConstraint.class);
 
     @SerializedName(value = "cols")
@@ -39,7 +41,7 @@ public class PrimaryKeyConstraint extends Constraint {
 
     // record the foreign table which references the primary key
     @SerializedName(value = "ft")
-    private final Set<TableIdentifier> foreignTables = new HashSet<>();
+    private Set<TableIdentifier> foreignTables = new HashSet<>();
 
     public PrimaryKeyConstraint(String name, Set<String> columns) {
         super(ConstraintType.PRIMARY_KEY, name);
@@ -72,6 +74,13 @@ public class PrimaryKeyConstraint extends Constraint {
 
     public void removeForeignTable(TableIdentifier tableIdentifier) {
         foreignTables.remove(tableIdentifier);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (foreignTables == null) {
+            foreignTables = new HashSet<>();
+        }
     }
 
     @Override
