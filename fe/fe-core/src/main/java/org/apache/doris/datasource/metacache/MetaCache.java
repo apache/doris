@@ -177,15 +177,15 @@ public class MetaCache<T> {
     public List<String> refreshNames() {
         throwIfInterrupted();
         // Retire any active load so the forced refresh is not blocked behind a stuck
-        // background refresh. Only advance the generation when the active load is still
-        // running (not done); a completed load has already been cleared by finishNamesLoad
-        // and cannot publish stale results.
+        // background refresh. Keep the retired physical owner accounted until its loader
+        // exits, otherwise repeated forced refreshes can bypass MAX_PHYSICAL_NAMES_LOADS.
+        // Only advance the generation when the active load is still running (not done); a
+        // completed load has already been cleared by finishNamesLoad and cannot publish stale results.
         synchronized (namesMutationLock) {
             if (activeNamesLoad != null && !activeNamesLoad.result.isDone()) {
                 advanceNamesGeneration();
             }
             activeNamesLoad = null;
-            physicalNamesLoads.clear();
         }
         throwIfInterrupted();
         return getNames(true).stream().map(Pair::value).collect(Collectors.toList());

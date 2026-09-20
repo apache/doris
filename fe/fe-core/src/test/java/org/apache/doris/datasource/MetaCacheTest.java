@@ -254,6 +254,59 @@ public class MetaCacheTest {
     }
 
     @Test
+    public void testRefreshNamesKeepsRetiredPhysicalLoadsBounded() throws Exception {
+        CountDownLatch firstLoadStarted = new CountDownLatch(1);
+        CountDownLatch secondLoadStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoads = new CountDownLatch(1);
+        AtomicInteger loadCount = new AtomicInteger();
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService callers = Executors.newFixedThreadPool(4);
+        MetaCache<String> cache = new MetaCache<>(
+                "databaseCache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> {
+                    int currentLoad = loadCount.incrementAndGet();
+                    if (currentLoad == 1) {
+                        firstLoadStarted.countDown();
+                    } else if (currentLoad == 2) {
+                        secondLoadStarted.countDown();
+                    }
+                    Assert.assertTrue(releaseLoads.await(3, TimeUnit.SECONDS));
+                    return Lists.newArrayList(Pair.of(
+                            "remote-" + currentLoad, "local-" + currentLoad));
+                },
+                key -> Optional.of(key),
+                (key, value, cause) -> { });
+
+        try {
+            callers.submit(cache::refreshNames);
+            Assert.assertTrue(firstLoadStarted.await(3, TimeUnit.SECONDS));
+            callers.submit(cache::refreshNames);
+            Assert.assertTrue(secondLoadStarted.await(3, TimeUnit.SECONDS));
+
+            for (int i = 0; i < 2; i++) {
+                Future<List<String>> rejectedRefresh = callers.submit(cache::refreshNames);
+                try {
+                    rejectedRefresh.get(1, TimeUnit.SECONDS);
+                    Assert.fail("refresh should fail while two physical loads are still running");
+                } catch (java.util.concurrent.ExecutionException e) {
+                    Assert.assertTrue(e.getCause() instanceof IllegalStateException);
+                }
+            }
+            Assert.assertEquals(2, loadCount.get());
+        } finally {
+            releaseLoads.countDown();
+            callers.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Assert.assertTrue(callers.awaitTermination(3, TimeUnit.SECONDS));
+            Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     public void testRefreshNamesDoesNotRejoinCompletedActiveLoad() throws Exception {
         CountDownLatch firstLoadStarted = new CountDownLatch(1);
         CountDownLatch releaseFirstLoad = new CountDownLatch(1);
