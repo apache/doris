@@ -1082,6 +1082,8 @@ public class ConnectContext {
      */
     protected void killConnection() {
         isKilled = true;
+        // Ensure any running query is aborted before closing channel
+        cancelQuery(new Status(TStatusCode.CANCELLED, "connection killed"));
         // Close channel to break connection with client
         closeChannel();
         returnRows = 0;
@@ -1093,6 +1095,8 @@ public class ConnectContext {
      * kill connection by self
      */
     public void cleanup() {
+        // Ensure any running query is aborted during self-cleanup
+        cancelQuery(new Status(TStatusCode.CANCELLED, "connection cleanup"));
         closeChannel();
         MoreFieldsThread.removeConnectContext();
         returnRows = 0;
@@ -1307,9 +1311,13 @@ public class ConnectContext {
     }
 
     public void cancelQuery(Status cancelReason) {
+        cancelQuery(cancelReason, true);
+    }
+
+    public void cancelQuery(Status cancelReason, boolean needWaitCancelComplete) {
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
-            executorRef.cancel(cancelReason);
+            executorRef.cancel(cancelReason, needWaitCancelComplete);
         }
     }
 
