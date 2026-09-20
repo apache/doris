@@ -17,15 +17,24 @@
 
 #pragma once
 
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <mutex>
+#include <string>
 #include <string_view>
+
+namespace doris {
+class Thread;
+}
 
 namespace doris::io {
 
 struct IOContext;
 
-/// Optional diagnostic event, emitted as one READ_IO_TRACE JSON log line. Offsets and sizes are
+/// Optional diagnostic event, emitted as one JSONL record. Offsets and sizes are
 /// bytes; timestamps are monotonic nanoseconds. IDs are unique within one BE process, not pointers.
 /// A GET's parent_id names its read-ahead range or hole-fill task. A fragment's parent_id names
 /// the supplying range, while id names the receiving hole-fill task.
@@ -49,14 +58,44 @@ struct ReadIOTraceEvent {
     size_t available_bytes {0}; // union of disk/inflight coverage, not their sum
 };
 
+/// Producers append serialized records to memory; a background thread swaps out the batch and
+/// writes it outside the lock, on reaching the byte threshold or flush interval. The thread and
+/// files are created lazily. stop() drains accepted records and joins the writer.
+class ReadIOTraceWriter {
+public:
+    ReadIOTraceWriter(std::string directory, size_t flush_bytes,
+                      std::chrono::milliseconds flush_interval);
+    ~ReadIOTraceWriter();
+
+    void append(std::string_view line);
+    // Called by the owner after producers stop. Repeated calls by the owner are allowed.
+    void stop();
+
+private:
+    void _run();
+    void _drop(uint64_t events); // requires _mutex
+
+    const std::string _directory;
+    const size_t _flush_bytes;
+    const std::chrono::milliseconds _flush_interval;
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    std::shared_ptr<Thread> _thread;
+    bool _stopping {false};
+    std::string _pending;
+    uint64_t _pending_events {0};
+    uint64_t _dropped_events {0};
+};
+
 /// Diagnostic logging only: no interval history, read coordination or cache decisions in BE.
 /// Check enabled() before constructing expensive arguments or probing cache coverage. record()
-/// also checks the switch and the process-wide event cap before formatting a log line.
+/// snapshots borrowed fields into JSON before returning; the writer batches those owned bytes.
 class ReadIOTrace {
 public:
     static bool enabled();
     static uint64_t next_id(); // returns zero while disabled
     static void record(const ReadIOTraceEvent& event);
+    static void shutdown(); // flush queued records on both normal and fast BE shutdown
 };
 
 } // namespace doris::io

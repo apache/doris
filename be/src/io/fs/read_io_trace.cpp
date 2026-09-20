@@ -24,11 +24,17 @@
 
 #include <atomic>
 #include <string>
+#include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "runtime/thread_context.h"
+#include "util/thread.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 
@@ -37,9 +43,25 @@ namespace {
 
 std::atomic<uint64_t> read_trace_next_id {0};
 std::atomic<uint64_t> read_trace_event_count {0};
-std::atomic<uint64_t> read_trace_reported_limit {0};
 bvar::Adder<uint64_t> read_trace_logged_events {"doris_read_io_trace_events"};
 bvar::Adder<uint64_t> read_trace_dropped_events {"doris_read_io_trace_dropped_events"};
+bvar::Adder<int64_t> read_trace_pending_bytes {"doris_read_io_trace_pending_bytes"};
+
+const std::string& read_trace_process() {
+    // Distinguish BE restarts even when the operating system reuses a PID.
+    static const std::string process =
+            std::to_string(getpid()) + "-" + std::to_string(UnixMicros());
+    return process;
+}
+
+ReadIOTraceWriter& read_trace_writer() {
+    static ReadIOTraceWriter writer(
+            config::read_io_trace_dir.empty() ? (Path(FLAGS_log_dir) / "read_io_trace").native()
+                                              : config::read_io_trace_dir,
+            cast_set<size_t>(config::read_io_trace_flush_bytes),
+            std::chrono::milliseconds(config::read_io_trace_flush_interval_ms));
+    return writer;
+}
 
 const char* read_trace_source(const IOContext* context) {
     if (context == nullptr) {
@@ -58,6 +80,135 @@ const char* read_trace_source(const IOContext* context) {
 
 } // namespace
 
+ReadIOTraceWriter::ReadIOTraceWriter(std::string directory, size_t flush_bytes,
+                                     std::chrono::milliseconds flush_interval)
+        : _directory(std::move(directory)),
+          _flush_bytes(flush_bytes),
+          _flush_interval(flush_interval) {
+    DORIS_CHECK(_flush_bytes > 0);
+    DORIS_CHECK(_flush_interval.count() > 0);
+}
+
+ReadIOTraceWriter::~ReadIOTraceWriter() {
+    stop();
+}
+
+void ReadIOTraceWriter::_drop(uint64_t events) {
+    _dropped_events += events;
+    read_trace_dropped_events << events;
+}
+
+void ReadIOTraceWriter::append(std::string_view line) {
+    std::lock_guard lock(_mutex);
+    if (_stopping) {
+        _drop(1);
+        return;
+    }
+    if (_thread == nullptr) {
+        const auto status = Thread::create(
+                "io", "read_io_trace", [this] { _run(); }, &_thread);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to start read IO trace writer: " << status;
+            _stopping = true;
+            _drop(1);
+            return;
+        }
+    }
+    _pending.append(line);
+    _pending.push_back('\n');
+    ++_pending_events;
+    read_trace_pending_bytes << cast_set<int64_t>(line.size() + 1);
+    if (_pending.size() >= _flush_bytes) {
+        _cv.notify_one();
+    }
+}
+
+void ReadIOTraceWriter::stop() {
+    {
+        std::lock_guard lock(_mutex);
+        if (_stopping) {
+            return;
+        }
+        _stopping = true;
+        _cv.notify_one();
+    }
+    if (_thread != nullptr) {
+        _thread->join();
+    }
+}
+
+void ReadIOTraceWriter::_run() {
+    SCOPED_INIT_THREAD_CONTEXT();
+    FileWriterPtr file;
+    uint64_t file_index = 0;
+    uint64_t written_events = 0;
+    uint64_t reported_drops = 0;
+    std::string batch;
+    const auto close_file = [&] {
+        if (file != nullptr) {
+            WARN_IF_ERROR(file->close(), "failed to close read IO trace file");
+            file.reset();
+        }
+    };
+    Defer close_on_exit(close_file);
+    const auto write_batch = [&](std::string_view checkpoint) -> Status {
+        if (file == nullptr) {
+            auto fs = global_local_filesystem();
+            RETURN_IF_ERROR(fs->create_directory(_directory));
+            const auto path = Path(_directory) / fmt::format("read_io_trace.{}.{}.jsonl",
+                                                             read_trace_process(), file_index++);
+            const FileWriterOptions options {.sync_file_data = false};
+            RETURN_IF_ERROR(fs->create_file(path, &file, &options));
+        }
+        const Slice slices[] = {Slice(batch), Slice(checkpoint.data(), checkpoint.size())};
+        return file->appendv(slices, 2);
+    };
+    while (true) {
+        uint64_t events;
+        uint64_t dropped;
+        bool stopping;
+        {
+            std::unique_lock lock(_mutex);
+            _cv.wait_for(lock, _flush_interval,
+                         [&] { return _stopping || _pending.size() >= _flush_bytes; });
+            stopping = _stopping;
+            dropped = _dropped_events;
+            if (_pending.empty() && dropped == reported_drops) {
+                if (stopping) {
+                    break;
+                }
+                continue;
+            }
+            batch.swap(_pending);
+            events = std::exchange(_pending_events, 0);
+        }
+        TEST_SYNC_POINT_CALLBACK("ReadIOTraceWriter::before_write", this);
+        // This checkpoint follows its batch in the same write. It lets offline analysis detect
+        // missing files or IO failures, including a failed tail with no later event-sequence gap.
+        const auto checkpoint = fmt::format(
+                "{{\"v\":1,\"kind\":\"read_io_trace_status\",\"process\":\"{}\","
+                "\"written_events\":{},\"dropped_events\":{}}}\n",
+                read_trace_process(), written_events + events, dropped);
+        const auto status = write_batch(checkpoint);
+        if (status.ok()) {
+            written_events += events;
+            reported_drops = dropped;
+            read_trace_logged_events << events;
+        } else {
+            LOG_EVERY_N(WARNING, 30) << "failed to write read IO trace: " << status;
+            close_file();
+            std::lock_guard lock(_mutex);
+            _drop(events);
+        }
+        read_trace_pending_bytes << -cast_set<int64_t>(batch.size());
+        batch.clear();
+        TEST_SYNC_POINT_CALLBACK("ReadIOTraceWriter::after_write", this);
+        if (stopping) {
+            break;
+        }
+    }
+}
+
 bool ReadIOTrace::enabled() {
     return config::enable_read_io_trace;
 }
@@ -66,26 +217,16 @@ uint64_t ReadIOTrace::next_id() {
     return enabled() ? read_trace_next_id.fetch_add(1, std::memory_order_relaxed) + 1 : 0;
 }
 
+void ReadIOTrace::shutdown() {
+    read_trace_writer().stop();
+}
+
 void ReadIOTrace::record(const ReadIOTraceEvent& event) {
     if (!enabled()) {
         return;
     }
     const int64_t time_ns = event.time_ns != 0 ? event.time_ns : MonotonicNanos();
     const uint64_t sequence = read_trace_event_count.fetch_add(1, std::memory_order_relaxed) + 1;
-    const auto limit = static_cast<uint64_t>(config::read_io_trace_max_events);
-    if (sequence > limit) {
-        read_trace_dropped_events << 1;
-        if (read_trace_reported_limit.exchange(limit, std::memory_order_relaxed) != limit) {
-            LOG(WARNING) << "READ_IO_TRACE_LIMIT max_events=" << limit
-                         << "; capture is incomplete; restart BE or increase the limit for further "
-                            "capture";
-        }
-        return;
-    }
-
-    // Distinguish BE restarts even when the operating system reuses a PID.
-    static const std::string process =
-            std::to_string(getpid()) + "-" + std::to_string(UnixMicros());
     rapidjson::StringBuffer buffer;
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     const auto string_field = [&](const char* key, std::string_view value) {
@@ -99,7 +240,7 @@ void ReadIOTrace::record(const ReadIOTraceEvent& event) {
     };
     writer.StartObject();
     number_field("v", 1);
-    string_field("process", process);
+    string_field("process", read_trace_process());
     number_field("seq", sequence);
     string_field("event", event.event);
     string_field("source", read_trace_source(event.context));
@@ -129,8 +270,7 @@ void ReadIOTrace::record(const ReadIOTraceEvent& event) {
     writer.EndObject();
     std::string line(buffer.GetString(), buffer.GetSize());
     TEST_SYNC_POINT_CALLBACK("ReadIOTrace::record", &line);
-    LOG(INFO) << "READ_IO_TRACE " << line;
-    read_trace_logged_events << 1;
+    read_trace_writer().append(line);
 }
 
 } // namespace doris::io
