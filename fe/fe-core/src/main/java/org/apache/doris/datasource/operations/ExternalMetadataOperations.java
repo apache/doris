@@ -21,6 +21,8 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceMetadataOps;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonMetadataOps;
@@ -43,6 +45,10 @@ public class ExternalMetadataOperations {
     public static PaimonMetadataOps newPaimonMetaOps(ExternalCatalog dorisCatalog,
                                                      org.apache.paimon.catalog.Catalog catalog) {
         return new PaimonMetadataOps(dorisCatalog, catalog);
+    }
+
+    public static LanceMetadataOps newLanceMetadataOps(LanceExternalCatalog catalog) {
+        return new LanceMetadataOps(catalog);
     }
 
     public static MaxComputeMetadataOps newMaxComputeMetadataOps(
