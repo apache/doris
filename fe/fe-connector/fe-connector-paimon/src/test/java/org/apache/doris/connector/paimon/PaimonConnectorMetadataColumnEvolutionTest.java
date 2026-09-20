@@ -19,6 +19,7 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 
 import org.apache.paimon.schema.SchemaChange;
@@ -105,6 +106,20 @@ public class PaimonConnectorMetadataColumnEvolutionTest {
         SchemaChange.RenameColumn rename = (SchemaChange.RenameColumn) ops.lastSchemaChanges.get(0);
         Assertions.assertArrayEquals(new String[] {"name"}, rename.fieldNames());
         Assertions.assertEquals("display_name", rename.newName());
+    }
+
+    @Test
+    public void evolutionRejectsReservedMetadataColumnNamesBeforeRemoteAlter() {
+        for (String reservedName : Arrays.asList("__paimon_file_path", "__PAIMON_ROW_INDEX")) {
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.addColumn(null, handle, column(reservedName, "STRING"), null));
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.addColumns(null, handle, Arrays.asList(
+                            column("ordinary", "STRING"), column(reservedName, "STRING"))));
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.renameColumn(null, handle, "name", reservedName));
+        }
+        Assertions.assertNull(ops.lastAlteredTableId);
     }
 
     @Test

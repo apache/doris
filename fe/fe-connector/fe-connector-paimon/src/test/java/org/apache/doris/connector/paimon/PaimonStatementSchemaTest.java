@@ -60,6 +60,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -685,6 +686,39 @@ public class PaimonStatementSchemaTest {
             denied.set(true);
             Assertions.assertThrows(SecurityException.class, pinned::newScan);
             Assertions.assertThrows(SecurityException.class, pinned::newRead);
+        }
+    }
+
+    @Test
+    public void statementPinPreservesPrimaryBranchPartitionPrecedence(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+                    .column("value", DataTypes.INT()).partitionKeys("id")
+                    .option("file.format", "parquet").build(), false);
+            FileStoreTable main = (FileStoreTable) catalog.getTable(id);
+            main.createBranch("primary");
+            FileStoreTable primary = main.switchToBranch("primary");
+            append(primary, GenericRow.of(1, 20));
+            append(main, GenericRow.of(1, 10));
+            FileStoreTable pair = new FallbackReadFileStoreTable(
+                    main.copyWithoutTimeTravel(Collections.singletonMap("scan.primary-branch", "primary")),
+                    primary, false);
+            Map<String, String> pinned = new HashMap<>(PaimonScanParams.withBoundSchema(
+                    PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), 1L), main.schema().id()));
+            pinned.putAll(PaimonSchemaPin.capture(pair, main.schema().id(), 1L));
+
+            FileStoreTable restored = PaimonScanParams.applyOptionsWithoutTimeTravel(pair, pinned);
+            List<Integer> values = new ArrayList<>();
+            for (Split split : restored.newReadBuilder().newScan().plan().splits()) {
+                try (RecordReader<InternalRow> reader = restored.newReadBuilder().newRead().createReader(split)) {
+                    reader.forEachRemaining(row -> values.add(row.getInt(1)));
+                }
+            }
+            Assertions.assertEquals(Collections.singletonList(20), values);
         }
     }
 

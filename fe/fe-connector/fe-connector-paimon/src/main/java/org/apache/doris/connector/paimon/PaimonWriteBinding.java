@@ -28,6 +28,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /** Statement-scoped Paimon write target shared by sink planning and transaction commit. */
@@ -45,7 +46,9 @@ final class PaimonWriteBinding {
             Map<String, String> staticPartition) {
         this.tableName = tableName;
         this.table = table;
-        this.serializedTable = serialize(table);
+        // The FE committer keeps the catalog-aware table, but the BE writer must not deserialize
+        // an HMS/DLF catalog loader whose metastore classes are absent from the BE plugin.
+        this.serializedTable = serialize(PaimonScanPlanProvider.dropCatalogLoader(table));
         this.hadoopConfig = Collections.unmodifiableMap(new LinkedHashMap<>(hadoopConfig));
         this.overwrite = overwrite;
         this.staticPartition = Collections.unmodifiableMap(new LinkedHashMap<>(staticPartition));
@@ -53,8 +56,9 @@ final class PaimonWriteBinding {
 
     static PaimonWriteBinding create(PaimonTableHandle handle, FileStoreTable table,
             Map<String, String> hadoopConfig, boolean overwrite,
-            Map<String, String> requestedStaticPartition) {
-        Map<String, String> staticPartition = resolveStaticPartition(table, requestedStaticPartition);
+            Map<String, String> requestedStaticPartition, Set<String> staticPartitionNullKeys) {
+        Map<String, String> staticPartition = resolveStaticPartition(
+                table, requestedStaticPartition, staticPartitionNullKeys);
         FileStoreTable writeTable = configureTableForWrite(table, overwrite, staticPartition);
         return new PaimonWriteBinding(handle.getDatabaseName() + "." + handle.getTableName(),
                 writeTable, hadoopConfig, overwrite, staticPartition);
@@ -75,7 +79,7 @@ final class PaimonWriteBinding {
     }
 
     private static Map<String, String> resolveStaticPartition(FileStoreTable table,
-            Map<String, String> requested) {
+            Map<String, String> requested, Set<String> nullKeys) {
         Map<String, String> canonicalNames = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         for (String partitionKey : table.partitionKeys()) {
             canonicalNames.put(partitionKey, partitionKey);
@@ -89,8 +93,7 @@ final class PaimonWriteBinding {
                         + "' is not a partition column of Paimon table");
             }
             String value = entry.getValue();
-            result.put(canonicalName,
-                    value == null || "NULL".equalsIgnoreCase(value) ? defaultPartitionName : value);
+            result.put(canonicalName, nullKeys.contains(entry.getKey()) ? defaultPartitionName : value);
         }
         return result;
     }

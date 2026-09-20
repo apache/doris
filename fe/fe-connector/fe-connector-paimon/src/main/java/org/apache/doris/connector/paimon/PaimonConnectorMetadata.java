@@ -1156,12 +1156,15 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
 
     void rejectReservedMetadataColumns(ConnectorCreateTableRequest request) {
         for (ConnectorColumn column : request.getColumns()) {
-            String name = column.getName();
-            if (PAIMON_FILE_PATH_COL.equalsIgnoreCase(name)
-                    || PAIMON_ROW_POSITION_COL.equalsIgnoreCase(name)) {
-                throw new DorisConnectorException(
-                        "Cannot create Paimon table with reserved metadata column: " + name);
-            }
+            rejectReservedMetadataColumnName(column.getName(), "create");
+        }
+    }
+
+    private static void rejectReservedMetadataColumnName(String name, String operation) {
+        if (PAIMON_FILE_PATH_COL.equalsIgnoreCase(name)
+                || PAIMON_ROW_POSITION_COL.equalsIgnoreCase(name)) {
+            throw new DorisConnectorException("Cannot " + operation
+                    + " Paimon table with reserved metadata column: " + name);
         }
     }
 
@@ -1195,6 +1198,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     @Override
     public void addColumn(ConnectorSession session, ConnectorTableHandle handle,
             ConnectorColumn column, ConnectorColumnPosition position) {
+        rejectReservedMetadataColumnName(column.getName(), "alter");
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         List<DataField> fields = loadRemoteFields(paimonHandle);
         Map<String, DataField> fieldsByName = indexFieldsByName(fields);
@@ -1220,6 +1224,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         Set<String> columnNames = new HashSet<>(indexFieldsByName(loadRemoteFields(paimonHandle)).keySet());
         List<SchemaChange> changes = new ArrayList<>();
         for (ConnectorColumn column : columns) {
+            rejectReservedMetadataColumnName(column.getName(), "alter");
             rejectDuplicateColumn(columnNames, column.getName());
             columnNames.add(column.getName().toLowerCase(java.util.Locale.ROOT));
             validateEvolvedColumn(column);
@@ -1239,6 +1244,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     @Override
     public void renameColumn(ConnectorSession session, ConnectorTableHandle handle,
             String oldName, String newName) {
+        rejectReservedMetadataColumnName(newName, "alter");
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         Map<String, DataField> fieldsByName = indexFieldsByName(loadRemoteFields(paimonHandle));
         DataField oldField = resolveRemoteField(fieldsByName, oldName);

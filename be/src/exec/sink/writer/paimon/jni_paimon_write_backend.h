@@ -81,6 +81,7 @@ private:
     jmethodID _write_id = nullptr;
     jmethodID _prepare_commit_id = nullptr;
     jmethodID _abort_id = nullptr;
+    jmethodID _has_unresolved_native_callbacks_id = nullptr;
 
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
     std::shared_ptr<arrow::Schema> _arrow_schema;

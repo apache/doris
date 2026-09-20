@@ -73,6 +73,12 @@ public class DeleteFromUsingCommand extends DeleteFromCommand implements Support
     }
 
     @Override
+    protected RowLevelDmlArgs rowLevelDmlArgs(TableIf table) {
+        return RowLevelDmlArgs.forDelete(table, nameParts, tableAlias,
+                isTempPart, partitions, handleCte(logicalQuery), true);
+    }
+
+    @Override
     protected LogicalPlan handleCte(LogicalPlan logicalPlan) {
         if (cte.isPresent()) {
             logicalPlan = ((LogicalPlan) cte.get().withChildren(logicalPlan));

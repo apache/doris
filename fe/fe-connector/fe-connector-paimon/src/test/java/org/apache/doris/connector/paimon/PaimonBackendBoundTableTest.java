@@ -107,6 +107,44 @@ public class PaimonBackendBoundTableTest {
     }
 
     @Test
+    public void writeBindingKeepsCatalogOnFeButRemovesItFromBePayload(@TempDir Path warehouse)
+            throws Exception {
+        VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, false);
+        FileStoreTable table = newTable(warehouse, catalogEnvironment(catalog), C1);
+
+        PaimonWriteBinding binding = PaimonWriteBinding.create(
+                dataHandle(), table, Collections.emptyMap(), false,
+                Collections.emptyMap(), Collections.emptySet());
+        FileStoreTable backendTable = deserializeTable(binding.getSerializedTable());
+
+        Assertions.assertNotNull(binding.getTable().catalogEnvironment().catalogLoader());
+        Assertions.assertNull(backendTable.catalogEnvironment().catalogLoader());
+        Assertions.assertEquals(table.schema(), backendTable.schema());
+        Assertions.assertEquals(table.location(), backendTable.location());
+    }
+
+    @Test
+    public void staticPartitionDistinguishesSqlNullFromNullString(@TempDir Path warehouse) {
+        VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, false);
+        TableSchema schema = new TableSchema(0L,
+                Arrays.asList(C1, new DataField(1, "pt", DataTypes.STRING())), 1,
+                Collections.singletonList("pt"), Collections.emptyList(), Collections.emptyMap(), "");
+        FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path("file://" + warehouse + "/db.db/tbl"),
+                schema, catalogEnvironment(catalog));
+        Map<String, String> requested = Collections.singletonMap("pt", "NULL");
+
+        PaimonWriteBinding literal = PaimonWriteBinding.create(dataHandle(), table,
+                Collections.emptyMap(), false, requested, Collections.emptySet());
+        PaimonWriteBinding sqlNull = PaimonWriteBinding.create(dataHandle(), table,
+                Collections.emptyMap(), false, requested, Collections.singleton("pt"));
+
+        Assertions.assertEquals("NULL", literal.getStaticPartition().get("pt"));
+        Assertions.assertEquals(table.coreOptions().partitionDefaultName(),
+                sqlNull.getStaticPartition().get("pt"));
+    }
+
+    @Test
     public void dataTableReachesTheBackendWithoutItsCatalogLoader(@TempDir Path warehouse) {
         VersionManagedCatalog catalog = new VersionManagedCatalog(warehouse, false);
         FileStoreTable table = newTable(warehouse, catalogEnvironment(catalog), C1);

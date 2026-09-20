@@ -62,6 +62,7 @@ import java.util.TreeMap;
 
 /** Builds the JNI-backed Paimon sink and binds it to the active connector transaction. */
 public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
+    static final int MIN_BE_EXEC_VERSION = 13;
 
     static final String ROW_KIND_COLUMN = "__DORIS_PAIMON_ROW_KIND__";
 
@@ -132,6 +133,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
 
     @Override
     public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
+        requireBeExecVersion(handle.getBeExecVersion());
         PaimonTableHandle tableHandle = (PaimonTableHandle) handle.getTableHandle();
         FileStoreTable table = resolveTable(tableHandle);
         WriteOperation operation = handle.getWriteOperation();
@@ -144,7 +146,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         PaimonConnectorTransaction transaction = currentTransaction(session);
         PaimonWriteBinding binding = PaimonWriteBinding.create(
                 tableHandle, table, buildHadoopConfig(), handle.isOverwrite(),
-                handle.getStaticPartitionSpec());
+                handle.getStaticPartitionSpec(), handle.getStaticPartitionNullKeys());
         transaction.bind(binding);
 
         TPaimonTableSink sink = new TPaimonTableSink();
@@ -159,6 +161,13 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         TDataSink dataSink = new TDataSink(TDataSinkType.PAIMON_TABLE_SINK);
         dataSink.setPaimonTableSink(sink);
         return new ConnectorSinkPlan(dataSink);
+    }
+
+    static void requireBeExecVersion(int version) {
+        if (version < MIN_BE_EXEC_VERSION) {
+            throw new DorisConnectorException("Paimon writes require BE execution version "
+                    + MIN_BE_EXEC_VERSION + " or newer; actual " + version);
+        }
     }
 
     @Override

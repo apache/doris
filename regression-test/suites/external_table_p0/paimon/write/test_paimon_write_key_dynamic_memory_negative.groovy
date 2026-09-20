@@ -25,10 +25,10 @@ suite("test_paimon_write_key_dynamic_memory_negative", "p0,external,paimon") {
         return
     }
 
-    // This opt-in case intentionally puts sustained pressure on the embedded JVM.
+    // This opt-in stress case checks that the bounded index fails before exhausting the JVM.
     String knownBugTestEnabled = context.config.otherConfigs.get("enablePaimonKnownBugTest")
     if (knownBugTestEnabled == null || !knownBugTestEnabled.equalsIgnoreCase("true")) {
-        logger.info("skip isolated Paimon known-bug resource regression")
+        logger.info("skip isolated Paimon KEY_DYNAMIC resource stress regression")
         return
     }
 

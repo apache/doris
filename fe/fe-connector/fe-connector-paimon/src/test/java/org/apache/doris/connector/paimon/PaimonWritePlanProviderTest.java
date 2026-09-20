@@ -39,6 +39,13 @@ import java.util.stream.Collectors;
 public class PaimonWritePlanProviderTest {
 
     @Test
+    public void paimonWritesUseReservedExternalSinkVersion() {
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> PaimonWritePlanProvider.requireBeExecVersion(12));
+        Assertions.assertDoesNotThrow(() -> PaimonWritePlanProvider.requireBeExecVersion(13));
+    }
+
+    @Test
     public void insertColumnNamesFollowBoundSchemaOrder() {
         ConnectorWriteHandle handle = handle(
                 columns("score", "name", "id"),

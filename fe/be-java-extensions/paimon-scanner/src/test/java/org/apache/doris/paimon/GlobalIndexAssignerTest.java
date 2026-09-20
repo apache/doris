@@ -23,6 +23,16 @@ import org.junit.jupiter.api.Test;
 class GlobalIndexAssignerTest {
 
     @Test
+    void indexBudgetRejectsBeforeUnboundedHeapGrowth() {
+        GlobalIndexAssigner assigner = new GlobalIndexAssigner(null, 4096);
+        assigner.reserveIndexBytes(0);
+        assigner.reserveIndexBytes(0);
+        IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                () -> assigner.reserveIndexBytes(0));
+        Assertions.assertTrue(failure.getMessage().contains("Java-heap budget"));
+    }
+
+    @Test
     void testCheckedTargetBucketRowNumber() {
         Assertions.assertEquals(1, GlobalIndexAssigner.checkedTargetBucketRowNumber(1));
         Assertions.assertEquals(

@@ -159,6 +159,7 @@ std::atomic<bool>& paimon_jni_close_failed() {
 struct RetainedPaimonResources {
     std::unique_ptr<PaimonJniMemoryManager> memory_manager;
     std::unique_ptr<ExternalSpillSession> spill_session;
+    jobject writer_ref = nullptr;
 };
 
 std::mutex& retained_resources_mutex() {
@@ -172,18 +173,20 @@ std::vector<RetainedPaimonResources>& retained_resources() {
 }
 
 void retain_resources_after_failed_close(std::unique_ptr<PaimonJniMemoryManager> memory_manager,
-                                         std::unique_ptr<ExternalSpillSession> spill_session) {
+                                         std::unique_ptr<ExternalSpillSession> spill_session,
+                                         jobject writer_ref = nullptr) {
     // An unconfirmed Java close means a background Paimon task may still reference this manager's
     // native pages or spill callbacks. Quarantine both resources and stop admitting new writers so
     // repeated failures cannot accumulate process-lifetime resources without a bound.
     paimon_jni_close_failed().store(true, std::memory_order_release);
-    if (memory_manager == nullptr && spill_session == nullptr) {
+    if (memory_manager == nullptr && spill_session == nullptr && writer_ref == nullptr) {
         return;
     }
     std::lock_guard<std::mutex> lock(retained_resources_mutex());
     retained_resources().emplace_back(RetainedPaimonResources {
             .memory_manager = std::move(memory_manager),
             .spill_session = std::move(spill_session),
+            .writer_ref = writer_ref,
     });
 }
 
@@ -233,6 +236,8 @@ Status JniPaimonWriteBackend::close() {
     }
 
     Status close_status = Status::OK();
+    bool callbacks_may_remain = false;
+    jobject retained_writer_ref = nullptr;
     if (!_jni_writer_obj.uninitialized()) {
         _refresh_memory_profile();
         if (_writer_api == nullptr) {
@@ -240,10 +245,31 @@ Status JniPaimonWriteBackend::close() {
         } else {
             close_status = _jni_writer_obj.call_void_method(env, _writer_api->close).call();
         }
+        if (!close_status.ok()) {
+            callbacks_may_remain = true;
+            if (_has_unresolved_native_callbacks_id != nullptr) {
+                jboolean unresolved = env->CallBooleanMethod(_jni_writer_obj.get(),
+                                                             _has_unresolved_native_callbacks_id);
+                Status callback_status = _check_jni_exception(env, "check Paimon native callbacks");
+                if (callback_status.ok()) {
+                    callbacks_may_remain = unresolved == JNI_TRUE;
+                }
+            }
+        }
+        if (callbacks_may_remain) {
+            // Preserve the Java owner of prepared commit messages together with native callbacks.
+            // The process-wide fence prevents another writer from compounding this ambiguity.
+            retained_writer_ref = env->NewGlobalRef(_jni_writer_obj.get());
+            Status ref_status = _check_jni_exception(env, "retain unresolved Paimon writer");
+            if (!ref_status.ok()) {
+                LOG(WARNING) << "Could not retain unresolved Paimon writer: "
+                             << ref_status.to_string();
+            }
+        }
         _jni_writer_obj.reset(env);
     }
 
-    if (close_status.ok()) {
+    if (!callbacks_may_remain) {
         _memory_manager.reset();
         _spill_session.reset();
     } else {
@@ -255,7 +281,8 @@ Status JniPaimonWriteBackend::close() {
         }
         // Paimon may still have asynchronous tasks using Doris-backed pages or spill callbacks.
         // Retain ownership until process exit and fence subsequent writer admission.
-        retain_resources_after_failed_close(std::move(_memory_manager), std::move(_spill_session));
+        retain_resources_after_failed_close(std::move(_memory_manager), std::move(_spill_session),
+                                            retained_writer_ref);
     }
     _arrow_schema.reset();
     _opened = false;
@@ -353,6 +380,8 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     _write_id = env->GetMethodID(raw_writer_class, "writeArrow", "(JJ)V");
     _prepare_commit_id = env->GetMethodID(raw_writer_class, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(raw_writer_class, "abort", "()V");
+    _has_unresolved_native_callbacks_id =
+            env->GetMethodID(raw_writer_class, "hasUnresolvedNativeCallbacks", "()Z");
     RETURN_IF_ERROR(_check_jni_exception(env, "resolve PaimonJniWriter methods"));
 
     // Step 3: Create a lazy query-scoped spill session. Java requests its path only when Paimon

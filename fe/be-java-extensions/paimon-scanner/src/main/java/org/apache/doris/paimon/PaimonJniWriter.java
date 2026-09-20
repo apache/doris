@@ -332,6 +332,11 @@ public class PaimonJniWriter extends JniWriter {
         }
     }
 
+    /** Whether a failed close may have left an SDK task using Doris native callbacks. */
+    public boolean hasUnresolvedNativeCallbacks() {
+        return sdkCloseFailed;
+    }
+
     // ────────────────────────────────────────────────────────────
     // Initialization helpers
     // ────────────────────────────────────────────────────────────
@@ -348,7 +353,8 @@ public class PaimonJniWriter extends JniWriter {
         }
         openMemoryResources(table, coreOptions, nativePageMemoryLimitBytes,
                 nativeMemoryManager, nativeSpillSession);
-        openDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
+        openDynamicBucketAssigner(table, commitUser, overwrite, coreOptions,
+                nativePageMemoryLimitBytes);
     }
 
     private void validateWriteColumnsForMergeEngine(int writeColumnCount, CoreOptions coreOptions) {
@@ -418,13 +424,13 @@ public class PaimonJniWriter extends JniWriter {
     }
 
     private void openDynamicBucketAssigner(FileStoreTable table, String commitUser,
-            boolean overwrite, CoreOptions coreOptions) throws Exception {
+            boolean overwrite, CoreOptions coreOptions, long writerMemoryLimitBytes) throws Exception {
         switch (bucketMode) {
             case HASH_DYNAMIC:
                 openHashDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
                 break;
             case KEY_DYNAMIC:
-                openKeyDynamicBucketAssigner(table);
+                openKeyDynamicBucketAssigner(table, writerMemoryLimitBytes);
                 break;
             default:
                 // Fixed, unaware and postpone modes route through TableWrite.write(row).
@@ -457,8 +463,9 @@ public class PaimonJniWriter extends JniWriter {
                         coreOptions.dynamicBucketMaxBuckets());
     }
 
-    private void openKeyDynamicBucketAssigner(FileStoreTable table) throws Exception {
-        globalIndexAssigner = new GlobalIndexAssigner(table);
+    private void openKeyDynamicBucketAssigner(FileStoreTable table,
+            long writerMemoryLimitBytes) throws Exception {
+        globalIndexAssigner = new GlobalIndexAssigner(table, writerMemoryLimitBytes);
         globalIndexAssigner.open(1, 0, this::writeAssignedRow);
         new IndexBootstrap(table).bootstrap(
                 1, 0, this::bootstrapGlobalIndexKey);
@@ -549,15 +556,41 @@ public class PaimonJniWriter extends JniWriter {
     // ────────────────────────────────────────────────────────────
 
     private void closeResources() throws Exception {
+        FileStoreTable preparedTable = table;
+        String preparedCommitUser = commitUser;
+        List<CommitMessage> messages = preparedCommitMessages;
         try {
             closeWriter();
+        } catch (Exception closeFailure) {
+            abortPreparedAfterCompletedClose(preparedTable, preparedCommitUser, messages, closeFailure);
+            throw closeFailure;
         } finally {
             writeSchema = null;
             arrowAdapter = null;
             if (allocator != null) {
-                allocator.close();
-                allocator = null;
+                try {
+                    allocator.close();
+                } catch (Exception allocatorFailure) {
+                    abortPreparedAfterCompletedClose(
+                            preparedTable, preparedCommitUser, messages, allocatorFailure);
+                    throw allocatorFailure;
+                } finally {
+                    allocator = null;
+                }
             }
+        }
+    }
+
+    private void abortPreparedAfterCompletedClose(FileStoreTable preparedTable,
+            String preparedCommitUser, List<CommitMessage> messages, Exception closeFailure) {
+        if (sdkCloseFailed || messages.isEmpty()) {
+            // An unresolved SDK task can still write these files. Keep them for reconciliation.
+            return;
+        }
+        try (InnerTableCommit committer = preparedTable.newCommit(preparedCommitUser)) {
+            committer.abort(messages);
+        } catch (Exception abortFailure) {
+            closeFailure.addSuppressed(abortFailure);
         }
     }
 
@@ -615,7 +648,6 @@ public class PaimonJniWriter extends JniWriter {
         if (cleanupFailure != null && !physicalCleanupFailure) {
             lifecycleFailure = appendFailure(lifecycleFailure, cleanupFailure);
         }
-        clearWriterState();
         if (lifecycleFailure != null) {
             if (physicalCleanupFailure) {
                 lifecycleFailure.addSuppressed(cleanupFailure);
@@ -623,6 +655,7 @@ public class PaimonJniWriter extends JniWriter {
             sdkCloseFailed = true;
             throw lifecycleFailure;
         }
+        clearWriterState();
         if (physicalCleanupFailure) {
             // The QueryContext owns the parent spill directory and its GC retry path. Failure to
             // eagerly remove Paimon's nested directory is not evidence that Java tasks still hold

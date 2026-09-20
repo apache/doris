@@ -42,10 +42,13 @@ import java.util.function.BiConsumer;
  * Paimon's cross-partition merge semantics without a native state backend.
  */
 final class GlobalIndexAssigner implements AutoCloseable {
+    private static final long MAX_INDEX_BYTES = 64L * 1024 * 1024;
+    private static final long ENTRY_OVERHEAD_BYTES = 256;
     private final FileStoreTable table;
-    // TODO: After resolving rocksdbjni allocator compatibility with the Doris BE jemalloc hook,
-    // use a RocksDB-backed on-disk index to bound Java heap usage for large tables.
+    private final long indexLimitBytes;
     private final Map<BinaryRow, PositiveIntInt> keyIndex = new HashMap<>();
+    private long estimatedIndexBytes;
+    private int partitionCount;
 
     private int bucketIndex;
     private int targetBucketRowNumber;
@@ -59,8 +62,12 @@ final class GlobalIndexAssigner implements AutoCloseable {
     private BucketAssigner bucketAssigner;
     private ExistingProcessor existingProcessor;
 
-    GlobalIndexAssigner(FileStoreTable table) {
+    GlobalIndexAssigner(FileStoreTable table, long writerMemoryLimitBytes) {
         this.table = table;
+        this.indexLimitBytes = Math.min(MAX_INDEX_BYTES, writerMemoryLimitBytes / 8);
+        if (indexLimitBytes <= 0) {
+            throw new IllegalArgumentException("Paimon KEY_DYNAMIC requires a positive index memory budget");
+        }
     }
 
     void open(
@@ -104,16 +111,16 @@ final class GlobalIndexAssigner implements AutoCloseable {
 
         BinaryRow partition = bootstrapExtractor.partition(value);
         BinaryRow key = bootstrapExtractor.trimmedPrimaryKey(value);
-        int partitionId = partitionMapping.index(partition);
+        int partitionId = partitionId(partition);
         int bucket = value.getInt(bucketIndex);
         bucketAssigner.bootstrapBucket(partition, bucket);
-        PositiveIntInt previous =
-                keyIndex.putIfAbsent(key.copy(), new PositiveIntInt(partitionId, bucket));
-        if (previous != null) {
+        if (keyIndex.containsKey(key)) {
             throw new IllegalStateException(
                     "Duplicate primary key found while bootstrapping a key-dynamic Paimon table; "
                             + "the table only supports a single writer");
         }
+        reserveIndexBytes(key);
+        keyIndex.put(key.copy(), new PositiveIntInt(partitionId, bucket));
     }
 
     void finishBootstrap() {
@@ -127,7 +134,7 @@ final class GlobalIndexAssigner implements AutoCloseable {
 
         BinaryRow partition = extractor.partition(value);
         BinaryRow key = extractor.trimmedPrimaryKey(value);
-        int partitionId = partitionMapping.index(partition);
+        int partitionId = partitionId(partition);
         PositiveIntInt partitionBucket = keyIndex.get(key);
         if (partitionBucket == null) {
             processNewRecord(partition, partitionId, key, value);
@@ -149,11 +156,37 @@ final class GlobalIndexAssigner implements AutoCloseable {
 
     private void processNewRecord(
             BinaryRow partition, int partitionId, BinaryRow key, InternalRow value) {
+        if (!keyIndex.containsKey(key)) {
+            reserveIndexBytes(key);
+        }
         int bucket =
                 bucketAssigner.assignBucket(
                         partition, this::isAssignedBucket, targetBucketRowNumber);
         keyIndex.put(key.copy(), new PositiveIntInt(partitionId, bucket));
         collect(value, bucket);
+    }
+
+    private int partitionId(BinaryRow partition) {
+        int id = partitionMapping.index(partition);
+        if (id == partitionCount) {
+            reserveIndexBytes(partition);
+            partitionCount++;
+        }
+        return id;
+    }
+
+    private void reserveIndexBytes(BinaryRow row) {
+        reserveIndexBytes(row.getSizeInBytes());
+    }
+
+    void reserveIndexBytes(int rowBytes) {
+        long estimatedBytes = ENTRY_OVERHEAD_BYTES + rowBytes;
+        if (estimatedBytes > indexLimitBytes - estimatedIndexBytes) {
+            throw new IllegalStateException("Paimon KEY_DYNAMIC global index exceeds its "
+                    + indexLimitBytes + " byte Java-heap budget; use a smaller table or a "
+                    + "different bucket mode until a spillable index is available");
+        }
+        estimatedIndexBytes += estimatedBytes;
     }
 
     private boolean isAssignedBucket(int bucket) {
@@ -167,6 +200,8 @@ final class GlobalIndexAssigner implements AutoCloseable {
     @Override
     public void close() {
         keyIndex.clear();
+        estimatedIndexBytes = 0;
+        partitionCount = 0;
         collector = null;
         extractor = null;
         bootstrapExtractor = null;
