@@ -140,6 +140,10 @@ header:
     - "docker/thirdparties/docker-compose/kerberos/paimon_data/**"
     - "docker/thirdparties/docker-compose/kerberos/sql/**"
     - "docker/thirdparties/docker-compose/iceberg/spark-defaults.conf.tpl"
+    # Generated Paimon schema and snapshot metadata. These files are copied verbatim into
+    # MinIO by the Iceberg third-party initializer and cannot carry source comments.
+    - "docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/paimon/**/schema/**"
+    - "docker/thirdparties/docker-compose/iceberg/scripts/preinstalled_data/paimon/**/snapshot/**"
     - "docker/thirdparties/docker-compose/postgresql/certs/**"
     - "docker/thirdparties/docker-compose/mysql/certs/**"
     - "conf/mysql_ssl_default_certificate/*"

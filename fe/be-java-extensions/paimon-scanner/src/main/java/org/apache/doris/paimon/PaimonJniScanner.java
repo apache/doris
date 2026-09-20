@@ -110,6 +110,7 @@ public class PaimonJniScanner extends JniScanner {
     private final ClassLoader classLoader;
     private PreExecutionAuthenticator preExecutionAuthenticator;
     private boolean scannerCounted;
+    private boolean requiresDatetimeV2PrecisionRepair;
     private long openTimeNanos;
     private long readBatchTimeNanos;
     private long readBatchCalls;
@@ -167,8 +168,6 @@ public class PaimonJniScanner extends JniScanner {
                 initTableAndReader();
                 return null;
             });
-            resetDatetimeV2Precision();
-
         } catch (Throwable e) {
             try {
                 close();
@@ -193,7 +192,8 @@ public class PaimonJniScanner extends JniScanner {
         }
         int[] projected = getProjected();
         readBuilder.withProjection(projected);
-        readBuilder.withFilter(getPredicates());
+        readBuilder.withFilter(requiresDatetimeV2PrecisionRepair
+                ? Collections.emptyList() : getPredicates());
         reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(getSplit());
         paimonDataTypeList =
                 Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
@@ -332,7 +332,9 @@ public class PaimonJniScanner extends JniScanner {
                 if (index != -1) {
                     DataType dataType = table.rowType().getTypeAt(index);
                     if (dataType instanceof TimestampType) {
-                        types[i].setPrecision(((TimestampType) dataType).getPrecision());
+                        int paimonPrecision = ((TimestampType) dataType).getPrecision();
+                        requiresDatetimeV2PrecisionRepair |= types[i].getPrecision() > paimonPrecision;
+                        types[i].setPrecision(paimonPrecision);
                     }
                 }
             }
@@ -886,10 +888,12 @@ public class PaimonJniScanner extends JniScanner {
 
     private void initTableAndReader() throws IOException {
         if (initTableFromCache()) {
+            resetDatetimeV2Precision();
             initReader();
             return;
         }
         initTable();
+        resetDatetimeV2Precision();
         initReader();
         PaimonTableCache.TableCacheEntry candidate =
                 new PaimonTableCache.TableCacheEntry(table, paimonAllFieldNames);

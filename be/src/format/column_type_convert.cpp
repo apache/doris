@@ -374,7 +374,8 @@ std::unique_ptr<ColumnTypeConverter> ColumnTypeConverter::get_converter(const Da
     }
 
     if (requires_datetimev2_precision_conversion(src_type, dst_type)) {
-        return std::make_unique<DateTimeV2PrecisionConverter>(dst_type->get_scale());
+        return std::make_unique<DateTimeV2PrecisionConverter>(dst_type->get_scale(),
+                                                              src_primitive_type);
     }
 
     if (src_primitive_type == dst_primitive_type) {

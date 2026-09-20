@@ -156,6 +156,10 @@ suite("paimon_timestamp_types", "p0,external") {
                 "timestamp_precision_evolution_parquet")
         order_qt_precision_evolution_jni_orc precisionEvolutionQuery(
                 "timestamp_precision_evolution_orc")
+        order_qt_precision_evolution_jni_parquet_predicate precisionEvolutionPredicateQuery(
+                "timestamp_precision_evolution_parquet")
+        order_qt_precision_evolution_jni_orc_predicate precisionEvolutionPredicateQuery(
+                "timestamp_precision_evolution_orc")
 
         sql """set force_jni_scanner=true"""
         test_scale()
