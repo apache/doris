@@ -40,7 +40,9 @@ public:
 
 private:
     std::string utf8Str_;
+    std::string sourceUtf8Str_;
     icu::UnicodeString buffer_;
+    std::vector<int32_t> utf16ToUtf8Offset_;
 
     ICUTokenizerConfigPtr config_;
     CompositeBreakIteratorPtr breaker_;

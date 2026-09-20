@@ -28,8 +28,13 @@
 #include "storage/index/inverted/token_filter/icu_normalizer_filter_factory.h"
 #include "storage/index/inverted/token_filter/pinyin_filter_factory.h"
 #include "storage/index/inverted/token_filter/word_delimiter_filter_factory.h"
+#include "storage/index/inverted/tokenizer/basic/basic_tokenizer_factory.h"
+#include "storage/index/inverted/tokenizer/char/char_group_tokenizer_factory.h"
+#include "storage/index/inverted/tokenizer/empty/empty_tokenizer_factory.h"
+#include "storage/index/inverted/tokenizer/icu/icu_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/ik/ik_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/keyword/keyword_tokenizer_factory.h"
+#include "storage/index/inverted/tokenizer/ngram/ngram_tokenizer_factory.h"
 #include "storage/index/inverted/tokenizer/standard/standard_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -49,6 +54,35 @@ public:
         if (tokenizer_type == "standard") {
             StandardTokenizerFactory factory;
             Settings settings;
+            factory.initialize(settings);
+            tokenizer = factory.create();
+        } else if (tokenizer_type == "basic") {
+            BasicTokenizerFactory factory;
+            Settings settings;
+            factory.initialize(settings);
+            tokenizer = factory.create();
+        } else if (tokenizer_type == "char_group") {
+            CharGroupTokenizerFactory factory;
+            Settings settings;
+            settings.set("tokenize_on_chars", "[whitespace]");
+            factory.initialize(settings);
+            tokenizer = factory.create();
+        } else if (tokenizer_type == "empty") {
+            EmptyTokenizerFactory factory;
+            Settings settings;
+            factory.initialize(settings);
+            tokenizer = factory.create();
+        } else if (tokenizer_type == "icu") {
+            ICUTokenizerFactory factory;
+            Settings settings;
+            factory.initialize(settings);
+            tokenizer = factory.create();
+        } else if (tokenizer_type == "ngram") {
+            NGramTokenizerFactory factory;
+            Settings settings;
+            settings.set("min_gram", "1");
+            settings.set("max_gram", "1");
+            settings.set("token_chars", "letter");
             factory.initialize(settings);
             tokenizer = factory.create();
         } else if (tokenizer_type == "keyword") {
@@ -510,6 +544,65 @@ TEST_F(PinyinFilterTest, TestPinyinStandardOffsetsDoNotReusePreviousTokenState) 
     tokenizer->set_reader(reset_reader);
     filter->reset();
     assert_offsets({{"ce", 0, 3}, {"shi", 3, 6}, {"liu", 7, 10}, {"de", 10, 13}, {"hua", 13, 16}});
+}
+
+TEST_F(PinyinFilterTest, TestBasicTokenizerOffsetsRemainDocumentRelativeAfterReset) {
+    Settings settings;
+    settings.set("keep_first_letter", "false");
+    settings.set("keep_full_pinyin", "true");
+    settings.set("keep_original", "false");
+    settings.set("keep_joined_full_pinyin", "false");
+    settings.set("keep_none_chinese", "false");
+    settings.set("ignore_pinyin_offset", "false");
+
+    auto tokenizer = createTokenizer("basic", "刘德华");
+    PinyinFilterFactory filter_factory;
+    filter_factory.initialize(settings);
+    auto filter = filter_factory.create(tokenizer);
+
+    Token token;
+    assertToken(filter, &token, "liu", 0, 3);
+    assertToken(filter, &token, "de", 3, 6);
+    assertToken(filter, &token, "hua", 6, 9);
+    assertEndOfTokens(filter, &token);
+
+    const std::string reset_text = "测试 刘德华";
+    auto reset_reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reset_reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
+    tokenizer->set_reader(reset_reader);
+    filter->reset();
+    assertToken(filter, &token, "ce", 0, 3);
+    assertToken(filter, &token, "shi", 3, 6);
+    assertToken(filter, &token, "liu", 7, 10);
+    assertToken(filter, &token, "de", 10, 13);
+    assertToken(filter, &token, "hua", 13, 16);
+    assertEndOfTokens(filter, &token);
+}
+
+TEST_F(PinyinFilterTest, TestOffsetAwarePinyinSupportsAllCustomTokenizers) {
+    const std::string text = "你好 世界";
+    Settings settings;
+    settings.set("keep_first_letter", "false");
+    settings.set("keep_full_pinyin", "true");
+    settings.set("keep_original", "false");
+    settings.set("keep_joined_full_pinyin", "false");
+    settings.set("keep_none_chinese", "false");
+    settings.set("ignore_pinyin_offset", "false");
+
+    for (const std::string tokenizer_type : {"basic", "char_group", "empty", "icu", "ngram"}) {
+        SCOPED_TRACE(tokenizer_type);
+        auto tokenizer = createTokenizer(tokenizer_type, text);
+        PinyinFilterFactory filter_factory;
+        filter_factory.initialize(settings);
+        auto filter = filter_factory.create(tokenizer);
+
+        Token token;
+        assertToken(filter, &token, "ni", 0, 3);
+        assertToken(filter, &token, "hao", 3, 6);
+        assertToken(filter, &token, "shi", 7, 10);
+        assertToken(filter, &token, "jie", 10, 13);
+        assertEndOfTokens(filter, &token);
+    }
 }
 
 TEST_F(PinyinFilterTest, TestIKOffsetsComposeAcrossICUDeletionAndReset) {

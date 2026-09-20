@@ -27,6 +27,8 @@ suite("test_analyzer_identity_semantics", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_identity_noop_alter"
     sql "DROP TABLE IF EXISTS test_identity_fold_create"
     sql "DROP TABLE IF EXISTS test_identity_fold_alter"
+    sql "DROP TABLE IF EXISTS test_identity_outer_filter_create"
+    sql "DROP TABLE IF EXISTS test_identity_outer_filter_alter"
     for (String mode : ["ik_smart", "ik_max_word"]) {
         sql "DROP TABLE IF EXISTS test_identity_ik_lowercase_create_${mode}"
         sql "DROP TABLE IF EXISTS test_identity_ik_lowercase_alter_${mode}"
@@ -63,6 +65,40 @@ suite("test_analyzer_identity_semantics", "nonConcurrent") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES("replication_allocation"="tag.location.default: 1")
     """
+    test {
+        sql """
+            CREATE TABLE test_identity_outer_filter_create (
+                id INT, content STRING,
+                INDEX idx_replace_a (content) USING INVERTED PROPERTIES(
+                    "analyzer"="standard", "char_filter_type"="char_replace",
+                    "char_filter_pattern"="a", "char_filter_replacement"="b"),
+                INDEX idx_replace_x (content) USING INVERTED PROPERTIES(
+                    "analyzer"="standard", "char_filter_type"="char_replace",
+                    "char_filter_pattern"="x", "char_filter_replacement"="y")
+            ) DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES("replication_allocation"="tag.location.default: 1")
+        """
+        exception "cannot have multiple inverted indexes"
+    }
+    sql """
+        CREATE TABLE test_identity_outer_filter_alter (
+            id INT, content STRING,
+            INDEX idx_replace_a (content) USING INVERTED PROPERTIES(
+                "analyzer"="standard", "char_filter_type"="char_replace",
+                "char_filter_pattern"="a", "char_filter_replacement"="b")
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_allocation"="tag.location.default: 1")
+    """
+    test {
+        sql """
+            ALTER TABLE test_identity_outer_filter_alter ADD INDEX idx_replace_x (content) USING INVERTED
+            PROPERTIES("analyzer"="standard", "char_filter_type"="char_replace",
+                       "char_filter_pattern"="x", "char_filter_replacement"="y")
+        """
+        exception "same analyzer selector already exists"
+    }
     sql """
         ALTER TABLE test_identity_modes_alter ADD INDEX idx_max_word (content) USING INVERTED
         PROPERTIES("analyzer"="ik", "lower_case"="false")

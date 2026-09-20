@@ -43,10 +43,19 @@ public:
 
     using Tokenizer::reset;
     // Only use the parameterless reset method
-    void reset() override { _in = _in_pending; };
+    void reset() override {
+        _in = _in_pending;
+        _source_byte_offsets.clear();
+        _source_byte_end_offsets.clear();
+    };
 
     std::span<const int32_t> get_source_byte_offsets() const override {
         return _source_byte_offsets_enabled ? std::span<const int32_t> {_source_byte_offsets}
+                                            : std::span<const int32_t> {};
+    }
+
+    std::span<const int32_t> get_source_byte_end_offsets() const override {
+        return _source_byte_offsets_enabled ? std::span<const int32_t> {_source_byte_end_offsets}
                                             : std::span<const int32_t> {};
     }
 
@@ -61,7 +70,13 @@ protected:
     }
 
     void set_source_byte_offsets(std::string_view term, int32_t source_start) {
+        set_source_byte_offsets(term, term, source_start);
+    }
+
+    void set_source_byte_offsets(std::string_view term, std::string_view source,
+                                 int32_t source_start) {
         _source_byte_offsets.clear();
+        _source_byte_end_offsets.clear();
         if (!_source_byte_offsets_enabled) {
             return;
         }
@@ -69,27 +84,57 @@ protected:
         const auto* char_filter = dynamic_cast<const DorisCharFilter*>(_in.get());
         const int32_t corrected_start =
                 char_filter == nullptr ? source_start : char_filter->correct_offset(source_start);
-        _source_byte_offsets.push_back(0);
-        const char* data = term.data();
-        const auto length = static_cast<int32_t>(term.size());
+        std::vector<int32_t> source_offsets {0};
+        const char* data = source.data();
+        const auto length = static_cast<int32_t>(source.size());
         int32_t offset = 0;
         while (offset < length) {
             UChar32 code_point;
             U8_NEXT(data, offset, length, code_point);
             if (code_point < 0) {
-                _source_byte_offsets.clear();
                 return;
             }
-            _source_byte_offsets.push_back(
-                    char_filter == nullptr
-                            ? offset
-                            : char_filter->correct_offset(source_start + offset) - corrected_start);
+            source_offsets.push_back(char_filter == nullptr
+                                             ? offset
+                                             : char_filter->correct_offset(source_start + offset) -
+                                                       corrected_start);
         }
+
+        const int32_t term_runes = count_utf8_runes(term);
+        if (term_runes < 0) {
+            return;
+        }
+        if (static_cast<size_t>(term_runes + 1) == source_offsets.size()) {
+            _source_byte_offsets = std::move(source_offsets);
+            return;
+        }
+
+        const int32_t source_length = source_offsets.back();
+        _source_byte_offsets.assign(term_runes + 1, 0);
+        _source_byte_offsets.back() = source_length;
+        _source_byte_end_offsets.assign(term_runes, source_length);
+    }
+
+    static int32_t count_utf8_runes(std::string_view text) {
+        const char* data = text.data();
+        const auto length = static_cast<int32_t>(text.size());
+        int32_t offset = 0;
+        int32_t runes = 0;
+        while (offset < length) {
+            UChar32 code_point;
+            U8_NEXT(data, offset, length, code_point);
+            if (code_point < 0) {
+                return -1;
+            }
+            ++runes;
+        }
+        return runes;
     }
 
     ReaderPtr _in;
     ReaderPtr _in_pending;
     std::vector<int32_t> _source_byte_offsets;
+    std::vector<int32_t> _source_byte_end_offsets;
     bool _source_byte_offsets_enabled {false};
 };
 using TokenizerPtr = std::shared_ptr<DorisTokenizer>;

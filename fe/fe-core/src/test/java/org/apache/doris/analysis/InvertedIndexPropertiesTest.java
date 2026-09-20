@@ -31,6 +31,8 @@ import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
@@ -44,6 +46,28 @@ import java.util.List;
 import java.util.Map;
 
 public class InvertedIndexPropertiesTest {
+
+    @Test
+    public void testRejectsAmbiguousOuterCharFiltersForSameAnalyzer() {
+        IndexDefinition replaceA = new IndexDefinition("idx_replace_a", false, List.of("content"),
+                "INVERTED", Map.of("analyzer", "standard", "char_filter_type", "char_replace",
+                        "char_filter_pattern", "a", "char_filter_replacement", "b"), "");
+        IndexDefinition replaceX = new IndexDefinition("idx_replace_x", false, List.of("content"),
+                "INVERTED", Map.of("analyzer", "standard", "char_filter_type", "char_replace",
+                        "char_filter_pattern", "x", "char_filter_replacement", "y"), "");
+
+        Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                StringType.INSTANCE, List.of(replaceA, replaceX)));
+
+        IndexDefinition defaultA = new IndexDefinition("idx_default_a", false, List.of("content"),
+                "INVERTED", Map.of("char_filter_type", "char_replace", "char_filter_pattern", "a",
+                        "char_filter_replacement", "b"), "");
+        IndexDefinition defaultX = new IndexDefinition("idx_default_x", false, List.of("content"),
+                "INVERTED", Map.of("char_filter_type", "char_replace", "char_filter_pattern", "x",
+                        "char_filter_replacement", "y"), "");
+        Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                StringType.INSTANCE, List.of(defaultA, defaultX)));
+    }
 
     @Test
     public void testExplicitBuiltinIkSelectsMatchingModeAndLowercase() {

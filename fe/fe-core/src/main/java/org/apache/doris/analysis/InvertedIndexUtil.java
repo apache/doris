@@ -415,14 +415,38 @@ public class InvertedIndexUtil {
         }
 
         Set<String> analyzerKeys = new HashSet<>();
+        Set<String> analyzerSelectors = new HashSet<>();
         for (IndexDefinition indexDef : indexDefs) {
-            String key = buildAnalyzerIdentity(indexDef.getProperties());
+            Map<String, String> properties = indexDef.getProperties();
+            String key = buildAnalyzerIdentity(properties);
             // HashSet.add() returns false if element already exists
             if (!analyzerKeys.add(key)) {
                 return false;
             }
+            String selector = getAnalyzerSelector(properties);
+            if (!INVERTED_INDEX_PARSER_IK.equals(selector) && !analyzerSelectors.add(selector)) {
+                return false;
+            }
         }
         return true;
+    }
+
+    private static String getAnalyzerSelector(Map<String, String> properties) {
+        String preferredAnalyzer = InvertedIndexProperties.getPreferredAnalyzer(properties);
+        if (!Strings.isNullOrEmpty(preferredAnalyzer)) {
+            return resolveAnalyzerName(preferredAnalyzer);
+        }
+        String parser = InvertedIndexProperties.getInvertedIndexParser(properties);
+        return Strings.isNullOrEmpty(parser)
+                ? InvertedIndexProperties.INVERTED_INDEX_DEFAULT_ANALYZER_KEY
+                : parser.trim().toLowerCase(Locale.ROOT);
+    }
+
+    public static boolean hasSameNonIkAnalyzerSelector(
+            Map<String, String> leftProperties, Map<String, String> rightProperties) {
+        String leftSelector = getAnalyzerSelector(leftProperties);
+        return !INVERTED_INDEX_PARSER_IK.equals(leftSelector)
+                && leftSelector.equals(getAnalyzerSelector(rightProperties));
     }
 
     public static String buildAnalyzerIdentity(Map<String, String> properties) {
