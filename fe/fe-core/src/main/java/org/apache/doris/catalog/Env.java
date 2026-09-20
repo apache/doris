@@ -111,6 +111,7 @@ import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
@@ -4592,7 +4593,9 @@ public class Env {
             }
         }
         sb.append("\n) ENGINE=");
-        sb.append(table.getType().name());
+        sb.append(table.getType() == TableType.LANCE_EXTERNAL_TABLE
+                ? "LANCE"
+                : table.getType().name());
 
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
@@ -4896,6 +4899,18 @@ public class Env {
                 }
             }
             sb.append("\n)");
+        } else if (table.getType() == TableType.LANCE_EXTERNAL_TABLE) {
+            Map<String, String> properties = new TreeMap<>(
+                    ((LanceExternalTable) table).getTableProperties());
+            String tableComment = properties.remove("comment");
+            if (StringUtils.isNotBlank(tableComment)) {
+                sb.append("\nCOMMENT ").append(SqlLiteralUtils.quoteStringLiteral(tableComment));
+            }
+            if (!properties.isEmpty()) {
+                sb.append("\nPROPERTIES (\n");
+                sb.append(new PrintableMap<>(properties, " = ", true, true, hidePassword));
+                sb.append("\n)");
+            }
         }
 
         createTableStmt.add(sb + ";");

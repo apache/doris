@@ -21,13 +21,19 @@ import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.OutOfMemoryException;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.ipc.ArrowStreamReader;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.lance.Session;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.model.ListNamespacesResponse;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
 import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -190,6 +196,31 @@ public class LanceCatalogClientTest {
             finish.countDown();
             executor.shutdownNow();
             Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+            client.close();
+        }
+    }
+
+    @Test
+    public void testCreateTableSerializesAnEmptyArrowStream() throws Exception {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        BufferAllocator allocator = new RootAllocator(1024 * 1024);
+        LanceCatalogClient client = client(namespace, allocator, Mockito.mock(Session.class));
+        Schema schema = new Schema(Collections.singletonList(
+                Field.notNullable("id", new ArrowType.Int(32, true))));
+        try {
+            try (LanceCatalogClient.Lease lease = client.acquire()) {
+                lease.client().createTable("default", "events", schema, Collections.emptyMap());
+            }
+
+            ArgumentCaptor<byte[]> payload = ArgumentCaptor.forClass(byte[].class);
+            Mockito.verify(namespace).createTable(Mockito.any(), payload.capture());
+            Assertions.assertTrue(payload.getValue().length > 0);
+            try (ArrowStreamReader reader = new ArrowStreamReader(
+                    new ByteArrayInputStream(payload.getValue()), allocator)) {
+                Assertions.assertEquals(schema, reader.getVectorSchemaRoot().getSchema());
+                Assertions.assertFalse(reader.loadNextBatch());
+            }
+        } finally {
             client.close();
         }
     }
