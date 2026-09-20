@@ -20,7 +20,7 @@
 
 package org.apache.doris.arrowflight.auth2;
 
-import org.apache.doris.arrowflight.tokens.FlightTokenManager;
+import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
 
 import org.apache.arrow.flight.auth2.BasicCallHeaderAuthenticator;
 import org.apache.arrow.flight.auth2.CallHeaderAuthenticator.AuthResult;
@@ -33,10 +33,10 @@ import org.apache.logging.log4j.Logger;
 public class FlightCredentialValidator implements BasicCallHeaderAuthenticator.CredentialValidator {
     private static final Logger LOG = LogManager.getLogger(FlightCredentialValidator.class);
 
-    private final FlightTokenManager flightTokenManager;
+    private final FlightSessionsManager flightSessionsManager;
 
-    public FlightCredentialValidator(FlightTokenManager flightTokenManager) {
-        this.flightTokenManager = flightTokenManager;
+    public FlightCredentialValidator(FlightSessionsManager flightSessionsManager) {
+        this.flightSessionsManager = flightSessionsManager;
     }
 
     /**
@@ -55,15 +55,15 @@ public class FlightCredentialValidator implements BasicCallHeaderAuthenticator.C
 
 
     /**
-     * Generates a bearer token, parses client properties from incoming headers, then creates a
-     * FlightTokenDetails associated with the generated token and client properties.
+     * Opens the session of the user just authenticated, with the client address the stream tracer
+     * captured, and answers with the bearer token the session is known by: the token is the peer
+     * identity of this and every later call of the session.
      *
      * @param flightAuthResult the FlightAuthResult from initial authentication, with peer identity captured.
-     * @return an FlightAuthResult with the bearer token and peer identity.
+     * @return an AuthResult whose peer identity is the bearer token.
      */
     AuthResult getAuthResultWithBearerToken(FlightAuthResult flightAuthResult) {
-        final String username = flightAuthResult.getUserName();
-        final String token = FlightAuthUtils.createToken(flightTokenManager, username, flightAuthResult);
+        final String token = flightSessionsManager.openSession(flightAuthResult);
         return () -> token;
     }
 }

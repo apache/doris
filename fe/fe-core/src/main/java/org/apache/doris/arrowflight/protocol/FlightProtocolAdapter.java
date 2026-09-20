@@ -75,7 +75,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * closed object from the moment it is deferred: it carries what finalizing it needs and reads
  * nothing of the session's live state afterwards, since the session moves on without it (a session
  * option's SET, a metadata request, the next request) and since it may be finalized from a thread
- * that runs no command of the session (the timeout checker, a token expiry). It is finalized
+ * that runs no command of the session (the timeout checker, a CloseSession). It is finalized
  * exactly once, by whoever takes it out of the list under the list's lock -- the next request
  * ({@link #beginRequest}), the timeout checker ({@link #takeExpiredDeferredExecutors}, each
  * executor by its own deadline) or teardown ({@link #tearDown}) -- deciding and taking in one
@@ -266,12 +266,11 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     /**
-     * Every Flight SQL session teardown path - the idle timeout (wait_timeout), bearer token expiry
-     * or eviction, CloseSession, a KILL CONNECTION from another connection - reaches here through
-     * the pool's unregisterConnection. The
-     * channel-cached Arrow results go first, then the session is closed for good: teardown does not
-     * wait for a command that may still be running, and what that command defers afterwards is
-     * finalized on the spot ({@link #tearDown}).
+     * Every Flight SQL session teardown path - the idle timeout (wait_timeout), CloseSession, a
+     * KILL CONNECTION from another connection - reaches here through the pool's
+     * unregisterConnection. The channel-cached Arrow results go first, then the session is closed
+     * for good: teardown does not wait for a command that may still be running, and what that
+     * command defers afterwards is finalized on the spot ({@link #tearDown}).
      */
     @Override
     public void releaseSession(ConnectContext ctx) {
@@ -280,8 +279,8 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         } catch (Throwable t) {
             // RootAllocator.close() marks the allocator closed before it reports outstanding
             // bytes. The error is actionable, but session teardown must still release the
-            // coordinator, transaction and pool/token bookkeeping. The peer identity IS the bearer
-            // token, so it is logged as a masked id, the same one FlightTokenManagerImpl uses.
+            // coordinator, transaction and pool bookkeeping. The peer identity IS the bearer
+            // token, so it is logged as a masked id, the same one the sessions manager uses.
             LOG.warn("failed to close Flight SQL channel while unregistering connection {}, peer identity {}",
                     ctx.getConnectionId(), TokenMasker.tokenId(peerIdentity), t);
         }
@@ -474,11 +473,11 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     /**
      * Tears the session down: takes every deferred executor out of the list and finalizes it, and
-     * closes the list for good. Teardown -- CloseSession, the bearer token's expiry, KILL, the
-     * timeout checker -- does not wait for the command that may be running, so that command may
-     * still defer its query afterwards, which is then finalized on the spot
-     * ({@link #addDeferredExecutor}); and a command that was waiting for the session does not run
-     * on it ({@link #callCommand}). Reached through the pool's unregisterConnection.
+     * closes the list for good. Teardown -- CloseSession, KILL, the timeout checker -- does not
+     * wait for the command that may be running, so that command may still defer its query
+     * afterwards, which is then finalized on the spot ({@link #addDeferredExecutor}); and a command
+     * that was waiting for the session does not run on it ({@link #callCommand}). Reached through
+     * the pool's unregisterConnection.
      */
     public void tearDown() {
         List<StmtExecutor> taken;
@@ -578,7 +577,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      * finds another one still running waits for it up to the session's execution timeout and then
      * fails with {@code UNAVAILABLE} instead of running concurrently on the same context.
      *
-     * <p>Session teardown (bearer token expiry, CloseSession, KILL) does not go through here and
+     * <p>Session teardown (CloseSession, KILL, the timeout checker) does not go through here and
      * does not wait for the running command ({@link #tearDown}); a command that gets its turn
      * after teardown fails with {@code UNAUTHENTICATED}, as any later call of the session would.
      */

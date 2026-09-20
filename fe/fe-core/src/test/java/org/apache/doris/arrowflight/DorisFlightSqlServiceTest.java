@@ -17,26 +17,37 @@
 
 package org.apache.doris.arrowflight;
 
+import org.apache.doris.common.Config;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
+
 public class DorisFlightSqlServiceTest {
 
-    // The token cache size floors the effective Flight sub-quota at 1, but never the configured cap:
-    // a legal sub-quota of 0 (qe_max_connection = 1) keeps one token so the first request reaches the
-    // pool and is refused with RESOURCE_EXHAUSTED, while an illegal arrow_flight_token_cache_size (<= 0)
-    // is passed through so the base's loud failure (Guava rejects a negative maximumSize; 0 evicts every
-    // token) is preserved rather than the FE silently running on a one-token cache.
+    // The former token cache's settings are no longer read: a fe.conf that still tunes them is told so
+    // at startup, by name and value, and one that leaves them alone is not.
     @Test
-    public void testEffectiveTokenCacheSizeFloorsOnlyTheSubQuota() {
-        // Legal sub-quota of 0 -> floored to 1.
-        Assertions.assertEquals(1, DorisFlightSqlService.effectiveTokenCacheSize(0, 4096));
-        // Normal: the smaller of the sub-quota and the cap.
-        Assertions.assertEquals(512, DorisFlightSqlService.effectiveTokenCacheSize(512, 4096));
-        Assertions.assertEquals(4096, DorisFlightSqlService.effectiveTokenCacheSize(8192, 4096));
-        Assertions.assertEquals(10, DorisFlightSqlService.effectiveTokenCacheSize(512, 10));
-        // An illegal cap is not floored: it stays <= 0 for the base's loud failure.
-        Assertions.assertEquals(0, DorisFlightSqlService.effectiveTokenCacheSize(0, 0));
-        Assertions.assertEquals(-1, DorisFlightSqlService.effectiveTokenCacheSize(512, -1));
+    public void testIgnoredTokenSettingsNameOnlyWhatDiffersFromTheDefault() {
+        Assertions.assertEquals(Collections.emptyList(), DorisFlightSqlService.ignoredTokenSettings(
+                DorisFlightSqlService.DEFAULT_TOKEN_CACHE_SIZE, DorisFlightSqlService.DEFAULT_TOKEN_ALIVE_TIME_SECOND));
+        Assertions.assertEquals(Collections.singletonList("arrow_flight_token_cache_size=10"),
+                DorisFlightSqlService.ignoredTokenSettings(10, DorisFlightSqlService.DEFAULT_TOKEN_ALIVE_TIME_SECOND));
+        Assertions.assertEquals(Collections.singletonList("arrow_flight_token_alive_time_second=3600"),
+                DorisFlightSqlService.ignoredTokenSettings(DorisFlightSqlService.DEFAULT_TOKEN_CACHE_SIZE, 3600));
+        Assertions.assertEquals(
+                Arrays.asList("arrow_flight_token_cache_size=0", "arrow_flight_token_alive_time_second=0"),
+                DorisFlightSqlService.ignoredTokenSettings(0, 0));
+    }
+
+    // The defaults the startup check compares against are the fields' own, so that an untouched
+    // fe.conf is never reported.
+    @Test
+    public void testDefaultsMatchTheConfigFields() {
+        Assertions.assertEquals(DorisFlightSqlService.DEFAULT_TOKEN_CACHE_SIZE, Config.arrow_flight_token_cache_size);
+        Assertions.assertEquals(DorisFlightSqlService.DEFAULT_TOKEN_ALIVE_TIME_SECOND,
+                Config.arrow_flight_token_alive_time_second);
     }
 }
