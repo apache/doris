@@ -254,6 +254,10 @@ Status InvertedIndexColumnWriter<field_type>::add_document() {
         close_on_error();
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError add_document: {}", e.what());
+    } catch (const Exception& e) {
+        close_on_error();
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyzer error while adding document: {}", e.what());
     }
     return Status::OK();
 }
@@ -329,6 +333,9 @@ Status InvertedIndexColumnWriter<field_type>::new_inverted_index_field(const cha
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError create new index field error: {}", e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyzer error while creating new index field: {}", e.what());
     }
     return Status::OK();
 }

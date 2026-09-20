@@ -340,6 +340,62 @@ public class AnalyzerIdentityBuilderTest {
     }
 
     @Test
+    public void testCaseFoldingCharFilterAbsorbsEarlierReplacement() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                90, "lower_a", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "char_replace", "pattern", "A", "replacement", "a")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                91, "fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                92, "compose_only", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "name", "nfc")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                93, "filtered_fold", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[a-z]")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                94, "fold_only", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "ik_smart", "char_filter", "fold")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                95, "lower_then_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "ik_smart", "char_filter", "lower_a,fold")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                96, "compose_only_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "ik_smart", "char_filter", "compose_only")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                97, "lower_then_compose", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "ik_smart", "char_filter", "lower_a,compose_only")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                98, "filtered_fold_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "ik_smart", "char_filter", "filtered_fold")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                99, "lower_then_filtered_fold", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "ik_smart", "char_filter", "lower_a,filtered_fold")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertEquals(
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            nonEmptyProperties(), "fold_only", "none", "__default__", "none", null),
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            nonEmptyProperties(), "lower_then_fold", "none", "__default__", "none", null));
+            Assertions.assertNotEquals(
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            nonEmptyProperties(), "compose_only_analyzer", "none", "__default__", "none", null),
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            nonEmptyProperties(), "lower_then_compose", "none", "__default__", "none", null));
+            Assertions.assertNotEquals(
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            nonEmptyProperties(), "filtered_fold_analyzer", "none", "__default__", "none", null),
+                    AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                            nonEmptyProperties(), "lower_then_filtered_fold", "none", "__default__", "none", null));
+        }
+    }
+
+    @Test
     public void testBuiltinTokenizerIdentityIsCanonicalized() throws Exception {
         Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
                 "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);

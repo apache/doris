@@ -173,7 +173,8 @@ public final class AnalyzerIdentityBuilder {
         TreeMap<String, String> sortedProps = new TreeMap<>(properties);
         String tokenizerIdentity = resolveComponentIdentity(
                 properties.get(IndexPolicy.PROP_TOKENIZER), IndexPolicyTypeEnum.TOKENIZER);
-        boolean lowercaseIk = "ik_smart".equals(tokenizerIdentity) || "ik_max_word".equals(tokenizerIdentity);
+        boolean lowercaseDownstream =
+                "ik_smart".equals(tokenizerIdentity) || "ik_max_word".equals(tokenizerIdentity);
 
         StringBuilder sb = new StringBuilder();
         sb.append(type.name()).append(":");
@@ -189,7 +190,7 @@ public final class AnalyzerIdentityBuilder {
             } else if (IndexPolicy.PROP_TOKEN_FILTER.equals(key)) {
                 resolved = resolveTokenFilterIdentity(value);
             } else if (IndexPolicy.PROP_CHAR_FILTER.equals(key)) {
-                resolved = resolveCharFilterIdentity(value, lowercaseIk);
+                resolved = resolveCharFilterIdentity(value, lowercaseDownstream);
             }
             if (!Strings.isNullOrEmpty(resolved)) {
                 sb.append(key).append("=").append(resolved).append(";");
@@ -207,7 +208,7 @@ public final class AnalyzerIdentityBuilder {
     }
 
     private static String resolveComponentIdentity(
-            String name, IndexPolicyTypeEnum expectedType, boolean lowercaseIk) {
+            String name, IndexPolicyTypeEnum expectedType, boolean lowercaseDownstream) {
         if (Strings.isNullOrEmpty(name)) {
             return "";
         }
@@ -244,7 +245,7 @@ public final class AnalyzerIdentityBuilder {
                                 && "char_replace".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
                             String replacement = sortedProps.getOrDefault("replacement", " ");
                             String pattern = canonicalizeCharReplacePattern(
-                                    sortedProps.get("pattern"), replacement, lowercaseIk);
+                                    sortedProps.get("pattern"), replacement, lowercaseDownstream);
                             if (pattern.isEmpty()) {
                                 return "";
                             }
@@ -313,7 +314,7 @@ public final class AnalyzerIdentityBuilder {
         return resolveCharFilterIdentity(filterList, false);
     }
 
-    private static String resolveCharFilterIdentity(String filterList, boolean lowercaseIk) {
+    private static String resolveCharFilterIdentity(String filterList, boolean lowercaseDownstream) {
         if (Strings.isNullOrEmpty(filterList)) {
             return "";
         }
@@ -323,15 +324,49 @@ public final class AnalyzerIdentityBuilder {
         // DO NOT sort - filter order is semantically significant
 
         for (int i = filters.length - 1; i >= 0; --i) {
-            String filter = resolveComponentIdentity(filters[i].trim(), IndexPolicyTypeEnum.CHAR_FILTER, lowercaseIk);
+            String filterName = filters[i].trim();
+            String filter = resolveComponentIdentity(
+                    filterName, IndexPolicyTypeEnum.CHAR_FILTER, lowercaseDownstream);
             if (Strings.isNullOrEmpty(filter)) {
                 continue;
             }
             identities.addFirst(filter);
-            // An earlier replacement can change the input of a later filter.
-            lowercaseIk = false;
+            lowercaseDownstream = isCaseFoldingCharFilter(filterName);
         }
         return String.join(",", identities);
+    }
+
+    private static boolean isCaseFoldingCharFilter(String name) {
+        if (Strings.isNullOrEmpty(name)) {
+            return false;
+        }
+
+        try {
+            Env env = Env.getCurrentEnv();
+            if (env != null && env.getIndexPolicyMgr() != null) {
+                IndexPolicy policy = env.getIndexPolicyMgr().getPolicyByName(name);
+                if (policy != null && policy.getType() == IndexPolicyTypeEnum.CHAR_FILTER) {
+                    if (policy.isInvalid()) {
+                        return false;
+                    }
+                    Map<String, String> properties = policy.getProperties();
+                    if (properties != null && !properties.isEmpty()) {
+                        String type = normalizeBuiltinComponentName(
+                                properties.get(IndexPolicy.PROP_TYPE), IndexPolicyTypeEnum.CHAR_FILTER);
+                        String normalizer = properties.getOrDefault("name", "nfkc_cf").trim();
+                        String unicodeSet = properties.getOrDefault("unicode_set_filter", "").trim();
+                        return "icu_normalizer".equals(type)
+                                && "nfkc_cf".equalsIgnoreCase(normalizer)
+                                && unicodeSet.isEmpty();
+                    }
+                }
+            }
+        } catch (RuntimeException e) {
+            // Fall through to built-in resolution.
+        }
+
+        return "icu_normalizer".equals(
+                normalizeBuiltinComponentName(name, IndexPolicyTypeEnum.CHAR_FILTER));
     }
 
     private static String appendOuterCharFilterIdentity(

@@ -76,6 +76,15 @@ public:
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out);
     Status finish() override;
 
+#ifdef BE_TEST
+    void set_analysis_for_test(ReaderPtr reader,
+                               std::shared_ptr<lucene::analysis::Analyzer> analyzer) {
+        _should_analyzer = true;
+        _char_string_reader = std::move(reader);
+        _analyzer = std::move(analyzer);
+    }
+#endif
+
 private:
     rowid_t _rid = 0;
     uint32_t _row_ids_seen_for_bkd = 0;

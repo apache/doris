@@ -33,6 +33,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
@@ -116,6 +117,34 @@ public:
 
 private:
     std::unique_ptr<GappedTokenStream> _reusable;
+};
+
+class ImmediateFailureAnalyzer final : public lucene::analysis::Analyzer {
+public:
+    bool isSDocOpt() override { return true; }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       lucene::util::Reader*) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
+
+    lucene::analysis::TokenStream* tokenStream(const TCHAR*,
+                                               const inverted_index::ReaderPtr&) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
+
+    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
+                                                       const inverted_index::ReaderPtr&) override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced analyzer construction failure");
+    }
 };
 
 class InvertedIndexWriterTest : public testing::Test {
@@ -1234,6 +1263,42 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
     EXPECT_TRUE(status.ok()) << status;
     status = index_file_writer->finish_close();
     EXPECT_TRUE(status.ok()) << status;
+}
+
+TEST_F(InvertedIndexWriterTest, AnalyzerExceptionReturnsStatus) {
+    auto tablet_schema = create_schema();
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(1);
+    index_pb.set_index_name("test_analyzer_failure");
+    index_pb.add_col_unique_id(1);
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+
+    const std::string rowset_id = "test_analyzer_failure";
+    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, rowset_id, 0))};
+    const std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_file(index_path, &file_writer, &opts).ok());
+    IndexFileWriter index_file_writer(fs, index_path_prefix, rowset_id, 0,
+                                      InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+    const TabletColumn& column = tablet_schema->column(1);
+    InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR> writer(
+            column.name(), &index_file_writer, &index_meta);
+    ASSERT_TRUE(writer.init().ok());
+    writer.set_analysis_for_test(inverted_index::InvertedIndexAnalyzer::create_reader({}),
+                                 std::make_shared<ImmediateFailureAnalyzer>());
+
+    const Slice value("value");
+    Status status;
+    EXPECT_NO_THROW(status = writer.add_values(column.name(), &value, 1));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
 }
 
 // Test case for array values with mixed null and non-null elements

@@ -25,6 +25,8 @@ suite("test_analyzer_identity_semantics", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_identity_char_replace_alter"
     sql "DROP TABLE IF EXISTS test_identity_noop_create"
     sql "DROP TABLE IF EXISTS test_identity_noop_alter"
+    sql "DROP TABLE IF EXISTS test_identity_fold_create"
+    sql "DROP TABLE IF EXISTS test_identity_fold_alter"
     for (String mode : ["ik_smart", "ik_max_word"]) {
         sql "DROP TABLE IF EXISTS test_identity_ik_lowercase_create_${mode}"
         sql "DROP TABLE IF EXISTS test_identity_ik_lowercase_alter_${mode}"
@@ -32,11 +34,13 @@ suite("test_analyzer_identity_semantics", "nonConcurrent") {
     for (String analyzer : ["test_identity_ab", "test_identity_ba", "test_identity_duplicates",
                             "test_identity_noop", "test_identity_plain",
                             "test_identity_plain_ik_smart", "test_identity_filtered_ik_smart",
-                            "test_identity_plain_ik_max_word", "test_identity_filtered_ik_max_word"]) {
+                            "test_identity_plain_ik_max_word", "test_identity_filtered_ik_max_word",
+                            "test_identity_fold_only", "test_identity_lower_then_fold"]) {
         try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${analyzer}"
     }
     for (String filter : ["test_identity_cf_ab", "test_identity_cf_ba",
-                         "test_identity_cf_duplicates", "test_identity_cf_noop", "test_identity_cf_lower_a"]) {
+                         "test_identity_cf_duplicates", "test_identity_cf_noop", "test_identity_cf_lower_a",
+                         "test_identity_cf_fold"]) {
         try_sql "DROP INVERTED INDEX CHAR_FILTER IF EXISTS ${filter}"
     }
 
@@ -182,6 +186,50 @@ suite("test_analyzer_identity_semantics", "nonConcurrent") {
         CREATE INVERTED INDEX CHAR_FILTER test_identity_cf_lower_a
         PROPERTIES("type"="char_replace", "pattern"="A", "replacement"="a")
     """
+    sql """
+        CREATE INVERTED INDEX CHAR_FILTER test_identity_cf_fold
+        PROPERTIES("type"="icu_normalizer")
+    """
+    sql """
+        CREATE INVERTED INDEX ANALYZER test_identity_fold_only
+        PROPERTIES("tokenizer"="ik_smart", "char_filter"="test_identity_cf_fold")
+    """
+    sql """
+        CREATE INVERTED INDEX ANALYZER test_identity_lower_then_fold
+        PROPERTIES("tokenizer"="ik_smart",
+                   "char_filter"="test_identity_cf_lower_a,test_identity_cf_fold")
+    """
+    test {
+        sql """
+            CREATE TABLE test_identity_fold_create (
+                id INT, content STRING,
+                INDEX idx_fold (content) USING INVERTED
+                    PROPERTIES("analyzer"="test_identity_fold_only"),
+                INDEX idx_redundant (content) USING INVERTED
+                    PROPERTIES("analyzer"="test_identity_lower_then_fold")
+            ) DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES("replication_allocation"="tag.location.default: 1")
+        """
+        exception "cannot have multiple inverted indexes"
+    }
+    sql """
+        CREATE TABLE test_identity_fold_alter (
+            id INT, content STRING,
+            INDEX idx_fold (content) USING INVERTED
+                PROPERTIES("analyzer"="test_identity_fold_only")
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_allocation"="tag.location.default: 1")
+    """
+    test {
+        sql """
+            ALTER TABLE test_identity_fold_alter
+            ADD INDEX idx_redundant (content) USING INVERTED
+            PROPERTIES("analyzer"="test_identity_lower_then_fold")
+        """
+        exception "already exists"
+    }
     for (String mode : ["ik_smart", "ik_max_word"]) {
         sql """
             CREATE INVERTED INDEX ANALYZER test_identity_plain_${mode}
