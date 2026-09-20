@@ -54,7 +54,6 @@ import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter
 import org.apache.doris.nereids.stats.GroupStructInfo;
 import org.apache.doris.nereids.stats.HboJoinConditions;
 import org.apache.doris.nereids.stats.HboPlanInfoProvider;
-import org.apache.doris.nereids.stats.HboScanDescriptor;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -62,7 +61,6 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
-import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
@@ -98,7 +96,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.cache.CacheAnalyzer;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
@@ -1394,48 +1391,7 @@ public class NereidsPlanner extends Planner {
             sb.append("  (no hbo fingerprint attached; check that the plan went through the "
                     + "planner attach step)\n");
         }
-        appendHboScanBaselines(sb);
         return sb.toString();
-    }
-
-    /**
-     * Append the data state of every olap scan of the plan which just got its hbo annotations: the
-     * numbers a hbo entry is judged by (see {@link HboScanDescriptor}). They are what the read side
-     * compares with the baseline an entry records, so they explain here why an entry applied
-     * ({@code used=live} / {@code used=drifted(...)}) or was rejected ({@code skipped=stale(...)}),
-     * and what a new injection would be measured on.
-     */
-    private void appendHboScanBaselines(StringBuilder sb) {
-        List<AbstractPlan> nodes = new ArrayList<>();
-        collectPlanNodes(physicalPlan, nodes);
-        List<AbstractPlan> scans = new ArrayList<>();
-        for (AbstractPlan node : nodes) {
-            if (node instanceof PhysicalOlapScan) {
-                scans.add(node);
-            }
-        }
-        if (scans.isEmpty()) {
-            return;
-        }
-        scans.sort((a, b) -> Integer.compare(a.getId(), b.getId()));
-        sb.append("\nHBO table baselines (data state of this query, one line per scan):\n");
-        for (AbstractPlan scan : scans) {
-            sb.append("  [").append(scan.getId()).append("] ").append(scanName(scan));
-            try {
-                HboScanDescriptor descriptor = HboScanDescriptor.of((OlapScan) scan);
-                sb.append(" rows=").append(descriptor.hasScanRows()
-                                ? String.valueOf(descriptor.getScanRows()) : "-")
-                        .append(" version=").append(descriptor.hasVisibleVersion()
-                                ? String.valueOf(descriptor.getVisibleVersion()) : "-")
-                        .append(" partitions=").append(descriptor.getSelectedPartitions())
-                        .append('/').append(descriptor.getTotalPartitions());
-            } catch (RpcException e) {
-                // the data state of a scan whose version is not readable is reported as unknown
-                // instead of failing the explain statement
-                sb.append(" rows=- version=- partitions=-");
-            }
-            sb.append("\n");
-        }
     }
 
     /**

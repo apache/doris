@@ -538,12 +538,13 @@ public class GroupStructInfo {
      * <p>The fingerprint of a plan and the sort key of a join chain leaf are built by the traversal
      * itself, which knows where every scan token starts and ends. This text based variant is only for
      * the struct info a user pasted into {@code HBO SET STATISTICS}, whose sha256 has to match the
-     * fingerprint the user copied. A literal value which looks like a scan token (a string starting
-     * with {@code S{} and containing a {@code ,}) cannot be told apart from one there, so such a
-     * struct info is rejected: that statement cannot be used for that node, in either literal mode
+     * fingerprint the user copied. A literal value which looks like a scan token (a string which
+     * starts like one and contains a comma) cannot be told apart from one there, so such a struct
+     * info is rejected: that statement cannot be used for that node, in either literal mode
      * (there is no workaround). That is a rejected statement, never a wrong key - the fingerprint of
      * a plan is not computed by this method. A table name which contains the delimiters is not
-     * printed at all, because such a canonical form could not be read back (see appendScan).
+     * printed at all, because such a canonical form could not be read back (see the scan token in
+     * {@code appendScan}).
      */
     public static String stripScanBaseline(String canonicalString) {
         StringBuilder sb = new StringBuilder(canonicalString.length());
