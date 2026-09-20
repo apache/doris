@@ -1301,6 +1301,44 @@ TEST_F(InvertedIndexWriterTest, AnalyzerExceptionReturnsStatus) {
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
 }
 
+TEST_F(InvertedIndexWriterTest, ArrayAnalyzerExceptionReturnsStatus) {
+    auto tablet_schema = create_schema();
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(1);
+    index_pb.set_index_name("test_array_analyzer_failure");
+    index_pb.add_col_unique_id(1);
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+
+    const std::string rowset_id = "test_array_analyzer_failure";
+    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, rowset_id, 0))};
+    const std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_file(index_path, &file_writer, &opts).ok());
+    IndexFileWriter index_file_writer(fs, index_path_prefix, rowset_id, 0,
+                                      InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+    const TabletColumn& column = tablet_schema->column(1);
+    InvertedIndexColumnWriter<FieldType::OLAP_FIELD_TYPE_VARCHAR> writer(
+            column.name(), &index_file_writer, &index_meta);
+    ASSERT_TRUE(writer.init().ok());
+    writer.set_analysis_for_test(inverted_index::InvertedIndexAnalyzer::create_reader({}),
+                                 std::make_shared<ImmediateFailureAnalyzer>());
+
+    const Slice value("value");
+    const uint64_t offsets[] = {0, 1};
+    Status status;
+    EXPECT_NO_THROW(status = writer.add_array_values(sizeof(Slice), &value, nullptr,
+                                                     reinterpret_cast<const uint8_t*>(offsets), 1));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
+}
+
 // Test case for array values with mixed null and non-null elements
 TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     // Create TabletSchema with array column (reference inverted_index_array_test.cpp)
