@@ -15,21 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/function/cast/cast_to_string.h"
 #include "exprs/function/cast/cast_to_uuid.h"
-
-namespace doris {
-
-std::string CastToString::from_uuid(UUIDValueType value) {
-    return UUIDValue::to_string(value);
-}
-
-void CastToString::push_uuid(UUIDValueType value, BufferWritable& bw) {
-    const auto str = UUIDValue::to_string(value);
-    bw.write(str.data(), str.size());
-}
-
-} // namespace doris
 
 namespace doris::CastWrapper {
 

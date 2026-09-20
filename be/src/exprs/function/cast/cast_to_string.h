@@ -23,6 +23,7 @@
 #include "core/types.h"
 #include "core/value/time_value.h"
 #include "core/value/timestamp_ns_value.h"
+#include "core/value/uuid_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "runtime/runtime_state.h"
 #include "util/mysql_global.h"
@@ -32,8 +33,8 @@ struct CastToString {
     static inline std::string from_int128(int128_t value);
     static inline std::string from_uint128(uint128_t value);
     static inline std::string from_uint128(UInt128 value);
-    static std::string from_uuid(UUIDValueType value);
-    static void push_uuid(UUIDValueType value, BufferWritable& bw);
+    static inline std::string from_uuid(UUIDValueType value);
+    static inline void push_uuid(UUIDValueType value, BufferWritable& bw);
 
     template <class SRC>
     static inline std::string from_number(const SRC& from);
@@ -562,6 +563,16 @@ inline void CastToString::push_time(const TimeValue::TimeType& from, UInt32 scal
                                     BufferWritable& bw) {
     std::string str = timev2_to_buffer_from_double(from, scale);
     bw.write(str.data(), str.size());
+}
+
+inline std::string CastToString::from_uuid(UUIDValueType value) {
+    return UUIDValue::to_string(value);
+}
+
+inline void CastToString::push_uuid(UUIDValueType value, BufferWritable& bw) {
+    bw.resize(UUIDValue::TEXT_LENGTH);
+    UUIDValue::to_string(value, bw.data());
+    bw.add_offset(UUIDValue::TEXT_LENGTH);
 }
 
 class CastToStringFunction {
