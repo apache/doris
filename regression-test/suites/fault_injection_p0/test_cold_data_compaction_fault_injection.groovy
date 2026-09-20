@@ -16,36 +16,37 @@
 // under the License.
 
 import com.amazonaws.services.s3.model.ListObjectsRequest
+import org.apache.doris.regression.suite.ClusterOptions
 import java.util.function.Supplier
 
-suite("test_cold_data_compaction_fault_injection", "nonConcurrent") {
-    // CloudStorageEngine does not schedule local cold-data migration or compaction.
-    if (isCloudMode()) {
-        return
-    }
-    GetDebugPoint().clearDebugPointsForAllBEs()
-    def retryUntilTimeout = { int timeoutSecond, Supplier<Boolean> closure ->
-        long start = System.currentTimeMillis()
-        while (true) {
-            if (closure.get()) {
-                return
-            } else {
-                if (System.currentTimeMillis() - start > timeoutSecond * 1000) {
-                    throw new RuntimeException("" +
-                            "Operation timeout, maybe you need to check " +
-                            "remove_unused_remote_files_interval_sec and " +
-                            "cold_data_compaction_interval_sec in be.conf")
-                } else {
-                    sleep(10_000)
+suite("test_cold_data_compaction_fault_injection", "docker") {
+    def options = new ClusterOptions()
+    options.cloudMode = false
+    options.beNum = 1
+    options.enableDebugPoints()
+    // Five remote rowsets have a cold compaction score of 5. Set the threshold
+    // and scheduler interval before this isolated BE starts.
+    options.beConfigs.add('cold_data_compaction_score_threshold=4')
+    options.beConfigs.add('cold_data_compaction_interval_sec=60')
+
+    docker(options) {
+        def retryUntilTimeout = { int timeoutSecond, Supplier<Boolean> closure ->
+            long start = System.currentTimeMillis()
+            while (true) {
+                if (closure.get()) {
+                    return
                 }
+                if (System.currentTimeMillis() - start > timeoutSecond * 1000) {
+                    throw new RuntimeException("Operation timed out after ${timeoutSecond} seconds")
+                }
+                sleep(10_000)
             }
         }
-    }
-    def tabletName = "test_cold_data_compaction_fault_injection"
+        def tabletName = "test_cold_data_compaction_fault_injection"
+        String suffix = UUID.randomUUID().hashCode().abs().toString()
+        String s3Prefix = "regression/cold_data_compaction/${suffix}"
 
-    String suffix = UUID.randomUUID().hashCode().abs().toString()
-    String s3Prefix = "regression/cold_data_compaction/${suffix}"
-    multi_sql """
+        multi_sql """
             DROP TABLE IF EXISTS ${tabletName} force;
             DROP STORAGE POLICY IF EXISTS test_policy_${suffix};
             DROP RESOURCE IF EXISTS 'remote_s3_${suffix}';
@@ -83,57 +84,81 @@ suite("test_cold_data_compaction_fault_injection", "nonConcurrent") {
             );
         """
 
-    // insert 5 RowSets
-    multi_sql """
+        // Insert five rowsets while automatic compaction is disabled.
+        multi_sql """
         insert into ${tabletName} values(1, 1, 'Tom');
         insert into ${tabletName} values(2, 2, 'Jelly');
         insert into ${tabletName} values(3, 3, 'Spike');
         insert into ${tabletName} values(4, 4, 'Tyke');
         insert into ${tabletName} values(5, 5, 'Tuffy');
-    """
+        """
 
-    // wait until files upload to S3
-    retryUntilTimeout(900, {
-        def res = sql_return_maparray "show data from ${tabletName}"
-        String size = ""
-        String remoteSize = ""
-        for (final def line in res) {
-            if (tabletName.equals(line.TableName)) {
-                size = line.Size
-                remoteSize = line.RemoteSize
-                break
-            }
-        }
-        logger.info("waiting for data to be uploaded to S3: ${tabletName}'s local data size: ${size}, remote data size: ${remoteSize}")
-        return size.startsWith("0") && !remoteSize.startsWith("0")
-    })
-
-    String tabletId = sql_return_maparray("show tablets from ${tabletName}")[0].TabletId
-    // check number of remote files
-    def filesBeforeCompaction = getS3Client().listObjects(
-            new ListObjectsRequest().withBucketName(getS3BucketName()).withPrefix(s3Prefix + "/data/${tabletId}")).getObjectSummaries()
-
-    // 5 RowSets + 1 meta
-    assertEquals(6, filesBeforeCompaction.size())
-
-    try {
-        GetDebugPoint().clearDebugPointsForAllBEs()
-        GetDebugPoint().enableDebugPointForAllBEs("Tablet._calc_cumulative_compaction_score.return")
-        // trigger cold data compaction
-        sql """alter table ${tabletName} set ("disable_auto_compaction" = "false")"""
-
-        // wait until compaction finish
+        // Wait until all five rowsets have moved to S3.
         retryUntilTimeout(900, {
-            def filesAfterCompaction = getS3Client().listObjects(
-                    new ListObjectsRequest().withBucketName(getS3BucketName()).withPrefix(s3Prefix+ "/data/${tabletId}")).getObjectSummaries()
-            logger.info("${tabletName}'s remote file number is ${filesAfterCompaction.size()}")
-            // 1 RowSet + 1 meta
-            return filesAfterCompaction.size() == 7
+            def res = sql_return_maparray "show data from ${tabletName}"
+            String size = ""
+            String remoteSize = ""
+            for (final def line in res) {
+                if (tabletName.equals(line.TableName)) {
+                    size = line.Size
+                    remoteSize = line.RemoteSize
+                    break
+                }
+            }
+            logger.info("waiting for data to be uploaded to S3: ${tabletName}'s local data size: ${size}, remote data size: ${remoteSize}")
+            return size.startsWith("0") && !remoteSize.startsWith("0")
         })
 
-        sql "drop table ${tabletName} force"
-    } finally {
-        GetDebugPoint().disableDebugPointForAllBEs("Tablet._calc_cumulative_compaction_score.return")
+        def tablet = sql_return_maparray("show tablets from ${tabletName}")[0]
+        String tabletId = tablet.TabletId.toString()
+        def backend = sql_return_maparray("show backends").find {
+            it.BackendId.toString() == tablet.BackendId.toString()
+        }
+        assertNotNull(backend)
+        def readRowsets = {
+            def (code, out, err) = be_show_tablet_status(
+                    backend.Host.toString(), backend.HttpPort.toString(), tabletId)
+            assertEquals(0, code)
+            return parseJson(out).rowsets
+        }
+
+        def remoteFiles = {
+            getS3Client().listObjects(new ListObjectsRequest()
+                    .withBucketName(getS3BucketName())
+                    .withPrefix(s3Prefix + "/data/${tabletId}")).getObjectSummaries()
+        }
+        def filesBeforeCompaction = remoteFiles()
+        // Five data files and one cooldown metadata file.
+        assertEquals(6, filesBeforeCompaction.size())
+        def dataKeysBefore = filesBeforeCompaction.findAll { it.getKey().endsWith(".dat") }
+                .collect { it.getKey() }.toSet()
+        assertEquals(5, dataKeysBefore.size())
+        def rowsetsBefore = readRowsets()
+
         GetDebugPoint().clearDebugPointsForAllBEs()
+        try {
+            GetDebugPoint().enableDebugPointForAllBEs("Tablet._calc_cumulative_compaction_score.return")
+            sql """alter table ${tabletName} set ("disable_auto_compaction" = "false")"""
+
+            // The five remote rowsets must become one while cumulative compaction is blocked.
+            retryUntilTimeout(900, {
+                def rowsetsAfter = readRowsets()
+                logger.info("${tabletName}'s rowsets before: ${rowsetsBefore}, after: ${rowsetsAfter}")
+                return rowsetsAfter.size() == rowsetsBefore.size() - 4
+            })
+
+            // File reclamation is asynchronous, so compare data-file keys, not total file count.
+            def dataKeysAfter = remoteFiles().findAll { it.getKey().endsWith(".dat") }
+                    .collect { it.getKey() }.toSet()
+            assertTrue((dataKeysAfter - dataKeysBefore).size() > 0)
+
+            def rows = sql "select k1, k2, v1 from ${tabletName} order by k1"
+            assertEquals(["1|1|Tom", "2|2|Jelly", "3|3|Spike", "4|4|Tyke", "5|5|Tuffy"],
+                    rows.collect { row -> row.collect { it.toString() }.join("|") })
+            sql "drop table ${tabletName} force"
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("Tablet._calc_cumulative_compaction_score.return")
+            GetDebugPoint().clearDebugPointsForAllBEs()
+        }
     }
 }
