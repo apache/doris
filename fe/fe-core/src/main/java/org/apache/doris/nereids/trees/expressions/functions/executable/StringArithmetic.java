@@ -1044,8 +1044,8 @@ public class StringArithmetic {
             // fragment and the url has no query component.
             return null;
         }
-        String queryStart = protocolEnd.substring(startPos + 1);
-        return substringEnd(queryStart, queryStart.indexOf('#'));
+        return protocolEnd.substring(startPos + 1,
+                fragmentPos >= 0 ? fragmentPos : protocolEnd.length());
     }
 
     private static String parseUrlRef(String protocolEnd) {
