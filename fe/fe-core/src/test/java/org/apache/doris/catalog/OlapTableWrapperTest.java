@@ -134,6 +134,8 @@ public class OlapTableWrapperTest {
 
         CloudPartition stalePartition = Mockito.mock(CloudPartition.class);
         Mockito.when(stalePartition.getId()).thenReturn(stalePartitionId);
+        // Simulate another query refreshing the shared cache after the first cached-state check.
+        Mockito.when(stalePartition.hasDataCached()).thenReturn(false, true);
         CloudPartition cachedNonEmptyPartition = Mockito.mock(CloudPartition.class);
         Mockito.when(cachedNonEmptyPartition.getId()).thenReturn(cachedNonEmptyPartitionId);
         Mockito.when(cachedNonEmptyPartition.hasDataCached()).thenReturn(true);
@@ -155,6 +157,8 @@ public class OlapTableWrapperTest {
                     wrapper.selectNonEmptyPartitionIds(partitionIds, Optional.empty()));
             mockedPartition.verify(() -> CloudPartition.getSnapshotVisibleVersionFromMs(
                     ImmutableList.of(stalePartition), false));
+            Mockito.verify(stalePartition).hasDataCached();
+            Mockito.verify(cachedNonEmptyPartition).hasDataCached();
         }
     }
 

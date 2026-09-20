@@ -222,17 +222,18 @@ public class CloudPartition extends Partition {
     }
 
     private static List<Long> selectNonEmptyPartitionIds(List<CloudPartition> partitions, boolean forceRefresh) {
-        List<Long> nonEmptyPartitionIds = partitions.stream()
-                .filter(CloudPartition::hasDataCached)
-                .map(CloudPartition::getId)
-                .collect(Collectors.toList());
-        if (nonEmptyPartitionIds.size() == partitions.size()) {
+        List<Long> nonEmptyPartitionIds = new ArrayList<>(partitions.size());
+        List<CloudPartition> unknowns = new ArrayList<>(partitions.size());
+        for (CloudPartition partition : partitions) {
+            if (partition.hasDataCached()) {
+                nonEmptyPartitionIds.add(partition.getId());
+            } else {
+                unknowns.add(partition);
+            }
+        }
+        if (unknowns.isEmpty()) {
             return nonEmptyPartitionIds;
         }
-
-        List<CloudPartition> unknowns = partitions.stream()
-                .filter(p -> !p.hasDataCached())
-                .collect(Collectors.toList());
 
         SummaryProfile profile = getSummaryProfile();
         if (profile != null) {
