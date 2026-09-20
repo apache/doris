@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -183,7 +184,7 @@ struct AggregateFunctionTopNData {
         writer.StartObject();
         for (int i = 0; i < std::min((int)counter_vector.size(), top_num); i++) {
             const auto& element = counter_vector[i];
-            writer.Key(element.second.c_str());
+            writer.Key(element.second.data(), cast_set<rapidjson::SizeType>(element.second.size()));
             writer.Uint64(element.first);
         }
         writer.EndObject();
