@@ -149,10 +149,10 @@ private:
 
     std::unique_ptr<PaimonHandles> _handles; // cached table + per-split pipeline
     // Identity of the opened table so consecutive splits reuse the handle.
-    std::optional<std::tuple<std::string /*table_path*/, std::string /*schema_json*/,
-                             std::string /*db*/, std::string /*table*/,
-                             std::optional<std::string> /*branch*/,
-                             std::map<std::string, std::string> /*options*/>>
+    std::optional<
+            std::tuple<std::string /*table_path*/, std::string /*schema_json*/, std::string /*db*/,
+                       std::string /*table*/, std::optional<std::string> /*branch*/,
+                       std::map<std::string, std::string> /*options*/>>
             _opened_table_key;
     // Projected column name (exact and lower-case) -> output block position.
     std::unordered_map<std::string, size_t> _output_name_to_idx;

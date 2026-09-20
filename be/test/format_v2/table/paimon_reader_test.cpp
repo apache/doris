@@ -980,13 +980,11 @@ TEST(PaimonHybridReaderTest, DispatchesNativeThenRustSplitToMatchingReader) {
     // child is a tracking stub, proving dispatch reaches it without native
     // normalization.
     SplitFormatTrackingTableReader* rust_tracking_reader = nullptr;
-    reader.TEST_set_child_reader_factories(
-            nullptr, nullptr,
-            [&] {
-                auto child = std::make_unique<SplitFormatTrackingTableReader>();
-                rust_tracking_reader = child.get();
-                return child;
-            });
+    reader.TEST_set_child_reader_factories(nullptr, nullptr, [&] {
+        auto child = std::make_unique<SplitFormatTrackingTableReader>();
+        rust_tracking_reader = child.get();
+        return child;
+    });
     ASSERT_TRUE(reader.init({
                                     .projected_columns = {},
                                     .conjuncts = {},
