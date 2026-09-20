@@ -1132,7 +1132,8 @@ public class IcebergUtils {
                 long timestampMicros = (Long) value;
                 TimestampType timestampType = (TimestampType) type;
                 LocalDateTime timestamp = LocalDateTime.ofEpochSecond(
-                        timestampMicros / 1_000_000, (int) (timestampMicros % 1_000_000) * 1000,
+                        Math.floorDiv(timestampMicros, 1_000_000L),
+                        Math.toIntExact(Math.floorMod(timestampMicros, 1_000_000L) * 1_000L),
                         ZoneOffset.UTC);
                 // type is timestamptz if timestampType.shouldAdjustToUTC() is true
                 if (timestampType.shouldAdjustToUTC()) {

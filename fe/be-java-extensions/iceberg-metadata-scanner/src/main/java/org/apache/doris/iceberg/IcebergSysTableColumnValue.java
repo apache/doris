@@ -136,13 +136,19 @@ public class IcebergSysTableColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getDateTime() {
-        Instant instant = Instant.ofEpochMilli((((long) fieldData) / 1000));
-        return LocalDateTime.ofInstant(instant, ZoneId.of(timezone));
+        long micros = (long) fieldData;
+        return LocalDateTime.ofEpochSecond(
+                Math.floorDiv(micros, 1_000_000L),
+                Math.toIntExact(Math.floorMod(micros, 1_000_000L) * 1_000L),
+                ZoneOffset.UTC);
     }
 
     @Override
     public LocalDateTime getTimeStampTz() {
-        Instant instant = Instant.ofEpochMilli((((long) fieldData) / 1000));
+        long micros = (long) fieldData;
+        Instant instant = Instant.ofEpochSecond(
+                Math.floorDiv(micros, 1_000_000L),
+                Math.floorMod(micros, 1_000_000L) * 1_000L);
         return LocalDateTime.ofInstant(instant, ZoneId.of("UTC"));
     }
 
