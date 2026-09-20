@@ -395,6 +395,31 @@ public class MetaCacheTest {
     }
 
     @Test
+    public void testGetRemoteNameKeepsFirstDuplicateLocalName() {
+        ExecutorService executor = Executors.newCachedThreadPool();
+        MetaCache<String> testCache = new MetaCache<>(
+                "testCache",
+                executor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                100,
+                key -> Lists.newArrayList(
+                        Pair.of("first_remote", "duplicate_local"),
+                        Pair.of("second_remote", "duplicate_local")),
+                key -> Optional.empty(),
+                (key, value, cause) -> {
+                }
+        );
+
+        try {
+            Assert.assertEquals(Lists.newArrayList("duplicate_local"), testCache.listNames());
+            Assert.assertEquals("first_remote", testCache.getRemoteName("duplicate_local"));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testGetMetaObj() {
         metaCache.updateCache("remote1", "local1", "meta1", 1L);
         metaCache.updateCache("remote2", "local2", "meta2", 2L);
@@ -1477,6 +1502,76 @@ public class MetaCacheTest {
 
         // Verify that cache loader was invoked exactly twice
         Assert.assertTrue(loadLatch.await(1, TimeUnit.SECONDS));
+    }
+
+    @Test
+    public void testGetMetaObjByIdRecoversAfterEmptyEntryEviction() {
+        AtomicBoolean objectExists = new AtomicBoolean(false);
+        ExecutorService executor = Executors.newCachedThreadPool();
+        MetaCache<String> testCache = new MetaCache<>(
+                "testCache",
+                executor,
+                OptionalLong.of(1),
+                OptionalLong.of(1),
+                100,
+                key -> Lists.newArrayList(),
+                key -> objectExists.get() ? Optional.of("loaded_" + key) : Optional.empty(),
+                (key, value, cause) -> {
+                }
+        );
+
+        try {
+            Assert.assertFalse(testCache.getMetaObj("recoverable_key", 1L).isPresent());
+            testCache.getMetaObjCache().invalidate("recoverable_key");
+            objectExists.set(true);
+
+            Optional<String> recovered = testCache.getMetaObjById(1L);
+            Assert.assertTrue(recovered.isPresent());
+            Assert.assertEquals("loaded_recoverable_key", recovered.get());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testInvalidateObjectsPreservesConcurrentReloadIdRoute() throws Exception {
+        CountDownLatch removalStarted = new CountDownLatch(1);
+        CountDownLatch releaseRemoval = new CountDownLatch(1);
+        ExecutorService executor = Executors.newCachedThreadPool();
+        MetaCache<String> testCache = new MetaCache<>(
+                "testCache",
+                executor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                100,
+                key -> Lists.newArrayList(),
+                key -> Optional.of("reloaded_" + key),
+                (key, value, cause) -> {
+                    removalStarted.countDown();
+                    try {
+                        releaseRemoval.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new CompletionException(e);
+                    }
+                }
+        );
+
+        testCache.updateCache("remote_key", "local_key", "initial_value", 1L);
+        Future<?> invalidation = executor.submit(testCache::invalidateObjects);
+        try {
+            Assert.assertTrue(removalStarted.await(3, TimeUnit.SECONDS));
+            Future<Optional<String>> reload = executor.submit(() -> testCache.getMetaObj("local_key", 1L));
+            Assert.assertEquals(Optional.of("reloaded_local_key"), reload.get(3, TimeUnit.SECONDS));
+
+            releaseRemoval.countDown();
+            invalidation.get(3, TimeUnit.SECONDS);
+            Assert.assertEquals(Optional.of("reloaded_local_key"), testCache.getMetaObjById(1L));
+        } finally {
+            releaseRemoval.countDown();
+            executor.shutdownNow();
+            Assert.assertTrue(executor.awaitTermination(3, TimeUnit.SECONDS));
+        }
     }
 
     @Test

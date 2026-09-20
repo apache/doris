@@ -73,6 +73,7 @@ public class MetaCache<T> {
     private long minimumLoadGeneration;
     //Pair<String, String> : <Remote name, Local name>
     private Map<Long, String> idToName = Maps.newConcurrentMap();
+    private final CacheLoader<String, Optional<T>> metaObjCacheLoader;
     private LoadingCache<String, Optional<T>> metaObjCache;
 
     private String name;
@@ -143,6 +144,7 @@ public class MetaCache<T> {
         this.namesRefreshExecutor = executor;
         this.namesRefreshAfterWriteNanos = refreshAfterWriteSec.isPresent()
                 ? TimeUnit.SECONDS.toNanos(refreshAfterWriteSec.getAsLong()) : Long.MAX_VALUE;
+        this.metaObjCacheLoader = metaObjCacheLoader;
 
         // ATTN:
         // The refreshAfterWriteSec is only used for metaObjCache, not for namesCache.
@@ -359,7 +361,7 @@ public class MetaCache<T> {
     private Map<String, Pair<String, String>> toNamesMap(List<Pair<String, String>> names) {
         Map<String, Pair<String, String>> namesMap = Maps.newLinkedHashMap();
         for (Pair<String, String> pair : names) {
-            namesMap.put(pair.value(), pair);
+            namesMap.putIfAbsent(pair.value(), pair);
         }
         return namesMap;
     }
@@ -453,14 +455,25 @@ public class MetaCache<T> {
             LOG.debug("trigger getMetaObj in metacache {}, obj name: {}, id: {}",
                     this.name, name, id, new Exception());
         }
-        // Do not hold a cache-wide monitor during the blocking loader call
-        // (buildDbForInit → connector I/O). Caffeine serializes same-key loads internally;
-        // different keys can load in parallel without blocking updateCache/invalidate.
-        val = metaObjCache.get(name);
-        if (val != null && val.isPresent()) {
-            idToName.put(id, name);
-        }
+        // Use Caffeine's per-key computation so an Optional.empty() entry is retried once for
+        // concurrent callers without invalidating a value published by another same-key load.
+        val = metaObjCache.asMap().compute(name,
+                (key, current) -> current != null && current.isPresent() ? current : loadMetaObj(key));
+        idToName.put(id, name);
         return val;
+    }
+
+    private Optional<T> loadMetaObj(String key) {
+        try {
+            return metaObjCacheLoader.load(key);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CompletionException(e);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CompletionException(e);
+        }
     }
 
     public Optional<T> tryGetMetaObj(String name) {
@@ -540,8 +553,8 @@ public class MetaCache<T> {
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalidate objects in metacache {}", name, new Exception());
         }
-        metaObjCache.invalidateAll();
         idToName.clear();
+        metaObjCache.invalidateAll();
     }
 
     public void invalidateAll() {
