@@ -134,6 +134,9 @@ final class PaimonMetaCacheCatalog extends DelegateCatalog {
             Identifier origin = new Identifier(identifier.getDatabaseName(), identifier.getTableName(),
                     identifier.getBranchName(), null);
             Table originTable = getTable(origin);
+            if (!(originTable instanceof FileStoreTable)) {
+                return super.getTable(identifier);
+            }
             Table systemTable = SystemTableLoader.load(identifier.getSystemTableName(),
                     (FileStoreTable) originTable);
             if (systemTable == null) {

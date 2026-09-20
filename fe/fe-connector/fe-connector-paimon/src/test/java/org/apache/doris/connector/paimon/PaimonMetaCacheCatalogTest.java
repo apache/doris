@@ -163,6 +163,22 @@ class PaimonMetaCacheCatalogTest {
     }
 
     @Test
+    void nonFileStoreSystemTableIsDelegatedToTheWrappedCatalog() throws Exception {
+        AtomicLong clock = new AtomicLong();
+        RecordingCatalog recording = new RecordingCatalog();
+        Identifier systemTable = Identifier.create("db", "t$snapshots");
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            PaimonMetaCacheCatalog catalog = new PaimonMetaCacheCatalog(recording.catalog(), owner,
+                    100, 100, cacheOptions(Duration.ofDays(1), Duration.ofDays(1)),
+                    false, clock::get);
+
+            Assertions.assertNotNull(catalog.getTable(systemTable));
+            Assertions.assertEquals(systemTable, recording.lastLoadedTable.get());
+            Assertions.assertEquals(2, recording.tableLoads.get());
+        }
+    }
+
+    @Test
     void eachSuccessfulDropEvictsBeforeALaterDropFails() throws Exception {
         AtomicLong clock = new AtomicLong();
         RecordingCatalog recording = new RecordingCatalog();
