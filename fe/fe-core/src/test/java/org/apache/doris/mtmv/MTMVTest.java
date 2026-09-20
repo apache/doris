@@ -521,7 +521,7 @@ public class MTMVTest {
     @Test
     public void testPartitionStatesSurviveImageRoundTrip() {
         MTMV mtmv = buildSerializableMTMV();
-        mtmv.getPartitionStates().put("p202601", new MTMVPartitionState(3, 5));
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
 
         MTMV restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(mtmv), MTMV.class);
 
@@ -534,7 +534,7 @@ public class MTMVTest {
     @Test
     public void testPartitionStatesEmptyOnImageWrittenBeforeTheFieldExisted() {
         MTMV mtmv = buildSerializableMTMV();
-        mtmv.getPartitionStates().put("p202601", new MTMVPartitionState(3, 5));
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
         JsonObject image = JsonParser.parseString(GsonUtils.GSON.toJson(mtmv)).getAsJsonObject();
         Assertions.assertNotNull(image.remove("pst"));
 
@@ -553,6 +553,20 @@ public class MTMVTest {
         Assertions.assertTrue(mtmv.getPartitionStates().isEmpty());
         mtmv.alterPartitionStates(null);
         Assertions.assertTrue(mtmv.getPartitionStates().isEmpty());
+    }
+
+    @Test
+    public void testPartitionStatesGetterReturnsAnUnmodifiableSnapshot() {
+        MTMV mtmv = buildSerializableMTMV();
+        mtmv.alterPartitionStates(Map.of("p202601", new MTMVPartitionState(3, 5)));
+
+        Map<String, MTMVPartitionState> states = mtmv.getPartitionStates();
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> states.put("p202602", new MTMVPartitionState(0, 1)));
+
+        // The values are copies too: changing one may not reach the state the MV owns.
+        states.get("p202601").setLatestEpoch(9);
+        Assertions.assertEquals(5, mtmv.getPartitionStates().get("p202601").getLatestEpoch());
     }
 
     @Test
@@ -615,6 +629,12 @@ public class MTMVTest {
         MTMVPartitionState journaledState = journaled.get(0).getPartitionStates().get("p202601");
         Assertions.assertEquals(3, journaledState.getRefreshEpoch());
         Assertions.assertEquals(5, journaledState.getLatestEpoch());
+
+        // The payload reaches the journal as JSON, so it has to survive that trip to be replayable.
+        AlterMTMV readBack = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(journaled.get(0)), AlterMTMV.class);
+        Assertions.assertEquals(3, readBack.getPartitionStates().get("p202601").getRefreshEpoch());
+        Assertions.assertEquals(5, readBack.getPartitionStates().get("p202601").getLatestEpoch());
     }
 
     @Test

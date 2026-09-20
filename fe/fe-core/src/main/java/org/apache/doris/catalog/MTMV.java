@@ -70,6 +70,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -112,8 +113,10 @@ public class MTMV extends OlapTable {
      * the ADD_TASK payload and ALTER_PARTITION_STATES are all no-ops for a non-IVM MV, so for one an
      * empty map is the complete answer.
      *
-     * <p>Null means the same thing and has the same two causes: an image written before the field
-     * existed, and a non-IVM MV. {@link #gsonPostProcess()} turns it into an empty map on load.
+     * <p>Null means the same thing -- no state -- and has three causes: an image written before the
+     * field existed, a non-IVM MV, and a live MV that has not been aligned yet. Only
+     * {@link #gsonPostProcess()} turns it into an empty map, on load; nothing else needs to, because a
+     * reader treats the two the same.
      */
     @SerializedName("pst")
     private Map<String, MTMVPartitionState> partitionStates;
@@ -622,24 +625,37 @@ public class MTMV extends OlapTable {
     }
 
     /**
-     * Read under the MV lock, like {@link #getIvmInfo()}: the map may be null before
-     * {@link #gsonPostProcess()} has run, and a reader must never see a half-applied replay payload.
+     * A snapshot of the partition states, taken under the MV read lock.
+     *
+     * <p>The caller gets its own map and its own state objects, not the ones the MV owns: handing those
+     * out would let a caller add or change an entry while {@link #addTaskResult} copies the same map
+     * into the journal, and a replay that replaces the field would leave the caller's reference
+     * pointing at state that is no longer the MV's. Changing the states is the MV's own job, under its
+     * write lock.
+     *
+     * <p>A missing map -- an image written before the field existed, or a non-IVM MV -- reads as empty.
      */
     public Map<String, MTMVPartitionState> getPartitionStates() {
-        writeMvLock();
+        readMvLock();
         try {
             if (partitionStates == null) {
-                partitionStates = Maps.newLinkedHashMap();
+                return Collections.emptyMap();
             }
-            return partitionStates;
+            return Collections.unmodifiableMap(MTMVPartitionState.copyOf(partitionStates));
         } finally {
-            writeMvUnlock();
+            readMvUnlock();
         }
     }
 
     // ALTER_PARTITION_STATES replay applies a detached snapshot here, mirroring alterIvmInfo(). Live
     // invalidation changes submit their journal from the mutating method instead.
+    //
+    // A payload without the member carries no state at all, which is not the same as an empty map that
+    // says the states are now empty: leaving them alone is the only answer that cannot lose state.
     public void alterPartitionStates(Map<String, MTMVPartitionState> partitionStates) {
+        if (partitionStates == null) {
+            return;
+        }
         writeMvLock();
         try {
             this.partitionStates = MTMVPartitionState.copyOf(partitionStates);

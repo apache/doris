@@ -32,11 +32,20 @@ import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.ReplaceTableOperationLog;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -423,24 +432,64 @@ public class AlterMTMVTest extends TestWithFeService {
                 .getDb("alter_partition_states_test").get()
                 .getTableOrMetaException("states_mv");
         String partitionName = mtmv.getPartitionNames().iterator().next();
+        TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
 
+        // A payload carrying state applies it. The live map keeps moving after the payload was taken,
+        // and for a restart only the bytes in the journal matter, so both are driven here.
         MTMVPartitionState state = new MTMVPartitionState(0, 1);
         Map<String, MTMVPartitionState> states = new LinkedHashMap<>();
         states.put(partitionName, state);
-        TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
-        AlterMTMV replayAlter = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_PARTITION_STATES);
-        replayAlter.setPartitionStates(states);
-        // The live map keeps moving after the payload was taken; the payload must not follow it.
+        AlterMTMV withState = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_PARTITION_STATES);
+        withState.setPartitionStates(states);
         state.setLatestEpoch(7);
         // The MV starts without any state, so only the replayed payload can put it there.
         mtmv.alterPartitionStates(Map.of());
 
-        Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayAlter, true);
+        replayFromJournal(withState);
 
-        Map<String, MTMVPartitionState> replayed = mtmv.getPartitionStates();
-        Assertions.assertEquals(Set.of(partitionName), replayed.keySet());
-        Assertions.assertEquals(0, replayed.get(partitionName).getRefreshEpoch());
-        Assertions.assertEquals(1, replayed.get(partitionName).getLatestEpoch());
+        Map<String, MTMVPartitionState> applied = mtmv.getPartitionStates();
+        Assertions.assertEquals(Set.of(partitionName), applied.keySet());
+        Assertions.assertEquals(0, applied.get(partitionName).getRefreshEpoch());
+        Assertions.assertEquals(1, applied.get(partitionName).getLatestEpoch());
+
+        // An explicit empty map empties the states.
+        AlterMTMV empty = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_PARTITION_STATES);
+        empty.setPartitionStates(Map.of());
+        Assertions.assertTrue(new String(journalBytes(empty), StandardCharsets.UTF_8).contains("\"pst\""),
+                "the state member should be written under its serialized name");
+
+        replayFromJournal(empty);
+
+        Assertions.assertTrue(mtmv.getPartitionStates().isEmpty());
+
+        // A payload written before the member existed leaves the states alone instead of clearing them.
+        mtmv.alterPartitionStates(Map.of(partitionName, new MTMVPartitionState(4, 6)));
+        JsonObject legacy = JsonParser.parseString(GsonUtils.GSON.toJson(withState)).getAsJsonObject();
+        Assertions.assertNotNull(legacy.remove("pst"));
+
+        replayFromJournal(GsonUtils.GSON.fromJson(legacy.toString(), AlterMTMV.class));
+
+        MTMVPartitionState kept = mtmv.getPartitionStates().get(partitionName);
+        Assertions.assertEquals(4, kept.getRefreshEpoch());
+        Assertions.assertEquals(6, kept.getLatestEpoch());
+    }
+
+    /** The bytes the edit log writes for an alter record. */
+    private static byte[] journalBytes(AlterMTMV alter) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            alter.write(out);
+        }
+        return bytes.toByteArray();
+    }
+
+    /** Replays an alter record the way a restart does: from what the journal wrote, not from memory. */
+    private static void replayFromJournal(AlterMTMV alter) throws Exception {
+        AlterMTMV replayed;
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(journalBytes(alter)))) {
+            replayed = AlterMTMV.read(in);
+        }
+        Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayed, true);
     }
 
     @Test
