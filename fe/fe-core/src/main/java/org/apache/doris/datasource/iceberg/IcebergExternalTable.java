@@ -286,10 +286,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         List<Column> schema = IcebergUtils.getSchemaCacheValue(this, snapshotValue).getSchema();
         schema = new ArrayList<>(schema);
 
-        Optional<Table> snapshotTable = snapshot
-                .filter(IcebergMvccSnapshot.class::isInstance)
-                .map(IcebergMvccSnapshot.class::cast)
-                .flatMap(value -> value.getSnapshotCacheValue().getIcebergTable());
+        Optional<Table> snapshotTable = snapshotValue.getIcebergTable();
         // Row-lineage fields are part of the pinned schema generation, not the refreshable table.
         return appendHiddenColumns(schema, snapshotTable.orElseGet(this::getIcebergTable));
     }
