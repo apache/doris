@@ -106,7 +106,7 @@ struct ExtraInfo {
     // -1 indicates it's not a Frontend generated column
     int32_t unique_id = -1;
     int32_t parent_unique_id = -1;
-    PathInData path_info;
+    PathInData path_info {};
 };
 
 TabletColumn get_column_by_type(const DataTypePtr& data_type, const std::string& name,

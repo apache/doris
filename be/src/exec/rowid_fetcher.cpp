@@ -322,9 +322,10 @@ Status RowIdStorageReader::read_batch_doris_format_row(
     if (result_block.is_empty_column()) [[likely]] {
         result_block = Block(slots, request_block_desc.row_id_size());
     }
-    TabletSchema full_read_schema;
+    std::vector<TabletColumn> fetch_columns;
+    fetch_columns.reserve(request_block_desc.column_descs_size());
     for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
-        full_read_schema.append_column(TabletColumn(column_pb));
+        fetch_columns.emplace_back(column_pb);
     }
 
     std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
@@ -397,7 +398,7 @@ Status RowIdStorageReader::read_batch_doris_format_row(
 
         scan_blocks[batch_idx] = Block(slots, row_ids.size());
         RETURN_IF_ERROR(read_doris_format_row(
-                id_file_map, scan_batch.file_mapping, row_ids, slots, full_read_schema,
+                id_file_map, scan_batch.file_mapping, row_ids, slots, fetch_columns,
                 row_store_read_struct, stats, acquire_tablet_ms, acquire_rowsets_ms,
                 acquire_segments_ms, lookup_row_data_ms, seg_map, iterator_map,
                 file_cache_miss_policy, scan_blocks[batch_idx]));
@@ -927,7 +928,7 @@ Status RowIdStorageReader::read_batch_external_row(
 Status RowIdStorageReader::read_doris_format_row(
         const std::shared_ptr<IdFileMap>& id_file_map,
         const std::shared_ptr<FileMapping>& file_mapping, const std::vector<uint32_t>& row_ids,
-        std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+        std::vector<SlotDescriptor>& slots, const std::vector<TabletColumn>& fetch_columns,
         RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
         int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
@@ -1039,15 +1040,12 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
                         file_cache_miss_policy;
             }
-            int32_t index = slots[x].col_unique_id() >= 0
-                                    ? full_read_schema.field_index(slots[x].col_unique_id())
-                                    : full_read_schema.field_index(slots[x].col_name());
-            if (index < 0) {
+            if (x >= fetch_columns.size()) {
                 return Status::InternalError(
-                        "field name is invalid. field={}, field_name_to_index={}",
-                        slots[x].col_name(), full_read_schema.get_all_field_names());
+                        "fetch request carries {} column descs for {} slots, slot {} has none",
+                        fetch_columns.size(), slots.size(), slots[x].col_name());
             }
-            const auto& read_column = full_read_schema.column(index);
+            const TabletColumn& read_column = fetch_columns[x];
             set_slot_access_paths(slots[x], read_column, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(read_column, &slots[x], row_ids, column,
                                                             iterator_item.storage_read_options,
