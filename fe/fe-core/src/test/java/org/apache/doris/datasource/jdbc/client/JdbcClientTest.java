@@ -30,6 +30,8 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.Types;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -121,6 +123,18 @@ public class JdbcClientTest {
         ArrayType arrayType = (ArrayType) columns.get(2).getType();
         Assert.assertTrue(arrayType.getContainsNull());
         Assert.assertTrue(((ArrayType) arrayType.getItemType()).getContainsNull());
+    }
+
+    @Test
+    public void testFilterDatabaseNamesIncludesConfiguredInternalDatabase() {
+        JdbcClient client = Mockito.mock(JdbcClient.class, Mockito.CALLS_REAL_METHODS);
+        client.isOnlySpecifiedDatabase = false;
+        client.includeDatabaseMap = Collections.emptyMap();
+        client.excludeDatabaseMap = Collections.emptyMap();
+        client.includeInternalDatabaseMap = Collections.singletonMap("mysql", true);
+
+        Assert.assertEquals(Arrays.asList("MYSQL", "application"),
+                client.filterDatabaseNames(Arrays.asList("information_schema", "MYSQL", "application")));
     }
 
     @Test
