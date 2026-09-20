@@ -52,6 +52,10 @@ permissions:
   contents: read
   issues: write
 
+# One review-step budget for helper download, all attempts, and final verification.
+env:
+  REVIEW_TIMEOUT_MINUTES: 120
+
 jobs:
   code-review:
     runs-on: ubuntu-latest
@@ -711,7 +715,7 @@ jobs:
 
       - name: Run automated code review
         id: review
-        timeout-minutes: 120
+        timeout-minutes: ${{ fromJSON(env.REVIEW_TIMEOUT_MINUTES) }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -721,6 +725,7 @@ jobs:
           BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
           HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
+          review_step_started_at=$SECONDS
           review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
           helper="$RUNNER_TEMP/run_review_with_resume.py"
@@ -729,6 +734,9 @@ jobs:
             "repos/${REPO}/contents/.github/scripts/run_review_with_resume.py?ref=${HELPER_REF}" \
             > "$helper"
 
+          # Share the step's budget; reserve two minutes for process cleanup and
+          # the existing GitHub review verification. Helper download counts too.
+          budget_seconds=$((REVIEW_TIMEOUT_MINUTES * 60 - (SECONDS - review_step_started_at) - 120))
           set +e
           # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
           # Codex uses bubblewrap for that mode and uid maps can be unavailable.
@@ -740,10 +748,9 @@ jobs:
             --head-sha "$HEAD_SHA" \
             --base-sha "$BASE_SHA" \
             --model "gpt-5.6-sol" \
-            --effort xhigh
+            --effort xhigh \
+            --budget-seconds "$budget_seconds"
           status=$?
-          # Drain the stderr tee before inspecting it for refresh-token failures.
-          wait
           set -e
 
           failure_reason=""

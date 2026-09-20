@@ -23,6 +23,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import unittest
 from contextlib import redirect_stderr
@@ -120,7 +121,10 @@ class ResumeReviewTest(unittest.TestCase):
             self.commands.append(command)
             self.timeouts.append(timeout)
             spec = next(pending)
-            self.clock += spec.get("elapsed", 0)
+            elapsed = spec.get("elapsed", 0)
+            if elapsed > timeout:
+                raise subprocess.TimeoutExpired(command, timeout)
+            self.clock += elapsed
             events_path.write_text(
                 spec.get("raw", "".join(json.dumps(e) + "\n" for e in spec["events"]))
             )
@@ -287,6 +291,29 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual([30], self.sleeps)
         self.assertIn("Insufficient shared review budget", self.last_error())
 
+    def test_normal_review_can_run_past_the_old_89_minute_limit(self):
+        self.args.budget_seconds = 120 * 60 - 120
+        self.assertEqual(
+            0,
+            self.execute(
+                [
+                    {
+                        "events": [thread_event(), completed()],
+                        "status": 0,
+                        "elapsed": 95 * 60,
+                    }
+                ]
+            ),
+        )
+        self.assertEqual([7080], self.timeouts)
+        self.help.assert_not_called()
+
+    def test_exhausted_setup_budget_does_not_start_codex(self):
+        self.args.budget_seconds = -1
+        self.assertEqual(1, self.execute([]))
+        self.assertEqual([], self.commands)
+        self.assertIn("shared time budget was exhausted", self.last_error())
+
     def test_timeout_preserves_raw_partial_json_but_aggregate_stays_parseable(self):
         raw = json.dumps(thread_event()) + '\n{"type":"item.'
         self.assertEqual(
@@ -390,6 +417,103 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertNotEqual(
             items[0]["metadata"]["event_line"], items[1]["metadata"]["event_line"]
         )
+
+
+class WorkflowBudgetTest(unittest.TestCase):
+    def test_cli_requires_the_workflow_budget(self):
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "runner",
+                    "--context-dir",
+                    "/tmp",
+                    "--cwd",
+                    "/tmp",
+                    "--repository",
+                    "apache/doris",
+                    "--pr-number",
+                    "123",
+                    "--head-sha",
+                    "a",
+                    "--base-sha",
+                    "b",
+                    "--model",
+                    "test",
+                    "--effort",
+                    "xhigh",
+                ],
+            ),
+            mock.patch.object(runner, "ChildReaper") as reaper,
+            redirect_stderr(io.StringIO()) as stderr,
+            self.assertRaises(SystemExit) as error,
+        ):
+            runner.main()
+        self.assertEqual(2, error.exception.code)
+        self.assertIn("--budget-seconds", stderr.getvalue())
+        reaper.assert_not_called()
+
+    def test_workflow_passes_remaining_budget_after_helper_download(self):
+        workflow = (
+            Path(__file__).resolve().parents[1] / "workflows" / "code-review-runner.yml"
+        ).read_text()
+        review = workflow.split("      - name: Run automated code review\n", 1)[1]
+        self.assertIn(
+            "timeout-minutes: ${{ fromJSON(env.REVIEW_TIMEOUT_MINUTES) }}",
+            review.split("        run: |", 1)[0],
+        )
+        default_minutes = next(
+            line.split(":", 1)[1].strip()
+            for line in workflow.splitlines()
+            if line.strip().startswith("REVIEW_TIMEOUT_MINUTES:")
+        )
+        self.assertEqual("120", default_minutes)
+        script = textwrap.dedent(
+            review.split("        run: |\n", 1)[1].split("          status=$?", 1)[0]
+        )
+        # A shell gh stub writes the downloaded helper and advances Bash's elapsed
+        # clock without waiting minutes. The helper reports the actual CLI args.
+        gh = """gh() {
+  SECONDS=$((SECONDS + SETUP_SECONDS))
+  cat <<'HELPER'
+import json, sys
+print(json.dumps(sys.argv[1:]))
+HELPER
+}
+"""
+        for minutes, setup, expected in (
+            (default_minutes, 12, 7068),
+            ("150", 30, 8850),
+            ("120", 7201, -121),
+        ):
+            with (
+                self.subTest(minutes=minutes, setup=setup),
+                tempfile.TemporaryDirectory() as tmp,
+            ):
+                result = subprocess.run(
+                    ["bash", "-e", "-c", gh + script],
+                    env={
+                        **os.environ,
+                        "RUNNER_TEMP": tmp,
+                        "REVIEW_CONTEXT_DIR": tmp,
+                        "GITHUB_WORKSPACE": tmp,
+                        "REPO": "apache/doris",
+                        "PR_NUMBER": "123",
+                        "HEAD_SHA": "a",
+                        "BASE_SHA": "b",
+                        "HELPER_REF": "pinned",
+                        "REVIEW_TIMEOUT_MINUTES": minutes,
+                        "SETUP_SECONDS": str(setup),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                args = json.loads(result.stdout)
+                actual = int(args[args.index("--budget-seconds") + 1])
+                self.assertLessEqual(actual, expected)
+                self.assertGreaterEqual(actual, expected - 2)
 
 
 class ResumeTargetTest(unittest.TestCase):
@@ -807,6 +931,12 @@ else:
                 with self.subTest(stop=stop, graceful=graceful):
                     self.check_detached_descendants(stop, graceful)
 
+    @unittest.skipUnless(sys.platform == "linux", "requires Linux subreaper/pidfd")
+    def test_cancellation_during_reaping_finishes_cleanup_without_retry(self):
+        for stop in ("reap_cancel", "reap_cancel_repeat", "cancel_reap_repeat"):
+            with self.subTest(stop=stop):
+                self.check_detached_descendants(stop, True)
+
     def check_detached_descendants(self, stop, graceful):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -839,7 +969,7 @@ else:
     signal.signal(signal.SIGINT, interrupted if os.environ["TREE_GRACEFUL"] == "1" else signal.SIG_IGN)
     (root / "pids.json").write_text(json.dumps([shell.pid, worker_pid]))
     print(json.dumps({"type": "thread.started", "thread_id": os.environ["TREE_THREAD"]}), flush=True)
-    if os.environ["TREE_STOP"] == "exit":
+    if os.environ["TREE_STOP"] in ("exit", "reap_cancel", "reap_cancel_repeat"):
         print(json.dumps({"type": "turn.failed", "error": {"message": "test failure"}}), flush=True)
         sys.exit(1)
 deadline = time.monotonic() + 20
@@ -854,7 +984,26 @@ while time.monotonic() < deadline:
                 (
                     "import sys; sys.path.insert(0, sys.argv.pop(1)); "
                     "import run_review_with_resume as r; "
-                    "r.PROCESS_EXIT_GRACE_SECONDS = 0.5; sys.exit(r.main())"
+                    "r.PROCESS_EXIT_GRACE_SECONDS = 0.5; "
+                    + (
+                        """
+import os, signal
+original_open = r.os.pidfd_open
+def interrupt_cleanup(pid):
+    fd = original_open(pid)
+    if pid != os.getpid():
+        os.kill(os.getpid(), signal.SIGTERM)
+        if os.environ["TREE_STOP"].endswith("repeat"):
+            for _ in range(3):
+                os.kill(os.getpid(), signal.SIGINT)
+                os.kill(os.getpid(), signal.SIGTERM)
+    return fd
+r.os.pidfd_open = interrupt_cleanup
+"""
+                        if "reap" in stop
+                        else ""
+                    )
+                    + "sys.exit(r.main())"
                 ),
                 str(Path(runner.__file__).parent),
                 "--context-dir",
@@ -904,11 +1053,11 @@ while time.monotonic() < deadline:
                     self.assertTrue(
                         (root / "pids.json").exists(), "fake Codex did not start"
                     )
-                    if stop == "cancel":
+                    if stop.startswith("cancel"):
                         process.send_signal(signal.SIGTERM)
                     _, stderr = process.communicate(timeout=10)
                     self.assertEqual(
-                        130 if stop == "cancel" else 1, process.returncode, stderr
+                        130 if "cancel" in stop else 1, process.returncode, stderr
                     )
                     for pid in json.loads((root / "pids.json").read_text()):
                         with self.assertRaises(ProcessLookupError):
@@ -919,7 +1068,13 @@ while time.monotonic() < deadline:
                     self.assertEqual(
                         1, len(list((root / "codex-attempts").glob("*.jsonl")))
                     )
-                    if stop != "exit":
+                    if "cancel" in stop:
+                        events = runner.read_events(root / "codex-events.jsonl")
+                        self.assertEqual(
+                            "Review cancelled; not resuming",
+                            events[-1]["error"]["message"],
+                        )
+                    if stop in ("cancel", "timeout", "cancel_reap_repeat"):
                         self.assertEqual(graceful, (root / "interrupted").exists())
                 finally:
                     if process.poll() is None:

@@ -195,23 +195,33 @@ def run_attempt(command, events_path, stderr_path, timeout, reaper=None):
                 signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
             return process.wait(timeout=timeout)
         finally:
+            # Finish bounded cleanup before delivering cancellation, including a
+            # second signal while an earlier cancellation is already unwinding.
+            # The stderr copier inherited a blocked mask at startup, so pending
+            # SIGINT/SIGTERM can only reach this thread after everything is closed.
+            previous_mask = signal.pthread_sigmask(
+                signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM}
+            )
             try:
                 try:
-                    if process is not None:
-                        stop_process(process)
+                    try:
+                        if process is not None:
+                            stop_process(process)
+                    finally:
+                        # Popen itself may be interrupted before returning a handle.
+                        if reaper is not None:
+                            reaper.reap()
                 finally:
-                    # Popen itself may be interrupted before returning a handle.
-                    if reaper is not None:
-                        reaper.reap()
+                    if copier is not None and copier.ident is not None:
+                        copier.join(timeout=5)
+                        if copier.is_alive():
+                            raise OSError(
+                                "Codex stderr remained open after descendant cleanup"
+                            )
+                    if process is not None:
+                        process.stderr.close()
             finally:
-                if copier is not None and copier.ident is not None:
-                    copier.join(timeout=5)
-                    if copier.is_alive():
-                        raise OSError(
-                            "Codex stderr remained open after descendant cleanup"
-                        )
-                if process is not None:
-                    process.stderr.close()
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
 
 def append_events(source, target):
@@ -442,8 +452,8 @@ def main():
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--effort", required=True)
-    # Leave one minute for the existing GitHub verification within the 90-minute step.
-    parser.add_argument("--budget-seconds", type=int, default=89 * 60)
+    # The workflow owns the total timeout and deducts setup/finalization time.
+    parser.add_argument("--budget-seconds", type=int, required=True)
     args = parser.parse_args()
 
     def cancelled(_signum, _frame):
