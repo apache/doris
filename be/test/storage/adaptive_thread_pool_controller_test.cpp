@@ -20,12 +20,15 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <future>
 #include <thread>
 
 #include "common/config.h"
 #include "common/metrics/metrics.h"
 #include "common/metrics/system_metrics.h"
+#include "cpp/sync_point.h"
 #include "testutil/test_util.h"
+#include "util/defer_op.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -66,6 +69,56 @@ protected:
         config::enable_adaptive_flush_threads = _original_enable_adaptive;
         if (_pool) _pool->shutdown();
         if (_pool2) _pool2->shutdown();
+    }
+
+    void check_cancel_race(const std::string& point) {
+        config::enable_adaptive_flush_threads = true;
+        auto* sp = SyncPoint::get_instance();
+        sp->enable_processing();
+        Defer disable_sync_points {[&] { sp->disable_processing(); }};
+        SyncPoint::CallbackGuard guard;
+        std::promise<void> entered;
+        std::promise<void> release;
+        std::promise<void> cancelling;
+        auto entered_future = entered.get_future();
+        auto release_future = release.get_future().share();
+        auto cancelling_future = cancelling.get_future();
+        sp->set_call_back(
+                point,
+                [&](auto&&) {
+                    entered.set_value();
+                    release_future.wait();
+                },
+                &guard);
+        sp->set_call_back(
+                "AdaptiveThreadPoolController::cancel_stopped",
+                [&](auto&&) { cancelling.set_value(); }, &guard);
+
+        AdaptiveThreadPoolController controller;
+        controller.add(
+                "race", {_pool.get()},
+                AdaptiveThreadPoolController::make_flush_adjust_func(&controller, _pool.get()), 4,
+                0.5, 1);
+        // Always release the callback before joining/stopping, including on test failure.
+        if (entered_future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+            release.set_value();
+            controller.stop();
+            FAIL() << "Timer did not reach " << point;
+        }
+        auto cancelled = std::async(std::launch::async, [&] { controller.cancel("race"); });
+        auto cancelling_status = cancelling_future.wait_for(std::chrono::seconds(5));
+        EXPECT_EQ(cancelling_status, std::future_status::ready);
+        EXPECT_EQ(cancelled.wait_for(std::chrono::milliseconds(20)), std::future_status::timeout);
+        auto second_cancel = std::async(std::launch::async, [&] { controller.cancel("race"); });
+        EXPECT_EQ(second_cancel.wait_for(std::chrono::milliseconds(20)),
+                  std::future_status::timeout);
+        release.set_value();
+        cancelled.get();
+        second_cancel.get();
+        EXPECT_EQ(controller.get_current_threads("race"), 0);
+        _pool.reset();
+        // A timer rearmed after the final stopped check must have been cancelled too.
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 
     bool _original_enable_adaptive;
@@ -352,6 +405,39 @@ TEST_F(AdaptiveThreadPoolControllerTest, TestCancel) {
 
     controller.cancel("test");
     EXPECT_EQ(controller.get_current_threads("test"), 0);
+}
+
+TEST_F(AdaptiveThreadPoolControllerTest, CancelJoinsCallbackBeforeLock) {
+    check_cancel_race("AdaptiveThreadPoolController::callback_entered");
+}
+
+TEST_F(AdaptiveThreadPoolControllerTest, CancelJoinsRearmingCallback) {
+    check_cancel_race("AdaptiveThreadPoolController::before_rearm");
+}
+
+TEST_F(AdaptiveThreadPoolControllerTest, StopRejectsNewRegistrations) {
+    AdaptiveThreadPoolController controller;
+    controller.stop();
+    controller.add("late", {_pool.get()},
+                   AdaptiveThreadPoolController::make_flush_adjust_func(&controller, _pool.get()),
+                   4, 0.5, 1);
+    EXPECT_EQ(controller.get_current_threads("late"), 0);
+}
+
+TEST_F(AdaptiveThreadPoolControllerTest, ReplacingRegistrationDrainsOldTimer) {
+    config::enable_adaptive_flush_threads = true;
+    AdaptiveThreadPoolController controller;
+    controller.add("same", {_pool.get()},
+                   AdaptiveThreadPoolController::make_flush_adjust_func(&controller, _pool.get()),
+                   4, 0.5, 1);
+    controller.add("same", {_pool2.get()},
+                   AdaptiveThreadPoolController::make_flush_adjust_func(&controller, _pool2.get()),
+                   4, 0.5, 1);
+    _pool.reset();
+    controller.adjust_once();
+    controller.cancel("same");
+    _pool2.reset();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
 }
 
 } // namespace doris

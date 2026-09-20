@@ -634,17 +634,7 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
             LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " succ, gid=" << wg_id
                       << ", max thread num=" << max_flush_thread_num
                       << ", min thread num=" << min_flush_thread_num;
-            // Register the new pool with adaptive thread controller
-            if (config::enable_adaptive_flush_threads) {
-                auto* controller =
-                        ExecEnv::GetInstance()->storage_engine().adaptive_thread_controller();
-                auto* flush_pool = _memtable_flush_pool.get();
-                controller->add("flush_wg_" + std::to_string(_id), {flush_pool},
-                                AdaptiveThreadPoolController::make_flush_adjust_func(controller,
-                                                                                     flush_pool),
-                                config::max_flush_thread_num_per_cpu,
-                                config::min_flush_thread_num_per_cpu);
-            }
+            register_adaptive_flush_no_lock();
         } else {
             upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] create " + pool_name + " failed, gid=" << wg_id;
@@ -778,21 +768,36 @@ void WorkloadGroup::stop_schedulers_no_lock() {
         _remote_scan_task_sched->stop();
     }
     if (_memtable_flush_pool) {
-        // Unregister from adaptive controller before destroying the pool to avoid UAF:
-        // the adjustment loop holds raw ThreadPool* pointers and must not access them
-        // after the pool is gone.
-        if (config::enable_adaptive_flush_threads) {
-            auto* controller =
-                    ExecEnv::GetInstance()->storage_engine().adaptive_thread_controller();
-            controller->cancel("flush_wg_" + std::to_string(_id));
-        }
+        cancel_adaptive_flush_no_lock();
         _memtable_flush_pool->shutdown();
         _memtable_flush_pool->wait();
     }
 }
 
+void WorkloadGroup::register_adaptive_flush_no_lock() {
+    if (config::enable_adaptive_flush_threads) {
+        auto* controller = ExecEnv::GetInstance()->storage_engine().adaptive_thread_controller();
+        auto* flush_pool = _memtable_flush_pool.get();
+        _adaptive_flush_key = fmt::format("flush_wg_{}_{}", _id, fmt::ptr(flush_pool));
+        controller->add(
+                _adaptive_flush_key, {flush_pool},
+                AdaptiveThreadPoolController::make_flush_adjust_func(controller, flush_pool),
+                config::max_flush_thread_num_per_cpu, config::min_flush_thread_num_per_cpu);
+    }
+}
+
+void WorkloadGroup::cancel_adaptive_flush_no_lock() {
+    if (!_adaptive_flush_key.empty()) {
+        auto* controller = ExecEnv::GetInstance()->storage_engine().adaptive_thread_controller();
+        // A runtime config change must not skip cancellation of an existing registration.
+        controller->cancel(_adaptive_flush_key);
+        _adaptive_flush_key.clear();
+    }
+}
+
 void WorkloadGroup::destroy_schedulers() {
     std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
+    cancel_adaptive_flush_no_lock();
     _task_sched.reset();
     _scan_task_sched.reset();
     _remote_scan_task_sched.reset();

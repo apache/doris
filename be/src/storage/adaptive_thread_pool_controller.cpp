@@ -20,6 +20,7 @@
 #include <butil/time.h>
 
 #include <algorithm>
+#include <chrono>
 #include <thread>
 
 #include "cloud/config.h"
@@ -27,6 +28,7 @@
 #include "common/logging.h"
 #include "common/metrics/system_metrics.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 
@@ -49,14 +51,13 @@ int AdaptiveThreadPoolController::PoolGroup::get_min_threads() const {
 void AdaptiveThreadPoolController::_on_timer(void* raw) {
     auto* arg = static_cast<TimerArg*>(raw);
 
-    // Hold mu for the entire callback (fire + re-registration).
-    // cancel() acquires mu after bthread_timer_del, so this provides
-    // cancel-with-wait semantics without a dedicated thread.
+    TEST_SYNC_POINT("AdaptiveThreadPoolController::callback_entered");
+
+    // Keep registration and adjustment serialized with cancellation.
     std::lock_guard<std::mutex> lk(arg->mu);
 
     if (arg->stopped.load(std::memory_order_acquire)) {
-        // cancel() set stopped before we took the lock.
-        // cancel() owns arg and will delete it after taking mu.
+        // cancel() joins this timer before deleting arg.
         return;
     }
 
@@ -65,6 +66,8 @@ void AdaptiveThreadPoolController::_on_timer(void* raw) {
     if (arg->stopped.load(std::memory_order_acquire)) {
         return; // cancel() will clean up
     }
+
+    TEST_SYNC_POINT("AdaptiveThreadPoolController::before_rearm");
 
     // Re-register the next one-shot timer.
     bthread_timer_t tid;
@@ -83,6 +86,8 @@ void AdaptiveThreadPoolController::init(SystemMetrics* system_metrics,
 }
 
 void AdaptiveThreadPoolController::stop() {
+    std::lock_guard<std::mutex> lifecycle_lock(_lifecycle_mutex);
+    _stopped = true;
     std::vector<std::string> names;
     {
         std::lock_guard<std::mutex> lk(_mutex);
@@ -91,13 +96,19 @@ void AdaptiveThreadPoolController::stop() {
         }
     }
     for (const auto& name : names) {
-        cancel(name);
+        _cancel(name);
     }
 }
 
 void AdaptiveThreadPoolController::add(std::string name, std::vector<ThreadPool*> pools,
                                        AdjustFunc adjust_func, double max_threads_per_cpu,
                                        double min_threads_per_cpu, int64_t interval_ms) {
+    std::lock_guard<std::mutex> lifecycle_lock(_lifecycle_mutex);
+    if (_stopped) {
+        return;
+    }
+    _cancel(name);
+
     PoolGroup group;
     group.name = name;
     group.pools = std::move(pools);
@@ -114,6 +125,8 @@ void AdaptiveThreadPoolController::add(std::string name, std::vector<ThreadPool*
     arg->name = name;
     arg->interval_ms = interval_ms;
 
+    // Even an immediately due timer must not run before its ID and group are published.
+    std::lock_guard<std::mutex> timer_lock(arg->mu);
     bthread_timer_t tid;
     if (bthread_timer_add(&tid, butil::milliseconds_from_now(interval_ms), _on_timer, arg) == 0) {
         arg->timer_id.store(tid, std::memory_order_release);
@@ -133,6 +146,11 @@ void AdaptiveThreadPoolController::add(std::string name, std::vector<ThreadPool*
 }
 
 void AdaptiveThreadPoolController::cancel(const std::string& name) {
+    std::lock_guard<std::mutex> lifecycle_lock(_lifecycle_mutex);
+    _cancel(name);
+}
+
+void AdaptiveThreadPoolController::_cancel(const std::string& name) {
     TimerArg* arg = nullptr;
     {
         std::lock_guard<std::mutex> lk(_mutex);
@@ -149,18 +167,22 @@ void AdaptiveThreadPoolController::cancel(const std::string& name) {
 
     // Signal the callback to stop re-registering.
     arg->stopped.store(true, std::memory_order_release);
+    TEST_SYNC_POINT("AdaptiveThreadPoolController::cancel_stopped");
 
-    // Try to cancel a pending (not yet fired) timer. Read timer_id after
-    // setting stopped so any re-registration in a concurrent callback has
-    // already stored the latest id by now (it holds mu, which we haven't
-    // taken yet).
-    bthread_timer_t tid = arg->timer_id.load(std::memory_order_acquire);
-    bthread_timer_del(tid); // returns non-zero if already fired; that's fine
+    // A callback may have passed its stopped check and still be re-registering.
+    // Take mu before reading the final ID, rather than cancelling a stale ID.
+    bthread_timer_t tid;
+    {
+        std::lock_guard<std::mutex> lk(arg->mu);
+        tid = arg->timer_id.load(std::memory_order_acquire);
+    }
 
-    // Wait for any in-flight callback to finish. The callback holds mu while
-    // running _fire_group and re-registering, so acquiring mu here ensures
-    // we don't free arg while the callback is still executing.
-    { std::lock_guard<std::mutex> lk(arg->mu); }
+    // The timer can already be running without having acquired mu. Joining via
+    // brpc's running state covers that window too. Do not hold mu while waiting:
+    // such a callback must acquire it, observe stopped and return.
+    while (tid != 0 && bthread_timer_del(tid) == 1) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 
     delete arg;
     LOG(INFO) << "Adaptive: cancelled pool group '" << name << "'";
@@ -198,6 +220,7 @@ void AdaptiveThreadPoolController::_fire_group(const std::string& name) {
 
 // Fire all groups once regardless of schedule. For testing.
 void AdaptiveThreadPoolController::adjust_once() {
+    std::lock_guard<std::mutex> lifecycle_lock(_lifecycle_mutex);
     std::vector<std::string> names;
     {
         std::lock_guard<std::mutex> lk(_mutex);

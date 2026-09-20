@@ -40,10 +40,13 @@
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
+#include "storage/adaptive_thread_pool_controller.h"
 #include "storage/olap_define.h"
+#include "storage/storage_engine.h"
 #include "testutil/mock/mock_query_task_controller.h"
 #include "util/defer_op.h"
 #include "util/mem_info.h"
+#include "util/threadpool.h"
 
 namespace doris {
 
@@ -1229,6 +1232,56 @@ TEST_F(WorkloadGroupManagerTest, phase4_skips_cancelled_query_memory_exceeded) {
 
     cancelled_query->query_mem_tracker()->consume(-1024 * 4);
     live_query->query_mem_tracker()->consume(-1024 * 4);
+}
+
+// Exercise the actual registration/cancellation paths without starting query schedulers.
+TEST_F(WorkloadGroupManagerTest, AdaptiveFlushRegistrationSurvivesIdChangeAndReuse) {
+    auto* env = ExecEnv::GetInstance();
+    auto saved_engine = std::move(env->_storage_engine);
+    const bool saved_adaptive = config::enable_adaptive_flush_threads;
+    Defer restore {[&] {
+        env->set_storage_engine(std::move(saved_engine));
+        config::enable_adaptive_flush_threads = saved_adaptive;
+    }};
+    env->set_storage_engine(std::make_unique<StorageEngine>(EngineOptions {}));
+    auto* controller = env->storage_engine().adaptive_thread_controller();
+    config::enable_adaptive_flush_threads = true;
+
+    auto wg = _wg_manager->get_or_create_workload_group({.id = 1, .name = "normal"});
+    ASSERT_TRUE(ThreadPoolBuilder("wg_flush_test")
+                        .set_min_threads(1)
+                        .set_max_threads(2)
+                        .build(&wg->_memtable_flush_pool)
+                        .ok());
+    wg->register_adaptive_flush_no_lock();
+    const auto key = wg->_adaptive_flush_key;
+    ASSERT_GT(controller->get_current_threads(key), 0);
+    _wg_manager->reset_workload_group_id("normal", 100);
+    EXPECT_EQ(wg->id(), 100);
+    EXPECT_EQ(wg->_adaptive_flush_key, key);
+
+    // A second WG using the original ID must not replace the first registration.
+    auto reused = _wg_manager->get_or_create_workload_group({.id = 1, .name = "reused"});
+    ASSERT_TRUE(ThreadPoolBuilder("wg_flush_reused")
+                        .set_min_threads(1)
+                        .set_max_threads(2)
+                        .build(&reused->_memtable_flush_pool)
+                        .ok());
+    reused->register_adaptive_flush_no_lock();
+    const auto reused_key = reused->_adaptive_flush_key;
+    EXPECT_NE(key, reused_key);
+
+    // Disabling adjustment must not disable cleanup of already registered pools.
+    config::enable_adaptive_flush_threads = false;
+    wg->try_stop_schedulers();
+    wg->destroy_schedulers();
+    EXPECT_EQ(controller->get_current_threads(key), 0);
+    EXPECT_GT(controller->get_current_threads(reused_key), 0);
+    // Direct scheduler destruction must also drain the registration.
+    reused->destroy_schedulers();
+    EXPECT_EQ(controller->get_current_threads(reused_key), 0);
+    config::enable_adaptive_flush_threads = true;
+    controller->adjust_once();
 }
 
 } // namespace doris
