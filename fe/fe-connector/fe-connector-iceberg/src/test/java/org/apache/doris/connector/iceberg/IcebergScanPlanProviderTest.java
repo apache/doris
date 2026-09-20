@@ -98,6 +98,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.UnaryOperator;
@@ -753,6 +754,116 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(Collections.singletonMap("p", "2"),
                 byPath(ranges, "p=2/b.parquet").getPartitionValues(),
                 "file b's slices carry p=2 (no cross-file staleness)");
+    }
+
+    @Test
+    public void planScanKeepsOldSpecIdentityValuesAfterEvolvingToUnpartitioned() {
+        // DORIS-29056 repro: a file written under identity(p) must still carry p=7 after the table's default
+        // spec evolves to unpartitioned; otherwise BE fills p with NULL when the file does not store p.
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=7/old.parquet", 1024, null, "p=7"))
+                .commit();
+        table.updateSpec().removeField("p").commit();
+        Assertions.assertTrue(table.spec().isUnpartitioned());
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        ConnectorScanRange range = ranges.get(0);
+        Assertions.assertEquals(Collections.singletonMap("p", "7"), range.getPartitionValues());
+        TFileRangeDesc desc = populate(range);
+        Assertions.assertEquals(Collections.singletonList("p"), desc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("7"), desc.getColumnsFromPath());
+        Assertions.assertEquals(0, desc.getTableFormatParams().getIcebergParams().getPartitionSpecId());
+        Assertions.assertEquals("[\"7\"]", desc.getTableFormatParams().getIcebergParams().getPartitionDataJson());
+        // Display parity: the table's CURRENT spec is unpartitioned, so it still reports no scanned
+        // partitions — the read fix must not change EXPLAIN partition=N/M or sql_block_rule partition_num.
+        Assertions.assertEquals(OptionalLong.empty(), provider.scannedPartitionCount(ranges));
+    }
+
+    @Test
+    public void planScanCountsScannedPartitionsWhileCurrentSpecStaysPartitioned() {
+        // The other side of the display gate: with a partitioned CURRENT spec, files of an older spec keep
+        // counting toward selectedPartitionNum exactly as before (legacy partitionMapInfos parity).
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=7/a.parquet", 1024, null, "p=7"))
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=8/b.parquet", 1024, null, "p=8"))
+                .commit();
+        Assertions.assertTrue(table.spec().isPartitioned());
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .build());
+
+        Assertions.assertEquals(OptionalLong.of(2L), provider.scannedPartitionCount(ranges));
+    }
+
+    @Test
+    public void streamSplitsKeepsOldSpecIdentityValuesAfterEvolvingToUnpartitioned() throws IOException {
+        // The lazy (batch-mode) source computes its own partitioned flag, so the eager test above does not
+        // pin it: reverting only streamSplits' gate to the current spec would silently bring the NULL read
+        // back for batch-mode scans. Drain the source and assert the same per-file partition metadata.
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=7/old.parquet", 1024, null, "p=7"))
+                .commit();
+        table.updateSpec().removeField("p").commit();
+        Assertions.assertTrue(table.spec().isUnpartitioned());
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        try (ConnectorSplitSource source = provider.streamSplits(
+                new FakeScanSession("UTC", Collections.emptyMap()),
+                new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty(), -1L)) {
+            while (source.hasNext()) {
+                ranges.add(source.next());
+            }
+        }
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(Collections.singletonMap("p", "7"), ranges.get(0).getPartitionValues());
+        TFileRangeDesc desc = populate(ranges.get(0));
+        Assertions.assertEquals(Collections.singletonList("p"), desc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("7"), desc.getColumnsFromPath());
+        Assertions.assertEquals(0, desc.getTableFormatParams().getIcebergParams().getPartitionSpecId());
+        Assertions.assertEquals("[\"7\"]", desc.getTableFormatParams().getIcebergParams().getPartitionDataJson());
+    }
+
+    @Test
+    public void planScanKeepsUnpartitionedSpecIdentityAfterEvolvingToPartitioned() {
+        // Guard for the DML $row_id contract: a file written before identity(p) was added must still report
+        // spec 0 with an (empty) partition_data_json, so BE commits its delete file under spec 0 instead of
+        // falling back to the current partitioned spec.
+        Table table = createTable("pt", PART_SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/pt/old.parquet", 1024, null, null))
+                .commit();
+        table.updateSpec().addField("p").commit();
+        Assertions.assertTrue(table.spec().isPartitioned());
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        TFileRangeDesc desc = populate(ranges.get(0));
+        Assertions.assertTrue(ranges.get(0).getPartitionValues().isEmpty());
+        Assertions.assertEquals(0, desc.getTableFormatParams().getIcebergParams().getPartitionSpecId());
+        Assertions.assertEquals("[]", desc.getTableFormatParams().getIcebergParams().getPartitionDataJson());
     }
 
     // ── M-2: size-proportional BE scheduling weight (selfSplitWeight / targetSplitSize) ──

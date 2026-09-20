@@ -548,7 +548,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         int formatVersion = getFormatVersion(table);
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
         ZoneId zone = resolveSessionZone(session);
-        boolean partitioned = table.spec().isPartitioned();
+        boolean partitioned = IcebergPartitionUtils.hasPartitionedSpec(table);
         Map<String, String> vendedToken = context != null
                 ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
         UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
@@ -736,7 +736,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         int formatVersion = getFormatVersion(table);
         List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
         ZoneId zone = resolveSessionZone(session);
-        boolean partitioned = table.spec().isPartitioned();
+        boolean partitioned = IcebergPartitionUtils.hasPartitionedSpec(table);
 
         // Vended credentials (T09): extract the per-table REST vended token ONCE per scan (gated on the catalog
         // flag iceberg.rest.vended-credentials-enabled, mirroring legacy IcebergVendedCredentialsProvider), then
@@ -1583,6 +1583,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private Integer partitionSpecId;
         private String partitionDataJson;
         private Map<String, String> partitionValues = Collections.emptyMap();
+        // The table's CURRENT spec isPartitioned() — scan-invariant, memoized with the rest so the display
+        // gate (see IcebergScanRange#getScannedPartitionKey) costs one table.spec() per file, not per slice.
+        private boolean countsAsScannedPartition;
         private List<IcebergScanRange.DeleteFile> deleteCarriers = Collections.emptyList();
         private String fileFormat;
         private Long firstRowId;
@@ -1636,6 +1639,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .firstRowId(file.firstRowId)
                 .lastUpdatedSequenceNumber(file.lastUpdatedSequenceNumber)
                 .partitionValues(file.partitionValues)
+                .countsAsScannedPartition(file.countsAsScannedPartition)
                 .deleteFiles(file.deleteCarriers)
                 .pushDownRowCount(pushDownRowCount)
                 .selfSplitWeight(selfSplitWeight)
@@ -1704,6 +1708,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         file.partitionSpecId = partitionSpecId;
         file.partitionDataJson = partitionDataJson;
         file.partitionValues = partitionValues;
+        // Display-only gate (see IcebergScanRange#getScannedPartitionKey): a table whose CURRENT spec is
+        // unpartitioned reports no partitions, so the old-spec partitions its files still carry must not
+        // start showing up in EXPLAIN partition=N/M or in a sql_block_rule partition_num check.
+        file.countsAsScannedPartition = table.spec().isPartitioned();
         file.fileFormat = fileFormat;
         file.firstRowId = firstRowId;
         file.lastUpdatedSequenceNumber = lastUpdatedSequenceNumber;
