@@ -127,8 +127,7 @@ TEST(TableReaderTest, VariantFormatGateAllowsWal) {
     physical_variant.table_type = make_nullable(std::make_shared<DataTypeVariantV2>());
     physical_variant.file_local_id = 0;
 
-    EXPECT_TRUE(
-            VariantValidationTableReader::validate(FileFormat::WAL, {physical_variant}).ok());
+    EXPECT_TRUE(VariantValidationTableReader::validate(FileFormat::WAL, {physical_variant}).ok());
 }
 
 TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates) {
