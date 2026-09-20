@@ -31,6 +31,8 @@
 
 #include "common/config.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
+#include "io/fs/read_io_trace_test_util.h"
+#include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "util/countdown_latch.h"
 #include "util/defer_op.h"
@@ -107,7 +109,38 @@ TEST_F(S3FileReaderTest, ConcurrentReadsCollectAllStatistics) {
     EXPECT_EQ(profile.get_counter("TooManyRequestErr")->value(), 0);
 }
 
+TEST_F(S3FileReaderTest, TraceClipsEOFAndLabelsReadSources) {
+    ReadIOTraceCapture trace;
+    auto client = std::make_shared<MockRangeReadS3Client>();
+    EXPECT_CALL(*client, GetObject(testing::_)).Times(4).WillRepeatedly(successful_read);
+    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
+    holder->_client = std::make_shared<S3ObjStorageClient>(client);
+    S3FileReader reader(holder, "bucket", "key", 32, nullptr);
+    IOContext context;
+    context.reader_type = ReaderType::READER_QUERY;
+    std::string buffer(32, '\0');
+    size_t bytes_read = 0;
+    for (auto source : {FileReadTraceSource::NORMAL, FileReadTraceSource::READ_AHEAD,
+                        FileReadTraceSource::HOLE_FILL}) {
+        context.read_trace_source = source;
+        ASSERT_TRUE(reader.read_at(16, Slice(buffer), &bytes_read, &context).ok());
+    }
+    ASSERT_TRUE(reader.read_at(16, Slice(buffer), &bytes_read).ok());
+    const auto events = trace.events("s3_get");
+    ASSERT_EQ(events.size(), 4);
+    EXPECT_STREQ(events[0]["source"].GetString(), "sync");
+    EXPECT_STREQ(events[1]["source"].GetString(), "read_ahead");
+    EXPECT_STREQ(events[2]["source"].GetString(), "hole_fill");
+    EXPECT_STREQ(events[3]["source"].GetString(), "other");
+    for (const auto& event : events) {
+        EXPECT_EQ(event["offset"].GetUint64(), 16);
+        EXPECT_EQ(event["size"].GetUint64(), 16);
+        EXPECT_EQ(event["bytes"].GetUint64(), 16);
+    }
+}
+
 TEST_F(S3FileReaderTest, CollectsRetryStatistics) {
+    ReadIOTraceCapture trace;
     const auto old_retries = config::max_s3_client_retry;
     const auto old_base_wait = config::s3_read_base_wait_time_ms;
     const auto old_max_wait = config::s3_read_max_wait_time_ms;
@@ -133,13 +166,27 @@ TEST_F(S3FileReaderTest, CollectsRetryStatistics) {
     S3FileReader reader(holder, "bucket", "key", 16, &profile);
     std::string buffer(16, '\0');
     size_t bytes_read = 0;
-    ASSERT_TRUE(reader.read_at(0, Slice(buffer), &bytes_read).ok());
+    IOContext io_context;
+    io_context.read_trace_source = FileReadTraceSource::HOLE_FILL;
+    io_context.read_trace_id = 321;
+    ASSERT_TRUE(reader.read_at(0, Slice(buffer), &bytes_read, &io_context).ok());
     EXPECT_EQ(buffer, "0123456789abcdef");
     reader._collect_profile_before_close();
     EXPECT_EQ(profile.get_counter("TotalGetRequest")->value(), 2);
     EXPECT_EQ(profile.get_counter("TotalBytesRead")->value(), 16);
     EXPECT_EQ(profile.get_counter("TooManyRequestErr")->value(), 1);
     EXPECT_EQ(profile.get_counter("TooManyRequestSleepTime")->value(), 2);
+    auto events = trace.events("s3_get");
+    ASSERT_EQ(events.size(), 2);
+    EXPECT_STREQ(events[0]["outcome"].GetString(), "failed_or_short");
+    EXPECT_EQ(events[0]["attempt"].GetInt(), 0);
+    EXPECT_STREQ(events[1]["outcome"].GetString(), "success");
+    EXPECT_STREQ(events[1]["source"].GetString(), "hole_fill");
+    EXPECT_STREQ(events[1]["file"].GetString(), "s3://bucket/key");
+    EXPECT_EQ(events[1]["parent_id"].GetUint64(), 321);
+    EXPECT_EQ(events[1]["attempt"].GetInt(), 1);
+    EXPECT_EQ(events[1]["bytes"].GetUint64(), 16);
+    EXPECT_GE(events[1]["time_ns"].GetInt64(), events[1]["start_ns"].GetInt64());
 }
 
 } // namespace
