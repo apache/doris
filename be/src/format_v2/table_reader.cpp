@@ -1197,7 +1197,10 @@ Status TableReader::init(TableReadOptions&& options) {
 
 Status TableReader::validate_variant_file_mappings(FileFormat format,
                                                    const std::vector<ColumnMapping>& mappings) {
-    if (format == FileFormat::PARQUET || !std::ranges::any_of(mappings, mapping_reads_variant)) {
+    // WAL stores Doris blocks directly and therefore supports Variant without the external-file
+    // format restrictions applied here.
+    if (format == FileFormat::PARQUET || format == FileFormat::WAL ||
+        !std::ranges::any_of(mappings, mapping_reads_variant)) {
         return Status::OK();
     }
     // Gate on a physical mapping, not the table schema: an older file may legitimately omit a
