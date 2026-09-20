@@ -38,3 +38,40 @@
 1
 2
 
+-- !alias_shadow_order_by_subquery_alias --
+7
+
+-- !alias_shadow_order_by --
+10
+20
+30
+
+-- !alias_shadow_having --
+20
+30
+
+-- !alias_shadow_order_by_agg_func --
+3
+2
+1
+
+-- !alias_shadow_order_by_over_agg --
+30
+20
+10
+
+-- !alias_shadow_having_group_by_expr --
+4
+
+-- !alias_shadow_qualify_group_by_expr --
+2
+
+-- !alias_shadow_struct_alias_order_by --
+3
+
+-- !alias_shadow_struct_alias_having --
+1
+
+-- !alias_shadow_keep_alias_field --
+3
+

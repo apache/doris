@@ -326,18 +326,20 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         boolean relationQualifierOccupied = false;
 
         // A multipart name can be either a relation-qualified column (t.col) or a nested field
-        // reference (col.field). In a correlated subquery, try the relation-qualified interpretation
-        // in both visible scopes first, so an inner column named "t" does not hide an outer alias "t".
-        if (canBindOuterScope && shouldPrioritizeRelationQualifier()
-                && unboundSlot.getNameParts().size() > 1) {
+        // reference (col.field). Try the relation-qualified interpretation in every visible scope
+        // first, so a nearer name "t" does not hide a farther relation alias "t". The visible scopes
+        // are the local ones, which GROUP BY, HAVING, QUALIFY and ORDER BY layer from the select output
+        // and its child output, and then the outer scope of a correlated subquery:
+        //   select q.v as q from t q order by q.v  -- q.v is the column of relation q, not alias q
+        if (shouldPrioritizeRelationQualifier() && unboundSlot.getNameParts().size() > 1) {
             SlotBinding localRelationBinding = bindSlotByRelationQualifierInThisScope(unboundSlot);
             bounded = localRelationBinding.getBoundSlots();
             foundInThisScope = !bounded.isEmpty();
-            if (!foundInThisScope) {
+            if (!foundInThisScope && canBindOuterScope) {
                 relationQualifierOccupied = localRelationBinding.isRelationQualifierOccupied();
-            }
-            if (!foundInThisScope && !relationQualifierOccupied) {
-                bounded = bindSlotsByRelationQualifier(unboundSlot, outerScope.get());
+                if (!relationQualifierOccupied) {
+                    bounded = bindSlotsByRelationQualifier(unboundSlot, outerScope.get());
+                }
             }
         }
 

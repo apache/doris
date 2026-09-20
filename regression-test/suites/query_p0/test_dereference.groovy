@@ -220,6 +220,68 @@ suite("test_dereference") {
             order by t.id
             """
 
+    // An output alias is a nearer scope than the relation for ORDER BY, HAVING and QUALIFY.
+    // A relation-qualified column should still bind to the relation when an output alias reuses its name.
+    multi_sql """
+        drop table if exists test_dereference_alias_shadow;
+        create table test_dereference_alias_shadow(
+          id int,
+          v int,
+          s struct<v:int>
+        )
+        distributed by hash(id) buckets 1
+        properties(
+          'replication_num'='1'
+        );
+
+        insert into test_dereference_alias_shadow
+        values (1, 30, struct(1)), (2, 20, struct(2)), (3, 10, struct(3));
+        """
+
+    qt_alias_shadow_order_by_subquery_alias "select q.v as q from (select 7 as v) q order by q.v"
+
+    qt_alias_shadow_order_by "select q.v as q from test_dereference_alias_shadow q order by q.v"
+
+    qt_alias_shadow_having "select q.v as q from test_dereference_alias_shadow q having q.v > 15 order by q.v"
+
+    qt_alias_shadow_order_by_agg_func """
+            select q.id as q from test_dereference_alias_shadow q group by q.id order by max(q.v)
+            """
+
+    qt_alias_shadow_order_by_over_agg """
+            select max(q.v) as q from test_dereference_alias_shadow q group by q.id order by q.id
+            """
+
+    qt_alias_shadow_having_group_by_expr """
+            select q.id + 1 as q from test_dereference_alias_shadow q
+            group by q.id + 1 having q.id + 1 > 3
+            """
+
+    qt_alias_shadow_qualify_group_by_expr """
+            select q.id + 1 as q from test_dereference_alias_shadow q
+            group by q.id + 1 qualify row_number() over (order by q.id + 1) = 1
+            """
+
+    // the output alias q is a struct that has a field v: q.v is still the column v of relation q
+    qt_alias_shadow_struct_alias_order_by """
+            select id from (
+                select q.id as id, q.s as q from test_dereference_alias_shadow q order by q.v limit 1
+            ) x
+            """
+
+    qt_alias_shadow_struct_alias_having """
+            select id from (
+                select q.id as id, q.s as q from test_dereference_alias_shadow q having q.v > 25
+            ) x
+            """
+
+    // no relation-qualified column matches, fall back to the nested field of the output alias
+    qt_alias_shadow_keep_alias_field """
+            select id from (
+                select p.id as id, p.s as q from test_dereference_alias_shadow p order by q.v desc limit 1
+            ) x
+            """
+
     test {
         sql """
             select t1.id
