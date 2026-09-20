@@ -23,6 +23,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -99,13 +100,18 @@ public class IcebergSysExternalTable extends ExternalTable {
     }
 
     public Table getSysIcebergTable() {
+        return createMetadataTable(resolveBaseTable());
+    }
+
+    @VisibleForTesting
+    Table createMetadataTable(Table baseTable) {
         MetadataTableType tableType = MetadataTableType.from(sysTableType);
         if (tableType == null) {
             throw new IllegalArgumentException("Unknown iceberg system table type: " + sysTableType);
         }
         // Metadata tables capture their base operations. Keep them statement-local so exact
         // previousFiles/history state and stale-generation retry never leak into this table object.
-        return MetadataTableUtils.createMetadataTableInstance(resolveBaseTable(), tableType);
+        return MetadataTableUtils.createMetadataTableInstance(baseTable, tableType);
     }
 
     /**
@@ -217,10 +223,17 @@ public class IcebergSysExternalTable extends ExternalTable {
 
     private SchemaCacheValue loadSchemaCacheValue() {
         // Metadata-table schemas may change after source schema or partition-spec evolution.
-        // Resolve the schema from the statement's bound generation instead of permanently pairing
-        // this long-lived system-table object with its first observed generation.
-        return new SchemaCacheValue(IcebergUtils.parseSchema(getSysIcebergTable().schema(),
-                getCatalog().getEnableMappingVarbinary(),
-                getCatalog().getEnableMappingTimestampTz()));
+        // Resolve the metadata table and mapping policy from one retained source generation instead
+        // of permanently pairing this long-lived system-table object with its first observed state.
+        Optional<MvccSnapshot> relationSnapshot = bindsToStatementGeneration()
+                ? MvccUtil.getSnapshotFromContext(sourceTable) : Optional.empty();
+        return IcebergUtils.withSnapshotCacheValue(relationSnapshot, sourceTable, snapshotValue -> {
+            Table baseTable = snapshotValue.getIcebergTable().orElseThrow(
+                    () -> new IllegalStateException("Iceberg system table schema requires a retained base table"));
+            Table metadataTable = createMetadataTable(baseTable);
+            return new SchemaCacheValue(IcebergUtils.parseSchema(metadataTable.schema(),
+                    snapshotValue.isEnableMappingVarbinary(),
+                    snapshotValue.isEnableMappingTimestampTz()));
+        });
     }
 }
