@@ -41,6 +41,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
@@ -2422,6 +2423,11 @@ void ArrayFileColumnIterator::collect_prefetchers(
     }
 }
 
+// Materialize selected parent rows without repeating the ARRAY seek/next_batch setup per row.
+// rowids are strictly increasing segment-local parent ordinals, not positions in the input Block.
+// Batch-read their metadata, then coalesce adjacent source item spans into fewer item reads.
+// Normally append complete rows to dst; in LAZY mode, fill missing children without duplicating
+// parent offsets/null-map that were already materialized and filtered in the predicate phase.
 Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                                MutableColumnPtr& dst) {
     if (!need_to_read()) {
@@ -2432,11 +2438,187 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
 
     _recovery_from_place_holder_column(dst);
 
+    if (count == 0) {
+        return Status::OK();
+    }
+
+    // A null-only consumer needs one nested row per null marker, but no lengths or item data.
+    if (read_null_map_only()) {
+        DORIS_CHECK(is_column_nullable(*dst));
+        auto& nullable_column = assert_cast<ColumnNullable&>(*dst);
+        if (_null_iterator) {
+            auto null_map_ptr = nullable_column.get_null_map_column_ptr();
+            MutableColumnPtr null_map_column = std::move(null_map_ptr);
+            RETURN_IF_ERROR(_null_iterator->read_by_rowids(rowids, count, null_map_column));
+        } else {
+            // A nullable schema can read an old non-nullable segment, which has no null stream.
+            nullable_column.get_null_map_column_ptr()->insert_many_vals(0, count);
+        }
+        auto& column_array = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                nullable_column.get_nested_column());
+        column_array.insert_many_defaults(count);
+        return Status::OK();
+    }
+
+    auto& column_array = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(
+            is_column_nullable(*dst) ? static_cast<ColumnNullable&>(*dst).get_nested_column()
+                                     : *dst);
+    // The parent reader can stay active solely for lazy children. This flag controls writing
+    // parent metadata to dst, not reading source offsets to locate those children on disk.
+    const bool read_meta_columns = need_to_read_meta_columns();
+
+    if (_array_reader->is_nullable()) {
+        if (UNLIKELY(!is_column_nullable(*dst))) {
+            return Status::InternalError(
+                    "unexpected non-nullable destination column for nullable array reader");
+        }
+        auto& nullable_column = static_cast<ColumnNullable&>(*dst);
+        if (read_meta_columns) {
+            MutableColumnPtr null_map_column = nullable_column.get_null_map_column_ptr();
+            RETURN_IF_ERROR(_null_iterator->read_by_rowids(rowids, count, null_map_column));
+        } else {
+            DORIS_CHECK(nullable_column.get_null_map_column().size() == count);
+        }
+    } else if (read_meta_columns && is_column_nullable(*dst)) {
+        static_cast<ColumnNullable&>(*dst).get_null_map_column_ptr()->insert_many_vals(0, count);
+    }
+
+    // Array row r spans [offset[r], offset[r + 1]) in the source item stream. offset_rowids
+    // identifies entries in the offset stream, not item ordinals. Read both endpoints in one
+    // ordered pass to avoid revisiting pages for the ends; adjacent rows share an endpoint:
+    // rowids [1, 2, 8] need offset entries [1, 2, 3, 8, 9].
+    DorisVector<rowid_t> offset_rowids;
+    offset_rowids.reserve(count * 2);
     for (size_t i = 0; i < count; ++i) {
-        // TODO(cambyszju): now read array one by one, need optimize later
-        RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
+        offset_rowids.push_back(rowids[i]);
+        const auto next_rowid = static_cast<uint64_t>(rowids[i]) + 1;
+        if (next_rowid < _array_reader->num_rows() &&
+            (i + 1 == count || next_rowid != rowids[i + 1])) {
+            offset_rowids.push_back(static_cast<rowid_t>(next_rowid));
+        }
+    }
+    MutableColumnPtr source_offsets_column = ColumnOffset64::create();
+    source_offsets_column->reserve(offset_rowids.size() + 1);
+    RETURN_IF_ERROR(_offset_iterator->read_by_rowids(offset_rowids.data(), offset_rowids.size(),
+                                                     source_offsets_column));
+    // source_offsets contains element ordinals in the segment, not file byte positions.
+    // Destination offsets instead delimit the compact item stream after row selection.
+    auto& source_offsets = assert_cast<ColumnOffset64&>(*source_offsets_column).get_data();
+    DORIS_CHECK(source_offsets.size() == offset_rowids.size());
+    if (static_cast<uint64_t>(rowids[count - 1]) + 1 == _array_reader->num_rows()) {
+        // The last array row has no rowid + 1. Consume its start offset, then obtain the end
+        // offset from the page-tail sentinel written by OffsetColumnWriter.
+        RETURN_IF_ERROR(_offset_iterator->seek_to_ordinal(rowids[count - 1]));
         size_t num_read = 1;
-        RETURN_IF_ERROR(next_batch(&num_read, dst));
+        bool has_null = false;
+        MutableColumnPtr last_start = ColumnOffset64::create();
+        RETURN_IF_ERROR(_offset_iterator->next_batch(&num_read, last_start, &has_null));
+        if (UNLIKELY(num_read != 1)) {
+            return Status::Corruption("failed to read the last array offset");
+        }
+        ordinal_t next_start = 0;
+        RETURN_IF_ERROR(_offset_iterator->_peek_one_offset(&next_start));
+        source_offsets.push_back(next_start);
+    }
+
+    if (!read_meta_columns) {
+        DORIS_CHECK(column_array.size() == count);
+    }
+
+    // Obtain writable child owners once for the whole batch, and restore them on every exit.
+    // Moving the owners avoids introducing extra sharing just to read into their columns.
+    MutableColumnPtr output_offsets_ptr;
+    ColumnArray::ColumnOffsets* output_offsets = nullptr;
+    if (read_meta_columns) {
+        output_offsets_ptr = IColumn::mutate(std::move(column_array.get_offsets_ptr()));
+        output_offsets = assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                output_offsets_ptr.get());
+    }
+    Defer defer_offsets {[&] {
+        if (read_meta_columns) {
+            auto typed_offsets_ptr = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
+                    assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                            output_offsets_ptr.get()));
+            output_offsets_ptr = nullptr;
+            column_array.get_offsets_ptr() = std::move(typed_offsets_ptr);
+        }
+    }};
+
+    auto items_ptr = IColumn::mutate(std::move(column_array.get_data_ptr()));
+    Defer defer_items {[&] { column_array.get_data_ptr() = std::move(items_ptr); }};
+    // Append exactly one selected source span; short reads must not yield an incomplete ARRAY.
+    auto read_item_range = [&](ordinal_t start, size_t item_count) -> Status {
+        if (item_count == 0) {
+            return Status::OK();
+        }
+        size_t num_read = item_count;
+        bool has_null = false;
+        RETURN_IF_ERROR(_item_iterator->seek_to_ordinal(start));
+        RETURN_IF_ERROR(_item_iterator->next_batch(&num_read, items_ptr, &has_null));
+        if (UNLIKELY(num_read != item_count)) {
+            return Status::Corruption("array item reader returned {} items, expected {}", num_read,
+                                      item_count);
+        }
+        return Status::OK();
+    };
+
+    // Cumulative end in dst's item stream, not a source ordinal. Continue the previous end
+    // so this batch can append to a non-empty destination.
+    uint64_t output_offset =
+            read_meta_columns && !output_offsets->empty() ? output_offsets->get_data().back() : 0;
+    size_t total_item_count = 0; // Number of placeholder item slots needed by OFFSET_ONLY.
+    // Delay reading this pending source span so adjacent item ranges share one read, even
+    // when their parent rowids are separated by unselected rows with no physical items.
+    ordinal_t range_start = 0;
+    size_t range_size = 0;
+    if (read_meta_columns) {
+        output_offsets->get_data().reserve(output_offsets->size() + count);
+    }
+    // Cursor in the compact endpoint buffer, not a parent rowid or a source item ordinal.
+    // Each iteration leaves it on that row's end; only adjacent parent rows reuse it as a start.
+    size_t offset_index = 0;
+    for (size_t i = 0; i < count; ++i) {
+        if (i > 0 && static_cast<uint64_t>(rowids[i - 1]) + 1 != rowids[i]) {
+            ++offset_index;
+        }
+        const ordinal_t item_start = source_offsets[offset_index++];
+        const ordinal_t item_end = source_offsets[offset_index];
+        if (UNLIKELY(item_end < item_start)) {
+            return Status::Corruption("invalid array element offsets: start {}, end {}", item_start,
+                                      item_end);
+        }
+        const size_t item_count = static_cast<size_t>(item_end - item_start);
+        // A nullable parent can legally retain nested payload for a null row. Preserve the raw
+        // offset span so the nested column stays aligned with the parent offsets, especially when
+        // lazy materialization fills only the item subtree in a later phase.
+        total_item_count += item_count;
+        if (read_meta_columns) {
+            output_offset += item_count;
+            output_offsets->get_data().push_back(output_offset);
+        } else {
+            DCHECK_EQ(column_array.size_at(i), item_count);
+        }
+        if (read_offset_only() || item_count == 0) {
+            continue;
+        }
+
+        if (range_size == 0) {
+            range_start = item_start;
+            range_size = item_count;
+        } else if (range_start + range_size == item_start) {
+            range_size += item_count;
+        } else {
+            RETURN_IF_ERROR(read_item_range(range_start, range_size));
+            range_start = item_start;
+            range_size = item_count;
+        }
+    }
+
+    DCHECK_EQ(offset_index + 1, source_offsets.size());
+    if (read_offset_only()) {
+        items_ptr->insert_many_defaults(total_item_count);
+    } else {
+        RETURN_IF_ERROR(read_item_range(range_start, range_size));
     }
     return Status::OK();
 }
