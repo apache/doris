@@ -2109,9 +2109,11 @@ TEST(ExprZonemapFilterTest, SlotSlotGuardsCoverNullAndMissingStatistics) {
 }
 
 TEST(ExprZonemapFilterTest, SlotSlotHandlesTheSameSlotOnBothSides) {
-    // FE's SimplifySelfComparison does not fold NotEqualTo, so `a != a` reaches the BE. It is never
-    // true, so returning kNoMatch is always sound; the range rule proves it when a is a single
-    // value and stays conservative otherwise.
+    // FE's SimplifySelfComparison rewrites `a != a` (parsed as Not(EqualTo(a, a))) by folding the
+    // inner equality, so it does not normally reach the BE as a slot-vs-slot NotEqualTo. This pins
+    // the conservative fallback if such a shape still reaches the evaluator: the generic point-range
+    // rule proves kNoMatch when a is a single value, and a range stays kMayMatch instead of being
+    // special-cased as self-comparison.
     auto type = int_type();
     auto slot = make_slot(0, type);
     FunctionComparison<NotEqualsOp, NameNotEquals> not_equals;
