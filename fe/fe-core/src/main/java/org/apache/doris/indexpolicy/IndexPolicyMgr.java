@@ -184,7 +184,11 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
         String tokenizerName = analyzerProperties.get(IndexPolicy.PROP_TOKENIZER);
         IndexPolicy tokenizer = tokenizerName == null
-                ? null : nameToIndexPolicy.get(normalizeKey(tokenizerName));
+                ? null : getPolicyByNameLocked(tokenizerName);
+        if (tokenizer != null && tokenizer.getType() != IndexPolicyTypeEnum.TOKENIZER) {
+            throw new DdlException("Referenced policy '" + tokenizerName + "' is of type "
+                    + tokenizer.getType() + " but expected " + IndexPolicyTypeEnum.TOKENIZER);
+        }
         if (tokenizer != null && tokenizer.isInvalid()) {
             throw new DdlException("Analyzer '" + analyzerName + "' references invalid tokenizer '"
                     + tokenizerName + "'");

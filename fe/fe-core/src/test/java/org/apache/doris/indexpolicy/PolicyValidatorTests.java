@@ -297,6 +297,46 @@ public class PolicyValidatorTests {
     }
 
     @Test
+    public void testReplayedAnalyzerUsesExactTokenizerBinding() throws Exception {
+        Map<String, String> invalidNgram = Map.of(
+                "type", "ngram", "min_gram", "1", "max_gram", "3", "max_ngram_diff", "1");
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                50, "Foo", IndexPolicyTypeEnum.TOKENIZER, invalidNgram));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                51, "foo", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                52, "invalid_exact_tokenizer_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "Foo")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                60, "Bar", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                61, "bar", IndexPolicyTypeEnum.TOKENIZER, invalidNgram));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                62, "valid_exact_tokenizer_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "Bar")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                70, "Baz", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                71, "baz", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                72, "wrong_type_exact_tokenizer_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "Baz")));
+
+        IndexPolicyMgr restored = roundTrip(manager);
+        DdlException invalidException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("invalid_exact_tokenizer_analyzer"));
+        Assertions.assertTrue(invalidException.getMessage().contains("invalid tokenizer 'Foo'"));
+        Assertions.assertDoesNotThrow(
+                () -> restored.validateAnalyzerExists("valid_exact_tokenizer_analyzer"));
+        DdlException typeException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("wrong_type_exact_tokenizer_analyzer"));
+        Assertions.assertTrue(typeException.getMessage().contains("expected TOKENIZER"));
+    }
+
+    @Test
     public void testIfNotExistsKeepsReplayedBuiltinTokenizerNameIdempotent() {
         IndexPolicyMgr manager = new IndexPolicyMgr();
         IndexPolicy replayed = new IndexPolicy(
