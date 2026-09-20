@@ -2200,8 +2200,28 @@ build_paimon_rust() {
         echo "failed to get cargo version for paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    if [[ "${cargo_version}" != "${required_rust_version}" ]]; then
-        echo "paimon-rust requires Rust/Cargo ${required_rust_version}, but found ${cargo_version}."
+    # Rust 1.91.0 is the minimum supported version. Allow newer toolchains when
+    # callers explicitly select one or rustup is unavailable on the system.
+    # NOTE: paimon_c and lance_c are both Rust staticlibs linked into the same
+    # BE binary; they must be built with the SAME rustc toolchain so the linker
+    # resolves both crates' std references against a single std copy. Mixing
+    # toolchains makes the precompiled std hashes differ and the linker pulls
+    # both std copies in, colliding on the unmangled `rust_eh_personality`
+    # (duplicate symbol). Build lance_c and paimon_rust with one toolchain.
+    if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
+            split(required, r, ".");
+            split(actual, a, ".");
+            for (i = 1; i <= 3; i++) {
+                if ((a[i] + 0) > (r[i] + 0)) {
+                    exit 0;
+                }
+                if ((a[i] + 0) < (r[i] + 0)) {
+                    exit 1;
+                }
+            }
+            exit 0;
+        }'; then
+        echo "paimon-rust requires Rust/Cargo ${required_rust_version} or newer, but found ${cargo_version}."
         echo "Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
