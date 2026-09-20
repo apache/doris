@@ -6,26 +6,32 @@ This opt-in trace answers whether foreground reads and background hole filling s
 
 | BE config | Default | Meaning |
 | --- | --- | --- |
-| `enable_read_io_trace` | `false` | Dynamically enable structured `READ_IO_TRACE` records in `be.INFO`. |
-| `read_io_trace_max_events` | `1000000` | Dynamic, positive, process-lifetime event limit shared by GET and lifecycle records. Set above emitted + dropped events to resume a capped trace; toggling the switch does not reset the counter. |
+| `enable_read_io_trace` | `false` | Dynamically enable interval and lifecycle records in separate JSONL files. |
+| `read_io_trace_dir` | Empty | Output directory; empty uses `<BE log directory>/read_io_trace/`. Startup setting. |
+| `read_io_trace_flush_bytes` | `1048576` (1 MiB) | Wake the writer when the pending batch reaches this size. Startup setting. |
+| `read_io_trace_flush_interval_ms` | `1000` | Flush a smaller pending batch on this interval. Startup setting. |
 
-Start with one isolated representative query. Enable the switch **before** the query starts, retain all rotated `be.INFO` files, and leave it enabled until the read-ahead, hole-fill and async-write queues have drained. Then disable it. Keep the usual before / query-returned / drained metric snapshots and BE process identity. The trace does not sample GETs or depend on Scanner Profile flushing, so asynchronous tails remain observable while the switch is enabled.
+Records no longer enter `be.INFO`. The calling thread serializes each event and appends it to a memory buffer. One lazily started background thread swaps out the batch under a short lock, then writes it outside the lock. The 1 MiB batch amortizes file writes; the 1 second interval makes small captures visible promptly. There is no cumulative event limit, queue capacity limit, or capacity-based dropping. `read_io_trace_max_events` has been removed.
 
-The two BE metrics `doris_read_io_trace_events` and `doris_read_io_trace_dropped_events` count emitted and over-budget records. `READ_IO_TRACE_LIMIT` and a nonzero dropped delta mean the capture is incomplete. The cap bounds log volume, not an exact byte count; one million records typically require hundreds of MiB of log space. Logging and extra cache probes can affect timing while enabled. Disable this diagnostic for performance measurements; the disabled path performs no JSON formatting, interval bookkeeping, cache-coverage probes or diagnostic ID allocation.
+Start with one isolated representative query. Enable the switch **before** the query starts and leave it enabled until the read-ahead, hole-fill and async-write queues have drained. Then disable it and wait for `doris_read_io_trace_pending_bytes` to reach zero before copying the trace. Disabling stops new records; pending records still flush. Keep the usual before / query-returned / drained metric snapshots and BE process identity. The trace does not sample GETs or depend on Scanner Profile flushing, so asynchronous tails remain observable while enabled.
+
+Files are named `read_io_trace.<pid>-<start-micros>.<index>.jsonl`. Normally one file is appended throughout a BE process; an actual file IO error starts a new file on recovery. Keep all files for the process, including those from earlier enabled intervals, then filter by Query ID in the analyzer. Files are neither rotated by size nor automatically deleted. Graceful shutdown drains the writer; the fast `_exit` path also flushes already submitted records. Writes reach the OS without per-batch `fsync`; a crash can lose the pending tail.
+
+`doris_read_io_trace_events` counts successfully written events; `doris_read_io_trace_pending_bytes` includes the batch being written. `doris_read_io_trace_dropped_events` reports real writer failures or submissions after shutdown, not capacity drops. Each batch ends with a cumulative `read_io_trace_status` checkpoint, allowing the analyzer to detect missing records and reported write failures. File IO errors are also reported in the normal warning log. Serialization and extra cache probes still cost time; disable this diagnostic for performance measurements. The disabled event path performs no JSON formatting, interval bookkeeping, cache-coverage probes or diagnostic ID allocation.
 
 Analyze complete logs, not lines prefiltered by Query ID (which would hide sequence gaps):
 
 ```bash
-python3 tools/read_io_trace/analyze.py /path/to/be.INFO.* --query-id '<query-id>' > overlap.json
+python3 tools/read_io_trace/analyze.py /path/to/read_io_trace/*.jsonl --query-id '<query-id>' > overlap.json
 ```
 
 For a complete isolated capture, reconcile the successful GET sum with the drained-minus-before `s3_file_reader_bytes_read` delta. Run without a query filter when the metric delta includes other query IDs or background reads:
 
 ```bash
-python3 tools/read_io_trace/analyze.py /path/to/be.INFO.* --expected-s3-bytes 123456789 > overlap.json
+python3 tools/read_io_trace/analyze.py /path/to/read_io_trace/*.jsonl --expected-s3-bytes 123456789 > overlap.json
 ```
 
-The analyzer accepts `.gz` logs, deduplicates identical records from repeated log files, reports sequence gaps / truncation / reconciliation failures, and exits with status 2 on capture warnings. `s3_bytes_reconciled: null` means no metric delta was supplied; a warning-free file alone does not prove that the capture started early enough or includes the entire asynchronous tail. Logs contain object URIs and Query IDs, but no payloads or credentials; handle them like other query diagnostics.
+The analyzer accepts JSONL, `.gz` files and legacy `be.INFO` traces. It deduplicates identical records from repeated files, checks sequences and flush checkpoints, reports reconciliation failures, and exits with status 2 on capture warnings. `s3_bytes_reconciled: null` means no metric delta was supplied; a warning-free file alone does not prove that tracing started early enough or covers the entire asynchronous tail. Records contain object URIs and Query IDs, but no payloads or credentials; handle them like other query diagnostics.
 
 ## Reading the result
 
@@ -69,5 +75,5 @@ Unconsumed prefetch or newly fetched cache bytes may increase unique bytes witho
 
 ```bash
 python3 -m unittest discover -s tools/read_io_trace -p 'test_*.py' -v
-./run-be-ut.sh --run --filter='ReadIOTraceTest.*:S3FileReaderTest.*:FileRangeReadSchedulerTest.*:PartialBlockWritebackManagerTest.*:AsyncCachedRemoteFileReaderTest.*:RangeCacheWritebackTest.*' -j100
+./run-be-ut.sh --run --filter='ReadIOTrace*:S3FileReaderTest.*:FileRangeReadSchedulerTest.*:PartialBlockWritebackManagerTest.*:AsyncCachedRemoteFileReaderTest.*:RangeCacheWritebackTest.*' -j100
 ```

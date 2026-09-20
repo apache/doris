@@ -130,6 +130,49 @@ class ReadIOTraceAnalysisTest(unittest.TestCase):
         self.assertTrue(report["capture_warnings"])
         self.assertFalse(report["s3_bytes_reconciled"])
 
+    def test_jsonl_checkpoint_and_repeated_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "read_io_trace.be1.0.jsonl")
+            file = "s3://bucket/READ_IO_TRACE READ_IO_TRACE_LIMIT path"
+            records = [get(1, "read_ahead", 0, 10, file=file),
+                       get(2, "hole_fill", 0, 10, file=file),
+                       {"v": 1, "kind": "read_io_trace_status", "process": "be1",
+                        "written_events": 2, "dropped_events": 0}]
+            with open(path, "w", encoding="utf-8") as stream:
+                for record in records:
+                    stream.write(json.dumps(record) + "\n")
+            events, warnings = load_events([path, path])
+        self.assertEqual(len(events), 2)
+        self.assertEqual(warnings, [])
+        self.assertEqual(summarize_query(events)["duplicate_bytes"], 10)
+
+    def test_jsonl_detects_missing_prefix_files_and_writer_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "trace.jsonl")
+            with open(path, "w", encoding="utf-8") as stream:
+                stream.write(json.dumps(get(4, "hole_fill", 0, 10)) + "\n")
+                stream.write(json.dumps({"v": 1, "kind": "read_io_trace_status", "process": "be1",
+                                         "written_events": 3, "dropped_events": 1}) + "\n")
+            events, warnings = load_events([path])
+        self.assertEqual(len(events), 1)
+        self.assertEqual(len(warnings), 2)
+        self.assertTrue(any("lost 1 events" in warning for warning in warnings))
+        self.assertTrue(any("reports 3 written events" in warning for warning in warnings))
+
+    def test_jsonl_requires_a_complete_flush_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "trace.jsonl")
+            with open(path, "w", encoding="utf-8") as stream:
+                stream.write(json.dumps(get(1, "sync", 0, 10)) + "\n")
+            _, warnings = load_events([path])
+            self.assertTrue(any("missing flush checkpoint" in warning for warning in warnings))
+            with open(path, "a", encoding="utf-8") as stream:
+                stream.write(json.dumps({"v": 1, "kind": "read_io_trace_status", "process": "be1",
+                                         "written_events": 1, "dropped_events": 0}) + "\n")
+                stream.write(json.dumps(get(2, "sync", 10, 10)) + "\n")
+            _, warnings = load_events([path])
+            self.assertTrue(any("files contain 2" in warning for warning in warnings))
+
 
 if __name__ == "__main__":
     unittest.main()
