@@ -55,6 +55,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Function;
 
 class IcebergSchemaDisplayTest {
     private IcebergExternalCatalog catalog;
@@ -65,6 +66,7 @@ class IcebergSchemaDisplayTest {
     private Schema schema;
     private List<Column> scanColumns;
     private ConnectContext context;
+    private MockedStatic<IcebergUtils> icebergUtils;
 
     @BeforeEach
     void setUp() {
@@ -92,6 +94,13 @@ class IcebergSchemaDisplayTest {
         table = Mockito.spy(new IcebergExternalTable(3, "required_tbl", "required_tbl", catalog, database));
         Mockito.doNothing().when(table).makeSureInitialized();
         Mockito.doReturn(new BaseTable(operations, "required_tbl")).when(table).getIcebergTable();
+        icebergUtils = Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS);
+        icebergUtils.when(() -> IcebergUtils.withIcebergTable(
+                        Mockito.eq(table), Mockito.<Function<org.apache.iceberg.Table, Object>>any()))
+                .thenAnswer(invocation -> {
+                    Function<org.apache.iceberg.Table, Object> action = invocation.getArgument(1);
+                    return action.apply(new BaseTable(operations, "required_tbl"));
+                });
         // Model the cached scan schema. Displaying a table must never mutate these shared columns.
         scanColumns = IcebergUtils.parseSchema(schema, true, false);
         Mockito.doReturn(scanColumns).when(table).getFullSchema();
@@ -99,6 +108,7 @@ class IcebergSchemaDisplayTest {
 
     @AfterEach
     void tearDown() {
+        icebergUtils.close();
         ConnectContext.remove();
     }
 
@@ -224,6 +234,8 @@ class IcebergSchemaDisplayTest {
             Assertions.assertFalse(result.getColumns().get(1).getColumnDesc().isIsAllowNull());
             Assertions.assertTrue(result.getColumns().get(2).getColumnDesc().isIsAllowNull());
             Assertions.assertEquals("value doc", result.getColumns().get(1).getComment());
+            icebergUtils.verify(() -> IcebergUtils.withIcebergTable(
+                    Mockito.eq(table), Mockito.<Function<org.apache.iceberg.Table, Object>>any()));
         }
         Assertions.assertTrue(scanColumns.stream().allMatch(Column::isAllowNull));
         Assertions.assertTrue(scanColumns.get(3).getChildren().get(0).isAllowNull());

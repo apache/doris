@@ -619,6 +619,11 @@ public class MetaCacheEntry<K, V> {
         return weightBounded && effectiveEnabled && !closed.get();
     }
 
+    /** True after this physical entry has been retired from its catalog generation. */
+    public boolean isClosed() {
+        return closed.get();
+    }
+
     private AdmissionResult admitWeightedValue(
             K key, V value, @Nullable V expectedCurrent, boolean requireExpected,
             @Nullable KeyMutationToken expectedMutation, long expectedReservationGeneration,

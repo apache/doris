@@ -45,6 +45,7 @@ import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
@@ -64,6 +65,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.encryption.EncryptedKey;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.hadoop.HadoopTables;
+import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.types.Type;
@@ -296,6 +298,73 @@ public class IcebergExternalMetaCacheTest {
                 manifestFiles.verifyNoMoreInteractions();
             }
             Assert.assertNull(tables.peekIfPresent(sharedMapping));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRetiredManifestLoadDropsSdkCacheAfterReadCompletes() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        try {
+            long catalogId = 1L;
+            cache.initCatalog(catalogId, Collections.emptyMap());
+            NameMapping mapping = NameMapping.createForTest(catalogId, "db", "tbl");
+            PropertiesFileIO fileIo = new PropertiesFileIO("token", "retired");
+            Table icebergTable = tableWithMetadata(
+                    metadataWithLocation("/metadata/retired-manifest-v1.json"), fileIo);
+            MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, IcebergTableCacheValue.class);
+            tables.put(mapping, new IcebergTableCacheValue(icebergTable));
+            MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> manifests = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_MANIFEST,
+                    IcebergManifestEntryKey.class, ManifestCacheValue.class);
+            IcebergRuntimeContext runtimeContext = new IcebergRuntimeContext(
+                    Mockito.mock(ExecutionAuthenticator.class), null, manifests, null, Collections.emptyMap());
+            ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+            ManifestFile manifest = Mockito.mock(ManifestFile.class);
+            Mockito.when(manifest.content()).thenReturn(ManifestContent.DATA);
+            Mockito.when(manifest.path()).thenReturn("/manifest/retired.avro");
+            @SuppressWarnings("unchecked")
+            ManifestReader<DataFile> reader = Mockito.mock(ManifestReader.class);
+            CloseableIterator<DataFile> iterator = new CloseableIterator<DataFile>() {
+                private boolean invalidated;
+
+                @Override
+                public boolean hasNext() {
+                    if (!invalidated) {
+                        invalidated = true;
+                        cache.invalidateCatalogEntries(catalogId);
+                    }
+                    return false;
+                }
+
+                @Override
+                public DataFile next() {
+                    throw new java.util.NoSuchElementException();
+                }
+
+                @Override
+                public void close() {
+                }
+            };
+            Mockito.when(reader.iterator()).thenReturn(iterator);
+
+            try (MockedStatic<ManifestFiles> manifestFiles = Mockito.mockStatic(ManifestFiles.class)) {
+                manifestFiles.when(() -> ManifestFiles.read(manifest, fileIo)).thenReturn(reader);
+
+                cache.getManifestCacheValue(dorisTable, manifest, icebergTable, runtimeContext, ignored -> { });
+
+                Assert.assertTrue(manifests.isClosed());
+                manifestFiles.verify(() -> ManifestFiles.read(manifest, fileIo));
+                // One drop belongs to catalog invalidation; the second closes the race where this
+                // retained load finishes after the catalog-level drop.
+                manifestFiles.verify(() -> ManifestFiles.dropCache(fileIo), Mockito.times(2));
+            }
         } finally {
             cache.close();
             executor.shutdownNow();

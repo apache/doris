@@ -167,10 +167,12 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         IcebergTableCacheValue.Lease lease = statementLease(nameMapping);
         if (lease != null) {
-            return action.apply(lease.getIcebergTable());
+            return executeForGeneration(lease.getValue(), nameMapping.getCtlId(),
+                    ignored -> action.apply(lease.getIcebergTable()));
         }
         try (IcebergTableCacheValue.Lease operationLease = borrow(nameMapping)) {
-            return action.apply(operationLease.getIcebergTable());
+            return executeForGeneration(operationLease.getValue(), nameMapping.getCtlId(),
+                    ignored -> action.apply(operationLease.getIcebergTable()));
         }
     }
 
@@ -532,7 +534,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 resolveManifestEntry(nameMapping.getCtlId(), runtimeContext);
         return getManifestCacheValue(retainedManifestEntry, key,
                 ignored -> loadManifestCacheValue(
-                        manifest, icebergTable, key.getContent(), retainedManifestEntry.isWeightAccounting()),
+                        manifest, icebergTable, key.getContent(), retainedManifestEntry),
                 cacheHitRecorder);
     }
 
@@ -827,7 +829,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private ManifestCacheValue loadManifestCacheValue(org.apache.iceberg.ManifestFile manifest, Table icebergTable,
-            ManifestContent content, boolean accountRetainedSize) {
+            ManifestContent content,
+            MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> retainedManifestEntry) {
         if (manifest == null || icebergTable == null) {
             String manifestPath = manifest == null ? "null" : manifest.path();
             throw new CacheException("Manifest cache loader context is missing for %s",
@@ -835,11 +838,19 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         }
         try {
             if (content == ManifestContent.DELETES) {
-                return loadDeleteFiles(manifest, icebergTable, accountRetainedSize);
+                return loadDeleteFiles(manifest, icebergTable, retainedManifestEntry.isWeightAccounting());
             }
-            return loadDataFiles(manifest, icebergTable, accountRetainedSize);
+            return loadDataFiles(manifest, icebergTable, retainedManifestEntry.isWeightAccounting());
         } catch (IOException e) {
             throw new CacheException("Failed to read manifest %s", e, manifest.path());
+        } finally {
+            // invalidateCatalog drops the Iceberg SDK cache after retiring this entry. A retained
+            // generation may nevertheless finish a direct load after that drop and recreate the
+            // per-FileIO content cache. Every such retired load drops again on completion, so the
+            // last reader leaves no SDK cache belonging to the retired generation.
+            if (retainedManifestEntry.isClosed()) {
+                dropManifestFileIoCache(icebergTable.io());
+            }
         }
     }
 
@@ -1249,11 +1260,15 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
 
     private void dropManifestFileIoCaches(List<FileIO> fileIos) {
         for (FileIO fileIo : fileIos) {
-            try {
-                ManifestFiles.dropCache(fileIo);
-            } catch (Exception e) {
-                LOG.warn("Failed to drop iceberg manifest files cache", e);
-            }
+            dropManifestFileIoCache(fileIo);
+        }
+    }
+
+    private void dropManifestFileIoCache(FileIO fileIo) {
+        try {
+            ManifestFiles.dropCache(fileIo);
+        } catch (Exception e) {
+            LOG.warn("Failed to drop iceberg manifest files cache", e);
         }
     }
 
