@@ -31,8 +31,12 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.collect.Lists;
@@ -292,6 +296,19 @@ public class MTMVTaskTest {
         } finally {
             Config.cloud_unique_id = originCloudUniqueId;
         }
+    }
+
+    @Test
+    public void testCreateExecutorPreservesOriginStatement(@Mocked UpdateMvByPartitionCommand command) {
+        ConnectContext ctx = new ConnectContext();
+        OriginStatement originStatement = new OriginStatement("select k1 from test_db.base_table", 0);
+        StatementContext statementContext = new StatementContext(ctx, originStatement);
+
+        StmtExecutor executor = Deencapsulation.invoke(
+                MTMVTask.class, "createExecutor", ctx, command, statementContext);
+
+        Assert.assertSame(originStatement, statementContext.getOriginStatement());
+        Assert.assertSame(originStatement, executor.getParsedStmt().getOrigStmt());
     }
 
     @Test
