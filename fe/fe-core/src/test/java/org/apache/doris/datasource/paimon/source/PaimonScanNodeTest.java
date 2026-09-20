@@ -2915,6 +2915,7 @@ public class PaimonScanNodeTest {
             Assert.assertEquals("mode " + mode + " on " + location, expected,
                     rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
         }
+    }
     // --- filterVectorIndexOptions ---------------------------------------------------
     //
     // CoreOptions.primaryKeyVectorIndexOptions seeds its result with a copy of every
