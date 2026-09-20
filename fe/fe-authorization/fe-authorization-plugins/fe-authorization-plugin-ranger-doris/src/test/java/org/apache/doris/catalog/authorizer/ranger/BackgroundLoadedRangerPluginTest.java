@@ -19,9 +19,11 @@ package org.apache.doris.catalog.authorizer.ranger;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.apache.ranger.plugin.model.RangerServiceDef;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequestImpl;
 import org.apache.ranger.plugin.service.RangerAuthContext;
 import org.apache.ranger.plugin.util.RangerUserStore;
+import org.apache.ranger.plugin.util.ServicePolicies;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -51,13 +53,29 @@ public class BackgroundLoadedRangerPluginTest {
         private final boolean clearsStateFirst;
         /** The user store the load installs, standing for the one the enricher downloads; null for none. */
         private final RangerUserStore userStore;
+        /**
+         * Whether the load installs a policy engine and then throws - what {@code RangerBasePlugin.init()}
+         * does when a chained plugin fails to start, after the root engine is up and being refreshed.
+         */
+        private final boolean publishesThenThrows;
+        /** Whether an engine was there when the load threw; what the failure is supposed to take down. */
+        private final AtomicBoolean enginePublished = new AtomicBoolean();
 
         private Loading(boolean clearsStateFirst, RangerUserStore userStore) {
+            this(clearsStateFirst, userStore, false);
+        }
+
+        private Loading(boolean clearsStateFirst, RangerUserStore userStore, boolean publishesThenThrows) {
             // Service type "test" reads ranger-test-*.xml, none of which exist here, and no service name:
             // nothing about a Ranger admin is configured, which is fine for a load this class performs itself.
             super("test", null, null);
             this.clearsStateFirst = clearsStateFirst;
             this.userStore = userStore;
+            this.publishesThenThrows = publishesThenThrows;
+            if (publishesThenThrows) {
+                // The engine built below would otherwise ask a Ranger admin for the user store; there is none.
+                getConfig().set("ranger.plugin.test.use.rangerGroups", "false");
+            }
         }
 
         @Override
@@ -75,6 +93,22 @@ public class BackgroundLoadedRangerPluginTest {
             if (userStore != null) {
                 getPluginContext().setAuthContext(new RangerAuthContext(null, null, null, userStore));
             }
+            if (publishesThenThrows) {
+                setPolicies(emptyPolicies());
+                enginePublished.set(getPolicyEngine() != null);
+                throw new IllegalStateException("a chained plugin failed to start");
+            }
+        }
+
+        /** Policies with nothing in them, enough for RangerBasePlugin to build and install an engine. */
+        private static ServicePolicies emptyPolicies() {
+            RangerServiceDef serviceDef = new RangerServiceDef();
+            serviceDef.setName("test");
+            ServicePolicies policies = new ServicePolicies();
+            policies.setServiceName("test");
+            policies.setServiceDef(serviceDef);
+            policies.setPolicyVersion(1L);
+            return policies;
         }
 
         private void letTheLoadEnd() {
@@ -89,7 +123,11 @@ public class BackgroundLoadedRangerPluginTest {
     }
 
     private Loading loading(boolean clearsStateFirst, RangerUserStore userStore) {
-        plugin = new Loading(clearsStateFirst, userStore);
+        return loading(clearsStateFirst, userStore, false);
+    }
+
+    private Loading loading(boolean clearsStateFirst, RangerUserStore userStore, boolean publishesThenThrows) {
+        plugin = new Loading(clearsStateFirst, userStore, publishesThenThrows);
         return plugin;
     }
 
@@ -161,6 +199,58 @@ public class BackgroundLoadedRangerPluginTest {
         assertStillWaiting(groups);
         plugin.letTheLoadEnd();
         Assertions.assertEquals(ImmutableSet.of("analysts", "etl"), within(groups, 10));
+    }
+
+    /**
+     * A load that throws after it has installed an engine - {@code RangerBasePlugin.init()} publishes the
+     * policy engine and starts its refresher before it initializes the chained plugins - is a failed load
+     * all the same: what it installed is stopped, and every answer is a refusal, as the log line says.
+     */
+    @Test
+    public void testALoadThatFailsAfterPublishingRefusesEverything() throws Exception {
+        Loading plugin = loading(false, null, true);
+        plugin.init();
+        Assertions.assertTrue(plugin.loadStarted.await(10, TimeUnit.SECONDS));
+
+        CompletableFuture<Object> answer = CompletableFuture.supplyAsync(
+                () -> plugin.isAccessAllowed(new RangerAccessRequestImpl()));
+        assertStillWaiting(answer);
+        plugin.letTheLoadEnd();
+
+        Assertions.assertNull(within(answer, 10), "answered out of the engine the failed load left behind");
+        Assertions.assertTrue(plugin.enginePublished.get(), "the load never published an engine to take down");
+        Assertions.assertTrue(plugin.isLoaded());
+        Assertions.assertTrue(plugin.isFailed());
+        Assertions.assertTrue(plugin.isStopped(), "the engine and refresher of a failed load were left running");
+        Assertions.assertEquals(-1L, plugin.getPoliciesVersion(), "the engine the failed load left is still there");
+        Assertions.assertNull(plugin.isAccessAllowed(new RangerAccessRequestImpl()));
+        Assertions.assertNull(plugin.evalRowFilterPolicies(new RangerAccessRequestImpl(), null));
+        Assertions.assertNull(plugin.evalDataMaskPolicies(new RangerAccessRequestImpl(), null));
+        // Stopping it again, as the factory will, is a no-op rather than a second stop.
+        plugin.cleanup();
+        Assertions.assertTrue(plugin.isStopped());
+    }
+
+    /**
+     * A caller that stops needing the answer - a controller closed while its check waits - stops waiting,
+     * while the load goes on for whoever else holds the plugin.
+     */
+    @Test
+    public void testAWaitGivesUpWhenAsked() throws Exception {
+        Loading plugin = loading();
+        plugin.init();
+        Assertions.assertTrue(plugin.loadStarted.await(10, TimeUnit.SECONDS));
+        AtomicBoolean giveUp = new AtomicBoolean();
+
+        CompletableFuture<Void> waiting = CompletableFuture.runAsync(() -> plugin.awaitLoaded(giveUp::get));
+
+        assertStillWaiting(waiting);
+        giveUp.set(true);
+        within(waiting, 10);
+        Assertions.assertFalse(plugin.isLoaded(), "the load was cut short with the waiter");
+        plugin.letTheLoadEnd();
+        plugin.awaitLoaded(() -> false);
+        Assertions.assertTrue(plugin.isLoaded());
     }
 
     /** A plugin never initialized - a test's own, answering out of its overrides - has nothing to wait for. */

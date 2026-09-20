@@ -59,9 +59,11 @@ import java.util.function.Supplier;
  * read the table whole and in the clear.
  *
  * <p>A plugin still on its first load is neither: it is about to have an answer, and every question here
- * waits for it ({@link BackgroundLoadedRangerPlugin#awaitLoaded()}) before anything else - before the
- * lifecycle fence above all, so that a load the Ranger admin is slow to serve is waited for with no lock
- * held, and closing this controller meanwhile is not queued behind it.
+ * waits for it ({@link BackgroundLoadedRangerPlugin#awaitLoaded(java.util.function.BooleanSupplier)})
+ * before anything else - before the lifecycle fence above all, so that a load the Ranger admin is slow to
+ * serve is waited for with no lock held, and closing this controller meanwhile is not queued behind it. Nor
+ * is the wait queued behind the close: a controller closed while its check waits stops waiting and refuses,
+ * as it would have after the load.
  */
 public abstract class RangerAccessController implements AuthorizationPlugin {
     private static final Logger LOG = LogManager.getLogger(RangerAccessController.class);
@@ -185,8 +187,20 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     @Override
     public final void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
             AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
-        getPlugin().awaitLoaded();
+        awaitPluginUnlessClosed();
         checkWhileOpen(resource, () -> checkPrivilegeInternal(subject, resource, requirement, context));
+    }
+
+    /**
+     * Waits for the Ranger plugin's first load to end, unless this controller is closed first.
+     *
+     * <p>Before the lifecycle fence and with no lock held, see the class comment. Closed, this controller
+     * refuses whatever the load brings, so there is nothing to wait for: a query holding a controller its
+     * catalog has since let go of is refused at once, not after the REST timeouts of a Ranger admin that is
+     * not answering - the plugin's own {@code cleanup()} deliberately does not wait for that load either.
+     */
+    private void awaitPluginUnlessClosed() {
+        getPlugin().awaitLoaded(() -> closed);
     }
 
     /** What this Ranger service decides about {@code resource}, asked only while this source is open. */
@@ -339,7 +353,7 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     @Override
     public List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
             AccessContext context) {
-        getPlugin().awaitLoaded();
+        awaitPluginUnlessClosed();
         return whileOpen(() -> evalRowFilterPolicies(subject, table, context));
     }
 
@@ -389,7 +403,7 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     @Override
     public Map<String, DataMaskSpec> getDataMasks(AuthorizedSubject subject, AuthorizedResource.Table table,
             Set<String> columns, AccessContext context) {
-        getPlugin().awaitLoaded();
+        awaitPluginUnlessClosed();
         return whileOpen(() -> {
             Map<String, DataMaskSpec> masks = new HashMap<>();
             for (String column : columns) {

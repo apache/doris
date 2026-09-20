@@ -31,6 +31,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 
 /**
  * The plugin a Doris Ranger source answers out of: a {@link RangerBasePlugin} that loads without holding up
@@ -53,10 +54,16 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p>What a check waits for is exactly what the constructor used to guarantee: that the load has
  * <em>ended</em> - with the policies from the admin, or from the local cache when the admin could not be
  * reached, or with nothing at all, in which case the engine is null and {@code RangerAccessController}
- * refuses, as it always has. It is not shortened by a timeout of its own: the load is bounded by the REST
- * timeouts the operator already tunes, and answering out of an empty engine before it has ended would be
- * refusing checks the policies are about to allow - and, worse, passing ones a policy written against a
- * group is about to deny.
+ * refuses, as it always has. A load that <em>threw</em> ends the same way, whatever it had installed by
+ * then: what {@code RangerBasePlugin.init()} does about an admin it cannot reach is logged and survived
+ * inside it, so a throw is something else - a broken audit configuration, a chained plugin that could not
+ * start - and where the constructor used to fail the FE's start with it, this plugin stops what the load
+ * did publish and refuses every check until the FE is restarted, see {@link #load()}. The wait is not
+ * shortened by a timeout of its own: the load is bounded by the REST timeouts the operator already tunes,
+ * and answering out of an empty engine before it has ended would be refusing checks the policies are about
+ * to allow - and, worse, passing ones a policy written against a group is about to deny. What does cut it
+ * short is the caller having no use for the answer any more: a controller closed while its check waits
+ * refuses, and {@link #awaitLoaded(BooleanSupplier)} is how it stops waiting.
  *
  * <p>Stopping it is {@link #cleanup()}, as before. Stopped while still loading - a {@code CREATE CATALOG}
  * dry run, the loser of a race in a factory - it finishes the load first and stops itself then, on the
@@ -72,6 +79,8 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
     private static final Logger LOG = LogManager.getLogger(BackgroundLoadedRangerPlugin.class);
+    /** How often {@link #awaitLoaded(BooleanSupplier)} asks whether to give up. */
+    private static final long GIVE_UP_CHECK_MS = 100;
 
     /** Released once the first load has ended, however it ended. */
     private final CountDownLatch loaded = new CountDownLatch(1);
@@ -81,6 +90,8 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
     private volatile boolean stopRequested;
     /** Whether the stop has run. It runs once, from whichever of {@link #cleanup()} and the loader is last. */
     private final AtomicBoolean stopped = new AtomicBoolean();
+    /** Whether the first load threw. Every answer is refused then; see {@link #load()}. */
+    private volatile boolean failed;
 
     protected BackgroundLoadedRangerPlugin(String serviceType, String serviceName, String appId) {
         super(serviceType, serviceName, appId);
@@ -119,13 +130,30 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
                             + " version {}", getServiceName(),
                     TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos), getPoliciesVersion(),
                     getRolesVersion(), getUserStoreVersion());
+            if (getPolicyEngine() != null && RangerUserStoreGroups.enabledFor(getConfig())
+                    && getUserStoreVersion() < 0) {
+                // Policies to answer out of, but no user store to read groups from: the admin could not be
+                // reached for it and none was cached. Requests carry no groups until one arrives - the
+                // enricher keeps asking - which is what this source sent before groups were attached at all,
+                // and which a policy item written against a group, a deny included, does not match.
+                LOG.warn("Ranger service {} loaded its policies but no user store: until one arrives,"
+                        + " requests carry no groups and policy items written against a group do not apply",
+                        getServiceName());
+            }
         } catch (Throwable e) {
             // Everything RangerBasePlugin.init() does about an admin it cannot reach is logged and survived
-            // inside it, so this is something else - a broken audit configuration, say. It used to fail the
-            // FE's start; now it fails every check against this service until the FE is restarted, which
-            // RangerAccessController reports on each one as an engine that is not initialized.
+            // inside it, so this is something else - a broken audit configuration, a chained plugin that
+            // could not start. It used to fail the FE's start; now it fails every check against this
+            // service until the FE is restarted, which RangerAccessController reports on each one as an
+            // engine that is not initialized. Refusing takes both of the following: the flag, read by every
+            // answer, and stopping what the load had installed before it threw - RangerBasePlugin.init()
+            // publishes the policy engine, refresher and all, before it initializes the chained plugins, and
+            // left running that engine would answer checks with part of the configured authorization
+            // missing, whatever the line below says.
+            failed = true;
             LOG.error("Ranger service {} failed to load; every check against it is refused until the FE is"
                     + " restarted", getServiceName(), e);
+            stopOnce();
         } finally {
             loaded.countDown();
             if (stopRequested) {
@@ -161,11 +189,37 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
     }
 
     /**
+     * As {@link #awaitLoaded()}, for a caller that may stop needing the answer while it waits: returns once
+     * the load has ended or {@code giveUp} says so, whichever is first, the latter asked every
+     * {@value #GIVE_UP_CHECK_MS} ms. A controller closed while its check waits is such a caller - it
+     * refuses, and the load it was waiting for goes on for whoever else holds the plugin.
+     */
+    public void awaitLoaded(BooleanSupplier giveUp) {
+        if (loader.get() == null || isLoaded()) {
+            return;
+        }
+        try {
+            boolean ended = false;
+            while (!ended && !giveUp.getAsBoolean()) {
+                ended = loaded.await(GIVE_UP_CHECK_MS, TimeUnit.MILLISECONDS);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
      * Whether the first load has ended - not whether it found anything, see {@link #awaitLoaded()} - and so
      * false for a plugin that was never initialized, which has no load to end.
      */
     public boolean isLoaded() {
         return loaded.getCount() == 0;
+    }
+
+    /** Whether the first load threw, after which every answer is a refusal; see {@link #load()}. */
+    @VisibleForTesting
+    boolean isFailed() {
+        return failed;
     }
 
     /**
@@ -212,34 +266,35 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
         super.setPolicies(policies);
     }
 
-    // Every answer waits for the first load to end. These four are the ones Doris asks; the one-argument
-    // isAccessAllowed overloads arrive here through RangerBasePlugin.
+    // Every answer waits for the first load to end, and a load that failed is answered with null - what
+    // RangerBasePlugin answers with no engine, and what every caller reads as a refusal. These four are the
+    // ones Doris asks; the one-argument isAccessAllowed overloads arrive here through RangerBasePlugin.
 
     @Override
     public RangerAccessResult isAccessAllowed(RangerAccessRequest request,
             RangerAccessResultProcessor resultProcessor) {
         awaitLoaded();
-        return super.isAccessAllowed(request, resultProcessor);
+        return failed ? null : super.isAccessAllowed(request, resultProcessor);
     }
 
     @Override
     public Collection<RangerAccessResult> isAccessAllowed(Collection<RangerAccessRequest> requests,
             RangerAccessResultProcessor resultProcessor) {
         awaitLoaded();
-        return super.isAccessAllowed(requests, resultProcessor);
+        return failed ? null : super.isAccessAllowed(requests, resultProcessor);
     }
 
     @Override
     public RangerAccessResult evalDataMaskPolicies(RangerAccessRequest request,
             RangerAccessResultProcessor resultProcessor) {
         awaitLoaded();
-        return super.evalDataMaskPolicies(request, resultProcessor);
+        return failed ? null : super.evalDataMaskPolicies(request, resultProcessor);
     }
 
     @Override
     public RangerAccessResult evalRowFilterPolicies(RangerAccessRequest request,
             RangerAccessResultProcessor resultProcessor) {
         awaitLoaded();
-        return super.evalRowFilterPolicies(request, resultProcessor);
+        return failed ? null : super.evalRowFilterPolicies(request, resultProcessor);
     }
 }
