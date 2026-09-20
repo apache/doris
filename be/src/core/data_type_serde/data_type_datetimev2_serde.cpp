@@ -663,6 +663,12 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
+            // Nullable SerDe has already copied the validity bitmap. The payload of a null Arrow
+            // slot is unspecified, so keep only a default value in the nested column.
+            if (concrete_array->IsNull(value_i)) {
+                col_data.emplace_back();
+                continue;
+            }
             const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
             auto date_value = unaligned_load<int64_t>(raw_byte_ptr);
 
