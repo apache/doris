@@ -47,6 +47,8 @@ import org.apache.logging.log4j.Logger;
 import org.lance.Dataset;
 import org.lance.Session;
 import org.lance.namespace.LanceNamespace;
+import org.lance.namespace.model.AddColumnsEntry;
+import org.lance.namespace.model.AlterColumnsEntry;
 import org.lance.namespace.model.DescribeTableResponse;
 
 import java.io.ByteArrayOutputStream;
@@ -248,6 +250,18 @@ final class LanceCatalogClient implements AutoCloseable {
 
     void renameTable(String dbName, String oldTableName, String newTableName) {
         namespaceClient.renameTable(dbName, oldTableName, newTableName);
+    }
+
+    void addColumns(String dbName, String tableName, List<AddColumnsEntry> columns) {
+        namespaceClient.addColumns(dbName, tableName, columns);
+    }
+
+    void alterColumns(String dbName, String tableName, List<AlterColumnsEntry> alterations) {
+        namespaceClient.alterColumns(dbName, tableName, alterations);
+    }
+
+    void dropColumns(String dbName, String tableName, List<String> columns) {
+        namespaceClient.dropColumns(dbName, tableName, columns);
     }
 
     DescribeTableResponse describeTable(String dbName, String tableName) {

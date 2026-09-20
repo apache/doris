@@ -31,6 +31,11 @@ import org.apache.commons.lang3.StringUtils;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.errors.NamespaceNotFoundException;
 import org.lance.namespace.errors.TableNotFoundException;
+import org.lance.namespace.model.AddColumnsEntry;
+import org.lance.namespace.model.AlterColumnsEntry;
+import org.lance.namespace.model.AlterTableAddColumnsRequest;
+import org.lance.namespace.model.AlterTableAlterColumnsRequest;
+import org.lance.namespace.model.AlterTableDropColumnsRequest;
 import org.lance.namespace.model.CreateNamespaceRequest;
 import org.lance.namespace.model.CreateTableRequest;
 import org.lance.namespace.model.DescribeTableRequest;
@@ -306,6 +311,45 @@ final class LanceNamespaceClient {
                     .newTableName(newTableName);
             synchronized (namespaceLock) {
                 namespace.renameTable(request);
+            }
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void addColumns(String dbName, String tableName, List<AddColumnsEntry> columns) {
+        try {
+            AlterTableAddColumnsRequest request = new AlterTableAddColumnsRequest()
+                    .id(buildTableId(dbName, tableName))
+                    .newColumns(columns);
+            synchronized (namespaceLock) {
+                namespace.alterTableAddColumns(request);
+            }
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void alterColumns(String dbName, String tableName, List<AlterColumnsEntry> alterations) {
+        try {
+            AlterTableAlterColumnsRequest request = new AlterTableAlterColumnsRequest()
+                    .id(buildTableId(dbName, tableName))
+                    .alterations(alterations);
+            synchronized (namespaceLock) {
+                namespace.alterTableAlterColumns(request);
+            }
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void dropColumns(String dbName, String tableName, List<String> columns) {
+        try {
+            AlterTableDropColumnsRequest request = new AlterTableDropColumnsRequest()
+                    .id(buildTableId(dbName, tableName))
+                    .columns(columns);
+            synchronized (namespaceLock) {
+                namespace.alterTableDropColumns(request);
             }
         } catch (DdlException e) {
             throw new RuntimeException(e);
