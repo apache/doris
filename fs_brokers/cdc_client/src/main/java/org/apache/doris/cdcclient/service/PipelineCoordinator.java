@@ -114,7 +114,6 @@ public class PipelineCoordinator {
     /** return data for http_file_reader */
     public StreamingResponseBody fetchRecordStream(FetchRecordRequest fetchReq) throws Exception {
         SourceReader sourceReader;
-        SplitReadResult readResult;
         try {
             LOG.info(
                     "Fetch record request with meta {}, jobId={}, taskId={}",
@@ -132,8 +131,19 @@ public class PipelineCoordinator {
                     isJobDrivenTvf(fetchReq.getJobId())
                             ? Env.getCurrentEnv().getReaderAndClaim(fetchReq, fetchReq.getTaskId())
                             : Env.getCurrentEnv().getReader(fetchReq, true);
+        } catch (Exception ex) {
+            throw new CommonException(ex);
+        }
+
+        SplitReadResult readResult;
+        try {
             readResult = sourceReader.prepareAndSubmitSplit(fetchReq);
         } catch (Exception ex) {
+            try {
+                closeTvfReader(fetchReq, sourceReader);
+            } catch (Exception cleanupEx) {
+                ex.addSuppressed(cleanupEx);
+            }
             throw new CommonException(ex);
         }
 
@@ -148,18 +158,24 @@ public class PipelineCoordinator {
                         ex);
                 throw new StreamException(ex);
             } finally {
-                if (isJobDrivenTvf(fetchReq.getJobId())) {
-                    // Release only this request's instance and keep the PG slot for the next task.
-                    sourceReader.release(fetchReq);
-                } else {
-                    try {
-                        sourceReader.close(fetchReq);
-                    } finally {
-                        Env.getCurrentEnv().close(fetchReq.getJobId());
-                    }
-                }
+                closeTvfReader(fetchReq, sourceReader);
             }
         };
+    }
+
+    private void closeTvfReader(FetchRecordRequest request, SourceReader sourceReader) {
+        Env env = Env.getCurrentEnv();
+        if (isJobDrivenTvf(request.getJobId())) {
+            env.detachReaderIfOwner(request.getJobId(), request.getTaskId());
+            // Release only this request's instance and keep the PG slot for the next task.
+            sourceReader.release(request);
+        } else {
+            try {
+                sourceReader.close(request);
+            } finally {
+                env.close(request.getJobId());
+            }
+        }
     }
 
     private void buildStreamRecords(
