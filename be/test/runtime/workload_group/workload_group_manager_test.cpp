@@ -29,9 +29,11 @@
 #include <filesystem>
 #include <memory>
 #include <sstream>
+#include <tuple>
 
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/spill/spill_file_manager.h"
 #include "load/memtable/memtable_memory_limiter.h"
@@ -1232,6 +1234,78 @@ TEST_F(WorkloadGroupManagerTest, phase4_skips_cancelled_query_memory_exceeded) {
 
     cancelled_query->query_mem_tracker()->consume(-1024 * 4);
     live_query->query_mem_tracker()->consume(-1024 * 4);
+}
+
+TEST_F(WorkloadGroupManagerTest, FailedInternalGroupSetupCancelsAdaptiveFlush) {
+    auto* env = ExecEnv::GetInstance();
+    auto saved_engine = std::move(env->_storage_engine);
+    const auto saved_config = std::make_tuple(
+            config::enable_adaptive_flush_threads, config::enable_task_executor_in_internal_table,
+            config::enable_task_executor_in_external_table, config::pipeline_executor_size,
+            config::blocking_pipeline_executor_size, config::doris_scanner_thread_pool_thread_num,
+            config::doris_max_remote_scanner_thread_pool_thread_num,
+            config::doris_scanner_min_thread_pool_thread_num, config::min_active_scan_threads,
+            config::min_active_file_scan_threads, config::flush_thread_num_per_store);
+    Defer restore {[&] {
+        env->set_storage_engine(std::move(saved_engine));
+        std::tie(config::enable_adaptive_flush_threads,
+                 config::enable_task_executor_in_internal_table,
+                 config::enable_task_executor_in_external_table, config::pipeline_executor_size,
+                 config::blocking_pipeline_executor_size,
+                 config::doris_scanner_thread_pool_thread_num,
+                 config::doris_max_remote_scanner_thread_pool_thread_num,
+                 config::doris_scanner_min_thread_pool_thread_num, config::min_active_scan_threads,
+                 config::min_active_file_scan_threads, config::flush_thread_num_per_store) =
+                saved_config;
+    }};
+    env->set_storage_engine(std::make_unique<StorageEngine>(EngineOptions {}));
+    auto* controller = env->storage_engine().adaptive_thread_controller();
+    config::enable_adaptive_flush_threads = true;
+    config::enable_task_executor_in_internal_table = false;
+    config::enable_task_executor_in_external_table = false;
+    config::pipeline_executor_size = 1;
+    config::blocking_pipeline_executor_size = 1;
+    config::doris_scanner_thread_pool_thread_num = 1;
+    config::doris_max_remote_scanner_thread_pool_thread_num = 1;
+    config::doris_scanner_min_thread_pool_thread_num = 1;
+    config::min_active_scan_threads = 1;
+    config::min_active_file_scan_threads = 1;
+    config::flush_thread_num_per_store = 1;
+
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    Defer disable_sync_points {[&] { sp->disable_processing(); }};
+    int failed_starts = 0;
+    int cancelled_registrations = 0;
+    SyncPoint::CallbackGuard start_guard;
+    SyncPoint::CallbackGuard cancel_guard;
+    sp->set_call_back(
+            "WorkloadGroup::upsert_thread_pool_no_lock::task_scheduler_start",
+            [&](auto&& args) {
+                auto* result = try_any_cast_ret<Status>(args);
+                result->first = Status::InternalError<false>("injected pipeline scheduler failure");
+                result->second = true;
+                ++failed_starts;
+            },
+            &start_guard);
+    sp->set_call_back(
+            "AdaptiveThreadPoolController::cancel_stopped",
+            [&](auto&&) { ++cancelled_registrations; }, &cancel_guard);
+
+    const auto status = _wg_manager->create_internal_wg();
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("injected pipeline scheduler failure"), std::string::npos);
+    EXPECT_EQ(failed_starts, 1);
+    EXPECT_TRUE(_wg_manager->_workload_groups.empty());
+    // The flush pool was registered despite the earlier scheduler failure, and
+    // must be cancelled even though the WG never entered the manager's map.
+    EXPECT_EQ(cancelled_registrations, 1);
+    {
+        std::lock_guard<std::mutex> lock(controller->_mutex);
+        EXPECT_TRUE(controller->_pool_groups.empty());
+    }
+    // Also clean up if an assertion above detects a missing cancellation.
+    controller->stop();
 }
 
 // Exercise the actual registration/cancellation paths without starting query schedulers.

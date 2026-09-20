@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <future>
 #include <thread>
 
@@ -427,18 +428,77 @@ TEST_F(AdaptiveThreadPoolControllerTest, StopRejectsNewRegistrations) {
 
 TEST_F(AdaptiveThreadPoolControllerTest, ReplacingRegistrationDrainsOldTimer) {
     config::enable_adaptive_flush_threads = true;
+    auto* sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    Defer disable_sync_points {[&] { sp->disable_processing(); }};
+    std::promise<void> entered;
+    std::promise<void> release;
+    std::promise<void> cancelling;
+    auto entered_future = entered.get_future();
+    auto release_future = release.get_future().share();
+    auto cancelling_future = cancelling.get_future();
+    std::atomic<int> old_calls {0};
+    std::atomic<int> new_calls {0};
+    std::atomic<bool> old_callback_finished {false};
+    std::atomic<int> cancellations {0};
+    SyncPoint::CallbackGuard cancelling_guard;
+    sp->set_call_back(
+            "AdaptiveThreadPoolController::cancel_stopped",
+            [&](auto&&) {
+                if (cancellations.fetch_add(1) == 0) {
+                    cancelling.set_value();
+                }
+            },
+            &cancelling_guard);
+
     AdaptiveThreadPoolController controller;
-    controller.add("same", {_pool.get()},
-                   AdaptiveThreadPoolController::make_flush_adjust_func(&controller, _pool.get()),
-                   4, 0.5, 1);
-    controller.add("same", {_pool2.get()},
-                   AdaptiveThreadPoolController::make_flush_adjust_func(&controller, _pool2.get()),
-                   4, 0.5, 1);
+    controller.add(
+            "same", {_pool.get()},
+            [&, pool = _pool.get()](int current, int, int, std::string&) {
+                if (old_calls.fetch_add(1) == 0) {
+                    entered.set_value();
+                }
+                release_future.wait();
+                EXPECT_EQ(pool->get_queue_size(), 0);
+                old_callback_finished.store(true);
+                return current;
+            },
+            4, 0.5, 1);
+    if (entered_future.wait_for(std::chrono::seconds(5)) != std::future_status::ready) {
+        release.set_value();
+        controller.stop();
+        FAIL() << "Old timer did not enter its adjustment callback";
+    }
+
+    auto replaced = std::async(std::launch::async, [&] {
+        controller.add(
+                "same", {_pool2.get()},
+                [&](int, int min_t, int, std::string&) {
+                    new_calls.fetch_add(1);
+                    return min_t;
+                },
+                4, 0.5, 60000);
+        EXPECT_TRUE(old_callback_finished.load())
+                << "Replacement returned before the old callback finished";
+    });
+    // Wait for replacement to actually start cancellation, not merely for its
+    // worker to be scheduled. The old AdjustFunc stays blocked until released.
+    EXPECT_EQ(cancelling_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    EXPECT_EQ(replaced.wait_for(std::chrono::milliseconds(0)), std::future_status::timeout);
+    EXPECT_FALSE(old_callback_finished.load());
+    release.set_value();
+    replaced.get();
+
+    EXPECT_TRUE(old_callback_finished.load());
+    EXPECT_EQ(old_calls.load(), 1);
+    EXPECT_EQ(new_calls.load(), 0);
     _pool.reset();
     controller.adjust_once();
+    EXPECT_EQ(new_calls.load(), 1);
+    EXPECT_EQ(old_calls.load(), 1);
     controller.cancel("same");
+    EXPECT_EQ(controller.get_current_threads("same"), 0);
     _pool2.reset();
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
 }
 
 } // namespace doris

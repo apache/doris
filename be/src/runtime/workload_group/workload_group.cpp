@@ -29,6 +29,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
 #include "exec/scan/scanner_scheduler.h"
@@ -568,7 +569,9 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                 std::make_unique<HybridTaskScheduler>(pipeline_exec_thread_num,
                                                       blocking_exec_thread_num, "p_" + wg_name,
                                                       cg_cpu_ctl_ptr);
-        Status ret = pipeline_task_scheduler->start();
+        Status ret = SYNC_POINT_HOOK_RETURN_VALUE(
+                pipeline_task_scheduler->start(),
+                "WorkloadGroup::upsert_thread_pool_no_lock::task_scheduler_start");
         if (ret.ok()) {
             _task_sched = std::move(pipeline_task_scheduler);
         } else {
