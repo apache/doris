@@ -298,17 +298,18 @@ private:
                                 .data();
                 if (!column_nullable_ptr->has_null()) {
                     for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                        then_idx_ptr[row_idx] |=
-                                (!then_idx_ptr[row_idx]) * cond_raw_data[row_idx] * column_idx;
+                        then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx]) *
+                                                 (cond_raw_data[row_idx] != 0) * column_idx;
                     }
                     continue;
                 }
                 const auto* __restrict cond_raw_nullmap =
                         column_nullable_ptr->get_null_map_column_ptr()->get_data().data();
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
-                    then_idx_ptr[row_idx] |= (!then_idx_ptr[row_idx] * cond_raw_data[row_idx] *
-                                              !cond_raw_nullmap[row_idx]) *
-                                             column_idx;
+                    then_idx_ptr[row_idx] |=
+                            (!then_idx_ptr[row_idx] * (cond_raw_data[row_idx] != 0) *
+                             !cond_raw_nullmap[row_idx]) *
+                            column_idx;
                 }
             } else {
                 const auto* __restrict cond_raw_data =
@@ -318,7 +319,7 @@ private:
                                 .data();
                 for (int row_idx = 0; row_idx < rows_count; row_idx++) {
                     then_idx_ptr[row_idx] |=
-                            (!then_idx_ptr[row_idx]) * cond_raw_data[row_idx] * column_idx;
+                            (!then_idx_ptr[row_idx]) * (cond_raw_data[row_idx] != 0) * column_idx;
                 }
             }
         }

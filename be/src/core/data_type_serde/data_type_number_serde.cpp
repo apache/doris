@@ -1256,7 +1256,10 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb_vector(
         auto& data = assert_cast<ColumnType&>(column_to.get_nested_column()).get_data();
 
         null_map.resize_fill(size, false);
-        data.resize(size);
+        // NULL rows leave data[i] untouched below. The nested payload must still be a
+        // well-defined default (0): boolean consumers such as VCompoundPred OR VCaseExpr read
+        // the raw byte and only mask it by null map afterwards (or not at all).
+        data.resize_fill(size);
 
         for (size_t i = 0; i < size; ++i) {
             const auto& val = col_from_json.get_data_at(i);
