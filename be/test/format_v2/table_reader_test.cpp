@@ -99,7 +99,8 @@ TEST(TableReaderTest, VariantFormatGateUsesPhysicalFileMappings) {
     const auto orc_status =
             VariantValidationTableReader::validate(FileFormat::ORC, {physical_variant});
     EXPECT_TRUE(orc_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << orc_status;
-    EXPECT_NE(orc_status.to_string().find("supported only for Parquet"), std::string::npos);
+    EXPECT_NE(orc_status.to_string().find("supported only for Parquet files and WAL"),
+              std::string::npos);
     EXPECT_TRUE(
             VariantValidationTableReader::validate(FileFormat::PARQUET, {physical_variant}).ok());
 
@@ -119,6 +120,14 @@ TEST(TableReaderTest, VariantFormatGateUsesPhysicalFileMappings) {
     const auto nested_orc_status =
             VariantValidationTableReader::validate(FileFormat::ORC, {projected_struct});
     EXPECT_TRUE(nested_orc_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << nested_orc_status;
+}
+
+TEST(TableReaderTest, VariantFormatGateAllowsWal) {
+    ColumnMapping physical_variant;
+    physical_variant.table_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    physical_variant.file_local_id = 0;
+
+    EXPECT_TRUE(VariantValidationTableReader::validate(FileFormat::WAL, {physical_variant}).ok());
 }
 
 TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates) {
