@@ -17,11 +17,37 @@
 
 package org.apache.doris.cdcclient.common;
 
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+
+import org.apache.doris.cdcclient.source.reader.SourceReader;
+import org.apache.doris.job.cdc.request.WriteRecordRequest;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
+
 class EnvTest {
+
+    @Test
+    void fromToStillReusesReaderUnlessRebuildRequested() {
+        Env env = Env.getCurrentEnv();
+        WriteRecordRequest request = new WriteRecordRequest();
+        request.setJobId("from-to-reader-reuse");
+        request.setDataSource("POSTGRES");
+        request.setConfig(Collections.emptyMap());
+        SourceReader first = env.getReaderAndClaim(request, "first");
+        try {
+            assertSame(first, env.getReaderAndClaim(request, "second"));
+            request.setRebuildReader(true);
+            assertNotSame(first, env.getReaderAndClaim(request, "third"));
+        } finally {
+            env.getReaderIfPresent(request.getJobId()).release(request);
+            first.release(request);
+            env.close(request.getJobId());
+        }
+    }
 
     @Test
     void getReaderIfPresentReturnsNullForUnknownJob() {
