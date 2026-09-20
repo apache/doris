@@ -1012,6 +1012,37 @@ void FragmentMgr::_check_brpc_available(const std::shared_ptr<PBackendService_St
 }
 
 void FragmentMgr::debug(std::stringstream& ss) {}
+
+Status FragmentMgr::_build_external_scan_selected_columns(
+        const TPlanFragment& plan_fragment, const DescriptorTbl& desc_tbl,
+        std::vector<TScanColumnDesc>* selected_columns) {
+    // The memory scratch sink emits Arrow columns in output expression order, so the returned
+    // schema must use the same order to prevent positional column misbinding.
+    for (const auto& expr : plan_fragment.output_exprs) {
+        if (expr.nodes.empty() || expr.nodes[0].node_type != TExprNodeType::SLOT_REF) {
+            LOG(WARNING) << "output expr is not slot ref";
+            return Status::InvalidArgument("output expr is not slot ref");
+        }
+
+        const auto& slot_ref = expr.nodes[0].slot_ref;
+        if (desc_tbl.get_tuple_descriptor(slot_ref.tuple_id) == nullptr) {
+            LOG(WARNING) << "tuple descriptor is null. id: " << slot_ref.tuple_id;
+            return Status::InvalidArgument("tuple descriptor is null");
+        }
+        const auto* slot_desc = desc_tbl.get_slot_descriptor(slot_ref.slot_id);
+        if (slot_desc == nullptr) {
+            LOG(WARNING) << "slot descriptor is null. id: " << slot_ref.slot_id;
+            return Status::InvalidArgument("slot descriptor is null");
+        }
+
+        TScanColumnDesc column;
+        column.__set_name(slot_desc->col_name());
+        column.__set_type(to_thrift(slot_desc->type()->get_primitive_type()));
+        selected_columns->emplace_back(std::move(column));
+    }
+    return Status::OK();
+}
+
 /*
  * 1. resolve opaqued_query_plan to thrift structure
  * 2. build TPipelineFragmentParams
@@ -1032,21 +1063,8 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
                "processed";
         return Status::InvalidArgument(msg.str());
     }
-    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    if (tuple_desc == nullptr) {
-        LOG(WARNING) << "open context error: extract TupleDescriptor failure";
-        std::stringstream msg;
-        msg << " get  TupleDescriptor error, should not be modified after returned Doris FE "
-               "processed";
-        return Status::InvalidArgument(msg.str());
-    }
-    // process selected columns form slots
-    for (const SlotDescriptor* slot : tuple_desc->slots()) {
-        TScanColumnDesc col;
-        col.__set_name(slot->col_name());
-        col.__set_type(to_thrift(slot->type()->get_primitive_type()));
-        selected_columns->emplace_back(std::move(col));
-    }
+    RETURN_IF_ERROR(_build_external_scan_selected_columns(t_query_plan_info.plan_fragment,
+                                                          *desc_tbl, selected_columns));
 
     VLOG_QUERY << "BackendService execute open()  TQueryPlanInfo: "
                << apache::thrift::ThriftDebugString(t_query_plan_info);

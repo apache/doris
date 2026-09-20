@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/DorisExternalService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
@@ -223,6 +224,59 @@ TEST(FragmentMgrRerunnableParamsTest, StopReleasesLastQueryContextRefOutsideLock
 
     exec_env->_fragment_mgr = previous_fragment_mgr;
     delete fragment_mgr;
+}
+
+TEST(FragmentMgrExternalScanTest, SelectedColumnsFollowOutputExpressionOrder) {
+    TDescriptorTableBuilder desc_tbl_builder;
+    TTupleDescriptorBuilder tuple_builder;
+    tuple_builder
+            .add_slot(TSlotDescriptorBuilder()
+                              .type(TYPE_INT)
+                              .nullable(true)
+                              .column_name("k1")
+                              .column_pos(0)
+                              .build())
+            .add_slot(TSlotDescriptorBuilder()
+                              .type(TYPE_BIGINT)
+                              .nullable(true)
+                              .column_name("v2")
+                              .column_pos(1)
+                              .build());
+    tuple_builder.build(&desc_tbl_builder);
+
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, desc_tbl_builder.desc_tbl(), &desc_tbl).ok());
+
+    auto make_slot_ref_expr = [](TSlotId slot_id, TPrimitiveType::type type) {
+        TSlotRef slot_ref;
+        slot_ref.__set_slot_id(slot_id);
+        slot_ref.__set_tuple_id(0);
+
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::SLOT_REF);
+        node.__set_type(TSlotDescriptorBuilder().get_common_type(type));
+        node.__set_num_children(0);
+        node.__set_slot_ref(slot_ref);
+
+        TExpr expr;
+        expr.nodes.emplace_back(std::move(node));
+        return expr;
+    };
+
+    TPlanFragment plan_fragment;
+    plan_fragment.__set_output_exprs({make_slot_ref_expr(1, TPrimitiveType::BIGINT),
+                                      make_slot_ref_expr(0, TPrimitiveType::INT)});
+
+    std::vector<TScanColumnDesc> selected_columns;
+    ASSERT_TRUE(FragmentMgr::_build_external_scan_selected_columns(plan_fragment, *desc_tbl,
+                                                                   &selected_columns)
+                        .ok());
+    ASSERT_EQ(selected_columns.size(), 2);
+    EXPECT_EQ(selected_columns[0].name, "v2");
+    EXPECT_EQ(selected_columns[0].type, TPrimitiveType::BIGINT);
+    EXPECT_EQ(selected_columns[1].name, "k1");
+    EXPECT_EQ(selected_columns[1].type, TPrimitiveType::INT);
 }
 
 } // namespace doris
