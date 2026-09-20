@@ -47,6 +47,7 @@ import org.apache.thrift.TException;
 import org.apache.thrift.transport.TTransportException;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -214,7 +215,7 @@ public class FEOpExecutor {
 
         if (ctx.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
             if (null != ctx.getPrepareExecuteBuffer()) {
-                params.setPrepareExecuteBuffer(ctx.getPrepareExecuteBuffer());
+                params.setPrepareExecuteBuffer(buildPrepareExecuteBuffer());
             }
             params.setCursorFetchRequested(ctx.isCursorFetchRequested());
         }
@@ -230,6 +231,28 @@ public class FEOpExecutor {
         }
 
         return params;
+    }
+
+    private ByteBuffer buildPrepareExecuteBuffer() {
+        int[] typeCodes = ctx.getPrepareExecuteTypeCodes();
+        if (typeCodes == null || typeCodes.length == 0) {
+            return ctx.getPrepareExecuteBuffer();
+        }
+        // Every master RPC rebuilds PREPARE without cached types. Expand only for forwarding
+        // so local executions do not copy potentially large vector or binary parameter values.
+        ByteBuffer source = ctx.getPrepareExecuteBuffer().duplicate();
+        ByteBuffer forwarded = ByteBuffer.allocate(Math.addExact(source.remaining(), typeCodes.length * 2))
+                .order(ByteOrder.LITTLE_ENDIAN);
+        byte[] nullBitmap = new byte[(typeCodes.length + 7) / 8];
+        source.get(nullBitmap);
+        source.get(); // Replace new_params_bind_flag=0 with a complete type table.
+        forwarded.put(nullBitmap).put((byte) 1);
+        for (int typeCode : typeCodes) {
+            forwarded.putChar((char) typeCode);
+        }
+        forwarded.put(source);
+        forwarded.flip();
+        return forwarded;
     }
 
     public int getStatusCode() {
