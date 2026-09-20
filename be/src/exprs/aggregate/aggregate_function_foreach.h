@@ -268,22 +268,41 @@ public:
 
         size_t begin = offsets[row_num - 1];
         size_t end = offsets[row_num];
+        const size_t row_size = end - begin;
+        bool offsets_aligned = true;
 
         /// Sanity check. NOTE We can implement specialization for a case with single argument, if the check will hurt performance.
         for (size_t i = 1; i < num_arguments; ++i) {
             const auto& ith_column =
                     assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[i]);
             const auto& ith_offsets = ith_column.get_offsets();
+            const size_t ith_begin = ith_offsets[row_num - 1];
+            const size_t ith_end = ith_offsets[row_num];
 
-            if (ith_offsets[row_num] != end ||
-                (row_num != 0 && ith_offsets[row_num - 1] != begin)) {
+            if (ith_end - ith_begin != row_size) {
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "Arrays passed to {} aggregate function have different sizes",
                                 get_name());
             }
+            offsets_aligned &= ith_begin == begin;
         }
 
-        AggregateFunctionForEachData& state = ensure_aggregate_data(place, end - begin, arena);
+        std::vector<ColumnPtr> compacted_nested;
+        if (!offsets_aligned && row_size != 0) {
+            // The nested aggregate accepts one shared index, so align only mismatched row slices.
+            compacted_nested.reserve(num_arguments);
+            for (size_t i = 0; i < num_arguments; ++i) {
+                const auto& ith_column =
+                        assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[i]);
+                const size_t ith_begin = ith_column.get_offsets()[row_num - 1];
+                compacted_nested.emplace_back(nested[i]->cut(ith_begin, row_size));
+                nested[i] = compacted_nested.back().get();
+            }
+            begin = 0;
+            end = row_size;
+        }
+
+        AggregateFunctionForEachData& state = ensure_aggregate_data(place, row_size, arena);
 
         char* nested_state = state.array_of_aggregate_datas;
         for (size_t i = begin; i < end; ++i) {

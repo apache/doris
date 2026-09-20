@@ -21,7 +21,11 @@
 #include <vector>
 
 #include "core/arena.h"
+#include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_foreach.h"
@@ -46,6 +50,45 @@ struct TrackingAggregateState {
 int TrackingAggregateState::construct_count = 0;
 int TrackingAggregateState::destroy_count = 0;
 int TrackingAggregateState::merge_count = 0;
+
+struct PairSumAggregateState {
+    Int64 value = 0;
+};
+
+class PairSumAggregateFunction final
+        : public IAggregateFunctionDataHelper<PairSumAggregateState, PairSumAggregateFunction> {
+public:
+    PairSumAggregateFunction()
+            : IAggregateFunctionDataHelper<PairSumAggregateState, PairSumAggregateFunction>(
+                      DataTypes {std::make_shared<DataTypeInt32>(),
+                                 std::make_shared<DataTypeInt32>()}) {}
+
+    String get_name() const override { return "pair_sum"; }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
+
+    void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
+             Arena&) const override {
+        data(place).value += assert_cast<const ColumnInt32&>(*columns[0]).get_data()[row_num] +
+                             assert_cast<const ColumnInt32&>(*columns[1]).get_data()[row_num];
+    }
+
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {
+        data(place).value += data(rhs).value;
+    }
+
+    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
+        buf.write_binary(data(place).value);
+    }
+
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {
+        buf.read_binary(data(place).value);
+    }
+
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+        assert_cast<ColumnInt64&>(to).insert_value(data(place).value);
+    }
+};
 
 class ThrowOnDeserializeAggregateFunction final
         : public IAggregateFunctionDataHelper<TrackingAggregateState,
@@ -225,6 +268,35 @@ TEST_F(AggregateFunctionExceptionTest, ForEachGrowthPreservesOldStatesWhenMergeT
     }
 
     EXPECT_EQ(TrackingAggregateState::construct_count, TrackingAggregateState::destroy_count);
+}
+
+TEST_F(AggregateFunctionExceptionTest, ForEachReadsEachArgumentFromItsOwnRowOffset) {
+    auto nested_function = std::make_shared<PairSumAggregateFunction>();
+    auto input_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    AggregateFunctionForEach foreach_function(nested_function, DataTypes {input_type, input_type});
+
+    auto compacted_data = ColumnInt32::create();
+    compacted_data->get_data().assign({30, 40});
+    auto compacted_offsets = ColumnArray::ColumnOffsets::create();
+    compacted_offsets->get_data().assign({0, 2});
+    auto compacted = ColumnArray::create(std::move(compacted_data), std::move(compacted_offsets));
+
+    auto original_data = ColumnInt32::create();
+    original_data->get_data().assign({10, 20, 300, 400});
+    auto original_offsets = ColumnArray::ColumnOffsets::create();
+    original_offsets->get_data().assign({2, 4});
+    auto original = ColumnArray::create(std::move(original_data), std::move(original_offsets));
+    const IColumn* columns[] = {compacted.get(), original.get()};
+
+    AggregateFunctionGuard state(&foreach_function);
+    ASSERT_NO_THROW(foreach_function.add(state.data(), columns, 1, arena));
+
+    auto result = foreach_function.get_return_type()->create_column();
+    foreach_function.insert_result_into(state.data(), *result);
+    const auto& result_array = assert_cast<const ColumnArray&>(*result);
+    const auto& result_data = assert_cast<const ColumnInt64&>(
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
+    EXPECT_EQ(result_data.get_data(), ColumnInt64::Container({330, 440}));
 }
 
 } // namespace doris
