@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/snii/io/batch_range_fetcher.h"
+#include "storage/index/query/spi/io_read_batch.h"
 
 #include <algorithm>
 #include <limits>
 
-namespace doris::snii::io {
+namespace doris::index_query {
 namespace {
 
 Status checked_end(uint64_t offset, uint64_t len, uint64_t* out) {
@@ -43,16 +43,15 @@ Status checked_size(uint64_t len, size_t* out) {
 
 } // namespace
 
-BatchRangeFetcher::BatchRangeFetcher(FileReader* reader, uint64_t coalesce_gap,
-                                     index_query::MemoryBudget* budget)
+IoReadBatch::IoReadBatch(IoReader* reader, uint64_t coalesce_gap, MemoryBudget* budget)
         : reader_(reader), coalesce_gap_(coalesce_gap), budget_(budget) {}
 
-size_t BatchRangeFetcher::add(uint64_t offset, uint64_t len) {
-    reqs_.push_back(Req {offset, len});
+size_t IoReadBatch::add(uint64_t offset, uint64_t len) {
+    reqs_.push_back(Req {.offset = offset, .len = len});
     return reqs_.size() - 1;
 }
 
-Status BatchRangeFetcher::refresh_bounded_ranges() {
+Status IoReadBatch::refresh_bounded_ranges() {
     if (bounded_requests_ == reqs_.size()) {
         return Status::OK();
     }
@@ -65,12 +64,12 @@ Status BatchRangeFetcher::refresh_bounded_ranges() {
         RETURN_IF_ERROR(checked_size(req.len, &len));
         bounded_ranges_.push_back({.offset = req.offset, .len = len});
     }
-    std::ranges::sort(bounded_ranges_, {}, &Range::offset);
+    std::ranges::sort(bounded_ranges_, {}, &IoRange::offset);
     size_t count = 0;
-    for (const Range range : bounded_ranges_) {
+    for (const IoRange range : bounded_ranges_) {
         const uint64_t end = range.offset + range.len;
         if (count != 0) {
-            Range& previous = bounded_ranges_[count - 1];
+            IoRange& previous = bounded_ranges_[count - 1];
             const uint64_t previous_end = previous.offset + previous.len;
             if (range.offset <= previous_end || range.offset - previous_end <= coalesce_gap_) {
                 RETURN_IF_ERROR(
@@ -81,15 +80,15 @@ Status BatchRangeFetcher::refresh_bounded_ranges() {
         bounded_ranges_[count++] = range;
     }
     bounded_ranges_.resize(count);
-    for (const Range& range : bounded_ranges_) {
+    for (const IoRange& range : bounded_ranges_) {
         bounded_bytes_ += range.len;
     }
     bounded_requests_ = reqs_.size();
     return Status::OK();
 }
 
-Status BatchRangeFetcher::try_add(uint64_t offset, uint64_t len, uint64_t max_bytes,
-                                  size_t max_ranges, bool* accepted, size_t* handle) {
+Status IoReadBatch::try_add(uint64_t offset, uint64_t len, uint64_t max_bytes, size_t max_ranges,
+                            bool* accepted, size_t* handle) {
     DORIS_CHECK(accepted != nullptr);
     DORIS_CHECK(handle != nullptr);
     *accepted = false;
@@ -97,7 +96,7 @@ Status BatchRangeFetcher::try_add(uint64_t offset, uint64_t len, uint64_t max_by
     RETURN_IF_ERROR(checked_end(offset, len, &merged_end));
     RETURN_IF_ERROR(refresh_bounded_ranges());
     const uint64_t first_end = offset > coalesce_gap_ ? offset - coalesce_gap_ : 0;
-    auto first = std::ranges::lower_bound(bounded_ranges_, first_end, {}, [](const Range& range) {
+    auto first = std::ranges::lower_bound(bounded_ranges_, first_end, {}, [](const IoRange& range) {
         return range.offset + range.len;
     });
     auto last = first;
@@ -118,7 +117,7 @@ Status BatchRangeFetcher::try_add(uint64_t offset, uint64_t len, uint64_t max_by
     }
     size_t range_len = 0;
     RETURN_IF_ERROR(checked_size(merged_bytes, &range_len));
-    const Range range {.offset = merged_start, .len = range_len};
+    const IoRange range {.offset = merged_start, .len = range_len};
     if (first == last) {
         bounded_ranges_.insert(first, range);
     } else {
@@ -132,7 +131,7 @@ Status BatchRangeFetcher::try_add(uint64_t offset, uint64_t len, uint64_t max_by
     return Status::OK();
 }
 
-void BatchRangeFetcher::clear() {
+void IoReadBatch::clear() {
     reqs_.clear();
     phys_.clear();
     read_memory_.reset();
@@ -141,31 +140,35 @@ void BatchRangeFetcher::clear() {
     bounded_bytes_ = 0;
 }
 
-Status BatchRangeFetcher::fetch() {
-    if (reader_ == nullptr)
+Status IoReadBatch::fetch() {
+    if (reader_ == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "batch_range_fetcher: null reader");
+    }
     phys_.clear();
     read_memory_.reset();
-    if (reqs_.empty()) return Status::OK();
+    if (reqs_.empty()) {
+        return Status::OK();
+    }
 
     std::vector<size_t> order(reqs_.size());
-    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
-    std::sort(order.begin(), order.end(),
-              [&](size_t a, size_t b) { return reqs_[a].offset < reqs_[b].offset; });
+    for (size_t i = 0; i < order.size(); ++i) {
+        order[i] = i;
+    }
+    std::ranges::sort(order, [&](size_t a, size_t b) { return reqs_[a].offset < reqs_[b].offset; });
 
     // Sweep in offset order, merging requests into physical segments.
-    std::vector<Range> segs;
+    std::vector<IoRange> segs;
     uint64_t cur_start = 0;
     uint64_t cur_end = 0;
-    for (size_t k = 0; k < order.size(); ++k) {
-        Req& r = reqs_[order[k]];
+    for (const size_t index : order) {
+        Req& r = reqs_[index];
         uint64_t r_end = 0;
         RETURN_IF_ERROR(checked_end(r.offset, r.len, &r_end));
         RETURN_IF_ERROR(checked_size(r.len, &r.len_size));
         const bool disjoint = r.offset > cur_end && r.offset - cur_end > coalesce_gap_;
         if (segs.empty() || disjoint) {
-            segs.push_back(Range {r.offset, 0}); // length finalized below
+            segs.push_back(IoRange {.offset = r.offset, .len = 0}); // length finalized below
             cur_start = r.offset;
             cur_end = r_end;
         } else {
@@ -178,7 +181,7 @@ Status BatchRangeFetcher::fetch() {
 
     if (budget_ != nullptr) {
         uint64_t bytes = 0;
-        for (const Range& range : segs) {
+        for (const IoRange& range : segs) {
             bytes += range.len;
         }
         RETURN_IF_ERROR(budget_->reserve(bytes, &read_memory_));
@@ -191,10 +194,10 @@ Status BatchRangeFetcher::fetch() {
     return status;
 }
 
-Slice BatchRangeFetcher::get(size_t h) const {
+std::span<const uint8_t> IoReadBatch::get(size_t h) const {
     const Req& r = reqs_[h];
     const std::vector<uint8_t>& buf = phys_[r.phys_idx];
-    return Slice(buf.data() + r.sub_offset, r.len_size);
+    return {buf.data() + r.sub_offset, r.len_size};
 }
 
-} // namespace doris::snii::io
+} // namespace doris::index_query

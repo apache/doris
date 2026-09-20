@@ -23,8 +23,11 @@
 #include "storage/index/snii/format/prx_decode_stats.h"
 #include "storage/index/snii/io/io_metrics.h"
 
+namespace doris::index_query {
+class IoReader;
+}
 namespace doris::snii::io {
-class FileReader;
+using FileReader = index_query::IoReader;
 }
 
 namespace doris::snii::query {
