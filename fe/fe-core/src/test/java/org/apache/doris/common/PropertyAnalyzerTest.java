@@ -409,7 +409,12 @@ public class PropertyAnalyzerTest {
             properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "V1");
             AnalysisException v1Exception = Assertions.assertThrows(AnalysisException.class,
                     () -> PropertyAnalyzer.analyzePartitionInvertedIndexFileStorageFormat(properties));
-            Assertions.assertTrue(v1Exception.getMessage().contains("only supports V2, V3 and SNII"));
+            // #64522 blocks V1 inside analyzeInvertedIndexFileStorageFormat ("deprecated ... use V2") before
+            // the partition-level check ("only supports V2, V3 and SNII") can run; either message rejects V1.
+            Assertions.assertTrue(v1Exception.getMessage().contains("only supports V2, V3 and SNII")
+                    || v1Exception.getMessage().contains(
+                            "Inverted index V1 is deprecated and no longer allowed"),
+                    "V1 must be rejected, got: " + v1Exception.getMessage());
 
             properties.put(PropertyAnalyzer.PROPERTIES_PARTITION_INVERTED_INDEX_STORAGE_FORMAT, "SNII");
             Config.enable_partition_inverted_index_storage_format_rollout = false;
