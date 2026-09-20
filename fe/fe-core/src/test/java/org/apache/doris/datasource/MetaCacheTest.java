@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.metacache.MetaCache;
 
 import com.github.benmanes.caffeine.cache.CacheLoader;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -29,12 +30,15 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -43,10 +47,12 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 public class MetaCacheTest {
@@ -302,6 +308,54 @@ public class MetaCacheTest {
             callers.shutdownNow();
             refreshExecutor.shutdownNow();
             Assert.assertTrue(callers.awaitTermination(3, TimeUnit.SECONDS));
+            Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testFailedForcedRefreshPreservesWarmSnapshot() throws Exception {
+        CountDownLatch backgroundLoadStarted = new CountDownLatch(1);
+        CountDownLatch releaseBackgroundLoad = new CountDownLatch(1);
+        AtomicInteger loadCount = new AtomicInteger();
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        MetaCache<String> cache = new MetaCache<>(
+                "databaseCache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> {
+                    int currentLoad = loadCount.incrementAndGet();
+                    if (currentLoad == 1) {
+                        return Lists.newArrayList(Pair.of("remote-warm", "local-warm"));
+                    }
+                    if (currentLoad == 2) {
+                        backgroundLoadStarted.countDown();
+                        Assert.assertTrue(releaseBackgroundLoad.await(3, TimeUnit.SECONDS));
+                        return Lists.newArrayList(Pair.of("remote-background", "local-background"));
+                    }
+                    throw new RuntimeException("connector unavailable");
+                },
+                key -> Optional.of(key),
+                (key, value, cause) -> { });
+
+        try {
+            Assert.assertEquals(Lists.newArrayList("local-warm"), cache.listNames());
+            cache.refreshNamesForTest();
+            Assert.assertTrue(backgroundLoadStarted.await(3, TimeUnit.SECONDS));
+
+            try {
+                cache.refreshNames();
+                Assert.fail("forced refresh should fail while the connector is unavailable");
+            } catch (RuntimeException e) {
+                Assert.assertEquals("connector unavailable", e.getMessage());
+            }
+
+            Assert.assertEquals(Lists.newArrayList("local-warm"), cache.listNames());
+            Assert.assertEquals(3, loadCount.get());
+        } finally {
+            releaseBackgroundLoad.countDown();
+            refreshExecutor.shutdownNow();
             Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
         }
     }
@@ -786,6 +840,118 @@ public class MetaCacheTest {
         } finally {
             refreshExecutor.shutdownNow();
             Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testSameNameUpdateAndInvalidationAreSerialized() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService callers = Executors.newFixedThreadPool(2);
+        Map<String, String> publishedNames = Maps.newConcurrentMap();
+        CountDownLatch objectUpdateReached = new CountDownLatch(1);
+        CountDownLatch releaseObjectUpdate = new CountDownLatch(1);
+        CountDownLatch invalidationStarted = new CountDownLatch(1);
+        MetaCache<String> cache = new MetaCache<>(
+                "databaseCache",
+                refreshExecutor,
+                OptionalLong.empty(),
+                OptionalLong.empty(),
+                10,
+                key -> Lists.newArrayList(),
+                names -> { },
+                (remoteName, localName) -> publishedNames.put(localName, remoteName),
+                publishedNames::remove,
+                key -> Optional.of(key),
+                (key, value, cause) -> { });
+        installBlockingObjectCache(cache, "local-1", objectUpdateReached, releaseObjectUpdate);
+
+        try {
+            Future<?> update = callers.submit(() -> cache.updateCache("remote-1", "local-1", "meta-1", 1));
+            Assert.assertTrue(objectUpdateReached.await(3, TimeUnit.SECONDS));
+            Future<?> invalidation = callers.submit(() -> {
+                invalidationStarted.countDown();
+                cache.invalidate("local-1", 1);
+            });
+            Assert.assertTrue(invalidationStarted.await(3, TimeUnit.SECONDS));
+
+            try {
+                invalidation.get(1, TimeUnit.SECONDS);
+            } catch (TimeoutException expected) {
+                // The invalidation must wait for the same-name update to finish.
+            }
+            releaseObjectUpdate.countDown();
+            update.get(3, TimeUnit.SECONDS);
+            invalidation.get(3, TimeUnit.SECONDS);
+
+            Assert.assertFalse(publishedNames.containsKey("local-1"));
+            Assert.assertFalse(cache.tryGetMetaObj("local-1").isPresent());
+            Assert.assertFalse(cache.getMetaObjById(1).isPresent());
+        } finally {
+            releaseObjectUpdate.countDown();
+            callers.shutdownNow();
+            refreshExecutor.shutdownNow();
+            Assert.assertTrue(callers.awaitTermination(3, TimeUnit.SECONDS));
+            Assert.assertTrue(refreshExecutor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void installBlockingObjectCache(MetaCache<String> cache, String blockedName,
+            CountDownLatch objectUpdateReached, CountDownLatch releaseObjectUpdate) throws Exception {
+        LoadingCache<String, Optional<String>> delegate = cache.getMetaObjCache();
+        ConcurrentMap<String, Optional<String>> delegateMap = delegate.asMap();
+        ConcurrentMap<String, Optional<String>> blockingMap =
+                (ConcurrentMap<String, Optional<String>>) Proxy.newProxyInstance(
+                        ConcurrentMap.class.getClassLoader(), new Class<?>[] {ConcurrentMap.class},
+                        (proxy, method, args) -> {
+                            if (method.getName().equals("compute") && blockedName.equals(args[0])) {
+                                BiFunction<String, Optional<String>, Optional<String>> computation =
+                                        (BiFunction<String, Optional<String>, Optional<String>>) args[1];
+                                Object[] wrappedArgs = args.clone();
+                                wrappedArgs[1] = (BiFunction<String, Optional<String>, Optional<String>>)
+                                        (key, value) -> {
+                                            Optional<String> result = computation.apply(key, value);
+                                            if (result != null && result.isPresent()) {
+                                                awaitObjectUpdate(objectUpdateReached, releaseObjectUpdate);
+                                            }
+                                            return result;
+                                        };
+                                return invoke(method, delegateMap, wrappedArgs);
+                            }
+                            return invoke(method, delegateMap, args);
+                        });
+        LoadingCache<String, Optional<String>> blockingCache =
+                (LoadingCache<String, Optional<String>>) Proxy.newProxyInstance(
+                        LoadingCache.class.getClassLoader(), new Class<?>[] {LoadingCache.class},
+                        (proxy, method, args) -> {
+                            if (method.getName().equals("asMap")) {
+                                return blockingMap;
+                            }
+                            if (method.getName().equals("put") && blockedName.equals(args[0])) {
+                                awaitObjectUpdate(objectUpdateReached, releaseObjectUpdate);
+                            }
+                            return invoke(method, delegate, args);
+                        });
+        Field metaObjCacheField = MetaCache.class.getDeclaredField("metaObjCache");
+        metaObjCacheField.setAccessible(true);
+        metaObjCacheField.set(cache, blockingCache);
+    }
+
+    private void awaitObjectUpdate(CountDownLatch objectUpdateReached, CountDownLatch releaseObjectUpdate) {
+        objectUpdateReached.countDown();
+        try {
+            Assert.assertTrue(releaseObjectUpdate.await(3, TimeUnit.SECONDS));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CompletionException(e);
+        }
+    }
+
+    private Object invoke(java.lang.reflect.Method method, Object target, Object[] args) throws Throwable {
+        try {
+            return method.invoke(target, args);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
         }
     }
 

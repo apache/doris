@@ -183,7 +183,12 @@ public class MetaCache<T> {
         // completed load has already been cleared by finishNamesLoad and cannot publish stale results.
         synchronized (namesMutationLock) {
             if (activeNamesLoad != null && !activeNamesLoad.result.isDone()) {
-                advanceNamesGeneration();
+                NamesCacheValue current = namesCache.getIfPresent("");
+                long currentGeneration = namesGeneration.get();
+                long nextGeneration = advanceNamesGeneration();
+                if (current != null && current.complete && current.generation == currentGeneration) {
+                    namesCache.put("", current.withGeneration(nextGeneration));
+                }
             }
             activeNamesLoad = null;
         }
@@ -494,21 +499,26 @@ public class MetaCache<T> {
     }
 
     public boolean updateCache(String remoteName, String localName, T obj, long id, long expectedEpoch) {
-        synchronized (namesMutationLock) {
-            if (!namesLoadEpochValidator.test(expectedEpoch)) {
-                return false;
+        AtomicBoolean updated = new AtomicBoolean();
+        metaObjCache.asMap().compute(localName, (key, currentObj) -> {
+            synchronized (namesMutationLock) {
+                if (!namesLoadEpochValidator.test(expectedEpoch)) {
+                    return currentObj;
+                }
+                long generation = advanceNamesGeneration();
+                NamesCacheValue currentNames = namesCache.getIfPresent("");
+                Map<String, Pair<String, String>> names = currentNames == null
+                        ? Maps.newLinkedHashMap() : currentNames.names;
+                names.put(localName, Pair.of(remoteName, localName));
+                namesCache.put("", new NamesCacheValue(
+                        generation, names, currentNames != null && currentNames.complete));
+                nameUpdateAction.accept(remoteName, localName);
+                idToName.put(id, localName);
+                updated.set(true);
             }
-            long generation = advanceNamesGeneration();
-            NamesCacheValue current = namesCache.getIfPresent("");
-            Map<String, Pair<String, String>> names = current == null
-                    ? Maps.newLinkedHashMap() : current.names;
-            names.put(localName, Pair.of(remoteName, localName));
-            namesCache.put("", new NamesCacheValue(generation, names, current != null && current.complete));
-            nameUpdateAction.accept(remoteName, localName);
-            idToName.put(id, localName);
-        }
-        metaObjCache.put(localName, Optional.of(obj));
-        return true;
+            return Optional.of(obj);
+        });
+        return updated.get();
     }
 
     // The action runs inside Caffeine's same-key computation and must not recursively mutate this MetaCache.
@@ -524,21 +534,24 @@ public class MetaCache<T> {
     }
 
     public void invalidate(String localName, long id) {
-        synchronized (namesMutationLock) {
-            long generation = advanceNamesGeneration();
-            NamesCacheValue current = namesCache.getIfPresent("");
-            if (current != null) {
-                current.names.remove(localName);
-                namesCache.put("", new NamesCacheValue(generation, current.names, current.complete));
+        metaObjCache.asMap().compute(localName, (key, currentObj) -> {
+            synchronized (namesMutationLock) {
+                long generation = advanceNamesGeneration();
+                NamesCacheValue currentNames = namesCache.getIfPresent("");
+                if (currentNames != null) {
+                    currentNames.names.remove(localName);
+                    namesCache.put("", new NamesCacheValue(
+                            generation, currentNames.names, currentNames.complete));
+                }
+                nameInvalidationAction.accept(localName);
+                idToName.remove(id);
             }
-            nameInvalidationAction.accept(localName);
-            idToName.remove(id);
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("invalidate obj in metacache {}, obj name: {}, id: {}",
-                    name, localName, id, new Exception());
-        }
-        metaObjCache.invalidate(localName);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("invalidate obj in metacache {}, obj name: {}, id: {}",
+                        name, localName, id, new Exception());
+            }
+            return null;
+        });
     }
 
     public void invalidateNames() {
@@ -602,12 +615,22 @@ public class MetaCache<T> {
         private final long generation;
         private final Map<String, Pair<String, String>> names;
         private final boolean complete;
-        private final long writeNanos = System.nanoTime();
+        private final long writeNanos;
 
         private NamesCacheValue(long generation, Map<String, Pair<String, String>> names, boolean complete) {
+            this(generation, names, complete, System.nanoTime());
+        }
+
+        private NamesCacheValue(long generation, Map<String, Pair<String, String>> names,
+                boolean complete, long writeNanos) {
             this.generation = generation;
             this.names = names;
             this.complete = complete;
+            this.writeNanos = writeNanos;
+        }
+
+        private NamesCacheValue withGeneration(long generation) {
+            return new NamesCacheValue(generation, Maps.newLinkedHashMap(names), complete, writeNanos);
         }
 
         private List<Pair<String, String>> snapshot() {
