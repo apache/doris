@@ -19,6 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
 #include <string>
 #include <vector>
 
@@ -64,6 +68,63 @@ TEST(UUIDValueTest, NumericOrderingMatchesCanonicalOrdering) {
     ASSERT_TRUE(UUIDValue::from_string(smaller, "00000000-0000-0000-ffff-ffffffffffff"));
     ASSERT_TRUE(UUIDValue::from_string(larger, "00000000-0000-0001-0000-000000000000"));
     EXPECT_LT(smaller, larger);
+}
+
+TEST(UUIDValueTest, CanonicalByteOrder) {
+    const std::array<uint8_t, UUIDValue::BINARY_LENGTH> bytes = {0x80, 0x11, 0x22, 0x33, 0x44, 0x55,
+                                                                 0x76, 0x77, 0x88, 0x99, 0xaa, 0xbb,
+                                                                 0xcc, 0xdd, 0xee, 0xff};
+    const auto expected = UUIDValue::from_parts(0x8011223344557677ULL, 0x8899aabbccddeeffULL);
+    const std::string text = "80112233-4455-7677-8899-aabbccddeeff";
+    EXPECT_EQ(UUIDValue::from_big_endian(bytes.data()), expected);
+    EXPECT_EQ(UUIDValue::to_big_endian(expected), bytes);
+    EXPECT_EQ(UUIDValue::to_string(expected), text);
+    EXPECT_EQ(UUIDValue::version(expected), 7);
+    UUIDValueType parsed;
+    ASSERT_TRUE(UUIDValue::from_string(parsed, text));
+    EXPECT_EQ(parsed, expected);
+
+    alignas(16) std::array<uint8_t, UUIDValue::BINARY_LENGTH + 1> unaligned {};
+    std::ranges::copy(bytes, unaligned.begin() + 1);
+    EXPECT_EQ(UUIDValue::from_big_endian(unaligned.data() + 1), expected);
+}
+
+TEST(UUIDValueTest, FormatBoundaries) {
+    const std::array<std::pair<UUIDValueType, std::string>, 5> cases = {{
+            {0, "00000000-0000-0000-0000-000000000000"},
+            {1, "00000000-0000-0000-0000-000000000001"},
+            {UUIDValue::from_parts(1, 0), "00000000-0000-0001-0000-000000000000"},
+            {UUIDValue::from_parts(0x8000000000000000ULL, 0),
+             "80000000-0000-0000-0000-000000000000"},
+            {~UUIDValueType {0}, "ffffffff-ffff-ffff-ffff-ffffffffffff"},
+    }};
+    for (const auto& [value, expected] : cases) {
+        alignas(16) std::array<char, UUIDValue::TEXT_LENGTH + 2> buffer;
+        buffer.fill('#');
+        UUIDValue::to_string(value, buffer.data() + 1);
+        EXPECT_EQ(std::string(buffer.data() + 1, UUIDValue::TEXT_LENGTH), expected);
+        EXPECT_EQ(buffer.front(), '#');
+        EXPECT_EQ(buffer.back(), '#');
+        EXPECT_EQ(UUIDValue::to_string(value), expected);
+        EXPECT_EQ(UUIDValue(value).to_string(), expected);
+    }
+}
+
+TEST(UUIDValueTest, EveryByteMatchesBoost) {
+    boost::uuids::uuid reference {};
+    for (auto& position : reference.data) {
+        for (unsigned byte = 0; byte < 256; ++byte) {
+            position = static_cast<uint8_t>(byte);
+            const auto expected = boost::uuids::to_string(reference);
+            const auto value = UUIDValue::from_big_endian(reference.data);
+            EXPECT_EQ(UUIDValue::to_string(value), expected);
+            const auto bytes = UUIDValue::to_big_endian(value);
+            EXPECT_TRUE(std::equal(bytes.begin(), bytes.end(), reference.begin()));
+            UUIDValueType parsed;
+            ASSERT_TRUE(UUIDValue::from_string(parsed, expected));
+            EXPECT_EQ(parsed, value);
+        }
+    }
 }
 
 } // namespace doris

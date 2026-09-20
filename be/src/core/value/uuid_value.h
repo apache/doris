@@ -34,6 +34,8 @@ public:
     // Generate independent values for each row, sharing the SQL function's V7 sequence.
     static void generate(UUIDValueType* values, size_t count, bool version7);
 
+    // The canonical UUID digits represent an unsigned integer, independent of host byte order.
+    // Convert external network-order bytes explicitly instead of copying the integer's memory.
     static UUIDValueType from_parts(uint64_t high, uint64_t low) {
         return (static_cast<UUIDValueType>(high) << 64) | low;
     }
@@ -98,17 +100,13 @@ public:
 
     std::string to_string() const { return to_string(_value); }
 
+    // Write exactly TEXT_LENGTH lowercase characters, without a terminating NUL.
+    // The caller must provide at least TEXT_LENGTH writable bytes; alignment is unrestricted.
+    static void to_string(UUIDValueType value, char* out);
+
     static std::string to_string(UUIDValueType value) {
-        static constexpr char HEX_DIGITS[] = "0123456789abcdef";
-        std::string result(TEXT_LENGTH, '-');
-        for (size_t i = TEXT_LENGTH; i > 0; --i) {
-            const size_t position = i - 1;
-            if (is_dash_position(position)) {
-                continue;
-            }
-            result[position] = HEX_DIGITS[static_cast<unsigned>(value & 0x0f)];
-            value >>= 4;
-        }
+        std::string result(TEXT_LENGTH, '\0');
+        to_string(value, result.data());
         return result;
     }
 
@@ -122,10 +120,6 @@ public:
     }
 
 private:
-    static constexpr bool is_dash_position(size_t position) {
-        return position == 8 || position == 13 || position == 18 || position == 23;
-    }
-
     static constexpr auto HEX_TO_NIBBLE = [] {
         std::array<uint8_t, 256> digits {};
         digits.fill(0xff);

@@ -21,8 +21,17 @@
 #include <boost/uuid/random_generator.hpp>
 #include <chrono>
 
+#include "exec/common/hex.h"
+
 namespace doris {
 namespace {
+template <size_t Bytes>
+void write_uuid_hex_group(uint64_t value, char* out) {
+    for (size_t i = 0; i < Bytes; ++i) {
+        write_hex_byte_lowercase(static_cast<uint8_t>(value >> ((Bytes - i - 1) * 8)), out + i * 2);
+    }
+}
+
 UUIDValueType uuid_from_bytes(const boost::uuids::uuid& bytes) {
     return UUIDValue::from_big_endian(bytes.data);
 }
@@ -58,6 +67,20 @@ UUIDValueType generate_uuid_v7(boost::uuids::random_generator& generator) {
 }
 
 } // namespace
+
+void UUIDValue::to_string(UUIDValueType value, char* out) {
+    const auto high = static_cast<uint64_t>(value >> 64);
+    const auto low = static_cast<uint64_t>(value);
+    write_uuid_hex_group<4>(high >> 32, out);
+    out[8] = '-';
+    write_uuid_hex_group<2>(high >> 16, out + 9);
+    out[13] = '-';
+    write_uuid_hex_group<2>(high, out + 14);
+    out[18] = '-';
+    write_uuid_hex_group<2>(low >> 48, out + 19);
+    out[23] = '-';
+    write_uuid_hex_group<6>(low, out + 24);
+}
 
 // NOLINTNEXTLINE(readability-non-const-parameter): clang-tidy misses writes through __int128 pointers.
 void UUIDValue::generate(UUIDValueType* values, size_t count, bool version7) {
