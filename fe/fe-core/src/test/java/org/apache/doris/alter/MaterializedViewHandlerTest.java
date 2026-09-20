@@ -27,10 +27,12 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -158,6 +160,31 @@ public class MaterializedViewHandlerTest {
         } catch (Exception e) {
             System.out.print(e.getMessage());
         }
+    }
+
+    @Test
+    public void testRollupDupKeyOnNonSortableColumn() {
+        final long baseIndexId = 1L;
+        Column idColumn = new Column("id", Type.INT, true, null, false, null, "");
+        Column variantColumn = new Column("v", new VariantType(), false, AggregateType.NONE, true, null, "");
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(olapTable.getRowStoreCol()).thenReturn(null);
+        Mockito.when(olapTable.hasMaterializedIndex("r1")).thenReturn(false);
+        Mockito.when(olapTable.getKeysType()).thenReturn(KeysType.DUP_KEYS);
+        Mockito.when(olapTable.getSchemaByIndexId(baseIndexId, true))
+                .thenReturn(Lists.newArrayList(idColumn, variantColumn));
+
+        AddRollupOp addRollupOp = Mockito.mock(AddRollupOp.class);
+        Mockito.when(addRollupOp.getRollupName()).thenReturn("r1");
+        Mockito.when(addRollupOp.getColumnNames()).thenReturn(Lists.newArrayList("v", "id"));
+        Mockito.when(addRollupOp.getDupKeys()).thenReturn(Lists.newArrayList("v"));
+
+        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
+        DdlException e = Assertions.assertThrows(DdlException.class,
+                () -> materializedViewHandler.checkAndPrepareMaterializedView(
+                        addRollupOp, olapTable, baseIndexId, false));
+        Assertions.assertTrue(e.getMessage().contains("Column[v] can not be used as a duplicate key of rollup"),
+                e.getMessage());
     }
 
     @Test
