@@ -278,6 +278,42 @@ public class PolicyValidatorTests {
     }
 
     @Test
+    public void testExactLegacyPolicyPrecedesBuiltinValidation() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                41, "IK", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                43, "LOWERCASE", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+
+        DdlException analyzerException = Assertions.assertThrows(
+                DdlException.class, () -> manager.validateAnalyzerExists("IK"));
+        Assertions.assertTrue(analyzerException.getMessage().contains("is not an analyzer"));
+        Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("ik"));
+
+        DdlException normalizerException = Assertions.assertThrows(
+                DdlException.class, () -> manager.validateNormalizerExists("LOWERCASE"));
+        Assertions.assertTrue(normalizerException.getMessage().contains("is not a normalizer"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("lowercase"));
+    }
+
+    @Test
+    public void testIfNotExistsKeepsReplayedBuiltinTokenizerNameIdempotent() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy replayed = new IndexPolicy(
+                42, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        manager.replayCreateIndexPolicy(replayed);
+
+        Assertions.assertDoesNotThrow(() -> manager.createIndexPolicy(
+                true, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        Assertions.assertSame(replayed, manager.getPolicyByName("ik_smart"));
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> new IndexPolicyMgr().createIndexPolicy(
+                        true, "ik_max_word", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        Assertions.assertTrue(exception.getMessage().contains("conflicts with built-in tokenizer name"));
+    }
+
+    @Test
     public void testNamedIkTokenizerPolicyValidation() throws Exception {
         Method validate = IndexPolicyMgr.class.getDeclaredMethod(
                 "validateTokenizerProperties", Map.class);

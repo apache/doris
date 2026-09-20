@@ -149,14 +149,13 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
 
     public void validateAnalyzerExists(String analyzerName) throws DdlException {
         String normalizedName = normalizeKey(analyzerName);
-        // Built-in analyzers are stored in lowercase, so use normalized name for comparison
-        if (IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)) {
-            return;
-        }
-
         readLock();
         try {
-            IndexPolicy policy = getPolicyByNameLocked(analyzerName);
+            IndexPolicy exactPolicy = exactNameToIndexPolicy.get(exactKey(analyzerName));
+            if (exactPolicy == null && IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)) {
+                return;
+            }
+            IndexPolicy policy = exactPolicy != null ? exactPolicy : nameToIndexPolicy.get(normalizedName);
             if (policy == null) {
                 throw new DdlException("Analyzer '" + analyzerName + "' does not exist");
             }
@@ -208,14 +207,13 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
 
     public void validateNormalizerExists(String normalizerName) throws DdlException {
         String normalizedName = normalizeKey(normalizerName);
-        // Built-in normalizers are stored in lowercase, so use normalized name for comparison
-        if (IndexPolicy.BUILTIN_NORMALIZERS.contains(normalizedName)) {
-            return;
-        }
-
         readLock();
         try {
-            IndexPolicy policy = getPolicyByNameLocked(normalizerName);
+            IndexPolicy exactPolicy = exactNameToIndexPolicy.get(exactKey(normalizerName));
+            if (exactPolicy == null && IndexPolicy.BUILTIN_NORMALIZERS.contains(normalizedName)) {
+                return;
+            }
+            IndexPolicy policy = exactPolicy != null ? exactPolicy : nameToIndexPolicy.get(normalizedName);
             if (policy == null) {
                 throw new DdlException("Normalizer '" + normalizerName + "' does not exist");
             }
@@ -237,21 +235,24 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
         }
         // Normalize policy name for case-insensitive comparison with built-in names
         String normalizedName = normalizeKey(policyName);
-        if (IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName)) {
-            throw new DdlException("Policy name '" + policyName + "' conflicts with built-in tokenizer name");
-        }
-        if (IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(normalizedName)) {
-            throw new DdlException("Policy name '" + policyName + "' conflicts with built-in token filter name");
-        }
-        if (IndexPolicy.BUILTIN_CHAR_FILTERS.contains(normalizedName)) {
-            throw new DdlException("Policy name '" + policyName + "' conflicts with built-in char filter name");
-        }
-        if (IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)) {
-            throw new DdlException("Policy name '" + policyName + "' conflicts with built-in analyzer name");
-        }
-
         writeLock();
         try {
+            if (ifNotExists && nameToIndexPolicy.containsKey(normalizedName)) {
+                return;
+            }
+            if (IndexPolicy.BUILTIN_TOKENIZERS.contains(normalizedName)) {
+                throw new DdlException("Policy name '" + policyName + "' conflicts with built-in tokenizer name");
+            }
+            if (IndexPolicy.BUILTIN_TOKEN_FILTERS.contains(normalizedName)) {
+                throw new DdlException("Policy name '" + policyName + "' conflicts with built-in token filter name");
+            }
+            if (IndexPolicy.BUILTIN_CHAR_FILTERS.contains(normalizedName)) {
+                throw new DdlException("Policy name '" + policyName + "' conflicts with built-in char filter name");
+            }
+            if (IndexPolicy.BUILTIN_ANALYZERS.contains(normalizedName)) {
+                throw new DdlException("Policy name '" + policyName + "' conflicts with built-in analyzer name");
+            }
+
             Map<String, String> storedProperties = properties == null
                     ? null : Maps.newHashMap(properties);
             validatePolicyProperties(type, storedProperties);
