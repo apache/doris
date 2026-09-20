@@ -317,6 +317,49 @@ public class LanceTypeConverterTest {
     }
 
     @Test
+    public void testAddColumnExpressionsPreserveScalarTypes() {
+        Assertions.assertEquals("CAST(NULL AS INT)",
+                LanceTypeConverter.toAddColumnExpression(Type.INT));
+        Assertions.assertEquals("CAST(NULL AS VARCHAR)",
+                LanceTypeConverter.toAddColumnExpression(Type.STRING));
+        Assertions.assertEquals("CAST(NULL AS DECIMAL(18, 4))",
+                LanceTypeConverter.toAddColumnExpression(
+                        ScalarType.createDecimalV3Type(18, 4)));
+        Assertions.assertEquals("CAST(NULL AS TIMESTAMP(3))",
+                LanceTypeConverter.toAddColumnExpression(
+                        ScalarType.createDatetimeV2Type(3)));
+    }
+
+    @Test
+    public void testAlterColumnTypeUsesNamespaceScalarNames() {
+        Assertions.assertEquals("int64",
+                LanceTypeConverter.toAlterColumnType(Type.BIGINT));
+        Assertions.assertEquals("float64",
+                LanceTypeConverter.toAlterColumnType(Type.DOUBLE));
+        Assertions.assertEquals("utf8",
+                LanceTypeConverter.toAlterColumnType(Type.STRING));
+        Assertions.assertEquals("timestamp",
+                LanceTypeConverter.toAlterColumnType(
+                        ScalarType.createDatetimeV2Type(6)));
+    }
+
+    @Test
+    public void testUnsupportedSchemaEvolutionTypesFailClearly() {
+        IllegalArgumentException add = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceTypeConverter.toAddColumnExpression(
+                        new ArrayType(Type.INT)));
+        Assertions.assertTrue(add.getMessage().contains("ADD COLUMN"));
+
+        IllegalArgumentException modify = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceTypeConverter.toAlterColumnType(
+                        ScalarType.createDecimalV3Type(18, 4)));
+        Assertions.assertTrue(modify.getMessage().contains("MODIFY COLUMN"));
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceTypeConverter.toAlterColumnType(Type.JSONB));
+    }
+
+    @Test
     public void testUnsupportedDorisTypeFailsBeforeTableCreation() {
         IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> LanceTypeConverter.toArrowSchema(

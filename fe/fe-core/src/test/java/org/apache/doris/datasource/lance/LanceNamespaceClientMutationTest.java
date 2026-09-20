@@ -20,6 +20,11 @@ package org.apache.doris.datasource.lance;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.lance.namespace.LanceNamespace;
+import org.lance.namespace.model.AddColumnsEntry;
+import org.lance.namespace.model.AlterColumnsEntry;
+import org.lance.namespace.model.AlterTableAddColumnsRequest;
+import org.lance.namespace.model.AlterTableAlterColumnsRequest;
+import org.lance.namespace.model.AlterTableDropColumnsRequest;
 import org.lance.namespace.model.CreateNamespaceRequest;
 import org.lance.namespace.model.CreateTableRequest;
 import org.lance.namespace.model.DescribeTableRequest;
@@ -119,6 +124,53 @@ public class LanceNamespaceClientMutationTest {
                 ArgumentCaptor.forClass(DescribeTableRequest.class);
         Mockito.verify(namespace).describeTable(request.capture());
         Assertions.assertFalse(request.getValue().getVendCredentials());
+    }
+
+    @Test
+    public void testColumnMutationRequestsUseFullIdentifier() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        LanceNamespaceClient client = client(namespace);
+        AddColumnsEntry added = new AddColumnsEntry()
+                .name("score")
+                .expression("CAST(NULL AS BIGINT)");
+        AlterColumnsEntry altered = new AlterColumnsEntry()
+                .path("score")
+                .dataType("float64")
+                .nullable(false)
+                .rename("ranking");
+
+        client.addColumns("analytics", "events", Collections.singletonList(added));
+        client.alterColumns("analytics", "events", Collections.singletonList(altered));
+        client.dropColumns("analytics", "events", Collections.singletonList("ranking"));
+
+        ArgumentCaptor<AlterTableAddColumnsRequest> add =
+                ArgumentCaptor.forClass(AlterTableAddColumnsRequest.class);
+        Mockito.verify(namespace).alterTableAddColumns(add.capture());
+        Assertions.assertEquals(Arrays.asList("tenant", "analytics", "events"),
+                add.getValue().getId());
+        Assertions.assertEquals("score", add.getValue().getNewColumns().get(0).getName());
+        Assertions.assertEquals("CAST(NULL AS BIGINT)",
+                add.getValue().getNewColumns().get(0).getExpression());
+
+        ArgumentCaptor<AlterTableAlterColumnsRequest> alter =
+                ArgumentCaptor.forClass(AlterTableAlterColumnsRequest.class);
+        Mockito.verify(namespace).alterTableAlterColumns(alter.capture());
+        Assertions.assertEquals(Arrays.asList("tenant", "analytics", "events"),
+                alter.getValue().getId());
+        Assertions.assertEquals("score", alter.getValue().getAlterations().get(0).getPath());
+        Assertions.assertEquals("float64",
+                alter.getValue().getAlterations().get(0).getDataType());
+        Assertions.assertFalse(alter.getValue().getAlterations().get(0).getNullable());
+        Assertions.assertEquals("ranking",
+                alter.getValue().getAlterations().get(0).getRename());
+
+        ArgumentCaptor<AlterTableDropColumnsRequest> drop =
+                ArgumentCaptor.forClass(AlterTableDropColumnsRequest.class);
+        Mockito.verify(namespace).alterTableDropColumns(drop.capture());
+        Assertions.assertEquals(Arrays.asList("tenant", "analytics", "events"),
+                drop.getValue().getId());
+        Assertions.assertEquals(Collections.singletonList("ranking"),
+                drop.getValue().getColumns());
     }
 
     private static LanceNamespaceClient client(LanceNamespace namespace) {

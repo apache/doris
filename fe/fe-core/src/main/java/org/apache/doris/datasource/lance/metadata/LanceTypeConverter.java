@@ -35,6 +35,7 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -62,6 +63,115 @@ public final class LanceTypeConverter {
                     column.isAllowNull(), column.getComment()));
         }
         return new Schema(fields);
+    }
+
+    /** Builds the typed NULL expression required by the Lance Namespace add-columns API. */
+    public static String toAddColumnExpression(Type type) {
+        String sqlType;
+        switch (type.getPrimitiveType()) {
+            case BOOLEAN:
+                sqlType = "BOOLEAN";
+                break;
+            case TINYINT:
+                sqlType = "TINYINT";
+                break;
+            case SMALLINT:
+                sqlType = "SMALLINT";
+                break;
+            case INT:
+                sqlType = "INT";
+                break;
+            case BIGINT:
+                sqlType = "BIGINT";
+                break;
+            case FLOAT:
+                sqlType = "REAL";
+                break;
+            case DOUBLE:
+                sqlType = "DOUBLE";
+                break;
+            case CHAR:
+            case VARCHAR:
+            case STRING:
+                sqlType = "VARCHAR";
+                break;
+            case VARBINARY:
+                sqlType = "BINARY";
+                break;
+            case DATE:
+            case DATEV2:
+                sqlType = "DATE";
+                break;
+            case DATETIME:
+            case DATETIMEV2:
+                sqlType = "TIMESTAMP(" + Math.min(((ScalarType) type).getScalarScale(), 6) + ")";
+                break;
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+            case DECIMAL256:
+                ScalarType decimal = (ScalarType) type;
+                sqlType = "DECIMAL(" + decimal.getScalarPrecision() + ", "
+                        + decimal.getScalarScale() + ")";
+                break;
+            default:
+                throw new IllegalArgumentException(
+                        "Doris type is not supported for Lance ADD COLUMN: " + type.toSql());
+        }
+        return "CAST(NULL AS " + sqlType + ")";
+    }
+
+    /**
+     * Converts a Doris type to the scalar type name accepted by Lance Namespace 0.7.7
+     * AlterTableAlterColumns.
+     */
+    public static String toAlterColumnType(Type type) {
+        if (type.getPrimitiveType() == PrimitiveType.JSONB) {
+            throw new IllegalArgumentException(
+                    "Doris type is not supported for Lance MODIFY COLUMN: " + type.toSql());
+        }
+        ArrowType arrowType = toArrowType(type);
+        switch (arrowType.getTypeID()) {
+            case Bool:
+                return "bool";
+            case Int:
+                ArrowType.Int integer = (ArrowType.Int) arrowType;
+                if (!integer.getIsSigned()) {
+                    break;
+                }
+                return "int" + integer.getBitWidth();
+            case FloatingPoint:
+                FloatingPointPrecision precision =
+                        ((ArrowType.FloatingPoint) arrowType).getPrecision();
+                if (precision == FloatingPointPrecision.SINGLE) {
+                    return "float32";
+                }
+                if (precision == FloatingPointPrecision.DOUBLE) {
+                    return "float64";
+                }
+                break;
+            case Utf8:
+                return "utf8";
+            case Binary:
+                return "binary";
+            case Date:
+                if (((ArrowType.Date) arrowType).getUnit() == DateUnit.DAY) {
+                    return "date32";
+                }
+                break;
+            case Timestamp:
+                ArrowType.Timestamp timestamp = (ArrowType.Timestamp) arrowType;
+                if (timestamp.getUnit() == TimeUnit.MICROSECOND
+                        && StringUtils.isEmpty(timestamp.getTimezone())) {
+                    return "timestamp";
+                }
+                break;
+            default:
+                break;
+        }
+        throw new IllegalArgumentException(
+                "Doris type is not supported for Lance MODIFY COLUMN: " + type.toSql());
     }
 
     private static Field toArrowField(String name, Type type, boolean nullable, String comment) {
