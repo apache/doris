@@ -107,29 +107,37 @@ public class DorisFlightSqlProducerTest {
         }
     }
 
+    // A Flight status chosen by the session layer reaches the client as is, whatever it is: the
+    // session's command lock (UNAVAILABLE), a closed session (UNAUTHENTICATED), a refused session
+    // (RESOURCE_EXHAUSTED). Only a non-Flight failure is wrapped as INTERNAL.
     @Test
-    public void testGetFlightInfoWrapsOtherFlightErrors() throws Exception {
+    public void testGetFlightInfoPassesOtherFlightErrorsThrough() throws Exception {
         for (CallStatus status : new CallStatus[] {CallStatus.INTERNAL, CallStatus.UNAVAILABLE,
-                CallStatus.INVALID_ARGUMENT, CallStatus.UNAUTHENTICATED}) {
+                CallStatus.INVALID_ARGUMENT, CallStatus.UNAUTHENTICATED, CallStatus.RESOURCE_EXHAUSTED}) {
             FlightRuntimeException failure = status.withDescription("other flight failure").toRuntimeException();
-            assertLegacyFlightWrapper(failure, getFlightInfoFailure(failure));
+            Assertions.assertSame(failure, getFlightInfoFailure(failure));
         }
     }
 
     @Test
-    public void testGetFlightInfoWrapsOtherBusinessErrors() throws Exception {
+    public void testGetFlightInfoPassesOtherBusinessErrorsThrough() throws Exception {
         ErrorFlightMetadata metadata = new ErrorFlightMetadata();
         metadata.insert("doris-error-code", Integer.toString(ErrorCode.ERR_UNKNOWN_ERROR.getCode()));
         FlightRuntimeException failure = CallStatus.UNAVAILABLE.withDescription("other business failure")
                 .withMetadata(metadata).toRuntimeException();
 
-        assertLegacyFlightWrapper(failure, getFlightInfoFailure(failure));
+        Assertions.assertSame(failure, getFlightInfoFailure(failure));
     }
 
     @Test
     public void testGetFlightInfoWrapsNonFlightErrors() throws Exception {
         RuntimeException failure = new RuntimeException("session lookup failed");
-        assertLegacyFlightWrapper(failure, getFlightInfoFailure(failure));
+        FlightRuntimeException result = getFlightInfoFailure(failure);
+        Assertions.assertEquals(FlightStatusCode.INTERNAL, result.status().code());
+        Assertions.assertSame(failure, result.getCause());
+        Assertions.assertEquals("get flight info statement failed, " + failure.getMessage(),
+                result.status().description());
+        Assertions.assertFalse(result.status().metadata().containsKey("doris-error-code"));
     }
 
     private FlightRuntimeException getFlightInfoFailure(RuntimeException failure) throws Exception {
@@ -143,15 +151,6 @@ public class DorisFlightSqlProducerTest {
             return Assertions.assertThrows(FlightRuntimeException.class,
                     () -> producer.getFlightInfoStatement(request, callContext, FlightDescriptor.command(new byte[0])));
         }
-    }
-
-    private void assertLegacyFlightWrapper(RuntimeException failure, FlightRuntimeException result) {
-        Assertions.assertEquals(FlightStatusCode.INTERNAL, result.status().code());
-        Assertions.assertNotSame(failure, result);
-        Assertions.assertSame(failure, result.getCause());
-        Assertions.assertEquals("get flight info statement failed, " + failure.getMessage(),
-                result.status().description());
-        Assertions.assertFalse(result.status().metadata().containsKey("doris-error-code"));
     }
 
     @BeforeEach
