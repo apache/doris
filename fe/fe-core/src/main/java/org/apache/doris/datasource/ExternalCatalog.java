@@ -576,7 +576,8 @@ public abstract class ExternalCatalog
         List<Pair<String, String>> remoteToLocalPairs = Lists.newArrayList();
 
         allDatabases = allDatabases.stream()
-                .filter(dbName -> isDatabaseAllowedByFilter(dbName, includeDatabaseMap, excludeDatabaseMap))
+                .filter(dbName -> isDatabaseAllowedByFilter(
+                        dbName, includeDatabaseMap, excludeDatabaseMap, false))
                 .collect(Collectors.toList());
 
         for (String remoteDbName : allDatabases) {
@@ -623,19 +624,32 @@ public abstract class ExternalCatalog
     }
 
     protected boolean isDatabaseAllowedByFilter(String dbName) {
-        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap());
+        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap(), false);
+    }
+
+    protected boolean isDatabaseAllowedByFilterIgnoringCase(String dbName) {
+        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap(), true);
     }
 
     private boolean isDatabaseAllowedByFilter(String dbName, Map<String, Boolean> includeDatabaseMap,
-            Map<String, Boolean> excludeDatabaseMap) {
+            Map<String, Boolean> excludeDatabaseMap, boolean ignoreCase) {
         if (dbName.equals(InfoSchemaDb.DATABASE_NAME) || dbName.equals(MysqlDb.DATABASE_NAME)) {
             return true;
         }
         // Exclude database map takes precedence over include database map.
-        if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(dbName)) {
+        if (!excludeDatabaseMap.isEmpty() && containsDatabaseName(excludeDatabaseMap, dbName, ignoreCase)) {
             return false;
         }
-        return includeDatabaseMap.isEmpty() || includeDatabaseMap.containsKey(dbName);
+        return includeDatabaseMap.isEmpty() || containsDatabaseName(includeDatabaseMap, dbName, ignoreCase);
+    }
+
+    private boolean containsDatabaseName(Map<String, Boolean> databaseMap, String dbName, boolean ignoreCase) {
+        if (!ignoreCase) {
+            return databaseMap.containsKey(dbName);
+        }
+        String normalizedDbName = dbName.toLowerCase(Locale.ROOT);
+        return databaseMap.keySet().stream()
+                .anyMatch(configuredName -> configuredName.toLowerCase(Locale.ROOT).equals(normalizedDbName));
     }
 
     private void updateLowerCaseToDatabaseName(List<Pair<String, String>> names) {

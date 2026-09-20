@@ -21,10 +21,13 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.hive.event.MetastoreEvent;
+import org.apache.doris.datasource.hive.event.MetastoreEventFactory;
 import org.apache.doris.datasource.metacache.MetaCache;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -63,6 +66,7 @@ public class ExternalCatalogDeadlockTest {
     @Test
     public void testExcludedDatabaseEventDoesNotPublishIntoWarmCaseInsensitiveCache() throws Exception {
         Map<String, String> properties = Maps.newHashMap();
+        properties.put(ExternalCatalog.INCLUDE_DATABASE_LIST, "AllowedDb");
         properties.put(ExternalCatalog.EXCLUDE_DATABASE_LIST, "ExcludedDb");
         properties.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2");
         FilteredEventCatalog catalog = new FilteredEventCatalog(properties);
@@ -88,15 +92,27 @@ public class ExternalCatalogDeadlockTest {
 
         try {
             Assertions.assertEquals(Lists.newArrayList("AllowedDb"), cache.listNames());
-            Assertions.assertTrue(catalog.registerDatabaseFromEvent(2L, "ExcludedDb", 0L));
+            NotificationEvent excludedNotification = new NotificationEvent(
+                    1L, 1, "CREATE_DATABASE", "");
+            excludedNotification.setDbName("ExcludedDb");
+            MetastoreEvent excludedEvent = new MetastoreEventFactory()
+                    .transferNotificationEventToMetastoreEvents(excludedNotification, catalog.getName()).get(0);
+            Assertions.assertEquals("excludeddb", excludedEvent.getDbName());
+            Assertions.assertTrue(catalog.registerDatabaseFromEvent(2L, excludedEvent.getDbName(), 0L));
             Assertions.assertFalse(cache.tryGetMetaObj("ExcludedDb").isPresent());
             Assertions.assertFalse(lowerCaseRoutes.containsKey("excludeddb"));
             Assertions.assertNull(catalog.getDbNullable("eXcLuDeDdB"));
             Assertions.assertEquals(0, catalog.getBuildCount());
 
-            Assertions.assertTrue(catalog.registerDatabaseFromEvent(3L, "AllowedDb", 0L));
-            Assertions.assertTrue(cache.tryGetMetaObj("AllowedDb").isPresent());
-            Assertions.assertEquals("AllowedDb", lowerCaseRoutes.get("alloweddb"));
+            NotificationEvent allowedNotification = new NotificationEvent(
+                    2L, 1, "CREATE_DATABASE", "");
+            allowedNotification.setDbName("AllowedDb");
+            MetastoreEvent allowedEvent = new MetastoreEventFactory()
+                    .transferNotificationEventToMetastoreEvents(allowedNotification, catalog.getName()).get(0);
+            Assertions.assertEquals("alloweddb", allowedEvent.getDbName());
+            Assertions.assertTrue(catalog.registerDatabaseFromEvent(3L, allowedEvent.getDbName(), 0L));
+            Assertions.assertTrue(cache.tryGetMetaObj("alloweddb").isPresent());
+            Assertions.assertEquals("alloweddb", lowerCaseRoutes.get("alloweddb"));
             Assertions.assertNotNull(catalog.getDbNullable("aLlOwEdDb"));
             Assertions.assertEquals(1, catalog.getBuildCount());
         } finally {

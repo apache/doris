@@ -205,7 +205,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
             LOG.debug("create database [{}]", dbName);
         }
 
-        if (!isDatabaseAllowedByFilter(dbName)) {
+        // HMS notification events normalize database names to lowercase before reaching this boundary.
+        if (!isDatabaseAllowedByFilterIgnoringCase(dbName)) {
             return true;
         }
 
