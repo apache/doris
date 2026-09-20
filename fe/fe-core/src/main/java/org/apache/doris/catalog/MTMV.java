@@ -216,6 +216,7 @@ public class MTMV extends OlapTable {
             // only can update state, refresh state will be change by add task
             this.schemaChangeVersion++;
             this.refreshSnapshot = new MTMVRefreshSnapshot();
+            invalidateRewriteCache();
             return this.status.updateStateAndDetail(newStatus);
         } finally {
             writeMvUnlock();
@@ -229,6 +230,7 @@ public class MTMV extends OlapTable {
             this.status.setState(MTMVState.SCHEMA_CHANGE);
             this.status.setSchemaChangeDetail(schemaChangeDetail);
             this.refreshSnapshot = new MTMVRefreshSnapshot();
+            invalidateRewriteCache();
         } finally {
             writeMvUnlock();
         }
@@ -290,7 +292,12 @@ public class MTMV extends OlapTable {
                 // Replay the final IVM state; ADD_TASK does not change schemaChangeVersion.
                 ivmInfo = new IvmInfo(alterMTMV.getIvmInfo());
             }
+            boolean publishCache = false;
             if (task.getStatus() == TaskStatus.SUCCESS) {
+                publishCache = needUpdateCache && cacheGeneration == rewriteCacheGeneration;
+                // A successful refresh can restore a changed definition, including after several
+                // partial refreshes. Discard caches and builds from the previous snapshot coverage.
+                invalidateRewriteCache();
                 this.status.setState(MTMVState.NORMAL);
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
@@ -302,20 +309,18 @@ public class MTMV extends OlapTable {
                     }
                     ivmInfo.clearBaselineRebuild();
                 }
-                if (needUpdateCache) {
-                    if (cacheGeneration == rewriteCacheGeneration) {
-                        // Initialize cacheWithGuard, cacheWithoutGuard will be lazily generated when needed
-                        this.cacheWithGuard = mtmvCacheWithGuard;
-                        // Clear the other cache to ensure consistency
-                        this.cacheWithoutGuard = mtmvCacheWithoutGuard;
-                    }
-                }
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
             this.jobInfo.addHistoryTask(task);
             compatiblePctSnapshot(partitionSnapshots);
             this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
+            if (publishCache) {
+                // Publish only after the refreshed partitions have been recorded. A partial
+                // refresh may restore NORMAL while other partitions still use the old definition.
+                setCache(false, mtmvCacheWithGuard);
+                setCache(true, mtmvCacheWithoutGuard);
+            }
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
             if (isReplay) {
@@ -539,7 +544,7 @@ public class MTMV extends OlapTable {
                     continue;
                 }
                 setCache(sessionVarsMatch, mtmvCache);
-                return mtmvCache;
+                return getCache(sessionVarsMatch);
             } finally {
                 writeMvUnlock();
             }
@@ -927,6 +932,13 @@ public class MTMV extends OlapTable {
     }
 
     private void setCache(boolean sessionVarsMatch, MTMVCache cache) {
+        // A null cache clears a failed/replayed rebuild. Otherwise output guarantees are valid
+        // only when the current definition has refreshed every stored partition. State changes
+        // clear these snapshots; restoring NORMAL after one partition refresh is not sufficient.
+        if (cache != null && (status.getState() == MTMVState.SCHEMA_CHANGE
+                || !refreshSnapshot.getPartitionSnapshots().keySet().containsAll(getPartitionNames()))) {
+            cache = cache.withoutOutputPredicates();
+        }
         if (sessionVarsMatch) {
             this.cacheWithoutGuard = cache;
         } else {
@@ -971,8 +983,8 @@ public class MTMV extends OlapTable {
             Env.getCurrentEnv().getMtmvService().registerMTMV(this, this.getDatabase().getId());
         } catch (Throwable e) {
             LOG.warn("MTMV compatible failed, dbName: {}, mvName: {}, errMsg: {}", getDBName(), name, e.getMessage());
-            status.setState(MTMVState.SCHEMA_CHANGE);
-            status.setSchemaChangeDetail("compatible failed, please refresh or recreate it, reason: " + e.getMessage());
+            alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE,
+                    "compatible failed, please refresh or recreate it, reason: " + e.getMessage()));
         }
     }
 
@@ -999,8 +1011,8 @@ public class MTMV extends OlapTable {
         }
         if (refreshInfo != null && refreshInfo.getRefreshMethod() == null) {
             LOG.warn("MTMV {} has unknown refresh method, marking as schema change", name);
-            status.setState(MTMVState.SCHEMA_CHANGE);
-            status.setSchemaChangeDetail("Unknown refresh method detected during deserialization");
+            alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE,
+                    "Unknown refresh method detected during deserialization"));
         }
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = refreshSnapshot.getPartitionSnapshots();
         compatiblePctSnapshot(partitionSnapshots);
