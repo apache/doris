@@ -1154,11 +1154,13 @@ public class SessionVariable implements Serializable, Writable {
     // 100MB
     public long maxScanQueueMemByte = 2147483648L / 20;
 
-    @VarAttrDef.VarAttr(name = MAX_SCANNERS_CONCURRENCY, needForward = true, description = "The max threads to read "
+    @VarAttrDef.VarAttr(name = MAX_SCANNERS_CONCURRENCY, needForward = true,
+            checker = "checkMaxScannersConcurrency", description = "The max threads to read "
             + "data of ScanNode, default 4")
     public int maxScannersConcurrency = 4;
 
-    @VarAttrDef.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true, description = "The max threads to "
+    @VarAttrDef.VarAttr(name = MAX_FILE_SCANNERS_CONCURRENCY, needForward = true,
+            checker = "checkMaxFileScannersConcurrency", description = "The max threads to "
             + "read data of FileScanNode, default 16")
     public int maxFileScannersConcurrency = 16;
 
@@ -1169,11 +1171,13 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT)
     public int localExchangeFreeBlocksLimit = 4;
 
-    @VarAttrDef.VarAttr(name = MIN_SCANNERS_CONCURRENCY, needForward = true, description = "The min concurrency of "
+    @VarAttrDef.VarAttr(name = MIN_SCANNERS_CONCURRENCY, needForward = true,
+            checker = "checkMinScannersConcurrency", description = "The min concurrency of "
             + "Scanner, default 1")
     public int minScannersConcurrency = 1;
 
-    @VarAttrDef.VarAttr(name = MIN_FILE_SCANNERS_CONCURRENCY, needForward = true, description = "The min concurrency "
+    @VarAttrDef.VarAttr(name = MIN_FILE_SCANNERS_CONCURRENCY, needForward = true,
+            checker = "checkMinFileScannersConcurrency", description = "The min concurrency "
             + "of Remote Scanner, default 1")
     public int minFileScannersConcurrency = 1;
 
@@ -1453,7 +1457,8 @@ public class SessionVariable implements Serializable, Writable {
                         setter = "setFragmentInstanceNum", varType = VariableAnnotation.DEPRECATED)
     public int parallelExecInstanceNum = 8;
 
-    @VarAttrDef.VarAttr(name = COLOCATE_MAX_PARALLEL_NUM, needForward = true, fuzzy = false)
+    @VarAttrDef.VarAttr(name = COLOCATE_MAX_PARALLEL_NUM, needForward = true, fuzzy = false,
+            checker = "checkColocateMaxParallelNum")
     public int colocateMaxParallelNum = 128;
 
     @VarAttrDef.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
@@ -1636,7 +1641,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = DELETE_WITHOUT_PARTITION, needForward = true)
     public boolean deleteWithoutPartition = false;
 
-    @VarAttrDef.VarAttr(name = SEND_BATCH_PARALLELISM, needForward = true)
+    @VarAttrDef.VarAttr(name = SEND_BATCH_PARALLELISM, needForward = true, checker = "checkSendBatchParallelism")
     public int sendBatchParallelism = 1;
 
     @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_DML, varType = VariableAnnotation.REMOVED)
@@ -1675,7 +1680,8 @@ public class SessionVariable implements Serializable, Writable {
     private boolean optimizeIndexScanParallelism = true;
 
     @VarAttrDef.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = true,
-            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true,
+            checker = "checkParallelScanMaxScannersCount")
     private int parallelScanMaxScannersCount = 0;
 
     @VarAttrDef.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = true,
@@ -2689,7 +2695,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
     public boolean enableMemtableOnSinkNode = true;
 
-    @VarAttrDef.VarAttr(name = LOAD_STREAM_PER_NODE)
+    @VarAttrDef.VarAttr(name = LOAD_STREAM_PER_NODE, checker = "checkLoadStreamPerNode")
     public int loadStreamPerNode = 2;
 
     @VarAttrDef.VarAttr(name = GROUP_COMMIT, needForward = true)
@@ -4148,8 +4154,43 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setPipelineTaskNum(String value) throws Exception {
-        int val = checkFieldValue(PARALLEL_PIPELINE_TASK_NUM, 0, value);
+        int val = checkFieldValue(PARALLEL_PIPELINE_TASK_NUM, 0, 256, value);
         this.parallelPipelineTaskNum = val;
+    }
+
+    public void checkColocateMaxParallelNum(String value) throws Exception {
+        checkFieldValue(COLOCATE_MAX_PARALLEL_NUM, 1, 256, value);
+    }
+
+    public void checkMaxScannersConcurrency(String value) throws Exception {
+        // Non-positive scanner concurrency values select the BE defaults.
+        checkFieldValue(MAX_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, 256, value);
+    }
+
+    public void checkMaxFileScannersConcurrency(String value) throws Exception {
+        checkFieldValue(MAX_FILE_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, 256, value);
+    }
+
+    public void checkMinScannersConcurrency(String value) throws Exception {
+        checkFieldValue(MIN_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, 256, value);
+    }
+
+    public void checkMinFileScannersConcurrency(String value) throws Exception {
+        checkFieldValue(MIN_FILE_SCANNERS_CONCURRENCY, Integer.MIN_VALUE, 256, value);
+    }
+
+    public void checkParallelScanMaxScannersCount(String value) throws Exception {
+        // Non-positive values select the number of CPU cores on the BE.
+        checkFieldValue(PARALLEL_SCAN_MAX_SCANNERS_COUNT, Integer.MIN_VALUE, 256, value);
+    }
+
+    public void checkSendBatchParallelism(String value) throws Exception {
+        // The tablet writer uses one sender for values less than or equal to one.
+        checkFieldValue(SEND_BATCH_PARALLELISM, Integer.MIN_VALUE, 256, value);
+    }
+
+    public void checkLoadStreamPerNode(String value) throws Exception {
+        checkFieldValue(LOAD_STREAM_PER_NODE, 1, 256, value);
     }
 
     public void setEnablePipelineEngine(String value) throws Exception {
@@ -4224,6 +4265,15 @@ public class SessionVariable implements Serializable, Writable {
             throw new Exception(
                     variableName + " value should greater than or equal " + String.valueOf(minValue)
                             + ", you set value is: " + value);
+        }
+        return val;
+    }
+
+    private int checkFieldValue(String variableName, int minValue, int maxValue, String value) throws Exception {
+        int val = checkFieldValue(variableName, minValue, value);
+        if (val > maxValue) {
+            throw new Exception(variableName + " value should less than or equal " + maxValue
+                    + ", you set value is: " + value);
         }
         return val;
     }
