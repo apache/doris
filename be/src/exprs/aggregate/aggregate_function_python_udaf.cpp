@@ -62,7 +62,8 @@ Status AggregatePythonUDAFData::add(int64_t place_id, const IColumn** columns,
     cctz::time_zone timezone_obj;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
 
-    PythonArrowBlockConvertor converter(input_block, timezone_obj);
+    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
+                                        timezone_obj);
     RETURN_IF_ERROR(converter.init());
     std::shared_ptr<arrow::RecordBatch> batch;
     // Zero-copy: convert only the specified range
@@ -105,7 +106,8 @@ Status AggregatePythonUDAFData::add_batch(AggregateDataPtr* places, size_t place
     cctz::time_zone timezone_obj;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
 
-    PythonArrowBlockConvertor converter(input_block, timezone_obj);
+    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
+                                        timezone_obj);
     RETURN_IF_ERROR(converter.init());
     std::shared_ptr<arrow::RecordBatch> batch;
     // Zero-copy: convert only the [start, end) range

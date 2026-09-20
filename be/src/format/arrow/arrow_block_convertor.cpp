@@ -343,7 +343,9 @@ Status ArrowBlockConvertor::init() {
 
 Status DorisArrowBlockConvertor::init() {
     if (_arrow_schema == nullptr) {
-        RETURN_IF_ERROR(get_arrow_schema_from_block(_header, &_arrow_schema, _timezone.name(),
+        // cctz names fixed offsets as "Fixed/UTC+HH:MM:SS", which is not the Arrow
+        // protocol label. Keep the declared name so Python metadata and batches agree.
+        RETURN_IF_ERROR(get_arrow_schema_from_block(_header, &_arrow_schema, _timezone_name,
                                                     _datetime_naive));
     }
     return ArrowBlockConvertor::init();

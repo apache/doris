@@ -115,8 +115,8 @@ public:
 protected:
     // Construct the schema and column bindings together for each writer instance.
     virtual std::unique_ptr<ArrowBlockConvertor> _create_arrow_block_convertor(
-            DataTypes types, std::vector<std::string> names, const cctz::time_zone& timezone,
-            bool enable_int96_timestamps) const;
+            DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
+            const cctz::time_zone& timezone, bool enable_int96_timestamps) const;
     std::shared_ptr<::parquet::FileMetaData> _file_metadata() const { return _writer->metadata(); }
 
 private:

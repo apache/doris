@@ -103,7 +103,8 @@ Status MemoryScratchSinkOperatorX::sink_impl(RuntimeState* state, Block* input_b
         RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(
                 local_state._output_vexpr_ctxs, *input_block, &block));
     }
-    DorisArrowBlockConvertor converter(block, _timezone_obj, /*datetime_naive=*/true);
+    DorisArrowBlockConvertor converter(block, state->timezone(), _timezone_obj,
+                                       /*datetime_naive=*/true);
     {
         SCOPED_TIMER(local_state._get_arrow_schema_timer);
         // After expr executed, use recaculated schema as final schema

@@ -230,10 +230,10 @@ Status VParquetWriter::_parse_properties() {
 }
 
 std::unique_ptr<ArrowBlockConvertor> VParquetWriter::_create_arrow_block_convertor(
-        DataTypes types, std::vector<std::string> names, const cctz::time_zone& timezone,
-        bool enable_int96_timestamps) const {
-    return std::make_unique<ParquetArrowBlockConvertor>(std::move(types), std::move(names),
-                                                        timezone, enable_int96_timestamps);
+        DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
+        const cctz::time_zone& timezone, bool enable_int96_timestamps) const {
+    return std::make_unique<ParquetArrowBlockConvertor>(
+            std::move(types), std::move(names), timezone_name, timezone, enable_int96_timestamps);
 }
 
 Status VParquetWriter::write(const Block& block) {
@@ -289,8 +289,8 @@ Status VParquetWriter::open() {
         }
     }
     _arrow_block_convertor =
-            _create_arrow_block_convertor(std::move(types), std::move(names), _timezone_obj,
-                                          _parquet_options.enable_int96_timestamps);
+            _create_arrow_block_convertor(std::move(types), std::move(names), _timezone,
+                                          _timezone_obj, _parquet_options.enable_int96_timestamps);
     RETURN_IF_ERROR(_arrow_block_convertor->init());
     try {
         RETURN_DORIS_STATUS_IF_ERROR(_open_file_writer());

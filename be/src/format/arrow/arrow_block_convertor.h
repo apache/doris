@@ -88,10 +88,11 @@ protected:
 class DorisArrowBlockConvertor : public ArrowBlockConvertor {
 public:
     using ArrowBlockConvertor::ArrowBlockConvertor;
-    DorisArrowBlockConvertor(const Block& header, const cctz::time_zone& timezone,
-                             bool datetime_naive = false)
+    DorisArrowBlockConvertor(const Block& header, std::string timezone_name,
+                             const cctz::time_zone& timezone, bool datetime_naive = false)
             : ArrowBlockConvertor(nullptr, timezone),
               _header(header.clone_empty()),
+              _timezone_name(std::move(timezone_name)),
               _datetime_naive(datetime_naive) {}
 
     Status init() override;
@@ -107,6 +108,7 @@ protected:
 
 private:
     Block _header;
+    std::string _timezone_name;
     bool _datetime_naive = false;
 };
 

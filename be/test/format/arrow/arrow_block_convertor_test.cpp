@@ -24,6 +24,7 @@
 #include <gtest/gtest.h>
 
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "format/parquet/parquet_arrow_block_convertor.h"
@@ -32,6 +33,7 @@
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "format/table/paimon/paimon_arrow_block_convertor.h"
+#include "udf/python/python_udf_meta.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -46,9 +48,10 @@ TEST_F(ArrowBlockConvertorTest, ParquetOwnsSchemaAndTimezoneParameters) {
     ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("Asia/Shanghai", shanghai));
     DataTypes types {DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6),
                      DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6)};
-    ParquetArrowBlockConvertor parquet(types, {"local_time", "instant"}, shanghai, false);
-    hive::HiveArrowBlockConvertor hive(types, {"local_time", "instant"}, cctz::utc_time_zone(),
-                                       true);
+    ParquetArrowBlockConvertor parquet(types, {"local_time", "instant"}, "Asia/Shanghai", shanghai,
+                                       false);
+    hive::HiveArrowBlockConvertor hive(types, {"local_time", "instant"}, "UTC",
+                                       cctz::utc_time_zone(), true);
     ASSERT_TRUE(parquet.init().ok());
     ASSERT_TRUE(hive.init().ok());
     const auto timestamp = [](const ArrowBlockConvertor& converter,
@@ -66,7 +69,7 @@ TEST_F(ArrowBlockConvertorTest, ParquetOwnsSchemaAndTimezoneParameters) {
 }
 
 TEST_F(ArrowBlockConvertorTest, ParquetRejectsMismatchedColumnNames) {
-    ParquetArrowBlockConvertor converter({std::make_shared<DataTypeInt32>()}, {},
+    ParquetArrowBlockConvertor converter({std::make_shared<DataTypeInt32>()}, {}, "UTC",
                                          cctz::utc_time_zone(), false);
     EXPECT_FALSE(converter.init().ok());
     EXPECT_EQ(nullptr, converter.arrow_schema());
@@ -76,7 +79,7 @@ TEST_F(ArrowBlockConvertorTest, IcebergBuildsItsOwnSchemaAndMetadata) {
     const std::string json =
             R"({"type":"struct","fields":[{"id":7,"name":"payload","required":false,"type":"variant"}]})";
     auto schema = iceberg::SchemaParser::from_json(json);
-    iceberg::IcebergArrowBlockConvertor converter(*schema, &json, cctz::utc_time_zone());
+    iceberg::IcebergArrowBlockConvertor converter(*schema, &json, "UTC", cctz::utc_time_zone());
     ASSERT_TRUE(converter.init().ok());
     const auto& arrow_schema = converter.arrow_schema();
     ASSERT_NE(nullptr, arrow_schema);
@@ -121,7 +124,7 @@ TEST_F(ArrowBlockConvertorTest, PythonBuildsSchemaAndConvertsSlicesInternally) {
     column->get_data().assign({11, 22, 33});
     Block block;
     block.insert({std::move(column), type, "value"});
-    PythonArrowBlockConvertor converter(block, cctz::utc_time_zone());
+    PythonArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone());
     std::shared_ptr<arrow::RecordBatch> batch;
     EXPECT_FALSE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
     ASSERT_TRUE(converter.init().ok());
@@ -170,6 +173,52 @@ TEST_F(ArrowBlockConvertorTest, PaimonSerializedSchemaKeepsTimestampBindingsPerI
         ASSERT_TRUE(batch->ValidateFull().ok());
         const auto& values = static_cast<const arrow::TimestampArray&>(*batch->column(0));
         EXPECT_EQ(i == 0 ? -1LL : -28800000001LL, values.Value(0));
+    }
+}
+
+TEST_F(ArrowBlockConvertorTest, PythonFixedOffsetSchemaMatchesDeclaredProtocol) {
+    auto type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+    DataTypes types {type, std::make_shared<DataTypeArray>(type)};
+    Block block;
+    for (size_t i = 0; i < types.size(); ++i) {
+        block.insert({types[i]->create_column(), types[i], "arg" + std::to_string(i)});
+    }
+    for (const std::string& zone :
+         {TimezoneUtils::default_time_zone, std::string("+05:45"), std::string("-03:30"),
+          std::string("UTC"), std::string("Asia/Shanghai")}) {
+        SCOPED_TRACE(zone);
+        cctz::time_zone timezone;
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, timezone));
+        PythonArrowBlockConvertor converter(block, zone, timezone);
+        ASSERT_TRUE(converter.init().ok());
+        std::shared_ptr<arrow::Schema> declared;
+        ASSERT_TRUE(PythonUDFMeta::convert_types_to_schema(types, zone, &declared).ok());
+        EXPECT_TRUE(declared->Equals(*converter.arrow_schema()))
+                << "declared=" << declared->ToString()
+                << ", actual=" << converter.arrow_schema()->ToString();
+    }
+}
+
+TEST_F(ArrowBlockConvertorTest, TableWritersPreserveFixedOffsetSchemaNames) {
+    auto type = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6);
+    const std::string json =
+            R"({"type":"struct","fields":[{"id":1,"name":"ts","required":true,"type":"timestamptz"}]})";
+    auto schema = iceberg::SchemaParser::from_json(json);
+    for (const std::string& zone : {std::string("+05:45"), std::string("-03:30")}) {
+        SCOPED_TRACE(zone);
+        cctz::time_zone timezone;
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, timezone));
+        ParquetArrowBlockConvertor parquet({type}, {"ts"}, zone, timezone, false);
+        hive::HiveArrowBlockConvertor hive({type}, {"ts"}, zone, timezone, true);
+        iceberg::IcebergArrowBlockConvertor iceberg(*schema, &json, zone, timezone);
+        for (ArrowBlockConvertor* converter :
+             {static_cast<ArrowBlockConvertor*>(&parquet), static_cast<ArrowBlockConvertor*>(&hive),
+              static_cast<ArrowBlockConvertor*>(&iceberg)}) {
+            ASSERT_TRUE(converter->init().ok());
+            const auto& timestamp = static_cast<const arrow::TimestampType&>(
+                    *converter->arrow_schema()->field(0)->type());
+            EXPECT_EQ(zone, timestamp.timezone());
+        }
     }
 }
 

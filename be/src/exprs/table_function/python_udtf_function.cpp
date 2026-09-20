@@ -135,7 +135,8 @@ Status PythonUDTFFunction::process_init(Block* block, RuntimeState* state) {
     }
     int64_t input_rows = block->rows();
     std::shared_ptr<arrow::RecordBatch> input_batch;
-    PythonArrowBlockConvertor converter(input_block, _timezone_obj);
+    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
+                                        _timezone_obj);
     RETURN_IF_ERROR(converter.init());
     if (child_column_idxs.empty()) {
         RETURN_IF_ERROR(

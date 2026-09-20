@@ -30,11 +30,12 @@ Status ParquetArrowBlockConvertor::init() {
     }
     std::vector<std::shared_ptr<arrow::Field>> fields;
     fields.reserve(_types.size());
+    // Retain the declared Arrow timezone label; cctz's fixed-offset name is internal.
     // INT96 normalization and schema construction must use the same instance's timezone.
     for (size_t i = 0; i < _types.size(); ++i) {
         std::shared_ptr<arrow::DataType> type;
-        RETURN_IF_ERROR(convert_to_arrow_type(_types[i], &type, _timezone.name(),
-                                              !_enable_int96_timestamps));
+        RETURN_IF_ERROR(
+                convert_to_arrow_type(_types[i], &type, _timezone_name, !_enable_int96_timestamps));
         fields.emplace_back(arrow::field(_names[i], type, _types[i]->is_nullable()));
     }
     _arrow_schema = arrow::schema(std::move(fields));

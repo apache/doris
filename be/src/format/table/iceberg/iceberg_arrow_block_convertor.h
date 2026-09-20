@@ -27,10 +27,11 @@ class IcebergArrowBlockConvertor final : public ArrowBlockConvertor {
 public:
     using ArrowBlockConvertor::ArrowBlockConvertor;
     IcebergArrowBlockConvertor(const Schema& schema, const std::string* schema_json,
-                               const cctz::time_zone& timezone)
+                               std::string timezone_name, const cctz::time_zone& timezone)
             : ArrowBlockConvertor(nullptr, timezone),
               _schema(&schema),
-              _schema_json(schema_json == nullptr ? "" : *schema_json) {}
+              _schema_json(schema_json == nullptr ? "" : *schema_json),
+              _timezone_name(std::move(timezone_name)) {}
 
     Status init() override;
 
@@ -44,6 +45,7 @@ protected:
 private:
     const Schema* _schema = nullptr;
     std::string _schema_json;
+    std::string _timezone_name;
 };
 
 } // namespace doris::iceberg

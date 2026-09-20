@@ -143,7 +143,8 @@ Status PythonFunctionCall::execute_impl(FunctionContext* context, Block& block,
     if (!TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj)) {
         return Status::InternalError("Failed to resolve the default Python UDF timezone");
     }
-    PythonArrowBlockConvertor converter(input_block, timezone_obj);
+    PythonArrowBlockConvertor converter(input_block, TimezoneUtils::default_time_zone,
+                                        timezone_obj);
     RETURN_IF_ERROR(converter.init());
     if (arguments.empty()) {
         RETURN_IF_ERROR(

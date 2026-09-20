@@ -42,10 +42,10 @@ VIcebergParquetWriter::VIcebergParquetWriter(RuntimeState* state, io::FileWriter
           _iceberg_schema_json(iceberg_schema_json == nullptr ? "" : *iceberg_schema_json) {}
 
 std::unique_ptr<ArrowBlockConvertor> VIcebergParquetWriter::_create_arrow_block_convertor(
-        DataTypes types, std::vector<std::string> names, const cctz::time_zone& timezone,
-        bool enable_int96_timestamps) const {
-    return std::make_unique<iceberg::IcebergArrowBlockConvertor>(_iceberg_schema,
-                                                                 &_iceberg_schema_json, timezone);
+        DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
+        const cctz::time_zone& timezone, bool enable_int96_timestamps) const {
+    return std::make_unique<iceberg::IcebergArrowBlockConvertor>(
+            _iceberg_schema, &_iceberg_schema_json, timezone_name, timezone);
 }
 
 Status VIcebergParquetWriter::collect_file_statistics_after_close(TIcebergColumnStats* stats) {
