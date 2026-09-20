@@ -38,6 +38,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Re-migrates #63068's {@code ExternalDatabaseSessionContextTest} onto the SPI architecture: the DATA-FLOW proof
@@ -190,6 +191,72 @@ public class ExternalDatabaseSessionContextTest {
         Assertions.assertEquals(Lists.newArrayList("token_a"), catalog.tokensUsedToCheckTableExist);
     }
 
+    @Test
+    public void delegatedSessionGetTablesListsRemotelyOnlyOnceForManyTables() {
+        // #66025: bypass-mode getTables() used to list remotely 1 + N times for N tables — once in
+        // getTableNamesWithLock() and once more per table inside findTableNamePairWithoutCache().
+        SessionAwareCatalog catalog = new SessionAwareCatalog(0, Lists.newArrayList("t1", "t2", "t3"));
+        SessionAwareDatabase db = new SessionAwareDatabase(catalog, 7L, "db1", "db1");
+        withSession("token_a", () -> {
+            List<PluginDrivenExternalTable> tables = db.getTables();
+            Assertions.assertEquals(3, tables.size());
+            List<String> names = tables.stream().map(PluginDrivenExternalTable::getName)
+                    .collect(Collectors.toList());
+            Assertions.assertTrue(names.containsAll(Lists.newArrayList("t1", "t2", "t3")));
+            Assertions.assertTrue(tables.stream().allMatch(t -> t.getRemoteName().equals(t.getName())));
+        });
+        Assertions.assertEquals(Lists.newArrayList("token_a"), catalog.tokensUsedToListTables,
+                "getTables must enumerate remote table names exactly once, not 1 + N times");
+    }
+
+    @Test
+    public void delegatedSessionGetTablesStillFailsOnCaseInsensitiveConflicts() {
+        // The single-enumeration fast path must keep the case-insensitive conflict check: conflicting
+        // remote names fail the whole listing instead of silently building an ambiguous table set.
+        SessionAwareCatalog catalog = new SessionAwareCatalog(1, Lists.newArrayList("Table_A", "table_a"));
+        SessionAwareDatabase db = new SessionAwareDatabase(catalog, 8L, "db1", "db1");
+        withSession("token_a", () -> {
+            RuntimeException e = Assertions.assertThrows(RuntimeException.class, db::getTables);
+            Assertions.assertTrue(e.getMessage().contains(ExternalCatalog.FOUND_CONFLICTING),
+                    "conflicting remote names must still surface the conflict error, got: " + e.getMessage());
+        });
+    }
+
+    @Test
+    public void delegatedSessionGetTablesKeepsFirstRemoteNameForMappedLocalName() {
+        SessionAwareCatalog catalog = new SessionAwareCatalog(
+                0, Lists.newArrayList("remote_first", "remote_second")) {
+            @Override
+            public String fromRemoteTableName(String remoteDatabaseName, String remoteTableName) {
+                return "local_name";
+            }
+        };
+        SessionAwareDatabase db = new SessionAwareDatabase(catalog, 9L, "db1", "db1");
+
+        withSession("token_a", () -> {
+            List<PluginDrivenExternalTable> tables = db.getTables();
+            Assertions.assertEquals(1, tables.size());
+            Assertions.assertEquals("local_name", tables.get(0).getName());
+            Assertions.assertEquals("remote_first", tables.get(0).getRemoteName());
+        });
+        Assertions.assertEquals(Lists.newArrayList("token_a"), catalog.tokensUsedToListTables);
+    }
+
+    @Test
+    public void delegatedSessionGetTablesSkipsIndividualBuildFailures() {
+        SessionAwareCatalog catalog = new SessionAwareCatalog(
+                0, Lists.newArrayList("good", "bad", "also_good"));
+        FailingSessionAwareDatabase db = new FailingSessionAwareDatabase(catalog, 10L, "db1", "db1");
+
+        withSession("token_a", () -> {
+            List<String> names = db.getTables().stream().map(PluginDrivenExternalTable::getName)
+                    .collect(Collectors.toList());
+            Assertions.assertEquals(2, names.size());
+            Assertions.assertTrue(names.containsAll(Lists.newArrayList("good", "also_good")));
+        });
+        Assertions.assertEquals(Lists.newArrayList("token_a"), catalog.tokensUsedToListTables);
+    }
+
     private static void withSession(String token, Runnable action) {
         SessionContext context = ctxFor(token);
         try (MockedStatic<SessionContext> sc = Mockito.mockStatic(SessionContext.class)) {
@@ -210,17 +277,24 @@ public class ExternalDatabaseSessionContextTest {
      * {@code db_<suffix>}) and records the token it listed under. Pre-initialized so {@code getDbNames} skips the
      * Env-dependent metaCache build; the credentialed bypass path never touches that cache anyway.
      */
-    private static final class SessionAwareCatalog extends PluginDrivenExternalCatalog {
+    private static class SessionAwareCatalog extends PluginDrivenExternalCatalog {
         private final List<String> tokensUsedToListDatabases = new ArrayList<>();
         private final List<String> tokensUsedToListTables = new ArrayList<>();
         private final List<String> tokensUsedToCheckTableExist = new ArrayList<>();
+        // When non-null, the remote table listing returns this fixed list for any token.
+        private final List<String> remoteTables;
 
         SessionAwareCatalog() {
             this(0);
         }
 
         SessionAwareCatalog(int lowerCaseTableNames) {
+            this(lowerCaseTableNames, null);
+        }
+
+        SessionAwareCatalog(int lowerCaseTableNames, List<String> remoteTables) {
             super(1L, "test_ctl", null, props(lowerCaseTableNames), "", userSessionConnector());
+            this.remoteTables = remoteTables;
             this.initialized = true;
         }
 
@@ -253,6 +327,9 @@ public class ExternalDatabaseSessionContextTest {
         protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
             String token = ctx.getDelegatedCredential().get().getToken();
             tokensUsedToListTables.add(token);
+            if (remoteTables != null) {
+                return remoteTables;
+            }
             if ("token_mixed".equals(token)) {
                 return Lists.newArrayList("Table_A");
             }
@@ -292,6 +369,22 @@ public class ExternalDatabaseSessionContextTest {
         SessionAwareDatabase(ExternalCatalog catalog, long id, String name, String remoteName) {
             super(catalog, id, name, remoteName);
             initialized = true;
+        }
+    }
+
+    private static final class FailingSessionAwareDatabase extends PluginDrivenExternalDatabase {
+        FailingSessionAwareDatabase(ExternalCatalog catalog, long id, String name, String remoteName) {
+            super(catalog, id, name, remoteName);
+            initialized = true;
+        }
+
+        @Override
+        protected PluginDrivenExternalTable buildTableInternal(String remoteTableName, String localTableName,
+                long tblId, ExternalCatalog catalog, ExternalDatabase db) {
+            if ("bad".equals(localTableName)) {
+                throw new IllegalStateException("expected test build failure");
+            }
+            return super.buildTableInternal(remoteTableName, localTableName, tblId, catalog, db);
         }
     }
 }
