@@ -575,6 +575,9 @@ Status WorkloadGroup::upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
         if (ret.ok()) {
             _task_sched = std::move(pipeline_task_scheduler);
         } else {
+            // A failed start may leave only some schedulers running. Stop all of
+            // them before destruction, which requires both schedulers to be shut down.
+            pipeline_task_scheduler->stop();
             upsert_ret = ret;
             LOG(INFO) << "[upsert wg thread pool] task scheduler start failed, gid= " << wg_id;
         }
