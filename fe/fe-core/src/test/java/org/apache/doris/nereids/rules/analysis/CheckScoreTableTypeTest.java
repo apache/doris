@@ -78,6 +78,6 @@ public class CheckScoreTableTypeTest extends TestWithFeService {
 
     private void analyzeScoreQuery(String tableName) {
         PlanChecker.from(connectContext).analyze("SELECT score() AS s FROM " + tableName
-                + " WHERE content MATCH 'doris' ORDER BY s LIMIT 10");
+                + " WHERE content MATCH 'doris' ORDER BY s LIMIT 10").rewrite();
     }
 }
