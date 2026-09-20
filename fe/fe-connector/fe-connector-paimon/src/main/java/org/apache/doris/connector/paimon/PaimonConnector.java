@@ -498,7 +498,7 @@ public class PaimonConnector implements Connector {
     }
 
     Options buildCatalogOptions() {
-        return PaimonCatalogFactory.buildCatalogOptions(catalogProps, metaCache.hasEnclosingWeightLimit());
+        return PaimonCatalogFactory.buildCatalogOptions(catalogProps);
     }
 
     /**
@@ -546,9 +546,10 @@ public class PaimonConnector implements Connector {
                         ? createHmsCatalog(catalogContext, hmsAuth, catalogProps.getRaw(),
                                 storageHadoopConfig)
                         : CatalogFactory.createCatalog(catalogContext);
-                return new PaimonMetaCacheCatalog(catalog, metaCache,
+                return PaimonMetaCacheCatalog.tryToCreate(catalog, metaCache,
                         DEFAULT_TABLE_CACHE_CAPACITY, resolveTableCacheTtlSecond(catalogProps.getRaw()),
-                        catalogContext.options());
+                        catalogContext.options(), PaimonCatalogFactory.isCatalogCacheEnabled(catalogProps),
+                        metaCache.hasEnclosingWeightLimit());
             });
         } catch (Exception e) {
             throw new RuntimeException(failureMessage + " (flavor=" + flavor + "): " + e.getMessage(), e);

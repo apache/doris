@@ -103,11 +103,19 @@ public final class PaimonCatalogFactory {
      * plus each flavor's {@code appendCustomCatalogOptions()}.
      */
     public static Options buildCatalogOptions(PaimonCatalogProperties catalogProperties) {
-        return buildCatalogOptions(catalogProperties, false);
+        Options options = assembleCatalogOptions(catalogProperties);
+        // PaimonMetaCacheCatalog replaces the SDK CachingCatalog. The two cache layers cannot
+        // coexist because a Doris invalidation cannot evict a frozen Table from the SDK wrapper.
+        // Preserve the user's flag separately, but always disable the SDK wrapper itself.
+        options.set(CatalogOptions.CACHE_ENABLED, false);
+        return options;
     }
 
-    static Options buildCatalogOptions(
-            PaimonCatalogProperties catalogProperties, boolean hasEnclosingMetaCacheWeightLimit) {
+    static boolean isCatalogCacheEnabled(PaimonCatalogProperties catalogProperties) {
+        return assembleCatalogOptions(catalogProperties).get(CatalogOptions.CACHE_ENABLED);
+    }
+
+    private static Options assembleCatalogOptions(PaimonCatalogProperties catalogProperties) {
         Options options = new Options();
         Map<String, String> props = catalogProperties.getRaw();
         String flavor = catalogProperties.getFlavor();
@@ -141,13 +149,6 @@ public final class PaimonCatalogFactory {
                 // filesystem: nothing custom.
                 break;
         }
-        // PaimonMetaCacheCatalog (Doris-owned) replaces the SDK CachingCatalog's table and database
-        // caches with Doris's own CatalogMetaCache framework. The two caching layers cannot coexist:
-        // if the SDK wraps itself in CachingCatalog (cache-enabled=true, the SDK default), a
-        // PaimonMetaCacheCatalog miss falls through to CachingCatalog.getTable() which returns a
-        // frozen Table — the stale-read bug DORIS-29032 would persist even after a Doris-side
-        // REFRESH. Always disable the SDK cache so the catalog always loads fresh.
-        options.set(CatalogOptions.CACHE_ENABLED, false);
         return options;
     }
 
