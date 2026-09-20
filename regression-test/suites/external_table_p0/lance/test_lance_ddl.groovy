@@ -62,6 +62,59 @@ suite("test_lance_ddl", "p0,external") {
         assertEquals("int", columns[0][1].toString().toLowerCase())
         assertEquals("array<text>", columns[2][1].toString().toLowerCase())
 
+        sql """
+            ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}`
+            ADD COLUMN score INT NULL
+        """
+        sql """
+            ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}`
+            ADD COLUMN (
+                active BOOLEAN NULL,
+                note STRING NULL
+            )
+        """
+        sql """
+            ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}`
+            MODIFY COLUMN score BIGINT NOT NULL
+        """
+        sql """
+            ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}`
+            RENAME COLUMN score TO ranking
+        """
+        sql """
+            ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}`
+            DROP COLUMN note
+        """
+
+        columns = sql """DESC `${catalogName}`.`${databaseName}`.`${tableName}`"""
+        assertEquals(
+                ["id", "name", "tags", "amount", "ranking", "active"],
+                columns.collect { it[0] })
+        assertEquals("bigint", columns[4][1].toString().toLowerCase())
+        assertEquals("NO", columns[4][2])
+
+        test {
+            sql """
+                ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}`
+                ADD COLUMN positioned INT NULL FIRST
+            """
+            exception "does not support column positions"
+        }
+        test {
+            sql """
+                ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}`
+                ADD COLUMN defaulted INT NULL DEFAULT '1'
+            """
+            exception "does not support default values"
+        }
+        test {
+            sql """
+                ALTER TABLE `${catalogName}`.`${databaseName}`.`${tableName}`
+                MODIFY COLUMN ranking BIGINT NOT NULL COMMENT 'rank'
+            """
+            exception "does not support column comments"
+        }
+
         String showCreate = sql("""SHOW CREATE TABLE `${catalogName}`.`${databaseName}`.`${tableName}`""")[0][1]
         assertTrue(showCreate.contains("ENGINE=LANCE"))
         assertTrue(showCreate.contains("COMMENT 'Lance DDL regression table'"))
