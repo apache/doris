@@ -49,6 +49,34 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "driver_class" = "oracle.jdbc.driver.OracleDriver"
         );"""
         order_qt_show_db """ show databases from ${catalog_name}; """
+        assertTrue((sql """show databases from ${catalog_name} like 'SYS'""").isEmpty())
+
+        // Include SYS with a case-insensitive property value, using the same Oracle account.
+        String internal_catalog_name = "oracle_catalog_include_internal";
+        sql """drop catalog if exists ${internal_catalog_name}"""
+        try {
+            sql """create catalog ${internal_catalog_name} properties(
+                "type"="jdbc",
+                "user"="doris_test",
+                "password"="123456",
+                "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${SID}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                "include_internal_database_list" = "sys"
+            );"""
+
+            assertEquals([["SYS"]], sql """show databases from ${internal_catalog_name} like 'SYS'""")
+            assertTrue((sql """show databases from ${internal_catalog_name} like 'SYSTEM'""").isEmpty())
+            assertEquals([[ex_db_name]],
+                    sql """show databases from ${internal_catalog_name} like '${ex_db_name}'""")
+
+            // SYS.DUAL is accessible to ordinary Oracle users through PUBLIC privileges.
+            assertEquals([["DUAL"]], sql """show tables from ${internal_catalog_name}.SYS like 'DUAL'""")
+            assertEquals([["X"]], sql """select DUMMY from ${internal_catalog_name}.SYS.DUAL""")
+        } finally {
+            sql """drop catalog if exists ${internal_catalog_name}"""
+        }
+
         sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
