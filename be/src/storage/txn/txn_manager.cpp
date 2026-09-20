@@ -574,6 +574,19 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 "tablet={}, commit_tso={}",
                 partition_id, transaction_id, tablet_info.to_string(), commit_tso);
     }
+    const auto& attached_row_binlog = tablet_txn_info->attach_row_binlog.rowset;
+    const bool requires_commit_tso = rowset->tablet_schema()->is_tso_enabled() ||
+                                     (attached_row_binlog != nullptr &&
+                                      attached_row_binlog->tablet_schema()->is_tso_enabled());
+    // A published TSO-enabled rowset must not retain the pre-publish -1 sentinel. For example,
+    // publishing version [12-12] without a commit TSO would make COMMIT_TSO_COL unreadable after
+    // the rowset becomes visible.
+    if (requires_commit_tso && commit_tso < 0) {
+        return Status::InvalidArgument(
+                "publishing TSO-enabled rowset requires a valid commit tso, tablet={}, rowset={}, "
+                "version={}, commit_tso={}",
+                tablet_id, rowset->rowset_id().to_string(), version.to_string(), commit_tso);
+    }
     DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_before_save_rs_meta", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
             LOG_WARNING("TxnManager.publish_txn.random_failed_before_save_rs_meta")
@@ -600,8 +613,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     rowset->make_visible(version, commit_tso);
 
     // Make the attached binlog rowset visible together.
-    if (tablet_txn_info->attach_row_binlog.rowset != nullptr) {
-        tablet_txn_info->attach_row_binlog.rowset->make_visible(version, commit_tso);
+    if (attached_row_binlog != nullptr) {
+        attached_row_binlog->make_visible(version, commit_tso);
     }
 
     DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_after_save_rs_meta", {

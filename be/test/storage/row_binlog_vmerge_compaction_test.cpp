@@ -127,8 +127,7 @@ protected:
         val->set_length(4);
         val->set_is_nullable(false);
 
-        // The binlog TSO column must be BIGINT; SegmentIterator::_update_tso_col_if_needed
-        // asserts OLAP_FIELD_TYPE_BIGINT for it.
+        // The binlog TSO column stores the BIGINT commit TSO materialized during compaction.
         ColumnPB* tso = pb.add_column();
         tso->set_unique_id(2);
         tso->set_name(BINLOG_TSO_COL);
@@ -316,6 +315,10 @@ TEST_F(RowBinlogVmergeCompactionTest, HorizontalMergeIsKeyTsoOrderedAndOverlappi
                                    {{1, 100, 10}, {2, 200, 10}, {3, 300, 10}}, /*version=*/1);
     auto rs1 = create_input_rowset(schema, /*with_tso=*/true,
                                    {{1, 110, 20}, {2, 210, 20}, {3, 310, 20}}, /*version=*/2);
+    // Published singleton rowsets read their TSO from metadata, not the physical column.
+    // Without these commit TSOs, the inputs retain [-1, -1] and cannot be compacted.
+    rs0->rowset_meta()->set_commit_tso(10);
+    rs1->rowset_meta()->set_commit_tso(20);
 
     // Output default is NONOVERLAPPING (matches compaction.cpp for the non-quick-merge path).
     // With the (key, TSO) merge the physical order is
@@ -336,9 +339,9 @@ TEST_F(RowBinlogVmergeCompactionTest, HorizontalMergeIsKeyTsoOrderedAndOverlappi
     }
 
     Merger::Statistics stats;
-    ASSERT_TRUE(Merger::vmerge_rowsets(tablet, ReaderType::READER_CUMULATIVE_COMPACTION, *schema,
-                                       input_rs_readers, writer.get(), &stats)
-                        .ok());
+    auto st = Merger::vmerge_rowsets(tablet, ReaderType::READER_CUMULATIVE_COMPACTION, *schema,
+                                     input_rs_readers, writer.get(), &stats);
+    ASSERT_TRUE(st.ok()) << st;
     RowsetSharedPtr out_rowset;
     ASSERT_EQ(Status::OK(), writer->build(out_rowset));
 
@@ -349,17 +352,12 @@ TEST_F(RowBinlogVmergeCompactionTest, HorizontalMergeIsKeyTsoOrderedAndOverlappi
 
     // Fix (A): the merged stream is globally (key, TSO)-ordered, so each key's two events are
     // consecutive with the earlier-TSO (lower version) row first. A buggy UNION would instead
-    // produce (1,100),(2,200),(3,300),(1,110),(2,210),(3,310). The binlog TSO column itself is
-    // rewritten to the rowset commit TSO on read (_update_tso_col_if_needed), so we assert on
-    // (key, val) which carries the per-event identity.
-    auto rows = read_all(out_rowset, schema, /*with_tso=*/false);
-    std::vector<std::pair<int, int>> got;
-    for (const auto& [k, v, tso] : rows) {
-        got.emplace_back(k, v);
-    }
-    std::vector<std::pair<int, int>> expected = {{1, 100}, {1, 110}, {2, 200},
-                                                 {2, 210}, {3, 300}, {3, 310}};
-    EXPECT_EQ(expected, got);
+    // produce (1,100),(2,200),(3,300),(1,110),(2,210),(3,310). The range output must retain
+    // each input's materialized commit TSO, including across segment boundaries.
+    auto rows = read_all(out_rowset, schema, /*with_tso=*/true);
+    std::vector<std::tuple<int, int, int>> expected = {{1, 100, 10}, {1, 110, 20}, {2, 200, 10},
+                                                       {2, 210, 20}, {3, 300, 10}, {3, 310, 20}};
+    EXPECT_EQ(expected, rows);
 }
 
 // Guard: the same overlapping-input + forced-boundary layout on a plain (non row-binlog)
@@ -391,9 +389,9 @@ TEST_F(RowBinlogVmergeCompactionTest, PlainDupMergeStaysNonOverlapping) {
     }
 
     Merger::Statistics stats;
-    ASSERT_TRUE(Merger::vmerge_rowsets(tablet, ReaderType::READER_CUMULATIVE_COMPACTION, *schema,
-                                       input_rs_readers, writer.get(), &stats)
-                        .ok());
+    auto st = Merger::vmerge_rowsets(tablet, ReaderType::READER_CUMULATIVE_COMPACTION, *schema,
+                                     input_rs_readers, writer.get(), &stats);
+    ASSERT_TRUE(st.ok()) << st;
     RowsetSharedPtr out_rowset;
     ASSERT_EQ(Status::OK(), writer->build(out_rowset));
 

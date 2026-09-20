@@ -32,6 +32,7 @@
 #include "glog/logging.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/schema.h"
 
 namespace doris {
 using namespace segment_v2;
@@ -41,7 +42,7 @@ namespace {
 struct SearchInputBundle {
     std::unordered_map<std::string, IndexIterator*> iterators;
     std::unordered_map<std::string, IndexFieldNameAndTypePair> field_types;
-    std::unordered_map<std::string, int> field_name_to_column_id;
+    const TabletColumn* nested_column = nullptr; // Borrowed from this scan's ReadSchema.
     std::vector<int> column_indexes;
     ColumnsWithTypeAndName literal_args;
 };
@@ -58,6 +59,38 @@ void add_search_binding_diagnostic(const IndexExecContext* index_context,
     }
 }
 
+void bind_nested_column(const VSearchExpr& expr, const VSlotRef& slot_ref,
+                        const TSearchFieldBinding* binding, const IndexExecContext& index_context,
+                        SearchInputBundle* bundle) {
+    const auto& clause = expr.get_search_param().root;
+    if (clause.clause_type != "NESTED") {
+        return;
+    }
+    const auto root_name = clause.nested_path.substr(0, clause.nested_path.find('.'));
+    const auto& parent_name = binding != nullptr && binding->__isset.parent_field_name
+                                      ? binding->parent_field_name
+                                      : slot_ref.column_name();
+    if (parent_name != root_name) {
+        return;
+    }
+
+    // Bind even when the leaf has no index iterator: after ADD data(uid=25), an old segment
+    // has neither that root nor its leaf index, but NESTED still needs uid=25 to return no hits.
+    const auto& schema = index_context.read_schema();
+    const int ordinal = slot_ref.column_id();
+    DORIS_CHECK_GE(ordinal, 0);
+    DORIS_CHECK_LT(static_cast<size_t>(ordinal), schema->num_read_columns());
+    const auto* column = schema->column(ordinal);
+    if (bundle->nested_column != nullptr) {
+        const auto root_uid = [](const TabletColumn& col) {
+            return col.parent_unique_id() >= 0 ? col.parent_unique_id() : col.unique_id();
+        };
+        // NESTED(data.items, msg:hello AND tag:news) may bind two leaves, both owned by data.
+        DORIS_CHECK_EQ(root_uid(*bundle->nested_column), root_uid(*column));
+    }
+    bundle->nested_column = column;
+}
+
 Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_ref,
                                  const TSearchFieldBinding* binding,
                                  IndexExecContext* index_context, SearchInputBundle* bundle) {
@@ -71,7 +104,7 @@ Status collect_slot_search_input(const VSearchExpr& expr, const VSlotRef& slot_r
     const bool is_variant_subcolumn = binding != nullptr && binding->__isset.is_variant_subcolumn &&
                                       binding->is_variant_subcolumn;
 
-    bundle->field_name_to_column_id[field_name] = column_index;
+    bind_nested_column(expr, slot_ref, binding, *index_context, bundle);
 
     auto* iterator = index_context->get_inverted_index_iterator(column_index);
     if (iterator == nullptr) {
@@ -137,9 +170,22 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
                                               literal->expr_name());
         } else {
             // Check if this is ElementAt expression (for variant subcolumn access)
-            if (child->expr_name() == "element_at" && child_index < field_bindings.size() &&
+            if (child->fn().name.function_name == "element_at" &&
+                child_index < field_bindings.size() &&
                 field_bindings[child_index].__isset.is_variant_subcolumn &&
                 field_bindings[child_index].is_variant_subcolumn) {
+                // With an unmaterialized path, the ElementAt chain still reads a current root
+                // slot. Use it only to identify the NESTED owner, not as the leaf's index iterator.
+                if (search_param.root.clause_type == "NESTED") {
+                    const VExpr* root_expr = child.get();
+                    while (root_expr->fn().name.function_name == "element_at") {
+                        DORIS_CHECK(!root_expr->children().empty());
+                        root_expr = root_expr->children().front().get();
+                    }
+                    DORIS_CHECK(root_expr->is_slot_ref());
+                    bind_nested_column(expr, *assert_cast<const VSlotRef*>(root_expr),
+                                       &field_bindings[child_index], *index_context, bundle);
+                }
                 // Variant subcolumn not materialized - skip, will create empty BitSetQuery in function_search
                 add_search_binding_diagnostic(
                         index_context.get(),
@@ -256,8 +302,7 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     auto result_bitmap = InvertedIndexResultBitmap();
     auto status = function->evaluate_inverted_index_with_search_param(
             _search_param, bundle.field_types, bundle.iterators, segment_num_rows, result_bitmap,
-            _enable_cache, index_context.get(), bundle.field_name_to_column_id,
-            index_query_context);
+            _enable_cache, index_context.get(), bundle.nested_column, index_query_context);
 
     if (!status.ok()) {
         LOG(WARNING) << "VSearchExpr: Function evaluation failed: " << status.to_string();
