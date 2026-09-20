@@ -31,12 +31,22 @@ suite("test_variant_predefine_comment_escape") {
         ) DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
-    qt_show_create "SHOW CREATE TABLE test_variant_predefine_comment_escape"
+    // SHOW CREATE TABLE output also carries cluster-dependent properties (doc mode, binlog,
+    // file cache), so only the predefined field list is compared here.
+    def predefinedFields = { String ddl -> (ddl =~ /variant<(.*),PROPERTIES /)[0][1] }
 
-    // Replay the printed DDL under a new name; the copy must print the same comments again.
     def ddl = sql("SHOW CREATE TABLE test_variant_predefine_comment_escape")[0][1]
+    def fields = predefinedFields(ddl)
+    // The comments keep their quotes, so they are only replayable when printed as escaped literals.
+    assertTrue(fields.contains("O'Reilly"))
+    assertTrue(fields.contains('say '))
+    assertTrue(fields.contains('bye'))
+
+    // Replaying the printed DDL must yield a table whose fields print exactly the same again:
+    // a lost escape fails the replay, and a mangled one changes the text.
     sql ddl.replace("`test_variant_predefine_comment_escape`", "`test_variant_predefine_comment_escape_copy`")
-    qt_show_create_copy "SHOW CREATE TABLE test_variant_predefine_comment_escape_copy"
+    def copyDdl = sql("SHOW CREATE TABLE test_variant_predefine_comment_escape_copy")[0][1]
+    assertEquals(fields, predefinedFields(copyDdl))
 
     sql """INSERT INTO test_variant_predefine_comment_escape_copy
             SELECT 1, parse_to_variant('{"price": 10, "name": "n", "path": "p"}')"""
