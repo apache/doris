@@ -56,8 +56,8 @@ Status decode_timestamp_tz_orc_values(IColumn& nested_column,
             continue;
         }
         auto& value = data[old_data_size + row];
-        orc_serde_utils::RoundedOrcTimestamp timestamp;
-        auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
+        orc_serde_utils::TruncatedOrcTimestamp timestamp;
+        auto status = orc_serde_utils::truncate_orc_timestamp_to_microseconds(
                 orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
         if (!status.ok()) {
             data.resize(old_data_size);
