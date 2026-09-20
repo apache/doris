@@ -34,6 +34,7 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
@@ -131,10 +132,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -3945,6 +3948,69 @@ public class IcebergScanNodeTest {
             allowExecute.countDown();
             submitter.join(3000L);
             delegate.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testAsyncPlanningCancellationDuringFullQueueSubmissionReturnsImmediately() throws Exception {
+        CountDownLatch blockerStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        CountDownLatch planningExecuteEntered = new CountDownLatch(1);
+        CountDownLatch allowPlanningExecute = new CountDownLatch(1);
+        AtomicInteger submissions = new AtomicInteger();
+        ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(1),
+                new ThreadPoolManager.BlockedPolicy("iceberg-planning-test", 10)) {
+            @Override
+            public void execute(Runnable command) {
+                if (submissions.incrementAndGet() == 3) {
+                    planningExecuteEntered.countDown();
+                    try {
+                        allowPlanningExecute.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RejectedExecutionException("interrupted before planning submission", e);
+                    }
+                }
+                super.execute(command);
+            }
+        };
+        CountDownLatch generationReleased = new CountDownLatch(1);
+        AtomicInteger planningRuns = new AtomicInteger();
+        SplitAssignment assignment = newSplitAssignment();
+        executor.execute(() -> {
+            blockerStarted.countDown();
+            try {
+                releaseBlocker.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        Assert.assertTrue(blockerStarted.await(3L, TimeUnit.SECONDS));
+        executor.execute(() -> { });
+
+        IcebergScanNode.AsyncPlanningTask task = new IcebergScanNode.AsyncPlanningTask(
+                executor, assignment, generationReleased::countDown, planningRuns::incrementAndGet);
+        assignment.addCloseable(task);
+        Thread submitter = new Thread(task::submit);
+        try {
+            submitter.start();
+            Assert.assertTrue(planningExecuteEntered.await(3L, TimeUnit.SECONDS));
+
+            assignment.stop();
+            Assert.assertTrue(generationReleased.await(3L, TimeUnit.SECONDS));
+
+            allowPlanningExecute.countDown();
+            submitter.join(3000L);
+            Assert.assertFalse("cancelled submission must not wait for the full rejection timeout",
+                    submitter.isAlive());
+            Assert.assertEquals(0, planningRuns.get());
+            Assert.assertEquals(1, executor.getQueue().size());
+        } finally {
+            allowPlanningExecute.countDown();
+            releaseBlocker.countDown();
+            submitter.join(3000L);
+            executor.shutdownNow();
         }
     }
 

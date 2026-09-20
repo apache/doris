@@ -163,6 +163,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -1748,6 +1749,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         private final SplitAssignment splitAssignment;
         private final Closeable generationLease;
         private final Runnable planning;
+        private final FutureTask<Void> submission;
         private boolean submitted;
         private boolean started;
         private boolean closeRequested;
@@ -1760,6 +1762,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.splitAssignment = Objects.requireNonNull(splitAssignment, "splitAssignment is null");
             this.generationLease = Objects.requireNonNull(generationLease, "generationLease is null");
             this.planning = Objects.requireNonNull(planning, "planning is null");
+            this.submission = new FutureTask<>(this, null);
         }
 
         void submit() {
@@ -1770,10 +1773,10 @@ public class IcebergScanNode extends FileQueryScanNode {
                     }
                     submitted = true;
                 }
-                executor.execute(this);
+                executor.execute(submission);
                 synchronized (this) {
                     if (finished && executor instanceof ThreadPoolExecutor) {
-                        ((ThreadPoolExecutor) executor).remove(this);
+                        ((ThreadPoolExecutor) executor).remove(submission);
                     }
                 }
             } catch (RuntimeException | Error e) {
@@ -1815,8 +1818,11 @@ public class IcebergScanNode extends FileQueryScanNode {
                     threadToInterrupt = runner;
                 } else {
                     finishBeforeStart = true;
+                    // Make cancellation visible to BlockedPolicy even if close() wins in the
+                    // submitted-but-not-yet-enqueued window.
+                    submission.cancel(false);
                     if (submitted && executor instanceof ThreadPoolExecutor) {
-                        ((ThreadPoolExecutor) executor).remove(this);
+                        ((ThreadPoolExecutor) executor).remove(submission);
                     }
                 }
             }
