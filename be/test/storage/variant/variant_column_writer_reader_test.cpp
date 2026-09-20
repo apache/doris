@@ -1514,10 +1514,9 @@ protected:
         MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
 
         TabletColumn parent_column = _tablet_schema->column(0);
-        StorageReadOptions storage_read_opts;
-        storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
         OlapReaderStatistics stats;
-        storage_read_opts.stats = &stats;
+        StorageReadOptions storage_read_opts(stats);
+        storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
 
         ColumnIteratorUPtr iterator;
         RETURN_IF_ERROR(variant_column_reader->new_iterator(
@@ -1567,10 +1566,9 @@ protected:
         path_column.set_path_info(PathInData(full_path));
         path_column.set_is_nullable(true);
 
-        StorageReadOptions storage_read_opts;
-        storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
         OlapReaderStatistics stats;
-        storage_read_opts.stats = &stats;
+        StorageReadOptions storage_read_opts(stats);
+        storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
 
         ColumnIteratorUPtr iterator;
         RETURN_IF_ERROR(variant_column_reader->new_iterator(
@@ -1854,11 +1852,9 @@ protected:
         TabletColumn parent_column = _tablet_schema->column(0);
         auto parent_type = DataTypeFactory::instance().create_data_type(parent_column, false);
 
-        StorageReadOptions read_opts;
-        read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
         OlapReaderStatistics stats;
-        read_opts.stats = &stats;
-
+        StorageReadOptions read_opts(stats);
+        read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
         ColumnIteratorUPtr iterator;
         RETURN_IF_ERROR(variant_reader->new_iterator(&iterator, &parent_column, &read_opts,
                                                      &column_reader_cache));
@@ -2741,10 +2737,9 @@ TEST_F(VariantColumnWriterReaderTest,
 
     const auto create_root_only_iterator = [&](ColumnIteratorUPtr* iterator,
                                                OlapReaderStatistics* stats) {
-        StorageReadOptions read_opts;
+        StorageReadOptions read_opts(*stats);
         read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
         set_variant_read_facts(read_opts, compaction_schema);
-        read_opts.stats = stats;
         const size_t reader_calls = column_reader_cache.path_column_reader_calls();
         ASSERT_TRUE(
                 variant_reader
@@ -3725,8 +3720,7 @@ TEST_F(VariantColumnWriterReaderTest, test_segment_rowid_read_by_reader_version)
     }
 
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
 
     MutableColumnPtr whole_result = slots[0]->type()->create_column();
@@ -3834,8 +3828,7 @@ TEST_F(VariantColumnWriterReaderTest, test_segment_rowid_read_by_reader_version)
                                                                    R"([{"L2":[]}])", "[1]"};
 
     OlapReaderStatistics empty_stats;
-    StorageReadOptions empty_read_options;
-    empty_read_options.stats = &empty_stats;
+    StorageReadOptions empty_read_options(empty_stats);
     empty_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
 
     MutableColumnPtr empty_whole_result = empty_slots[0]->type()->create_column();
@@ -3997,10 +3990,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     // 9. check hier reader
     ColumnIteratorUPtr it;
     TabletColumn parent_column = _tablet_schema->column(0);
-    StorageReadOptions storage_read_opts;
     OlapReaderStatistics stats;
+    StorageReadOptions storage_read_opts(stats);
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    storage_read_opts.stats = &stats;
     st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -4245,7 +4237,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     st = variant_column_reader->new_iterator(&it1, &subcolumn, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(assert_cast<DefaultValueColumnIterator*>(it1.get()) != nullptr);
+    EXPECT_TRUE(assert_cast<ConstantColumnIterator*>(it1.get()) != nullptr);
 
     // 13. check statistics size == limit
     auto& variant_stats = variant_column_reader->_statistics;
@@ -4483,7 +4475,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     st = variant_column_reader->new_iterator(&it7, &subcolumn, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
-    EXPECT_TRUE(assert_cast<DefaultValueColumnIterator*>(it7.get()) != nullptr);
+    EXPECT_TRUE(assert_cast<ConstantColumnIterator*>(it7.get()) != nullptr);
     EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
 }
 
@@ -4592,10 +4584,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_and_read_hierarchical_doc) 
     MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
 
     // 8. Read root with QUERY reader type: should choose ReadKind::HIERARCHICAL_DOC
-    StorageReadOptions storage_read_opts;
-    storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     OlapReaderStatistics stats;
-    storage_read_opts.stats = &stats;
+    StorageReadOptions storage_read_opts(stats);
+    storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     ColumnIteratorUPtr it;
     st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts,
                                              &column_reader_cache);
@@ -4630,9 +4621,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_and_read_hierarchical_doc) 
     // streams into ColumnVariantV2 to cover the HIERARCHICAL_DOC query path.
     TabletColumn parent_column_v2 = parent_column;
     OlapReaderStatistics v2_stats;
-    StorageReadOptions v2_read_opts;
+    StorageReadOptions v2_read_opts(v2_stats);
     v2_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    v2_read_opts.stats = &v2_stats;
     ColumnIteratorUPtr v2_it;
     st = variant_column_reader->new_iterator(&v2_it, &parent_column_v2, &v2_read_opts,
                                              &column_reader_cache);
@@ -4659,9 +4649,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_and_read_hierarchical_doc) 
     // Use a fresh iterator so random reads do not depend on the ordinal left by the sequential
     // scan above.
     OlapReaderStatistics v2_rowid_stats;
-    StorageReadOptions v2_rowid_read_opts;
+    StorageReadOptions v2_rowid_read_opts(v2_rowid_stats);
     v2_rowid_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    v2_rowid_read_opts.stats = &v2_rowid_stats;
     ColumnIteratorUPtr v2_rowid_it;
     st = variant_column_reader->new_iterator(&v2_rowid_it, &parent_column_v2, &v2_rowid_read_opts,
                                              &column_reader_cache);
@@ -4765,10 +4754,9 @@ TEST_F(VariantColumnWriterReaderTest,
 
     MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
 
-    StorageReadOptions query_read_opts;
-    query_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     OlapReaderStatistics query_stats;
-    query_read_opts.stats = &query_stats;
+    StorageReadOptions query_read_opts(query_stats);
+    query_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     ColumnIteratorUPtr root_it;
     st = variant_column_reader->new_iterator(&root_it, &parent_column, &query_read_opts,
                                              &column_reader_cache);
@@ -4798,10 +4786,9 @@ TEST_F(VariantColumnWriterReaderTest,
     }
 
     TabletColumn parent_column_v2 = parent_column;
-    StorageReadOptions v2_query_read_opts;
-    v2_query_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     OlapReaderStatistics v2_query_stats;
-    v2_query_read_opts.stats = &v2_query_stats;
+    StorageReadOptions v2_query_read_opts(v2_query_stats);
+    v2_query_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     ColumnIteratorUPtr v2_root_it;
     st = variant_column_reader->new_iterator(&v2_root_it, &parent_column_v2, &v2_query_read_opts,
                                              &column_reader_cache);
@@ -4828,11 +4815,10 @@ TEST_F(VariantColumnWriterReaderTest,
         EXPECT_EQ(variant_v2_json_at(v2_variant, i), inserted_jsonstr[i]);
     }
 
-    StorageReadOptions compact_read_opts;
+    OlapReaderStatistics compact_stats;
+    StorageReadOptions compact_read_opts(compact_stats);
     compact_read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
     set_variant_read_facts(compact_read_opts, _tablet_schema);
-    OlapReaderStatistics compact_stats;
-    compact_read_opts.stats = &compact_stats;
     TabletColumn doc_bucket_col = variant_util::create_doc_value_column(parent_column, 0);
     ColumnIteratorUPtr bucket_it;
     st = variant_column_reader->new_iterator(&bucket_it, &doc_bucket_col, &compact_read_opts,
@@ -5045,11 +5031,10 @@ TEST_F(VariantColumnWriterReaderTest, test_read_doc_compact_from_doc_value_bucke
     extracted.set_is_nullable(true);
     compaction_schema->append_column(extracted);
 
-    StorageReadOptions storage_read_opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions storage_read_opts(stats);
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
     set_variant_read_facts(storage_read_opts, compaction_schema);
-    OlapReaderStatistics stats;
-    storage_read_opts.stats = &stats;
 
     DataTypeSerDe::FormatOptions options;
     auto tz = cctz::utc_time_zone();
@@ -5271,11 +5256,10 @@ TEST_P(VariantSpecializedWriterCompatibilityTest, doc_compact_writer_round_trip)
     EXPECT_TRUE(checked_one_key);
 
     MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
-    StorageReadOptions storage_read_opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions storage_read_opts(stats);
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_BASE_COMPACTION;
     set_variant_read_facts(storage_read_opts, _tablet_schema);
-    OlapReaderStatistics stats;
-    storage_read_opts.stats = &stats;
 
     TabletColumn doc_bucket_map = variant_util::create_doc_value_column(parent_column, kBucket);
     ColumnIteratorUPtr it;
@@ -5529,10 +5513,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_sparse_write_array_gap_and_
     EXPECT_TRUE(found_arr_meta);
 
     MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
-    StorageReadOptions storage_read_opts;
-    storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     OlapReaderStatistics stats;
-    storage_read_opts.stats = &stats;
+    StorageReadOptions storage_read_opts(stats);
+    storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     ColumnIteratorUPtr it;
     st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts,
                                              &column_reader_cache);
@@ -6413,10 +6396,9 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     // 9. check root
     ColumnIteratorUPtr it;
     TabletColumn parent_column = _tablet_schema->column(0);
-    StorageReadOptions storage_read_opts;
-    storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     OlapReaderStatistics stats;
-    storage_read_opts.stats = &stats;
+    StorageReadOptions storage_read_opts(stats);
+    storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts,
                                              &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -6998,9 +6980,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     // 9. check root
     ColumnIteratorUPtr it;
     TabletColumn parent_column = _tablet_schema->column(0);
-    StorageReadOptions storage_read_opts;
     OlapReaderStatistics stats;
-    storage_read_opts.stats = &stats;
+    StorageReadOptions storage_read_opts(stats);
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     st = variant_column_reader->new_iterator(&it, &parent_column, &storage_read_opts,
                                              &column_reader_cache);
@@ -7018,8 +6999,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     auto parent_type_v2 = DataTypeFactory::instance().create_data_type(parent_column_v2, false);
 
     OlapReaderStatistics v2_stats;
-    StorageReadOptions v2_read_opts;
-    v2_read_opts.stats = &v2_stats;
+    StorageReadOptions v2_read_opts(v2_stats);
     v2_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     ColumnIteratorUPtr v2_it;
     st = variant_column_reader->new_iterator(&v2_it, &parent_column_v2, &v2_read_opts,
@@ -7049,8 +7029,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_nullable) {
     }
 
     OlapReaderStatistics v2_rowid_stats;
-    StorageReadOptions v2_rowid_read_opts;
-    v2_rowid_read_opts.stats = &v2_rowid_stats;
+    StorageReadOptions v2_rowid_read_opts(v2_rowid_stats);
     v2_rowid_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
     ColumnIteratorUPtr v2_rowid_it;
     st = variant_column_reader->new_iterator(&v2_rowid_it, &parent_column_v2, &v2_rowid_read_opts,
@@ -7614,9 +7593,8 @@ TEST_F(VariantColumnWriterReaderTest, test_no_sub_in_sparse_column) {
 
     // 10. test hierarchical reader with empty statistics
     ColumnIteratorUPtr iterator;
-    StorageReadOptions read_opts;
     OlapReaderStatistics stats;
-    read_opts.stats = &stats;
+    StorageReadOptions read_opts(stats);
     st = variant_reader->new_iterator(&iterator, &column, &read_opts, &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(iterator != nullptr);
@@ -7760,9 +7738,8 @@ TEST_F(VariantColumnWriterReaderTest, test_prefix_in_sub_and_sparse) {
 
     // 10. test hierarchical reader with empty statistics
     ColumnIteratorUPtr iterator;
-    StorageReadOptions read_opts;
     OlapReaderStatistics stats;
-    read_opts.stats = &stats;
+    StorageReadOptions read_opts(stats);
     st = variant_reader->new_iterator(&iterator, &column, &read_opts, &column_reader_cache);
     EXPECT_TRUE(st.ok()) << st.msg();
     EXPECT_TRUE(iterator != nullptr);
@@ -7934,7 +7911,8 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_subcolumn) {
     EXPECT_TRUE(target_column.is_nested_subcolumn())
             << target_column._column_path->has_nested_part();
 
-    StorageReadOptions storageReadOptions;
+    OlapReaderStatistics stats;
+    StorageReadOptions storageReadOptions(stats);
     storageReadOptions.io_ctx.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
 
     // DefaultNestedColumnIterator with nullptr parameter
@@ -7976,10 +7954,9 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
     // test read situation for compaction with should flat all sub column
     EXPECT_FALSE(variant_column_reader->get_subcolumns_meta_info()->empty());
 
-    StorageReadOptions storageReadOptions;
-    storageReadOptions.io_ctx.reader_type = ReaderType::READER_QUERY;
     OlapReaderStatistics stats;
-    storageReadOptions.stats = &stats;
+    StorageReadOptions storageReadOptions(stats);
+    storageReadOptions.io_ctx.reader_type = ReaderType::READER_QUERY;
 
     ColumnIteratorUPtr nested_column_iter;
     st = variant_column_reader->new_iterator(&nested_column_iter, &_tablet_schema->column(0),
@@ -8039,10 +8016,9 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter_nullable) {
     // test read situation for compaction with should flat all sub column
     EXPECT_FALSE(variant_column_reader->get_subcolumns_meta_info()->empty());
 
-    StorageReadOptions storageReadOptions;
-    storageReadOptions.io_ctx.reader_type = ReaderType::READER_QUERY;
     OlapReaderStatistics stats;
-    storageReadOptions.stats = &stats;
+    StorageReadOptions storageReadOptions(stats);
+    storageReadOptions.io_ctx.reader_type = ReaderType::READER_QUERY;
 
     ColumnIteratorUPtr nested_column_iter;
     MockColumnReaderCache column_reader_cache(footer, file_reader, _tablet_schema);
@@ -8207,7 +8183,8 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     EXPECT_TRUE(subcolumn_meta != nullptr);
 
     TabletColumn parent_column = _tablet_schema->column(0);
-    StorageReadOptions storage_read_opts;
+    OlapReaderStatistics stats;
+    StorageReadOptions storage_read_opts(stats);
 
     TabletColumn subcolumn;
     subcolumn.set_name(parent_column.name_lower_case() + ".b");
@@ -8219,8 +8196,6 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
     _tablet_schema->append_column(subcolumn);
     set_variant_read_facts(storage_read_opts, _tablet_schema);
     storage_read_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-    OlapReaderStatistics stats;
-    storage_read_opts.stats = &stats;
     ColumnIteratorUPtr hierarchical_it;
     st = variant_column_reader->new_iterator(&hierarchical_it, &subcolumn, &storage_read_opts,
                                              &column_reader_cache);

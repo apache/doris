@@ -592,7 +592,7 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
                  ++next_order) {
                 auto& next_ctx = _ori_iter_ctx[next_order];
                 DCHECK(next_ctx);
-                RETURN_IF_ERROR(next_ctx->init(_opts));
+                RETURN_IF_ERROR(next_ctx->init(*_opts));
                 if (next_ctx->valid()) {
                     _merge_heap.push(next_ctx.get());
                     break;
@@ -617,6 +617,7 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
 Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts,
                                        CompactionSampleInfo* sample_info) {
     DCHECK(_origin_iters.size() == _iterator_init_flags.size());
+    _opts.emplace(opts);
     _record_rowids = opts.record_rowids;
     if (_origin_iters.empty()) {
         return Status::OK();
@@ -653,7 +654,6 @@ Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts,
         }
     }
 
-    _opts = opts;
     _block_row_max = opts.block_row_max;
     return Status::OK();
 }
@@ -696,8 +696,8 @@ Status VerticalFifoMergeIterator::next_batch(Block* block) {
                 std::unique_ptr<VerticalMergeIteratorContext> next_ctx(
                         new VerticalMergeIteratorContext(
                                 std::move(next_iter), _rowset_ids[cur_order], cur_order,
-                                _seq_col_idx, _context_stats, _opts.use_insert_order_when_same));
-                RETURN_IF_ERROR(next_ctx->init(_opts));
+                                _seq_col_idx, _context_stats, _opts->use_insert_order_when_same));
+                RETURN_IF_ERROR(next_ctx->init(*_opts));
                 if (next_ctx->valid()) {
                     _cur_iter_ctx.swap(next_ctx);
                     break;
@@ -720,6 +720,7 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts,
                                        CompactionSampleInfo* sample_info) {
     DCHECK(_origin_iters.size() == _iterator_init_flags.size());
     DCHECK(_keys_type == KeysType::DUP_KEYS);
+    _opts.emplace(opts);
     _record_rowids = opts.record_rowids;
     if (_origin_iters.empty()) {
         return Status::OK();
@@ -747,7 +748,6 @@ Status VerticalFifoMergeIterator::init(const StorageReadOptions& opts,
         break;
     }
 
-    _opts = opts;
     _block_row_max = opts.block_row_max;
     return Status::OK();
 }
@@ -786,7 +786,7 @@ Status VerticalMaskMergeIterator::next_row(IteratorRowRef* ref) {
     uint16_t order = row_source.get_source_num();
     auto& ctx = _origin_iter_ctx[order];
     // init ctx and this ctx must be valid
-    RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
+    RETURN_IF_ERROR(ctx->init(*_opts, _sample_info));
     DCHECK(ctx->valid());
 
     if (UNLIKELY(ctx->is_first_row())) {
@@ -820,7 +820,7 @@ Status VerticalMaskMergeIterator::unique_key_next_row(IteratorRowRef* ref) {
         auto row_source = _row_sources_buf->current();
         uint16_t order = row_source.get_source_num();
         auto& ctx = _origin_iter_ctx[order];
-        RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
+        RETURN_IF_ERROR(ctx->init(*_opts, _sample_info));
         DCHECK(ctx->valid());
         if (!ctx->valid()) {
             LOG(INFO) << "VerticalMergeIteratorContext not valid";
@@ -877,7 +877,7 @@ Status VerticalMaskMergeIterator::unique_key_next_batch(std::vector<RowBatch>* b
         auto& ctx = _origin_iter_ctx[order];
 
         // Initialize context
-        RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
+        RETURN_IF_ERROR(ctx->init(*_opts, _sample_info));
         if (!ctx->valid()) {
             return Status::InternalError("VerticalMergeIteratorContext not valid");
         }
@@ -963,7 +963,7 @@ Status VerticalMaskMergeIterator::next_batch(Block* block) {
         uint16_t order = _row_sources_buf->current().get_source_num();
         DCHECK(order < _origin_iter_ctx.size());
         auto& ctx = _origin_iter_ctx[order];
-        RETURN_IF_ERROR(ctx->init(_opts, _sample_info));
+        RETURN_IF_ERROR(ctx->init(*_opts, _sample_info));
         DCHECK(ctx->valid());
         if (!ctx->valid()) {
             LOG(INFO) << "VerticalMergeIteratorContext not valid";
@@ -988,12 +988,11 @@ Status VerticalMaskMergeIterator::next_batch(Block* block) {
 
 Status VerticalMaskMergeIterator::init(const StorageReadOptions& opts,
                                        CompactionSampleInfo* sample_info) {
+    _opts.emplace(opts);
     if (_origin_iters.empty()) {
         return Status::OK();
     }
     _schema = &(*_origin_iters.begin())->schema();
-    _opts = opts;
-
     RowsetId rs_id;
     for (auto& iter : _origin_iters) {
         auto ctx = std::make_unique<VerticalMergeIteratorContext>(std::move(iter), rs_id, -1, -1,

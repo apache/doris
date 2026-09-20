@@ -715,9 +715,8 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 continue;
             }
             // create iterator for each segment
-            StorageReadOptions read_options;
             OlapReaderStatistics stats;
-            read_options.stats = &stats;
+            StorageReadOptions read_options(stats);
             auto schema = std::make_shared<ReadSchema>(
                     project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
             std::unique_ptr<RowwiseIterator> iter;
@@ -950,9 +949,8 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
         group_writer_signs.push_back(std::move(signs));
     }
 
-    StorageReadOptions read_options;
     OlapReaderStatistics stats;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
     auto schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
     std::unique_ptr<RowwiseIterator> iter;

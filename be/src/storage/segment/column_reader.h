@@ -27,13 +27,13 @@
 #include <functional>
 #include <map>
 #include <memory> // for unique_ptr
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "common/compiler_util.h"
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"            // for Status
 #include "core/column/column_array.h" // ColumnArray
@@ -97,12 +97,6 @@ struct ColumnReaderOptions {
     int be_exec_version = -1;
 
     TabletSchemaSPtr tablet_schema = nullptr;
-
-    // When set, ColumnReader::create returns a ConstantColumnReader carrying this value instead
-    // of reading on-disk data. Used for read-time-filled constant columns (e.g.
-    // __DORIS_COMMIT_TSO_COL__) on a single-version segment, whose on-disk value is only a
-    // placeholder. The value is constant within a segment, so the resulting reader is cacheable.
-    std::optional<Field> const_value = std::nullopt;
 };
 
 struct ColumnIteratorOptions {
@@ -175,10 +169,10 @@ public:
     Status new_map_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_agg_state_iterator(ColumnIteratorUPtr* iterator);
 
-    Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
-                              const TabletIndex* index_meta, const std::string& rowset_id,
-                              uint32_t segment_id, size_t rows_of_segment,
-                              std::unique_ptr<IndexIterator>* iterator);
+    virtual Status new_index_iterator(const std::shared_ptr<IndexFileReader>& index_file_reader,
+                                      const TabletIndex* index_meta, const std::string& rowset_id,
+                                      uint32_t segment_id, size_t rows_of_segment,
+                                      std::unique_ptr<IndexIterator>* iterator);
 
     Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter,
                              const ColumnIteratorOptions& iter_opts);
@@ -957,62 +951,8 @@ private:
     uint32_t _file_id;
 };
 
-// This iterator is used to read default value column
-class DefaultValueColumnIterator : public ColumnIterator {
-public:
-    DefaultValueColumnIterator(bool has_default_value, std::string default_value, bool is_nullable,
-                               FieldType type, int precision, int scale, int len)
-            : _has_default_value(has_default_value),
-              _default_value(std::move(default_value)),
-              _is_nullable(is_nullable),
-              _type(type),
-              _precision(precision),
-              _scale(scale),
-              _len(len) {}
-
-    Status init(const ColumnIteratorOptions& opts) override;
-
-    Status seek_to_ordinal(ordinal_t ord_idx) override {
-        _current_rowid = ord_idx;
-        return Status::OK();
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst) {
-        bool has_null;
-        return next_batch(n, dst, &has_null);
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
-
-    Status next_batch_of_zone_map(size_t* n, MutableColumnPtr& dst) override {
-        return next_batch(n, dst);
-    }
-
-    Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          MutableColumnPtr& dst) override;
-
-    ordinal_t get_current_ordinal() const override { return _current_rowid; }
-
-private:
-    void _insert_many_default(MutableColumnPtr& dst, size_t n);
-
-    bool _has_default_value;
-    std::string _default_value;
-    bool _is_nullable;
-    FieldType _type;
-    int _precision;
-    int _scale;
-    const int _len;
-    Field _default_value_field;
-
-    // current rowid
-    ordinal_t _current_rowid = 0;
-};
-
-// Produces a column whose every row is the same constant Field value.
-// Used for read-time-filled constant hidden columns (e.g. __DORIS_COMMIT_TSO_COL__),
-// where the on-disk value is only a placeholder and the real value comes from the read
-// context (StorageReadOptions).
+// Produces a column whose every row is the same request-scoped constant Field value.
+// It is created directly by Segment and never stored in ColumnReaderCache.
 class ConstantColumnIterator : public ColumnIterator {
 public:
     ConstantColumnIterator() = delete;
@@ -1029,6 +969,12 @@ public:
     }
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        if (!need_to_read()) {
+            _convert_to_place_holder_column(dst, *n);
+            return Status::OK();
+        }
+
+        _recovery_from_place_holder_column(dst);
         *has_null = _value.is_null();
         Status st = _insert_many(dst, *n);
         if (!st.ok()) {
@@ -1044,6 +990,12 @@ public:
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override {
+        if (!need_to_read()) {
+            _convert_to_place_holder_column(dst, count);
+            return Status::OK();
+        }
+
+        _recovery_from_place_holder_column(dst);
         return _insert_many(dst, count);
     }
 
@@ -1059,6 +1011,10 @@ private:
             dst->insert_many_defaults(n);
             return Status::OK();
         }
+        // Query predicates may allocate ColumnDictI32 for strings. For example, evaluating
+        // `city = 'Paris'` on an old segment whose added `city` column defaults to "Paris" must
+        // materialize a ColumnString before inserting the default Field.
+        dst = dst->convert_to_predicate_column_if_dictionary();
         dst->insert_duplicate_fields(_value, n);
         return Status::OK();
     }
@@ -1067,24 +1023,39 @@ private:
     ordinal_t _current_rowid = 0;
 };
 
-// A ColumnReader that represents a single constant value for the whole segment instead of reading
-// on-disk data. Used for read-time-filled constant columns (e.g. __DORIS_COMMIT_TSO_COL__) on a
-// single-version segment, whose on-disk zonemap only reflects the placeholder. It advertises a
-// single-value [v, v] zonemap so segment-level pruning matches against the real value, and produces
-// a ConstantColumnIterator for data reads.
+// A request-scoped ColumnReader that represents one constant value for the whole segment instead
+// of reading on-disk data. For example, an old segment after `ADD COLUMN city DEFAULT 'Paris'`
+// uses [Paris, Paris] as its zonemap and produces "Paris" without caching that request's reader.
 class ConstantColumnReader : public ColumnReader {
 public:
-    explicit ConstantColumnReader(Field value) : _value(std::move(value)) {}
+    explicit ConstantColumnReader(Field value, FieldType meta_type)
+            : _value(std::move(value)), _schema_type(meta_type) {
+        // A null Field still needs its schema type. For example, an old segment after adding a
+        // nullable BIGINT column has value NULL but must report BIGINT to the read pipeline.
+        if (_schema_type == FieldType::OLAP_FIELD_TYPE_UNKNOWN ||
+            _schema_type == FieldType::OLAP_FIELD_TYPE_NONE) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "constant field type {} is not valid",
+                            static_cast<int>(_schema_type));
+        }
+        if (!_value.is_null()) {
+            const auto field_type = primitive_type_to_storage_field_type(_value.get_type());
+            // String SerDe stores CHAR/VARCHAR defaults in a TYPE_STRING Field. For example,
+            // VARCHAR DEFAULT 'Paris' is represented as STRING even though the schema remains
+            // VARCHAR, so validate the compatible string family instead of exact enum identity.
+            const bool compatible_string_types =
+                    is_string_type(field_type) && is_string_type(_schema_type);
+            if (field_type != _schema_type && !compatible_string_types) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "constant field type {} does not match schema type {}",
+                                static_cast<int>(_value.get_type()),
+                                static_cast<int>(_schema_type));
+            }
+        }
+    }
 
     bool has_zone_map() const override { return true; }
 
-    // The base ColumnReader default-constructs without initializing its _meta_type. The data-read
-    // path (Segment::new_column_iterator) verifies tablet_column.type() == reader->get_meta_type()
-    // when config::enable_column_type_check is on (default true), so derive the real OLAP type from
-    // the constant value to avoid a spurious "different type between schema and column reader" error.
-    FieldType get_meta_type() override {
-        return primitive_type_to_storage_field_type(_value.get_type());
-    }
+    FieldType get_meta_type() override { return _schema_type; }
 
     Status match_condition(const AndBlockColumnPredicate* col_predicates,
                            bool* matched) const override;
@@ -1097,8 +1068,18 @@ public:
 
     Status get_segment_zone_map(segment_v2::ZoneMap* zone_map) const override;
 
+    // For example, an index added together with `city DEFAULT 'Paris'` has no index file in an old
+    // segment; nullptr tells the caller to evaluate the constant value instead.
+    Status new_index_iterator(const std::shared_ptr<IndexFileReader>&, const TabletIndex*,
+                              const std::string&, uint32_t, size_t,
+                              std::unique_ptr<IndexIterator>* iterator) override {
+        *iterator = nullptr;
+        return Status::OK();
+    }
+
 private:
     Field _value;
+    FieldType _schema_type;
 };
 
 } // namespace segment_v2

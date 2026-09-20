@@ -81,10 +81,10 @@ static bvar::Adder<size_t> g_total_tablet_num("doris_total_tablet_num");
 
 Status _load_segment(const BetaRowsetSharedPtr& rowset, uint32_t segid,
                      SegmentCacheHandle* segment_cache_handle,
-                     segment_v2::SegmentSharedPtr* segment, OlapReaderStatistics* stats,
+                     segment_v2::SegmentSharedPtr* segment, OlapReaderStatistics& stats,
                      const io::IOContext* input_io_ctx = nullptr) {
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, segment_cache_handle, true,
-                                                             false, stats, input_io_ctx));
+                                                             false, &stats, input_io_ctx));
     auto it = std::find_if(segment_cache_handle->get_segments().begin(),
                            segment_cache_handle->get_segments().end(),
                            [segid](const segment_v2::SegmentSharedPtr& candidate) {
@@ -99,24 +99,29 @@ Status _load_segment(const BetaRowsetSharedPtr& rowset, uint32_t segid,
     return Status::OK();
 }
 
-Status _init_segment_column_iterator(const segment_v2::SegmentSharedPtr& segment,
+Status _init_segment_column_iterator(const BetaRowsetSharedPtr& rowset,
+                                     const segment_v2::SegmentSharedPtr& segment,
                                      const TabletColumn& target_column,
                                      std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,
-                                     OlapReaderStatistics* stats,
+                                     OlapReaderStatistics& stats,
                                      const io::IOContext* input_io_ctx = nullptr) {
-    StorageReadOptions opts;
-    opts.stats = stats;
+    StorageReadOptions opts(stats);
+    // This helper bypasses TabletReader. For example, fetching
+    // __DORIS_COMMIT_TSO_COL__ from a rowset with commit_tso=100 must synthesize 100 instead of
+    // reading the segment placeholder 0.
+    opts.version = rowset->version();
+    opts.commit_tso = rowset->commit_tso();
     if (input_io_ctx != nullptr) {
         opts.io_ctx = *input_io_ctx;
     }
     RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, &opts));
     auto io_ctx = opts.io_ctx;
     io_ctx.reader_type = ReaderType::READER_QUERY;
-    io_ctx.file_cache_stats = &stats->file_cache_stats;
+    io_ctx.file_cache_stats = &stats.file_cache_stats;
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = segment->file_reader().get(),
-            .stats = stats,
+            .stats = &stats,
             .io_ctx = io_ctx,
     };
     RETURN_IF_ERROR((*column_iterator)->init(opt));
@@ -127,12 +132,12 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
                                     const TabletColumn& target_column,
                                     SegmentCacheHandle* segment_cache_handle,
                                     std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,
-                                    OlapReaderStatistics* stats,
+                                    OlapReaderStatistics& stats,
                                     const io::IOContext* input_io_ctx = nullptr) {
     segment_v2::SegmentSharedPtr segment;
     RETURN_IF_ERROR(
             _load_segment(rowset, segid, segment_cache_handle, &segment, stats, input_io_ctx));
-    return _init_segment_column_iterator(segment, target_column, column_iterator, stats,
+    return _init_segment_column_iterator(rowset, segment, target_column, column_iterator, stats,
                                          input_io_ctx);
 }
 
@@ -457,7 +462,7 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
     RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id, column,
-                                                 &segment_cache_handle, &column_iterator, &stats,
+                                                 &segment_cache_handle, &column_iterator, stats,
                                                  io_ctx));
     // get and parse tuple row
     MutableColumnPtr column_ptr = ColumnString::create();
@@ -1001,7 +1006,7 @@ Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
     OlapReaderStatistics stats;
     const auto& column = *DORIS_TRY(tablet_schema.column(BeConsts::ROW_STORE_COL));
     RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segid, column, &segment_cache_handle,
-                                                 &column_iterator, &stats));
+                                                 &column_iterator, stats));
     // get and parse tuple row
     MutableColumnPtr column_ptr = ColumnString::create();
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), column_ptr));
@@ -1044,11 +1049,11 @@ Status BaseTablet::fetch_values_by_rowids(RowsetSharedPtr input_rowset,
     SegmentCacheHandle segment_cache_handle;
     OlapReaderStatistics stats;
     segment_v2::SegmentSharedPtr segment;
-    RETURN_IF_ERROR(_load_segment(rowset, segid, &segment_cache_handle, &segment, &stats));
+    RETURN_IF_ERROR(_load_segment(rowset, segid, &segment_cache_handle, &segment, stats));
     for (size_t i = 0; i < cids.size(); ++i) {
         std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
-        RETURN_IF_ERROR(_init_segment_column_iterator(segment, tablet_schema.column(cids[i]),
-                                                      &column_iterator, &stats));
+        RETURN_IF_ERROR(_init_segment_column_iterator(
+                rowset, segment, tablet_schema.column(cids[i]), &column_iterator, stats));
         RETURN_IF_ERROR(
                 column_iterator->read_by_rowids(rowids.data(), rowids.size(), dst_columns[i]));
     }
@@ -1072,7 +1077,7 @@ Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t 
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     OlapReaderStatistics stats;
     RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segid, tablet_column,
-                                                 &segment_cache_handle, &column_iterator, &stats));
+                                                 &segment_cache_handle, &column_iterator, stats));
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), dst));
     return Status::OK();
 }

@@ -2226,8 +2226,7 @@ Result<LogicalSegmentContents> read_logical_segment(const std::string& path, uin
 
     auto read_schema = std::make_shared<ReadSchema>(schema->columns());
     OlapReaderStatistics stats;
-    StorageReadOptions read_options;
-    read_options.stats = &stats;
+    StorageReadOptions read_options(stats);
     std::unique_ptr<RowwiseIterator> iterator;
     RETURN_IF_ERROR_RESULT(segment->new_iterator(read_schema, read_options, &iterator));
 

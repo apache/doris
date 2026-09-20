@@ -53,7 +53,9 @@ TEST(SegmentIteratorVirtualColumnTest, MaterializationExpandsConstNullableResult
     auto tablet_schema = make_tablet_schema();
     auto segment = std::make_shared<Segment>(0, RowsetId(), tablet_schema, InvertedIndexFileInfo());
     auto read_schema = std::make_shared<::doris::ReadSchema>(tablet_schema->columns());
-    SegmentIterator iterator(segment, read_schema);
+    OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
+    SegmentIterator iterator(segment, read_schema, read_options);
 
     auto type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
     auto expr = std::make_shared<VLiteral>(type, Field());

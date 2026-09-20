@@ -353,7 +353,8 @@ private:
     uint32_t _rowid_left;
 };
 
-SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema)
+SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPtr schema,
+                                 const StorageReadOptions& opts)
         : _segment(std::move(segment)),
           _schema(schema),
           _column_iterators(_schema->num_read_columns()),
@@ -361,7 +362,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, ReadSchemaSPt
           _cur_rowid(0),
           _column_states(_schema->num_read_columns()),
           _lazy_inited(false),
-          _inited(false) {}
+          _inited(false),
+          _opts(opts) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     auto status = _init_impl(opts);
@@ -1151,12 +1153,6 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
             if (!_segment->can_apply_predicate_safely(cid, *_schema,
                                                       _opts.target_cast_type_for_variants, _opts)) {
-                continue;
-            }
-            if (_segment->is_tso_placeholder_col(cid, *_schema, _opts)) {
-                // skip untrustworthy tso placeholder zonemap
-                // if possible already be pruned as a whole before,
-                // so just skip
                 continue;
             }
             // do not check zonemap if predicate does not support zonemap
@@ -2458,93 +2454,6 @@ Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& read
 
     return Status::OK();
 }
-void SegmentIterator::_replace_version_col_if_needed(const std::vector<ColumnId>& ordinals,
-                                                     size_t num_rows) {
-    // Only the rowset with single version need to replace the version column.
-    // Doris can't determine the version before publish_version finished, so
-    // we can't write data to __DORIS_VERSION_COL__ in segment writer, the value
-    // is 0 by default.
-    // So we need to replace the value to real version while reading.
-    if (_opts.version.first != _opts.version.second) {
-        return;
-    }
-    int32_t version_ordinal = _schema->version_ordinal();
-    if (version_ordinal < 0 || std::ranges::find(ordinals, version_ordinal) == ordinals.end()) {
-        return;
-    }
-
-    const auto* column_desc = _schema->column(version_ordinal);
-    auto column = _schema->data_type(version_ordinal)->create_column();
-    DCHECK(column_desc->type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
-    auto* col_ptr = assert_cast<ColumnInt64*>(column.get());
-    for (size_t j = 0; j < num_rows; j++) {
-        col_ptr->insert_value(_opts.version.second);
-    }
-    _current_columns[version_ordinal] = std::move(column);
-    VLOG_DEBUG << "replaced version column in segment iterator, version_ordinal:"
-               << version_ordinal;
-}
-
-void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& ordinals,
-                                                size_t num_rows) {
-    // use physical time part of commit tso to replace timestamp col
-    if (_opts.version.first != _opts.version.second) {
-        return;
-    }
-
-    if (!_opts.read_row_binlog) {
-        return;
-    }
-
-    int32_t tso_ordinal = _schema->tso_ordinal();
-    if (tso_ordinal < 0 || std::ranges::find(ordinals, tso_ordinal) == ordinals.end()) {
-        return;
-    }
-
-    DCHECK_EQ(_opts.commit_tso.start_tso(), _opts.commit_tso.end_tso());
-    Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
-
-    if (_column_states[tso_ordinal].has_predicate()) {
-        // Nullable predicate column is represented as ColumnNullable(predicate_col)
-        if (auto* tso_nullable =
-                    check_and_get_column<ColumnNullable>(_current_columns[tso_ordinal].get())) {
-            _current_columns[tso_ordinal]->clear();
-            auto value = commit_tso;
-            for (size_t j = 0; j < num_rows; j++) {
-                tso_nullable->get_nested_column_ptr()->insert_data(
-                        reinterpret_cast<const char*>(&value), 0);
-                tso_nullable->get_null_map_data().emplace_back(0);
-            }
-            return;
-        }
-
-        auto* tso_column = assert_cast<ColumnInt64*>(_current_columns[tso_ordinal].get());
-        tso_column->clear();
-        auto value = commit_tso;
-        for (size_t j = 0; j < num_rows; j++) {
-            tso_column->insert_data(reinterpret_cast<const char*>(&value), 0);
-        }
-        return;
-    }
-
-    const auto* column_desc = _schema->column(tso_ordinal);
-    auto column = _schema->data_type(tso_ordinal)->create_column();
-    DCHECK(column_desc->type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
-
-    if (auto* tso_nullable = check_and_get_column<ColumnNullable>(column.get())) {
-        auto* col_ptr = assert_cast<ColumnInt64*>(&tso_nullable->get_nested_column());
-        for (size_t j = 0; j < num_rows; j++) {
-            col_ptr->insert_value(commit_tso);
-            tso_nullable->get_null_map_data().emplace_back(0);
-        }
-    } else {
-        auto* col_ptr = assert_cast<ColumnInt64*>(column.get());
-        for (size_t j = 0; j < num_rows; j++) {
-            col_ptr->insert_value(commit_tso);
-        }
-    }
-    _current_columns[tso_ordinal] = std::move(column);
-}
 
 uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                             uint16_t selected_size) {
@@ -2969,8 +2878,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     _selected_size = 0;
     RETURN_IF_ERROR(
             _read_columns_by_index(initial_read_ordinals, nrows_read_limit, _selected_size));
-    _replace_version_col_if_needed(initial_read_ordinals, _selected_size);
-    _update_tso_col_if_needed(initial_read_ordinals, _selected_size);
 
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _selected_size;
@@ -3010,8 +2917,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         RETURN_IF_ERROR(_read_columns_by_rowids(
                                 _common_expr_ordinals, _block_rowids, _sel_rowid_idx.data(),
                                 _selected_size, &_current_columns, false, true));
-                        _replace_version_col_if_needed(_common_expr_ordinals, _selected_size);
-                        _update_tso_col_if_needed(_common_expr_ordinals, _selected_size);
                         RETURN_IF_ERROR(_process_columns(_common_expr_ordinals, block));
                     }
 
@@ -3042,8 +2947,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         _output_ordinals, _block_rowids, _sel_rowid_idx.data(), _selected_size,
                         &_current_columns, _opts.condition_cache_digest && !_find_condition_cache,
                         false));
-                _replace_version_col_if_needed(_output_ordinals, _selected_size);
-                _update_tso_col_if_needed(_output_ordinals, _selected_size);
             } else {
                 if (_opts.condition_cache_digest && !_find_condition_cache) {
                     auto& condition_cache = *_condition_cache;
@@ -3423,13 +3326,15 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         }
         const auto* tablet_column = _schema->column(cid);
         std::shared_ptr<ColumnReader> reader;
-        Status st =
-                _segment->get_column_reader(*tablet_column, &reader, _opts.stats, &_opts.io_ctx);
+        Status st = _segment->get_column_reader_for_pruning(*tablet_column, _opts, &reader);
         if (st.is<ErrorCode::NOT_FOUND>()) {
+            // Sparse-only VARIANT paths have no physical page zonemap. Keep every page and let
+            // row-level extraction evaluate the predicate.
             continue;
         }
         RETURN_IF_ERROR(st);
-        if (reader == nullptr || !reader->has_zone_map()) {
+        DORIS_CHECK(reader != nullptr);
+        if (!reader->has_zone_map()) {
             continue;
         }
         const std::vector<ZoneMapPB>* page_zone_maps = nullptr;

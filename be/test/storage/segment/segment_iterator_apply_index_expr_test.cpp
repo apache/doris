@@ -118,7 +118,8 @@ protected:
 
         // Read schema covers all tablet columns in order, so ordinal == tablet cid.
         _read_schema = std::make_shared<ReadSchema>(_tablet_schema->columns());
-        _iter = std::make_unique<SegmentIterator>(_segment, _read_schema);
+        StorageReadOptions opts(_stats);
+        _iter = std::make_unique<SegmentIterator>(_segment, _read_schema, opts);
 
         // Set up RuntimeState with fallback enabled so _downgrade_without_index works
         TQueryOptions query_options;
@@ -126,7 +127,6 @@ protected:
         _runtime_state.set_query_options(query_options);
 
         _iter->_opts.runtime_state = &_runtime_state;
-        _iter->_opts.stats = &_stats;
     }
 
     std::shared_ptr<Segment> _segment;
