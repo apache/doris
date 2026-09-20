@@ -1487,6 +1487,29 @@ public class AnalysisManager implements Writable {
         }
     }
 
+    /**
+     * TRUNCATE TABLE removes all the data of the table, but the table itself stays and can be loaded
+     * immediately. The stats record must be kept, otherwise the row count of the newly loaded data can
+     * never be reported: the backends report the row count of the new empty tablets with a delay of up to
+     * {@code tablet_stat_update_interval_second}, and without a record there is nothing to accumulate the
+     * loaded rows into. So reset the record to the state of an empty table instead of removing it.
+     *
+     * <p>The transition is journaled by the truncate itself: the master DDL path and
+     * {@link InternalCatalog#replayTruncateTable} both apply it. It must not be journaled here, a separate
+     * entry is not atomic with the truncate entry, and a crash in between would replay a zeroed record
+     * onto the data which was never truncated.
+     */
+    public void resetTableStats(OlapTable table) {
+        synchronized (idToTblStats) {
+            TableStatsMeta tableStats = idToTblStats.get(table.getId());
+            if (tableStats == null) {
+                tableStats = new TableStatsMeta(table);
+                idToTblStats.put(table.getId(), tableStats);
+            }
+            tableStats.reset(table);
+        }
+    }
+
     public Set<Long> getIdToTblStatsKeys() {
         return new HashSet<>(idToTblStats.keySet());
     }

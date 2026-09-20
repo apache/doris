@@ -3904,7 +3904,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             oldPartitions = truncateTableInternal(olapTable, newPartitions,
                     truncateEntireTable, recyclePartitionParamMap, forceDrop, version, versionTimeMs);
             if (truncateEntireTable) {
-                Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
+                Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable);
             } else {
                 Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(
                         updateRecords, db.getId(), olapTable.getId(), 0);
@@ -3983,6 +3983,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable(),
                                     recyclePartitionParamMap, isForceDrop,
                                     info.getVersion(), info.getVersionTimeMs());
+            if (info.isEntireTable()) {
+                // Keep the stats record of the truncated table instead of dropping it, so that the rows
+                // loaded after the truncation are still accounted for. This is the transition the DDL path
+                // applies as well, the truncate entry carries it for every frontend.
+                Env.getCurrentEnv().getAnalysisManager().resetTableStats(olapTable);
+            }
 
             // add tablet to inverted index
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();

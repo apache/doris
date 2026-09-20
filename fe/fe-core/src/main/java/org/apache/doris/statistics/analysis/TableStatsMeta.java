@@ -105,6 +105,13 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     @SerializedName("irc")
     private ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
 
+    // The value of updatedRows when indexesRowCount was collected, i.e. the number of rows the collected
+    // row count already includes. The rows loaded after that point are the delta row count of the table.
+    // It is kept here, and not derived from colToColStatsMeta, so that dropping the column statistics of
+    // the table doesn't lose it. -1 means no row count has ever been collected from the table.
+    @SerializedName("updatedRowsBase")
+    private final AtomicLong updatedRowsBase = new AtomicLong(-1);
+
     @VisibleForTesting
     public TableStatsMeta() {
         ctlId = 0;
@@ -128,6 +135,58 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         this.idxId = -1;
         this.rowCount = rowCount;
         update(analyzedJob, table);
+    }
+
+    /**
+     * Create a record for a table which doesn't have one yet, in the state of an empty table. The rows
+     * loaded into the table are accumulated by {@link AnalysisManager#replayUpdateRowsRecord}, so a record
+     * has to exist before the first load, otherwise these rows can never be turned into a row count.
+     */
+    public TableStatsMeta(OlapTable table) {
+        this.ctlId = table.getDatabase().getCatalog().getId();
+        this.ctlName = table.getDatabase().getCatalog().getName();
+        this.dbId = table.getDatabase().getId();
+        this.dbName = table.getDatabase().getFullName();
+        this.tblId = table.getId();
+        this.tblName = table.getName();
+        this.idxId = -1;
+        this.indexesRowCount = buildEmptyIndexRowCount(table);
+        this.updatedRowsBase.set(0);
+    }
+
+    /**
+     * TRUNCATE TABLE removes all the data of the table. Reset this record back to the state of an empty
+     * table instead of dropping it, so that the rows loaded after the truncation can still be accumulated
+     * into {@link #updatedRows} and be reported as the row count of the table.
+     */
+    public void reset(OlapTable table) {
+        rowCount = 0;
+        updatedRows.set(0);
+        // Nothing has been collected for the emptied table, so none of the rows loaded from now on is
+        // included in the collected row count. They are all delta rows.
+        updatedRowsBase.set(0);
+        partitionUpdateRows.clear();
+        // All the data is removed, so the last collected row count of every index becomes 0.
+        indexesRowCount = buildEmptyIndexRowCount(table);
+        // Drop the column statistics baseline: the row count captured by the previous analysis described
+        // the removed data, it must not cancel out the rows loaded after the truncation.
+        colToColStatsMeta.clear();
+        // The statistics of the removed data is stale, let the analyzer collect it again.
+        partitionChanged.set(true);
+        // The injected statistics described the removed data, it no longer applies to this table.
+        userInjected = false;
+        // The emptied table has never been analyzed, and no analyze job describes it any more.
+        updatedTime = 0;
+        lastAnalyzeTime = 0;
+        jobType = null;
+    }
+
+    private static ConcurrentMap<Long, Long> buildEmptyIndexRowCount(OlapTable table) {
+        ConcurrentMap<Long, Long> indexRowCount = new ConcurrentHashMap<>();
+        for (long indexId : table.getIndexIdList()) {
+            indexRowCount.put(indexId, 0L);
+        }
+        return indexRowCount;
     }
 
     @Override
@@ -195,6 +254,15 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
             if (tableIf instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) tableIf;
                 indexesRowCount.putAll(analyzedJob.indexesRowCount);
+                // The collected row count above already includes the rows which had been loaded when the
+                // job was built, remember how many they were, they are not delta rows. The baseline may
+                // only advance together with the collected base index row count, an analysis of another
+                // index (a materialized view) doesn't touch it.
+                // Statistics supplied by the user are not collected from the table, they carry no baseline.
+                if (!analyzedJob.userInject
+                        && analyzedJob.indexesRowCount.containsKey(olapTable.getBaseIndexId())) {
+                    updatedRowsBase.set(analyzedJob.updateRows);
+                }
                 clearStaleIndexRowCount(olapTable);
                 if (analyzedJob.jobColumns.containsAll(
                         olapTable.getColumnIndexPairs(olapTable.getSchemaAllIndexes(false)
@@ -254,8 +322,28 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         indexesRowCount.put(indexId, rowCount);
     }
 
+    // For unit test only. Simulate a record written before updatedRowsBase was recorded in the table stats.
+    protected void clearUpdatedRowsBaseForTest() {
+        updatedRowsBase.set(-1);
+    }
+
+    /**
+     * The delta rows is the rows loaded since the row count of this table was collected, i.e. the rows
+     * which the collected row count doesn't include yet. It is 0 for a table with statistics supplied by
+     * the user, those are reported as the row count of the table directly.
+     */
     public long getBaseIndexDeltaRowCount(OlapTable table) {
-        if (colToColStatsMeta == null || colToColStatsMeta.isEmpty() || userInjected) {
+        if (userInjected) {
+            return 0;
+        }
+        long collectedRowCountBase = updatedRowsBase.get();
+        if (collectedRowCountBase >= 0) {
+            return updatedRows.get() - collectedRowCountBase;
+        }
+        // A record written before updatedRowsBase existed has no baseline of its own. Derive it from the
+        // collected column statistics, which is where it used to live. Once they are all dropped the
+        // baseline is unknown, so no row is reported as a delta row.
+        if (colToColStatsMeta == null || colToColStatsMeta.isEmpty()) {
             return 0;
         }
         long maxUpdateRows = 0;
