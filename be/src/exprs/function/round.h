@@ -110,7 +110,7 @@ struct IntegerRoundingComputation {
 
     static ALWAYS_INLINE T compute_impl(T x, T scale, T target_scale) {
         T quotient = x / scale;
-        const T remainder = x % scale;
+        const T remainder = x - quotient * scale;
 
         if constexpr (rounding_mode == RoundingMode::Trunc) {
             return target_scale > 1 ? quotient * target_scale : quotient;
@@ -139,7 +139,7 @@ struct IntegerRoundingComputation {
             if constexpr (tie_breaking_mode == TieBreakingMode::Bankers) {
                 if (remainder != 0 &&
                     (abs_remainder > remainder_complement ||
-                     (abs_remainder == remainder_complement && quotient % 2 != 0))) {
+                     (abs_remainder == remainder_complement && (quotient & 1) != 0))) {
                     quotient += carry;
                 }
             }
