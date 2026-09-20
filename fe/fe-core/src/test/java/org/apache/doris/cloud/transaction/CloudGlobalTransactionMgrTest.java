@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.transaction;
 
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
@@ -34,11 +35,11 @@ import org.apache.doris.cloud.catalog.CloudFEVersionSynchronizer;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.AdvanceTsoFenceResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnResponse;
-import org.apache.doris.cloud.proto.Cloud.GetTsoRecoveryTransactionsResponse;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
@@ -69,9 +70,9 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnStateChangeCallback;
+import org.apache.doris.tso.TSOService;
 
 import com.google.common.collect.Lists;
-import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -133,40 +134,18 @@ public class CloudGlobalTransactionMgrTest {
     }
 
     @Test
-    public void testTsoRecoveryRequiresCompleteBatchResponse() throws Exception {
+    public void testAdvanceTsoFence() throws Exception {
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
-            GetTsoRecoveryTransactionsResponse.Builder response = GetTsoRecoveryTransactionsResponse.newBuilder()
-                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK));
-            Mockito.when(proxy.getTsoRecoveryTransactions(Mockito.any())).thenReturn(response.build());
-            Assertions.assertThrows(UserException.class,
-                    () -> masterTransMgr.getTsoRecoveryTransactions(1000, ByteString.EMPTY));
-            Mockito.when(proxy.getTsoRecoveryTransactions(Mockito.any())).thenReturn(
-                    response.setNextStartKey(ByteString.EMPTY).build());
-            ByteString startKey = ByteString.copyFromUtf8("next batch");
-            Assertions.assertTrue(masterTransMgr.getTsoRecoveryTransactions(1000, startKey)
-                    .getNextStartKey().isEmpty());
-            ArgumentCaptor<Cloud.GetTsoRecoveryTransactionsRequest> capture =
-                    ArgumentCaptor.forClass(Cloud.GetTsoRecoveryTransactionsRequest.class);
-            Mockito.verify(proxy, Mockito.times(2)).getTsoRecoveryTransactions(capture.capture());
-            Assertions.assertEquals(256, capture.getValue().getBatchSize());
-            Assertions.assertEquals(1000, capture.getValue().getEndTxnId());
-            Assertions.assertEquals(startKey, capture.getValue().getStartKey());
-            Mockito.verify(proxy, Mockito.never()).checkTxnConflict(Mockito.any());
-        }
-    }
-
-    @Test
-    public void testTsoRecoveryRpcFailureDoesNotFallBackToConflictCheck() throws Exception {
-        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
-        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
-            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
-            Mockito.when(proxy.getTsoRecoveryTransactions(Mockito.any()))
-                    .thenThrow(new RpcException("ms", "unknown method"));
-            Assertions.assertThrows(UserException.class,
-                    () -> masterTransMgr.getTsoRecoveryTransactions(1000, ByteString.EMPTY));
-            Mockito.verify(proxy, Mockito.never()).checkTxnConflict(Mockito.any());
+            Mockito.when(proxy.advanceTsoFence(Mockito.any())).thenReturn(AdvanceTsoFenceResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                    .setTsoFence(101).build());
+            Assertions.assertEquals(101, masterTransMgr.advanceTsoFence(100));
+            ArgumentCaptor<Cloud.AdvanceTsoFenceRequest> capture =
+                    ArgumentCaptor.forClass(Cloud.AdvanceTsoFenceRequest.class);
+            Mockito.verify(proxy).advanceTsoFence(capture.capture());
+            Assertions.assertEquals(100, capture.getValue().getProposedFenceTso());
         }
     }
 
@@ -289,6 +268,67 @@ public class CloudGlobalTransactionMgrTest {
     }
 
     @Test
+    public void testCommitTransactionRetriesWithTsoAboveFence() throws Exception {
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        BinlogConfig originalBinlogConfig = new BinlogConfig(table.getBinlogConfig());
+        try {
+            Config.enable_feature_binlog = true;
+            FakeEnv.setEnv(masterEnv);
+            BinlogConfig binlogConfig = new BinlogConfig(originalBinlogConfig);
+            binlogConfig.setEnable(true);
+            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.ROW);
+            table.setBinlogConfig(binlogConfig);
+
+            TSOService tsoService = Mockito.mock(TSOService.class);
+            Mockito.when(tsoService.getCommitTSO(Mockito.eq(CatalogTestUtil.testDbId1),
+                    Mockito.eq(123533L), Mockito.anySet())).thenReturn(100L);
+            Mockito.when(tsoService.getCommitTSOAfterFence(Mockito.eq(CatalogTestUtil.testDbId1),
+                    Mockito.eq(123533L), Mockito.anySet(), Mockito.eq(100L), Mockito.eq(200L)))
+                    .thenReturn(201L);
+            Mockito.doReturn(tsoService).when(masterEnv).getTSOService();
+
+            MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+            TxnInfoPB txnInfo = TxnInfoPB.newBuilder()
+                    .setDbId(CatalogTestUtil.testDbId1)
+                    .addTableIds(CatalogTestUtil.testTableId1)
+                    .setTxnId(123533L)
+                    .setListenerId(-1)
+                    .build();
+            Mockito.when(proxy.commitTxn(Mockito.any()))
+                    .thenReturn(CommitTxnResponse.newBuilder()
+                                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                            .setCode(MetaServiceCode.TXN_COMMIT_TSO_EXPIRED))
+                                    .setTsoFence(200L)
+                                    .build(),
+                            CommitTxnResponse.newBuilder()
+                                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                            .setCode(MetaServiceCode.OK))
+                                    .setTxnInfo(txnInfo)
+                                    .build());
+            try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+                mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1,
+                        Lists.newArrayList(table), 123533L, null, null);
+            }
+
+            ArgumentCaptor<Cloud.CommitTxnRequest> requests =
+                    ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
+            Mockito.verify(proxy, Mockito.times(2)).commitTxn(requests.capture());
+            Assertions.assertEquals(100L, requests.getAllValues().get(0).getCommitTso());
+            Assertions.assertTrue(requests.getAllValues().get(0).getEnableCheckCommitTsoFence());
+            Assertions.assertEquals(201L, requests.getAllValues().get(1).getCommitTso());
+            Assertions.assertTrue(requests.getAllValues().get(1).getEnableCheckCommitTsoFence());
+            Mockito.verify(tsoService).markTxnFinished(CatalogTestUtil.testDbId1, 123533L);
+        } finally {
+            table.setBinlogConfig(originalBinlogConfig);
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        }
+    }
+
+    @Test
     public void testCommitTransactionCarriesTableStreamUpdates() throws Exception {
         MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mockedStatic = Mockito.mockStatic(MetaServiceProxy.class)) {
@@ -348,7 +388,6 @@ public class CloudGlobalTransactionMgrTest {
             ArgumentCaptor<Cloud.CommitTxnRequest> requestCaptor =
                     ArgumentCaptor.forClass(Cloud.CommitTxnRequest.class);
             Mockito.verify(mockProxy).commitTxn(requestCaptor.capture());
-            Assertions.assertTrue(requestCaptor.getValue().hasCommitTso());
             Assertions.assertEquals(2, requestCaptor.getValue().getTableStreamUpdatesCount());
             Assertions.assertEquals(identity, requestCaptor.getValue().getTableStreamUpdates(0).getIdentity());
             Assertions.assertEquals(partitionUpdate,
