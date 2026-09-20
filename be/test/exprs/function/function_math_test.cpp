@@ -17,6 +17,7 @@
 
 #include <array>
 #include <bit>
+#include <cfenv>
 #include <climits>
 #include <cmath>
 #include <cstdint>
@@ -27,6 +28,7 @@
 #include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "core/block/block.h"
 #include "core/column/column_const.h"
@@ -43,6 +45,7 @@
 #include "exprs/function_context.h"
 #include "testutil/any_type.h"
 #include "testutil/column_helper.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -350,29 +353,10 @@ static void check_pow_square_result(const IColumn& result, std::span<const doubl
     }
 }
 
-static void check_pow_square_column_shapes(const std::string& name, bool nullable, int const_mask) {
+static void check_pow_square_column_shapes(const std::string& name, bool nullable, int const_mask,
+                                           std::span<const double> values) {
     SCOPED_TRACE(testing::Message()
                  << name << " nullable=" << nullable << " const_mask=" << const_mask);
-    const double inf = std::numeric_limits<double>::infinity();
-    // The first value differs by one ULP between libm pow(x, 2) and x * x. Keep it first
-    // so that the constant-base cases also exercise it; approximate equality would miss this.
-    const std::array values = {1.1500729535343723e-17,
-                               -1.5,
-                               0.0,
-                               -0.0,
-                               1.0,
-                               -2.0,
-                               0.5,
-                               12345.125,
-                               1e154,
-                               1e-154,
-                               std::numeric_limits<double>::max(),
-                               std::numeric_limits<double>::min(),
-                               std::numeric_limits<double>::denorm_min(),
-                               inf,
-                               -inf,
-                               std::numeric_limits<double>::quiet_NaN(),
-                               3.0};
     const size_t rows = values.size();
     DataTypePtr type = std::make_shared<DataTypeFloat64>();
     if (nullable) {
@@ -413,12 +397,94 @@ static void check_pow_square_column_shapes(const std::string& name, bool nullabl
     check_pow_square_result(*result, values, nullable, const_mask & 1);
 }
 
-TEST(MathFunctionTest, pow_square_column_shapes) {
+static void check_pow_square_all_shapes(std::span<const double> values) {
     for (const auto* name : {"pow", "power", "dpow", "fpow"}) {
         for (int const_mask = 0; const_mask < 4; ++const_mask) {
-            check_pow_square_column_shapes(name, false, const_mask);
-            check_pow_square_column_shapes(name, true, const_mask);
+            check_pow_square_column_shapes(name, false, const_mask, values);
+            check_pow_square_column_shapes(name, true, const_mask, values);
         }
+    }
+}
+
+TEST(MathFunctionTest, pow_square_column_shapes) {
+    const double inf = std::numeric_limits<double>::infinity();
+    // The first value differs by one ULP between libm pow(x, 2) and x * x. Keep it first
+    // so that the constant-base cases also exercise it; approximate equality would miss this.
+    const std::array values = {1.1500729535343723e-17,
+                               -1.5,
+                               0.0,
+                               -0.0,
+                               1.0,
+                               -2.0,
+                               0.5,
+                               12345.125,
+                               1e154,
+                               1e-154,
+                               std::numeric_limits<double>::max(),
+                               std::numeric_limits<double>::min(),
+                               std::numeric_limits<double>::denorm_min(),
+                               inf,
+                               -inf,
+                               std::numeric_limits<double>::quiet_NaN(),
+                               3.0};
+    check_pow_square_all_shapes(values);
+}
+
+TEST(MathFunctionTest, pow_square_exact_integers) {
+    std::vector<double> values = {3.0, -3.0, 0x1p26, -0x1p26};
+    for (int value = -4096; value <= 4096; ++value) {
+        values.push_back(value);
+    }
+    std::mt19937_64 random(0);
+    for (size_t i = 0; i < 4096; ++i) {
+        values.push_back(static_cast<double>(random() % ((1ULL << 27) + 1)) - 0x1p26);
+    }
+    check_pow_square_all_shapes(values);
+}
+
+TEST(MathFunctionTest, pow_square_integer_boundaries) {
+    // A safe prefix followed by out-of-range integers and fractional neighbours.
+    // 94906297 has a one-ULP square difference between libm and multiplication on some platforms.
+    std::vector<double> values = {3.0,     -3.0,       0x1p26,
+                                  -0x1p26, 94906297.0, -94906297.0,
+                                  0x1p27,  -0x1p27,    1.1500729535343723e-17};
+    for (int offset = -32; offset <= 32; ++offset) {
+        const double value = 0x1p26 + offset;
+        values.insert(values.end(),
+                      {value, -value, std::nextafter(value, 0.0),
+                       std::nextafter(value, std::numeric_limits<double>::infinity())});
+    }
+    check_pow_square_all_shapes(values);
+}
+
+TEST(MathFunctionTest, pow_square_empty_block) {
+    for (const auto* name : {"pow", "power", "dpow", "fpow"}) {
+        for (int const_mask = 0; const_mask < 4; ++const_mask) {
+            check_pow_square_column_shapes(name, false, const_mask, {});
+        }
+    }
+}
+
+TEST(MathFunctionTest, pow_square_random_bits) {
+    std::mt19937_64 random(1);
+    std::vector<double> values;
+    values.reserve(4096);
+    for (size_t i = 0; i < 4096; ++i) {
+        values.push_back(std::bit_cast<double>(random()));
+    }
+    check_pow_square_all_shapes(values);
+}
+
+TEST(MathFunctionTest, pow_square_rounding_modes) {
+    std::fenv_t environment;
+    ASSERT_EQ(std::fegetenv(&environment), 0);
+    Defer restore_environment([&] { EXPECT_EQ(std::fesetenv(&environment), 0); });
+    // All values are in the fast domain, so only the rounding-mode guard can disable it.
+    const std::array values = {3.0, -3.0, 0.0, -0.0, 0x1p26, -0x1p26, 0x1p26 - 1};
+    for (int mode : {FE_TONEAREST, FE_UPWARD, FE_DOWNWARD, FE_TOWARDZERO}) {
+        SCOPED_TRACE(testing::Message() << "rounding_mode=" << mode);
+        ASSERT_EQ(std::fesetround(mode), 0);
+        check_pow_square_all_shapes(values);
     }
 }
 

@@ -56,6 +56,38 @@ suite("test_pow_square") {
         ) t order by number
     """
 
+    qt_exact_integer_square """
+        select number, pow(x, 2.0), power(x, 2.0), dpow(x, 2.0), fpow(x, 2.0), x * x
+        from (
+            select number,
+                   cast(number * 10000000 as double) * if(number % 2 = 0, 1, -1) as x
+            from numbers("number" = "7")
+        ) t order by number
+    """
+
+    qt_integer_square_boundaries """
+        select number, pow(x, 2.0), power(x, 2.0), dpow(x, 2.0), fpow(x, 2.0),
+               pow(x, 2.0) = pow(x, y)
+        from (
+            select number,
+                   cast(number + 67108860 as double) * if(number % 2 = 0, 1, -1) as x,
+                   if(number < 8, 2.0, 3.0) as y
+            from numbers("number" = "10")
+        ) t order by number
+    """
+
+    // Integer bases alone are not sufficient: these squares are not exactly representable.
+    qt_out_of_range_square_shapes """
+        select number,
+               pow(x, 2.0) = pow(x, y), power(x, 2.0) = power(x, y),
+               dpow(x, 2.0) = dpow(x, y), fpow(x, 2.0) = fpow(x, y)
+        from (
+            select number, cast(2 * number - 1 as double) * 94906297.0 as x,
+                   if(number < 2, 2.0, 3.0) as y
+            from numbers("number" = "4")
+        ) t order by number
+    """
+
     qt_other_exponents """
         select number, pow(x, 0.0), pow(x, 1.0), pow(x, -2.0), pow(x, 3.0), pow(x, 0.5)
         from (select number, cast(number - 2 as double) as x
