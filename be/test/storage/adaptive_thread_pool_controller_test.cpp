@@ -76,7 +76,8 @@ protected:
         auto* sp = SyncPoint::get_instance();
         sp->enable_processing();
         Defer disable_sync_points {[&] { sp->disable_processing(); }};
-        SyncPoint::CallbackGuard guard;
+        SyncPoint::CallbackGuard entered_guard;
+        SyncPoint::CallbackGuard cancelling_guard;
         std::promise<void> entered;
         std::promise<void> release;
         std::promise<void> cancelling;
@@ -89,10 +90,10 @@ protected:
                     entered.set_value();
                     release_future.wait();
                 },
-                &guard);
+                &entered_guard);
         sp->set_call_back(
                 "AdaptiveThreadPoolController::cancel_stopped",
-                [&](auto&&) { cancelling.set_value(); }, &guard);
+                [&](auto&&) { cancelling.set_value(); }, &cancelling_guard);
 
         AdaptiveThreadPoolController controller;
         controller.add(
