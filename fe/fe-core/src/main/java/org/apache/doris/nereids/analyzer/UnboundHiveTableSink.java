@@ -19,6 +19,7 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -26,8 +27,10 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -35,15 +38,16 @@ import java.util.Optional;
  */
 public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends UnboundBaseExternalTableSink<CHILD_TYPE> {
 
+    // Static partition key-value pairs for INSERT [OVERWRITE] ... PARTITION
+    // (col='val', ...)
+    private final Map<String, Expression> staticPartitionKeyValues;
+
     public UnboundHiveTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
                                 List<String> partitions, CHILD_TYPE child) {
         this(nameParts, colNames, hints, partitions, DMLCommandType.NONE,
-                Optional.empty(), Optional.empty(), child);
+                Optional.empty(), Optional.empty(), child, null);
     }
 
-    /**
-     * constructor
-     */
     public UnboundHiveTableSink(List<String> nameParts,
                                 List<String> colNames,
                                 List<String> hints,
@@ -52,8 +56,43 @@ public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends UnboundBaseEx
                                 Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties,
                                 CHILD_TYPE child) {
+        this(nameParts, colNames, hints, partitions, dmlCommandType,
+                groupExpression, logicalProperties, child, null);
+    }
+
+    /**
+     * constructor with static partition
+     */
+    public UnboundHiveTableSink(List<String> nameParts,
+                                List<String> colNames,
+                                List<String> hints,
+                                List<String> partitions,
+                                DMLCommandType dmlCommandType,
+                                Optional<GroupExpression> groupExpression,
+                                Optional<LogicalProperties> logicalProperties,
+                                CHILD_TYPE child,
+                                Map<String, Expression> staticPartitionKeyValues) {
         super(nameParts, PlanType.LOGICAL_UNBOUND_HIVE_TABLE_SINK, ImmutableList.of(), groupExpression,
                 logicalProperties, colNames, dmlCommandType, child, hints, partitions);
+        this.staticPartitionKeyValues = staticPartitionKeyValues != null
+                ? ImmutableMap.copyOf(staticPartitionKeyValues)
+                : null;
+    }
+
+    public Map<String, Expression> getStaticPartitionKeyValues() {
+        return staticPartitionKeyValues;
+    }
+
+    public boolean hasStaticPartition() {
+        return staticPartitionKeyValues != null && !staticPartitionKeyValues.isEmpty();
+    }
+
+    @Override
+    public Plan withChildren(List<Plan> children) {
+        Preconditions.checkArgument(children.size() == 1,
+                "UnboundHiveTableSink only accepts one child");
+        return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
+            dmlCommandType, groupExpression, Optional.empty(), children.get(0), staticPartitionKeyValues);
     }
 
     @Override
@@ -62,23 +101,15 @@ public class UnboundHiveTableSink<CHILD_TYPE extends Plan> extends UnboundBaseEx
     }
 
     @Override
-    public Plan withChildren(List<Plan> children) {
-        Preconditions.checkArgument(children.size() == 1,
-                "UnboundHiveTableSink only accepts one child");
-        return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-            dmlCommandType, groupExpression, Optional.empty(), children.get(0));
-    }
-
-    @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-            dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
+            dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child(), staticPartitionKeyValues);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
-            dmlCommandType, groupExpression, logicalProperties, children.get(0));
+            dmlCommandType, groupExpression, logicalProperties, children.get(0), staticPartitionKeyValues);
     }
 }
