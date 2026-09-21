@@ -85,7 +85,10 @@ public class PaimonCatalogOptionsSnapshotTest {
                 props("metastore", "filesystem",
                         "catalog.type", "filesystem",
                         "warehouse", "/wh",
-                        "read.batch-size", "4096"),
+                        "read.batch-size", "4096",
+                        // Doris owns the paimon Table cache (PaimonTableCache); the SDK CachingCatalog is
+                        // always disabled so frozen Tables cannot outlive a REFRESH (DORIS-29032).
+                        "cache-enabled", "false"),
                 withExcludedNamespaces(props(
                         "paimon.catalog.type", "filesystem",
                         "warehouse", "/wh",
@@ -99,7 +102,8 @@ public class PaimonCatalogOptionsSnapshotTest {
     public void defaultFlavorSnapshotIsFilesystem() {
         assertOptions(
                 props("metastore", "filesystem",
-                        "warehouse", "/wh"),
+                        "warehouse", "/wh",
+                        "cache-enabled", "false"),
                 props("warehouse", "/wh"));
     }
 
@@ -113,7 +117,8 @@ public class PaimonCatalogOptionsSnapshotTest {
                         // Both are emitted unconditionally, at their legacy defaults when unset.
                         "client-pool-cache.eviction-interval-ms", "300000",
                         "location-in-properties", "false",
-                        "read.batch-size", "4096"),
+                        "read.batch-size", "4096",
+                        "cache-enabled", "false"),
                 withExcludedNamespaces(props(
                         "paimon.catalog.type", "hms",
                         "warehouse", "/wh",
@@ -132,7 +137,8 @@ public class PaimonCatalogOptionsSnapshotTest {
                         "warehouse", "/wh",
                         "uri", "thrift://alias:9083",
                         "client-pool-cache.eviction-interval-ms", "60000",
-                        "location-in-properties", "true"),
+                        "location-in-properties", "true",
+                        "cache-enabled", "false"),
                 props("paimon.catalog.type", "hms",
                         "warehouse", "/wh",
                         "uri", "thrift://alias:9083",
@@ -157,7 +163,8 @@ public class PaimonCatalogOptionsSnapshotTest {
                         "warehouse", "/wh",
                         "uri", "thrift://nn:9083",
                         "client-pool-cache.eviction-interval-ms", "300000",
-                        "location-in-properties", "false"),
+                        "location-in-properties", "false",
+                        "cache-enabled", "false"),
                 props("paimon.catalog.type", "hms",
                         "warehouse", " /wh ",
                         "hive.metastore.uris", " thrift://nn:9083 "));
@@ -181,7 +188,8 @@ public class PaimonCatalogOptionsSnapshotTest {
                         "rest.uri", "http://rest:8080",
                         "rest.token.provider", "dlf",
                         "rest.dlf.access-key-id", "ak",
-                        "read.batch-size", "4096"),
+                        "read.batch-size", "4096",
+                        "cache-enabled", "false"),
                 withExcludedNamespaces(props(
                         "paimon.catalog.type", "rest",
                         "warehouse", "/wh",
@@ -198,7 +206,8 @@ public class PaimonCatalogOptionsSnapshotTest {
                 props("metastore", "rest",
                         "catalog.type", "rest",
                         "warehouse", "/wh",
-                        "uri", "http://rest:8080"),
+                        "uri", "http://rest:8080",
+                        "cache-enabled", "false"),
                 props("paimon.catalog.type", "rest",
                         "warehouse", "/wh",
                         "uri", "http://rest:8080"));
@@ -220,7 +229,8 @@ public class PaimonCatalogOptionsSnapshotTest {
                         "catalog.type", "rest",
                         "warehouse", "/wh",
                         "uri", "http://rest:8080",
-                        "rest.uri", " http://rest:8080 "),
+                        "rest.uri", " http://rest:8080 ",
+                        "cache-enabled", "false"),
                 props("paimon.catalog.type", "rest",
                         "warehouse", " /wh ",
                         "paimon.rest.uri", " http://rest:8080 "));
@@ -244,7 +254,8 @@ public class PaimonCatalogOptionsSnapshotTest {
                         "jdbc.driver_url", "mysql.jar",
                         "jdbc.driver_class", "com.mysql.cj.jdbc.Driver",
                         "jdbc.foo", "bar",
-                        "read.batch-size", "4096"),
+                        "read.batch-size", "4096",
+                        "cache-enabled", "false"),
                 withExcludedNamespaces(props(
                         "paimon.catalog.type", "jdbc",
                         "warehouse", "/wh",
@@ -265,7 +276,8 @@ public class PaimonCatalogOptionsSnapshotTest {
                         "catalog.type", "jdbc",
                         "warehouse", "/wh",
                         "uri", "jdbc:mysql://db:3306/meta",
-                        "jdbc.uri", "jdbc:mysql://db:3306/meta"),
+                        "jdbc.uri", "jdbc:mysql://db:3306/meta",
+                        "cache-enabled", "false"),
                 props("paimon.catalog.type", "jdbc",
                         "warehouse", "/wh",
                         "paimon.jdbc.uri", "jdbc:mysql://db:3306/meta"));
