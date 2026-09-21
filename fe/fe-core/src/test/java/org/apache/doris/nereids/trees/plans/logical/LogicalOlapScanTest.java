@@ -219,4 +219,14 @@ public class LogicalOlapScanTest {
         Assertions.assertSame(scanSlot2, replaceMap.get(mvSlot2));
         Assertions.assertSame(scanSlot3, replaceMap.get(mvSlot3));
     }
+
+    @Test
+    public void testWithSelectedPartitionIdsPreservesPartitionPredicateFlagForAllScanTypes() {
+        LogicalOlapScan scan = createMockScan(ImmutableList.of())
+                .withSelectedPartitionIds(ImmutableList.of(), true);
+
+        LogicalOlapScan copiedScan = scan.withSelectedPartitionIds(ImmutableList.of());
+
+        Assertions.assertTrue(copiedScan.hasPartitionPredicate());
+    }
 }

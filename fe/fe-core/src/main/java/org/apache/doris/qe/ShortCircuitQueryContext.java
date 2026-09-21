@@ -56,6 +56,7 @@ public class ShortCircuitQueryContext {
     public final int schemaVersion;
     public final OlapTable tbl;
     private final long fileCacheQueryLimitBytes;
+    private final long partitionTopologyVersion;
 
     public final OlapScanNode scanNode;
     public final Queriable analzyedQuery;
@@ -109,6 +110,7 @@ public class ShortCircuitQueryContext {
         this.scanNode = olapScanNode;
         this.tbl = this.scanNode.getOlapTable();
         this.schemaVersion = this.tbl.getBaseSchemaVersion();
+        this.partitionTopologyVersion = this.tbl.getPartitionTopologyVersion();
         this.analzyedQuery = analzyedQuery;
     }
 
@@ -122,13 +124,15 @@ public class ShortCircuitQueryContext {
         this.tbl = tbl;
         this.schemaVersion = schemaVersion;
         this.fileCacheQueryLimitBytes = fileCacheQueryLimitBytes;
+        this.partitionTopologyVersion = tbl.getPartitionTopologyVersion();
         this.scanNode = null;
         this.analzyedQuery = null;
     }
 
     public boolean isReusable(ConnectContext ctx) {
         return this.tbl.getBaseSchemaVersion() == this.schemaVersion
-                && this.fileCacheQueryLimitBytes == ctx.getSessionVariable().fileCacheQueryLimitBytes;
+                && this.fileCacheQueryLimitBytes == ctx.getSessionVariable().fileCacheQueryLimitBytes
+                && this.tbl.getPartitionTopologyVersion() == this.partitionTopologyVersion;
     }
 
     public void sanitize() {

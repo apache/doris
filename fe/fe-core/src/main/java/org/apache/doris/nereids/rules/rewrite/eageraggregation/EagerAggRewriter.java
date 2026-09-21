@@ -673,7 +673,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         if (context.aggFuncAndGroupKeyAllEmpty() || context.hasVolatileFunctions()) {
             return project;
         }
-        if (containsVolatileGroupKeyAfterProject(project, context)) {
+        if (containsVolatileGroupKeyAfterProject(project, context) || project.containsNoneMovableFunction()) {
             return genAggregate(project, context);
         }
         if (project.child() instanceof LogicalCatalogRelation

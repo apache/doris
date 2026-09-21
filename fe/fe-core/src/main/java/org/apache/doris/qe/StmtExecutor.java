@@ -1415,10 +1415,12 @@ public class StmtExecutor {
         RowBatch batch;
         CoordInterface coordBase = null;
         if (statementContext.isShortCircuitQuery()) {
-            ShortCircuitQueryContext shortCircuitQueryContext =
-                        statementContext.getShortCircuitQueryContext() != null
-                                ? statementContext.getShortCircuitQueryContext()
-                                : new ShortCircuitQueryContext(planner, (Queriable) parsedStmt);
+            ShortCircuitQueryContext shortCircuitQueryContext = statementContext.getShortCircuitQueryContext();
+            if (shortCircuitQueryContext == null) {
+                shortCircuitQueryContext = new ShortCircuitQueryContext(planner, (Queriable) parsedStmt);
+                // ExecuteCommand publishes this same context after a successful first prepared execution.
+                statementContext.setShortCircuitQueryContext(shortCircuitQueryContext);
+            }
             coordBase = new PointQueryExecutor(shortCircuitQueryContext,
                         context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
             context.getState().setIsQuery(true);

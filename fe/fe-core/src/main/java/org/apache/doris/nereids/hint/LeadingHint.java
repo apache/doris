@@ -624,7 +624,13 @@ public class LeadingHint extends Hint {
         } else if (root instanceof LogicalSubQueryAlias) {
             return LongBitmap.set(0L, (((LogicalSubQueryAlias) root).getRelationId().asInt()));
         } else {
-            return null;
+            Set<RelationId> inputRelations = root.getInputRelations();
+            if (inputRelations.size() != 1) {
+                return null;
+            }
+            // the leaf could be a plan which is built on one relation, e.g. the row policy filter, the data
+            // mask project or the aggregate which is generated for the random distribution aggregate table
+            return LongBitmap.set(0L, inputRelations.iterator().next().asInt());
         }
     }
 }
