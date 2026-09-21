@@ -85,6 +85,8 @@ Token* PinyinFilter::next(Token* token) {
         auto source_byte_end_offsets = get_source_byte_end_offsets();
         current_source_byte_end_offsets_.assign(source_byte_end_offsets.begin(),
                                                 source_byte_end_offsets.end());
+        has_current_conservative_source_span_ = get_conservative_source_byte_span(
+                current_conservative_source_start_, current_conservative_source_end_);
 
         done_ = false;
     }
@@ -130,6 +132,9 @@ void PinyinFilter::resetVariables() {
     current_runes_.clear();
     current_source_byte_offsets_.clear();
     current_source_byte_end_offsets_.clear();
+    current_conservative_source_start_ = 0;
+    current_conservative_source_end_ = 0;
+    has_current_conservative_source_span_ = false;
     candidate_offset_ = 0;
     terms_filter_.clear();
     last_increment_position_ = 0;
@@ -267,6 +272,18 @@ bool PinyinFilter::prepareCurrentSource(std::vector<UChar32>& source_codepoints)
                              ? current_source_byte_offsets_[start_index + i + 1]
                              : current_source_byte_end_offsets_[start_index + i]) -
                     current_source_byte_offsets_[start_index];
+        }
+    } else if (has_current_conservative_source_span_) {
+        DORIS_CHECK_GE(current_conservative_source_start_, 0);
+        DORIS_CHECK_GE(current_conservative_source_end_, current_conservative_source_start_);
+        const int32_t token_start_offset = current_start_offset_;
+        current_start_offset_ = token_start_offset + current_conservative_source_start_;
+        current_end_offset_ = token_start_offset + current_conservative_source_end_;
+        const int32_t source_length =
+                current_conservative_source_end_ - current_conservative_source_start_;
+        for (auto& rune : current_runes_) {
+            rune.byte_start = 0;
+            rune.byte_end = source_length;
         }
     } else {
         current_start_offset_ += static_cast<int32_t>(source_start);

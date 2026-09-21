@@ -64,10 +64,10 @@ Token* ICUTokenizer::next(Token* token) {
     }
 
     token->setNoCopy(utf8Str_.data(), 0, static_cast<int32_t>(utf8Str_.size()));
-    if (start >= 0 && length >= 0 &&
-        static_cast<size_t>(start + length) < utf16ToUtf8Offset_.size()) {
-        const int32_t source_start = utf16ToUtf8Offset_[start];
-        const int32_t source_end = utf16ToUtf8Offset_[start + length];
+    int32_t source_start = 0;
+    int32_t source_end = 0;
+    if (start >= 0 && length >= 0 && advance_source_offset(start, source_start) &&
+        advance_source_offset(start + length, source_end)) {
         set_source_byte_offsets(utf8Str_, sourceUtf8Str_, source_start);
         token->setStartOffset(correct_source_offset(source_start));
         token->setEndOffset(correct_source_offset(source_end));
@@ -83,25 +83,42 @@ void ICUTokenizer::reset() {
     if (!buffer_.isEmpty() && buffer_.isBogus()) {
         _CLTHROWT(CL_ERR_Runtime, "Failed to convert UTF-8 string to UnicodeString.");
     }
-    utf16ToUtf8Offset_.assign(buffer_.length() + 1, 0);
-    int32_t utf8Offset = 0;
-    int32_t utf16Offset = 0;
-    while (utf8Offset < len) {
-        const int32_t sourceStart = utf8Offset;
-        UChar32 codePoint;
-        U8_NEXT(buf, utf8Offset, len, codePoint);
-        if (codePoint < 0) {
-            utf16ToUtf8Offset_.clear();
-            break;
-        }
-        const int32_t utf16Length = U16_LENGTH(codePoint);
-        for (int32_t index = 0; index < utf16Length; ++index) {
-            utf16ToUtf8Offset_[utf16Offset + index] = sourceStart;
-        }
-        utf16Offset += utf16Length;
-        utf16ToUtf8Offset_[utf16Offset] = utf8Offset;
-    }
+    sourceBuffer_ = buf;
+    sourceLength_ = len;
+    sourceUtf8Offset_ = 0;
+    sourceUtf16Offset_ = 0;
+    sourceOffsetsValid_ = true;
     breaker_->set_text(buffer_.getBuffer(), 0, buffer_.length());
+}
+
+bool ICUTokenizer::advance_source_offset(int32_t utf16_offset, int32_t& utf8_offset) {
+    if (!sourceOffsetsValid_ || utf16_offset < sourceUtf16Offset_) {
+        return false;
+    }
+
+    while (sourceUtf16Offset_ < utf16_offset && sourceUtf8Offset_ < sourceLength_) {
+        const int32_t code_point_start = sourceUtf8Offset_;
+        UChar32 code_point;
+        U8_NEXT(sourceBuffer_, sourceUtf8Offset_, sourceLength_, code_point);
+        if (code_point < 0) {
+            sourceOffsetsValid_ = false;
+            return false;
+        }
+
+        const int32_t next_utf16_offset = sourceUtf16Offset_ + U16_LENGTH(code_point);
+        sourceUtf16Offset_ = next_utf16_offset;
+        if (utf16_offset < next_utf16_offset) {
+            utf8_offset = code_point_start;
+            return true;
+        }
+    }
+
+    if (sourceUtf16Offset_ != utf16_offset) {
+        sourceOffsetsValid_ = false;
+        return false;
+    }
+    utf8_offset = sourceUtf8Offset_;
+    return true;
 }
 
 } // namespace doris::segment_v2::inverted_index

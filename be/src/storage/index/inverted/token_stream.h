@@ -67,6 +67,11 @@ public:
     // Return separate rune ends when removed delimiters leave gaps between adjacent runes.
     virtual std::span<const int32_t> get_source_byte_end_offsets() const { return {}; }
 
+    // Return a conservative relative source span when exact rune boundaries are unavailable.
+    virtual bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const {
+        return false;
+    }
+
     // Enable source-boundary tracking only for streams with a downstream consumer.
     virtual void set_source_byte_offsets_enabled(bool enabled) {}
 };

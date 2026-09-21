@@ -39,6 +39,11 @@ public:
                                  : source->get_source_byte_end_offsets();
     }
 
+    bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override {
+        const auto* source = dynamic_cast<const DorisTokenStream*>(_in.get());
+        return source != nullptr && source->get_conservative_source_byte_span(start, end);
+    }
+
     void set_source_byte_offsets_enabled(bool enabled) override {
         auto* source = dynamic_cast<DorisTokenStream*>(_in.get());
         if (source != nullptr) {

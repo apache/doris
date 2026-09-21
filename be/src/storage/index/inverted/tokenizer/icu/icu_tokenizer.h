@@ -39,10 +39,16 @@ public:
     void reset() override;
 
 private:
+    bool advance_source_offset(int32_t utf16_offset, int32_t& utf8_offset);
+
     std::string utf8Str_;
     std::string sourceUtf8Str_;
     icu::UnicodeString buffer_;
-    std::vector<int32_t> utf16ToUtf8Offset_;
+    const char* sourceBuffer_ = nullptr;
+    int32_t sourceLength_ = 0;
+    int32_t sourceUtf8Offset_ = 0;
+    int32_t sourceUtf16Offset_ = 0;
+    bool sourceOffsetsValid_ = true;
 
     ICUTokenizerConfigPtr config_;
     CompositeBreakIteratorPtr breaker_;

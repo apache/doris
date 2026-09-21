@@ -19,6 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#ifdef ADDRESS_SANITIZER
+#include <sanitizer/allocator_interface.h>
+#endif
+
 namespace doris::segment_v2::inverted_index {
 
 TokenStreamPtr create_icu_tokenizer(const std::string& text, Settings settings = Settings()) {
@@ -180,6 +184,28 @@ TEST_F(ICUTokenizerFactoryTest, LongText) {
             {"with", 1},       {"multiple", 1}, {"words", 1},  {"and", 1},  {"中文", 1},
             {"characters", 1}, {"and", 1},      {"日本語", 1}, {"text", 1}};
     assert_tokenizer_output(long_text, expected);
+}
+
+TEST_F(ICUTokenizerFactoryTest, LargeInputResetUsesBoundedOffsetMemory) {
+    constexpr size_t input_size = 4 * 1024 * 1024;
+    const std::string input(input_size, 'a');
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    reader->init(input.data(), static_cast<int32_t>(input.size()), false);
+
+    ICUTokenizerFactory factory;
+    factory.initialize({});
+    auto tokenizer = factory.create();
+    tokenizer->set_reader(reader);
+
+#ifdef ADDRESS_SANITIZER
+    const size_t allocated_before = __sanitizer_get_current_allocated_bytes();
+#endif
+    tokenizer->reset();
+#ifdef ADDRESS_SANITIZER
+    const size_t allocated_after = __sanitizer_get_current_allocated_bytes();
+    ASSERT_GE(allocated_after, allocated_before);
+    EXPECT_LT(allocated_after - allocated_before, input_size * 4);
+#endif
 }
 
 TEST_F(ICUTokenizerFactoryTest, SpecialCharacters) {

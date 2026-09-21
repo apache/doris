@@ -104,6 +104,9 @@ private:
     std::vector<RuneInfo> current_runes_;
     std::vector<int32_t> current_source_byte_offsets_;
     std::vector<int32_t> current_source_byte_end_offsets_;
+    int32_t current_conservative_source_start_ = 0;
+    int32_t current_conservative_source_end_ = 0;
+    bool has_current_conservative_source_span_ = false;
 };
 
 using PinyinFilterPtr = std::shared_ptr<PinyinFilter>;
