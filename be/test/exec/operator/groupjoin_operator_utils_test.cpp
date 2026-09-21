@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -61,6 +62,19 @@ size_t count_hash_table_entries(GroupJoinSharedState* shared_state) {
                           return count;
                       }},
             shared_state->data_variants->method_variant);
+}
+
+TEST(GroupJoinOperatorUtilsTest, RejectsNodeWithoutAggregateFunctions) {
+    TPlanNode tnode;
+    tnode.__isset.group_join_node = true;
+    tnode.group_join_node.join_op = TJoinOp::INNER_JOIN;
+    tnode.group_join_node.agg_output_mode = TGroupJoinAggOutputMode::FINAL_RESULT;
+
+    const auto status = groupjoin::validate_group_join_node(tnode);
+
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("at least one aggregate function"), std::string::npos)
+            << status;
 }
 
 TEST(GroupJoinOperatorUtilsTest, DataContainerInlinesStatesForBuildAggregates) {

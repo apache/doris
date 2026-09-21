@@ -36,13 +36,13 @@ suite("test_group_join_build_distribution") {
     sql "SET enable_bucket_shuffle_join=false"
     sql "SET parallel_pipeline_task_num=4"
     def queries = [
-        """SELECT l.k FROM gj_build_distribution l JOIN [shuffle] gj_build_distribution r
-            ON l.k=r.k GROUP BY l.k ORDER BY l.k""",
-        """SELECT l.k, COUNT(*), SUM(l.id), SUM(r.id)
+        [sql: """SELECT l.k FROM gj_build_distribution l JOIN [shuffle] gj_build_distribution r
+            ON l.k=r.k GROUP BY l.k ORDER BY l.k""", groupJoin: false],
+        [sql: """SELECT l.k, COUNT(*), SUM(l.id), SUM(r.id)
             FROM gj_build_distribution l JOIN [shuffle] gj_build_distribution r
-            ON l.k=r.k GROUP BY l.k ORDER BY l.k""",
-        """SELECT l.k,l.s FROM gj_build_distribution l JOIN [shuffle] gj_build_distribution r
-            ON l.k=r.k AND l.s=r.s GROUP BY l.k,l.s ORDER BY l.k,l.s"""
+            ON l.k=r.k GROUP BY l.k ORDER BY l.k""", groupJoin: true],
+        [sql: """SELECT l.k,l.s FROM gj_build_distribution l JOIN [shuffle] gj_build_distribution r
+            ON l.k=r.k AND l.s=r.s GROUP BY l.k,l.s ORDER BY l.k,l.s""", groupJoin: false]
     ]
     for (serial in [true, false]) {
         sql "SET experimental_use_serial_exchange=${serial}"
@@ -50,13 +50,23 @@ suite("test_group_join_build_distribution") {
             sql "SET experimental_enable_local_shuffle_planner=${planner}"
             for (mode in ['OFF', 'GLOBAL']) {
                 sql "SET runtime_filter_mode='${mode}'"
-                for (query in queries) {
+                for (querySpec in queries) {
+                    def query = querySpec.sql
                     sql "SET experimental_enable_group_join_fusion=false"
                     def reference = sql query
                     sql "SET experimental_enable_group_join_fusion=true"
-                    explain {
-                        sql query
-                        contains "VGROUP JOIN"
+                    if (querySpec.groupJoin) {
+                        explain {
+                            sql query
+                            contains "VGROUP JOIN"
+                        }
+                    } else {
+                        explain {
+                            sql query
+                            contains "VHASH JOIN"
+                            contains "VAGGREGATE"
+                            notContains "VGROUP JOIN"
+                        }
                     }
                     assertEquals(reference, sql(query))
                     qt_result query
