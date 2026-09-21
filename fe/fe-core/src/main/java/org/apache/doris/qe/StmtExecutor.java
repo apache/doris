@@ -148,7 +148,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
-import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -166,6 +165,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -200,8 +200,11 @@ public class StmtExecutor {
     // never be finished. Null until decided.
     private volatile Boolean profileEnabled;
 
-    @Setter
     private volatile Coordinator coord = null;
+    // A statement can be cancelled while it is still planning and has no coordinator yet.
+    // Keep this state scoped to the coordinator publication handoff: other execution targets
+    // retain their existing cancellation contracts.
+    private final AtomicReference<Status> pendingCoordinatorCancelReason = new AtomicReference<>();
     private volatile Coordinator externalDmlAuditCoordinator = null;
     // Arrow Flight SQL: when true, this query's coordinator is kept alive past GetFlightInfo and
     // is finalized later by ConnectContext (see #62259), so the eager close in executeAndSendResult
@@ -1444,6 +1447,8 @@ public class StmtExecutor {
     }
 
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
+        pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
+        Status coordinatorCancelReason = pendingCoordinatorCancelReason.get();
         Consumer<Status> delegate = cancelDelegate;
         if (delegate != null) {
             delegate.accept(cancelReason);
@@ -1463,7 +1468,7 @@ public class StmtExecutor {
         }
         Coordinator coordRef = coord;
         if (coordRef != null) {
-            coordRef.cancel(cancelReason);
+            coordRef.cancel(coordinatorCancelReason);
         }
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
@@ -1472,6 +1477,23 @@ public class StmtExecutor {
             // Wait for the command to run or cancel completion
             cancelableCommand.get().waitNotRunning();
         }
+    }
+
+    public void setCoord(Coordinator coordinator) {
+        coord = coordinator;
+        Status cancelReason = pendingCoordinatorCancelReason.get();
+        if (coordinator != null && cancelReason != null) {
+            coordinator.cancel(cancelReason);
+        }
+    }
+
+    /**
+     * The first terminal status delivered to this executor, or null when it has not been cancelled. Sticky:
+     * a later cancellation never replaces the first one. Used by owners (such as the distributed rewrite
+     * driver) that execute outside the coordinator publication handoff.
+     */
+    public Status getPendingCancelReason() {
+        return pendingCoordinatorCancelReason.get();
     }
 
     public void cancel(Status cancelReason) {
@@ -1660,15 +1682,15 @@ public class StmtExecutor {
                     context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
             context.getState().setIsQuery(true);
         } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
-            coord = new NereidsCoordinator(context,
-                    (NereidsPlanner) planner, context.getStatsErrorEstimator());
+            setCoord(new NereidsCoordinator(context,
+                    (NereidsPlanner) planner, context.getStatsErrorEstimator()));
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QueryInfo(context, originStmt.originStmt, coord));
             coordBase = coord;
         } else {
-            coord = EnvFactory.getInstance().createCoordinator(
-                    context, planner, context.getStatsErrorEstimator());
+            setCoord(EnvFactory.getInstance().createCoordinator(
+                    context, planner, context.getStatsErrorEstimator()));
             profile.addExecutionProfile(coord.getExecutionProfile());
             QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                     new QueryInfo(context, originStmt.originStmt, coord));
@@ -1820,7 +1842,7 @@ public class StmtExecutor {
             LOG.warn(internalErrorSt.getErrorMsg());
             coordBase.cancel(internalErrorSt);
             // set to null so that the retry logic will generate a new coordinator
-            this.coord = null;
+            setCoord(null);
             throw e;
         } finally {
             // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
@@ -2137,8 +2159,8 @@ public class StmtExecutor {
             if (Config.enable_collect_internal_query_profile) {
                 context.getSessionVariable().enableProfile = true;
             }
-            coord = EnvFactory.getInstance().createCoordinator(context,
-                    planner, context.getStatsErrorEstimator());
+            setCoord(EnvFactory.getInstance().createCoordinator(context,
+                    planner, context.getStatsErrorEstimator()));
             profile.addExecutionProfile(coord.getExecutionProfile());
             try {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),

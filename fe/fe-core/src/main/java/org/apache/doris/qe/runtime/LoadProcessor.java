@@ -114,7 +114,10 @@ public class LoadProcessor extends AbstractJobProcessor {
             for (MultiFragmentsPipelineTask fragmentsTask : executionTask.get().getChildrenTasks().values()) {
                 fragmentsTask.cancelExecute(cancelReason);
             }
-            latch.get().countDownToZero(new Status());
+            // setPipelineExecutionTask publishes this task before afterSetPipelineExecutionTask builds the
+            // latch. A cancel that crosses that publication must not throw from an empty latch, which would
+            // escape the coordinator's cleanup scope and skip the queue/scan teardown.
+            latch.ifPresent(l -> l.countDownToZero(new Status()));
         }
     }
 

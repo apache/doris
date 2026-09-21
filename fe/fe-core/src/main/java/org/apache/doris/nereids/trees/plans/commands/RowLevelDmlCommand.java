@@ -140,7 +140,6 @@ public class RowLevelDmlCommand {
             applyWriteConstraintIfPresent(transform, insertExecutor, analyzedPlan, table);
             transform.finalizeSink(insertExecutor, op, fragment, dataSink, physicalSink);
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
-            stmtExecutor.setCoord(insertExecutor.getCoordinator());
         } catch (Throwable e) {
             // the abortTxn in onFail need to acquire table write lock
             insertExecutor.onFail(e);

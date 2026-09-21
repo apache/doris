@@ -122,8 +122,10 @@ public class TaskDisruptor implements Closeable {
      */
     public void tryPublishTask(Long taskId) throws JobException {
         if (isClosed) {
+            // Fail loudly: silently returning would leave the caller's already-registered task with no event
+            // to run or remove it.
             log.info("tryPublish failed, disruptor is closed, taskId: {}", taskId);
-            return;
+            throw new JobException("Disruptor is closed, cannot publish transient task: " + taskId);
         }
         // We reserve two slots in the ring buffer
         // to prevent it from becoming stuck due to competition between producers and consumers.
