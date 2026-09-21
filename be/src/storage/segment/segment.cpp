@@ -1178,7 +1178,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
     RETURN_IF_CATCH_EXCEPTION({
         RETURN_IF_ERROR(_load_pk_bloom_filter(stats, io_ctx));
         if (!_pk_index_reader->check_present(key_without_seq)) {
-            return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
+            return (Status::Error<ErrorCode::KEY_NOT_FOUND, false>(""));
         }
         RETURN_IF_ERROR(load_index(stats, io_ctx));
     });
