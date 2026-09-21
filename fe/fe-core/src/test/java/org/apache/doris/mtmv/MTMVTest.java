@@ -606,7 +606,6 @@ public class MTMVTest {
             mtmv.duringLazyBuild = mtmv::markDropped;
             MTMVCache generated = mtmv.getOrGenerateCache(mockConnectContext());
 
-            // The caller still gets a usable plan, but nothing survives in the Env-wide cache.
             Assertions.assertSame(builtPlan, generated);
             Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
             Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
@@ -615,7 +614,6 @@ public class MTMVTest {
 
     private HookedMTMV buildHookedMTMV() {
         HookedMTMV mtmv = configureMTMV(new HookedMTMV());
-        // Initialize ivmInfo, addTaskResult() dereferences it on success.
         mtmv.getIvmInfo();
         return mtmv;
     }
