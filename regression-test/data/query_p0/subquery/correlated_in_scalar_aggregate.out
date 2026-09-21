@@ -158,11 +158,11 @@
 7	\N
 
 -- !scalar_having_count_eq_0 --
-\N	\N
--1	\N
+\N	0
+-1	0
 1	\N
 2	\N
-7	\N
+7	0
 
 -- !scalar_having_count_gt_0 --
 \N	\N
@@ -186,6 +186,13 @@
 1	true
 2	false
 7	\N
+
+-- !not_in_nested_aggregation_not_null_group_key --
+2
+
+-- !in_window_below_the_correlated_predicate --
+1
+2
 
 -- !not_in_having_of_the_domain_aggregation --
 \N	\N

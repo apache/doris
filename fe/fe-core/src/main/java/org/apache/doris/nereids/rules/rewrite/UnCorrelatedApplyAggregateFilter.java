@@ -765,29 +765,44 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
      */
     private static LogicalAggregate<?> withTheKeysInTheGroupBy(LogicalAggregate<?> aggregate,
             List<? extends Expression> keys, Slot matchMarkerOfTheEmptyDomain,
-            boolean exposesTheMatchMarker) {
+            boolean exposesTheMatchMarker, Map<Expression, Expression> nullableInnerSlots,
+            boolean ignoresTheKeptRowOfAnEmptyDomain) {
         List<Expression> groupBy = Lists.newArrayList(keys);
-        groupBy.addAll(aggregate.getGroupByExpressions());
+        for (Expression groupByExpression : aggregate.getGroupByExpressions()) {
+            // the group by of an aggregate above the aggregation of the domain may read the columns
+            // of the inner side as well, and the left outer join of the domain reports them as
+            // nullable (see nullableInnerSlots)
+            groupBy.add(ExpressionUtils.replace(groupByExpression, nullableInnerSlots));
+        }
         if (matchMarkerOfTheEmptyDomain != null && exposesTheMatchMarker) {
             // The marker of the row which is kept for an empty domain is read by the guard of the
-            // aggregates above the aggregation of the domain and by the projections and the filters
-            // between the aggregates (see rebuildTheAggregationChain), so those aggregates expose it.
-            // The marker is null for the row which is kept for an empty domain, so the grouping of the
-            // rows of a correlation key does not change. The top aggregate does not expose it: the rows
-            // which it produces are the rows of the subquery, and the marker belongs to the rows below
-            // it (the aggregates above the aggregation of the domain read it from their own input).
+            // aggregates above the aggregation of the domain and by the filters between the
+            // aggregates (see rebuildTheAggregationChain), so those aggregates expose it. The marker
+            // is null for the row which is kept for an empty domain, so the grouping of the rows of a
+            // correlation key does not change. The top aggregate does not expose it: the rows which it
+            // produces are the rows of the subquery, and the marker belongs to the rows below it (the
+            // aggregates above the aggregation of the domain read it from their own input).
             groupBy.add(matchMarkerOfTheEmptyDomain);
         }
         List<NamedExpression> outputs = Lists.newArrayList();
-        if (matchMarkerOfTheEmptyDomain == null) {
-            outputs.addAll(aggregate.getOutputExpressions());
+        if (!ignoresTheKeptRowOfAnEmptyDomain) {
+            // The row which the rewrite keeps for an empty correlated domain is the row which the
+            // original subquery computes out of the empty input of the aggregation of the domain (its
+            // own guard makes that aggregation return the value of an empty input, see
+            // guardAggregateArguments), so the aggregates above it read the value which that row
+            // carries (the count 0 of
+            // select (select count(*) from t2 where t2.c1 = t1.c1 having count(*) = 0) from t1, for
+            // example). They read the columns of the inner side of the join through the nullable slots.
+            for (NamedExpression output : aggregate.getOutputExpressions()) {
+                outputs.add((NamedExpression) ExpressionUtils.replace(output, nullableInnerSlots));
+            }
         } else {
-            // The row which the rewrite keeps for a correlation key whose rows below the aggregation of
-            // the domain are missing reaches this aggregate as well (its marker is null for that row),
-            // and the aggregation of the original subquery computes the aggregate out of the empty
-            // input: the guard of the arguments makes the aggregates ignore that row, so that they
-            // return the value of an empty input for it (see guardAggregateArguments), which is the
-            // value the original subquery computes above this aggregate as well.
+            // The subquery produces no row for an empty correlated domain (a grouped aggregation of
+            // the domain reports an empty domain as "no row", and a HAVING clause which does not hold
+            // for the row of a global aggregation of the domain removes that row), so the aggregates
+            // above the aggregation of the domain ignore the row which the rewrite keeps for that
+            // domain: they return the value of their empty input for it (see guardAggregateArguments),
+            // which is the value the original subquery computes for the empty domain as well.
             Set<AggregateFunction> aggregates = Sets.newLinkedHashSet();
             for (NamedExpression output : aggregate.getOutputExpressions()) {
                 aggregates.addAll(output.collect(AggregateFunction.class::isInstance));
@@ -800,7 +815,8 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 return null;
             }
             for (NamedExpression output : aggregate.getOutputExpressions()) {
-                outputs.add((NamedExpression) ExpressionUtils.replace(output, compensated));
+                outputs.add((NamedExpression) ExpressionUtils.replace(
+                        (NamedExpression) ExpressionUtils.replace(output, compensated), nullableInnerSlots));
             }
         }
         keys.forEach(key -> outputs.add((NamedExpression) key));
@@ -2037,7 +2053,14 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         }
 
         List<Expression> newGroupBy = Lists.newArrayList(slotToKey.values());
-        newGroupBy.addAll(agg.getGroupByExpressions());
+        for (Expression groupByExpression : agg.getGroupByExpressions()) {
+            // The left outer join of the domain reports the columns of the inner side as nullable
+            // (see nullableInnerSlots), and a reference to a not nullable column of the inner side
+            // reaches the join from below it and makes AdjustNullable convert that reference, which
+            // is reported as an error while fe_debug is set: the group by of the new aggregation
+            // reads the columns of the join, so it reads the nullable versions.
+            newGroupBy.add(ExpressionUtils.replace(groupByExpression, nullableInnerSlots));
+        }
         List<NamedExpression> newOutputs = Lists.newArrayList();
         for (NamedExpression output : agg.getOutputExpressions()) {
             newOutputs.add((NamedExpression) ExpressionUtils.replace(
@@ -2073,6 +2096,20 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                     ExpressionUtils.replace(ExpressionUtils.replace(conjunct, compensated), slotToKey),
                     nullableInnerSlots));
         }
+        // The aggregates above the aggregation of the domain read the rows of the subquery for the
+        // correlation key of an outer row, and the row which the rewrite keeps for a key whose rows
+        // below that aggregation are missing has to be ignored by them exactly when the subquery
+        // produces no row for the empty domain of that key: a grouped aggregation of the domain reports
+        // an empty domain as "no row" (the row which the rewrite keeps for it builds a group of its
+        // own), and the row which a global aggregation of the domain returns for an empty domain is
+        // removed by a HAVING clause which does not hold for it. Otherwise the kept row is the row
+        // which the original subquery computes out of the empty input, and the aggregates above the
+        // aggregation of the domain return the value of that row (the count 0 of
+        // select (select count(*) from t2 where t2.c1 = t1.c1 having count(*) = 0) from t1, for
+        // example).
+        boolean ignoresTheKeptRowOfAnEmptyDomain = matchMarker != null
+                && (!agg.getGroupByExpressions().isEmpty()
+                        || !havingMayHoldWithEmptyInput(agg, Sets.newLinkedHashSet(havingPredicates)));
         Map<LogicalAggregate<?>, Plan> newAggregations = new IdentityHashMap<>();
         for (LogicalAggregate<?> aggregate : aggregation.aggregationChain()) {
             if (aggregate == agg) {
@@ -2086,7 +2123,8 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // that the aggregate above them can group by them)
             LogicalAggregate<?> withTheKeys = withTheKeysInTheGroupBy(aggregate, keyExpressions,
                     keepsTheRowOfAnEmptyDomain ? matchMarker : null,
-                    aggregate != aggregation.topAggregation());
+                    aggregate != aggregation.topAggregation(), nullableInnerSlots,
+                    ignoresTheKeptRowOfAnEmptyDomain);
             if (withTheKeys == null) {
                 // an aggregate above the aggregation of the domain cannot be guarded, so the row which
                 // is kept for an empty domain would contribute to it

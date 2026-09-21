@@ -148,19 +148,29 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             // read that value from a scan which does not produce it.
             validateTheNodesOfTheSubqueryReadTheOuterSlotsThroughFilters(analyzedResult.getLogicalPlan(),
                     new CorrelatedSlotsValidator(ImmutableSet.copyOf(analyzedResult.correlatedSlots)));
-            if (containsAWindow(analyzedResult.getLogicalPlan())) {
+            if (containsAWindowAboveTheCorrelatedPredicate(analyzedResult.getLogicalPlan(),
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots))) {
                 // The rewrite reads the value which the IN compares from the aggregation of the domain
                 // of an outer row (the aggregation of the rewrite groups the rows of one correlation
                 // key), so the nodes of the subquery which sit above the correlated predicate are
                 // evaluated on the rows of one domain. A window is evaluated on the rows of the node
-                // it sits in, so the window of the rewrite is evaluated over the rows of every
-                // correlation key together, while the window of the subquery of the query is
-                // evaluated over the rows of one domain: the subquery of
+                // it sits in, so a window above the correlated predicate of the rewrite is evaluated
+                // over the rows of every correlation key together, while that window of the subquery
+                // of the query is evaluated over the rows of one domain: the subquery of
                 //
                 //     select k from o where k in (
                 //         select sum(i.g) over () from i where i.k = o.k group by i.g)
                 //
-                // is reported as unsupported for that reason.
+                // is reported as unsupported for that reason. A window below the correlated
+                // predicate is evaluated before that predicate selects the rows of the domain in the
+                // plan of the query as well, so the rewrite leaves its evaluation domain unchanged
+                // and the subquery of
+                //
+                //     select k from o where k in (
+                //         select rn from (select k, row_number() over (order by k) as rn from i) x
+                //         where x.k = o.k)
+                //
+                // is accepted.
                 throw new AnalysisException(
                         "access outer query's column before window function is not supported "
                                 + analyzedResult.getLogicalPlan());
@@ -614,14 +624,35 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
     }
 
-    /** whether a node of the plan of the subquery computes a window (see visitInSubquery) */
-    private static boolean containsAWindow(Plan plan) {
-        boolean containsAWindowExpression = plan.getExpressions().stream()
-                .anyMatch(expression -> expression.containsType(WindowExpression.class));
-        if (plan instanceof LogicalWindow || containsAWindowExpression) {
+    /**
+     * Whether a window of the subtree is evaluated on the rows of the correlated domain of one outer
+     * row (see visitInSubquery): that is the case for a window which sits above the correlated
+     * predicate, whose rows the predicate selects below it. A window below the correlated predicate
+     * is evaluated on the rows of the node it sits in before the predicate selects the rows of the
+     * domain of an outer row, and the rewrite keeps that node as it is.
+     */
+    private static boolean containsAWindowAboveTheCorrelatedPredicate(Plan plan, Set<Slot> correlatedSlots) {
+        if (computesAWindow(plan) && plan.children().stream()
+                .anyMatch(child -> subtreeReadsTheCorrelatedSlots(child, correlatedSlots))) {
             return true;
         }
-        return plan.children().stream().anyMatch(SubExprAnalyzer::containsAWindow);
+        return plan.children().stream()
+                .anyMatch(child -> containsAWindowAboveTheCorrelatedPredicate(child, correlatedSlots));
+    }
+
+    /** whether a node of the plan computes a window (a window node or a projection over a window) */
+    private static boolean computesAWindow(Plan plan) {
+        return plan instanceof LogicalWindow || plan.getExpressions().stream()
+                .anyMatch(expression -> expression.containsType(WindowExpression.class));
+    }
+
+    /** whether a node of the subtree reads a slot of the outer query */
+    private static boolean subtreeReadsTheCorrelatedSlots(Plan plan, Set<Slot> correlatedSlots) {
+        if (plan.getInputSlots().stream().anyMatch(correlatedSlots::contains)) {
+            return true;
+        }
+        return plan.children().stream()
+                .anyMatch(child -> subtreeReadsTheCorrelatedSlots(child, correlatedSlots));
     }
 
     /**

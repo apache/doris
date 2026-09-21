@@ -244,6 +244,30 @@ suite("correlated_in_scalar_aggregate") {
         SELECT o.k, o.k IN (SELECT max(c) FROM (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x) AS v
         FROM cisa_o o ORDER BY o.k
     """
+    // The group by of the aggregation of the derived table may read a column which is declared not
+    // null: the left outer join of the rewrite (it keeps the row of an empty correlated domain)
+    // reports that column as nullable, so the group by of the new aggregation and the group by of
+    // the aggregations above it have to read the nullable version of it as well (a plan which keeps
+    // the not nullable column and its nullable version with one ExprId reports an error while
+    // fe_debug is set)
+    sql "DROP TABLE IF EXISTS cisa_nn"
+    sql """
+        CREATE TABLE IF NOT EXISTS cisa_nn (
+            k INT NULL,
+            g INT NOT NULL
+        ) ENGINE = OLAP
+        DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+    """
+    sql "INSERT INTO cisa_nn VALUES (1, 10), (2, 10), (5, 20)"
+    sql "set fe_debug = true"
+    order_qt_not_in_nested_aggregation_not_null_group_key """
+        SELECT o.k FROM cisa_o o
+        WHERE o.k NOT IN (SELECT max(c) FROM (SELECT count(*) AS c FROM cisa_nn i WHERE i.k = o.k GROUP BY i.g) x)
+        ORDER BY o.k
+    """
+    sql "set fe_debug = false"
     // an IN subquery whose select list reads the outer query cannot be unnested: the rewrite reads
     // the value it compares from the aggregation of the domain, which cannot aggregate the value of
     // the outer row
@@ -260,6 +284,16 @@ suite("correlated_in_scalar_aggregate") {
                 " (SELECT sum(i.g) OVER () FROM cisa_i i WHERE i.k = o.k GROUP BY i.g)"
         exception "access outer query's column before window function is not supported"
     }
+    // A window below the correlated predicate instead is evaluated before that predicate selects the
+    // rows of the domain of an outer row in the plan of the query as well, so the rewrite keeps its
+    // evaluation domain: the row number of an inner row is its position in the whole inner table,
+    // and the outer row whose key equals that number is the row which the IN keeps
+    order_qt_in_window_below_the_correlated_predicate """
+        SELECT o.k FROM cisa_o o
+        WHERE o.k IN (SELECT rn FROM (SELECT k, row_number() OVER (ORDER BY k) AS rn FROM cisa_i
+            WHERE k IS NOT NULL) x WHERE x.k = o.k)
+        ORDER BY o.k
+    """
     // The limit of the derived table keeps one row of the rows of the correlation key of an outer
     // row, and the lateral view of the derived table explodes the arrays of the rows of that key: the
     // rewrite reads the value which the IN compares from the aggregation of the domain of an outer
