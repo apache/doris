@@ -426,13 +426,20 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
                 _context.tablet->get_rowset_by_ids(_context.mow_context->rowset_ids.get());
     }
 
+    RowsetSharedPtr streamed_rowset;
+    if (_seg_files.get(segment_id) == nullptr) {
+        // Streamed files are closed by LoadStreamWriter. Snapshot their packed mappings on
+        // its serial receive thread before later file closes mutate the shared rowset meta.
+        RETURN_IF_ERROR(_build_tmp(streamed_rowset, segment_id));
+    }
+
     // Submit the entire delete bitmap calculation process to thread pool for async execution
     // This avoids blocking memtable flush thread while waiting for file upload to complete
     // The process includes: file_writer->close(), _build_tmp, load_segments, and calc_delete_bitmap
     const auto submit_time_us = MonotonicMicros();
     return _calc_delete_bitmap_token->submit_func([this, segment_id,
                                                    specified_rowsets = std::move(specified_rowsets),
-                                                   submit_time_us]() -> Status {
+                                                   submit_time_us, streamed_rowset]() -> Status {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
         Status st = Status::OK();
         // Step 1: Close file_writer (must be done before load_segments)
@@ -457,10 +464,9 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
 
         OlapStopWatch watch;
         // Step 2: Build tmp rowset (needs file_writer to be closed)
-        RowsetSharedPtr rowset_ptr;
-        st = _build_tmp(rowset_ptr, segment_id);
-        if (!st.ok()) {
-            return st;
+        RowsetSharedPtr rowset_ptr = streamed_rowset;
+        if (rowset_ptr == nullptr) {
+            RETURN_IF_ERROR(_build_tmp(rowset_ptr, segment_id));
         }
 
         // Step 3: Load segments (needs file_writer to be closed and rowset to be built)
