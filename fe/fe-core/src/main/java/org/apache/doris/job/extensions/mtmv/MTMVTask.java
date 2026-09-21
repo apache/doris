@@ -63,6 +63,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -333,7 +334,8 @@ public class MTMVTask extends AbstractTask {
             Map<TableIf, String> tableWithPartKey, ConnectContext taskContext)
             throws Exception {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        StatementContext statementContext = new StatementContext();
+        StatementContext statementContext = new StatementContext(
+                ctx, new OriginStatement(mtmv.getQuerySql(), 0));
         ctx.setStatementContext(statementContext);
         executor = null;
         try {
@@ -347,7 +349,7 @@ public class MTMVTask extends AbstractTask {
             UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                     .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                             ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
-            executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
+            executor = createExecutor(ctx, command, statementContext);
             ctx.setExecutor(executor);
             ctx.setQueryId(queryId);
             ctx.getState().setNereids(true);
@@ -369,6 +371,14 @@ public class MTMVTask extends AbstractTask {
                 closeExecutionContext(ctx, taskContext);
             }
         }
+    }
+
+    private static StmtExecutor createExecutor(ConnectContext ctx, UpdateMvByPartitionCommand command,
+            StatementContext statementContext) {
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(command, statementContext);
+        // StmtExecutor copies the adapter origin back into StatementContext during construction.
+        adapter.setOrigStmt(statementContext.getOriginStatement());
+        return new StmtExecutor(ctx, adapter);
     }
 
     private static void closeExecutionContext(ConnectContext ctx) {
