@@ -1059,6 +1059,16 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
+    public Map<String, MTMVSnapshotIf> getPartitionSnapshots(Set<String> partitionNames,
+            MTMVRefreshContext context, Optional<MvccSnapshot> snapshot) throws AnalysisException {
+        makeSureInitialized();
+        if (dlaTable instanceof HiveDlaTable) {
+            return ((HiveDlaTable) dlaTable).getPartitionSnapshots(partitionNames, snapshot);
+        }
+        return MTMVRelatedTableIf.super.getPartitionSnapshots(partitionNames, context, snapshot);
+    }
+
+    @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, Optional<MvccSnapshot> snapshot)
             throws AnalysisException {
         makeSureInitialized();
