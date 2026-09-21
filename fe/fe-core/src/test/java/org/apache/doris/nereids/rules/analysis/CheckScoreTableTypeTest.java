@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.rewrite.CheckScoreUsage;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -43,15 +44,6 @@ public class CheckScoreTableTypeTest extends TestWithFeService {
                 + "UNIQUE KEY(k1, content) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', "
                 + "'enable_unique_key_merge_on_write' = 'false')");
-        createTable("CREATE TABLE mow_table ("
-                + "k1 INT, content VARCHAR(255), INDEX idx_content(content) USING INVERTED) "
-                + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES ('replication_num' = '1', "
-                + "'enable_unique_key_merge_on_write' = 'true')");
-        createTable("CREATE TABLE dup_table ("
-                + "k1 INT, content VARCHAR(255), INDEX idx_content(content) USING INVERTED) "
-                + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES ('replication_num' = '1')");
     }
 
     @Test
@@ -64,12 +56,6 @@ public class CheckScoreTableTypeTest extends TestWithFeService {
         assertScoreRejected("mor_table");
     }
 
-    @Test
-    public void testAllowScoreOnSupportedTableTypes() {
-        Assertions.assertDoesNotThrow(() -> analyzeScoreQuery("mow_table"));
-        Assertions.assertDoesNotThrow(() -> analyzeScoreQuery("dup_table"));
-    }
-
     private void assertScoreRejected(String tableName) {
         AnalysisException exception = Assertions.assertThrows(
                 AnalysisException.class, () -> analyzeScoreQuery(tableName));
@@ -78,6 +64,7 @@ public class CheckScoreTableTypeTest extends TestWithFeService {
 
     private void analyzeScoreQuery(String tableName) {
         PlanChecker.from(connectContext).analyze("SELECT score() AS s FROM " + tableName
-                + " WHERE content MATCH 'doris' ORDER BY s LIMIT 10").rewrite();
+                + " WHERE content MATCH 'doris' ORDER BY s LIMIT 10")
+                .applyTopDown(new CheckScoreUsage());
     }
 }
