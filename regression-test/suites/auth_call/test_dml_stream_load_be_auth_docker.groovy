@@ -61,7 +61,7 @@ suite("test_dml_stream_load_be_auth_off_docker", "docker,auth_call") {
 
         def parseCurlResult = { String out, String err ->
             def lines = out.readLines()
-            assertTrue("curl output should include http code, output=${out}, err=${err}", !lines.isEmpty())
+            assertTrue(!lines.isEmpty(), "curl output should include http code, output=${out}, err=${err}")
             def httpCode = lines.last() as int
             def body = lines.size() == 1 ? "" : lines[0..-2].join("\n")
             return [httpCode, body, err]
@@ -108,7 +108,7 @@ suite("test_dml_stream_load_be_auth_off_docker", "docker,auth_call") {
         def assertLoadFailed = { def result ->
             assertEquals(200, result[0])
             def json = parseJson(result[1])
-            assertTrue("stream load should fail, body=${result[1]}", json.Status != "Success")
+            assertTrue(json.Status != "Success", "stream load should fail, body=${result[1]}")
         }
 
         def assertLoadSuccess = { def result ->
@@ -207,7 +207,7 @@ suite("test_dml_stream_load_be_auth_on_docker", "docker,auth_call") {
 
         def parseCurlResult = { String out, String err ->
             def lines = out.readLines()
-            assertTrue("curl output should include http code, output=${out}, err=${err}", !lines.isEmpty())
+            assertTrue(!lines.isEmpty(), "curl output should include http code, output=${out}, err=${err}")
             def httpCode = lines.last() as int
             def body = lines.size() == 1 ? "" : lines[0..-2].join("\n")
             return [httpCode, body, err]
@@ -254,7 +254,7 @@ suite("test_dml_stream_load_be_auth_on_docker", "docker,auth_call") {
         def assertLoadFailed = { def result ->
             assertEquals(200, result[0])
             def json = parseJson(result[1])
-            assertTrue("stream load should fail, body=${result[1]}", json.Status != "Success")
+            assertTrue(json.Status != "Success", "stream load should fail, body=${result[1]}")
         }
 
         def assertLoadSuccess = { def result ->

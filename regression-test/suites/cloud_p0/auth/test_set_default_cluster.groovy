@@ -43,7 +43,7 @@ suite("test_default_cluster", "docker") {
         // admin role
         def user2 = "default_user2"
         // The Docker client address depends on the network allocated to this run.
-        def clientHost = (sql "SELECT USER()")[0][0].toString().split('@').last()
+        def clientHost = (sql "SELECT USER()")[0][0].toString().split('@').last().replace("'", "")
         assertTrue(clientHost ==~ /[0-9A-Za-z.:_-]+/, "Unexpected Docker client host: ${clientHost}")
         def user3 = "default_user3@'${clientHost}'"
 
