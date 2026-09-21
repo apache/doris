@@ -48,6 +48,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "format/format_common.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/iceberg_default_value.h"
@@ -56,6 +57,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_scan_common.h"
@@ -1648,6 +1650,69 @@ TEST_F(IcebergReaderTest, rejects_missing_required_nested_field_before_parquet_l
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("required_added"), std::string::npos);
     EXPECT_NE(status.to_string().find("has no initial default"), std::string::npos);
+}
+
+// An inflated size breaks footer reads, proving the v1 position-delete path consumes the FE file_size.
+TEST_F(IcebergReaderTest, v1_position_delete_consumes_delete_file_size) {
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path("data.parquet");
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(0);
+
+    RuntimeProfile profile("test_profile");
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+
+    IcebergParquetReader iceberg_reader(nullptr, &profile, &runtime_state, scan_params, scan_range,
+                                        &kv_cache, &io_ctx, cache.get());
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(IcebergTableReader::POSITION_DELETE);
+    delete_file.__set_path(mixed_position_delete_file());
+    delete_file.__set_file_size(1 << 30); // wrong on purpose: must reach the reader
+
+    const auto status =
+            iceberg_reader.TEST_position_delete_base("file:///tmp/data.parquet", {delete_file});
+
+    ASSERT_FALSE(status.ok());
+}
+
+// An inflated size must break the read, proving the v1 equality-delete path consumes the FE file_size.
+TEST_F(IcebergReaderTest, v1_equality_delete_consumes_delete_file_size) {
+    RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+
+    TFileRangeDesc scan_range;
+    scan_range.__set_fs_name("");
+    scan_range.__set_path("data.parquet");
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(0);
+
+    RuntimeProfile profile("test_profile");
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+
+    IcebergParquetReader iceberg_reader(nullptr, &profile, &runtime_state, scan_params, scan_range,
+                                        &kv_cache, &io_ctx, cache.get());
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(IcebergTableReader::EQUALITY_DELETE);
+    delete_file.__set_path(mixed_position_delete_file());
+    delete_file.__set_field_ids({0});
+    delete_file.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    delete_file.__set_file_size(1 << 30); // wrong on purpose: must reach the reader
+
+    const auto status = iceberg_reader.TEST_read_equality_delete_file(delete_file);
+
+    ASSERT_FALSE(status.ok());
 }
 
 // Test reading real Iceberg Orc file using IcebergTableReader
