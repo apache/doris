@@ -169,9 +169,12 @@ class RegressionTest {
         // own polling thread opened a fresh connection that nothing closed when that thread died with
         // the await(): one connection leaked on the frontend per await(), held until the client JVM
         // garbage-collected it, and enough of them at once reach the user's max_user_connections.
-        // Polled on the suite thread, the condition reuses the suite's connection. The trade-off - an
-        // atMost() cannot interrupt a condition that blocks - is bounded by the timeouts of the
-        // statements a condition runs.
+        // Polled on the suite thread, the condition reuses the suite's connection. The trade-off: an
+        // atMost() no longer bounds a condition that blocks - the poll runs to completion before the
+        // bound is checked. A condition that runs statements is bounded by their timeouts (the
+        // frontend's query_timeout, the framework's socketTimeout); a condition that waits on
+        // anything else has to bound that wait itself, as SuiteCluster does for its doris-compose
+        // subprocesses.
         Awaitility.pollInSameThread()
         classloader = new GroovyClassLoader()
         compileConfig = new CompilerConfiguration()
