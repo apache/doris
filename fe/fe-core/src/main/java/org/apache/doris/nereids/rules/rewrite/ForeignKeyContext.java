@@ -51,21 +51,43 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Record Foreign Key Context
+ * Tracks declared PK/FK constraints and the scan-slot lineage needed to eliminate PK/FK joins.
+ *
+ * <p>A declared key is useful only while all of its slots still represent one complete relation
+ * instance. Aliases preserve that lineage, whereas operators such as joins and limits invalidate
+ * the primary-key slots they output.
  */
 public class ForeignKeyContext {
+    /** Exact foreign-to-primary column mappings used after matching join slots. */
     Set<Map<QualifiedColumn, QualifiedColumn>> constraints = new HashSet<>();
-    Set<Set<QualifiedColumn>> declaredPrimaryKeys = new HashSet<>();
-    Map<Slot, PrimaryKeyProof> slotToPrimaryKeyProof = new HashMap<>();
+    /** Foreign-side column sets indexed for the frequent isForeignKey membership check. */
+    Set<Set<QualifiedColumn>> foreignKeyColumnSets = new HashSet<>();
+    /** Declared primary keys; each column includes its owning table identity. */
+    Set<Set<QualifiedColumn>> primaryKeys = new HashSet<>();
+    /** Scan PK slots and their direct aliases that have not been expired by a row-changing plan. */
+    Set<Slot> activePrimaryKeySlots = new HashSet<>();
+    /** Original table column represented by each scan slot or direct alias. */
     Map<Slot, QualifiedColumn> slotToColumn = new HashMap<>();
+    /** Scan instance that produced each slot; table identity alone cannot distinguish self-joins. */
     Map<Slot, RelationId> slotToRelationId = new HashMap<>();
+    /** Filter conjuncts accumulated for each slot and rewritten through direct aliases. */
     Map<Slot, Set<Expression>> slotWithPredicates = new HashMap<>();
 
     /**
-     * Collect Foreign Key Constraint From this Plan
+     * Collect declared constraints, slot lineage, and predicates by visiting the plan bottom-up.
+     * A scan activates a declared primary key only when it reads the complete relation. Projects
+     * and filters retain the relevant proof; other operators expire primary-key output slots.
+     *
+     * @param plan root of the plan whose PK/FK join may be eliminated
+     * @return this context, populated with the plan's constraint information
      */
     public ForeignKeyContext collectForeignKeyConstraint(Plan plan) {
         plan.accept(new DefaultPlanVisitor<Void, ForeignKeyContext>() {
+            /**
+             * Visit children first, then expire PK status for this operator's output. Only the
+             * dedicated project and filter visitors preserve PK slots, so joins and limits cannot
+             * accidentally pass a scan proof to a parent join.
+             */
             @Override
             public Void visit(Plan plan, ForeignKeyContext context) {
                 super.visit(plan, context);
@@ -76,6 +98,10 @@ public class ForeignKeyContext {
                 return null;
             }
 
+            /**
+             * Register declared keys and original slot lineage at a catalog scan. Non-catalog
+             * relations have no table constraint metadata and contribute nothing to this context.
+             */
             @Override
             public Void visitLogicalRelation(LogicalRelation relation, ForeignKeyContext context) {
                 if (relation instanceof LogicalCatalogRelation) {
@@ -87,6 +113,10 @@ public class ForeignKeyContext {
                 return null;
             }
 
+            /**
+             * Visit the child, then copy lineage only for aliases whose child is already a slot.
+             * Computed expressions are not interchangeable with the original constrained column.
+             */
             @Override
             public Void visitLogicalProject(LogicalProject<?> project, ForeignKeyContext context) {
                 super.visit(project, context);
@@ -98,6 +128,10 @@ public class ForeignKeyContext {
                 return null;
             }
 
+            /**
+             * Visit the child, then record visible conjuncts for its tracked output slots. A
+             * parent PK/FK join can be removed only if its foreign side implies these filters.
+             */
             @Override
             public Void visitLogicalFilter(LogicalFilter<?> filter, ForeignKeyContext context) {
                 super.visit(filter, context);
@@ -108,6 +142,13 @@ public class ForeignKeyContext {
         return this;
     }
 
+    /**
+     * Load a table's declared foreign-key mappings and index their column sets for membership
+     * checks. Different mappings with the same foreign columns remain in {@code constraints} for
+     * the later exact foreign-to-primary mapping check.
+     *
+     * @param table catalog table whose FK declarations should be registered
+     */
     void putAllForeignKeys(TableIf table) {
         TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
         if (tableNameInfo == null) {
@@ -122,9 +163,17 @@ public class ForeignKeyContext {
                             entry -> new QualifiedColumn(
                                     referencedTable, referencedTable.getColumn(entry.getValue()))));
             constraints.add(constraint);
+            foreignKeyColumnSets.add(constraint.keySet());
         }
     }
 
+    /**
+     * Load a table's declared primary-key column sets. The declaration is trusted as metadata;
+     * whether a particular scan can use it is decided separately by
+     * {@link #canActivatePrimaryKey(LogicalCatalogRelation)}.
+     *
+     * @param table catalog table whose PK declarations should be registered
+     */
     void putAllPrimaryKeys(TableIf table) {
         TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(table);
         if (tableNameInfo == null) {
@@ -135,33 +184,48 @@ public class ForeignKeyContext {
             Set<QualifiedColumn> primaryKey = c.getPrimaryKeys(table).stream()
                     .map(column -> new QualifiedColumn(table, column))
                     .collect(ImmutableSet.toImmutableSet());
-            declaredPrimaryKeys.add(primaryKey);
+            primaryKeys.add(primaryKey);
         }
     }
 
-    /** Return whether the slots form one declared foreign key from a single relation instance. */
+    /**
+     * Check that the slots are exactly one declared foreign key from one relation instance.
+     * Matching only table-qualified columns would incorrectly combine components from two aliases
+     * of the same table; {@code slotToRelationId} prevents that combination.
+     *
+     * @param key candidate foreign-side join slots
+     * @return true only for a complete declared FK from one scan instance
+     */
     public boolean isForeignKey(Set<Slot> key) {
+        return matchesDeclaredKey(key, foreignKeyColumnSets);
+    }
+
+    /**
+     * Check that all slots still have an active scan proof and form a complete declared primary
+     * key of one relation instance. Alias combinations are checked without storing every variant.
+     *
+     * @param key candidate primary-side join slots
+     * @return true only while a complete declared PK remains active
+     */
+    public boolean isPrimaryKey(Set<Slot> key) {
+        return activePrimaryKeySlots.containsAll(key) && matchesDeclaredKey(key, primaryKeys);
+    }
+
+    /**
+     * Match a slot set against declared keys without collapsing repeated columns or mixing
+     * relation instances. The size comparison rejects two aliases of one component being treated
+     * as two distinct components of a composite key.
+     *
+     * @param key candidate slots from a join condition
+     * @param declaredKeys table-qualified PK or FK column sets
+     * @return true if the slots exactly match one declared key from one scan instance
+     */
+    private boolean matchesDeclaredKey(Set<Slot> key, Set<Set<QualifiedColumn>> declaredKeys) {
         if (key.isEmpty()) {
             return false;
         }
         RelationId relationId = slotToRelationId.get(key.iterator().next());
-        Set<QualifiedColumn> columns = key.stream()
-                .map(slotToColumn::get)
-                .collect(Collectors.toSet());
-        return relationId != null
-                && key.stream().allMatch(slot -> relationId.equals(slotToRelationId.get(slot)))
-                && key.size() == columns.size()
-                && !columns.contains(null)
-                && constraints.stream().anyMatch(constraint -> constraint.keySet().equals(columns));
-    }
-
-    /** Return whether the slots form a complete primary key whose relation proof is still active. */
-    public boolean isPrimaryKey(Set<Slot> key) {
-        if (key.isEmpty()) {
-            return false;
-        }
-        PrimaryKeyProof proof = slotToPrimaryKeyProof.get(key.iterator().next());
-        if (proof == null || key.stream().anyMatch(slot -> slotToPrimaryKeyProof.get(slot) != proof)) {
+        if (relationId == null || key.stream().anyMatch(slot -> !relationId.equals(slotToRelationId.get(slot)))) {
             return false;
         }
         Set<QualifiedColumn> columns = key.stream()
@@ -169,9 +233,16 @@ public class ForeignKeyContext {
                 .collect(Collectors.toSet());
         return key.size() == columns.size()
                 && !columns.contains(null)
-                && proof.columns.equals(columns);
+                && declaredKeys.contains(columns);
     }
 
+    /**
+     * Register each scan slot's table column and relation instance, then activate the slots of
+     * complete declared primary keys when scan selectors still cover the full relation.
+     *
+     * @param relation catalog scan contributing the slots and relation identity
+     * @param table catalog table containing the declared columns
+     */
     void putSlots(LogicalCatalogRelation relation, TableIf table) {
         Map<QualifiedColumn, Slot> columnToSlot = new HashMap<>();
         for (Slot slot : relation.getOutput()) {
@@ -185,33 +256,35 @@ public class ForeignKeyContext {
             columnToSlot.put(qualifiedColumn, slot);
         }
 
-        for (Set<QualifiedColumn> declaredPrimaryKey : declaredPrimaryKeys) {
-            if (!columnToSlot.keySet().containsAll(declaredPrimaryKey)) {
+        for (Set<QualifiedColumn> primaryKey : primaryKeys) {
+            if (!columnToSlot.keySet().containsAll(primaryKey) || !canActivatePrimaryKey(relation)) {
                 continue;
             }
-            Set<Slot> primaryKey = declaredPrimaryKey.stream()
+            Set<Slot> primaryKeySlots = primaryKey.stream()
                     .map(columnToSlot::get)
                     .collect(ImmutableSet.toImmutableSet());
-            if (canActivatePrimaryKey(relation, primaryKey)) {
-                PrimaryKeyProof proof = new PrimaryKeyProof(declaredPrimaryKey);
-                for (Slot slot : primaryKey) {
-                    slotToPrimaryKeyProof.put(slot, proof);
-                }
-            }
+            activePrimaryKeySlots.addAll(primaryKeySlots);
         }
     }
 
-    boolean canActivatePrimaryKey(LogicalCatalogRelation relation, Set<Slot> primaryKey) {
-        if (!relation.getLogicalProperties().getTrait().isUnique(primaryKey)) {
-            return false;
-        }
+    /**
+     * Determine whether a scan reads the full relation described by its declared primary key.
+     * This checks scan selectors and duplicate-producing scan modes, not the data trait's inferred
+     * uniqueness: PK constraints are declarative assumptions, and a trait check is not a
+     * validation of stored data.
+     *
+     * @param relation scan whose output is compared with the declared table relation
+     * @return true if no known scan selector or mode invalidates the PK proof
+     */
+    boolean canActivatePrimaryKey(LogicalCatalogRelation relation) {
         if (relation instanceof LogicalOlapScan) {
             LogicalOlapScan scan = (LogicalOlapScan) relation;
             return new HashSet<>(scan.getSelectedPartitionIds()).equals(
                             new HashSet<>(scan.getTable().getPartitionIds()))
                     && scan.getSelectedTabletIds().isEmpty()
                     && !scan.getTableSample().isPresent()
-                    && !scan.isDirectMvScan();
+                    && !scan.isDirectMvScan()
+                    && !scan.isDuplicateProducingScanMode();
         }
         if (relation instanceof LogicalFileScan) {
             LogicalFileScan scan = (LogicalFileScan) relation;
@@ -226,12 +299,19 @@ public class ForeignKeyContext {
         return true;
     }
 
+    /**
+     * Propagate column identity, relation identity, active PK status, and rewritten predicates
+     * from a direct slot alias. An alias of a computed expression carries none of this lineage.
+     *
+     * @param newSlot output slot introduced by a direct alias
+     * @param originSlot input slot referenced by that alias
+     */
     void putAlias(Slot newSlot, Slot originSlot) {
         if (slotToColumn.containsKey(originSlot)) {
             slotToColumn.put(newSlot, slotToColumn.get(originSlot));
             slotToRelationId.put(newSlot, slotToRelationId.get(originSlot));
-            if (slotToPrimaryKeyProof.containsKey(originSlot)) {
-                slotToPrimaryKeyProof.put(newSlot, slotToPrimaryKeyProof.get(originSlot));
+            if (activePrimaryKeySlots.contains(originSlot)) {
+                activePrimaryKeySlots.add(newSlot);
             }
             if (slotWithPredicates.containsKey(originSlot)) {
                 Set<Expression> aliasPredicates = slotWithPredicates.get(originSlot).stream()
@@ -243,6 +323,13 @@ public class ForeignKeyContext {
         }
     }
 
+    /**
+     * Recognize internal delete-sign predicates, which filter hidden storage rows rather than
+     * impose a user-visible restriction that must be matched on the foreign-key side.
+     *
+     * @param expression filter conjunct to inspect
+     * @return true if it references a storage delete-sign column
+     */
     private boolean isHiddenConjunct(Expression expression) {
         for (Slot slot : expression.getInputSlots()) {
             if (slot instanceof SlotReference
@@ -254,6 +341,12 @@ public class ForeignKeyContext {
         return false;
     }
 
+    /**
+     * Associate each tracked output slot with the filter's visible conjuncts. Hidden delete-sign
+     * predicates are omitted because they are internal storage filtering, not a join restriction.
+     *
+     * @param filter logical filter whose conjuncts apply to its output slots
+     */
     private void addFilter(LogicalFilter<?> filter) {
         for (Slot s : filter.getOutput()) {
             if (slotToColumn.containsKey(s)) {
@@ -267,29 +360,42 @@ public class ForeignKeyContext {
         }
     }
 
+    /**
+     * Expire primary-key status for this operator's output slots. The declared constraint and FK
+     * lineage remain available, but a parent join can no longer use these slots as a PK proof.
+     *
+     * @param plan operator whose output is no longer known to preserve a complete PK relation
+     */
     private void expirePrimaryKey(Plan plan) {
-        slotToPrimaryKeyProof.keySet().removeIf(plan.getOutputSet()::contains);
-    }
-
-    int activePrimaryKeySlotCount() {
-        return slotToPrimaryKeyProof.size();
-    }
-
-    long activePrimaryKeyProofCount() {
-        return slotToPrimaryKeyProof.values().stream().distinct().count();
+        activePrimaryKeySlots.removeAll(plan.getOutputSet());
     }
 
     /**
-     * Check whether the given mapping relation satisfies any constraints
+     * Count active PK slots, including direct aliases. This test hook verifies that aliasing a
+     * composite key adds one slot entry per alias rather than enumerating every key combination.
+     *
+     * @return number of active PK slot entries
+     */
+    int activePrimaryKeySlotCount() {
+        return activePrimaryKeySlots.size();
+    }
+
+    /**
+     * Check whether a complete primary-to-foreign slot mapping matches a declared FK constraint.
+     * Before comparing the exact column mapping, require foreign-side filters to imply the
+     * primary-side filters after substituting corresponding join slots.
+     *
+     * @param primaryToForeign primary-side join slot to corresponding foreign-side slot
+     * @return true if the mapping and predicates satisfy one declared FK constraint
      */
     public boolean satisfyConstraint(Map<Slot, Slot> primaryToForeign) {
+        if (primaryToForeign.isEmpty()) {
+            return false;
+        }
         Map<QualifiedColumn, QualifiedColumn> foreignToPrimary = primaryToForeign.entrySet().stream()
                 .collect(ImmutableMap.toImmutableMap(
                         e -> slotToColumn.get(e.getValue()),
                         e -> slotToColumn.get(e.getKey())));
-        if (primaryToForeign.isEmpty()) {
-            return false;
-        }
         // The foreign key's filters must contain primary filters
         if (!isPredicateCompatible(primaryToForeign)) {
             return false;
@@ -297,7 +403,14 @@ public class ForeignKeyContext {
         return constraints.contains(foreignToPrimary);
     }
 
-    // When predicates of foreign keys is a subset of that of primary keys
+    /**
+     * Require each primary-side predicate to appear on its corresponding foreign-side slot.
+     * Rewriting the primary predicate through the join mapping lets expression equality compare
+     * the two sides in the same slot namespace.
+     *
+     * @param primaryToForeign primary-side join slot to corresponding foreign-side slot
+     * @return true if every primary-side predicate also holds on the foreign side
+     */
     private boolean isPredicateCompatible(Map<Slot, Slot> primaryToForeign) {
         return primaryToForeign.entrySet().stream().allMatch(pf -> {
             // There is no predicate in primary key
@@ -316,25 +429,29 @@ public class ForeignKeyContext {
         });
     }
 
-    /** One relation instance's proof that a complete declared primary key is still active. */
-    private static final class PrimaryKeyProof {
-        private final Set<QualifiedColumn> columns;
-
-        private PrimaryKeyProof(Set<QualifiedColumn> columns) {
-            this.columns = ImmutableSet.copyOf(columns);
-        }
-    }
-
-    /** A column identity qualified by its owning table. */
+    /**
+     * A column identity qualified by its owning catalog table. Relation instance identity is
+     * tracked separately because two aliases of this same column compare equal here.
+     */
     private static final class QualifiedColumn {
         private final TableIdentifier tableIdentifier;
         private final Column column;
 
+        /**
+         * Bind a catalog column to its table so columns from different tables never collide.
+         *
+         * @param table catalog owner of the column
+         * @param column original column object exposed by the scan slot
+         */
         private QualifiedColumn(TableIf table, Column column) {
             this.tableIdentifier = new TableIdentifier(table);
             this.column = column;
         }
 
+        /**
+         * Compare catalog table and column identities; relation alias equality is handled by
+         * {@code slotToRelationId} when matching a candidate key.
+         */
         @Override
         public boolean equals(Object obj) {
             if (this == obj) {
@@ -347,6 +464,10 @@ public class ForeignKeyContext {
             return tableIdentifier.equals(other.tableIdentifier) && column.equals(other.column);
         }
 
+        /**
+         * Hash the table and column identities used by {@link #equals(Object)} so qualified
+         * columns can be looked up in declared key sets and FK mappings.
+         */
         @Override
         public int hashCode() {
             return Objects.hash(tableIdentifier, column);

@@ -20,8 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -286,6 +284,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .printlnTree();
     }
 
+    /** A composite FK cannot be assembled from slots produced by two aliases of the same table. */
     @Test
     void testCompositeForeignKeyCannotMixRelationInstances() {
         String sql = "select f1.fa, f2.fb from composite_pri p "
@@ -299,38 +298,33 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 rewritten.<LogicalJoin<?, ?>>collectToList(LogicalJoin.class::isInstance).size());
     }
 
+    /** Selector-free external scans can use a declared PK; scan-specific selectors cannot. */
     @Test
     void testExternalScanSelectorsCannotActivatePrimaryKey() {
-        Slot primaryKeySlot = Mockito.mock(Slot.class);
-        Set<Slot> primaryKey = ImmutableSet.of(primaryKeySlot);
         LogicalFileScan scan = Mockito.mock(LogicalFileScan.class);
-        LogicalProperties logicalProperties = Mockito.mock(LogicalProperties.class);
-        DataTrait trait = Mockito.mock(DataTrait.class);
-        Mockito.when(scan.getLogicalProperties()).thenReturn(logicalProperties);
-        Mockito.when(logicalProperties.getTrait()).thenReturn(trait);
-        Mockito.when(trait.isUnique(primaryKey)).thenReturn(true);
         Mockito.when(scan.getSelectedPartitions()).thenReturn(LogicalFileScan.SelectedPartitions.NOT_PRUNED);
         Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
         Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.empty());
         Mockito.when(scan.getScanParams()).thenReturn(Optional.empty());
 
         ForeignKeyContext context = new ForeignKeyContext();
-        Assertions.assertTrue(context.canActivatePrimaryKey(scan, primaryKey));
+        Assertions.assertTrue(context.canActivatePrimaryKey(scan));
 
         Mockito.when(scan.getTableSample()).thenReturn(Optional.of(new TableSample(1, false, 0)));
-        Assertions.assertFalse(context.canActivatePrimaryKey(scan, primaryKey));
+        Assertions.assertFalse(context.canActivatePrimaryKey(scan));
         Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
 
         Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.of(TableSnapshot.versionOf("1")));
-        Assertions.assertFalse(context.canActivatePrimaryKey(scan, primaryKey));
+        Assertions.assertFalse(context.canActivatePrimaryKey(scan));
         Mockito.when(scan.getTableSnapshot()).thenReturn(Optional.empty());
 
         TableScanParams scanParams = new TableScanParams(
                 TableScanParams.TAG, ImmutableMap.of(), ImmutableList.of("v1"));
         Mockito.when(scan.getScanParams()).thenReturn(Optional.of(scanParams));
-        Assertions.assertFalse(context.canActivatePrimaryKey(scan, primaryKey));
+        Assertions.assertFalse(context.canActivatePrimaryKey(scan));
     }
 
+    /** Aliasing every component of a wide PK records one entry per slot, not all alias subsets. */
     @Test
     void testCompositePrimaryKeyAliasStateGrowsLinearly() {
         String sql = "select c01 as a01, c02 as a02, c03 as a03, c04 as a04, "
@@ -344,7 +338,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
         ForeignKeyContext context = new ForeignKeyContext().collectForeignKeyConstraint(project);
 
         Assertions.assertEquals(32, context.activePrimaryKeySlotCount());
-        Assertions.assertEquals(1, context.activePrimaryKeyProofCount());
+        Assertions.assertEquals(1, context.primaryKeys.size());
     }
 
     @Test
