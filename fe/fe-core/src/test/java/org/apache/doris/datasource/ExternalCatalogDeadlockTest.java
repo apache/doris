@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InitCatalogLog.Type;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -29,6 +30,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
@@ -52,6 +54,15 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ExternalCatalogDeadlockTest {
+    // The ThreadMXBean scan is the deadlock oracle; this window only guards thread liveness, so
+    // it is intentionally generous for slow FE UT workers.
+    private static final long LIVENESS_JOIN_TIMEOUT_SECONDS = 20;
+
+    @BeforeAll
+    public static void initializeEnvBeforeDeadlockChecks() {
+        // Keep global Env cold-start work outside the bounded thread joins used to detect lock cycles.
+        Env.getCurrentEnv();
+    }
 
     @Test
     public void testCatalogEventUpdateShouldNotDeadlockWithSameKeyObjectLoad() throws Exception {
@@ -372,8 +383,8 @@ public class ExternalCatalogDeadlockTest {
             resumeQuery.countDown();
             Assertions.assertFalse(namesLoaderEntered.await(200, TimeUnit.MILLISECONDS));
             releaseReset.countDown();
-            queryThread.join(TimeUnit.SECONDS.toMillis(5));
-            resetThread.join(TimeUnit.SECONDS.toMillis(5));
+            queryThread.join(TimeUnit.SECONDS.toMillis(LIVENESS_JOIN_TIMEOUT_SECONDS));
+            resetThread.join(TimeUnit.SECONDS.toMillis(LIVENESS_JOIN_TIMEOUT_SECONDS));
             Assertions.assertNull(backgroundFailure.get());
             Assertions.assertEquals(
                     Lists.newArrayList("local-" + (initializedClientVersion.get() + 1)), names.get());
@@ -415,8 +426,8 @@ public class ExternalCatalogDeadlockTest {
             Assertions.assertTrue(waitForBlocked(queryThread));
             Assertions.assertFalse(queryCompleted.get());
             releaseReset.countDown();
-            resetThread.join(TimeUnit.SECONDS.toMillis(5));
-            queryThread.join(TimeUnit.SECONDS.toMillis(5));
+            resetThread.join(TimeUnit.SECONDS.toMillis(LIVENESS_JOIN_TIMEOUT_SECONDS));
+            queryThread.join(TimeUnit.SECONDS.toMillis(LIVENESS_JOIN_TIMEOUT_SECONDS));
             Assertions.assertNull(backgroundFailure.get());
             Assertions.assertTrue(queryCompleted.get());
         } finally {
@@ -571,8 +582,8 @@ public class ExternalCatalogDeadlockTest {
     private static void assertNoDeadlock(Thread queryThread, Thread refreshThread,
             AtomicReference<Throwable> backgroundFailure) throws Exception {
         long[] deadlockedThreads = waitForDeadlock(queryThread, refreshThread);
-        queryThread.join(TimeUnit.SECONDS.toMillis(5));
-        refreshThread.join(TimeUnit.SECONDS.toMillis(5));
+        queryThread.join(TimeUnit.SECONDS.toMillis(LIVENESS_JOIN_TIMEOUT_SECONDS));
+        refreshThread.join(TimeUnit.SECONDS.toMillis(LIVENESS_JOIN_TIMEOUT_SECONDS));
         Assertions.assertNull(backgroundFailure.get(), "unexpected background failure: " + backgroundFailure.get());
         Assertions.assertNull(deadlockedThreads,
                 String.format("detected deadlock between threads %s and %s",
