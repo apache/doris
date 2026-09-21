@@ -49,6 +49,11 @@ public:
         _start_time = ss.str();
     };
 
+    // How far ahead a TTL block restored from an LRU dump is parked while it waits for the
+    // async load to hand it the expiration time the meta store actually holds. Only has to
+    // outlast that load, which walks the whole meta store once at startup.
+    static constexpr int64_t RESTORE_PLACEHOLDER_EXPIRATION_SEC = 24 * 60 * 60;
+
     void dump_queue(const std::string& queue_name, bool force);
     void restore_queue(LRUQueue& queue, const std::string& queue_name,
                        std::lock_guard<std::mutex>& cache_lock);

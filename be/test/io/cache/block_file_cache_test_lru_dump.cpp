@@ -484,12 +484,122 @@ TEST_F(BlockFileCacheTest, test_lru_duplicate_queue_entry_restore) {
     }
     ASSERT_TRUE(cache2.get_async_open_success());
 
-    // the dup part should be ttl because ttl has higner priority
-    ASSERT_EQ(cache2._ttl_queue.get_elements_num_unsafe(), 5);
+    // The ttl dump wins the restore, but the blocks are NORMAL on disk, so the async load
+    // pulls them back out of the TTL queue instead of leaving them stranded there.
+    ASSERT_EQ(cache2._ttl_queue.get_elements_num_unsafe(), 0);
     ASSERT_EQ(cache2._index_queue.get_elements_num_unsafe(), 0);
-    ASSERT_EQ(cache2._normal_queue.get_elements_num_unsafe(), 0);
+    ASSERT_EQ(cache2._normal_queue.get_elements_num_unsafe(), 5);
     ASSERT_EQ(cache2._disposable_queue.get_elements_num_unsafe(), 0);
     ASSERT_EQ(cache2._cur_cache_size, 500000);
+    ASSERT_EQ(cache2._cur_ttl_size, 0);
+    for (const auto& [hash, offsets] : cache2._files) {
+        for (const auto& [offset, cell] : offsets) {
+            EXPECT_EQ(cell.file_block->cache_type(), io::FileCacheType::NORMAL);
+            EXPECT_EQ(cell.file_block->expiration_time(), 0);
+        }
+    }
+
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+}
+
+TEST_F(BlockFileCacheTest, test_ttl_restore_adopts_stored_expiration) {
+    config::enable_evict_file_cache_in_advance = false;
+    config::file_cache_enter_disk_resource_limit_mode_percent = 99;
+    config::file_cache_background_lru_dump_interval_ms = 3000;
+    config::file_cache_background_lru_dump_update_cnt_threshold = 0;
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+
+    settings.ttl_queue_size = 5000000;
+    settings.ttl_queue_elements = 50000;
+    settings.query_queue_size = 5000000;
+    settings.query_queue_elements = 50000;
+    settings.index_queue_size = 5000000;
+    settings.index_queue_elements = 50000;
+    settings.disposable_queue_size = 5000000;
+    settings.disposable_queue_elements = 50000;
+    settings.capacity = 20000000;
+    settings.max_file_block_size = 100000;
+    settings.max_query_cache_size = 30;
+
+    // An expiration far enough out that it cannot be confused with the placeholder the
+    // restore parks a block on, nor with a stale value.
+    const int64_t expiration_time = UnixSeconds() + 30 * 24 * 60 * 60;
+
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    int i = 0;
+    for (; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(cache.get_async_open_success());
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::TTL;
+    context.query_id = query_id;
+    context.expiration_time = expiration_time;
+    auto key1 = io::BlockFileCache::hash("key_ttl_restore");
+
+    for (int64_t offset = 0; offset < 500000; offset += 100000) {
+        auto holder = cache.get_or_set(key1, offset, 100000, context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        download(blocks[0]);
+        assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
+                     io::FileBlock::State::DOWNLOADED);
+        blocks.clear();
+    }
+    ASSERT_EQ(cache._ttl_queue.get_elements_num_unsafe(), 5);
+
+    std::this_thread::sleep_for(
+            std::chrono::milliseconds(2 * config::file_cache_background_lru_dump_interval_ms));
+    ASSERT_TRUE(fs::exists(cache_base_path / "lru_dump_ttl.tail"));
+
+    io::BlockFileCache cache2(cache_base_path, settings);
+    ASSERT_TRUE(cache2.initialize());
+    for (i = 0; i < 100; i++) {
+        if (cache2.get_async_open_success()) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(cache2.get_async_open_success());
+
+    // The restore keeps the blocks in the TTL queue, and the async load replaces the
+    // placeholder expiration with the one the meta store holds.
+    ASSERT_EQ(cache2._ttl_queue.get_elements_num_unsafe(), 5);
+    ASSERT_EQ(cache2._normal_queue.get_elements_num_unsafe(), 0);
+    ASSERT_EQ(cache2._cur_cache_size, 500000);
+    ASSERT_EQ(cache2._cur_ttl_size, 500000);
+    size_t checked = 0;
+    for (const auto& [hash, offsets] : cache2._files) {
+        for (const auto& [offset, cell] : offsets) {
+            EXPECT_EQ(cell.file_block->cache_type(), io::FileCacheType::TTL);
+            EXPECT_EQ(cell.file_block->expiration_time(), expiration_time);
+            ++checked;
+        }
+    }
+    EXPECT_EQ(checked, 5);
+
+    // What the manager holds and what storage holds now agree, which is what the
+    // consistency check reports on.
+    std::vector<std::string> inconsistencies;
+    ASSERT_TRUE(cache2.report_file_cache_inconsistency(inconsistencies).ok());
+    EXPECT_TRUE(inconsistencies.empty()) << inconsistencies[0];
 
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
