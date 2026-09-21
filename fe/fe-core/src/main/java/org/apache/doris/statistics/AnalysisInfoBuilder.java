@@ -59,6 +59,7 @@ public class AnalysisInfoBuilder {
     private CronExpression cronExpression;
     private boolean forceFull;
     private boolean usingSqlForExternalTable;
+    private Boolean collectHotValue;
     private long tblUpdateTime;
     private long rowCount;
     private boolean userInject = false;
@@ -101,6 +102,7 @@ public class AnalysisInfoBuilder {
         cronExpression = info.cronExpression;
         forceFull = info.forceFull;
         usingSqlForExternalTable = info.usingSqlForExternalTable;
+        collectHotValue = info.collectHotValue;
         tblUpdateTime = info.tblUpdateTime;
         rowCount = info.rowCount;
         userInject = info.userInject;
@@ -256,6 +258,11 @@ public class AnalysisInfoBuilder {
         return this;
     }
 
+    public AnalysisInfoBuilder setCollectHotValue(Boolean collectHotValue) {
+        this.collectHotValue = collectHotValue;
+        return this;
+    }
+
     public AnalysisInfoBuilder setTblUpdateTime(long tblUpdateTime) {
         this.tblUpdateTime = tblUpdateTime;
         return this;
@@ -301,8 +308,8 @@ public class AnalysisInfoBuilder {
                 colName, indexId, jobType, analysisMethod, analysisType, samplePercent,
                 sampleRows, maxBucketNum, periodTimeInMs, message, lastExecTimeInMs, timeCostInMs, state, scheduleType,
                 partitionOnly, samplingPartition, isAllPartition, partitionCount,
-                cronExpression, forceFull, usingSqlForExternalTable, tblUpdateTime, rowCount, userInject, updateRows,
-                tableVersion, priority, partitionUpdateRows, enablePartition);
+                cronExpression, forceFull, usingSqlForExternalTable, collectHotValue, tblUpdateTime, rowCount,
+                userInject, updateRows, tableVersion, priority, partitionUpdateRows, enablePartition);
     }
 
 }

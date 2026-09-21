@@ -369,13 +369,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashAgg[DISTINCT_GLOBAL]
 --------hashAgg[DISTINCT_LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[DISTINCT_GLOBAL]
 --------hashAgg[DISTINCT_LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !multi_count_mulitcols_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -386,13 +384,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !three_count_mulitcols_without_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -404,18 +400,15 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------hashAgg[DISTINCT_GLOBAL]
 ----------hashAgg[DISTINCT_LOCAL]
 ------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------hashAgg[DISTINCT_GLOBAL]
 ----------hashAgg[DISTINCT_LOCAL]
 ------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[DISTINCT_GLOBAL]
 --------hashAgg[DISTINCT_LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !four_count_mulitcols_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -428,23 +421,19 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------hashAgg[GLOBAL]
 ----------hashAgg[LOCAL]
 ------------hashAgg[GLOBAL]
---------------hashAgg[LOCAL]
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
+--------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !has_other_func --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -478,13 +467,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------hashAgg[GLOBAL]
 ------------hashAgg[LOCAL]
 --------------hashAgg[GLOBAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !multi_count_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -495,13 +482,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !multi_sum_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -512,13 +497,11 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !sum_count_with_gby --
 PhysicalCteAnchor ( cteId=CTEId#0 )
@@ -529,12 +512,10 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
 ----------hashAgg[GLOBAL]
-------------hashAgg[LOCAL]
---------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------hashAgg[GLOBAL]
 --------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !has_grouping --
 PhysicalResultSink
