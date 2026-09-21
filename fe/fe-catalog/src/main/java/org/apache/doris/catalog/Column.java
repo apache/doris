@@ -895,7 +895,9 @@ public class Column implements GsonPostProcessable {
 
         // show change datetimeV2/dateV2 to datetime/date
         if (isCompatible) {
-            sb.append(type.hideVersionForVersionColumn(true));
+            // isToSql = true, showNestedComment = true
+            // SHOW CREATE TABLE and CREATE TABLE LIKE need the nested comment.
+            sb.append(type.hideVersionForVersionColumn(true, true, false));
         } else {
             sb.append(typeStr);
         }

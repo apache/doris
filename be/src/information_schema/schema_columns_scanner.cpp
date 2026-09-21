@@ -284,11 +284,12 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
     case TPrimitiveType::STRUCT: {
         // for old be service we should compitable
         std::string ret = "struct<";
-        if (!desc.children.empty()) {
-            for (int i = 0; i < desc.children.size() - 1; ++i) {
-                ret += _type_to_string(desc.children[i]) + ",";
+        // Name every field, a client rebuilds the schema from this text.
+        for (size_t i = 0; i < desc.children.size(); ++i) {
+            if (i != 0) {
+                ret += ",";
             }
-            ret += _type_to_string(desc.children[desc.children.size() - 1]);
+            ret += desc.children[i].columnName + ":" + _type_to_string(desc.children[i]);
         }
         ret += ">";
         return ret;
