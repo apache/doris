@@ -28,7 +28,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * end up doing COMPLETE rather than failing the task; a request that does not allow it must keep
  * failing, because COMPLETE would refresh more than it was asked to.
  *
- * <p>Driven by dropping the streams by hand: that is the state the fallback exists for and the one a
+ * <p>Driven by dropping the joined table's stream by hand: that is the state the fallback exists for and the one a
  * unit test can only mock.
  */
 suite("test_ivm_partitions_fallback_stream_unusable") {
@@ -77,16 +77,21 @@ suite("test_ivm_partitions_fallback_stream_unusable") {
         return rows[0].Status.toString()
     }
 
-    def streamNames = {
-        return sql("SHOW STREAMS FROM ${context.dbName}").collect { it[0].toString() }
+    // The streams of every suite in this directory live in the one database the runner gives them, so
+    // they have to be looked up by base table: taking every stream of the database would take the
+    // streams of the suites running next to this one, and fail them with "IVM stream not found".
+    def streamNameOf = { String tableName ->
+        def rows = sql("""
+            SELECT STREAM_NAME FROM information_schema.table_streams
+            WHERE DB_NAME = '${context.dbName}' AND BASE_TABLE_NAME = '${tableName}'
+        """)
+        return rows.isEmpty() ? null : rows[0][0].toString()
     }
 
-    def dropStreams = {
-        def names = streamNames()
-        assertTrue(!names.isEmpty(), "the MV should have created its streams")
-        names.each { name ->
-            sql """DROP STREAM ${name} FORCE"""
-        }
+    def dropStreamOf = { String tableName ->
+        def name = streamNameOf(tableName)
+        assertTrue(name != null, "the MV should have created a stream for " + tableName)
+        sql """DROP STREAM ${name} FORCE"""
     }
 
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mvName}"""
@@ -161,11 +166,11 @@ suite("test_ivm_partitions_fallback_stream_unusable") {
     // With the streams gone, a partition refresh cannot read anything. Falling back is what makes it
     // reach the COMPLETE attempt, which reconciles the streams and rebuilds the MV; without it the
     // refresh would fail and stay failed.
-    dropStreams()
+    dropStreamOf(dimTable)
     sql """REFRESH MATERIALIZED VIEW ${mvName} PARTITIONS FALLBACK"""
     taskId = waitForNewTask(taskId)
     assertEquals("SUCCESS\tCOMPLETE\tSTREAM_UNSUPPORTED", taskOutcome(taskId))
-    assertTrue(!streamNames().isEmpty(), "the complete attempt should have reconciled the streams")
+    assertTrue(streamNameOf(dimTable) != null, "the complete attempt should have reconciled the stream")
     order_qt_reconciled_mv """SELECT order_id, dt, amount, dimension_name FROM ${mvName}"""
 
     // The same request without fallback keeps failing: COMPLETE refreshes more than the request asked
@@ -174,7 +179,7 @@ suite("test_ivm_partitions_fallback_stream_unusable") {
     // The base table has to be out of sync for the partition refresh to do anything at all: an MV that
     // is already up to date refreshes no partition, and therefore never reads a stream.
     sql """INSERT INTO ${factTable} VALUES (3, '2026-01-20', 10, 300)"""
-    dropStreams()
+    dropStreamOf(dimTable)
     sql """REFRESH MATERIALIZED VIEW ${mvName} PARTITIONS"""
     taskId = waitForNewTask(taskId)
     assertEquals("FAILED", taskStatus(taskId))
