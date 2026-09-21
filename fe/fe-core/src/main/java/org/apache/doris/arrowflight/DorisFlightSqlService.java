@@ -19,15 +19,15 @@ package org.apache.doris.arrowflight;
 
 import org.apache.doris.arrowflight.auth2.FlightBearerTokenAuthenticator;
 import org.apache.doris.arrowflight.auth2.FlightRemoteIpServerStreamTracer;
+import org.apache.doris.arrowflight.sessions.FlightSessionsInConnectPool;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
-import org.apache.doris.arrowflight.sessions.FlightSessionsWithTokenManager;
-import org.apache.doris.arrowflight.tokens.FlightTokenManager;
-import org.apache.doris.arrowflight.tokens.FlightTokenManagerImpl;
 import org.apache.doris.common.Config;
 import org.apache.doris.qe.ConnectPoolMgr;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import io.grpc.ServerBuilder;
 import org.apache.arrow.flight.FlightServer;
 import org.apache.arrow.flight.Location;
@@ -37,6 +37,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.function.Consumer;
 
 /**
@@ -45,30 +46,37 @@ import java.util.function.Consumer;
 public class DorisFlightSqlService {
     private static final Logger LOG = LogManager.getLogger(DorisFlightSqlService.class);
     private static final String GRPC_BUILDER_CONSUMER = "grpc.builderConsumer";
+    // The defaults of the settings that stopped being read when a bearer token became the credential
+    // of exactly one session: what a fe.conf that still sets them is compared against at startup.
+    @VisibleForTesting
+    static final int DEFAULT_TOKEN_CACHE_SIZE = 4096;
+    @VisibleForTesting
+    static final int DEFAULT_TOKEN_ALIVE_TIME_SECOND = 86400;
+
     private final FlightServer flightServer;
-    private final FlightTokenManager flightTokenManager;
     private final FlightSessionsManager flightSessionsManager;
     private volatile boolean running;
 
     /**
-     * The bearer token cache size: the effective Flight sub-quota (a session opens on a token, so the
-     * sub-quota is what bounds live sessions), capped by {@code arrow_flight_token_cache_size}. The
-     * sub-quota is floored at 1 -- a legal sub-quota of 0 ({@code qe_max_connection = 1}) still needs
-     * one token so the first request reaches the pool and is refused with RESOURCE_EXHAUSTED, instead
-     * of a {@code maximumSize(0)} cache evicting the freshly issued token and answering UNAUTHENTICATED.
-     * The floor is NOT applied to {@code arrow_flight_token_cache_size}: an illegal value there
-     * ({@literal <= 0}) stays the loud failure it is on the base (Guava rejects a negative maximumSize;
-     * 0 evicts every token) rather than the FE silently running on a one-token cache.
+     * The settings of the former bearer token cache that fe.conf still sets to something other than
+     * their default, as "name=value": a token now lives exactly as long as its session, so neither
+     * bounds anything any more, and an operator who tuned them should learn that at startup rather
+     * than from a limit that is not where it was left.
      */
     @VisibleForTesting
-    static int effectiveTokenCacheSize(int flightMaxConnections, int tokenCacheConfig) {
-        return Math.min(Math.max(1, flightMaxConnections), tokenCacheConfig);
+    static List<String> ignoredTokenSettings(int tokenCacheSize, int tokenAliveTimeSecond) {
+        List<String> ignored = Lists.newArrayList();
+        if (tokenCacheSize != DEFAULT_TOKEN_CACHE_SIZE) {
+            ignored.add("arrow_flight_token_cache_size=" + tokenCacheSize);
+        }
+        if (tokenAliveTimeSecond != DEFAULT_TOKEN_ALIVE_TIME_SECOND) {
+            ignored.add("arrow_flight_token_alive_time_second=" + tokenAliveTimeSecond);
+        }
+        return ignored;
     }
 
     public DorisFlightSqlService(int port) {
         BufferAllocator allocator = new RootAllocator();
-        // arrow flight sql is a stateless protocol, connection is usually not actively disconnected.
-        // bearer token is evict from the cache will unregister ConnectContext.
         int flightMaxConnections = ConnectPoolMgr.effectiveFlightMaxConnections(
                 Config.qe_max_connection, Config.arrow_flight_max_connections);
         if (Config.arrow_flight_max_connections > Config.qe_max_connection) {
@@ -82,22 +90,30 @@ public class DorisFlightSqlService {
                             + " the default before the pools were merged) or set it below qe_max_connection",
                     Config.arrow_flight_max_connections, Config.qe_max_connection, flightMaxConnections);
         }
-        int tokenCacheSize = effectiveTokenCacheSize(flightMaxConnections, Config.arrow_flight_token_cache_size);
-        this.flightTokenManager = new FlightTokenManagerImpl(tokenCacheSize,
+        List<String> ignoredTokenSettings = ignoredTokenSettings(Config.arrow_flight_token_cache_size,
                 Config.arrow_flight_token_alive_time_second);
-        this.flightSessionsManager = new FlightSessionsWithTokenManager(flightTokenManager);
+        if (!ignoredTokenSettings.isEmpty()) {
+            LOG.warn("{} is set in fe.conf but no longer read and will be removed in a later release: a bearer"
+                            + " token of the Arrow Flight SQL server is the credential of exactly one session and"
+                            + " lives as long as it, so the sessions are bounded by the connection pool"
+                            + " (qe_max_connection, arrow_flight_max_connections, max_user_connections) and end"
+                            + " with CloseSession, KILL CONNECTION or wait_timeout; remove the setting",
+                    String.join(", ", ignoredTokenSettings));
+        }
+        // A session is a connection of the one pool, known by its bearer token; the sessions manager is
+        // both what issues and validates tokens (the header authenticator) and what the producer
+        // resolves a call's session with.
+        this.flightSessionsManager = new FlightSessionsInConnectPool(ExecuteEnv.getInstance().getScheduler());
 
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
                 Location.forGrpcInsecure(FrontendOptions.getLocalHostAddress(), port), flightSessionsManager);
         flightServer = FlightServer.builder(allocator, Location.forGrpcInsecure("0.0.0.0", port), producer)
                 .transportHint(GRPC_BUILDER_CONSUMER, (Consumer<ServerBuilder<?>>) builder ->
                         builder.addStreamTracerFactory(new FlightRemoteIpServerStreamTracer.Factory()))
-                .headerAuthenticator(new FlightBearerTokenAuthenticator(flightTokenManager)).build();
+                .headerAuthenticator(new FlightBearerTokenAuthenticator(flightSessionsManager)).build();
         LOG.info("Arrow Flight SQL service is created, port: {}, arrow_flight_max_connections: {} (effective: {},"
-                        + " within qe_max_connection: {}), token cache size: {} (arrow_flight_token_cache_size: {}),"
-                        + " arrow_flight_token_alive_time_second: {}", port,
-                Config.arrow_flight_max_connections, flightMaxConnections, Config.qe_max_connection,
-                tokenCacheSize, Config.arrow_flight_token_cache_size, Config.arrow_flight_token_alive_time_second);
+                        + " within qe_max_connection: {})", port,
+                Config.arrow_flight_max_connections, flightMaxConnections, Config.qe_max_connection);
     }
 
     // start Arrow Flight SQL service, return true if success, otherwise false
