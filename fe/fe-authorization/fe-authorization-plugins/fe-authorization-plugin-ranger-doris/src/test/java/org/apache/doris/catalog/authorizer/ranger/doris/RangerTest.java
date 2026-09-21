@@ -434,7 +434,10 @@ public class RangerTest {
         private final CountDownLatch loadStarted = new CountDownLatch(1);
 
         private StillLoadingPlugin() {
-            super("test", null, null);
+            // A service name and an admin URL, which init() builds a client for before the load - the one
+            // thing it insists on knowing about the admin. Nothing dials it: the load below never polls.
+            super("test", "test", null);
+            getConfig().set("ranger.plugin.test.policy.rest.url", "http://ranger.invalid:6080");
         }
 
         @Override

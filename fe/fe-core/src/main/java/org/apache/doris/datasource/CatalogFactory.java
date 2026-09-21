@@ -191,7 +191,10 @@ public class CatalogFactory {
         try {
             catalog.setDefaultPropsIfMissing(false);
             catalog.checkWhenCreating();
-            // This will check if the customized access controller can be created successfully.
+            // This will check if the customized access controller can be created successfully - whether its
+            // constructor accepts the properties and the configuration it reads, which is all a dry run can
+            // see: a Ranger source verifies its configuration here and loads its policies on a thread of its
+            // own afterwards, and what that load finds is logged by the source, not thrown here.
             // If failed, it will throw exception and the catalog will not be created.
             try {
                 catalog.initAccessController(true);

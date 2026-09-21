@@ -28,6 +28,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -78,6 +79,9 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
      * timer for every distinct {@code ranger.service.name} this FE was ever asked about - including the ones
      * a rejected {@code CREATE CATALOG} asked about, and including names that resolve to nothing, which log
      * an error to fe.log every thirty seconds for as long as the process lives.
+     *
+     * <p>A stack whose plugin failed its first load is not kept for anybody: it refuses every check, and the
+     * next binding on its service stops it and builds a new one, see {@link #letGoOfAFailedStack}.
      */
     private static final Map<String, Shared> STACKS_BY_SERVICE = new HashMap<>();
     private static final Map<Map<String, String>, Held> BY_CONFIGURATION = new LinkedHashMap<>();
@@ -127,6 +131,16 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
         RangerAccessController.validateProperties(properties);
         Map<String, String> configuration = normalize(properties);
         String serviceName = configuration.get(RangerHiveAccessController.SERVICE_NAME_PROPERTY);
+
+        RangerHiveAuditStack failed;
+        synchronized (LOCK) {
+            failed = letGoOfAFailedStack(serviceName);
+        }
+        if (failed != null) {
+            // With no lock held, like every stop. The plugin has stopped itself already, so this is what is
+            // left of the stack: the audit it decided before that, and the timer draining it.
+            failed.stop();
+        }
 
         RangerHiveAuditStack built = null;
         RangerHiveAuditStack toStop = null;
@@ -189,14 +203,55 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
     }
 
     /**
+     * Takes the stack serving {@code serviceName} out when its plugin's first load threw, so that the binding
+     * being made gets a new one; returns the stack for the caller to stop, or null.
+     *
+     * <p>A plugin whose load threw has stopped itself and refuses every check, see
+     * {@link org.apache.doris.catalog.authorizer.ranger.BackgroundLoadedRangerPlugin#isFailed()}. The load
+     * fails on what its preflight could not check for it, and what the operator then fixes in {@code fe/conf}
+     * reaches this source through its next binding on that service - a {@code CREATE CATALOG}, or the
+     * {@code ALTER CATALOG} that detaches and re-attaches a catalog bound to the failed one - which is why a
+     * failed stack is kept for nobody, not even for the grace period, which is for a stack a re-attach is
+     * about to ask for again. Its controllers go with it, because a re-attach that found one in
+     * {@link #BY_CONFIGURATION} would be handed the failed stack again. The bindings still holding them go on
+     * refusing, as they have since the load failed, and when they let go {@link #release} has nothing here to
+     * account for - and nothing of theirs to stop, since none of them owns the stack.
+     *
+     * <p>Caller holds {@link #LOCK}.
+     */
+    private static RangerHiveAuditStack letGoOfAFailedStack(String serviceName) {
+        Shared shared = STACKS_BY_SERVICE.get(serviceName);
+        if (shared == null || !shared.stack.getPlugin().isFailed()) {
+            return null;
+        }
+        cancelPendingStop(shared);
+        STACKS_BY_SERVICE.remove(serviceName);
+        int letGo = 0;
+        for (Iterator<Map<String, String>> configurations = BY_CONFIGURATION.keySet().iterator();
+                configurations.hasNext();) {
+            if (Objects.equals(serviceName,
+                    configurations.next().get(RangerHiveAccessController.SERVICE_NAME_PROPERTY))) {
+                configurations.remove();
+                letGo++;
+            }
+        }
+        LOG.warn("The Ranger plugin of {} on service {} failed its first load; it is stopped, a new one is"
+                        + " built for this binding, and the {} controller(s) over the failed one refuse until"
+                        + " their catalogs are bound again (ALTER CATALOG).", RangerHiveAccessController.NAME,
+                serviceName, letGo);
+        return shared.stack;
+    }
+
+    /**
      * Gives up one binding's hold on a controller, fencing the controller off once nothing holds it any more.
      *
      * <p>The shared audit stack does not stop here even when this was the last binding reading its service:
      * see {@link #STACKS_BY_SERVICE}, where a stop is scheduled instead. What has to stop here is this
      * controller: a query may still be holding it, and from here it must refuse rather than answer.
      *
-     * @return whether this factory owned {@code controller}; false means it was built some other way and its
-     *         caller has to stop it itself.
+     * @return whether this factory owned {@code controller}; false means it was built some other way, or the
+     *         factory has let go of it with the failed stack it is over, and its caller has to stop it
+     *         itself.
      */
     static boolean release(RangerHiveAccessController controller) {
         if (controller == null) {

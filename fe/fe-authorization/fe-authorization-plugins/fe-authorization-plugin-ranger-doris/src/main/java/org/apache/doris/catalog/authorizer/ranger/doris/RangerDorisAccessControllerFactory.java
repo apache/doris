@@ -62,6 +62,9 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
      * policy refresher and joins it without a timeout - and then the whole first load on the way back up:
      * roles, policies and user store downloaded again, on the plugin's own thread, before the catalog answers
      * a single check.
+     *
+     * <p>The one exception is a plugin whose first load threw: it has stopped itself and refuses every
+     * check, and the next binding lets go of it and builds a new one, see {@link #letGoOfAFailedPlugin()}.
      */
     private static BackgroundLoadedRangerPlugin sharedPlugin;
     private static final Map<Map<String, String>, Held> byConfiguration = new LinkedHashMap<>();
@@ -101,6 +104,15 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
         RangerAccessController.validateProperties(properties);
         Map<String, String> configuration = normalize(properties);
 
+        BackgroundLoadedRangerPlugin failed;
+        synchronized (LOCK) {
+            failed = letGoOfAFailedPlugin();
+        }
+        if (failed != null) {
+            // With no lock held, like every stop. A plugin whose load threw has stopped itself, so this is a
+            // no-op that waits for nothing; but what the factory lets go of, it stops.
+            failed.cleanup();
+        }
         BackgroundLoadedRangerPlugin built = null;
         BackgroundLoadedRangerPlugin toStop = null;
         try {
@@ -151,14 +163,46 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
     }
 
     /**
+     * Lets go of the shared plugin when its first load threw, so that the binding being made gets a new one;
+     * returns the plugin for the caller to stop, or null.
+     *
+     * <p>A plugin whose load threw has stopped itself and refuses every check, see
+     * {@link BackgroundLoadedRangerPlugin#isFailed()}. The load fails on what its preflight could not check
+     * for it, and what the operator then fixes in {@code fe/conf} reaches this source through its next
+     * binding - a {@code CREATE CATALOG}, or the {@code ALTER CATALOG} that detaches and re-attaches a catalog
+     * bound to the failed one - which is why a failed plugin is not shared any further: kept, it would be
+     * handed to every binding until the FE was restarted. Its controllers go with it, because a re-attach
+     * that found one in {@link #byConfiguration} would be handed the failed plugin again. The bindings
+     * still holding them go on refusing, as they have since the load failed, and when they let go
+     * {@link #release} has nothing here to account for, so they stop the plugin themselves - which a plugin
+     * that has stopped itself takes as a no-op.
+     *
+     * <p>Caller holds {@link #LOCK}.
+     */
+    private static BackgroundLoadedRangerPlugin letGoOfAFailedPlugin() {
+        if (sharedPlugin == null || !sharedPlugin.isFailed()) {
+            return null;
+        }
+        LOG.warn("The Ranger plugin of {} failed its first load; a new one is built for this binding, and the"
+                        + " {} controller(s) over the failed one refuse until what holds them is bound again"
+                        + " (a catalog by ALTER CATALOG, the instance by an FE restart).",
+                RangerDorisAccessController.NAME, byConfiguration.size());
+        BackgroundLoadedRangerPlugin failed = sharedPlugin;
+        sharedPlugin = null;
+        byConfiguration.clear();
+        return failed;
+    }
+
+    /**
      * Gives up one binding's hold on a controller, fencing the controller off once nothing holds it any more.
      *
      * <p>The shared plugin stays up either way - see {@link #sharedPlugin} for why the alternative is worse
      * than an idle policy download timer. What has to stop here is this controller: a query may still be
      * holding it, and from here it must refuse rather than answer.
      *
-     * @return whether this factory owned {@code controller}; false means it was built some other way and its
-     *         caller has to stop it itself.
+     * @return whether this factory owned {@code controller}; false means it was built some other way, or the
+     *         factory has let go of it with the failed plugin it is over, and its caller has to stop it
+     *         itself.
      */
     static boolean release(RangerDorisAccessController controller) {
         if (controller == null) {

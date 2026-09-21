@@ -38,10 +38,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * The loading protocol of {@link BackgroundLoadedRangerPlugin}: {@code init()} returns while the Ranger admin
- * is still being asked, nothing is answered before the admin has, and a stop while that is going on is
- * honoured once it is over. The admin stands in for is a latch this test holds.
+ * is still being asked - having first refused, on the spot, a configuration the load could not have got
+ * anywhere with - nothing is answered before the admin has, and a stop while that is going on is honoured
+ * once it is over. The admin stands in for is a latch this test holds.
  */
 public class BackgroundLoadedRangerPluginTest {
+
+    /** Where the admin would be. Never dialed: the load below never polls, and the preflight only builds a client. */
+    private static final String ADMIN_URL_PROPERTY = "ranger.plugin.test.policy.rest.url";
+    private static final String ADMIN_URL = "http://ranger.invalid:6080";
 
     /** A plugin whose first load is answered by this test instead of by a Ranger admin. */
     private static final class Loading extends BackgroundLoadedRangerPlugin {
@@ -66,9 +71,11 @@ public class BackgroundLoadedRangerPluginTest {
         }
 
         private Loading(boolean clearsStateFirst, RangerUserStore userStore, boolean publishesThenThrows) {
-            // Service type "test" reads ranger-test-*.xml, none of which exist here, and no service name:
-            // nothing about a Ranger admin is configured, which is fine for a load this class performs itself.
-            super("test", null, null);
+            // Service type "test" reads ranger-test-*.xml, none of which exist here. The one thing init()
+            // insists on knowing about the admin before it starts the load is where it is - the client it
+            // builds for the load refuses to exist without a URL - and with that, the real preflight runs.
+            super("test", "test", null);
+            getConfig().set(ADMIN_URL_PROPERTY, ADMIN_URL);
             this.clearsStateFirst = clearsStateFirst;
             this.userStore = userStore;
             this.publishesThenThrows = publishesThenThrows;
@@ -147,6 +154,47 @@ public class BackgroundLoadedRangerPluginTest {
         // A wait that is not there shows up as the future completing well within this.
         Thread.sleep(200);
         Assertions.assertFalse(future.isDone(), "answered before the load had ended");
+    }
+
+    /**
+     * What the load could not have got anywhere with is refused by init() itself, on the calling thread and
+     * with the cause - which is what a CREATE CATALOG dry run and an FE start see, as they did when the
+     * constructor ran the whole load. A call this refuses has started nothing.
+     */
+    @Test
+    public void testAConfigurationTheLoadCouldNotUseIsRefusedBeforeItStarts() throws Exception {
+        Loading noAdminUrl = loading();
+        noAdminUrl.getConfig().unset(ADMIN_URL_PROPERTY);
+        IllegalArgumentException refused = Assertions.assertThrows(IllegalArgumentException.class,
+                noAdminUrl::init);
+        Assertions.assertTrue(refused.getMessage().contains("Ranger URL"), refused.getMessage());
+
+        Loading malformedTimeout = loading();
+        malformedTimeout.getConfig().set("ranger.plugin.test.policy.rest.client.read.timeoutMs", "soon");
+        Assertions.assertThrows(NumberFormatException.class, malformedTimeout::init);
+
+        for (Loading plugin : new Loading[] {noAdminUrl, malformedTimeout}) {
+            Assertions.assertFalse(plugin.loadRan.get(), "the load was started for a refused configuration");
+            Assertions.assertFalse(plugin.isLoaded());
+            // Nothing was started, so there is nothing to wait for.
+            within(CompletableFuture.runAsync(plugin::awaitLoaded), 10);
+        }
+    }
+
+    /**
+     * The admin client is the preflight's, built before the load starts and kept where the load's refresher
+     * finds it: what an empty URL fails is this, on the calling thread, not something on the loader.
+     */
+    @Test
+    public void testTheAdminClientIsBuiltBeforeTheLoad() throws Exception {
+        Loading plugin = loading();
+        Assertions.assertNull(plugin.getPluginContext().getAdminClient());
+
+        plugin.init();
+
+        Assertions.assertNotNull(plugin.getPluginContext().getAdminClient(), "left to the load");
+        Assertions.assertFalse(plugin.isLoaded(), "the load had ended by the time init() returned");
+        plugin.letTheLoadEnd();
     }
 
     /** What used to hold the FE's start: init() now returns while the admin is still being asked. */

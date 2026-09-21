@@ -20,6 +20,7 @@ package org.apache.doris.catalog.authorizer.ranger;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.ranger.audit.provider.AuditProviderFactory;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
@@ -54,16 +55,24 @@ import java.util.function.BooleanSupplier;
  * <p>What a check waits for is exactly what the constructor used to guarantee: that the load has
  * <em>ended</em> - with the policies from the admin, or from the local cache when the admin could not be
  * reached, or with nothing at all, in which case the engine is null and {@code RangerAccessController}
- * refuses, as it always has. A load that <em>threw</em> ends the same way, whatever it had installed by
- * then: what {@code RangerBasePlugin.init()} does about an admin it cannot reach is logged and survived
- * inside it, so a throw is something else - a broken audit configuration, a chained plugin that could not
- * start - and where the constructor used to fail the FE's start with it, this plugin stops what the load
- * did publish and refuses every check until the FE is restarted, see {@link #load()}. The wait is not
- * shortened by a timeout of its own: the load is bounded by the REST timeouts the operator already tunes,
- * and answering out of an empty engine before it has ended would be refusing checks the policies are about
- * to allow - and, worse, passing ones a policy written against a group is about to deny. What does cut it
- * short is the caller having no use for the answer any more: a controller closed while its check waits
- * refuses, and {@link #awaitLoaded(BooleanSupplier)} is how it stops waiting.
+ * refuses, as it always has. What the load could not have got anywhere with is not left to it: before the
+ * load starts, {@link #init()} does the part of it that needs no admin on the calling thread - the audit
+ * subsystem and the admin client, see {@link #preflight()} - so a configuration that fails there (no
+ * {@code policy.rest.url}, a REST timeout that is not a number, an audit destination Doris does not ship)
+ * fails the constructor with its cause, as it did before the load had a thread of its own; that is what a
+ * {@code CREATE CATALOG} dry run and an FE start refuse. A load that <em>threw</em> past that ends like the
+ * others, whatever it had installed by then: what {@code RangerBasePlugin.init()} does about an admin it
+ * cannot reach is logged and survived inside it, so such a throw is something else - a chained plugin that
+ * could not start, a refresher setting only the refresher reads - and this plugin stops what the load did
+ * publish, refuses every check, and says so through {@link #isFailed()}, see {@link #load()}. How long that
+ * lasts is up to whoever holds the plugin: the factories hand a failed one to no further binding and build a
+ * new one in its place, so a catalog bound to it recovers on the next {@code ALTER CATALOG} once the cause
+ * is fixed, while the instance-scope source, bound once at start, recovers when the FE is restarted. The
+ * wait is not shortened by a timeout of its own: the load is bounded by the REST timeouts the operator
+ * already tunes, and answering out of an empty engine before it has ended would be refusing checks the
+ * policies are about to allow - and, worse, passing ones a policy written against a group is about to deny.
+ * What does cut it short is the caller having no use for the answer any more: a controller closed while
+ * its check waits refuses, and {@link #awaitLoaded(BooleanSupplier)} is how it stops waiting.
  *
  * <p>Stopping it is {@link #cleanup()}, as before. Stopped while still loading - a {@code CREATE CATALOG}
  * dry run, the loser of a race in a factory - it finishes the load first and stops itself then, on the
@@ -100,6 +109,10 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
     /**
      * Starts the first load - {@code RangerBasePlugin.init()}, roles, policies and user store - on a thread
      * of its own, and returns at once. Once per plugin.
+     *
+     * <p>Not before {@link #preflight()} has passed, on this thread: a configuration the load could not have
+     * got anywhere with fails this call with its cause instead of failing the load, and a call this refuses
+     * has started nothing - the plugin is as it was before it.
      */
     @Override
     public void init() {
@@ -108,6 +121,14 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
         if (!loader.compareAndSet(null, thread)) {
             throw new IllegalStateException("Ranger plugin for service " + getServiceName()
                     + " has already been initialized");
+        }
+        try {
+            preflight();
+        } catch (RuntimeException | Error e) {
+            // Nothing has been started, so nothing is waited for: a plugin this leaves behind - none in
+            // production, where the constructor throws it away with the exception - has no load to end.
+            loader.set(null);
+            throw e;
         }
         LOG.info(RangerUserStoreGroups.describe(getConfig()));
         // A daemon: it ends with the load, and a load still running when the FE exits is not worth waiting
@@ -142,17 +163,22 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
             }
         } catch (Throwable e) {
             // Everything RangerBasePlugin.init() does about an admin it cannot reach is logged and survived
-            // inside it, so this is something else - a broken audit configuration, a chained plugin that
-            // could not start. It used to fail the FE's start; now it fails every check against this
-            // service until the FE is restarted, which RangerAccessController reports on each one as an
-            // engine that is not initialized. Refusing takes both of the following: the flag, read by every
-            // answer, and stopping what the load had installed before it threw - RangerBasePlugin.init()
-            // publishes the policy engine, refresher and all, before it initializes the chained plugins, and
-            // left running that engine would answer checks with part of the configured authorization
-            // missing, whatever the line below says.
+            // inside it, and what the load could not have got anywhere with the preflight refused before it
+            // started, so this is something else - a chained plugin that could not start, a refresher
+            // setting only the refresher reads. It used to fail the FE's start, or the CREATE CATALOG; now
+            // it fails every check against this plugin, which RangerAccessController reports on each one as
+            // an engine that is not initialized, for as long as the plugin is held: the factories build a
+            // new one for the next binding of a source whose plugin has failed (isFailed), which is how a
+            // fixed configuration reaches a catalog - through ALTER CATALOG - and does not reach the
+            // instance-scope source, bound once at start, short of a restart. Refusing takes both of the
+            // following: the flag, read by every answer, and stopping what the load had installed before it
+            // threw - RangerBasePlugin.init() publishes the policy engine, refresher and all, before it
+            // initializes the chained plugins, and left running that engine would answer checks with part
+            // of the configured authorization missing, whatever the line below says.
             failed = true;
-            LOG.error("Ranger service {} failed to load; every check against it is refused until the FE is"
-                    + " restarted", getServiceName(), e);
+            LOG.error("Ranger service {} failed to load; every check against it is refused. Once the cause"
+                    + " is fixed, ALTER CATALOG binds a catalog governed by it to a new plugin; an FE governed"
+                    + " by it through access_controller_type has to be restarted", getServiceName(), e);
             stopOnce();
         } finally {
             loaded.countDown();
@@ -168,6 +194,28 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
      */
     protected void firstLoad() {
         super.init();
+    }
+
+    /**
+     * The part of the load that needs no Ranger admin, done on the thread calling {@link #init()} before the
+     * load starts: the audit subsystem, when this is the first plugin in the process to need it, and the
+     * admin client the load goes on to poll through. Both are what {@code RangerBasePlugin.init()} does
+     * first and would otherwise do on the loader, and both fail on configuration alone - the client refuses
+     * an empty {@code policy.rest.url} and a {@code policy.rest.client.*} setting that is not a number, the
+     * audit factory a destination Doris does not ship - so done here they fail whoever is building the
+     * plugin, with the cause, the way the constructor did before the load had a thread of its own. Neither
+     * dials anything: the client opens its connection on first use, and it is kept in the plugin context,
+     * where the refresher the load creates finds it rather than building a second one.
+     *
+     * <p>A test plugin standing in for the admin, whose {@link #firstLoad()} never polls, needs a URL for
+     * this all the same, or overrides it.
+     */
+    protected void preflight() {
+        AuditProviderFactory auditProviderFactory = AuditProviderFactory.getInstance();
+        if (!auditProviderFactory.isInitDone() && getConfig().getProperties() != null) {
+            auditProviderFactory.init(getConfig().getProperties(), getAppId());
+        }
+        getPluginContext().createAdminClient(getConfig());
     }
 
     /**
@@ -216,9 +264,12 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
         return loaded.getCount() == 0;
     }
 
-    /** Whether the first load threw, after which every answer is a refusal; see {@link #load()}. */
-    @VisibleForTesting
-    boolean isFailed() {
+    /**
+     * Whether the first load threw, after which every answer is a refusal and the plugin has stopped itself;
+     * see {@link #load()}. A factory sharing this plugin reads it on the way in, to hand a failed one to
+     * nobody else and build a new one instead.
+     */
+    public boolean isFailed() {
         return failed;
     }
 

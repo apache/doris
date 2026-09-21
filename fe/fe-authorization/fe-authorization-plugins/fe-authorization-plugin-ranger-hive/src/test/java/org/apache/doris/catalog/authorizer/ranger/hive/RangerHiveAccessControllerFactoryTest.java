@@ -162,6 +162,49 @@ public class RangerHiveAccessControllerFactoryTest {
         }
     }
 
+    /**
+     * A stack whose plugin failed its first load is kept for nobody: the next binding on its service - the
+     * same configuration, which would otherwise have been served the controller already over it - stops it
+     * and gets a stack built afresh, which is how a configuration fixed in fe/conf reaches this source
+     * without an FE restart. Stopped on the spot rather than after the grace period, because that period is
+     * for a stack a re-attach is about to ask for again, and nothing will ask for this one.
+     */
+    @Test
+    public void testAStackWhosePluginFailedIsReplacedByTheNextBinding() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        Map<String, String> properties = ImmutableMap.of("ranger.service.name", "failed_load");
+        RangerHiveAccessControllerFactory.idleStackGraceSeconds = 3600;
+
+        try (MockedConstruction<RangerHivePlugin> plugins = Mockito.mockConstruction(RangerHivePlugin.class);
+                MockedConstruction<RangerHiveAuditHandler> handlers =
+                        Mockito.mockConstruction(RangerHiveAuditHandler.class)) {
+            AuthorizationPlugin overTheFailed = new RangerHiveAccessControllerFactory().create(properties, context);
+            RangerHivePlugin failed = plugins.constructed().get(0);
+            Mockito.when(failed.isFailed()).thenReturn(true);
+
+            AuthorizationPlugin replacement = new RangerHiveAccessControllerFactory().create(properties, context);
+
+            Assertions.assertEquals(2, plugins.constructed().size(), "the failed plugin was handed out again");
+            Assertions.assertNotSame(overTheFailed, replacement,
+                    "the controller over the failed stack was handed out again");
+            Assertions.assertEquals(1, RangerHiveAccessControllerFactory.polledServiceCount());
+            // What is left of the failed stack is stopped on the way: its audit flushed, its plugin's stop
+            // asked for - a no-op on one that stopped itself, and the same call for a mock.
+            Mockito.verify(failed).cleanup();
+            Mockito.verify(handlers.constructed().get(0)).flushAudit();
+            Mockito.verify(plugins.constructed().get(1), Mockito.never()).cleanup();
+
+            // The binding still over the failed stack lets go with nothing left here to account for, and
+            // nothing of its own to stop.
+            overTheFailed.close();
+            Mockito.verify(failed, Mockito.times(1)).cleanup();
+            Assertions.assertEquals(1, RangerHiveAccessControllerFactory.polledServiceCount(),
+                    "letting go of a controller the factory had already let go of stopped the new stack");
+
+            stopPolling(replacement);
+        }
+    }
+
     /** Closes what a case acquired and waits until nothing is polled, so the next case starts clean. */
     private static void stopPolling(AuthorizationPlugin... acquired) {
         RangerHiveAccessControllerFactory.idleStackGraceSeconds = 0;

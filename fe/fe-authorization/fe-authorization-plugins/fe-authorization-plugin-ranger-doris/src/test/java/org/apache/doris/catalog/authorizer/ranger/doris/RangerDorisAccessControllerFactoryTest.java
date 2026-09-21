@@ -193,6 +193,44 @@ public class RangerDorisAccessControllerFactoryTest {
     }
 
     /**
+     * A plugin whose first load threw is handed to nobody else: the next binding - the same configuration,
+     * which would otherwise have been served the controller already over it - gets a plugin built afresh,
+     * which is how a configuration fixed in fe/conf reaches this source without an FE restart.
+     *
+     * <p>The factory stops what it lets go of, and so does the binding still over the failed plugin when it
+     * lets go the way one built outside the factory does - there is nothing left here to account for. Both
+     * are no-ops on a plugin that stopped itself when its load threw, which is what a failed one has done.
+     */
+    @Test
+    public void testAPluginWhoseLoadFailedIsReplacedByTheNextBinding() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        try (MockedConstruction<RangerDorisPlugin> construction =
+                Mockito.mockConstruction(RangerDorisPlugin.class)) {
+            AuthorizationPlugin overTheFailed = new RangerDorisAccessControllerFactory()
+                    .create(Collections.emptyMap(), context);
+            RangerDorisPlugin failed = construction.constructed().get(0);
+            Mockito.when(failed.isFailed()).thenReturn(true);
+
+            AuthorizationPlugin replacement = new RangerDorisAccessControllerFactory()
+                    .create(Collections.emptyMap(), context);
+
+            Assertions.assertEquals(2, construction.constructed().size(), "the failed plugin was handed out again");
+            Assertions.assertNotSame(overTheFailed, replacement,
+                    "the controller over the failed plugin was handed out again");
+            Mockito.verify(failed).cleanup();
+            // And the one built afresh is what the binding after that shares.
+            Assertions.assertSame(replacement,
+                    new RangerDorisAccessControllerFactory().create(Collections.emptyMap(), context));
+            Assertions.assertEquals(2, construction.constructed().size());
+
+            overTheFailed.close();
+            Mockito.verify(failed, Mockito.times(2)).cleanup();
+            replacement.close();
+            Mockito.verify(construction.constructed().get(1), Mockito.never()).cleanup();
+        }
+    }
+
+    /**
      * A property value this source refuses fails the statement without starting anything.
      *
      * <p>The controller's constructor is what parses these properties, so a factory that started the plugin
