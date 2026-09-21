@@ -95,9 +95,11 @@ suite("test_show_data_warehouse") {
 
         boolean hitDb1 = false;
         boolean hitDb2 = false;
-
+        // Should change this value when change the segment structure, because the data size will change.
+        // This check is useful because user concern about the data size.
         long db1Size = 957 * replicaCount1
-        long db2Size = 908 * replicaCount2
+        // remove default value field from PB, the data size will be smaller than before, so we need to change the expected value.
+        long db2Size = 890 * replicaCount2
         def result;
         do {
             current = System.currentTimeMillis()
