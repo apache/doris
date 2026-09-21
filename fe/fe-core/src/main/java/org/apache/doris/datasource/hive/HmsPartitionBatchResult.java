@@ -17,26 +17,26 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.common.util.Util;
+import org.apache.hadoop.hive.metastore.api.Partition;
 
-public class HMSClientException extends RuntimeException {
-    private HmsPartitionBatchStats partitionBatchStats;
+import java.util.List;
+import java.util.Objects;
 
-    public HMSClientException(String format, Throwable cause, Object... msg) {
-        super(String.format(format, msg) + (cause == null ? "" : ". reason: " + Util.getRootCauseMessage(cause)),
-                cause);
+/** Partition objects and the physical HMS batching statistics that produced them. */
+public final class HmsPartitionBatchResult {
+    private final List<Partition> partitions;
+    private final HmsPartitionBatchStats stats;
+
+    public HmsPartitionBatchResult(List<Partition> partitions, HmsPartitionBatchStats stats) {
+        this.partitions = Objects.requireNonNull(partitions, "partitions");
+        this.stats = Objects.requireNonNull(stats, "stats");
     }
 
-    public HMSClientException(String format, Object... msg) {
-        super(String.format(format, msg));
+    public List<Partition> getPartitions() {
+        return partitions;
     }
 
-    public HmsPartitionBatchStats getPartitionBatchStats() {
-        return partitionBatchStats;
-    }
-
-    HMSClientException withPartitionBatchStats(HmsPartitionBatchStats stats) {
-        this.partitionBatchStats = stats;
-        return this;
+    public HmsPartitionBatchStats getStats() {
+        return stats;
     }
 }

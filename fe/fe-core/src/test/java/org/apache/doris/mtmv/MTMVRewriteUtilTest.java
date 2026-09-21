@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.mtmv.MTMVRefreshContext.PreparedPartitionSnapshots;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.qe.ConnectContext;
@@ -74,6 +75,10 @@ public class MTMVRewriteUtilTest {
     private MTMVPartitionUtil mtmvPartitionUtil;
     @Mocked
     private MTMVUtil mtmvUtil;
+    @Mocked
+    private MTMVRefreshContext refreshContext;
+    @Mocked
+    private PreparedPartitionSnapshots preparedPartitionSnapshots;
     private long currentTimeMills = 3L;
 
     @Before
@@ -133,7 +138,8 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = true;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any,
+                        (PreparedPartitionSnapshots) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<TableName>) any);
                 minTimes = 0;
@@ -142,6 +148,10 @@ public class MTMVRewriteUtilTest {
                 MTMVUtil.mtmvContainsExternalTable((MTMV) any);
                 minTimes = 0;
                 result = false;
+
+                refreshContext.prepareComparablePartitionSnapshots((Set<String>) any);
+                minTimes = 0;
+                result = preparedPartitionSnapshots;
 
                 mtmv.canBeCandidate();
                 minTimes = 0;
@@ -158,7 +168,8 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 2L;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any,
+                        (PreparedPartitionSnapshots) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<TableName>) any);
                 minTimes = 0;
@@ -189,7 +200,8 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 2L;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any,
+                        (PreparedPartitionSnapshots) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<TableName>) any);
                 minTimes = 0;
@@ -211,7 +223,8 @@ public class MTMVRewriteUtilTest {
                 minTimes = 0;
                 result = 1L;
 
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any,
+                        (PreparedPartitionSnapshots) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<TableName>) any);
                 minTimes = 0;
@@ -246,7 +259,8 @@ public class MTMVRewriteUtilTest {
     public void testGetMTMVCanRewritePartitionsNotSync() throws AnalysisException {
         new Expectations() {
             {
-                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any, anyString,
+                MTMVPartitionUtil.isMTMVPartitionSync((MTMVRefreshContext) any,
+                        (PreparedPartitionSnapshots) any, anyString,
                         (Set<BaseTableInfo>) any,
                         (Set<TableName>) any);
                 minTimes = 0;
