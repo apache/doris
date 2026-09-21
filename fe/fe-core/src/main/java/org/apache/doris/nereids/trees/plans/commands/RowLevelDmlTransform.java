@@ -59,8 +59,8 @@ public interface RowLevelDmlTransform {
     /** Locate and validate the required physical sink in the planned plan (throws with the legacy messages). */
     PhysicalSink<?> requirePhysicalSink(NereidsPlanner planner, RowLevelDmlOp op);
 
-    /** The label prefix; the shell appends {@code _<hi>_<lo>}. Frozen for profile/txn parity. */
-    String labelPrefix(RowLevelDmlOp op);
+    /** The connector-owned label prefix; the shell appends {@code _<hi>_<lo>}. */
+    String labelPrefix(TableIf table, RowLevelDmlOp op);
 
     /**
      * Legacy optimistic-conflict-detection wiring (kept live until P6.7): build the connector-specific

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -45,42 +44,23 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.ImmutableSet;
-
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Predicate;
 
 /**
- * Iceberg {@link RowLevelDmlTransform}: routes {@code DELETE}/{@code UPDATE}/{@code MERGE INTO} on iceberg
- * tables through the generic {@link RowLevelDmlCommand} shell.
+ * Position-delete {@link RowLevelDmlTransform}: routes {@code DELETE}/{@code UPDATE}/{@code MERGE INTO}
+ * through the generic {@link RowLevelDmlCommand} shell.
  *
- * <p>The iceberg plan-synthesis algebra lives in same-package neutral helpers: {@link #synthesize} constructs
+ * <p>The plan-synthesis algebra lives in same-package neutral helpers: {@link #synthesize} constructs
  * the corresponding {@code ExternalRowLevel*PlanBuilder} and calls its (package-visible) synthesis method, so
  * the synthesized {@code LogicalExternalRowLevel{Delete,Merge}Sink} tree is the generic row-level DML sink.
  * The per-executor-only bits (conflict-filter stash, finalize) are routed here via
- * {@code instanceof}-free op switches; the exclusion predicate mirrors legacy
- * {@code IcebergConflictDetectionFilterUtils} (note the {@code equalsIgnoreCase} vs {@code equals} asymmetry).</p>
+ * {@code instanceof}-free operation switches. Connector-owned metadata column names are obtained through
+ * the write-provider SPI rather than embedded in engine code.</p>
  */
-public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
-
-    /**
-     * Position-delete metadata column names ({@code $file_path}/{@code $row_position}/{@code $partition_spec_id}/
-     * {@code $partition_data}): the connector-declared row-id STRUCT field names, {@code $}-prefixed. Kept as
-     * FE-side synthetic-column name constants (the same category as {@link Column#ICEBERG_ROWID_COL}); matched
-     * case-sensitively ({@code equals}), unlike the rowid ({@code equalsIgnoreCase}).
-     */
-    private static final Set<String> ICEBERG_METADATA_COLUMN_NAMES = ImmutableSet.of(
-            "$file_path", "$row_position", "$partition_spec_id", "$partition_data");
-
-    /**
-     * Slots excluded from the target-only write constraint: the synthetic {@code $row_id} column and
-     * iceberg metadata columns. Mirrors legacy {@code IcebergConflictDetectionFilterUtils.isTargetOnlyPredicate}
-     * exactly — keep the {@code equalsIgnoreCase} (rowid) vs {@code equals} (metadata) asymmetry.
-     */
-    private static final Predicate<SlotReference> ICEBERG_EXCLUSION =
-            slot -> Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getName())
-                    || ICEBERG_METADATA_COLUMN_NAMES.contains(slot.getName());
+public class PositionDeleteRowLevelDmlTransform implements RowLevelDmlTransform {
 
     @Override
     public boolean handles(TableIf table) {
@@ -91,7 +71,7 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
     }
 
     /**
-     * A plugin-driven (SPI connector) table is routed through the iceberg row-level DML synthesis only if
+     * A plugin-driven table is routed through position-delete row-level DML synthesis only if
      * its connector declares row-level DML support ({@code supportsDelete()} or {@code supportsMerge()}).
      * Mirrors the connector-capability probe in
      * {@code InsertOverwriteTableCommand.pluginConnectorSupportsInsertOverwrite}.
@@ -104,19 +84,24 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
      * using changelog rows may support the same operations but cannot use the position-delete plan.</p>
      */
     private static boolean pluginConnectorSupportsRowLevelDml(PluginDrivenExternalTable table) {
-        // Per-handle write-op probe: a heterogeneous gateway admits row-level DML for its iceberg tables only.
+        // Per-handle write-op probe lets a heterogeneous gateway select only qualifying tables.
         Set<WriteOperation> ops = table.connectorSupportedWriteOperations();
         return ops.contains(WriteOperation.DELETE) || ops.contains(WriteOperation.MERGE);
     }
 
     @Override
     public void checkMode(TableIf table, RowLevelDmlOp op) {
-        checkPluginMode((PluginDrivenExternalTable) table, op);
+        PluginDrivenExternalTable connectorTable = (PluginDrivenExternalTable) table;
+        WriteOperation operation = toWriteOperation(op);
+        if (!connectorTable.connectorSupportedWriteOperations().contains(operation)) {
+            throw new AnalysisException("Connector does not support " + operation + " operations");
+        }
+        checkPluginMode(connectorTable, op);
     }
 
     /**
      * {@link #checkMode} body: route the copy-on-write rejection through the connector's neutral
-     * {@code validateRowLevelDmlMode} SPI, so the iceberg property knowledge and the message stay in the
+     * {@code validateRowLevelDmlMode} SPI, so format-specific properties and messages stay in the
      * connector. A connector {@link DorisConnectorException} is surfaced as the analysis-time
      * {@link AnalysisException} the legacy native path threw, preserving the user-facing message and the
      * exception type.
@@ -150,23 +135,23 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
 
     @Override
     public LogicalPlan synthesize(ConnectContext ctx, RowLevelDmlArgs args, RowLevelDmlOp op) {
-        ExternalTable icebergTable = (ExternalTable) args.getTable();
+        ExternalTable externalTable = (ExternalTable) args.getTable();
         switch (op) {
             case DELETE:
                 return new ExternalRowLevelDeletePlanBuilder(
                         args.getNameParts(), args.getTableAlias(), args.isTempPart(),
                         args.getPartitions(), args.getLogicalQuery())
-                        .completeQueryPlan(ctx, args.getLogicalQuery(), icebergTable);
+                        .completeQueryPlan(ctx, args.getLogicalQuery(), externalTable);
             case UPDATE:
                 return new ExternalRowLevelUpdatePlanBuilder(
                         args.getNameParts(), args.getTableAlias(), args.getAssignments(),
                         args.getLogicalQuery())
-                        .buildMergePlan(ctx, args.getLogicalQuery(), args.getAssignments(), icebergTable);
+                        .buildMergePlan(ctx, args.getLogicalQuery(), args.getAssignments(), externalTable);
             default:
                 return new ExternalRowLevelMergePlanBuilder(
                         args.getTargetNameParts(), args.getTargetAlias(), args.getCte(),
                         args.getSource(), args.getOnClause(), args.getMatchedClauses(), args.getNotMatchedClauses())
-                        .buildMergePlan(ctx, icebergTable);
+                        .buildMergePlan(ctx, externalTable);
         }
     }
 
@@ -191,7 +176,7 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
                     throw new AnalysisException("DELETE command must contain target table");
                 }
                 if (!(plan.get() instanceof PhysicalExternalRowLevelDeleteSink)) {
-                    throw new AnalysisException("DELETE plan must use Iceberg delete sink");
+                    throw new AnalysisException("DELETE plan must use a position-delete sink");
                 }
                 return plan.get();
             case UPDATE:
@@ -199,7 +184,7 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
                     throw new AnalysisException("UPDATE command must contain target table");
                 }
                 if (!(plan.get() instanceof PhysicalExternalRowLevelMergeSink)) {
-                    throw new AnalysisException("UPDATE merge plan must use Iceberg merge sink");
+                    throw new AnalysisException("UPDATE plan must use a position-delete merge sink");
                 }
                 return plan.get();
             default:
@@ -207,22 +192,16 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
                     throw new AnalysisException("MERGE INTO command must contain target table");
                 }
                 if (!(plan.get() instanceof PhysicalExternalRowLevelMergeSink)) {
-                    throw new AnalysisException("MERGE INTO plan must use Iceberg merge sink");
+                    throw new AnalysisException("MERGE INTO plan must use a position-delete merge sink");
                 }
                 return plan.get();
         }
     }
 
     @Override
-    public String labelPrefix(RowLevelDmlOp op) {
-        switch (op) {
-            case DELETE:
-                return "iceberg_delete";
-            case UPDATE:
-                return "iceberg_update_merge";
-            default:
-                return "iceberg_merge_into";
-        }
+    public String labelPrefix(TableIf table, RowLevelDmlOp op) {
+        return ((PluginDrivenExternalTable) table)
+                .getConnectorRowLevelDmlLabelPrefix(toWriteOperation(op));
     }
 
     @Override
@@ -230,10 +209,8 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
             RowLevelDmlOp op) {
         // No-op: the conflict filter is supplied through the neutral SPI path
         // (RowLevelDmlCommand.applyWriteConstraintIfPresent -> extractWriteConstraint ->
-        // ConnectorTransaction.applyWriteConstraint), converted to a native iceberg Expression lazily at
-        // commit. Running ONLY the SPI path avoids double-filtering; the SPI converter is byte-verified
-        // equivalent to the retired native filter builder, the residual divergence only widening the
-        // filter -> at worst a harmless extra OCC retry (see [DEC-S5]).
+        // ConnectorTransaction.applyWriteConstraint). Running only the SPI path avoids applying the same
+        // optimistic-conflict predicate twice.
     }
 
     @Override
@@ -247,6 +224,10 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
 
     @Override
     public Optional<ConnectorPredicate> extractWriteConstraint(Plan analyzedPlan, TableIf table) {
-        return WriteConstraintExtractor.extract(analyzedPlan, table.getId(), ICEBERG_EXCLUSION);
+        Set<String> excludedColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        excludedColumns.addAll(((PluginDrivenExternalTable) table)
+                .getConnectorRowLevelWriteConstraintExcludedColumns());
+        Predicate<SlotReference> exclusion = slot -> excludedColumns.contains(slot.getName());
+        return WriteConstraintExtractor.extract(analyzedPlan, table.getId(), exclusion);
     }
 }

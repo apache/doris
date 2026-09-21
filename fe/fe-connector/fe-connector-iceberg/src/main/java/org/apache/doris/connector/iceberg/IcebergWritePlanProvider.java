@@ -125,6 +125,11 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     // drift on either side turns one of the two tests red.
     private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
 
+    private static final Set<String> ROW_LEVEL_WRITE_CONSTRAINT_EXCLUDED_COLUMNS =
+            Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+                    DORIS_ICEBERG_ROWID_COL, "$file_path", "$row_position",
+                    "$partition_spec_id", "$partition_data")));
+
     // The single request-scoped synthetic write column iceberg declares: the row-id STRUCT carrying the
     // per-row write metadata (file_path / row_position / partition_spec_id / partition_data). Same for
     // every iceberg table regardless of format/partitioning, so it is a shared immutable instance.
@@ -647,6 +652,25 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // injection request-side (show-hidden / synthetic-write-column ctx flag); here we only declare it, so
         // neither the session nor the table handle is consulted.
         return SYNTHETIC_WRITE_COLUMNS;
+    }
+
+    @Override
+    public Set<String> getRowLevelWriteConstraintExcludedColumns() {
+        return ROW_LEVEL_WRITE_CONSTRAINT_EXCLUDED_COLUMNS;
+    }
+
+    @Override
+    public String getRowLevelDmlLabelPrefix(WriteOperation operation) {
+        switch (operation) {
+            case DELETE:
+                return "iceberg_delete";
+            case UPDATE:
+                return "iceberg_update_merge";
+            case MERGE:
+                return "iceberg_merge_into";
+            default:
+                throw new DorisConnectorException("Unsupported Iceberg row-level operation: " + operation);
+        }
     }
 
     @Override

@@ -38,6 +38,7 @@ import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -747,7 +748,7 @@ public class BindSink implements AnalysisRuleFactory {
      * stay in the connector (iceberg). A connector {@link DorisConnectorException} is surfaced as the
      * analysis-time {@link AnalysisException} the legacy native path threw, preserving the user-facing message
      * and the exception type. The literal-value check is connector-agnostic and stays here, where the Nereids
-     * expression is available. Plumbing mirrors {@code IcebergRowLevelDmlTransform.checkPluginMode}.
+     * expression is available. Plumbing mirrors {@code PositionDeleteRowLevelDmlTransform.checkPluginMode}.
      */
     private void checkConnectorStaticPartitions(PluginDrivenExternalTable table,
             Map<String, Expression> staticPartitions, Set<String> staticPartitionColNames) {
@@ -895,6 +896,26 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> targetWriteSchema = resolvedTargetSchema.stream()
                 .filter(column -> isConnectorSinkWriteColumn(column, sink.isRewrite()))
                 .collect(ImmutableList.toImmutableList());
+        if (sink.getRowChangeSpec().isPresent()) {
+            ConnectorChangelogMode changelogMode = table.getConnectorChangelogMode()
+                    .orElseThrow(() -> new AnalysisException(
+                            "Connector changelog write mode is not configured for table " + table.getName()));
+            child = ConnectorChangelogPlanBuilder.build(targetWriteSchema,
+                    table.getConnectorRowLevelPrimaryKeyColumns(), changelogMode,
+                    sink.getRowChangeSpec().get(), child, ctx.cascadesContext);
+            List<NamedExpression> outputExpressions = child.getOutput().stream()
+                    .map(NamedExpression.class::cast)
+                    .collect(ImmutableList.toImmutableList());
+            if (outputExpressions.size() != targetWriteSchema.size() + 1) {
+                throw new AnalysisException("Connector changelog sink must produce an operation column and "
+                        + targetWriteSchema.size() + " table columns, but got " + outputExpressions.size());
+            }
+            return new LogicalConnectorTableSink<>(database, table, targetWriteSchema,
+                    targetMetadata.getPartitionColumns(), targetMetadata.getWriteMetadataIdentity(),
+                    targetWriteSchema, outputExpressions, sink.getDMLCommandType(), false,
+                    true,
+                    Optional.empty(), Optional.empty(), child);
+        }
         if (sink.isRewrite()) {
             List<NamedExpression> rewriteOutputs = selectConnectorRewriteOutputs(
                     targetWriteSchema, child.getOutput());

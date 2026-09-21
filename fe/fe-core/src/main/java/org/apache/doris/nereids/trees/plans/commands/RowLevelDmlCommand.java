@@ -89,7 +89,7 @@ public class RowLevelDmlCommand {
                 PlanFragment fragment = planner.getFragments().get(0);
                 DataSink dataSink = fragment.getSink();
                 boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                String label = String.format(transform.labelPrefix(op) + "_%x_%x",
+                String label = String.format(transform.labelPrefix(args.getTable(), op) + "_%x_%x",
                         ctx.queryId().hi, ctx.queryId().lo);
 
                 BaseExternalTableInsertExecutor insertExecutor =
