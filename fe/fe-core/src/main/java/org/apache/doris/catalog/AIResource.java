@@ -116,25 +116,27 @@ public class AIResource extends Resource {
 
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        Map<String, String> changedProperties = new HashMap<>(this.properties);
-        for (Map.Entry<String, String> kv : properties.entrySet()) {
-            replaceIfEffectiveValue(changedProperties, kv.getKey(), kv.getValue());
-            if (kv.getKey().equals(AIProperties.API_KEY)
-                    || kv.getKey().equals(AIProperties.EMBED_API_KEY)
-                    || kv.getKey().equals(AIProperties.MULTIMODAL_EMBED_API_KEY)) {
-                changedProperties.put(kv.getKey(), kv.getValue());
-            } else if (kv.getKey().equals(AIProperties.EFFORT)
-                    && Strings.isNullOrEmpty(kv.getValue())) {
-                changedProperties.remove(kv.getKey());
-            }
-        }
-        AIProperties.requiredAIProperties(changedProperties);
-
-        // modify properties
         writeLock();
-        this.properties = changedProperties;
-        ++version;
-        writeUnlock();
+        try {
+            Map<String, String> changedProperties = new HashMap<>(this.properties);
+            for (Map.Entry<String, String> kv : properties.entrySet()) {
+                replaceIfEffectiveValue(changedProperties, kv.getKey(), kv.getValue());
+                if (kv.getKey().equals(AIProperties.API_KEY)
+                        || kv.getKey().equals(AIProperties.EMBED_API_KEY)
+                        || kv.getKey().equals(AIProperties.MULTIMODAL_EMBED_API_KEY)) {
+                    changedProperties.put(kv.getKey(), kv.getValue());
+                } else if (kv.getKey().equals(AIProperties.EFFORT)
+                        && Strings.isNullOrEmpty(kv.getValue())) {
+                    changedProperties.remove(kv.getKey());
+                }
+            }
+            AIProperties.requiredAIProperties(changedProperties);
+
+            this.properties = changedProperties;
+            ++version;
+        } finally {
+            writeUnlock();
+        }
         super.modifyProperties(properties);
     }
 

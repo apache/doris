@@ -62,6 +62,9 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class AIResourceTest {
     private static final Logger LOG = LogManager.getLogger(AIResourceTest.class);
@@ -757,6 +760,70 @@ public class AIResourceTest {
         Assertions.assertEquals("QWEN",
                 aiResource.getProperty(AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE));
         Assertions.assertEquals("QWEN", aiResource.toThrift().getEmbedMmProviderType());
+    }
+
+    @Test
+    public void testConcurrentModifyPropertiesPreservesIndependentUpdates() throws Exception {
+        AIResource aiResource = new AIResource("concurrent-resource");
+        aiProperties.put(AIProperties.DIMENSIONS, "8");
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Thread updateTemperature = new Thread(() -> modifyPropertiesAfterStart(
+                aiResource, ImmutableMap.of(AIProperties.TEMPERATURE, "0.8"), ready, start, failure));
+        Thread updateMaxToken = new Thread(() -> modifyPropertiesAfterStart(
+                aiResource, ImmutableMap.of(AIProperties.MAX_TOKEN, "4096"), ready, start, failure));
+
+        boolean bothWaiting;
+        aiResource.writeLock();
+        try {
+            updateTemperature.start();
+            updateMaxToken.start();
+            Assertions.assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            bothWaiting = waitUntilBlocked(updateTemperature, updateMaxToken);
+        } finally {
+            aiResource.writeUnlock();
+        }
+
+        updateTemperature.join(5000);
+        updateMaxToken.join(5000);
+        Assertions.assertTrue(bothWaiting);
+        Assertions.assertFalse(updateTemperature.isAlive());
+        Assertions.assertFalse(updateMaxToken.isAlive());
+        Assertions.assertNull(failure.get(), () -> "Concurrent ALTER failed: " + failure.get());
+        Assertions.assertEquals("0.8", aiResource.getProperty(AIProperties.TEMPERATURE));
+        Assertions.assertEquals("4096", aiResource.getProperty(AIProperties.MAX_TOKEN));
+    }
+
+    private static void modifyPropertiesAfterStart(AIResource aiResource,
+            Map<String, String> properties, CountDownLatch ready, CountDownLatch start,
+            AtomicReference<Throwable> failure) {
+        try {
+            ready.countDown();
+            start.await();
+            aiResource.modifyProperties(properties);
+        } catch (Throwable t) {
+            failure.compareAndSet(null, t);
+        }
+    }
+
+    private static boolean waitUntilBlocked(Thread... threads) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            if (Arrays.stream(threads).allMatch(AIResourceTest::isBlocked)) {
+                return true;
+            }
+            Thread.sleep(10);
+        }
+        return false;
+    }
+
+    private static boolean isBlocked(Thread thread) {
+        return thread.getState() == Thread.State.WAITING
+                || thread.getState() == Thread.State.BLOCKED;
     }
 
     @Test
