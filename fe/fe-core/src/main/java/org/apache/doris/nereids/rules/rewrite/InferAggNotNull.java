@@ -108,8 +108,7 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
 
     private boolean canInferFunctionNotNull(AggregateFunction aggregateFunction) {
         return isSupportedAggregateFunction(aggregateFunction)
-                && !aggregateFunction.children().isEmpty()
-                && ExpressionUtils.isCheapEnoughToInferNotNull(aggregateFunction.children());
+                && !aggregateFunction.children().isEmpty();
     }
 
     private boolean isSupportedAggregateFunction(AggregateFunction aggregateFunction) {
