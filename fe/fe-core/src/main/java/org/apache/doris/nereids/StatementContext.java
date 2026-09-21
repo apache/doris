@@ -39,6 +39,7 @@ import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
@@ -130,6 +131,8 @@ public class StatementContext implements Closeable {
     }
 
     private ConnectContext connectContext;
+    // Initialized on first cost calculation so per-query SET_VAR hints have already taken effect.
+    private CostWeight costWeight;
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
     private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
@@ -520,6 +523,9 @@ public class StatementContext implements Closeable {
 
     public void setConnectContext(ConnectContext connectContext) {
         this.connectContext = connectContext;
+        // Prepared statements reuse their StatementContext across executions. Each execution must
+        // capture the weights currently effective in the owning ConnectContext.
+        this.costWeight = null;
     }
 
     public void setHasNondeterministic(boolean hasNondeterministic) {
@@ -532,6 +538,14 @@ public class StatementContext implements Closeable {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    /** Get the cost weights shared by all cost calculations in this statement. */
+    public CostWeight getCostWeight() {
+        if (costWeight == null) {
+            costWeight = CostWeight.get(connectContext.getSessionVariable());
+        }
+        return costWeight;
     }
 
     public Set<String> getUsedAIResourceNames() {
