@@ -18,6 +18,7 @@
 #include "storage/index/query/spi/io_batch.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace doris::index_query {
 
@@ -60,6 +61,7 @@ void IoBatch::release_buffers() {
     for (auto& reader : readers_) {
         reader->release_buffers();
     }
+    pins_.clear();
     read_memory_.reset();
 }
 
@@ -78,11 +80,41 @@ Status IoBatch::fetch() {
 
 std::span<const uint8_t> IoBatch::get(size_t handle) const {
     const Handle& ref = handles_[handle];
-    return readers_[ref.reader]->get(ref.range);
+    const IoReadBatch& batch = *readers_[ref.reader];
+    if (!pins_.empty() && !pins_[ref.reader].empty()) {
+        const auto& request = batch.reqs_[ref.range];
+        if (const auto& owner = pins_[ref.reader][request.phys_idx]; owner != nullptr) {
+            return std::span<const uint8_t>(owner->bytes)
+                    .subspan(request.sub_offset, request.len_size);
+        }
+    }
+    return batch.get(ref.range);
+}
+
+Status IoBatch::pin(size_t handle, Pin* out) {
+    DORIS_CHECK(out != nullptr);
+    const Handle& ref = handles_[handle];
+    IoReadBatch& batch = *readers_[ref.reader];
+    const auto& request = batch.reqs_[ref.range];
+    pins_.resize(readers_.size());
+    auto& reader_pins = pins_[ref.reader];
+    reader_pins.resize(batch.phys_.size());
+    auto& owner = reader_pins[request.phys_idx];
+    if (owner == nullptr) {
+        auto& bytes = batch.phys_[request.phys_idx];
+        owner = std::make_shared<Buffer>();
+        owner->memory = read_memory_.split(bytes.size());
+        owner->bytes = std::move(bytes);
+    }
+    out->owner_ = owner;
+    out->offset_ = request.sub_offset;
+    out->length_ = request.len_size;
+    return Status::OK();
 }
 
 void IoBatch::clear() {
     readers_.clear();
+    pins_.clear();
     read_memory_.reset();
     handles_.clear();
     bytes_ = 0;

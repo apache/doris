@@ -448,3 +448,41 @@ TEST(IndexQueryMemoryBudget, ResizePreservesChargesOnFailureAndReleasesOnlyTheDi
     EXPECT_EQ(budget.used_bytes(), 3U);
     EXPECT_EQ(budget.peak_bytes(), 12U);
 }
+
+TEST(IndexQueryMemoryBudget, SplitTransfersChargesBetweenIndependentOwners) {
+    doris::index_query::MemoryBudget budget(12);
+    doris::index_query::MemoryBudget::Reservation first;
+    ASSERT_TRUE(budget.reserve(12, &first).ok());
+    auto second = first.split(5);
+    EXPECT_EQ(first.bytes(), 7U);
+    EXPECT_EQ(second.bytes(), 5U);
+    EXPECT_EQ(budget.used_bytes(), 12U);
+    EXPECT_EQ(budget.peak_bytes(), 12U);
+    first.reset();
+    EXPECT_EQ(budget.used_bytes(), 5U);
+    ASSERT_TRUE(second.resize(12).ok());
+    EXPECT_EQ(budget.used_bytes(), 12U);
+    second.reset();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(IndexQueryMemoryBudget, ZeroAndFullSplitsPreserveTheSharedBudget) {
+    doris::index_query::MemoryBudget budget(8);
+    doris::index_query::MemoryBudget::Reservation original;
+    ASSERT_TRUE(budget.reserve(8, &original).ok());
+    auto empty = original.split(0);
+    EXPECT_EQ(original.bytes(), 8U);
+    empty.reset();
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    auto complete = original.split(8);
+    EXPECT_EQ(original.bytes(), 0U);
+    EXPECT_TRUE(original.resize(1).is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>());
+    ASSERT_TRUE(complete.resize(4).ok());
+    ASSERT_TRUE(original.resize(4).ok());
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    complete = std::move(original);
+    EXPECT_EQ(budget.used_bytes(), 4U);
+    complete.reset();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 8U);
+}

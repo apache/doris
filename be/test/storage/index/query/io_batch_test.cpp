@@ -21,6 +21,7 @@
 
 #include <limits>
 #include <numeric>
+#include <utility>
 
 namespace doris::index_query {
 namespace {
@@ -295,6 +296,216 @@ TEST(IndexQueryIoBatch, OversizedFirstRangeStillRequiresARangeSlotAndMemory) {
     EXPECT_TRUE(no_memory.fetch().is<ErrorCode::MEM_LIMIT_EXCEEDED>());
     EXPECT_EQ(reader.calls, 0U);
     EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(IndexQueryIoBatch, PinTransfersAnAdmittedBufferWithoutCopyingOrChargingAgain) {
+    CountingIoReader reader;
+    MemoryBudget budget(16);
+    IoBatch batch(budget, {.bytes = 16, .ranges = 2});
+    bool accepted = false;
+    size_t first = 0;
+    size_t second = 0;
+    ASSERT_TRUE(batch.try_add(reader, 0, 8, &accepted, &first).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(batch.try_add(reader, 16, 8, &accepted, &second).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(batch.fetch().ok());
+    const uint8_t* original = batch.get(first).data();
+    IoBatch::Pin pin;
+    const Status status = batch.pin(first, &pin);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(pin.bytes().data(), original);
+    EXPECT_EQ(batch.get(first).data(), original);
+    EXPECT_EQ(budget.used_bytes(), 16U);
+    EXPECT_EQ(budget.peak_bytes(), 16U);
+    batch.clear();
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    EXPECT_EQ(pin.bytes().size(), 8U);
+    EXPECT_EQ(pin.bytes().back(), 7);
+    pin = {};
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(IndexQueryIoBatch, OverlappingPinsShareOneOwnerAndSurviveCopiesAndMoves) {
+    CountingIoReader reader;
+    MemoryBudget budget(8);
+    IoBatch::Pin first;
+    IoBatch::Pin second;
+    {
+        IoBatch wave(budget, {.bytes = 8, .ranges = 1});
+        bool accepted = false;
+        size_t whole = 0;
+        size_t part = 0;
+        ASSERT_TRUE(wave.try_add(reader, 0, 8, &accepted, &whole).ok());
+        ASSERT_TRUE(accepted);
+        ASSERT_TRUE(wave.try_add(reader, 2, 4, &accepted, &part).ok());
+        ASSERT_TRUE(accepted);
+        ASSERT_TRUE(wave.fetch().ok());
+        ASSERT_TRUE(wave.pin(whole, &first).ok());
+        ASSERT_TRUE(wave.pin(part, &second).ok());
+        EXPECT_EQ(second.bytes().data(), first.bytes().data() + 2);
+        EXPECT_EQ(wave.get(part).data(), second.bytes().data());
+        EXPECT_EQ(reader.calls, 1U);
+    }
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    auto copy = first;
+    auto moved = std::move(second);
+    first = {};
+    copy = {};
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    EXPECT_EQ(moved.bytes().front(), 2);
+    EXPECT_EQ(moved.bytes().back(), 5);
+    moved = {};
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 8U);
+}
+
+TEST(IndexQueryIoBatch, ASubrangePinRetainsItsWholePhysicalBuffer) {
+    CountingIoReader reader;
+    MemoryBudget budget(8);
+    IoBatch wave(budget, {.bytes = 8, .ranges = 1});
+    bool accepted = false;
+    size_t whole = 0;
+    size_t part = 0;
+    ASSERT_TRUE(wave.try_add(reader, 0, 8, &accepted, &whole).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(wave.try_add(reader, 3, 2, &accepted, &part).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(wave.fetch().ok());
+    IoBatch::Pin pin;
+    ASSERT_TRUE(wave.pin(part, &pin).ok());
+    EXPECT_EQ(wave.get(whole).data() + 3, pin.bytes().data());
+    wave.clear();
+    EXPECT_EQ(pin.bytes().size(), 2U);
+    EXPECT_EQ(pin.bytes().front(), 3);
+    EXPECT_EQ(budget.used_bytes(), 8U);
+}
+
+TEST(IndexQueryIoBatch, PinsFromDifferentReadersReleaseTheirChargesIndependently) {
+    CountingIoReader first;
+    CountingIoReader second;
+    second.seed = 100;
+    MemoryBudget budget(16);
+    IoBatch wave(budget, {.bytes = 16, .ranges = 2});
+    bool accepted = false;
+    size_t left = 0;
+    size_t right = 0;
+    ASSERT_TRUE(wave.try_add(first, 0, 8, &accepted, &left).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(wave.try_add(second, 0, 8, &accepted, &right).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(wave.fetch().ok());
+    IoBatch::Pin first_pin;
+    IoBatch::Pin second_pin;
+    ASSERT_TRUE(wave.pin(left, &first_pin).ok());
+    EXPECT_EQ(wave.get(right).front(), 100);
+    ASSERT_TRUE(wave.pin(right, &second_pin).ok());
+    wave.clear();
+    EXPECT_EQ(budget.used_bytes(), 16U);
+    first_pin = {};
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    EXPECT_EQ(second_pin.bytes().back(), 107);
+    second_pin = {};
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(IndexQueryIoBatch, RefetchKeepsOldPinnedBytesAndAdmitsNewBuffersSeparately) {
+    CountingIoReader reader;
+    MemoryBudget budget(16);
+    IoBatch wave(budget, {.bytes = 8, .ranges = 1});
+    bool accepted = false;
+    size_t handle = 0;
+    ASSERT_TRUE(wave.try_add(reader, 0, 8, &accepted, &handle).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(wave.fetch().ok());
+    IoBatch::Pin old;
+    ASSERT_TRUE(wave.pin(handle, &old).ok());
+    reader.seed = 20;
+    ASSERT_TRUE(wave.fetch().ok());
+    EXPECT_EQ(budget.used_bytes(), 16U);
+    EXPECT_EQ(old.bytes().front(), 0);
+    EXPECT_EQ(wave.get(handle).front(), 20);
+    EXPECT_NE(old.bytes().data(), wave.get(handle).data());
+    IoBatch::Pin current;
+    ASSERT_TRUE(wave.pin(handle, &current).ok());
+    wave.clear();
+    old = {};
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    EXPECT_EQ(current.bytes().back(), 27);
+    current = {};
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 16U);
+}
+
+TEST(IndexQueryIoBatch, RefetchRejectsBeforeReadingWhileAnOldPinFillsTheBudget) {
+    CountingIoReader reader;
+    MemoryBudget budget(8);
+    IoBatch wave(budget, {.bytes = 8, .ranges = 1});
+    bool accepted = false;
+    size_t handle = 0;
+    ASSERT_TRUE(wave.try_add(reader, 0, 8, &accepted, &handle).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(wave.fetch().ok());
+    IoBatch::Pin pin;
+    ASSERT_TRUE(wave.pin(handle, &pin).ok());
+    EXPECT_TRUE(wave.fetch().is<ErrorCode::MEM_LIMIT_EXCEEDED>());
+    EXPECT_EQ(reader.calls, 1U);
+    EXPECT_EQ(pin.bytes().back(), 7);
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    pin = {};
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    ASSERT_TRUE(wave.fetch().ok());
+    EXPECT_EQ(reader.calls, 2U);
+    EXPECT_EQ(wave.get(handle).size(), 8U);
+}
+
+TEST(IndexQueryIoBatch, FailedRefetchReleasesNewBuffersAndPreservesOldPins) {
+    CountingIoReader first;
+    CountingIoReader second;
+    MemoryBudget budget(24);
+    IoBatch wave(budget, {.bytes = 16, .ranges = 2});
+    bool accepted = false;
+    size_t left = 0;
+    size_t right = 0;
+    ASSERT_TRUE(wave.try_add(first, 0, 8, &accepted, &left).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(wave.try_add(second, 0, 8, &accepted, &right).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(wave.fetch().ok());
+    IoBatch::Pin pin;
+    ASSERT_TRUE(wave.pin(left, &pin).ok());
+    first.seed = 20;
+    second.fail_call = 2;
+    EXPECT_TRUE(wave.fetch().is<ErrorCode::IO_ERROR>());
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    EXPECT_EQ(pin.bytes().front(), 0);
+    EXPECT_EQ(wave.pending(), 2U);
+    second.fail_call = 0;
+    ASSERT_TRUE(wave.fetch().ok());
+    EXPECT_EQ(wave.get(left).front(), 20);
+    wave.clear();
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    pin = {};
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 24U);
+}
+
+TEST(IndexQueryIoBatch, EmptyPinsAndZeroByteBuffersHaveNoCharge) {
+    IoBatch::Pin pin;
+    EXPECT_TRUE(pin.bytes().empty());
+    CountingIoReader reader;
+    MemoryBudget budget(0);
+    IoBatch wave(budget, {.bytes = 0, .ranges = 1});
+    bool accepted = false;
+    size_t handle = 0;
+    ASSERT_TRUE(wave.try_add(reader, 0, 0, &accepted, &handle).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(wave.fetch().ok());
+    ASSERT_TRUE(wave.pin(handle, &pin).ok());
+    EXPECT_TRUE(pin.bytes().empty());
+    wave.clear();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 0U);
 }
 
 } // namespace

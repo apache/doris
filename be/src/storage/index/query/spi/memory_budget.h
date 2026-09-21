@@ -89,6 +89,17 @@ public:
             return Status::OK();
         }
 
+        // Transfers part of an admitted charge without changing total usage or peak.
+        Reservation split(uint64_t bytes) {
+            DORIS_CHECK(state_ != nullptr);
+            DORIS_CHECK_LE(bytes, bytes_);
+            Reservation result;
+            result.state_ = state_;
+            result.bytes_ = bytes;
+            bytes_ -= bytes;
+            return result;
+        }
+
         void reset() {
             if (state_) {
                 state_->used.fetch_sub(bytes_, std::memory_order_relaxed);

@@ -29,7 +29,27 @@ namespace doris::index_query {
 
 // Owns one wave across readers and admits its physical buffers before I/O.
 class IoBatch {
+    struct Buffer {
+        MemoryBudget::Reservation memory;
+        std::vector<uint8_t> bytes;
+    };
+
 public:
+    class Pin {
+    public:
+        std::span<const uint8_t> bytes() const {
+            return owner_ == nullptr
+                           ? std::span<const uint8_t>()
+                           : std::span<const uint8_t>(owner_->bytes).subspan(offset_, length_);
+        }
+
+    private:
+        friend class IoBatch;
+        std::shared_ptr<const Buffer> owner_;
+        size_t offset_ = 0;
+        size_t length_ = 0;
+    };
+
     struct Limits {
         uint64_t bytes;
         size_t ranges;
@@ -46,6 +66,8 @@ public:
     Status fetch();
     // Views remain valid until the next fetch or clear.
     std::span<const uint8_t> get(size_t handle) const;
+    // A pin keeps its physical bytes and memory charge alive across waves.
+    Status pin(size_t handle, Pin* out);
     void clear();
     size_t pending() const { return handles_.size(); }
     MemoryBudget& memory_budget() const { return budget_; }
@@ -63,6 +85,7 @@ private:
     MemoryBudget::Reservation read_memory_;
     std::vector<std::unique_ptr<IoReadBatch>> readers_;
     std::vector<Handle> handles_;
+    std::vector<std::vector<std::shared_ptr<Buffer>>> pins_;
     uint64_t bytes_ = 0;
     size_t ranges_ = 0;
 };
