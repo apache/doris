@@ -178,11 +178,11 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         def testQueries = [
                 // Column-to-column: the only form that reaches the BE as
                 // EQ_FOR_NULL. Must keep (NULL, NULL) and (1, 1), drop (1, 2).
-                """select * from t_eq_null where a <=> b order by a nulls last""",
+                """select * from t_eq_null where a <=> b order by a nulls last, b nulls last""",
                 // FE-rewritten forms; also exercise the equality / IS NULL
                 // pushdown paths of the rust predicate converter.
-                """select * from t_eq_null where a <=> 1 order by a""",
-                """select * from t_eq_null where a <=> NULL order by a""",
+                """select * from t_eq_null where a <=> 1 order by a, b""",
+                """select * from t_eq_null where a <=> NULL order by a, b""",
                 // Fractional TIMESTAMP(6) equality. The literal is deliberately
                 // 3-digit: FE truncates plan-time pushed-down timestamp
                 // predicates to milliseconds, so a 6-digit literal would reach

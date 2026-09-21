@@ -36,9 +36,18 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
             "paimon.catalog.type" = "filesystem",
             "warehouse" = "hdfs://${externalEnvIp}:${hdfsPort}/user/doris/paimon1"
         );"""
+        // Capture the settings this suite overrides so finally can restore them.
+        def originalForceJni = sql("select @@force_jni_scanner")[0][0]
+        def originalV2 = sql("select @@enable_file_scanner_v2")[0][0]
+
         sql """switch ${catalogName}"""
         sql """use db1"""
-        sql """set force_jni_scanner=false"""
+        // Force the logical (JNI / rust) reader path: the append parquet tables
+        // below (all_table, all_table_with_parquet, append_table, ...) convert
+        // to raw native splits, which getSplits() would otherwise prefer —
+        // both differential legs would silently use the native reader and
+        // never reach the JNI / rust converters.
+        sql """set force_jni_scanner=true"""
         // FileScannerV2 is the default; make the intent of this suite explicit.
         sql """set enable_file_scanner_v2=true"""
 
@@ -53,8 +62,11 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
                 """select c3['a_test'], c3['b_test'], c3['bbb'], c3['ccc'] from complex_tab order by c3['a_test'], c3['b_test']""",
                 """select array_max(c2) c from complex_tab order by c""",
                 """select c20[0] c from complex_all order by c""",
-                """select * from deletion_vector_orc""",
-                """select * from deletion_vector_parquet""",
+                // ORDER BY keeps the JNI/rust differential deterministic: the two
+                // readers may return the same rows in different valid file/batch
+                // order, and the suite compares the result lists as strings.
+                """select * from deletion_vector_orc order by id""",
+                """select * from deletion_vector_parquet order by id""",
                 // count(*) exercises the table-level metadata count path of the v2 leaf reader.
                 """select count(*) from append_table""",
                 """select count(*) from merge_on_read_table""",
@@ -90,8 +102,8 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         }
     } finally {
         sql """set enable_paimon_rust_reader=false"""
-        sql """set enable_file_scanner_v2=true"""
-        sql """set force_jni_scanner=false"""
+        sql """set force_jni_scanner=${originalForceJni}"""
+        sql """set enable_file_scanner_v2=${originalV2}"""
         sql """drop catalog if exists ${catalogName}"""
     }
 }
