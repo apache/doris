@@ -672,6 +672,157 @@ TEST_F(ColumnReaderTest, ArrayReadByRowidsMatchesSequentialReadAcrossPages) {
     }
 }
 
+TEST_F(ColumnReaderTest, ArrayReadByRowidsSchemaEvolutionFromNonNullSource) {
+    constexpr size_t num_rows = 8;
+    const std::array<size_t, num_rows> item_counts {2, 0, 3, 1, 4, 0, 2, 3};
+    ColumnMetaPB meta;
+    TabletColumn array_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                              FieldType::OLAP_FIELD_TYPE_ARRAY);
+    TabletColumn item_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_INT, false);
+    array_column.add_sub_column(item_column);
+    array_column.set_name("a");
+
+    std::vector<int32_t> item_values;
+    std::vector<uint64_t> array_offsets(num_rows + 1, 0);
+    for (size_t row = 0; row < num_rows; ++row) {
+        for (size_t item = 0; item < item_counts[row]; ++item) {
+            item_values.push_back(static_cast<int32_t>(row * 100 + item));
+        }
+        array_offsets[row + 1] = item_values.size();
+    }
+
+    const std::string file_name =
+            COLUMN_READER_FILE_TEST_DIR + "/array_read_by_rowids_schema_evolution";
+    auto fs = io::global_local_filesystem();
+    {
+        io::FileWriterPtr file_writer;
+        auto st = fs->create_file(file_name, &file_writer);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        ColumnWriterOptions writer_options;
+        writer_options.meta = &meta;
+        writer_options.meta->set_column_id(0);
+        writer_options.meta->set_unique_id(0);
+        writer_options.meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_ARRAY));
+        writer_options.meta->set_length(0);
+        writer_options.meta->set_encoding(DEFAULT_ENCODING);
+        writer_options.meta->set_compression(CompressionTypePB::LZ4F);
+        writer_options.meta->set_is_nullable(false);
+
+        auto* child_meta = meta.add_children_columns();
+        child_meta->set_column_id(1);
+        child_meta->set_unique_id(1);
+        child_meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+        child_meta->set_length(0);
+        child_meta->set_encoding(BIT_SHUFFLE);
+        child_meta->set_compression(CompressionTypePB::LZ4F);
+        child_meta->set_is_nullable(false);
+
+        std::unique_ptr<ColumnWriter> writer;
+        st = ColumnWriter::create(writer_options, &array_column, file_writer.get(), &writer);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_TRUE(writer->init().ok());
+        const std::array<uint64_t, 4> array_data {static_cast<uint64_t>(item_values.size()),
+                                                  reinterpret_cast<uint64_t>(array_offsets.data()),
+                                                  reinterpret_cast<uint64_t>(item_values.data()),
+                                                  0};
+        ASSERT_TRUE(writer->append(nullptr, array_data.data(), num_rows).ok());
+        ASSERT_TRUE(writer->finish().ok());
+        ASSERT_TRUE(writer->write_data().ok());
+        ASSERT_TRUE(writer->write_ordinal_index().ok());
+        ASSERT_TRUE(file_writer->close().ok());
+    }
+
+    io::FileReaderSPtr file_reader;
+    auto st = fs->open_file(file_name, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ColumnReaderOptions reader_options;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_options, meta, num_rows, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    DataTypePtr column_type = std::make_shared<DataTypeNullable>(array_type);
+    auto create_iterator = [&](OlapReaderStatistics* stats,
+                               ColumnIteratorUPtr* iterator) -> Status {
+        RETURN_IF_ERROR(reader->new_iterator(iterator, &array_column));
+        ColumnIteratorOptions options;
+        options.stats = stats;
+        options.file_reader = file_reader.get();
+        return (*iterator)->init(options);
+    };
+
+    MutableColumnPtr baseline = column_type->create_column();
+    {
+        ColumnIteratorUPtr iterator;
+        OlapReaderStatistics stats;
+        ASSERT_TRUE(create_iterator(&stats, &iterator).ok());
+        ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+        size_t rows_to_read = num_rows;
+        bool has_null = false;
+        ASSERT_TRUE(iterator->next_batch(&rows_to_read, baseline, &has_null).ok());
+        ASSERT_EQ(num_rows, rows_to_read);
+        EXPECT_FALSE(has_null);
+    }
+
+    const std::vector<rowid_t> rowids {0, 2, 3, 6, 7};
+    MutableColumnPtr actual = column_type->create_column();
+    {
+        ColumnIteratorUPtr iterator;
+        OlapReaderStatistics stats;
+        ASSERT_TRUE(create_iterator(&stats, &iterator).ok());
+        ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), actual).ok());
+    }
+
+    const auto& baseline_nullable = assert_cast<const ColumnNullable&>(*baseline);
+    const auto& baseline_array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+            baseline_nullable.get_nested_column());
+    const auto& actual_nullable = assert_cast<const ColumnNullable&>(*actual);
+    const auto& actual_array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+            actual_nullable.get_nested_column());
+    ASSERT_EQ(rowids.size(), actual->size());
+    EXPECT_THAT(actual_nullable.get_null_map_data(), ::testing::Each(0));
+
+    size_t expected_item_count = 0;
+    size_t item_cursor = 0;
+    for (size_t i = 0; i < rowids.size(); ++i) {
+        const auto rowid = rowids[i];
+        EXPECT_EQ(baseline_nullable.get_null_map_data()[rowid],
+                  actual_nullable.get_null_map_data()[i]);
+        const size_t item_count = baseline_array.size_at(rowid);
+        expected_item_count += item_count;
+        EXPECT_EQ(expected_item_count, actual_array.get_offsets()[i]);
+        for (size_t item = 0; item < item_count; ++item) {
+            EXPECT_EQ(0, actual_array.get_data().compare_at(item_cursor,
+                                                            baseline_array.offset_at(rowid) + item,
+                                                            baseline_array.get_data(), 1));
+            ++item_cursor;
+        }
+    }
+    EXPECT_EQ(item_cursor, actual_array.get_data().size());
+
+    {
+        ColumnIteratorUPtr iterator;
+        OlapReaderStatistics stats;
+        ASSERT_TRUE(create_iterator(&stats, &iterator).ok());
+        iterator->set_column_name("a");
+        TColumnAccessPaths null_path {create_meta_access_path({"a", ColumnIterator::ACCESS_NULL})};
+        ASSERT_TRUE(iterator->set_access_paths(null_path, null_path).ok());
+        EXPECT_TRUE(iterator->read_null_map_only());
+
+        MutableColumnPtr null_only = column_type->create_column();
+        ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), null_only).ok());
+        const auto& null_only_nullable = assert_cast<const ColumnNullable&>(*null_only);
+        const auto& null_only_array = assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(
+                null_only_nullable.get_nested_column());
+        ASSERT_EQ(rowids.size(), null_only->size());
+        EXPECT_THAT(null_only_nullable.get_null_map_data(), ::testing::Each(0));
+        EXPECT_THAT(null_only_array.get_offsets(), ::testing::Each(0));
+        EXPECT_TRUE(null_only_array.get_data().empty());
+    }
+}
+
 TEST_F(ColumnReaderTest, StructAccessPaths) {
     auto create_struct_iterator = []() {
         auto null_reader = std::make_shared<ColumnReader>();
