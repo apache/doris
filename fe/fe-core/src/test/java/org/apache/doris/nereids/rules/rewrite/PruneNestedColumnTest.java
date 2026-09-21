@@ -271,6 +271,23 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testWholeColumnOutputKeepsSubFieldPredicatePath() throws Exception {
+        // The whole column is read, so all access paths collapse to the root path. The predicate
+        // path must survive, otherwise BE cannot read the predicate field first and lazily
+        // materialize the rest of the column.
+        Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
+                "select s from tbl where struct_element(s, 'city') = 'x'");
+        TreeSet<TColumnAccessPath> allAccessPaths = new TreeSet<>();
+        TreeSet<TColumnAccessPath> predicateAccessPaths = new TreeSet<>();
+        for (SlotDescriptor slotDescriptor : result.second) {
+            allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
+            predicateAccessPaths.addAll(slotDescriptor.getPredicateAccessPaths());
+        }
+        Assertions.assertEquals(ImmutableList.of(path("s")), ImmutableList.copyOf(allAccessPaths));
+        Assertions.assertEquals(ImmutableList.of(path("s", "city")), ImmutableList.copyOf(predicateAccessPaths));
+    }
+
+    @Test
     public void testVariantAccessPath() throws Exception {
         assertColumn("select v['a']['B'] from variant_tbl",
                 "variant",

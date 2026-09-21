@@ -401,7 +401,7 @@ public class NestedColumnPruning implements CustomRewriter {
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
-                retainPredicatePathsInFinalAllAccessPaths(
+                alignPredicatePathsWithFinalAllAccessPaths(
                         predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
@@ -413,7 +413,7 @@ public class NestedColumnPruning implements CustomRewriter {
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
             if (accessPathInfo != null) {
-                retainPredicatePathsInFinalAllAccessPaths(
+                alignPredicatePathsWithFinalAllAccessPaths(
                         predicatePaths, accessPathInfo.getAllAccessPaths());
                 accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
             }
@@ -861,32 +861,47 @@ public class NestedColumnPruning implements CustomRewriter {
     }
 
     /**
-     * Keep predicate access paths as a subset of final all access paths after NULL/OFFSET cleanup.
-     * Predicate paths are built from filter expressions first, but later all-path rewrites may drop
-     * metadata-only paths or collapse paths to whole-column access. Any predicate path not present
-     * in final all paths must be removed before sending access info to BE.
+     * Reconcile predicate access paths with the final all access paths. Predicate paths are built
+     * from filter expressions first, but later all-path rewrites drop redundant paths or collapse
+     * them to whole-column access, so a predicate path can end up outside the final all paths.
      *
-     * <p>Examples:
-     * <ul>
-     *   <li>All paths {@code [s]}, predicate paths {@code [s.city.NULL]} becomes no predicate
-     *       paths after parent NULL removal.</li>
-     *   <li>All paths {@code [s.city.NULL, s.zip]}, predicate paths
-     *       {@code [s.NULL, s.city.NULL]} becomes {@code [s.city.NULL]}.</li>
-     * </ul>
+     * <p>A NULL/OFFSET path is dropped when it is no longer one of the all paths: BE switches the
+     * whole iterator to NULL_MAP_ONLY/OFFSET_ONLY when it sees such a path and skips the children,
+     * so it must not come back through the predicate paths either.
+     *
+     * <p>Any other path is kept, because BE needs it to read the predicate columns first and
+     * lazily materialize the rest. It is added to the all paths unless a wider path already covers
+     * it, e.g. the whole-column path {@code [s]} covers the predicate path {@code [s.city]}.
      */
-    private static void retainPredicatePathsInFinalAllAccessPaths(
+    private static void alignPredicatePathsWithFinalAllAccessPaths(
             List<TColumnAccessPath> predicatePaths, List<TColumnAccessPath> allPaths) {
-        if (predicatePaths.isEmpty()) {
-            return;
-        }
-
         List<TColumnAccessPath> toRemove = new ArrayList<>();
         for (TColumnAccessPath predicatePath : predicatePaths) {
-            if (!allPaths.contains(predicatePath)) {
-                toRemove.add(predicatePath);
+            if (isMetaOnlyAccessPath(predicatePath)) {
+                if (!allPaths.contains(predicatePath)) {
+                    toRemove.add(predicatePath);
+                }
+            } else if (!isCoveredByAllPath(predicatePath, allPaths)) {
+                allPaths.add(predicatePath);
             }
         }
         predicatePaths.removeAll(toRemove);
+    }
+
+    private static boolean isMetaOnlyAccessPath(TColumnAccessPath accessPath) {
+        return accessPath.getType() == TAccessPathType.META
+                || isDataSkippingOnlyAccessPath(getAccessPathList(accessPath));
+    }
+
+    private static boolean isCoveredByAllPath(
+            TColumnAccessPath predicatePath, List<TColumnAccessPath> allPaths) {
+        for (TColumnAccessPath allPath : allPaths) {
+            if (allPath.getType() == predicatePath.getType()
+                    && pathCoversPrefix(getAccessPathList(allPath), getAccessPathList(predicatePath))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean hasStrictPrefix(List<String> path, List<String> prefix) {
