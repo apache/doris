@@ -181,7 +181,7 @@ public:
     /// Checks that every column in block is not nullptr and has same number of elements.
     void check_number_of_rows(bool allow_null_columns = false) const;
 
-    Status check_type_and_column() const;
+    Status check_type_and_column();
 
     Status check_column_and_type_not_null() const;
 
