@@ -109,6 +109,9 @@ Status validate_group_join_node(const TPlanNode& tnode) {
                 "GroupJoin only supports final-result aggregate output mode now: {}",
                 group_join_node.agg_output_mode);
     }
+    if (group_join_node.aggregate_functions.empty()) {
+        return Status::InternalError("GroupJoin requires at least one aggregate function");
+    }
     for (const auto& eq_join_conjunct : group_join_node.eq_join_conjuncts) {
         if (eq_join_conjunct.__isset.opcode &&
             eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL) {
