@@ -32,6 +32,7 @@
 #include "exprs/function/cast/cast_to_date.h"
 #include "exprs/function/cast/cast_to_timestamp_ns.h"
 #include "exprs/function/cast/cast_wrapper_decls.h"
+#include "exprs/function/functions_comparison.h"
 #include "testutil/column_helper.h"
 #include "testutil/datetime_ut_util.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -501,6 +502,39 @@ TEST_F(CastTimeStampTzTest, boundary_cast_errors_preserve_status_and_null_semant
         const auto& nullable =
                 assert_cast<const ColumnNullable&>(*nullable_block.get_by_position(result).column);
         EXPECT_TRUE(nullable.get_null_map_data()[0]);
+    }
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): GTest exception macros add branches.
+TEST_F(CastTimeStampTzTest, timestamp_ns_local_year_overflow_returns_status) {
+    for (const bool upper : {false, true}) {
+        _state._timezone_obj = cctz::fixed_time_zone(std::chrono::hours(upper ? 8 : -8));
+        const auto value = upper ? make_timestamptz(9999, 12, 31, 23, 59, 59, 999999)
+                                 : make_timestamptz(0, 1, 1, 0, 0, 0, 0);
+        auto block = ColumnHelper::create_block<DataTypeTimeStampTz>({value});
+        block.get_by_position(0).type = std::make_shared<DataTypeTimeStampTz>(6);
+        block.insert({nullptr, std::make_shared<DataTypeTimeStampNs>(), "result"});
+        CastToImpl<CastModeType::StrictMode, DataTypeTimeStampTz, DataTypeTimeStampNs> cast;
+        Status status;
+        ASSERT_NO_THROW(status = cast.execute_impl(&context, block, {0}, 1, 1));
+        EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+        EXPECT_NE(status.to_string().find("can not cast timestamptz"), std::string::npos);
+
+        CastToImpl<CastModeType::NonStrictMode, DataTypeTimeStampTz, DataTypeTimeStampNs> try_cast;
+        ASSERT_TRUE(try_cast.execute_impl(&context, block, {0}, 1, 1).ok());
+        EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
+
+        auto ns_column = ColumnTimeStampNs::create();
+        ns_column->insert_default();
+        block.get_by_position(1).column = std::move(ns_column);
+        block.insert({nullptr, std::make_shared<DataTypeUInt8>(), "comparison"});
+        FunctionComparison<EqualsOp, NameEquals> equals;
+        // Error reporting must not try to display the unrepresentable session-local year.
+        for (const ColumnNumbers& inputs : {ColumnNumbers {0, 1}, ColumnNumbers {1, 0}}) {
+            ASSERT_NO_THROW(status = equals.execute_impl(&context, block, inputs, 2, 1));
+            EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
+            EXPECT_NE(status.to_string().find("can not compare timestamptz"), std::string::npos);
+        }
     }
 }
 

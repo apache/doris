@@ -49,6 +49,14 @@ TEST(TimeStampTzValueTest, ToStringPreservesHistoricalOffsetSeconds) {
     const TestCase cases[] = {
             {"Asia/Shanghai", 1890, "1890-01-01 08:05:43", "+08:05:43"},
             {"America/New_York", 1880, "1879-12-31 19:03:58", "-04:56:02"},
+            {.zone = "Asia/Manila",
+             .year = 1800,
+             .civil = "1799-12-31 08:03:52",
+             .offset = "-15:56:08"},
+            {.zone = "Pacific/Guam",
+             .year = 1800,
+             .civil = "1799-12-31 09:39:00",
+             .offset = "-14:21"},
             {"Asia/Shanghai", 2024, "2024-01-01 08:00:00", "+08:00"},
             {"America/New_York", 2024, "2023-12-31 19:00:00", "-05:00"},
             {"Asia/Kathmandu", 2024, "2024-01-01 05:45:00", "+05:45"},
@@ -196,7 +204,9 @@ TEST(TimeStampTzValueTest, HistoricalOffsetsInStrictAndFallbackParsers) {
     for (const std::string input :
          {"1890-01-01 08:05:43.123456+08:05:43", "1889-12-31 19:03:58.123456-04:56:02",
           "1890-01-01 00:00:30.123456+00:00:30", "1889-12-31 23:59:30.123456-00:00:30",
-          "1890-01-01 08:05:00.123456+08:05"}) {
+          "1890-01-01 08:05:00.123456+08:05", "1889-12-31 08:03:52.123456-15:56:08",
+          "1889-12-31 09:39:00.123456-14:21", "1890-01-01 15:00:00.123456+15:00",
+          "1889-12-31 11:59:59.123456-12:00:01"}) {
         SCOPED_TRACE(input);
         for (const bool fallback : {false, true}) {
             TimestampTzValue parsed;
@@ -213,7 +223,7 @@ TEST(TimeStampTzValueTest, HistoricalOffsetsInStrictAndFallbackParsers) {
         }
     }
     for (const std::string offset : {"+08:60:00", "+08:05:60", "+08:05:", "+08:05:4", "+08:05:430",
-                                     "+14:00:01", "+15:00:00", "-13:00:00"}) {
+                                     "+24:00:00", "-24:00:00", "+99:00:00"}) {
         SCOPED_TRACE(offset);
         const auto input = "1890-01-01 00:00:00" + offset;
         for (const bool strict : {false, true}) {
