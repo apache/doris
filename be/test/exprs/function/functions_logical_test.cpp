@@ -57,6 +57,8 @@ public:
     ColumnExpr(ColumnPtr column, DataTypePtr type)
             : VExpr(std::move(type), false), _column(std::move(column)) {}
 
+    bool is_constant() const override { return false; }
+
     const std::string& expr_name() const override {
         static const std::string name = "ColumnExpr";
         return name;
