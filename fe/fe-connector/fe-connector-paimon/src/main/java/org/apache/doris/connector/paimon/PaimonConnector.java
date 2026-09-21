@@ -59,7 +59,6 @@ import org.apache.paimon.hive.HiveCatalog;
 import org.apache.paimon.hive.HiveCatalogOptions;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
-import org.apache.paimon.privilege.PrivilegedCatalog;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -542,10 +541,11 @@ public class PaimonConnector implements Connector {
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             return context.executeAuthenticated(() -> {
+                // PaimonMetaCacheCatalog installs PrivilegedCatalog after the raw metadata cache.
                 Catalog catalog = PaimonCatalogProperties.HMS.equals(flavor)
                         ? createHmsCatalog(catalogContext, hmsAuth, catalogProps.getRaw(),
                                 storageHadoopConfig)
-                        : CatalogFactory.createCatalog(catalogContext);
+                        : CatalogFactory.createUnwrappedCatalog(catalogContext, getClass().getClassLoader());
                 return PaimonMetaCacheCatalog.tryToCreate(catalog, metaCache,
                         DEFAULT_TABLE_CACHE_CAPACITY, resolveTableCacheTtlSecond(catalogProps.getRaw()),
                         catalogContext.options(), PaimonCatalogFactory.isCatalogCacheEnabled(catalogProps),
@@ -581,7 +581,7 @@ public class PaimonConnector implements Connector {
                             fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString()));
             catalog = PaimonHmsClientPool.install(catalog, hmsAuth);
             catalog = PaimonHmsCatalog.install(catalog, properties, storageHadoopConfig);
-            return PrivilegedCatalog.tryToCreate(catalog, options);
+            return catalog;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

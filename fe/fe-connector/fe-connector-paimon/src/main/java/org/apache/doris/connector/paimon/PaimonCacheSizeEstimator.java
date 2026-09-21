@@ -23,7 +23,10 @@ import org.apache.doris.connector.cache.ReflectiveObjectSizeEstimator;
 
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.Path;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
+import org.apache.paimon.table.DelegatedFileStoreTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FormatTable;
 import org.apache.paimon.table.Table;
@@ -32,6 +35,9 @@ import org.apache.paimon.table.lance.LanceTable;
 import org.apache.paimon.table.object.ObjectTable;
 
 import java.net.URI;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 
 /**
  * Retained-size formulas for Paimon table-cache entries.
@@ -46,14 +52,16 @@ final class PaimonCacheSizeEstimator {
     }
 
     static MetaCacheSizeEstimate estimateTable(Identifier key, Table table, long entryOverheadBytes) {
+        if (table instanceof PrivilegedFileStoreTable) {
+            return MetaCacheSizeEstimate.incomplete(
+                    "authorization decorators must be applied outside the metadata cache");
+        }
         long bytes = add(entryOverheadBytes, ReflectiveObjectSizeEstimator.estimateComplete(key));
-        bytes = add(bytes, JvmSizeUtils.instanceSize(table.getClass()));
         if (table instanceof FileStoreTable) {
-            FileStoreTable fileStoreTable = (FileStoreTable) table;
-            bytes = add(bytes, ReflectiveObjectSizeEstimator.estimateComplete(fileStoreTable.schema()));
-            bytes = add(bytes, estimatePath(fileStoreTable.location()));
-            bytes = add(bytes, estimateCatalogEnvironment(fileStoreTable.catalogEnvironment()));
+            Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+            bytes = add(bytes, estimateFileStoreTable((FileStoreTable) table, visited));
         } else {
+            bytes = add(bytes, JvmSizeUtils.instanceSize(table.getClass()));
             bytes = add(bytes, ReflectiveObjectSizeEstimator.estimateComplete(table.rowType()));
             bytes = add(bytes, ReflectiveObjectSizeEstimator.estimateComplete(table.partitionKeys()));
             bytes = add(bytes, ReflectiveObjectSizeEstimator.estimateComplete(table.primaryKeys()));
@@ -64,30 +72,62 @@ final class PaimonCacheSizeEstimator {
         return MetaCacheSizeEstimate.complete(bytes);
     }
 
-    private static long estimateCatalogEnvironment(CatalogEnvironment environment) {
-        if (environment == null) {
+    private static long estimateFileStoreTable(FileStoreTable table, Set<Object> visited) {
+        if (!visited.add(table)) {
+            return 0L;
+        }
+        long bytes = JvmSizeUtils.instanceSize(table.getClass());
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable fallback = (FallbackReadFileStoreTable) table;
+            bytes = add(bytes, estimateFileStoreTable(fallback.wrapped(), visited));
+            return add(bytes, estimateFileStoreTable(fallback.fallback(), visited));
+        }
+        if (table instanceof DelegatedFileStoreTable) {
+            return add(bytes, estimateFileStoreTable(
+                    ((DelegatedFileStoreTable) table).wrapped(), visited));
+        }
+        bytes = add(bytes, estimateCompleteOnce(table.schema(), visited));
+        bytes = add(bytes, estimatePath(table.location(), visited));
+        return add(bytes, estimateCatalogEnvironment(table.catalogEnvironment(), visited));
+    }
+
+    private static long estimateCompleteOnce(Object value, Set<Object> visited) {
+        return value == null || !visited.add(value)
+                ? 0L : ReflectiveObjectSizeEstimator.estimateComplete(value);
+    }
+
+    private static long estimateCatalogEnvironment(CatalogEnvironment environment, Set<Object> visited) {
+        if (environment == null || !visited.add(environment)) {
             return 0L;
         }
         long bytes = JvmSizeUtils.instanceSize(environment.getClass());
-        bytes = add(bytes, ReflectiveObjectSizeEstimator.estimateComplete(environment.identifier()));
-        return add(bytes, JvmSizeUtils.stringSize(environment.uuid()));
+        bytes = add(bytes, estimateCompleteOnce(environment.identifier(), visited));
+        return add(bytes, estimateStringOnce(environment.uuid(), visited));
     }
 
-    private static long estimatePath(Path path) {
-        if (path == null) {
+    private static long estimatePath(Path path, Set<Object> visited) {
+        if (path == null || !visited.add(path)) {
             return 0L;
         }
         URI uri = path.toUri();
-        long bytes = add(JvmSizeUtils.instanceSize(path.getClass()), JvmSizeUtils.instanceSize(uri.getClass()));
-        bytes = add(bytes, JvmSizeUtils.stringSize(uri.toString()));
-        bytes = add(bytes, JvmSizeUtils.stringSize(uri.getScheme()));
-        bytes = add(bytes, JvmSizeUtils.stringSize(uri.getUserInfo()));
-        bytes = add(bytes, JvmSizeUtils.stringSize(uri.getHost()));
-        bytes = add(bytes, JvmSizeUtils.stringSize(uri.getPath()));
-        bytes = add(bytes, JvmSizeUtils.stringSize(uri.getQuery()));
-        bytes = add(bytes, JvmSizeUtils.stringSize(uri.getFragment()));
-        bytes = add(bytes, JvmSizeUtils.stringSize(uri.getAuthority()));
-        return add(bytes, JvmSizeUtils.stringSize(uri.getSchemeSpecificPart()));
+        long bytes = JvmSizeUtils.instanceSize(path.getClass());
+        if (visited.add(uri)) {
+            bytes = add(bytes, JvmSizeUtils.instanceSize(uri.getClass()));
+            bytes = add(bytes, estimateStringOnce(uri.toString(), visited));
+            bytes = add(bytes, estimateStringOnce(uri.getScheme(), visited));
+            bytes = add(bytes, estimateStringOnce(uri.getUserInfo(), visited));
+            bytes = add(bytes, estimateStringOnce(uri.getHost(), visited));
+            bytes = add(bytes, estimateStringOnce(uri.getPath(), visited));
+            bytes = add(bytes, estimateStringOnce(uri.getQuery(), visited));
+            bytes = add(bytes, estimateStringOnce(uri.getFragment(), visited));
+            bytes = add(bytes, estimateStringOnce(uri.getAuthority(), visited));
+            bytes = add(bytes, estimateStringOnce(uri.getSchemeSpecificPart(), visited));
+        }
+        return bytes;
+    }
+
+    private static long estimateStringOnce(String value, Set<Object> visited) {
+        return value == null || !visited.add(value) ? 0L : JvmSizeUtils.stringSize(value);
     }
 
     private static String location(Table table) {

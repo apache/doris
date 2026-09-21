@@ -31,9 +31,14 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.privilege.PrivilegeChecker;
+import org.apache.paimon.privilege.PrivilegeManager;
+import org.apache.paimon.privilege.PrivilegedCatalog;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaManager;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
@@ -109,6 +114,21 @@ class PaimonMetaCacheCatalogTest {
             clock.set(Duration.ofSeconds(11).toNanos());
             Assertions.assertNotSame(first, catalog.getTable(TABLE));
             Assertions.assertEquals(2, writeRecording.tableLoads.get());
+        }
+    }
+
+    @Test
+    void acceptedLargeDurationsSaturateInsteadOfFailingCatalogCreation() throws Exception {
+        RecordingCatalog recording = new RecordingCatalog();
+        Options options = new Options();
+        options.set(CatalogOptions.CACHE_EXPIRE_AFTER_ACCESS.key(), "9223372037s");
+        options.set(CatalogOptions.CACHE_EXPIRE_AFTER_WRITE.key(), "9223372037s");
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            PaimonMetaCacheCatalog catalog = new PaimonMetaCacheCatalog(recording.catalog(), owner,
+                    100, Long.MAX_VALUE, options, false, System::nanoTime);
+
+            Assertions.assertSame(catalog.getTable(TABLE), catalog.getTable(TABLE));
+            Assertions.assertEquals(1, recording.tableLoads.get());
         }
     }
 
@@ -282,6 +302,77 @@ class PaimonMetaCacheCatalogTest {
     }
 
     @Test
+    void fallbackBranchesAreIncludedInWeightGovernedAdmission(@TempDir java.nio.file.Path warehouse)
+            throws Exception {
+        LocalFileIO fileIO = LocalFileIO.create();
+        FileStoreTable main = createFileStoreTable(fileIO, warehouse.resolve("main"), "main_payload");
+        FileStoreTable fallback = createFileStoreTable(fileIO, warehouse.resolve("fallback"), "fallback_payload");
+        FileStoreTable decorated = new FallbackReadFileStoreTable(main, fallback);
+        long mainWeight = PaimonCacheSizeEstimator.estimateTable(
+                TABLE, main, PaimonMetaCacheCatalog.TABLE_ENTRY_OVERHEAD_BYTES).getBytes();
+        long decoratedWeight = PaimonCacheSizeEstimator.estimateTable(
+                TABLE, decorated, PaimonMetaCacheCatalog.TABLE_ENTRY_OVERHEAD_BYTES).getBytes();
+        long sharedBranchWeight = PaimonCacheSizeEstimator.estimateTable(
+                TABLE, new FallbackReadFileStoreTable(main, main),
+                PaimonMetaCacheCatalog.TABLE_ENTRY_OVERHEAD_BYTES).getBytes();
+
+        Assertions.assertTrue(decoratedWeight > mainWeight);
+        Assertions.assertTrue(decoratedWeight > sharedBranchWeight,
+                "the same branch object must be counted once by identity");
+        Assertions.assertFalse(PaimonCacheSizeEstimator.estimateTable(TABLE,
+                PrivilegedFileStoreTable.wrap(decorated, privilegeChecker(true), TABLE),
+                PaimonMetaCacheCatalog.TABLE_ENTRY_OVERHEAD_BYTES).isComplete(),
+                "an authorization snapshot must never be admitted to the raw metadata cache");
+
+        RecordingCatalog recording = new RecordingCatalog();
+        recording.tableSupplier = () -> new FallbackReadFileStoreTable(main, fallback);
+        MetaCacheBudgetManager budgetManager = new MetaCacheBudgetManager(
+                OptionalLong.of(mainWeight));
+        try (CatalogMetaCache owner = new CatalogMetaCache(
+                budgetManager, 67996L, "paimon", Collections.emptyMap())) {
+            PaimonMetaCacheCatalog catalog = new PaimonMetaCacheCatalog(recording.catalog(), owner,
+                    100, 100, cacheOptions(Duration.ofDays(1), Duration.ofDays(1)),
+                    true, System::nanoTime);
+
+            Assertions.assertNotSame(catalog.getTable(TABLE), catalog.getTable(TABLE));
+            Assertions.assertEquals(2, recording.tableLoads.get());
+            Assertions.assertEquals(0L, budgetManager.getGlobalUsedWeight());
+        }
+    }
+
+    @Test
+    void privilegeCheckerIsRefreshedOutsideTheRawTableCache() throws Exception {
+        AtomicReference<Boolean> canSelect = new AtomicReference<>(true);
+        RecordingCatalog recording = new RecordingCatalog();
+        recording.fileStoreTables = true;
+        PrivilegeManager privilegeManager = (PrivilegeManager) Proxy.newProxyInstance(
+                PrivilegeManager.class.getClassLoader(), new Class<?>[] {PrivilegeManager.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("getPrivilegeChecker")) {
+                        boolean snapshot = canSelect.get();
+                        return privilegeChecker(snapshot);
+                    }
+                    return defaultValue(method.getReturnType());
+                });
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            PaimonMetaCacheCatalog cached = new PaimonMetaCacheCatalog(recording.catalog(), owner,
+                    100, 100, cacheOptions(Duration.ofDays(1), Duration.ofDays(1)),
+                    false, System::nanoTime);
+            Catalog privileged = new PrivilegedCatalog(cached, () -> privilegeManager);
+
+            FileStoreTable beforeRevoke = (FileStoreTable) privileged.getTable(TABLE);
+            Assertions.assertDoesNotThrow(beforeRevoke::newScan);
+            canSelect.set(false);
+            FileStoreTable afterRevoke = (FileStoreTable) privileged.getTable(TABLE);
+
+            Assertions.assertNotSame(beforeRevoke, afterRevoke);
+            Assertions.assertThrows(IllegalStateException.class, afterRevoke::newScan);
+            Assertions.assertEquals(1, recording.tableLoads.get(),
+                    "revocation must refresh authorization without reloading raw metadata");
+        }
+    }
+
+    @Test
     void restDispatchSeesThroughTheMetaCacheWrapper() {
         Options options = cacheOptions(Duration.ofDays(1), Duration.ofDays(1));
         options.set("uri", "http://localhost:1");
@@ -303,6 +394,29 @@ class PaimonMetaCacheCatalogTest {
         options.set(CatalogOptions.CACHE_EXPIRE_AFTER_ACCESS, access);
         options.set(CatalogOptions.CACHE_EXPIRE_AFTER_WRITE, write);
         return options;
+    }
+
+    private static FileStoreTable createFileStoreTable(
+            LocalFileIO fileIO, java.nio.file.Path path, String payloadColumn) throws Exception {
+        org.apache.paimon.fs.Path tablePath = new org.apache.paimon.fs.Path(path.toUri());
+        Schema schema = Schema.newBuilder()
+                .column("id", DataTypes.INT())
+                .column(payloadColumn, DataTypes.STRING())
+                .option("file.format", "parquet")
+                .build();
+        new SchemaManager(fileIO, tablePath).createTable(schema);
+        return FileStoreTableFactory.create(fileIO, tablePath);
+    }
+
+    private static PrivilegeChecker privilegeChecker(boolean canSelect) {
+        return (PrivilegeChecker) Proxy.newProxyInstance(
+                PrivilegeChecker.class.getClassLoader(), new Class<?>[] {PrivilegeChecker.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("assertCanSelect") && !canSelect) {
+                        throw new IllegalStateException("SELECT privilege was revoked");
+                    }
+                    return null;
+                });
     }
 
     private static Object defaultValue(Class<?> returnType) {

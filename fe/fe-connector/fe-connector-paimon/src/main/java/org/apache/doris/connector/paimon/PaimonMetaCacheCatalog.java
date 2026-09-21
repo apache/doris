@@ -35,6 +35,7 @@ import org.apache.paimon.fs.Path;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.MemorySize;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.privilege.PrivilegedCatalog;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.shade.caffeine2.com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.paimon.table.FileStoreTable;
@@ -53,6 +54,9 @@ import java.util.function.LongSupplier;
  * {@link CatalogMetaCache}, so a Doris catalog/database/table invalidation fences every matching
  * in-flight load and cached value.
  *
+ * <p>The cache retains raw table metadata. Paimon's privilege catalog is applied outside this
+ * wrapper so every lookup receives a fresh checker instead of caching one authorization snapshot.
+ *
  * <p>The user's {@code paimon.cache-enabled} and access/write expiry settings remain authoritative.
  * The Paimon SDK wrapper itself is disabled because a second hidden table cache cannot participate
  * in Doris invalidation. Under a Doris weight budget, mutable SDK snapshot/stats/manifest caches are
@@ -61,7 +65,7 @@ import java.util.function.LongSupplier;
 final class PaimonMetaCacheCatalog extends DelegateCatalog {
 
     private static final int DATABASE_CACHE_CAPACITY = 100;
-    private static final long TABLE_ENTRY_OVERHEAD_BYTES = JvmSizeUtils.saturatedAdd(
+    static final long TABLE_ENTRY_OVERHEAD_BYTES = JvmSizeUtils.saturatedAdd(
             JvmSizeUtils.instanceSize(ExpiringValue.class), JvmSizeUtils.instanceSize(AtomicLong.class));
 
     private final CatalogMetaCache metaCache;
@@ -78,8 +82,9 @@ final class PaimonMetaCacheCatalog extends DelegateCatalog {
     static Catalog tryToCreate(Catalog wrapped, CatalogMetaCache metaCache, int tableCacheMaxSize,
             long tableCacheTtlSecond, Options catalogOptions, boolean cacheEnabled,
             boolean hasEnclosingWeightLimit) {
-        return new PaimonMetaCacheCatalog(wrapped, metaCache, tableCacheMaxSize,
+        Catalog cached = new PaimonMetaCacheCatalog(wrapped, metaCache, tableCacheMaxSize,
                 tableCacheTtlSecond, catalogOptions, cacheEnabled, hasEnclosingWeightLimit, System::nanoTime);
+        return PrivilegedCatalog.tryToCreate(cached, catalogOptions);
     }
 
     PaimonMetaCacheCatalog(Catalog wrapped, CatalogMetaCache metaCache, int tableCacheMaxSize,
@@ -102,12 +107,12 @@ final class PaimonMetaCacheCatalog extends DelegateCatalog {
             requirePositive(expireAfterAccess, CatalogOptions.CACHE_EXPIRE_AFTER_ACCESS.key());
             requirePositive(expireAfterWrite, CatalogOptions.CACHE_EXPIRE_AFTER_WRITE.key());
         }
-        long paimonAccessNanos = cacheEnabled ? expireAfterAccess.toNanos() : Long.MAX_VALUE;
+        long paimonAccessNanos = cacheEnabled ? saturatedNanos(expireAfterAccess) : Long.MAX_VALUE;
         this.tableExpireAfterAccessNanos = cacheEnabled && tableCacheTtlSecond > 0
-                ? Math.min(paimonAccessNanos, Duration.ofSeconds(tableCacheTtlSecond).toNanos())
+                ? Math.min(paimonAccessNanos, saturatedNanos(Duration.ofSeconds(tableCacheTtlSecond)))
                 : paimonAccessNanos;
         this.databaseExpireAfterAccessNanos = paimonAccessNanos;
-        this.expireAfterWriteNanos = cacheEnabled ? expireAfterWrite.toNanos() : Long.MAX_VALUE;
+        this.expireAfterWriteNanos = cacheEnabled ? saturatedNanos(expireAfterWrite) : Long.MAX_VALUE;
 
         CacheSpec tableSpec = CacheSpec.of(cacheEnabled,
                 cacheEnabled && tableCacheTtlSecond > 0
@@ -303,6 +308,14 @@ final class PaimonMetaCacheCatalog extends DelegateCatalog {
         if (duration.isZero() || duration.isNegative()) {
             throw new IllegalArgumentException("When '" + option
                     + "' is set to negative or 0, the catalog cache should be disabled.");
+        }
+    }
+
+    private static long saturatedNanos(Duration duration) {
+        try {
+            return duration.toNanos();
+        } catch (ArithmeticException e) {
+            return Long.MAX_VALUE;
         }
     }
 
