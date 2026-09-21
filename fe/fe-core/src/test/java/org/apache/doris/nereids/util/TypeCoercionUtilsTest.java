@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -768,15 +769,26 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
-    public void testVariantToJsonImplicitCastRequiresExplicitCast() {
-        Assertions.assertTrue(TypeCoercionUtils.implicitCast(
-                VariantType.INSTANCE, JsonType.INSTANCE).isEmpty());
+    public void testVariantToJsonImplicitCast() {
+        Assertions.assertEquals(JsonType.INSTANCE,
+                TypeCoercionUtils.implicitCast(VariantType.INSTANCE, JsonType.INSTANCE).get());
     }
 
     @Test
-    public void testVariantToJsonFunctionSignatureRequiresExplicitCast() {
-        Assertions.assertFalse(ExplicitlyCastableSignature.isExplicitlyCastable(
+    public void testVariantToJsonFunctionSignature() {
+        Assertions.assertTrue(ExplicitlyCastableSignature.isExplicitlyCastable(
                 JsonType.INSTANCE, VariantType.INSTANCE));
+    }
+
+    @Test
+    public void testToJsonCastsVariantArgument() {
+        SlotReference variant = new SlotReference("v", VariantType.INSTANCE);
+        SlotReference json = new SlotReference("j", JsonType.INSTANCE);
+        SlotReference bigint = new SlotReference("b", BigIntType.INSTANCE);
+        Assertions.assertEquals(new Cast(variant, JsonType.INSTANCE), ToJson.of(variant));
+        Assertions.assertEquals(new Cast(variant, JsonType.INSTANCE), new ToJson(variant).rewriteWhenAnalyze());
+        Assertions.assertSame(json, ToJson.of(json));
+        Assertions.assertEquals(new ToJson(bigint), ToJson.of(bigint));
     }
 
     @Test

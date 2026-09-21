@@ -228,11 +228,9 @@ public class TypeCoercionUtils {
                 }
             }
             return Optional.of(new StructType(newFields));
-        } else if (input instanceof VariantType && expected instanceof JsonType) {
-            // JSON functions require users to make this representation change explicit.
-            return Optional.empty();
-        } else if (input instanceof VariantType && (expected.isNumericType() || expected.isStringLikeType())) {
-            // variant could implicit cast to numric types and string like types
+        } else if (input instanceof VariantType
+                && (expected.isNumericType() || expected.isStringLikeType() || expected.isJsonType())) {
+            // variant could implicit cast to numric types, string like types and json
             return Optional.of(expected);
         } else {
             return implicitCastPrimitive(input, expected);

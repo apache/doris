@@ -18,9 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.NullOrIdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -53,7 +55,7 @@ import java.util.List;
  * to_json convert type to json
  */
 public class ToJson extends ScalarFunction
-        implements UnaryExpression, NullOrIdenticalSignature, PropagateNullable {
+        implements UnaryExpression, NullOrIdenticalSignature, PropagateNullable, RewriteWhenAnalyze {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(JsonType.INSTANCE).args(NullType.INSTANCE),
@@ -87,6 +89,20 @@ public class ToJson extends ScalarFunction
     }
 
     /**
+     * Convert a JSON function argument to JSON: JSON stays as is, Variant is cast to JSON (the Variant
+     * value is already a JSON document), and every other type goes through to_json.
+     */
+    public static Expression of(Expression arg) {
+        if (arg.getDataType() instanceof JsonType) {
+            return arg;
+        }
+        if (arg.getDataType().isVariantType()) {
+            return new Cast(arg, JsonType.INSTANCE);
+        }
+        return new ToJson(arg);
+    }
+
+    /**
      * withChildren.
      */
     @Override
@@ -98,7 +114,7 @@ public class ToJson extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         DataType firstChildType = child(0).getDataType();
-        if (firstChildType.isStructType() || firstChildType.isArrayType()) {
+        if (firstChildType.isStructType() || firstChildType.isArrayType() || firstChildType.isVariantType()) {
             return ImmutableList.of(FunctionSignature.ret(JsonType.INSTANCE).args(firstChildType));
         }
         if (firstChildType.isMapType()) {
@@ -115,5 +131,10 @@ public class ToJson extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitToJson(this, context);
+    }
+
+    @Override
+    public Expression rewriteWhenAnalyze() {
+        return of(child(0));
     }
 }

@@ -96,10 +96,8 @@ public class JsonSet extends ScalarFunction implements CustomSignature, AlwaysNu
             Expression child = children.get(i);
             if (i % 2 == 1) {
                 convectedChildren.add(child);
-            } else if (child.getDataType() instanceof JsonType) {
-                convectedChildren.add(child);
             } else {
-                convectedChildren.add(new ToJson(child));
+                convectedChildren.add(ToJson.of(child));
             }
         }
         return withChildren(convectedChildren);
