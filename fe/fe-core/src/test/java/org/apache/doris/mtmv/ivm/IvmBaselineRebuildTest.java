@@ -48,6 +48,7 @@ import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDate;
 import java.util.Collections;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -167,6 +168,57 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     /**
+     * Invalidation reads the mapping by lineage, not by the partition_sync_limit window. A base partition
+     * the window no longer covers can still have its rows in an MV partition -- the MV was built while the
+     * partition was inside the window, and partition sync keeps the MV partition once a widened window
+     * covers the base partition again -- so a windowed mapping would report no MV partition for the change
+     * and leave those rows behind, with no binlog to repair them.
+     */
+    @Test
+    public void testChangedPartitionOutsideTheSyncWindowStillMarksItsMvPartition() throws Exception {
+        String db = "ivm_baseline_sync_window";
+        String thisYear = LocalDate.now().withDayOfYear(1).toString();
+        String nextYear = LocalDate.now().withDayOfYear(1).plusYears(1).toString();
+        createDatabaseAndUse(db);
+        createTable("CREATE TABLE " + db + ".ivm_base (\n"
+                + "  dt date NOT NULL,\n"
+                + "  k1 int,\n"
+                + "  v1 int\n"
+                + ")\n"
+                + "DUPLICATE KEY(dt, k1)\n"
+                + "PARTITION BY RANGE(dt) (\n"
+                + "  PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
+                + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01')),\n"
+                + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + nextYear + "'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "PARTITION BY(dt)\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertEquals(3, mtmv.getPartitionNames().size());
+        Set<String> expected = mvPartitionsWithSameRange(mtmv, getBaseTable(db), "p202001");
+        Assertions.assertEquals(1, expected.size());
+
+        // The window now keeps only this year's partition, so the mapping still describes this base table
+        // while p202001 drops out of it: the lookup for the changed partition is empty, and only the
+        // lineage mapping knows which MV partition holds its rows.
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1',"
+                + " 'partition_sync_time_unit' = 'YEAR')");
+
+        // TRUNCATE leaves the base partition in place, so partition sync keeps the MV partition holding its
+        // rows. A DROP would take that MV partition with it and hide the problem.
+        executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001)");
+
+        Assertions.assertFalse(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+        Assertions.assertEquals(expected, mtmv.getIvmInfo().getPendingBaselineRebuildPartitions());
+    }
+
+    /**
      * The partition mapping is built from the MV's PCT tables only. A changed partition of a joined table
      * the MV's partition column does not reach is invisible to it, and missing such a change leaves rows
      * of the dropped partition in the MV forever, so the whole MV has to be rebuilt.
@@ -240,8 +292,11 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         OlapTable otherPctTable = (OlapTable) getDb(db).getTableOrMetaException("ivm_dim");
         CountDownLatch locked = new CountDownLatch(1);
         CountDownLatch released = new CountDownLatch(1);
+        // The acquisitions are bounded on both sides so that a failure cannot leave this worker holding
+        // the table forever: it is not a daemon, and the test asserts that it ends.
         Thread writer = new Thread(() -> {
-            otherPctTable.writeLock();
+            Assertions.assertTrue(otherPctTable.tryWriteLock(30, TimeUnit.SECONDS),
+                    "the test worker should be able to take the other PCT table");
             locked.countDown();
             try {
                 released.await(30, TimeUnit.SECONDS);
@@ -259,7 +314,10 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
             released.countDown();
         }
         writer.join(TimeUnit.SECONDS.toMillis(30));
+        Assertions.assertFalse(writer.isAlive(), "the test worker should have released the table");
 
+        // The batch fails on its first table here, so what this covers is the whole-MV fallback; the
+        // release of the locks taken before the busy one is covered in MetaLockUtilsTest.
         Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
     }
 

@@ -91,6 +91,14 @@ public class MTMVPartitionUtil {
                     new MTMVRelatedPartitionDescTransferGenerator()
             );
 
+    // The same chain without the partition_sync_limit step, for callers that ask what a base partition
+    // belongs to by lineage rather than what the window still covers. Derived from the chain above so
+    // that a generator added there cannot be forgotten here.
+    private static final List<MTMVRelatedPartitionDescGeneratorService> lineagePartitionDescGenerators =
+            partitionDescGenerators.stream()
+                    .filter(generator -> !(generator instanceof MTMVRelatedPartitionDescSyncLimitGenerator))
+                    .collect(ImmutableList.toImmutableList());
+
     /**
      * Determine whether the partition is sync with retated partition and other baseTables
      *
@@ -225,9 +233,39 @@ public class MTMVPartitionUtil {
             Map<String, String> mvProperties, List<Column> partitionColumns,
             Map<List<String>, Set<String>> queryUsedPartitions,
             Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
+        return generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, partitionColumns,
+                queryUsedPartitions, pinnedSnapshots, partitionDescGenerators);
+    }
+
+    /**
+     * The same partitions, mapped by lineage: a base partition is related to an MV partition when the MV's
+     * partition definition puts it there, whether or not the partition_sync_limit window covers it now.
+     *
+     * <p>Invalidating MV partitions needs this rather than the windowed mapping, because the window can
+     * move after a base partition was read. A partition the window no longer covers, or did not cover when
+     * the change happened, can still have its rows in an MV partition: the MV partition is only dropped
+     * when partition sync regenerates the MV's partition set, and a sync limit that is later widened puts
+     * the base partition back into that set, leaving the MV partition -- and the rows of the change that
+     * no binlog recorded -- in place.
+     */
+    public static Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> generateRelatedPartitionDescsByLineage(
+            MTMVPartitionInfo mvPartitionInfo,
+            Map<String, String> mvProperties, List<Column> partitionColumns,
+            Map<List<String>, Set<String>> queryUsedPartitions,
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
+        return generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, partitionColumns,
+                queryUsedPartitions, pinnedSnapshots, lineagePartitionDescGenerators);
+    }
+
+    private static Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> generateRelatedPartitionDescs(
+            MTMVPartitionInfo mvPartitionInfo,
+            Map<String, String> mvProperties, List<Column> partitionColumns,
+            Map<List<String>, Set<String>> queryUsedPartitions,
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots,
+            List<MTMVRelatedPartitionDescGeneratorService> generators) throws AnalysisException {
         long start = System.currentTimeMillis();
         RelatedPartitionDescResult result = new RelatedPartitionDescResult(pinnedSnapshots);
-        for (MTMVRelatedPartitionDescGeneratorService service : partitionDescGenerators) {
+        for (MTMVRelatedPartitionDescGeneratorService service : generators) {
             service.apply(mvPartitionInfo, mvProperties, result, partitionColumns, queryUsedPartitions);
         }
         if (LOG.isDebugEnabled()) {

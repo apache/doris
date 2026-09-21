@@ -691,7 +691,11 @@ public class MTMV extends OlapTable {
      * Mark the MV partitions that may hold rows read from the changed base table partitions as needing a
      * rebuild. When those partitions cannot be determined, the whole MV is marked instead.
      */
-    public void invalidateIvmBaseline(BaseTableInfo baseTableInfo, Map<String, Long> changedPartitions) {
+    /**
+     * @return whether a barrier was recorded. The caller reports the two outcomes differently: a change
+     *         that no MV partition reads leaves nothing to rebuild and must not be logged as one.
+     */
+    public boolean invalidateIvmBaseline(BaseTableInfo baseTableInfo, Map<String, Long> changedPartitions) {
         // Computed before the MV lock is taken, not inside it: the mapping reads the partition items of the
         // MV and of every PCT table, so it takes those tables' locks, and the MV lock has to stay a leaf
         // (nothing may be acquired under it) the way the rest of this class assumes. The selection does not
@@ -706,7 +710,7 @@ public class MTMV extends OlapTable {
             // keeps it from discarding the result of a task that is already running.
             LOG.debug("No MV partition is affected by changed base partitions, mv={}, baseTable={}, "
                     + "changedPartitions={}", name, baseTableInfo, changedPartitions);
-            return;
+            return false;
         }
         EditLogItem editLogItem;
         writeMvLock();
@@ -727,6 +731,7 @@ public class MTMV extends OlapTable {
             writeMvUnlock();
         }
         editLogItem.await();
+        return true;
     }
 
     /**
@@ -809,8 +814,12 @@ public class MTMV extends OlapTable {
             if (!pctTable.getPartitionNames().containsAll(changedBasePartitions.keySet())) {
                 return Optional.empty();
             }
+            // By lineage, not by the partition_sync_limit window: the window can move after a base
+            // partition was read, and a partition it does not cover right now can still have its rows in
+            // an MV partition. Partition sync keeps that MV partition once the window covers the base
+            // partition again, and the change itself left no binlog to repair those rows with.
             Map<String, Map<MTMVRelatedTableIf, Set<String>>> partitionMappings =
-                    calculatePartitionMappings(Maps.newHashMap());
+                    calculatePartitionMappingsByLineage();
             Set<String> res = Sets.newHashSet();
             boolean pctTableMapped = false;
             for (Entry<String, Map<MTMVRelatedTableIf, Set<String>>> mapping : partitionMappings.entrySet()) {
@@ -825,8 +834,15 @@ public class MTMV extends OlapTable {
                 }
             }
             // The mapping does not describe this base table at all. That contradicts the PCT check above,
-            // so it is safer to rebuild everything than to trust a selection that never saw the table.
+            // so it is safer to rebuild everything than to trust a selection that never saw the table --
+            // unless the MV has no partition of its own yet, which is the one shape where the missing
+            // entries are not a surprise: an MV without partitions holds no rows.
             if (!pctTableMapped) {
+                if (getPartitionNames().isEmpty()) {
+                    LOG.info("MV has no partition yet, nothing can hold the changed base partitions. "
+                            + "baseTable={}, mv={}", baseTableInfo, name);
+                    return Optional.of(Sets.newHashSet());
+                }
                 LOG.warn("Base table is not described by the partition mapping, rebuild the whole MV. "
                         + "baseTable={}, mv={}", baseTableInfo, name);
                 return Optional.empty();
@@ -1050,6 +1066,24 @@ public class MTMV extends OlapTable {
     public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
             Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
             Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots) throws AnalysisException {
+        return calculatePartitionMappings(queryUsedBaseTablePartitionMap, pinnedSnapshots, false);
+    }
+
+    /**
+     * The MV partitions each base partition belongs to by lineage, ignoring the partition_sync_limit
+     * window. Invalidating MV partitions has to use this: the window can move after a base partition was
+     * read, and a changed partition that the window does not cover right now can still have its rows in an
+     * MV partition -- partition sync keeps that partition once the window covers the base partition again,
+     * and the change itself left no binlog to repair it with.
+     */
+    public Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappingsByLineage()
+            throws AnalysisException {
+        return calculatePartitionMappings(Maps.newHashMap(), null, true);
+    }
+
+    private Map<String, Map<MTMVRelatedTableIf, Set<String>>> calculatePartitionMappings(
+            Map<List<String>, Set<String>> queryUsedBaseTablePartitionMap,
+            Map<MvccTableInfo, MvccSnapshot> pinnedSnapshots, boolean byLineage) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
@@ -1065,9 +1099,11 @@ public class MTMV extends OlapTable {
                 = getEffectiveQueryUsedBaseTablePartitionMap(
                         queryUsedBaseTablePartitionMap, mvPartitionItems, pinnedSnapshots);
         Map<String, Map<MTMVRelatedTableIf, Set<String>>> res = Maps.newHashMap();
-        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns(),
-                        effectiveFilter, pinnedSnapshots);
+        Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = byLineage
+                ? MTMVPartitionUtil.generateRelatedPartitionDescsByLineage(mvPartitionInfo, mvProperties,
+                        getPartitionColumns(), effectiveFilter, pinnedSnapshots)
+                : MTMVPartitionUtil.generateRelatedPartitionDescs(mvPartitionInfo, mvProperties,
+                        getPartitionColumns(), effectiveFilter, pinnedSnapshots);
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
                     pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()));

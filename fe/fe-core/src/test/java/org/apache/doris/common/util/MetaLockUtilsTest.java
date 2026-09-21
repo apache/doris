@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 public class MetaLockUtilsTest {
@@ -58,6 +59,47 @@ public class MetaLockUtilsTest {
         Assertions.assertTrue(tableList.get(1).tryWriteLock(1, TimeUnit.MILLISECONDS));
         tableList.get(0).writeUnlock();
         tableList.get(1).writeUnlock();
+    }
+
+    /**
+     * The read batch gives back what it took when a later table stays busy, so the caller holds nothing
+     * while it decides what to do. Probed the same way as the tests above: a read lock still held would
+     * block the write lock of the table that was acquired first.
+     */
+    @Test
+    public void testTryReadLockTablesReleasesWhatItTookWhenALaterTableIsBusy() throws Exception {
+        List<Table> tables = ImmutableList.of(TableTest.newOlapTable(0, "readable", 0),
+                TableTest.newOlapTable(1, "busy", 0));
+        Table busy = tables.get(1);
+        // Another thread has to hold the write lock: the same thread could take a read lock underneath
+        // its own write lock (that direction is allowed), which is not the case under test. Both
+        // acquisitions are bounded and the holder is asserted to end, so a failure cannot strand it.
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch released = new CountDownLatch(1);
+        Thread holder = new Thread(() -> {
+            Assertions.assertTrue(busy.tryWriteLock(30, TimeUnit.SECONDS));
+            locked.countDown();
+            try {
+                released.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                busy.writeUnlock();
+            }
+        });
+        holder.start();
+        try {
+            Assertions.assertTrue(locked.await(30, TimeUnit.SECONDS));
+            Assertions.assertFalse(MetaLockUtils.tryReadLockTables(tables, 100, TimeUnit.MILLISECONDS),
+                    "a busy table must fail the batch");
+            Assertions.assertTrue(tables.get(0).tryWriteLock(100, TimeUnit.MILLISECONDS),
+                    "the read lock taken for the first table must have been released");
+            tables.get(0).writeUnlock();
+        } finally {
+            released.countDown();
+            holder.join(TimeUnit.SECONDS.toMillis(30));
+        }
+        Assertions.assertFalse(holder.isAlive(), "the holder should have released the table");
     }
 
     @Test
