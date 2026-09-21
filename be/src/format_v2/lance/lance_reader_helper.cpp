@@ -19,6 +19,7 @@
 
 #include <arrow/array.h>
 #include <arrow/builder.h>
+#include <arrow/c/bridge.h>
 #include <arrow/extension_type.h>
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
@@ -272,26 +273,6 @@ Status arrow_field_to_doris_type(const std::shared_ptr<arrow::Field>& field,
     }
 }
 
-// Determine whether a field subtree contains values that require Lance normalization.
-Status field_requires_lance_normalization(const std::shared_ptr<arrow::Field>& field,
-                                          bool* requires_normalization) {
-    DORIS_CHECK(field != nullptr);
-    DORIS_CHECK(requires_normalization != nullptr);
-
-    LanceExtensionKind extension_kind;
-    std::shared_ptr<arrow::DataType> storage_type;
-    RETURN_IF_ERROR(get_lance_extension(field, &extension_kind, &storage_type));
-    bool required = extension_kind == LanceExtensionKind::BFLOAT16 ||
-                    field->type()->id() == arrow::Type::EXTENSION;
-    for (const auto& child : storage_type->fields()) {
-        bool child_required = false;
-        RETURN_IF_ERROR(field_requires_lance_normalization(child, &child_required));
-        required |= child_required;
-    }
-    *requires_normalization = required;
-    return Status::OK();
-}
-
 // Widen little-endian Lance BFloat16 values to Arrow Float32 without precision loss.
 Status convert_bfloat16_array(const std::shared_ptr<arrow::Array>& array,
                               arrow::MemoryPool* memory_pool,
@@ -370,89 +351,6 @@ Status set_lance_nested_type(std::string_view field_name,
         return Status::InvalidArgument("Lance field '{}' has unexpected child-bearing type {}",
                                        field_name, source_type->ToString());
     }
-    return Status::OK();
-}
-
-// Check whether an Arrow type tree contains a registered extension wrapper.
-bool type_contains_registered_extension(const std::shared_ptr<arrow::DataType>& type) {
-    if (type->id() == arrow::Type::EXTENSION) {
-        return true;
-    }
-    for (const auto& field : type->fields()) {
-        if (type_contains_registered_extension(field->type())) {
-            return true;
-        }
-    }
-    return false;
-}
-
-// Remove registered ExtensionArray wrappers only along extension-bearing branches.
-Status unwrap_lance_extension_arrays(const std::shared_ptr<arrow::DataType>& expected_type,
-                                     const std::shared_ptr<arrow::Array>& array,
-                                     std::shared_ptr<arrow::Array>* unwrapped) {
-    DORIS_CHECK(expected_type != nullptr);
-    DORIS_CHECK(array != nullptr);
-    DORIS_CHECK(unwrapped != nullptr);
-
-    auto storage_array = array;
-    auto expected_storage_type = expected_type;
-    if (expected_type->id() == arrow::Type::EXTENSION) {
-        const auto extension_type = std::dynamic_pointer_cast<arrow::ExtensionType>(expected_type);
-        if (extension_type == nullptr) {
-            return Status::InvalidArgument("invalid expected Arrow extension type {}",
-                                           expected_type->ToString());
-        }
-        expected_storage_type = extension_type->storage_type();
-    }
-    if (array->type_id() == arrow::Type::EXTENSION) {
-        const auto extension_array = std::dynamic_pointer_cast<arrow::ExtensionArray>(array);
-        if (extension_array == nullptr) {
-            return Status::InvalidArgument("invalid Arrow extension array: {}",
-                                           array->type()->ToString());
-        }
-        storage_array = extension_array->storage();
-    }
-
-    const auto& child_data = storage_array->data()->child_data;
-    const auto& child_fields = expected_storage_type->fields();
-    if (child_data.empty()) {
-        *unwrapped = std::move(storage_array);
-        return Status::OK();
-    }
-    if (child_fields.size() != child_data.size()) {
-        return Status::InvalidArgument(
-                "Arrow array type {} has {} child fields but its data has {} children",
-                storage_array->type()->ToString(), child_fields.size(), child_data.size());
-    }
-
-    std::shared_ptr<arrow::ArrayData> unwrapped_data;
-    arrow::FieldVector unwrapped_fields;
-    for (size_t child_idx = 0; child_idx < child_data.size(); ++child_idx) {
-        if (!type_contains_registered_extension(child_fields[child_idx]->type())) {
-            continue;
-        }
-        auto child_array = arrow::MakeArray(child_data[child_idx]);
-        std::shared_ptr<arrow::Array> unwrapped_child;
-        RETURN_IF_ERROR(unwrap_lance_extension_arrays(child_fields[child_idx]->type(), child_array,
-                                                      &unwrapped_child));
-        if (unwrapped_child.get() == child_array.get()) {
-            continue;
-        }
-        if (unwrapped_data == nullptr) {
-            unwrapped_data = storage_array->data()->Copy();
-            unwrapped_fields = storage_array->type()->fields();
-        }
-        unwrapped_data->child_data[child_idx] = unwrapped_child->data();
-        unwrapped_fields[child_idx] =
-                unwrapped_fields[child_idx]->WithType(unwrapped_child->type());
-    }
-    if (unwrapped_data == nullptr) {
-        *unwrapped = std::move(storage_array);
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(
-            set_lance_nested_type("", storage_array->type(), unwrapped_fields, &unwrapped_data));
-    *unwrapped = arrow::MakeArray(std::move(unwrapped_data));
     return Status::OK();
 }
 
@@ -575,78 +473,92 @@ Status compact_lance_array_if_needed(const std::shared_ptr<arrow::Array>& array,
 
 } // namespace
 
-// Normalize Lance extensions and materialize sliced arrays for Doris Arrow SerDes.
-Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
-                                   const std::shared_ptr<arrow::Array>& array,
-                                   arrow::MemoryPool* memory_pool,
-                                   std::shared_ptr<arrow::Array>* normalized) {
+Status LanceArrowArrayNormalizer::create(const std::shared_ptr<arrow::Field>& field,
+                                         LanceArrowArrayNormalizer* normalizer) {
     DORIS_CHECK(field != nullptr);
-    DORIS_CHECK(array != nullptr);
-    DORIS_CHECK(memory_pool != nullptr);
-    DORIS_CHECK(normalized != nullptr);
+    DORIS_CHECK(normalizer != nullptr);
 
     LanceExtensionKind extension_kind;
     std::shared_ptr<arrow::DataType> storage_type;
     RETURN_IF_ERROR(get_lance_extension(field, &extension_kind, &storage_type));
 
+    LanceArrowArrayNormalizer result;
+    result._field_name = field->name();
+    result._storage_type = std::move(storage_type);
+    result._unwrap_registered_extension = field->type()->id() == arrow::Type::EXTENSION;
+    result._convert_bfloat16 = extension_kind == LanceExtensionKind::BFLOAT16;
+    result._requires_special_handling =
+            result._unwrap_registered_extension || result._convert_bfloat16;
+    result._child_normalizers.reserve(result._storage_type->num_fields());
+    for (const auto& child_field : result._storage_type->fields()) {
+        LanceArrowArrayNormalizer child_normalizer;
+        RETURN_IF_ERROR(create(child_field, &child_normalizer));
+        result._requires_special_handling |= child_normalizer._requires_special_handling;
+        result._child_normalizers.emplace_back(std::move(child_normalizer));
+    }
+    *normalizer = std::move(result);
+    return Status::OK();
+}
+
+Status LanceArrowArrayNormalizer::normalize_for_doris(
+        const std::shared_ptr<arrow::Array>& array, arrow::MemoryPool* memory_pool,
+        std::shared_ptr<arrow::Array>* normalized) const {
+    DORIS_CHECK(array != nullptr);
+    DORIS_CHECK(memory_pool != nullptr);
+    DORIS_CHECK(normalized != nullptr);
+
+    // The schema binding already resolved extension metadata and nested special types. For common
+    // arrays, runtime work is limited to checking whether the visible slice needs compaction.
+    if (!_requires_special_handling) {
+        return compact_lance_array_if_needed(array, memory_pool, normalized);
+    }
+
     auto storage_array = array;
-    if (type_contains_registered_extension(field->type())) {
-        std::shared_ptr<arrow::Array> unwrapped_array;
-        RETURN_IF_ERROR(unwrap_lance_extension_arrays(field->type(), array, &unwrapped_array));
-        storage_array = std::move(unwrapped_array);
+    if (_unwrap_registered_extension && array->type_id() == arrow::Type::EXTENSION) {
+        const auto extension_array = std::dynamic_pointer_cast<arrow::ExtensionArray>(array);
+        if (extension_array == nullptr) {
+            return Status::InvalidArgument("invalid Arrow extension array: {}",
+                                           array->type()->ToString());
+        }
+        storage_array = extension_array->storage();
     }
-    if (storage_array->type_id() != storage_type->id()) {
+    // Extension and BFloat16 arrays are first converted to their physical storage representation;
+    // nested children are then normalized recursively before Doris reads the result.
+    if (storage_array->type_id() != _storage_type->id()) {
         return Status::InvalidArgument(
-                "Lance field '{}' storage type {} does not match array type {}", field->name(),
-                storage_type->ToString(), storage_array->type()->ToString());
+                "Lance field '{}' storage type {} does not match array type {}", _field_name,
+                _storage_type->ToString(), storage_array->type()->ToString());
     }
-    if (extension_kind == LanceExtensionKind::BFLOAT16) {
+    if (_convert_bfloat16) {
         return convert_bfloat16_array(storage_array, memory_pool, normalized);
     }
 
     std::shared_ptr<arrow::Array> compacted_array;
     RETURN_IF_ERROR(compact_lance_array_if_needed(storage_array, memory_pool, &compacted_array));
     storage_array = std::move(compacted_array);
-
-    const auto& child_fields = storage_type->fields();
-    const auto& child_data = storage_array->data()->child_data;
-    if (child_fields.empty()) {
+    if (_child_normalizers.empty()) {
         *normalized = std::move(storage_array);
         return Status::OK();
     }
-    if (child_fields.size() != child_data.size()) {
+
+    const auto& child_data = storage_array->data()->child_data;
+    if (_child_normalizers.size() != child_data.size()) {
         return Status::InvalidArgument(
                 "Lance field '{}' has {} child fields but its Arrow array has {} children",
-                field->name(), child_fields.size(), child_data.size());
-    }
-
-    bool requires_normalization = false;
-    for (const auto& child_field : child_fields) {
-        bool child_required = false;
-        RETURN_IF_ERROR(field_requires_lance_normalization(child_field, &child_required));
-        if (child_required) {
-            requires_normalization = true;
-            break;
-        }
-    }
-    if (!requires_normalization) {
-        *normalized = std::move(storage_array);
-        return Status::OK();
+                _field_name, _child_normalizers.size(), child_data.size());
     }
 
     arrow::FieldVector normalized_fields;
     std::shared_ptr<arrow::ArrayData> normalized_data;
-    for (size_t child_idx = 0; child_idx < child_fields.size(); ++child_idx) {
-        bool child_required = false;
-        RETURN_IF_ERROR(
-                field_requires_lance_normalization(child_fields[child_idx], &child_required));
-        if (!child_required) {
+    for (size_t child_idx = 0; child_idx < _child_normalizers.size(); ++child_idx) {
+        const auto& child_normalizer = _child_normalizers[child_idx];
+        if (!child_normalizer._requires_special_handling) {
             continue;
         }
-        auto child_array = arrow::MakeArray(storage_array->data()->child_data[child_idx]);
+        auto child_array = arrow::MakeArray(child_data[child_idx]);
         std::shared_ptr<arrow::Array> normalized_child;
-        RETURN_IF_ERROR(normalize_lance_arrow_array(child_fields[child_idx], child_array,
-                                                    memory_pool, &normalized_child));
+        RETURN_IF_ERROR(
+                child_normalizer.normalize_for_doris(child_array, memory_pool, &normalized_child));
         if (normalized_child.get() == child_array.get()) {
             continue;
         }
@@ -663,7 +575,7 @@ Status normalize_lance_arrow_array(const std::shared_ptr<arrow::Field>& field,
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(set_lance_nested_type(field->name(), storage_array->type(), normalized_fields,
+    RETURN_IF_ERROR(set_lance_nested_type(_field_name, storage_array->type(), normalized_fields,
                                           &normalized_data));
     *normalized = arrow::MakeArray(std::move(normalized_data));
     return Status::OK();
@@ -675,11 +587,32 @@ Status normalize_lance_arrow_array_for_test(const std::shared_ptr<arrow::Field>&
                                             const std::shared_ptr<arrow::Array>& array,
                                             std::shared_ptr<arrow::Array>* normalized,
                                             arrow::MemoryPool* memory_pool) {
-    return normalize_lance_arrow_array(
-            field, array, memory_pool != nullptr ? memory_pool : arrow::default_memory_pool(),
-            normalized);
+    LanceArrowArrayNormalizer normalizer;
+    RETURN_IF_ERROR(LanceArrowArrayNormalizer::create(field, &normalizer));
+    return normalizer.normalize_for_doris(
+            array, memory_pool != nullptr ? memory_pool : arrow::default_memory_pool(), normalized);
 }
 #endif
+
+Status import_lance_dataset_schema(LanceDataset* dataset, std::shared_ptr<arrow::Schema>* schema) {
+    DORIS_CHECK(dataset != nullptr);
+    DORIS_CHECK(schema != nullptr);
+
+    ArrowSchema arrow_schema {};
+    if (lance_dataset_schema(dataset, &arrow_schema) != 0) {
+        return lance_error("get Lance dataset schema");
+    }
+    auto imported_schema = arrow::ImportSchema(&arrow_schema);
+    if (!imported_schema.ok()) {
+        if (arrow_schema.release != nullptr) {
+            arrow_schema.release(&arrow_schema);
+        }
+        return Status::InternalError("import Lance Arrow schema failed: {}",
+                                     imported_schema.status().message());
+    }
+    *schema = std::move(imported_schema).ValueUnsafe();
+    return Status::OK();
+}
 
 void LanceDatasetDeleter::operator()(LanceDataset* dataset) const {
     lance_dataset_close(dataset);

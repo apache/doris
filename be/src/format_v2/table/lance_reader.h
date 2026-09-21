@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <cctz/time_zone.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -29,6 +27,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "format_v2/lance/lance_record_batch_converter.h"
 #include "format_v2/table_reader.h"
 #include "runtime/runtime_profile.h"
 
@@ -40,12 +39,6 @@ struct LanceScanner;
 namespace doris {
 class ShardedKVCache;
 }
-
-namespace arrow {
-class Array;
-class RecordBatch;
-class Schema;
-} // namespace arrow
 
 namespace doris::format::lance {
 
@@ -87,6 +80,7 @@ private:
     Status _open_dataset(const DatasetKey& key);
     Status _prepare_fts_query_context();
     Status _open_scanner(const TFileRangeDesc& range);
+    void _init_scanner_profile();
     Status _configure_scan_options(LanceScanner* scanner) const;
     Status _configure_normal_scan(LanceScanner* scanner, const TLanceFileDesc& lance_params) const;
     Status _configure_vector_search(LanceScanner* scanner,
@@ -102,10 +96,6 @@ private:
     void _close_scanner();
     void _close_dataset();
     Status _fill_block_from_lance_batch(LanceBatch* batch, Block* block, size_t* rows);
-    Status _fill_block_from_record_batch(const std::shared_ptr<arrow::RecordBatch>& record_batch,
-                                         Block* block, size_t* rows);
-    Status _append_global_row_ids(const std::shared_ptr<arrow::Array>& row_ids,
-                                  MutableColumnPtr& output_column) const;
     Status _dataset_key(const TFileRangeDesc& range, DatasetKey* key) const;
 
     LanceDataset* _dataset = nullptr;
@@ -113,9 +103,7 @@ private:
     LanceScanner* _scanner = nullptr;
     ShardedKVCache* _runtime_filter_cache = nullptr;
     std::optional<DatasetKey> _opened_dataset_key;
-    std::unordered_map<std::string, size_t> _output_name_to_idx;
-    std::optional<size_t> _global_rowid_output_idx;
-    cctz::time_zone _ctz;
+    LanceRecordBatchConverter _record_batch_converter;
     size_t _scanner_batch_size = 0;
     RuntimeProfile::Counter* _planned_index_segment_count = nullptr;
     RuntimeProfile::Counter* _planned_indexed_fragment_count = nullptr;
@@ -137,7 +125,6 @@ private:
     std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_count_metrics;
     std::unordered_map<std::string_view, RuntimeProfile::Counter*> _lance_time_metrics;
     LanceFtsQueryContext* _fts_query_context = nullptr;
-    enum class SearchKind { NORMAL, VECTOR, FULL_TEXT };
     SearchKind _search_kind = SearchKind::NORMAL;
     bool _eof = false;
 };
