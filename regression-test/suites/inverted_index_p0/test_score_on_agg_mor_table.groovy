@@ -45,6 +45,9 @@ suite("test_score_on_agg_mor_table", "p0") {
         )
     """
 
+    sql "INSERT INTO test_score_on_agg_table VALUES (1, 'apache doris', 1)"
+    sql "INSERT INTO test_score_on_mor_table VALUES (1, 'apache doris')"
+
     test {
         sql """
             SELECT score() AS s FROM test_score_on_agg_table
