@@ -968,20 +968,10 @@ bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
 
     // Directly use _get_orc_predicate_type since we only need the type
     auto [valid, predicate_type] = _get_orc_predicate_type(slot_ref);
-    if (!valid) {
-        return false;
+    if (valid) {
+        _vslot_ref_to_orc_predicate_data_type[slot_ref] = predicate_type;
     }
-
-    const auto file_col_name =
-            _table_info_node_ptr->children_file_column_name(slot_ref->expr_name());
-    const auto file_type = convert_to_doris_type(_type_map[file_col_name]);
-    const auto table_type = _tuple_descriptor->slots()[slot_ref->column_id()]->type();
-    if (converter::requires_datetimev2_precision_conversion(file_type, table_type)) {
-        return false;
-    }
-
-    _vslot_ref_to_orc_predicate_data_type[slot_ref] = predicate_type;
-    return true;
+    return valid;
 }
 
 // check if the literal of expr can be pushed down to orc reader and make orc literal

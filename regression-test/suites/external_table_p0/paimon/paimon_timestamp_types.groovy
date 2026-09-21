@@ -121,30 +121,6 @@ suite("paimon_timestamp_types", "p0,external") {
             """
         }
 
-        def precisionEvolutionRangePredicateQuery = { table ->
-            return """
-                select id, cast(ts as string), microsecond(ts)
-                from ${table}
-                where ts >= '2025-01-01 00:00:01' and ts < '2025-01-01 00:00:03'
-                order by id
-            """
-        }
-
-        sql """set force_jni_scanner=false"""
-        sql """set enable_file_scanner_v2=false"""
-        order_qt_precision_evolution_v1_parquet precisionEvolutionQuery(
-                "timestamp_precision_evolution_parquet")
-        order_qt_precision_evolution_v1_orc precisionEvolutionQuery(
-                "timestamp_precision_evolution_orc")
-        order_qt_precision_evolution_v1_parquet_predicate precisionEvolutionPredicateQuery(
-                "timestamp_precision_evolution_parquet")
-        order_qt_precision_evolution_v1_orc_predicate precisionEvolutionPredicateQuery(
-                "timestamp_precision_evolution_orc")
-        order_qt_precision_evolution_v1_parquet_range_predicate precisionEvolutionRangePredicateQuery(
-                "timestamp_precision_evolution_parquet")
-        order_qt_precision_evolution_v1_orc_range_predicate precisionEvolutionRangePredicateQuery(
-                "timestamp_precision_evolution_orc")
-
         sql """set enable_file_scanner_v2=true"""
         order_qt_precision_evolution_v2_parquet precisionEvolutionQuery(
                 "timestamp_precision_evolution_parquet")

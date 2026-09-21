@@ -44,16 +44,6 @@ namespace doris::converter {
 
 enum FileFormat { COMMON, ORC, PARQUET };
 
-inline bool requires_datetimev2_precision_conversion(const DataTypePtr& src_type,
-                                                     const DataTypePtr& dst_type) {
-    const auto src = remove_nullable(src_type);
-    const auto dst = remove_nullable(dst_type);
-    const auto primitive = src->get_primitive_type();
-    return primitive == dst->get_primitive_type() &&
-           (primitive == TYPE_DATETIMEV2 || primitive == TYPE_TIMESTAMPTZ) &&
-           src->get_scale() > dst->get_scale();
-}
-
 // Helper: get the inner (non-nullable) mutable column from an exclusively-owned dst_col.
 // - For non-nullable dst_col: returns a raw pointer to the column itself.
 // - For nullable dst_col: returns a raw pointer to the nested (non-null) column.
@@ -160,52 +150,6 @@ public:
  */
 class ConsistentConverter : public ColumnTypeConverter {
     bool is_consistent() override { return true; }
-};
-
-class DateTimeV2PrecisionConverter : public ColumnTypeConverter {
-public:
-    DateTimeV2PrecisionConverter(UInt32 to_scale, PrimitiveType primitive)
-            : _to_scale(to_scale), _primitive(primitive) {}
-
-    // NOLINTNEXTLINE(readability-make-member-function-const): base virtual method is non-const.
-    Status convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) override {
-        if (_primitive == TYPE_DATETIMEV2) {
-            return _convert<TYPE_DATETIMEV2>(src_col, dst_col);
-        }
-        DORIS_CHECK(_primitive == TYPE_TIMESTAMPTZ);
-        return _convert<TYPE_TIMESTAMPTZ>(src_col, dst_col);
-    }
-
-private:
-    template <PrimitiveType Primitive>
-    Status _convert(ColumnPtr& src_col, MutableColumnPtr& dst_col) {
-        using ColumnType = typename PrimitiveTypeTraits<Primitive>::ColumnType;
-
-        ColumnPtr from_col = remove_nullable(src_col);
-        IColumn* to_col = get_mutable_inner_col(dst_col);
-        const auto& src_data = static_cast<const ColumnType*>(from_col.get())->get_data();
-        const size_t start_idx = to_col->size();
-        to_col->resize(start_idx + src_data.size());
-        auto& dst_data = static_cast<ColumnType&>(*to_col).get_data();
-        uint32_t divisor = 1;
-        for (UInt32 i = _to_scale; i < 6; ++i) {
-            divisor *= 10;
-        }
-        for (size_t i = 0; i < src_data.size(); ++i) {
-            auto value = src_data[i];
-            if constexpr (Primitive == TYPE_DATETIMEV2) {
-                value.template unchecked_set_time_unit<TimeUnit::MICROSECOND>(value.microsecond() /
-                                                                              divisor * divisor);
-            } else {
-                value.set_microsecond(value.microsecond() / divisor * divisor);
-            }
-            dst_data[start_idx + i] = value;
-        }
-        return Status::OK();
-    }
-
-    UInt32 _to_scale;
-    PrimitiveType _primitive;
 };
 
 /**

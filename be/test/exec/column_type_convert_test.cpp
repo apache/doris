@@ -32,7 +32,6 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
-#include "core/data_type/data_type_timestamptz.h"
 #include "core/types.h"
 
 namespace doris {
@@ -42,62 +41,6 @@ public:
     ColumnTypeConverterTest() = default;
     virtual ~ColumnTypeConverterTest() = default;
 };
-
-TEST_F(ColumnTypeConverterTest, TruncatesDateTimeV2PrecisionWithoutRounding) {
-    const auto src_type = std::make_shared<DataTypeDateTimeV2>(6);
-    const auto dst_type = std::make_shared<DataTypeDateTimeV2>(0);
-    auto converter =
-            converter::ColumnTypeConverter::get_converter(src_type, dst_type, converter::PARQUET);
-    ASSERT_TRUE(converter->support());
-    ASSERT_FALSE(converter->is_consistent());
-
-    auto src_column = ColumnDateTimeV2::create();
-    for (const auto microsecond : {499999, 500000, 600000, 999999}) {
-        DateV2Value<DateTimeV2ValueType> value;
-        value.unchecked_set_time(2025, 1, 1, 0, 0, 1, microsecond);
-        src_column->get_data().push_back(value);
-    }
-    auto dst_column = dst_type->create_column();
-    ASSERT_TRUE(converter->convert(reinterpret_cast<ColumnPtr&>(src_column), dst_column).ok());
-
-    const auto& values = static_cast<const ColumnDateTimeV2&>(*dst_column).get_data();
-    ASSERT_EQ(values.size(), 4);
-    for (const auto& value : values) {
-        EXPECT_EQ(value.second(), 1);
-        EXPECT_EQ(value.microsecond(), 0);
-    }
-}
-
-TEST_F(ColumnTypeConverterTest, TruncatesTimestampTzPrecisionWithoutRounding) {
-    const auto src_type = std::make_shared<DataTypeTimeStampTz>(6);
-    const auto dst_type = std::make_shared<DataTypeTimeStampTz>(0);
-    auto converter =
-            converter::ColumnTypeConverter::get_converter(src_type, dst_type, converter::PARQUET);
-    ASSERT_TRUE(converter->support());
-    ASSERT_FALSE(converter->is_consistent());
-
-    auto src_column = ColumnTimeStampTz::create();
-    TimestampTzValue value;
-    value.unchecked_set_time(2025, 1, 1, 0, 0, 1, 600000);
-    src_column->get_data().push_back(value);
-    auto dst_column = dst_type->create_column();
-    ASSERT_TRUE(converter->convert(reinterpret_cast<ColumnPtr&>(src_column), dst_column).ok());
-
-    const auto& values = static_cast<const ColumnTimeStampTz&>(*dst_column).get_data();
-    ASSERT_EQ(values.size(), 1);
-    EXPECT_EQ(values[0].second(), 1);
-    EXPECT_EQ(values[0].microsecond(), 0);
-}
-
-TEST_F(ColumnTypeConverterTest, DateTimeV2PrecisionNarrowingRequiresPredicateConversion) {
-    const auto file_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
-    const auto narrowed_table_type = std::make_shared<DataTypeDateTimeV2>(0);
-    const auto equal_table_type = std::make_shared<DataTypeDateTimeV2>(6);
-
-    EXPECT_TRUE(
-            converter::requires_datetimev2_precision_conversion(file_type, narrowed_table_type));
-    EXPECT_FALSE(converter::requires_datetimev2_precision_conversion(file_type, equal_table_type));
-}
 
 // Test integer type conversions (widening)
 TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {

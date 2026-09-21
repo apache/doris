@@ -169,7 +169,7 @@ public class PaimonColumnValue implements ColumnValue {
     @Override
     public LocalDateTime getDateTime() {
         Timestamp ts = truncateTimestampPrecision(
-                record.getTimestamp(idx, dorisType.getPrecision()));
+                record.getTimestamp(idx, getPaimonTimestampPrecision()));
         if (dataType instanceof LocalZonedTimestampType) {
             // Paimon stores TIMESTAMP_LTZ as an epoch instant, so convert it directly in the cached session zone.
             return LocalDateTime.ofInstant(ts.toInstant(), timeZone);
@@ -181,13 +181,13 @@ public class PaimonColumnValue implements ColumnValue {
     @Override
     public LocalDateTime getTimeStampTz() {
         Timestamp ts = truncateTimestampPrecision(
-                record.getTimestamp(idx, dorisType.getPrecision()));
+                record.getTimestamp(idx, getPaimonTimestampPrecision()));
         // Timestamp's local representation is identical to converting its epoch instant in UTC.
         return ts.toLocalDateTime();
     }
 
     private Timestamp truncateTimestampPrecision(Timestamp timestamp) {
-        if (!(dataType instanceof TimestampType)) {
+        if (!(dataType instanceof TimestampType) && !(dataType instanceof LocalZonedTimestampType)) {
             return timestamp;
         }
         int precision = dorisType.getPrecision();
@@ -198,6 +198,16 @@ public class PaimonColumnValue implements ColumnValue {
         LocalDateTime value = timestamp.toLocalDateTime();
         int truncatedNano = (int) (value.getNano() / divisor * divisor);
         return Timestamp.fromLocalDateTime(value.withNano(truncatedNano));
+    }
+
+    private int getPaimonTimestampPrecision() {
+        if (dataType instanceof TimestampType) {
+            return ((TimestampType) dataType).getPrecision();
+        }
+        if (dataType instanceof LocalZonedTimestampType) {
+            return ((LocalZonedTimestampType) dataType).getPrecision();
+        }
+        return dorisType.getPrecision();
     }
 
     @Override

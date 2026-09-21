@@ -60,6 +60,16 @@ namespace doris::format {
 
 namespace {
 
+bool requires_paimon_datetime_precision_conversion(const DataTypePtr& source_type,
+                                                   const DataTypePtr& target_type) {
+    const auto source = remove_nullable(source_type);
+    const auto target = remove_nullable(target_type);
+    const auto primitive = source->get_primitive_type();
+    return primitive == target->get_primitive_type() &&
+           (primitive == TYPE_DATETIMEV2 || primitive == TYPE_TIMESTAMPTZ) &&
+           source->get_scale() > target->get_scale();
+}
+
 bool has_shared_descendant_field_id(const ColumnDefinition& table, const ColumnDefinition& file) {
     const auto& table_children =
             table.identity_children.empty() ? table.children : table.identity_children;
@@ -2908,7 +2918,7 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
     const auto table_type = remove_nullable(mapping->table_type);
     mapping->truncate_datetimev2_precision =
             _options.truncate_datetimev2_precision_for_paimon &&
-            converter::requires_datetimev2_precision_conversion(file_type, table_type);
+            requires_paimon_datetime_precision_conversion(file_type, table_type);
     // Access paths are relative to the Variant terminal, so recursive complex mappings must carry
     // them instead of leaving them only on the top-level table column.
     mapping->variant_access_paths = table_column.variant_access_paths;

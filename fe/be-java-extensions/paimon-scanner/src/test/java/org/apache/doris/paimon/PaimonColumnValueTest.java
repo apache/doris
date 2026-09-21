@@ -254,10 +254,10 @@ public class PaimonColumnValueTest {
                 ColumnType.parseType("t", "datetimev2(0)"), new LocalZonedTimestampType(9),
                 "America/Los_Angeles");
         Assertions.assertEquals(
-                LocalDateTime.of(2024, 3, 10, 3, 30, 0, 123_456_789),
+                LocalDateTime.of(2024, 3, 10, 3, 30),
                 narrowedLocalZonedValue.getDateTime());
         Assertions.assertEquals(
-                LocalDateTime.of(2024, 3, 10, 10, 30, 0, 123_456_789),
+                LocalDateTime.of(2024, 3, 10, 10, 30),
                 narrowedLocalZonedValue.getTimeStampTz());
 
         localZonedValue.setTimeZone("Asia/Shanghai");

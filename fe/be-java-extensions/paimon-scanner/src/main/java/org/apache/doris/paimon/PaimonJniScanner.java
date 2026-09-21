@@ -38,7 +38,12 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableRead;
 import org.apache.paimon.table.system.SystemTableLoader;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.LocalZonedTimestampType;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -191,12 +196,52 @@ public class PaimonJniScanner extends JniScanner {
                             fields.length, paimonAllFieldNames.size()));
         }
         int[] projected = getProjected();
+        RowType readType = requiresDatetimeV2PrecisionRepair
+                ? createSafeTimestampReadType(table.rowType()) : table.rowType();
         readBuilder.withProjection(projected);
+        if (requiresDatetimeV2PrecisionRepair) {
+            // withProjection() derives a read type from the table schema and would otherwise
+            // replace the widened timestamp types with the evolved (lower-precision) schema.
+            readBuilder.withReadType(readType.project(projected));
+        }
         readBuilder.withFilter(requiresDatetimeV2PrecisionRepair
                 ? Collections.emptyList() : getPredicates());
         reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(getSplit());
         paimonDataTypeList =
-                Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
+                Arrays.stream(projected).mapToObj(i -> readType.getTypeAt(i)).collect(Collectors.toList());
+    }
+
+    static RowType createSafeTimestampReadType(RowType tableType) {
+        List<DataField> fields = tableType.getFields().stream()
+                .map(field -> field.newType(createSafeTimestampReadType(field.type())))
+                .collect(Collectors.toList());
+        return tableType.copy(fields);
+    }
+
+    private static DataType createSafeTimestampReadType(DataType dataType) {
+        if (dataType instanceof TimestampType) {
+            return new TimestampType(dataType.isNullable(), TimestampType.MAX_PRECISION);
+        }
+        if (dataType instanceof LocalZonedTimestampType) {
+            return new LocalZonedTimestampType(dataType.isNullable(), LocalZonedTimestampType.MAX_PRECISION);
+        }
+        if (dataType instanceof RowType) {
+            RowType rowType = (RowType) dataType;
+            List<DataField> fields = rowType.getFields().stream()
+                    .map(field -> field.newType(createSafeTimestampReadType(field.type())))
+                    .collect(Collectors.toList());
+            return rowType.copy(fields);
+        }
+        if (dataType instanceof ArrayType) {
+            ArrayType arrayType = (ArrayType) dataType;
+            return arrayType.newElementType(createSafeTimestampReadType(arrayType.getElementType()));
+        }
+        if (dataType instanceof MapType) {
+            MapType mapType = (MapType) dataType;
+            return mapType.newKeyValueType(createSafeTimestampReadType(mapType.getKeyType()),
+                    createSafeTimestampReadType(mapType.getValueType()));
+        }
+        return dataType;
     }
 
     private TableRead newReadWithOptionalIOManager(ReadBuilder readBuilder) throws IOException {
@@ -325,15 +370,17 @@ public class PaimonJniScanner extends JniScanner {
 
     private void resetDatetimeV2Precision() {
         for (int i = 0; i < types.length; i++) {
-            if (types[i].isDateTimeV2()) {
+            if (types[i].isDateTimeV2() || types[i].getType() == ColumnType.Type.TIMESTAMPTZ) {
                 // paimon support precision > 6, but it has been reset as 6 in FE
                 // try to get the right precision for datetimev2
                 int index = getFieldIndex(paimonAllFieldNames, fields[i]);
                 if (index != -1) {
                     DataType dataType = table.rowType().getTypeAt(index);
-                    if (dataType instanceof TimestampType) {
-                        int paimonPrecision = ((TimestampType) dataType).getPrecision();
-                        requiresDatetimeV2PrecisionRepair |= types[i].getPrecision() > paimonPrecision;
+                    if (dataType instanceof TimestampType || dataType instanceof LocalZonedTimestampType) {
+                        requiresDatetimeV2PrecisionRepair = true;
+                        int paimonPrecision = dataType instanceof TimestampType
+                                ? ((TimestampType) dataType).getPrecision()
+                                : ((LocalZonedTimestampType) dataType).getPrecision();
                         types[i].setPrecision(paimonPrecision);
                     }
                 }
