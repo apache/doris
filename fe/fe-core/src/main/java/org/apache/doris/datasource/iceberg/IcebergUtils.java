@@ -2035,7 +2035,7 @@ public class IcebergUtils {
         return icebergExternalMetaCache(dorisTable).getIcebergSchemaCacheValue(
                 dorisTable.getOrBuildNameMapping(), schemaId, retainedTable,
                 snapshotValue.getCapturedAuthenticator(), snapshotValue.isEnableMappingVarbinary(),
-                snapshotValue.isEnableMappingTimestampTz());
+                snapshotValue.isEnableMappingTimestampTz(), snapshotValue.getRuntimeContext());
     }
 
     public static IcebergSnapshot getLatestIcebergSnapshot(Table table) {
@@ -2470,6 +2470,15 @@ public class IcebergUtils {
         List<Column> schema = getSchema(dorisTable, schemaId, false, icebergTable, authenticator,
                 enableMappingVarbinary, enableMappingTimestampTz);
         return buildTableSchemaCacheValue(icebergTable, schema);
+    }
+
+    static IcebergSchemaCacheValue buildViewSchemaCacheValue(View icebergView, long schemaId,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        Schema schema = schemaId == NEWEST_SCHEMA_ID
+                ? icebergView.schema() : icebergView.schemas().get((int) schemaId);
+        Preconditions.checkNotNull(schema, "Schema for Iceberg view %s is null", icebergView.name());
+        return new IcebergSchemaCacheValue(
+                parseSchema(schema, enableMappingVarbinary, enableMappingTimestampTz), Lists.newArrayList());
     }
 
     private static Optional<SchemaCacheValue> loadViewSchemaCacheValue(ExternalTable dorisTable, long schemaId) {

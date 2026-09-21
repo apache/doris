@@ -366,7 +366,7 @@ public class IcebergTransactionTest {
         @SuppressWarnings("unchecked")
         MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> manifestEntry =
                 Mockito.mock(MetaCacheEntry.class);
-        return new IcebergRuntimeContext(ops.getExecutionAuthenticator(), null, manifestEntry,
+        return new IcebergRuntimeContext(ops.getExecutionAuthenticator(), ops, null, manifestEntry,
                 null, Collections.emptyMap());
     }
 

@@ -32,16 +32,19 @@ import java.util.concurrent.ThreadPoolExecutor;
 /** Immutable execution state retained together with one Iceberg table generation. */
 public final class IcebergRuntimeContext {
     private final ExecutionAuthenticator authenticator;
+    private final IcebergMetadataOps metadataOps;
     private final ThreadPoolExecutor planningExecutor;
     private final MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> manifestEntry;
     private final MetastoreProperties metastoreProperties;
     private final Map<StorageProperties.Type, StorageProperties> storageProperties;
 
-    IcebergRuntimeContext(ExecutionAuthenticator authenticator, ThreadPoolExecutor planningExecutor,
+    IcebergRuntimeContext(ExecutionAuthenticator authenticator, IcebergMetadataOps metadataOps,
+            ThreadPoolExecutor planningExecutor,
             MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> manifestEntry,
             MetastoreProperties metastoreProperties,
             Map<StorageProperties.Type, StorageProperties> storageProperties) {
         this.authenticator = authenticator;
+        this.metadataOps = Objects.requireNonNull(metadataOps, "metadataOps");
         this.planningExecutor = planningExecutor;
         this.manifestEntry = Objects.requireNonNull(manifestEntry, "manifestEntry");
         this.metastoreProperties = metastoreProperties;
@@ -50,6 +53,10 @@ public final class IcebergRuntimeContext {
 
     public ExecutionAuthenticator getAuthenticator() {
         return authenticator;
+    }
+
+    IcebergMetadataOps getMetadataOps() {
+        return metadataOps;
     }
 
     public ThreadPoolExecutor getPlanningExecutor() {

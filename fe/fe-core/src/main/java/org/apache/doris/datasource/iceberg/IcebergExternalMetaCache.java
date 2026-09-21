@@ -259,7 +259,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                             context.isEnableMappingVarbinary(), context.isEnableMappingTimestampTz());
                     owner.add(context.promote()::close);
                     IcebergRuntimeContext runtimeContext = new IcebergRuntimeContext(
-                            context.getAuthenticator(), ops.getThreadPoolWithPreAuth(),
+                            context.getAuthenticator(), ops, ops.getThreadPoolWithPreAuth(),
                             retainedManifestEntry,
                             context.getMetastoreProperties(), context.getStorageProperties());
                     WritableTableLease lease = new WritableTableLease(
@@ -292,7 +292,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                             enableMappingVarbinary, enableMappingTimestampTz);
                     owner.add(context.promote()::close);
                     IcebergRuntimeContext runtimeContext = new IcebergRuntimeContext(
-                            context.getAuthenticator(), context.getExecutor(),
+                            context.getAuthenticator(), ops, context.getExecutor(),
                             retainedManifestEntry,
                             context.getMetastoreProperties(), context.getStorageProperties());
                     WritableTableLease lease = new WritableTableLease(
@@ -483,7 +483,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             NameMapping nameMapping, long schemaId, IcebergTableCacheValue tableValue) {
         return getIcebergSchemaCacheValue(nameMapping, schemaId, tableValue.getRetainedIcebergTable(),
                 tableValue.getAuthenticator(), tableValue.isEnableMappingVarbinary(),
-                tableValue.isEnableMappingTimestampTz());
+                tableValue.isEnableMappingTimestampTz(), tableValue.getRuntimeContext());
     }
 
     IcebergSchemaCacheValue getIcebergSchemaCacheValue(
@@ -491,24 +491,32 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         CatalogIf<?> catalog = getCatalog(nameMapping.getCtlId());
         if (!(catalog instanceof ExternalCatalog)) {
             return getIcebergSchemaCacheValue(nameMapping, schemaId, retainedTable,
-                    new ExecutionAuthenticator() { }, false, false);
+                    new ExecutionAuthenticator() { }, false, false, null);
         }
         ExecutionAuthenticator authenticator = requireExecutionAuthenticator(catalog);
         ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
         return getIcebergSchemaCacheValue(nameMapping, schemaId, retainedTable, authenticator,
-                externalCatalog.getEnableMappingVarbinary(), externalCatalog.getEnableMappingTimestampTz());
+                externalCatalog.getEnableMappingVarbinary(), externalCatalog.getEnableMappingTimestampTz(), null);
     }
 
     IcebergSchemaCacheValue getIcebergSchemaCacheValue(NameMapping nameMapping, long schemaId, Table retainedTable,
             ExecutionAuthenticator authenticator,
             boolean enableMappingVarbinary, boolean enableMappingTimestampTz) {
+        return getIcebergSchemaCacheValue(nameMapping, schemaId, retainedTable, authenticator,
+                enableMappingVarbinary, enableMappingTimestampTz, null);
+    }
+
+    IcebergSchemaCacheValue getIcebergSchemaCacheValue(NameMapping nameMapping, long schemaId, Table retainedTable,
+            ExecutionAuthenticator authenticator,
+            boolean enableMappingVarbinary, boolean enableMappingTimestampTz,
+            @Nullable IcebergRuntimeContext runtimeContext) {
         Optional<IcebergSnapshotEntryKey> generation = IcebergSnapshotEntryKey.tryCreate(nameMapping, retainedTable);
         if (!generation.isPresent()) {
             return (IcebergSchemaCacheValue) loadSchemaCacheValue(
                     new IcebergSchemaCacheKey(nameMapping, "", schemaId,
                             retainedTable.spec().specId(), retainedTable.schema().schemaId(),
                             enableMappingVarbinary, enableMappingTimestampTz),
-                    retainedTable, authenticator);
+                    retainedTable, authenticator, runtimeContext);
         }
         IcebergSchemaCacheKey key = new IcebergSchemaCacheKey(
                 nameMapping, generation.get().getTableUuid(), schemaId, retainedTable.spec().specId(),
@@ -516,7 +524,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 enableMappingVarbinary, enableMappingTimestampTz);
         MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> entry = schemaEntry.get(nameMapping.getCtlId());
         SchemaCacheValue schemaCacheValue = entry
-                .get(key, ignored -> loadSchemaCacheValue(key, retainedTable, authenticator));
+                .get(key, ignored -> loadSchemaCacheValue(key, retainedTable, authenticator, runtimeContext));
         MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables =
                 tableEntry.getIfInitialized(nameMapping.getCtlId());
         if (tables == null) {
@@ -618,7 +626,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                             enableMappingVarbinary, enableMappingTimestampTz);
                     try (TableResourceOwner catalogOwner = new TableResourceOwner(context.promote()::close)) {
                         IcebergTableCacheValue value = execute(context.getAuthenticator(), () -> createLoadedTableValue(
-                                nameMapping, table, ops.getThreadPoolWithPreAuth(), context.getAuthenticator(),
+                                nameMapping, table, ops, ops.getThreadPoolWithPreAuth(), context.getAuthenticator(),
                                 retainedManifestEntry,
                                 context.getMetastoreProperties(), context.getStorageProperties(),
                                 enableMappingVarbinary, enableMappingTimestampTz,
@@ -647,7 +655,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                             enableMappingVarbinary, enableMappingTimestampTz);
                     try (TableResourceOwner catalogOwner = new TableResourceOwner(context.promote()::close)) {
                         IcebergTableCacheValue value = execute(context.getAuthenticator(), () -> createLoadedTableValue(
-                                nameMapping, table, context.getExecutor(), context.getAuthenticator(),
+                                nameMapping, table, ops, context.getExecutor(), context.getAuthenticator(),
                                 retainedManifestEntry,
                                 context.getMetastoreProperties(), context.getStorageProperties(),
                                 enableMappingVarbinary, enableMappingTimestampTz,
@@ -664,6 +672,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private IcebergTableCacheValue createLoadedTableValue(NameMapping nameMapping, Table table,
+            IcebergMetadataOps ops,
             ThreadPoolExecutor planningExecutor, ExecutionAuthenticator authenticator,
             MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> retainedManifestEntry,
             org.apache.doris.datasource.property.metastore.MetastoreProperties metastoreProperties,
@@ -676,7 +685,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         try {
             loaded.bindAuthenticator(authenticator);
             loaded.bindRuntimeContext(new IcebergRuntimeContext(
-                    authenticator, planningExecutor, retainedManifestEntry,
+                    authenticator, ops, planningExecutor, retainedManifestEntry,
                     metastoreProperties, storageProperties));
             loaded.bindSchemaMappingOptions(enableMappingVarbinary, enableMappingTimestampTz);
             MetaCacheEntry<NameMapping, IcebergTableCacheValue> currentEntry =
@@ -876,13 +885,14 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private SchemaCacheValue loadSchemaCacheValue(IcebergSchemaCacheKey key, Table retainedTable,
-            ExecutionAuthenticator authenticator) {
+            ExecutionAuthenticator authenticator, @Nullable IcebergRuntimeContext runtimeContext) {
         ExternalTable dorisTable = findExternalTable(key.getNameMapping(), ENGINE);
         dorisTable.setUpdateTime(System.currentTimeMillis());
         boolean isView = dorisTable instanceof IcebergExternalTable
                 && ((IcebergExternalTable) dorisTable).isView();
         SchemaCacheValue value = (isView
-                ? IcebergUtils.loadSchemaCacheValue(dorisTable, key.getSchemaId(), true, retainedTable)
+                ? loadViewSchemaCacheValue(key, Preconditions.checkNotNull(runtimeContext,
+                        "Retained Iceberg view schema load requires its catalog generation"))
                 : Optional.of(IcebergUtils.buildTableSchemaCacheValue(
                         dorisTable, key.getSchemaId(), retainedTable, authenticator,
                         key.isEnableMappingVarbinary(), key.isEnableMappingTimestampTz())))
@@ -894,6 +904,16 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         // case-insensitive column names must be rejected on this path too.
         value.validateSchema();
         return value;
+    }
+
+    Optional<SchemaCacheValue> loadViewSchemaCacheValue(
+            IcebergSchemaCacheKey key, IcebergRuntimeContext runtimeContext) {
+        return Optional.of(execute(runtimeContext.getAuthenticator(), () -> {
+            View retainedView = runtimeContext.getMetadataOps().loadViewWithinCatalogGeneration(
+                    key.getNameMapping().getRemoteDbName(), key.getNameMapping().getRemoteTblName());
+            return IcebergUtils.buildViewSchemaCacheValue(retainedView, key.getSchemaId(),
+                    key.isEnableMappingVarbinary(), key.isEnableMappingTimestampTz());
+        }));
     }
 
     private void retireTableGeneration(NameMapping nameMapping,

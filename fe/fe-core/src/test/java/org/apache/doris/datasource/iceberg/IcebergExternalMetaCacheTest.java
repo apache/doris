@@ -323,7 +323,8 @@ public class IcebergExternalMetaCacheTest {
                     catalogId, IcebergExternalMetaCache.ENTRY_MANIFEST,
                     IcebergManifestEntryKey.class, ManifestCacheValue.class);
             IcebergRuntimeContext runtimeContext = new IcebergRuntimeContext(
-                    Mockito.mock(ExecutionAuthenticator.class), null, manifests, null, Collections.emptyMap());
+                    Mockito.mock(ExecutionAuthenticator.class), Mockito.mock(IcebergMetadataOps.class),
+                    null, manifests, null, Collections.emptyMap());
             ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
             Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
             ManifestFile manifest = Mockito.mock(ManifestFile.class);
@@ -1495,6 +1496,67 @@ public class IcebergExternalMetaCacheTest {
         } finally {
             cache.close();
             executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testViewSchemaMissKeepsRetainedGenerationAcrossResetBarrier() throws Exception {
+        ExecutorService cacheExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService loadExecutor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(cacheExecutor);
+        try {
+            NameMapping mapping = new NameMapping(1L, "db", "view", "remote_db", "remote_view");
+            IcebergSchemaCacheKey key = new IcebergSchemaCacheKey(
+                    mapping, "generation-one", IcebergUtils.NEWEST_SCHEMA_ID, 0, 0, false, false);
+            Schema schema = new Schema(7, Collections.singletonList(
+                    Types.NestedField.optional(1, "payload", Types.BinaryType.get())));
+            org.apache.iceberg.view.View retainedView = Mockito.mock(org.apache.iceberg.view.View.class);
+            Mockito.when(retainedView.schema()).thenReturn(schema);
+            Mockito.when(retainedView.name()).thenReturn("remote_db.remote_view");
+
+            CountDownLatch viewLoadStarted = new CountDownLatch(1);
+            CountDownLatch finishViewLoad = new CountDownLatch(1);
+            AtomicBoolean resetCompleted = new AtomicBoolean();
+            IcebergMetadataOps retainedOps = Mockito.mock(IcebergMetadataOps.class);
+            Mockito.when(retainedOps.loadViewWithinCatalogGeneration("remote_db", "remote_view"))
+                    .thenAnswer(invocation -> {
+                        viewLoadStarted.countDown();
+                        Assert.assertTrue(finishViewLoad.await(10, TimeUnit.SECONDS));
+                        Assert.assertTrue(resetCompleted.get());
+                        return retainedView;
+                    });
+            AtomicInteger retainedAuthCalls = new AtomicInteger();
+            ExecutionAuthenticator retainedAuthenticator = new ExecutionAuthenticator() {
+                @Override
+                public <T> T execute(Callable<T> task) throws Exception {
+                    retainedAuthCalls.incrementAndGet();
+                    return task.call();
+                }
+            };
+            @SuppressWarnings("unchecked")
+            MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> manifestEntry =
+                    Mockito.mock(MetaCacheEntry.class);
+            IcebergRuntimeContext retainedRuntime = new IcebergRuntimeContext(
+                    retainedAuthenticator, retainedOps, null, manifestEntry, null, Collections.emptyMap());
+
+            java.util.concurrent.Future<SchemaCacheValue> loaded = loadExecutor.submit(
+                    () -> cache.loadViewSchemaCacheValue(key, retainedRuntime).get());
+
+            Assert.assertTrue(viewLoadStarted.await(10, TimeUnit.SECONDS));
+            // Model reset completion before the retained load resumes. The in-flight G1
+            // projection must still finish with the retained G1 view, auth and flags.
+            resetCompleted.set(true);
+            finishViewLoad.countDown();
+            IcebergSchemaCacheValue result = (IcebergSchemaCacheValue) loaded.get(10, TimeUnit.SECONDS);
+
+            Assert.assertEquals(org.apache.doris.catalog.PrimitiveType.STRING,
+                    result.getSchema().get(0).getType().getPrimitiveType());
+            Assert.assertEquals(1, retainedAuthCalls.get());
+            Mockito.verify(retainedOps).loadViewWithinCatalogGeneration("remote_db", "remote_view");
+        } finally {
+            loadExecutor.shutdownNow();
+            cache.close();
+            cacheExecutor.shutdownNow();
         }
     }
 
@@ -3275,7 +3337,8 @@ public class IcebergExternalMetaCacheTest {
                     IcebergManifestEntryKey.class, ManifestCacheValue.class);
             Assert.assertTrue(generationOneEntry.isWeightAccounting());
             IcebergRuntimeContext generationOne = new IcebergRuntimeContext(
-                    Mockito.mock(ExecutionAuthenticator.class), null, generationOneEntry, null,
+                    Mockito.mock(ExecutionAuthenticator.class), Mockito.mock(IcebergMetadataOps.class),
+                    null, generationOneEntry, null,
                     Collections.emptyMap());
 
             cache.invalidateCatalogEntries(catalogId);

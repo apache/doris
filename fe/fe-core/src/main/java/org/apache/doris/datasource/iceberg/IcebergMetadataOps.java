@@ -1867,10 +1867,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public View loadView(String dbName, String tblName) {
         try {
-            return executeCatalogOperation(() -> loadViewInternal(dbName, tblName));
+            return executeCatalogOperation(() -> loadViewWithinCatalogGeneration(dbName, tblName));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load view, error message is:" + e.getMessage(), e);
         }
+    }
+
+    /** Loads a view while the caller retains this ops instance's catalog generation. */
+    View loadViewWithinCatalogGeneration(String dbName, String tblName) {
+        return loadViewInternal(dbName, tblName);
     }
 
     @Override
