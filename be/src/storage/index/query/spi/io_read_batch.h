@@ -28,7 +28,7 @@
 
 namespace doris::index_query {
 
-// Coalesces ranges for one reader and owns their fetched buffers until clear().
+// Coalesces ranges for one reader and owns their fetched buffers.
 // Registration performs no I/O; returned byte views borrow the fetched buffers.
 class IoReadBatch {
 public:
@@ -54,7 +54,7 @@ public:
     // Coalesces and issues one batched read; fills internal buffers.
     Status fetch();
 
-    // Bytes for handle h (valid only after a successful fetch(), until clear()).
+    // Bytes for handle h, valid after a successful fetch until the next fetch or clear.
     std::span<const uint8_t> get(size_t h) const;
 
     IoReader* reader() const { return reader_; }
@@ -63,6 +63,9 @@ public:
     void clear();
 
 private:
+    friend class IoBatch;
+    void release_buffers();
+
     struct Req {
         uint64_t offset;
         uint64_t len;

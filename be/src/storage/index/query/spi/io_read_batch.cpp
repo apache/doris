@@ -131,10 +131,14 @@ Status IoReadBatch::try_add(uint64_t offset, uint64_t len, uint64_t max_bytes, s
     return Status::OK();
 }
 
-void IoReadBatch::clear() {
-    reqs_.clear();
+void IoReadBatch::release_buffers() {
     phys_.clear();
     read_memory_.reset();
+}
+
+void IoReadBatch::clear() {
+    reqs_.clear();
+    release_buffers();
     bounded_ranges_.clear();
     bounded_requests_ = 0;
     bounded_bytes_ = 0;
@@ -145,8 +149,7 @@ Status IoReadBatch::fetch() {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "batch_range_fetcher: null reader");
     }
-    phys_.clear();
-    read_memory_.reset();
+    release_buffers();
     if (reqs_.empty()) {
         return Status::OK();
     }
@@ -188,8 +191,7 @@ Status IoReadBatch::fetch() {
     }
     Status status = reader_->read_batch(segs, &phys_);
     if (!status.ok()) {
-        phys_.clear();
-        read_memory_.reset();
+        release_buffers();
     }
     return status;
 }
