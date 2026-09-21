@@ -28,8 +28,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
@@ -56,7 +54,6 @@ import java.util.Map;
  */
 
 public class AIResource extends Resource {
-    private static final Logger LOG = LogManager.getLogger(AIResource.class);
     @SerializedName(value = "properties")
     private Map<String, String> properties;
     @SerializedName(value = "createdByRoot")
@@ -85,12 +82,6 @@ public class AIResource extends Resource {
         this.properties = Maps.newHashMap(newProperties);
 
         AIProperties.requiredAIProperties(properties);
-
-        boolean needCheck = isNeedCheck(properties);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("AI resource need check validity: {}", needCheck);
-        }
-
         AIProperties.optionalAIProperties(this.properties);
     }
 
@@ -123,27 +114,8 @@ public class AIResource extends Resource {
                         || !Strings.isNullOrEmpty(properties.get(apiKeyField)));
     }
 
-    private boolean isNeedCheck(Map<String, String> newProperties) {
-        boolean needCheck = !this.properties.containsKey(AIProperties.VALIDITY_CHECK)
-                || Boolean.parseBoolean(this.properties.get(AIProperties.VALIDITY_CHECK));
-
-        if (newProperties != null && newProperties.containsKey(AIProperties.VALIDITY_CHECK)) {
-            needCheck = Boolean.parseBoolean(newProperties.get(AIProperties.VALIDITY_CHECK));
-        }
-
-        if ("LOCAL".equalsIgnoreCase(this.properties.getOrDefault(AIProperties.PROVIDER_TYPE, ""))) {
-            needCheck = false;
-        }
-        return needCheck;
-    }
-
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        boolean needCheck = isNeedCheck(properties);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("AI resource need check validity: {}", needCheck);
-        }
-
         Map<String, String> changedProperties = new HashMap<>(this.properties);
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(changedProperties, kv.getKey(), kv.getValue());
@@ -156,9 +128,7 @@ public class AIResource extends Resource {
                 changedProperties.remove(kv.getKey());
             }
         }
-        if (needCheck) {
-            AIProperties.requiredAIProperties(changedProperties);
-        }
+        AIProperties.requiredAIProperties(changedProperties);
 
         // modify properties
         writeLock();

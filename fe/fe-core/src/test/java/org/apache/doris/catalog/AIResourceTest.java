@@ -723,6 +723,43 @@ public class AIResourceTest {
     }
 
     @Test
+    public void testModifyPropertiesNormalizesEmbedProviderForLocalResource() throws Exception {
+        AIResource aiResource = new AIResource("local-resource");
+        aiResource.setProperties(ImmutableMap.of(
+                AIProperties.ENDPOINT, "http://127.0.0.1:8000/v1/chat/completions",
+                AIProperties.PROVIDER_TYPE, "local",
+                AIProperties.MODEL_NAME, "local-model",
+                AIProperties.DIMENSIONS, "8"));
+
+        aiResource.modifyProperties(ImmutableMap.of(
+                AIProperties.EMBED_ENDPOINT, "http://127.0.0.1:8000/v1/embeddings",
+                AIProperties.EMBED_PROVIDER_TYPE, "openai",
+                AIProperties.EMBED_MODEL_NAME, "text-embedding-3-small",
+                AIProperties.EMBED_API_KEY, "embed-api-key"));
+
+        Assertions.assertEquals("OPENAI", aiResource.getProperty(AIProperties.EMBED_PROVIDER_TYPE));
+        Assertions.assertEquals("OPENAI", aiResource.toThrift().getEmbedProviderType());
+    }
+
+    @Test
+    public void testModifyPropertiesNormalizesMultimodalProviderWhenValidityCheckDisabled()
+            throws Exception {
+        AIResource aiResource = new AIResource("validity-check-disabled-resource");
+        aiProperties.put(AIProperties.DIMENSIONS, "8");
+        aiResource.setProperties(ImmutableMap.copyOf(aiProperties));
+
+        aiResource.modifyProperties(ImmutableMap.of(
+                AIProperties.MULTIMODAL_EMBED_ENDPOINT, "https://example.com/multimodal-embeddings",
+                AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE, "qwen",
+                AIProperties.MULTIMODAL_EMBED_MODEL_NAME, "qwen3-vl-embedding",
+                AIProperties.MULTIMODAL_EMBED_API_KEY, "multimodal-api-key"));
+
+        Assertions.assertEquals("QWEN",
+                aiResource.getProperty(AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE));
+        Assertions.assertEquals("QWEN", aiResource.toThrift().getEmbedMmProviderType());
+    }
+
+    @Test
     public void testDifferentProviders() throws DdlException {
         // 1. OpenAI
         Map<String, String> openaiProps = new HashMap<>();
