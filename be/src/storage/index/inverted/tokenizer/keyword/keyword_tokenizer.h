@@ -43,6 +43,10 @@ public:
                 return nullptr;
             }
             int32_t length = std::min(_char_length, MAX_TOKEN_LENGTH_LIMIT);
+            while (length > 0 && length < _char_length &&
+                   U8_IS_TRAIL(static_cast<uint8_t>(_char_buffer[length]))) {
+                --length;
+            }
             std::string_view term(_char_buffer, length);
             set(token, term);
             set_source_byte_offsets(term, 0);

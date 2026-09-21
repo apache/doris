@@ -23,6 +23,7 @@ import org.apache.doris.indexpolicy.IndexPolicy;
 import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 
 import com.google.common.base.Strings;
+import com.ibm.icu.text.UnicodeSet;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayDeque;
@@ -282,6 +283,7 @@ public final class AnalyzerIdentityBuilder {
                     "keep_none_chinese_in_joined_full_pinyin", "remove_duplicated_term",
                     "fixed_pinyin_offset", "keep_separate_chinese");
             removeIntegerDefault(properties, "limit_first_letter_length", 16);
+            canonicalizePinyinDependencies(properties);
             return;
         }
 
@@ -326,7 +328,7 @@ public final class AnalyzerIdentityBuilder {
                 removeIntegerDefault(properties, "buffer_size", 256);
                 break;
             case "basic":
-                removeStringDefault(properties, "extra_chars", "");
+                canonicalizeBasicExtraChars(properties);
                 break;
             default:
                 break;
@@ -378,10 +380,87 @@ public final class AnalyzerIdentityBuilder {
                 properties.put("name", normalizedName);
             }
         }
-        removeStringDefault(properties, "unicode_set_filter", "");
+        String filter = properties.get("unicode_set_filter");
+        if (filter != null) {
+            try {
+                UnicodeSet unicodeSet = new UnicodeSet(filter);
+                if (unicodeSet.isEmpty()) {
+                    properties.remove("unicode_set_filter");
+                } else {
+                    properties.put("unicode_set_filter", unicodeSet.toPattern(false));
+                }
+            } catch (IllegalArgumentException e) {
+                // Invalid policies keep their original identity.
+            }
+        }
         if (hasMode) {
             removeStringDefault(properties, "mode", "compose");
         }
+    }
+
+    private static void canonicalizeBasicExtraChars(TreeMap<String, String> properties) {
+        String extraChars = properties.get("extra_chars");
+        if (extraChars == null) {
+            return;
+        }
+        boolean[] present = new boolean[128];
+        for (int i = 0; i < extraChars.length(); ++i) {
+            char value = extraChars.charAt(i);
+            if (value >= present.length) {
+                return;
+            }
+            present[value] = true;
+        }
+        StringBuilder canonical = new StringBuilder();
+        for (int i = 0; i < present.length; ++i) {
+            if (present[i]) {
+                canonical.append((char) i);
+            }
+        }
+        if (canonical.length() == 0) {
+            properties.remove("extra_chars");
+        } else {
+            properties.put("extra_chars", canonical.toString());
+        }
+    }
+
+    private static void canonicalizePinyinDependencies(TreeMap<String, String> properties) {
+        Boolean keepFirstLetter = effectiveBoolean(properties, "keep_first_letter", true);
+        if (Boolean.FALSE.equals(keepFirstLetter)) {
+            properties.remove("limit_first_letter_length");
+            properties.remove("keep_none_chinese_in_first_letter");
+        }
+
+        Boolean keepNoneChinese = effectiveBoolean(properties, "keep_none_chinese", true);
+        Boolean keepNoneChineseTogether = effectiveBoolean(properties, "keep_none_chinese_together", true);
+        Boolean noneChinesePinyinTokenize = effectiveBoolean(properties, "none_chinese_pinyin_tokenize", true);
+        if (Boolean.FALSE.equals(keepNoneChinese)) {
+            properties.remove("keep_none_chinese_together");
+            properties.remove("none_chinese_pinyin_tokenize");
+        }
+
+        Boolean ignorePinyinOffset = effectiveBoolean(properties, "ignore_pinyin_offset", true);
+        if (Boolean.TRUE.equals(ignorePinyinOffset)
+                || Boolean.FALSE.equals(keepNoneChinese)
+                || Boolean.FALSE.equals(keepNoneChineseTogether)
+                || Boolean.FALSE.equals(noneChinesePinyinTokenize)) {
+            properties.remove("fixed_pinyin_offset");
+        }
+    }
+
+    private static Boolean effectiveBoolean(
+            TreeMap<String, String> properties, String key, boolean defaultValue) {
+        String value = properties.get(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        if ("true".equalsIgnoreCase(value)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value)) {
+            return false;
+        }
+        return null;
     }
 
     private static void removeStringDefault(

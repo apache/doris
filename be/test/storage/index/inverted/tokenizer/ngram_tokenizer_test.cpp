@@ -283,4 +283,34 @@ TEST(NGramTokenizerTest, WhitespaceTokenization) {
     ASSERT_EQ(tokens, expected);
 }
 
+TEST(NGramTokenizerTest, RejectsMalformedUtf8AndCanBeReset) {
+    NGramTokenizerFactory factory;
+    std::unordered_map<std::string, std::string> args;
+    args["min_gram"] = "1";
+    args["max_gram"] = "1";
+    factory.initialize(Settings(args));
+    auto tokenizer = factory.create();
+
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    const std::string leading_invalid = std::string(1, static_cast<char>(0xFF)) + "ab";
+    reader->init(leading_invalid.data(), static_cast<int32_t>(leading_invalid.size()), false);
+    tokenizer->set_reader(reader);
+    EXPECT_THROW(tokenizer->reset(), Exception);
+
+    const std::string interior_invalid = std::string("a") + static_cast<char>(0xFF) + "b";
+    reader->init(interior_invalid.data(), static_cast<int32_t>(interior_invalid.size()), false);
+    tokenizer->set_reader(reader);
+    EXPECT_THROW(tokenizer->reset(), Exception);
+
+    const std::string valid = "ab";
+    reader->init(valid.data(), static_cast<int32_t>(valid.size()), false);
+    tokenizer->set_reader(reader);
+    ASSERT_NO_THROW(tokenizer->reset());
+    Token token;
+    ASSERT_NE(tokenizer->next(&token), nullptr);
+    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "a");
+    EXPECT_EQ(token.startOffset(), 0);
+    EXPECT_EQ(token.endOffset(), 1);
+}
+
 } // namespace doris::segment_v2

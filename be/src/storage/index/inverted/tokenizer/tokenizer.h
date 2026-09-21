@@ -19,7 +19,9 @@
 
 #include <unicode/utf8.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -105,7 +107,38 @@ protected:
             return;
         }
         if (static_cast<size_t>(term_runes + 1) == source_offsets.size()) {
-            _source_byte_offsets = std::move(source_offsets);
+            const bool strictly_increasing =
+                    std::ranges::adjacent_find(source_offsets, std::greater_equal<>()) ==
+                    source_offsets.end();
+            if (strictly_increasing) {
+                _source_byte_offsets = std::move(source_offsets);
+                return;
+            }
+
+            _source_byte_offsets.resize(source_offsets.size());
+            _source_byte_end_offsets.resize(term_runes);
+            for (int32_t i = 0; i < term_runes; ++i) {
+                int32_t start = source_offsets[i];
+                int32_t end = source_offsets[i + 1];
+                if (start == end) {
+                    int32_t previous = i;
+                    while (previous > 0 && source_offsets[previous] == start) {
+                        --previous;
+                    }
+                    if (source_offsets[previous] != start) {
+                        start = source_offsets[previous];
+                    } else {
+                        int32_t next = i + 1;
+                        while (next < term_runes && source_offsets[next] == end) {
+                            ++next;
+                        }
+                        end = source_offsets[next];
+                    }
+                }
+                _source_byte_offsets[i] = start;
+                _source_byte_end_offsets[i] = end;
+            }
+            _source_byte_offsets.back() = source_offsets.back();
             return;
         }
 

@@ -30,6 +30,20 @@
 
 namespace doris::segment_v2::inverted_index {
 
+namespace {
+
+constexpr size_t PINYIN_SCRATCH_HIGH_WATER_BYTES = 64 * 1024;
+
+template <typename Container>
+void release_oversized_scratch(Container& container) {
+    if (container.capacity() * sizeof(typename Container::value_type) >
+        PINYIN_SCRATCH_HIGH_WATER_BYTES) {
+        Container().swap(container);
+    }
+}
+
+} // namespace
+
 PinyinFilter::PinyinFilter(const TokenStreamPtr& in, std::shared_ptr<PinyinConfig> config)
         : DorisTokenFilter(in),
           config_(std::move(config)),
@@ -118,11 +132,12 @@ void PinyinFilter::reset() {
     done_ = true;
     resetVariables();
     has_current_token_ = false;
-    std::vector<RuneInfo>().swap(current_runes_);
-    std::vector<int32_t>().swap(current_source_byte_offsets_);
-    std::vector<int32_t>().swap(current_source_byte_end_offsets_);
-    std::string().swap(current_token_text_);
-    std::string().swap(current_source_);
+    current_token_text_.clear();
+    release_oversized_scratch(current_runes_);
+    release_oversized_scratch(current_source_byte_offsets_);
+    release_oversized_scratch(current_source_byte_end_offsets_);
+    release_oversized_scratch(current_token_text_);
+    release_oversized_scratch(current_source_);
 }
 
 void PinyinFilter::resetVariables() {
@@ -254,9 +269,6 @@ bool PinyinFilter::prepareCurrentSource(std::vector<UChar32>& source_codepoints)
 
     if (config_->ignorePinyinOffset) {
         convertToCodepoints(current_source_, source_codepoints);
-        current_start_offset_ += static_cast<int32_t>(source_start);
-        current_end_offset_ =
-                current_start_offset_ + static_cast<int32_t>(source_end - source_start);
         return !source_codepoints.empty();
     }
 

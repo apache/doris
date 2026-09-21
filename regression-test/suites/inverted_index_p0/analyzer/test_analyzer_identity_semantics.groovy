@@ -23,6 +23,8 @@ suite("test_analyzer_identity_semantics", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_identity_max_word_alter"
     sql "DROP TABLE IF EXISTS test_identity_char_replace_create"
     sql "DROP TABLE IF EXISTS test_identity_char_replace_alter"
+    sql "DROP TABLE IF EXISTS test_identity_basic_create"
+    sql "DROP TABLE IF EXISTS test_identity_basic_alter"
     sql "DROP TABLE IF EXISTS test_identity_noop_create"
     sql "DROP TABLE IF EXISTS test_identity_noop_alter"
     sql "DROP TABLE IF EXISTS test_identity_fold_create"
@@ -37,8 +39,15 @@ suite("test_analyzer_identity_semantics", "nonConcurrent") {
                             "test_identity_noop", "test_identity_plain",
                             "test_identity_plain_ik_smart", "test_identity_filtered_ik_smart",
                             "test_identity_plain_ik_max_word", "test_identity_filtered_ik_max_word",
-                            "test_identity_fold_only", "test_identity_lower_then_fold"]) {
+                            "test_identity_fold_only", "test_identity_lower_then_fold",
+                            "test_identity_basic_ordered", "test_identity_basic_reordered",
+                            "test_identity_basic_duplicates"]) {
         try_sql "DROP INVERTED INDEX ANALYZER IF EXISTS ${analyzer}"
+    }
+    for (String tokenizer : ["test_identity_basic_ordered_tokenizer",
+                             "test_identity_basic_reordered_tokenizer",
+                             "test_identity_basic_duplicates_tokenizer"]) {
+        try_sql "DROP INVERTED INDEX TOKENIZER IF EXISTS ${tokenizer}"
     }
     for (String filter : ["test_identity_cf_ab", "test_identity_cf_ba",
                          "test_identity_cf_duplicates", "test_identity_cf_noop", "test_identity_cf_lower_a",
@@ -130,6 +139,48 @@ suite("test_analyzer_identity_semantics", "nonConcurrent") {
             PROPERTIES("parser"="ik", "parser_mode"="ik_max_word", "lower_case"="false")
         """
         exception "already exists"
+    }
+
+    for (def config : [["ordered", "+-"], ["reordered", "-+"], ["duplicates", "+-+-+"]]) {
+        sql """
+            CREATE INVERTED INDEX TOKENIZER test_identity_basic_${config[0]}_tokenizer
+            PROPERTIES("type"="basic", "extra_chars"="${config[1]}")
+        """
+        sql """
+            CREATE INVERTED INDEX ANALYZER test_identity_basic_${config[0]}
+            PROPERTIES("tokenizer"="test_identity_basic_${config[0]}_tokenizer")
+        """
+    }
+    sql """
+        CREATE TABLE test_identity_basic_alter (
+            id INT, content STRING,
+            INDEX idx_ordered (content) USING INVERTED
+                PROPERTIES("analyzer"="test_identity_basic_ordered")
+        ) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_allocation"="tag.location.default: 1")
+    """
+    for (String analyzer : ["test_identity_basic_reordered", "test_identity_basic_duplicates"]) {
+        test {
+            sql """
+                CREATE TABLE test_identity_basic_create (
+                    id INT, content STRING,
+                    INDEX idx_ordered (content) USING INVERTED
+                        PROPERTIES("analyzer"="test_identity_basic_ordered"),
+                    INDEX idx_equivalent (content) USING INVERTED PROPERTIES("analyzer"="${analyzer}")
+                ) DUPLICATE KEY(id)
+                DISTRIBUTED BY HASH(id) BUCKETS 1
+                PROPERTIES("replication_allocation"="tag.location.default: 1")
+            """
+            exception "cannot have multiple inverted indexes"
+        }
+        test {
+            sql """
+                ALTER TABLE test_identity_basic_alter ADD INDEX idx_equivalent (content) USING INVERTED
+                PROPERTIES("analyzer"="${analyzer}")
+            """
+            exception "already exists"
+        }
     }
 
     for (def config : [["ab", "ab"], ["ba", "ba"], ["duplicates", "aabx"], ["noop", "x"]]) {

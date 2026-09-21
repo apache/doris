@@ -471,6 +471,97 @@ public class AnalyzerIdentityBuilderTest {
     }
 
     @Test
+    public void testPinyinInactiveSettingsDoNotChangeIdentity() throws Exception {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(policyMgr.getPolicyByName("pinyin_default_offsets")).thenReturn(new IndexPolicy(
+                1, "pinyin_default_offsets", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin")));
+        Mockito.when(policyMgr.getPolicyByName("pinyin_fixed_ignored")).thenReturn(new IndexPolicy(
+                2, "pinyin_fixed_ignored", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "fixed_pinyin_offset", "true")));
+        Mockito.when(policyMgr.getPolicyByName("pinyin_first_letter_disabled")).thenReturn(new IndexPolicy(
+                3, "pinyin_first_letter_disabled", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_first_letter", "false")));
+        Mockito.when(policyMgr.getPolicyByName("pinyin_first_letter_inactive_settings"))
+                .thenReturn(new IndexPolicy(
+                        4, "pinyin_first_letter_inactive_settings", IndexPolicyTypeEnum.TOKEN_FILTER,
+                        Map.of("type", "pinyin", "keep_first_letter", "false",
+                                "limit_first_letter_length", "32",
+                                "keep_none_chinese_in_first_letter", "false")));
+        Mockito.when(policyMgr.getPolicyByName("pinyin_none_chinese_disabled")).thenReturn(new IndexPolicy(
+                5, "pinyin_none_chinese_disabled", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_none_chinese", "false")));
+        Mockito.when(policyMgr.getPolicyByName("pinyin_none_chinese_inactive_settings"))
+                .thenReturn(new IndexPolicy(
+                        6, "pinyin_none_chinese_inactive_settings", IndexPolicyTypeEnum.TOKEN_FILTER,
+                        Map.of("type", "pinyin", "keep_none_chinese", "false",
+                                "keep_none_chinese_together", "false",
+                                "none_chinese_pinyin_tokenize", "false",
+                                "fixed_pinyin_offset", "true")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
+                "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);
+        resolve.setAccessible(true);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertEquals(
+                    resolve.invoke(null, "pinyin_default_offsets", IndexPolicyTypeEnum.TOKEN_FILTER),
+                    resolve.invoke(null, "pinyin_fixed_ignored", IndexPolicyTypeEnum.TOKEN_FILTER));
+            Assertions.assertEquals(
+                    resolve.invoke(null, "pinyin_first_letter_disabled", IndexPolicyTypeEnum.TOKEN_FILTER),
+                    resolve.invoke(null, "pinyin_first_letter_inactive_settings",
+                            IndexPolicyTypeEnum.TOKEN_FILTER));
+            Assertions.assertEquals(
+                    resolve.invoke(null, "pinyin_none_chinese_disabled", IndexPolicyTypeEnum.TOKEN_FILTER),
+                    resolve.invoke(null, "pinyin_none_chinese_inactive_settings",
+                            IndexPolicyTypeEnum.TOKEN_FILTER));
+        }
+    }
+
+    @Test
+    public void testSetValuedComponentSettingsAreCanonicalized() throws Exception {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(policyMgr.getPolicyByName("basic_ab")).thenReturn(new IndexPolicy(
+                1, "basic_ab", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "basic", "extra_chars", "ab")));
+        Mockito.when(policyMgr.getPolicyByName("basic_baba")).thenReturn(new IndexPolicy(
+                2, "basic_baba", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "basic", "extra_chars", "baba")));
+        Mockito.when(policyMgr.getPolicyByName("icu_unfiltered")).thenReturn(new IndexPolicy(
+                3, "icu_unfiltered", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer")));
+        Mockito.when(policyMgr.getPolicyByName("icu_empty_set")).thenReturn(new IndexPolicy(
+                4, "icu_empty_set", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[]")));
+        Mockito.when(policyMgr.getPolicyByName("icu_ab")).thenReturn(new IndexPolicy(
+                5, "icu_ab", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[ab]")));
+        Mockito.when(policyMgr.getPolicyByName("icu_ba")).thenReturn(new IndexPolicy(
+                6, "icu_ba", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[ba]")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
+                "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);
+        resolve.setAccessible(true);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertEquals(
+                    resolve.invoke(null, "basic_ab", IndexPolicyTypeEnum.TOKENIZER),
+                    resolve.invoke(null, "basic_baba", IndexPolicyTypeEnum.TOKENIZER));
+            Assertions.assertEquals(
+                    resolve.invoke(null, "icu_unfiltered", IndexPolicyTypeEnum.CHAR_FILTER),
+                    resolve.invoke(null, "icu_empty_set", IndexPolicyTypeEnum.CHAR_FILTER));
+            Assertions.assertEquals(
+                    resolve.invoke(null, "icu_ab", IndexPolicyTypeEnum.CHAR_FILTER),
+                    resolve.invoke(null, "icu_ba", IndexPolicyTypeEnum.CHAR_FILTER));
+        }
+    }
+
+    @Test
     public void testExplicitComponentDefaultsMatchBuiltinIdentity() throws Exception {
         IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
         Mockito.when(policyMgr.getPolicyByName("asciifolding_defaults")).thenReturn(new IndexPolicy(

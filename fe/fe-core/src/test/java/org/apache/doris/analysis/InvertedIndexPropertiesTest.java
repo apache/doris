@@ -79,6 +79,59 @@ public class InvertedIndexPropertiesTest {
     }
 
     @Test
+    public void testCreateTableRejectsEquivalentCanonicalComponentSettings() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(1, "basic_ab", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "basic", "extra_chars", "ab")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(2, "basic_baba", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "basic", "extra_chars", "baba")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(3, "basic_ab_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic_ab")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(4, "basic_baba_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "basic_baba")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(5, "pinyin_default", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(6, "pinyin_fixed", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "fixed_pinyin_offset", "true")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(7, "pinyin_default_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "pinyin_default")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(8, "pinyin_fixed_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "pinyin_fixed")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(9, "icu_default", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(10, "icu_empty", IndexPolicyTypeEnum.CHAR_FILTER,
+                Map.of("type", "icu_normalizer", "unicode_set_filter", "[]")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(11, "icu_default_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "standard", "char_filter", "icu_default")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(12, "icu_empty_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "standard", "char_filter", "icu_empty")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertAll(
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_basic_ab", "basic_ab_analyzer"),
+                                    invertedIndexDefinition("idx_basic_baba", "basic_baba_analyzer")))),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_pinyin_default", "pinyin_default_analyzer"),
+                                    invertedIndexDefinition("idx_pinyin_fixed", "pinyin_fixed_analyzer")))),
+                    () -> Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                            StringType.INSTANCE, List.of(
+                                    invertedIndexDefinition("idx_icu_default", "icu_default_analyzer"),
+                                    invertedIndexDefinition("idx_icu_empty", "icu_empty_analyzer")))));
+        }
+    }
+
+    private static IndexDefinition invertedIndexDefinition(String name, String analyzer) {
+        return new IndexDefinition(name, false, List.of("content"), "INVERTED",
+                Map.of("analyzer", analyzer), "");
+    }
+
+    @Test
     public void testRejectsAmbiguousOuterCharFiltersForSameAnalyzer() {
         IndexDefinition replaceA = new IndexDefinition("idx_replace_a", false, List.of("content"),
                 "INVERTED", Map.of("analyzer", "standard", "char_filter_type", "char_replace",

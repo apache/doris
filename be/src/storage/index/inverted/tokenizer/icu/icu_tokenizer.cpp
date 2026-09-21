@@ -18,9 +18,13 @@
 #include "storage/index/inverted/tokenizer/icu/icu_tokenizer.h"
 
 #include <unicode/unistr.h>
+#include <unicode/utf16.h>
 
 #include <memory>
 #include <string>
+
+#include "common/exception.h"
+#include "util/utf8_check.h"
 
 namespace doris::segment_v2::inverted_index {
 
@@ -54,6 +58,10 @@ Token* ICUTokenizer::next(Token* token) {
 
     utf8Str_.clear();
     int32_t length = std::min(end - start, LUCENE_MAX_WORD_LEN);
+    if (length < end - start && length > 0 && U16_IS_LEAD(buffer_.charAt(start + length - 1)) &&
+        U16_IS_TRAIL(buffer_.charAt(start + length))) {
+        --length;
+    }
     auto subString = buffer_.tempSubString(start, length);
     sourceUtf8Str_.clear();
     subString.toUTF8String(sourceUtf8Str_);
@@ -79,6 +87,9 @@ void ICUTokenizer::reset() {
     DorisTokenizer::reset();
     const char* buf = nullptr;
     int32_t len = _in->read((const void**)&buf, 0, static_cast<int32_t>(_in->size()));
+    if (len > 0 && !validate_utf8(buf, len)) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "ICU tokenizer input is not valid UTF-8");
+    }
     buffer_ = icu::UnicodeString::fromUTF8(icu::StringPiece(buf, len));
     if (!buffer_.isEmpty() && buffer_.isBogus()) {
         _CLTHROWT(CL_ERR_Runtime, "Failed to convert UTF-8 string to UnicodeString.");

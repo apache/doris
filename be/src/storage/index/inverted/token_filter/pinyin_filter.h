@@ -44,6 +44,11 @@ public:
 
 #ifdef BE_TEST
     size_t current_runes_capacity_for_test() const { return current_runes_.capacity(); }
+    size_t current_source_offsets_capacity_for_test() const {
+        return current_source_byte_offsets_.capacity();
+    }
+    size_t current_token_capacity_for_test() const { return current_token_text_.capacity(); }
+    size_t current_source_capacity_for_test() const { return current_source_.capacity(); }
 #endif
 
 private:
