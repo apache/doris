@@ -39,6 +39,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/value/vdatetime_value.h"
@@ -76,6 +77,7 @@
 #endif
 
 namespace doris {
+
 namespace {
 
 Field int_field(int32_t value) {
@@ -1131,6 +1133,21 @@ TEST(ExprZonemapFilterTest, VInPredicateDictionaryAndBloomUseMaterializedValues)
     auto matching_bloom_ctx = make_bloom_filter_context(matching_bloom_filter.get(), type);
     EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
               in_predicate->evaluate_bloom_filter(matching_bloom_ctx));
+}
+
+TEST(ExprZonemapFilterTest, BinaryInDoesNotMaterializeStoragePredicates) {
+    auto type = std::make_shared<DataTypeVarbinary>();
+    for (bool negative : {false, true}) {
+        auto predicate = std::make_shared<VInPredicate>(make_in_predicate_node(negative, 2));
+        predicate->add_child(make_slot(0, type));
+        auto field = Field::create_field<TYPE_VARBINARY>(StringView("\0\xff", 2));
+        predicate->add_child(
+                std::make_shared<VLiteral>(create_texpr_node_from(field, TYPE_VARBINARY, 0, 0)));
+        ASSERT_TRUE(predicate->_materialize_for_zonemap_filter(nullptr).ok());
+        EXPECT_FALSE(predicate->can_evaluate_zonemap_filter());
+        EXPECT_FALSE(predicate->can_evaluate_dictionary_filter());
+        EXPECT_FALSE(predicate->can_evaluate_bloom_filter());
+    }
 }
 
 TEST(ExprZonemapFilterTest, VInPredicateMaterializesNestedBloomValuesDuringOpen) {

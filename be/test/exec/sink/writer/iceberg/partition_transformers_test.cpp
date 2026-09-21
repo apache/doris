@@ -22,6 +22,8 @@
 #include <limits>
 
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_varbinary.h"
+#include "format/table/iceberg/partition_spec.h"
 
 namespace doris {
 
@@ -30,6 +32,18 @@ public:
     PartitionTransformersTest() = default;
     virtual ~PartitionTransformersTest() = default;
 };
+
+TEST_F(PartitionTransformersTest, binary_computation_transforms_are_not_supported) {
+    const auto type = std::make_shared<DataTypeVarbinary>();
+    for (const auto& source_type : DataTypes {type, make_nullable(type)}) {
+        for (const auto& transform : {"truncate[1]", "bucket[16]"}) {
+            EXPECT_THROW(
+                    PartitionColumnTransforms::create(
+                            iceberg::PartitionField(1, 1000, "binary_key", transform), source_type),
+                    Exception);
+        }
+    }
+}
 
 TEST_F(PartitionTransformersTest, test_integer_truncate_transform) {
     const std::vector<int32_t> values({1, -1});

@@ -102,6 +102,13 @@ inline HashKeyType get_hash_key_type_fixed(const std::vector<DataTypePtr>& data_
 }
 
 inline HashKeyType get_hash_key_type(const std::vector<DataTypePtr>& data_types) {
+    // Reject binary before the multi-key serialization fallback can enable joins or grouping.
+    for (const auto& type : data_types) {
+        if (type->get_primitive_type() == TYPE_VARBINARY) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                            "VARBINARY hash keys are not supported");
+        }
+    }
     if (data_types.size() > 1) {
         return get_hash_key_type_fixed(data_types);
     }
