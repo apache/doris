@@ -339,6 +339,46 @@ TEST_F(CacheTest, UpdateChargeEvictsIdleEntriesWhenEntryStillFits) {
     EXPECT_EQ(cache.get_element_count(), 2);
 }
 
+TEST_F(CacheTest, UpdateChargeAtElementLimitOnlyEvictsAboveByteCapacity) {
+    for (bool check_timestamp : {false, true}) {
+        LRUCache cache(LRUCacheType::SIZE, true);
+        cache.set_capacity(1024);
+        cache.set_element_count_capacity(2);
+        cache.set_cache_value_time_extractor([](const void* value) -> int64_t {
+            return DecodeValue(static_cast<const CacheValue*>(value)->value);
+        });
+        cache.set_cache_value_check_timestamp(check_timestamp);
+        CacheKey idle("idle"), growing("growing");
+        cache.release(cache.insert(idle, 1, new CacheValue(EncodeValue(1)), 100));
+        auto* handle = cache.insert(growing, 2, new CacheValue(EncodeValue(2)), 100);
+        ASSERT_EQ(cache.get_element_count(), 2);
+        const auto usage = cache.get_usage();
+
+        cache.update_charge(handle, 200);
+        EXPECT_EQ(cache.get_usage(), usage + 100);
+        EXPECT_EQ(cache.get_element_count(), 2);
+        auto* retained = cache.lookup(idle, 1);
+        ASSERT_NE(retained, nullptr);
+        cache.release(retained);
+
+        // Exactly filling byte capacity must also preserve both entries.
+        const auto full_charge = 100 + cache.get_capacity() - usage;
+        cache.update_charge(handle, full_charge);
+        EXPECT_EQ(cache.get_usage(), cache.get_capacity());
+        EXPECT_EQ(cache.get_element_count(), 2);
+
+        // Crossing byte capacity still evicts the idle entry normally.
+        cache.update_charge(handle, full_charge + 1);
+        EXPECT_EQ(cache.lookup(idle, 1), nullptr);
+        EXPECT_EQ(cache.get_element_count(), 1);
+        EXPECT_LE(cache.get_usage(), cache.get_capacity());
+        cache.release(handle);
+        auto* growing_handle = cache.lookup(growing, 2);
+        ASSERT_NE(growing_handle, nullptr);
+        cache.release(growing_handle);
+    }
+}
+
 TEST_F(CacheTest, UpdateChargeOversizedEntryPreservesOtherEntries) {
     for (bool check_timestamp : {false, true}) {
         LRUCache cache(LRUCacheType::SIZE, true);

@@ -358,10 +358,15 @@ void LRUCache::update_charge(Cache::Handle* handle, size_t charge) {
             _unref(e);
             _usage -= e->total_size;
         }
-        if (_cache_value_check_timestamp) {
-            _evict_from_lru_with_time(0, &to_remove_head);
-        } else {
-            _evict_from_lru(0, &to_remove_head);
+        // Growing an existing entry does not need another element slot. The
+        // insertion eviction helpers also check count >= limit, so only call
+        // them when the updated usage exceeds the byte capacity.
+        if (_usage > _capacity) {
+            if (_cache_value_check_timestamp) {
+                _evict_from_lru_with_time(0, &to_remove_head);
+            } else {
+                _evict_from_lru(0, &to_remove_head);
+            }
         }
     }
     // Cache values can release other caches; never destroy them under the shard lock.
