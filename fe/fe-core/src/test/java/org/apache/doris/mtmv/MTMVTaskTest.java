@@ -72,6 +72,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 import org.junit.jupiter.api.AfterEach;
@@ -321,6 +322,66 @@ public class MTMVTaskTest {
         // No rewrite reads the grandparent's stream, so its absence is no reason to rebuild the MV.
         Assertions.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), toNames(attempts));
         Assertions.assertNull(Deencapsulation.getField(task, "ivmFallbackReason"));
+    }
+
+    @Test
+    public void testPartitionRefreshChecksOnlyTheStreamsItsPartitionsRead() throws Exception {
+        // t1 UNION ALL t2, both PCT tables of the MV, each backing one of its partitions. Refreshing the
+        // t1-backed partition reads t1's stream and leaves t2 to an ordinary scan, so t2's stream is not
+        // part of this refresh and its absence must not send it to COMPLETE.
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getId()).thenReturn(7L);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        OlapTable t1 = mockBaseTable("t1");
+        OlapTable t2 = mockBaseTable("t2");
+        BaseTableInfo t1Info = Mockito.mock(BaseTableInfo.class);
+        BaseTableInfo t2Info = Mockito.mock(BaseTableInfo.class);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(t1Info)).thenReturn(t1);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(t2Info)).thenReturn(t2);
+        OlapTableStream t1Stream = usableStreamFor(t1);
+        Database mvDb = Mockito.mock(Database.class);
+        Mockito.when(mvDb.getTableNullable(IvmUtil.streamName(7L, t1.getFullQualifiers())))
+                .thenReturn(t1Stream);
+        Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
+        Mockito.when(mtmvPartitionInfo.getPctInfos()).thenReturn(Lists.newArrayList(
+                new BaseColInfo("dt", t1Info), new BaseColInfo("dt", t2Info)));
+
+        // The partition this refresh plans reads t1, and t2 keeps its place in the plan as a plain scan.
+        Map<MTMVRelatedTableIf, Set<String>> mapping = Maps.newHashMap();
+        mapping.put(t1, Sets.newHashSet("p1"));
+        MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+        Mockito.when(context.getByPartitionName(Mockito.anyString())).thenReturn(mapping);
+
+        MTMVRelation relation = new MTMVRelation(Sets.newHashSet(t1Info, t2Info), Sets.newHashSet(t1Info, t2Info),
+                Sets.newHashSet(t1Info, t2Info), Sets.newHashSet(), Sets.newHashSet());
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+        Assertions.assertFalse((Boolean) Deencapsulation.invoke(task, "hasUnusableIvmStreamForPartitions",
+                context, Lists.newArrayList("p_t1")));
+
+        // Once a refreshed partition's mapping names t2, its stream is read, and its absence decides.
+        mapping.put(t2, Sets.newHashSet("p2"));
+        Assertions.assertTrue((Boolean) Deencapsulation.invoke(task, "hasUnusableIvmStreamForPartitions",
+                context, Lists.newArrayList("p_t1")));
+    }
+
+    private OlapTable mockBaseTable(String name) {
+        OlapTable baseTable = Mockito.mock(OlapTable.class);
+        Mockito.when(baseTable.getName()).thenReturn(name);
+        Mockito.when(baseTable.getFullQualifiers()).thenReturn(Lists.newArrayList("internal", "db", name));
+        return baseTable;
+    }
+
+    /** A stream that {@code IvmUtil.isIvmStreamUsable} accepts for the given base table. */
+    private OlapTableStream usableStreamFor(OlapTable baseTable) {
+        List<String> qualifiers = baseTable.getFullQualifiers();
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
+        Mockito.when(stream.getBaseTableFullQualifiers()).thenReturn(qualifiers);
+        Mockito.when(stream.isDisabled()).thenReturn(false);
+        Mockito.when(stream.isStale()).thenReturn(false);
+        Mockito.when(stream.getBaseTableNullable()).thenReturn(baseTable);
+        return stream;
     }
 
     private MTMVRelation relationWithOneBaseTable() {

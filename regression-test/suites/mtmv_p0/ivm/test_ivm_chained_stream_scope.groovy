@@ -141,7 +141,7 @@ suite("test_ivm_chained_stream_scope") {
     // base table, and the MV was created with a stream for it.
     def unusedStreams = streamNamesOf(downstreamMv, baseTable)
     assertEquals(1, unusedStreams.size())
-    sql """DROP STREAM ${context.dbName}.${unusedStreams[0]}"""
+    sql """DROP STREAM ${context.dbName}.${unusedStreams[0]} FORCE"""
     assertEquals(0, streamNamesOf(downstreamMv, baseTable).size())
 
     // One change reaches the downstream MV through the upstream MV, so the refresh below has something

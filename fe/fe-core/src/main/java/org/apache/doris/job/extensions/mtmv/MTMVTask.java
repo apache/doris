@@ -445,17 +445,6 @@ public class MTMVTask extends AbstractTask {
         if (shouldUseCompleteForInitialIvmRefresh(containsOneRowRelation)) {
             return Lists.newArrayList(RefreshAttemptType.COMPLETE);
         }
-        // A base table the plan scans without a usable stream makes every other attempt fail: the
-        // incremental rewrite reads the stream of every table it scans, and a partition refresh reads
-        // those of the PCT tables it realigns as well. Only the COMPLETE attempt reconciles streams, so
-        // it is the one that has to run. Deciding it here keeps the attempt that cannot succeed -- and
-        // the baseline barrier a partition refresh writes before it starts -- out of the way altogether.
-        if (request.allowFallback && mtmv.isIvm() && hasUnusableIvmStream()) {
-            ivmFallbackReason = IvmFailureReason.STREAM_UNSUPPORTED.name();
-            LOG.warn("IVM stream is unusable, mv={}, taskId={}. Continuing with COMPLETE refresh.",
-                    mtmv.getName(), getTaskId());
-            return Lists.newArrayList(RefreshAttemptType.COMPLETE);
-        }
         List<RefreshAttemptType> attempts = Lists.newArrayList();
         switch (request.refreshMode) {
             case AUTO:
@@ -499,6 +488,24 @@ public class MTMVTask extends AbstractTask {
                 break;
             default:
                 throw new IllegalStateException("Unsupported refresh mode: " + request.refreshMode);
+        }
+        // A base table the plan scans without a usable stream makes the incremental attempt fail: its
+        // rewrite reads the stream of every table it scans. Only COMPLETE reconciles streams, so a request
+        // that would try the incremental path first goes there directly, and the attempt that cannot
+        // succeed -- with the baseline barrier it writes before it starts -- stays out of the way.
+        //
+        // Only that attempt is judged here. A partition refresh reads a narrower set, and how narrow
+        // depends on the partitions it plans: a PCT table that no refreshed partition's mapping names
+        // keeps its place in the plan as an ordinary scan, and an excluded trigger table is never read
+        // through a stream. It checks its own scope once it has planned (see
+        // hasUnusableIvmStreamForPartitions), so judging it here by the whole plan would send a partition
+        // refresh that would have worked to COMPLETE.
+        if (request.allowFallback && mtmv.isIvm() && attempts.contains(RefreshAttemptType.IVM)
+                && hasUnusableIvmStream()) {
+            ivmFallbackReason = IvmFailureReason.STREAM_UNSUPPORTED.name();
+            LOG.warn("IVM stream is unusable, mv={}, taskId={}. Continuing with COMPLETE refresh.",
+                    mtmv.getName(), getTaskId());
+            return Lists.newArrayList(RefreshAttemptType.COMPLETE);
         }
         return attempts;
     }
@@ -810,6 +817,22 @@ public class MTMVTask extends AbstractTask {
         }
         this.needRefreshPartitions = partitionPlan.partitions;
         this.refreshMode = generateRefreshMode(needRefreshPartitions);
+        // This attempt now knows which partitions it refreshes, and with them which streams it reads.
+        // Judged here rather than in buildAttempts because only the plan knows that scope, and judged
+        // before the NOT_REFRESH return below so that a fallback-capable request still reaches the only
+        // attempt that reconciles streams. Falling back here continues to COMPLETE, which is what repairs
+        // them; a request that may not fall back fails instead of quietly refreshing less than it asked.
+        if (mtmv.isIvm()
+                && hasUnusableIvmStreamForPartitions(partitionPlan.context, needRefreshPartitions)) {
+            if (!request.allowFallback) {
+                throw new JobException("IVM stream is unusable for the partitions of this refresh, mv="
+                        + mtmv.getName());
+            }
+            ivmFallbackReason = IvmFailureReason.STREAM_UNSUPPORTED.name();
+            LOG.warn("IVM stream is unusable for the partitions this refresh plans, mv={}, taskId={}. "
+                    + "Continuing with COMPLETE refresh.", mtmv.getName(), getTaskId());
+            return false;
+        }
         if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
             return true;
         }
@@ -909,11 +932,8 @@ public class MTMVTask extends AbstractTask {
         // rewriter and the full refresh take the streams of the plan's scans -- so judging them would
         // rebuild an MV whose refresh had nothing wrong with it.
         for (BaseTableInfo baseTableInfo : relation.getBaseTablesOneLevelAndFromView()) {
-            OlapTable baseTable;
-            try {
-                baseTable = (OlapTable) MTMVUtil.getTable(baseTableInfo);
-            } catch (Exception e) {
-                LOG.warn("Cannot resolve base table {} of mv={}", baseTableInfo, mtmv.getName(), e);
+            OlapTable baseTable = resolveIvmBaseTable(baseTableInfo);
+            if (baseTable == null) {
                 continue;
             }
             if (MTMVPartitionUtil.isTableExcluded(excluded,
@@ -925,6 +945,75 @@ public class MTMVTask extends AbstractTask {
             }
         }
         return false;
+    }
+
+    /**
+     * Whether a stream this partition refresh will read is missing or unusable.
+     *
+     * <p>The set is narrower than the plan, and which tables are in it depends on the partitions being
+     * refreshed: a PCT table that no refreshed partition's mapping names keeps its place in the plan as
+     * an ordinary scan, so its stream is never read, and a table outside the plan's own tables is not
+     * scanned at all. Judging the whole plan instead sends a partition refresh that would have worked to
+     * a full rebuild whenever such an unread stream is missing.
+     */
+    private boolean hasUnusableIvmStreamForPartitions(MTMVRefreshContext context,
+            List<String> mvPartitionNames) {
+        Database mvDb = (Database) mtmv.getDatabase();
+        if (mvDb == null) {
+            // Nothing to look the streams up in, so there is nothing to decide here.
+            return false;
+        }
+        Set<TableNameInfo> excluded = mtmv.getExcludedTriggerTables();
+        Set<OlapTable> streamedTables = Sets.newLinkedHashSet();
+        Set<BaseTableInfo> pctTableInfos = Sets.newHashSet();
+        for (BaseColInfo pctInfo : mtmv.getMvPartitionInfo().getPctInfos()) {
+            pctTableInfos.add(pctInfo.getTableInfo());
+        }
+        // Every table of the plan that is not a PCT table is read through its stream: the partition
+        // refresh gives those tables a read mode (IvmRewriteContext.full).
+        for (BaseTableInfo baseTableInfo : relation.getBaseTablesOneLevelAndFromView()) {
+            if (pctTableInfos.contains(baseTableInfo)) {
+                continue;
+            }
+            OlapTable baseTable = resolveIvmBaseTable(baseTableInfo);
+            if (baseTable != null) {
+                streamedTables.add(baseTable);
+            }
+        }
+        // A PCT table is read through its stream only while the mapping of a refreshed partition names
+        // it, which is exactly the mapping the reset read mode is built from.
+        for (String mvPartitionName : mvPartitionNames) {
+            for (MTMVRelatedTableIf relatedTable : context.getByPartitionName(mvPartitionName).keySet()) {
+                if (relatedTable instanceof OlapTable) {
+                    streamedTables.add((OlapTable) relatedTable);
+                }
+            }
+        }
+        for (OlapTable baseTable : streamedTables) {
+            if (MTMVPartitionUtil.isTableExcluded(excluded,
+                    new TableNameInfo(baseTable.getFullQualifiers()))) {
+                continue;
+            }
+            if (usableIvmStream(mvDb, baseTable) == null) {
+                LOG.warn("IVM stream is unusable for the partitions this refresh plans, mv={}, baseTable={}",
+                        mtmv.getName(), baseTable.getName());
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A base table of the plan, or null when it cannot be resolved -- which says nothing about its stream,
+     * so a caller that is only judging streams skips it.
+     */
+    private OlapTable resolveIvmBaseTable(BaseTableInfo baseTableInfo) {
+        try {
+            return (OlapTable) MTMVUtil.getTable(baseTableInfo);
+        } catch (Exception e) {
+            LOG.warn("Cannot resolve base table {} of mv={}", baseTableInfo, mtmv.getName(), e);
+            return null;
+        }
     }
 
     /** The MV's stream for the base table, or null when it is missing or cannot be used. */
