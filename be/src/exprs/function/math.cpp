@@ -371,7 +371,9 @@ using FunctionSqrt =
 
 struct GammaName {
     static constexpr auto name = "gamma";
-    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_gamma
+    // gamma has a pole at zero (negative zero included) and at every negative integer. Those
+    // are domain errors, and like the other math functions here they are reported as NULL
+    // instead of the infinity or NaN the C library returns; only overflow becomes Infinity.
     static constexpr bool is_invalid_input(Float64 x) {
         return x == 0.0 || (x < 0.0 && x == std::floor(x));
     }

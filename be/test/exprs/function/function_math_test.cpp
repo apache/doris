@@ -192,8 +192,9 @@ TEST(MathFunctionTest, gamma_test) {
     // factorial exactly: 5 comes back as 24.000000000000004, so the expectation carries the ulp
     // the implementation actually produces rather than the mathematical integer. Gamma(0.5) is
     // sqrt(pi) and the half-integer rows are its multiples (sqrt(pi)/2 at 1.5, 3*sqrt(pi)/4 at
-    // 2.5); the values at -0.5, -1.5 and -2.5 come from the reflection formula. 0 and the negative
-    // integers are poles and must come back NULL, as MySQL returns, and a NULL input stays NULL.
+    // 2.5); the values at -0.5, -1.5 and -2.5 come from the reflection formula. 0 (negative
+    // zero included) and the negative integers are poles, so they are domain errors and come
+    // back as NULL, and a NULL input stays NULL.
     DataSet data_set = {{{1.0}, 1.0},
                         {{2.0}, 1.0},
                         {{3.0}, 2.0},
@@ -207,6 +208,7 @@ TEST(MathFunctionTest, gamma_test) {
                         {{-1.5}, 2.3632718012073544},
                         {{-2.5}, -0.94530872048294179},
                         {{0.0}, Null()},
+                        {{-0.0}, Null()},
                         {{-1.0}, Null()},
                         {{-2.0}, Null()},
                         {{-3.0}, Null()},
