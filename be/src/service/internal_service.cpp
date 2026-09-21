@@ -163,11 +163,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_max_threads, MetricUnit::NO
 
 static bvar::LatencyRecorder g_process_remote_fetch_rowsets_latency("process_remote_fetch_rowsets");
 
-static int32_t resolved_brpc_load_light_work_pool_threads() {
-    return config::brpc_load_light_work_pool_threads != -1
-                   ? config::brpc_load_light_work_pool_threads
-                   : std::max(32, CpuInfo::num_cores());
-}
+static constexpr int32_t LOAD_LIGHT_WORK_POOL_THREADS = 32;
 
 static int32_t resolved_brpc_load_light_work_pool_max_queue_size() {
     return config::brpc_load_light_work_pool_max_queue_size != -1
@@ -239,8 +235,8 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    ? config::brpc_heavy_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_heavy"),
-          // Open/cancel may block on storage or locks, but must not queue behind load writes.
-          _load_light_work_pool(resolved_brpc_load_light_work_pool_threads(),
+          // Keep cancellation dispatch independent of potentially blocking opens and writes.
+          _load_light_work_pool(LOAD_LIGHT_WORK_POOL_THREADS,
                                 resolved_brpc_load_light_work_pool_max_queue_size(),
                                 "brpc_load_light"),
           // peer fetch threadpool isolates fetch_peer_data from heavy load traffic to avoid peer reads starving imports.
@@ -269,7 +265,7 @@ PInternalService::PInternalService(ExecEnv* exec_env)
     REGISTER_HOOK_METRIC(load_light_work_pool_max_queue_size,
                          []() { return resolved_brpc_load_light_work_pool_max_queue_size(); });
     REGISTER_HOOK_METRIC(load_light_work_max_threads,
-                         []() { return resolved_brpc_load_light_work_pool_threads(); });
+                         []() { return LOAD_LIGHT_WORK_POOL_THREADS; });
 
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
@@ -348,7 +344,7 @@ void PInternalService::tablet_writer_open(google::protobuf::RpcController* contr
                                           const PTabletWriterOpenRequest* request,
                                           PTabletWriterOpenResult* response,
                                           google::protobuf::Closure* done) {
-    bool ret = _load_light_work_pool.try_offer([this, request, response, done]() {
+    bool ret = _heavy_work_pool.try_offer([this, request, response, done]() {
         VLOG_RPC << "tablet writer open, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
         signal::SignalTaskIdKeeper keeper(request->id());
@@ -362,7 +358,7 @@ void PInternalService::tablet_writer_open(google::protobuf::RpcController* contr
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _load_light_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
         return;
     }
 }
@@ -458,7 +454,7 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
                                         const POpenLoadStreamRequest* request,
                                         POpenLoadStreamResponse* response,
                                         google::protobuf::Closure* done) {
-    bool ret = _load_light_work_pool.try_offer([this, controller, request, response, done]() {
+    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
         signal::SignalTaskIdKeeper keeper(request->load_id());
         brpc::ClosureGuard done_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
@@ -516,7 +512,7 @@ void PInternalService::open_load_stream(google::protobuf::RpcController* control
         st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
-        offer_failed(response, done, _load_light_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
     }
 }
 
