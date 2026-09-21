@@ -158,6 +158,17 @@ suite("correlated_scalar_subquery") {
         exception "access outer query's column before lateral view is not supported"
     }
 
+    // a generator of a lateral view which reads the outer column: the generator of the lateral view of
+    // an outer row explodes the arrays of the rows of the domain of that row, while the rewrite of the
+    // subquery moves the predicate of the outer row into the join and evaluates the nodes below it
+    // once, where the outer column has no row to read
+    test {
+        sql """
+              select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select e1 from correlated_scalar_t2 lateral view explode(array(correlated_scalar_t1.c1)) tmp1 as e1);
+        """
+        exception "access outer query's column in lateral view is not supported"
+    }
+
     test {
         sql """
               select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select e1 from (select 1 k1) as t lateral view explode_numbers(5) tmp1 as e1 where correlated_scalar_t1.c1 = e1 having correlated_scalar_t1.c2 = e1 order by e1);

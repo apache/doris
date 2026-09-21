@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -166,6 +168,15 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
         checkNoCorrelatedSlotsUnderSetOp(analyzedResult);
         checkRootIsLimit(analyzedResult);
+        if (analyzedResult.isCorrelated()) {
+            // The nodes above the correlated predicate which the rewrites cannot rebuild per
+            // correlation key are not reported by checkRootIsLimit (it reads the root of the plan
+            // alone) nor by the validator (it validates the nodes which read the outer slots):
+            // report them here, the plan of the rewrite would read the columns of the outer query
+            // from the rows of another correlation key.
+            rejectTheWrappersWhichTheRewriteCannotRebuild(analyzedResult.getLogicalPlan(),
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots));
+        }
 
         return new InSubquery(
                 expr.getCompareExpr().accept(this, context),
@@ -218,6 +229,14 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             List<PlanNodeCorrelatedInfo> nodeInfoList = new ArrayList<>(16);
             Set<LogicalAggregate> topAgg = new HashSet<>();
             validateSubquery(analyzedResult.logicalPlan, validator, nodeInfoList, topAgg);
+            // A lateral view which sits above the correlated predicate is reported by the walk above
+            // (see validateNodeInfoList), and a generator which reads an outer slot is reported here:
+            // the generator of the lateral view of an outer row explodes the arrays of the rows of
+            // the domain of that row, while the rewrite of the subquery moves the predicate of the
+            // outer row into the join and evaluates the nodes below it once, where the outer column
+            // has no row to read.
+            rejectTheLateralViewsWhichReadTheOuterSlots(analyzedResult.logicalPlan,
+                    ImmutableSet.copyOf(analyzedResult.correlatedSlots));
         }
 
         if (analyzedResult.getLogicalPlan() instanceof LogicalOneRowRelation) {
@@ -603,5 +622,84 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
             return true;
         }
         return plan.children().stream().anyMatch(SubExprAnalyzer::containsAWindow);
+    }
+
+    /**
+     * Reject the LIMIT, the TOP-N and the LATERAL VIEW nodes which sit above the correlated predicate
+     * of the subquery: the LIMIT and the LATERAL VIEW of the subquery of an outer row decide on the
+     * rows of the domain of that row (the LIMIT keeps one row of the derived table of the domain, the
+     * LATERAL VIEW explodes the arrays of the rows of the domain), and the rewrite which unnests a
+     * correlated IN subquery reads the value which the IN compares from the aggregation of the domain
+     * of the outer row: the LIMIT of that rewrite reads the domains of every correlation key together
+     * and the LATERAL VIEW is evaluated once for all of them. Neither rewrite can rebuild those nodes
+     * per correlation key, so the subquery of
+     *
+     *     select k from o where k in (
+     *         select max(c) from (select count(*) c from i where i.k = o.k group by i.g limit 1) x)
+     *
+     * (where the limit keeps one row of the derived table of the domain of every outer row) is
+     * reported instead of building a plan which reads the rows of the outer query from the wrong
+     * correlation key. Only the nodes above the correlated predicate are checked: the nodes below it
+     * are the rows of the domain of an outer row, which the rewrite keeps as they are.
+     */
+    private static void rejectTheWrappersWhichTheRewriteCannotRebuild(Plan plan,
+            ImmutableSet<Slot> correlatedSlots) {
+        rejectTheLateralViewsWhichReadTheOuterSlots(plan, correlatedSlots);
+        for (Plan node = plan; node != null; node = theChildWhichHoldsTheOuterSlots(node, correlatedSlots)) {
+            if (node instanceof LogicalLimit || node instanceof LogicalTopN) {
+                throw new AnalysisException("access outer query's column before limit is not supported "
+                        + plan);
+            }
+            if (node instanceof LogicalGenerate) {
+                throw new AnalysisException(
+                        "access outer query's column before lateral view is not supported " + plan);
+            }
+            if (readsAnOuterSlot(node, correlatedSlots)) {
+                // the predicate of the outer query itself: the nodes below it hold the rows of the
+                // domain of an outer row, which the rewrite keeps as they are
+                return;
+            }
+        }
+    }
+
+    /**
+     * Reject the lateral views whose generator reads an outer slot: the generator of the lateral view
+     * of an outer row is evaluated on the rows of the domain of that row (the LATERAL VIEW explodes
+     * arrays which the value of the outer row may be a part of), while the rewrite of the subquery
+     * evaluates the nodes below the correlated predicate once, with the predicate of the outer row
+     * moved into the join: the outer column of the generator has no row to read there, and the plan of
+     * the rewrite dangles.
+     */
+    private static void rejectTheLateralViewsWhichReadTheOuterSlots(Plan plan,
+            ImmutableSet<Slot> correlatedSlots) {
+        if (plan instanceof LogicalGenerate && readsAnOuterSlot(plan, correlatedSlots)) {
+            throw new AnalysisException(
+                    "access outer query's column in lateral view is not supported " + plan);
+        }
+        plan.children().forEach(child -> rejectTheLateralViewsWhichReadTheOuterSlots(child, correlatedSlots));
+    }
+
+    /** whether a node of the plan reads one of the outer slots (see CorrelatedSlotsValidator) */
+    private static boolean readsAnOuterSlot(Plan plan, ImmutableSet<Slot> correlatedSlots) {
+        return plan.getExpressions().stream().anyMatch(expression -> !Sets
+                .intersection(correlatedSlots, expression.getInputSlots()).isEmpty());
+    }
+
+    /** the child of the node which holds the predicate of the outer query, or null when none holds it */
+    private static Plan theChildWhichHoldsTheOuterSlots(Plan node, ImmutableSet<Slot> correlatedSlots) {
+        for (Plan child : node.children()) {
+            if (containsAnOuterSlot(child, correlatedSlots)) {
+                return child;
+            }
+        }
+        return null;
+    }
+
+    /** whether the plan or one of the nodes below it reads one of the outer slots */
+    private static boolean containsAnOuterSlot(Plan plan, ImmutableSet<Slot> correlatedSlots) {
+        if (readsAnOuterSlot(plan, correlatedSlots)) {
+            return true;
+        }
+        return plan.children().stream().anyMatch(child -> containsAnOuterSlot(child, correlatedSlots));
     }
 }

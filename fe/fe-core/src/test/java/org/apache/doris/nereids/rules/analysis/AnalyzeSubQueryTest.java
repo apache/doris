@@ -268,6 +268,74 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    public void testCorrelatedInSubqueryWithNestedLimit() {
+        // The limit of the derived table keeps one row of the rows of the correlation key of an outer
+        // row, so it cannot be evaluated once for the domains of every outer row (the rewrite which
+        // unnests the subquery reads the value which the IN compares from the aggregation of one
+        // domain): the subquery is reported instead of building a plan which reads the columns of the
+        // outer query from the rows of another correlation key.
+        String sql = "select T1.id from T1 where T1.id in "
+                + "(select max(c) from (select count(*) c from T2 where T2.id = T1.id group by T2.score"
+                + " limit 1) x)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(
+                exception.getMessage().contains("access outer query's column before limit is not supported"));
+    }
+
+    @Test
+    public void testCorrelatedInSubqueryWithNestedTopN() {
+        String sql = "select T1.id from T1 where T1.id in "
+                + "(select max(c) from (select count(*) c from T2 where T2.id = T1.id group by T2.score"
+                + " order by c limit 1) x)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(
+                exception.getMessage().contains("access outer query's column before limit is not supported"));
+    }
+
+    @Test
+    public void testCorrelatedInSubqueryWithNestedLateralView() {
+        // The lateral view of the derived table explodes the arrays of the rows of the correlation key
+        // of an outer row, so it cannot be evaluated once for the domains of every outer row either.
+        String sql = "select T1.id from T1 where T1.id in "
+                + "(select max(e) from (select count(*) c, array_agg(T2.score) a from T2"
+                + " where T2.id = T1.id group by T2.score) x lateral view explode(a) t as e)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(
+                exception.getMessage().contains("access outer query's column before lateral view is not supported"));
+    }
+
+    @Test
+    public void testCorrelatedInSubqueryWithALateralViewWhichReadsTheOuterColumn() {
+        // The generator of a lateral view below the correlated predicate reads the outer column, which
+        // the rewrite of the subquery cannot produce on the inner side of the join.
+        String sql = "select T1.id from T1 where T1.id in "
+                + "(select e from T2 lateral view explode(array(T1.id, T2.score)) t as e"
+                + " where T2.id = T1.id)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(
+                exception.getMessage().contains("access outer query's column in lateral view is not supported"));
+    }
+
+    @Test
+    public void testCorrelatedScalarSubqueryWithALateralViewWhichReadsTheOuterColumn() {
+        String sql = "select T1.id from T1 where T1.score > "
+                + "(select e from T2 lateral view explode(array(T1.score, T2.score)) t as e)";
+
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(
+                exception.getMessage().contains("access outer query's column in lateral view is not supported"));
+    }
+
+    @Test
     public void testExistsOverScalarAggUnionOrderBy() {
         // EXISTS over scalar aggregate with ORDER BY wrapper and UNION ALL.
         // hasTopLevelScalarAgg() must see through LogicalSort to fold to TRUE/FALSE.

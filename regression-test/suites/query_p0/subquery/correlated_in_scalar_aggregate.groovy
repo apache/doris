@@ -260,6 +260,36 @@ suite("correlated_in_scalar_aggregate") {
                 " (SELECT sum(i.g) OVER () FROM cisa_i i WHERE i.k = o.k GROUP BY i.g)"
         exception "access outer query's column before window function is not supported"
     }
+    // The limit of the derived table keeps one row of the rows of the correlation key of an outer
+    // row, and the lateral view of the derived table explodes the arrays of the rows of that key: the
+    // rewrite reads the value which the IN compares from the aggregation of the domain of an outer
+    // row, so the limit of the rewrite would read the domains of every correlation key together and
+    // the lateral view would be evaluated once for all of them. The wrappers above the correlated
+    // predicate are therefore reported instead of building a plan which reads the columns of the
+    // outer query from the rows of another correlation key
+    test {
+        sql "SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT max(c) FROM" +
+                " (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g LIMIT 1) x)"
+        exception "access outer query's column before limit is not supported"
+    }
+    test {
+        sql "SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT max(c) FROM" +
+                " (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g ORDER BY c LIMIT 1) x)"
+        exception "access outer query's column before limit is not supported"
+    }
+    test {
+        sql "SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT max(e) FROM" +
+                " (SELECT count(*) AS c, array_agg(i.g) AS a FROM cisa_i i" +
+                " WHERE i.k = o.k GROUP BY i.g) x LATERAL VIEW explode(a) t AS e)"
+        exception "access outer query's column before lateral view is not supported"
+    }
+    // a generator of a lateral view which reads the outer column has no row to read that column from
+    // on the inner side of the join of the rewrite either
+    test {
+        sql "SELECT o.k FROM cisa_o o WHERE o.k IN (SELECT e FROM cisa_i i" +
+                " LATERAL VIEW explode(array(o.k, i.g)) t AS e WHERE i.k = o.k)"
+        exception "access outer query's column in lateral view is not supported"
+    }
     // A global aggregation above the aggregation of the derived table loses its key when the HAVING
     // clause of the aggregation of the derived table removes the row of an empty domain (the count 0
     // does not satisfy count(*) > 0): the original subquery compares the outer value with the null of
