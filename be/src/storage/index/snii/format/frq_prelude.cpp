@@ -451,6 +451,29 @@ inline void note_window_probe() {
 }
 } // namespace
 
+Status FrqPreludeReader::memory_required(Slice prelude, uint64_t* retained, uint64_t* temporary) {
+    *retained = 0;
+    *temporary = 0;
+    ByteSource src(prelude);
+    Header header;
+    RETURN_IF_ERROR(parse_header(&src, &header));
+    const size_t remaining = prelude.size() - src.position();
+    if (remaining < sizeof(uint32_t) || header.sbdir_len > remaining - sizeof(uint32_t)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: directory and crc exceed buffer");
+    }
+    RETURN_IF_ERROR(verify_covered_crc(prelude, src.position(), header.sbdir_len));
+    *retained =
+            header.n * (sizeof(WindowMeta) + sizeof(uint32_t)) + header.n_super * sizeof(uint64_t);
+    *temporary = header.n_super * sizeof(SbDirRow);
+    return Status::OK();
+}
+
+uint64_t FrqPreludeReader::memory_usage() const {
+    return sb_last_docid_.capacity() * sizeof(uint64_t) + windows_.capacity() * sizeof(WindowMeta) +
+           win_last_docid_.capacity() * sizeof(uint32_t);
+}
+
 Status FrqPreludeReader::open(Slice prelude, FrqPreludeReader* out) {
     ByteSource src(prelude);
     Header h;

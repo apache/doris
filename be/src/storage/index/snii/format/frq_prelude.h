@@ -144,6 +144,9 @@ public:
     // Parses + verifies the prelude. crc mismatch / truncation / inconsistent
     // offsets-or-lengths / oversized counts => kCorruption.
     static Status open(Slice prelude, FrqPreludeReader* out);
+    // Estimates retained arrays and temporary directory rows before allocation.
+    static Status memory_required(Slice prelude, uint64_t* retained, uint64_t* temporary);
+    uint64_t memory_usage() const;
 
     uint32_t n_windows() const { return static_cast<uint32_t>(windows_.size()); }
     uint32_t n_super_blocks() const { return n_super_; }

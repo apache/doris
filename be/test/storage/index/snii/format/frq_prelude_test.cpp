@@ -28,6 +28,7 @@
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/crc32c.h"
+#include "storage/index/snii/reader/budgeted_frq_prelude.h"
 
 using doris::snii::ByteSink;
 using doris::snii::Slice;
@@ -387,4 +388,159 @@ TEST(SniiFrqPrelude, RejectsOversizedWindowCount) {
     FrqPreludeReader reader;
     Status s = FrqPreludeReader::open(frame.view(), &reader);
     EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+TEST(SniiBudgetedFrqPrelude, RejectsDecodeWhenTheSharedBudgetHasNoAllowance) {
+    ByteSink input;
+    ASSERT_TRUE(build_frq_prelude(MakeColumns(17, 4, 256, true), &input).ok());
+    doris::index_query::MemoryBudget budget(0);
+    doris::snii::reader::BudgetedFrqPrelude prelude(budget);
+    const Status status = prelude.open(input.view());
+    EXPECT_TRUE(status.is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>()) << status.to_string();
+    EXPECT_EQ(prelude.reader().n_windows(), 0U);
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(SniiBudgetedFrqPrelude, RequiresTemporaryDirectoryAllowanceAlongsideRetainedArrays) {
+    ByteSink input;
+    ASSERT_TRUE(build_frq_prelude(MakeColumns(17, 4, 256, true), &input).ok());
+    uint64_t retained = 0;
+    uint64_t temporary = 0;
+    ASSERT_TRUE(FrqPreludeReader::memory_required(input.view(), &retained, &temporary).ok());
+    ASSERT_GT(temporary, 0U);
+    doris::index_query::MemoryBudget budget(retained + temporary - 1);
+    doris::snii::reader::BudgetedFrqPrelude prelude(budget);
+    const Status status = prelude.open(input.view());
+    EXPECT_TRUE(status.is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>()) << status.to_string();
+    EXPECT_EQ(prelude.reader().memory_usage(), 0U);
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 0U);
+}
+
+TEST(SniiBudgetedFrqPrelude, ReleasesScratchAndKeepsDecodedDirectoriesAfterInputDestruction) {
+    uint64_t retained = 0;
+    uint64_t temporary = 0;
+    {
+        ByteSink input;
+        ASSERT_TRUE(build_frq_prelude(MakeColumns(17, 4, 256, true), &input).ok());
+        ASSERT_TRUE(FrqPreludeReader::memory_required(input.view(), &retained, &temporary).ok());
+    }
+    doris::index_query::MemoryBudget budget(retained + temporary);
+    {
+        doris::snii::reader::BudgetedFrqPrelude prelude(budget);
+        {
+            ByteSink input;
+            ASSERT_TRUE(build_frq_prelude(MakeColumns(17, 4, 256, true), &input).ok());
+            ASSERT_TRUE(prelude.open(input.view()).ok());
+        }
+        EXPECT_EQ(prelude.reader().n_windows(), 17U);
+        EXPECT_EQ(prelude.reader().n_super_blocks(), 5U);
+        EXPECT_EQ(budget.used_bytes(), prelude.reader().memory_usage());
+        EXPECT_EQ(budget.used_bytes(), retained);
+        EXPECT_EQ(budget.peak_bytes(), retained + temporary);
+        std::vector<uint32_t> windows;
+        prelude.reader().select_covering_windows({1, 1000, 4351}, &windows);
+        EXPECT_EQ(windows, (std::vector<uint32_t> {0, 3, 16}));
+        WindowMeta last;
+        ASSERT_TRUE(prelude.reader().window(16, &last).ok());
+        EXPECT_EQ(last.last_docid, 4351U);
+    }
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(SniiBudgetedFrqPrelude, PreservesOtherOwnersWhenAdmissionFails) {
+    ByteSink input;
+    ASSERT_TRUE(build_frq_prelude(MakeColumns(17, 4, 256, true), &input).ok());
+    uint64_t retained = 0;
+    uint64_t temporary = 0;
+    ASSERT_TRUE(FrqPreludeReader::memory_required(input.view(), &retained, &temporary).ok());
+    doris::index_query::MemoryBudget budget(retained + temporary);
+    doris::index_query::MemoryBudget::Reservation other;
+    ASSERT_TRUE(budget.reserve(1, &other).ok());
+    doris::snii::reader::BudgetedFrqPrelude prelude(budget);
+    EXPECT_TRUE(prelude.open(input.view()).is<doris::ErrorCode::MEM_LIMIT_EXCEEDED>());
+    EXPECT_EQ(budget.used_bytes(), 1U);
+    EXPECT_EQ(prelude.reader().n_windows(), 0U);
+    other.reset();
+    ASSERT_TRUE(prelude.open(input.view()).ok());
+    EXPECT_EQ(budget.used_bytes(), retained);
+    prelude.clear();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(SniiBudgetedFrqPrelude, RejectsCorruptHeadersBeforeAdmission) {
+    ByteSink input;
+    ASSERT_TRUE(build_frq_prelude(MakeColumns(17, 4, 256, true), &input).ok());
+    std::vector<uint8_t> corrupted(input.view().data(), input.view().data() + input.size());
+    corrupted.front() ^= 1;
+    doris::index_query::MemoryBudget budget(1048576);
+    doris::snii::reader::BudgetedFrqPrelude prelude(budget);
+    EXPECT_TRUE(
+            prelude.open(Slice(corrupted)).is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+    EXPECT_EQ(prelude.reader().memory_usage(), 0U);
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 0U);
+}
+
+TEST(SniiBudgetedFrqPrelude, ReleasesPartialArraysWhenWindowDecodingFails) {
+    ByteSink input;
+    ASSERT_TRUE(build_frq_prelude(MakeColumns(17, 4, 256, true), &input).ok());
+    std::vector<uint8_t> corrupted(input.view().data(), input.view().data() + input.size());
+    corrupted.back() |= 0x80;
+    doris::index_query::MemoryBudget budget(1048576);
+    doris::snii::reader::BudgetedFrqPrelude prelude(budget);
+    const Status status = prelude.open(Slice(corrupted));
+    EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status.to_string();
+    EXPECT_EQ(prelude.reader().n_windows(), 0U);
+    EXPECT_EQ(prelude.reader().memory_usage(), 0U);
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_GT(budget.peak_bytes(), 0U);
+}
+
+TEST(SniiBudgetedFrqPrelude, ReuseReleasesPreviousArraysBeforeAdmittingTheNextDirectory) {
+    ByteSink large;
+    ByteSink small;
+    ASSERT_TRUE(build_frq_prelude(MakeColumns(17, 4, 256, true), &large).ok());
+    ASSERT_TRUE(build_frq_prelude(MakeColumns(1, 4, 256, false), &small).ok());
+    uint64_t retained = 0;
+    uint64_t temporary = 0;
+    ASSERT_TRUE(FrqPreludeReader::memory_required(large.view(), &retained, &temporary).ok());
+    doris::index_query::MemoryBudget budget(retained + temporary);
+    doris::snii::reader::BudgetedFrqPrelude prelude(budget);
+    ASSERT_TRUE(prelude.open(large.view()).ok());
+    ASSERT_TRUE(prelude.open(small.view()).ok());
+    EXPECT_EQ(prelude.reader().n_windows(), 1U);
+    EXPECT_LT(budget.used_bytes(), retained);
+    ASSERT_TRUE(prelude.open(large.view()).ok());
+    EXPECT_EQ(budget.used_bytes(), retained);
+    EXPECT_EQ(budget.peak_bytes(), retained + temporary);
+    prelude.clear();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(SniiBudgetedFrqPrelude, EmptyDirectoryFitsAZeroByteBudget) {
+    ByteSink input;
+    ASSERT_TRUE(build_frq_prelude(MakeColumns(0, 4, 256, true), &input).ok());
+    doris::index_query::MemoryBudget budget(0);
+    doris::snii::reader::BudgetedFrqPrelude prelude(budget);
+    ASSERT_TRUE(prelude.open(input.view()).ok());
+    EXPECT_EQ(prelude.reader().n_windows(), 0U);
+    EXPECT_EQ(budget.used_bytes(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 0U);
+}
+
+TEST(SniiBudgetedFrqPrelude, RejectsOverflowingDirectoryLengthsWithoutAllocating) {
+    ByteSink input;
+    input.put_u8(0);
+    input.put_varint64(1);
+    input.put_varint64(1);
+    input.put_varint64(1);
+    input.put_varint64(std::numeric_limits<uint64_t>::max());
+    input.put_fixed32(0);
+    doris::index_query::MemoryBudget budget(1048576);
+    doris::snii::reader::BudgetedFrqPrelude prelude(budget);
+    const Status status = prelude.open(input.view());
+    EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status.to_string();
+    EXPECT_EQ(prelude.reader().memory_usage(), 0U);
+    EXPECT_EQ(budget.peak_bytes(), 0U);
 }
