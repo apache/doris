@@ -294,6 +294,33 @@ suite("test_dereference") {
             order by array_sum(array_map(x -> x + q.v, [1]))
             """
 
+    // a lambda body in a join condition references columns of both sides of the join
+    qt_alias_shadow_lambda_join_on """
+            select q.id, p.id
+            from test_dereference_alias_shadow q join test_dereference_alias_shadow p
+            on array_sum(array_map(x -> x + p.v + q.v, [0])) > 40
+            order by q.id, p.id
+            """
+
+    // a lambda body in a correlated subquery references a column of the outer query
+    qt_alias_shadow_lambda_correlated_exists """
+            select o.id from test_dereference_alias_shadow o
+            where exists (
+                select 1 from test_dereference_alias_shadow q
+                where array_sum(array_map(x -> x + o.v + q.v, [0])) > 45
+            )
+            order by o.id
+            """
+
+    qt_alias_shadow_lambda_correlated_in """
+            select o.id from test_dereference_alias_shadow o
+            where o.id in (
+                select q.id from test_dereference_alias_shadow q
+                where array_sum(array_map(x -> x + o.v, [0])) > 15
+            )
+            order by o.id
+            """
+
     // q is only a scalar output alias here, the relation is p
     test {
         sql "select p.v as q from test_dereference_alias_shadow p order by q.v"

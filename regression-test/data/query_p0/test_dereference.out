@@ -84,3 +84,16 @@
 20
 30
 
+-- !alias_shadow_lambda_join_on --
+1	1
+1	2
+2	1
+
+-- !alias_shadow_lambda_correlated_exists --
+1
+2
+
+-- !alias_shadow_lambda_correlated_in --
+1
+2
+
