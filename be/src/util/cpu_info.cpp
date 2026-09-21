@@ -95,7 +95,7 @@ bool CpuInfo::initialized_ = false;
 int64_t CpuInfo::hardware_flags_ = 0;
 int64_t CpuInfo::original_hardware_flags_;
 int64_t CpuInfo::cycles_per_ms_;
-int CpuInfo::num_cores_ = 1;
+int CpuInfo::host_num_cores_ = 1;
 int CpuInfo::max_num_cores_ = 1;
 std::string CpuInfo::model_name_ = "unknown";
 int CpuInfo::max_num_numa_nodes_;
@@ -170,22 +170,13 @@ void CpuInfo::init() {
     sysctlbyname("hw.physicalcpu", &physical_num_cores, &len, nullptr, 0);
 #endif
 
-    int num_cores = CGroupUtil::get_cgroup_limited_cpu_number(physical_num_cores);
+    host_num_cores_ = physical_num_cores;
     if (max_mhz != 0) {
         cycles_per_ms_ = int64_t(max_mhz) * 1000;
     } else {
         cycles_per_ms_ = 1000000;
     }
     original_hardware_flags_ = hardware_flags_;
-
-    if (num_cores > 0) {
-        num_cores_ = num_cores;
-    } else {
-        num_cores_ = 1;
-    }
-    if (config::num_cores > 0) {
-        num_cores_ = config::num_cores;
-    }
 
 #ifdef __APPLE__
     sysctlbyname("hw.logicalcpu", &max_num_cores_, &len, nullptr, 0);
@@ -256,6 +247,19 @@ void CpuInfo::_init_numa() {
         }
     }
     _init_numa_node_to_cores();
+}
+
+int CpuInfo::_apply_num_cores_limits(int num_cores) {
+    num_cores = CGroupUtil::get_cgroup_limited_cpu_number(num_cores);
+    if (config::num_cores > 0) {
+        num_cores = config::num_cores;
+    }
+    return std::max(1, num_cores);
+}
+
+int CpuInfo::num_cores() {
+    DCHECK(initialized_);
+    return _apply_num_cores_limits(host_num_cores_);
 }
 
 void CpuInfo::_init_fake_numa_for_test(int max_num_numa_nodes,
@@ -414,7 +418,7 @@ std::string CpuInfo::debug_string() {
                     : "";
     stream << "Cpu Info:" << std::endl
            << "  Model: " << model_name_ << std::endl
-           << "  Cores: " << num_cores_ << std::endl
+           << "  Cores: " << num_cores() << std::endl
            << "  Max Possible Cores: " << max_num_cores_ << std::endl
            << "  " << L1 << std::endl
            << "  " << L2 << std::endl
