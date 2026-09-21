@@ -137,10 +137,6 @@ namespace doris {
 #include "common/compile_check_avoid_begin.h"
 using namespace ErrorCode;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_heavy_work_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_heavy_work_active_threads, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_heavy_work_pool_max_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_heavy_work_max_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_light_work_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_light_work_active_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(load_light_work_pool_max_queue_size, MetricUnit::NOUNIT);
@@ -166,23 +162,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_max_queue_size, Metric
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_max_threads, MetricUnit::NOUNIT);
 
 static bvar::LatencyRecorder g_process_remote_fetch_rowsets_latency("process_remote_fetch_rowsets");
-
-static int32_t resolved_brpc_load_heavy_work_pool_threads() {
-    if (config::brpc_load_heavy_work_pool_threads != -1) {
-        return config::brpc_load_heavy_work_pool_threads;
-    }
-    return config::brpc_heavy_work_pool_threads != -1 ? config::brpc_heavy_work_pool_threads
-                                                      : std::max(128, CpuInfo::num_cores() * 4);
-}
-
-static int32_t resolved_brpc_load_heavy_work_pool_max_queue_size() {
-    if (config::brpc_load_heavy_work_pool_max_queue_size != -1) {
-        return config::brpc_load_heavy_work_pool_max_queue_size;
-    }
-    return config::brpc_heavy_work_pool_max_queue_size != -1
-                   ? config::brpc_heavy_work_pool_max_queue_size
-                   : std::max(10240, CpuInfo::num_cores() * 320);
-}
 
 static int32_t resolved_brpc_load_light_work_pool_threads() {
     return config::brpc_load_light_work_pool_threads != -1
@@ -252,7 +231,7 @@ private:
 
 PInternalService::PInternalService(ExecEnv* exec_env)
         : _exec_env(exec_env),
-          // General RPCs that read disk or access the network.
+          // heavy threadpool is used for load process and other process that will read disk or access network.
           _heavy_work_pool(config::brpc_heavy_work_pool_threads != -1
                                    ? config::brpc_heavy_work_pool_threads
                                    : std::max(128, CpuInfo::num_cores() * 4),
@@ -260,9 +239,6 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    ? config::brpc_heavy_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_heavy"),
-          _load_heavy_work_pool(resolved_brpc_load_heavy_work_pool_threads(),
-                                resolved_brpc_load_heavy_work_pool_max_queue_size(),
-                                "brpc_load_heavy"),
           // Open/cancel may block on storage or locks, but must not queue behind load writes.
           _load_light_work_pool(resolved_brpc_load_light_work_pool_threads(),
                                 resolved_brpc_load_light_work_pool_max_queue_size(),
@@ -286,14 +262,6 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                           ? config::brpc_arrow_flight_work_pool_max_queue_size
                                           : std::max(20480, CpuInfo::num_cores() * 640),
                                   "brpc_arrow_flight") {
-    REGISTER_HOOK_METRIC(load_heavy_work_pool_queue_size,
-                         [this]() { return _load_heavy_work_pool.get_queue_size(); });
-    REGISTER_HOOK_METRIC(load_heavy_work_active_threads,
-                         [this]() { return _load_heavy_work_pool.get_active_threads(); });
-    REGISTER_HOOK_METRIC(load_heavy_work_pool_max_queue_size,
-                         []() { return resolved_brpc_load_heavy_work_pool_max_queue_size(); });
-    REGISTER_HOOK_METRIC(load_heavy_work_max_threads,
-                         []() { return resolved_brpc_load_heavy_work_pool_threads(); });
     REGISTER_HOOK_METRIC(load_light_work_pool_queue_size,
                          [this]() { return _load_light_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(load_light_work_active_threads,
@@ -338,7 +306,7 @@ PInternalService::PInternalService(ExecEnv* exec_env)
     REGISTER_HOOK_METRIC(arrow_flight_work_max_threads,
                          []() { return config::brpc_arrow_flight_work_pool_threads; });
 
-    _exec_env->load_stream_mgr()->set_heavy_work_pool(&_load_heavy_work_pool);
+    _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
 
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
@@ -349,10 +317,6 @@ PInternalServiceImpl::PInternalServiceImpl(StorageEngine& engine, ExecEnv* exec_
 PInternalServiceImpl::~PInternalServiceImpl() = default;
 
 PInternalService::~PInternalService() {
-    DEREGISTER_HOOK_METRIC(load_heavy_work_pool_queue_size);
-    DEREGISTER_HOOK_METRIC(load_heavy_work_active_threads);
-    DEREGISTER_HOOK_METRIC(load_heavy_work_pool_max_queue_size);
-    DEREGISTER_HOOK_METRIC(load_heavy_work_max_threads);
     DEREGISTER_HOOK_METRIC(load_light_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(load_light_work_active_threads);
     DEREGISTER_HOOK_METRIC(load_light_work_pool_max_queue_size);
@@ -578,29 +542,27 @@ void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* 
                                                PTabletWriterAddBlockResult* response,
                                                google::protobuf::Closure* done) {
     int64_t submit_task_time_ns = MonotonicNanos();
-    bool ret =
-            _load_heavy_work_pool.try_offer([request, response, done, submit_task_time_ns, this]() {
-                int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
-                brpc::ClosureGuard closure_guard(done);
-                int64_t execution_time_ns = 0;
-                {
-                    SCOPED_RAW_TIMER(&execution_time_ns);
-                    signal::SignalTaskIdKeeper keeper(request->id());
-                    auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
-                    if (!st.ok()) {
-                        LOG(WARNING)
-                                << "tablet writer add block failed, message=" << st
-                                << ", id=" << request->id() << ", index_id=" << request->index_id()
-                                << ", sender_id=" << request->sender_id()
-                                << ", backend id=" << request->backend_id();
-                    }
-                    st.to_protobuf(response->mutable_status());
-                }
-                response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
-                response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
-            });
+    bool ret = _heavy_work_pool.try_offer([request, response, done, submit_task_time_ns, this]() {
+        int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
+        brpc::ClosureGuard closure_guard(done);
+        int64_t execution_time_ns = 0;
+        {
+            SCOPED_RAW_TIMER(&execution_time_ns);
+            signal::SignalTaskIdKeeper keeper(request->id());
+            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
+            if (!st.ok()) {
+                LOG(WARNING) << "tablet writer add block failed, message=" << st
+                             << ", id=" << request->id() << ", index_id=" << request->index_id()
+                             << ", sender_id=" << request->sender_id()
+                             << ", backend id=" << request->backend_id();
+            }
+            st.to_protobuf(response->mutable_status());
+        }
+        response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
+        response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
+    });
     if (!ret) {
-        offer_failed(response, done, _load_heavy_work_pool);
+        offer_failed(response, done, _heavy_work_pool);
         return;
     }
 }

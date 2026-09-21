@@ -75,8 +75,6 @@ protected:
               &config::brpc_peer_fetch_pool_threads, &config::brpc_peer_fetch_pool_max_queue_size,
               &config::brpc_arrow_flight_work_pool_threads,
               &config::brpc_arrow_flight_work_pool_max_queue_size,
-              &config::brpc_load_heavy_work_pool_threads,
-              &config::brpc_load_heavy_work_pool_max_queue_size,
               &config::brpc_load_light_work_pool_threads,
               &config::brpc_load_light_work_pool_max_queue_size}) {
             _saved_config.emplace_back(setting, *setting);
@@ -85,7 +83,7 @@ protected:
         _exec_env._load_stream_mgr = std::make_unique<LoadStreamMgr>(1);
         _service = std::make_unique<PInternalService>(&_exec_env);
         for (auto* pool : {&_service->_heavy_work_pool, &_service->_light_work_pool,
-                           &_service->_load_heavy_work_pool, &_service->_load_light_work_pool}) {
+                           &_service->_load_light_work_pool}) {
             _paused_pools.push_back(std::make_unique<PausedLoadRpcPool>(*pool));
         }
     }
@@ -106,9 +104,8 @@ protected:
     std::vector<std::pair<int32_t*, int32_t>> _saved_config;
 };
 
-TEST_P(InternalServiceLoadWorkPoolTest, ControlRequestsBypassFullHeavyPools) {
+TEST_P(InternalServiceLoadWorkPoolTest, ControlRequestsBypassFullHeavyPool) {
     ASSERT_TRUE(_service->_heavy_work_pool.try_offer([] {}));
-    ASSERT_TRUE(_service->_load_heavy_work_pool.try_offer([] {}));
 
     PTabletWriterOpenRequest open_request;
     PTabletWriterOpenResult open_response;
@@ -150,8 +147,7 @@ TEST_P(InternalServiceLoadWorkPoolTest, ControlRequestsBypassFullHeavyPools) {
 
 INSTANTIATE_TEST_SUITE_P(LoadControl, InternalServiceLoadWorkPoolTest, testing::Values(0, 1, 2));
 
-TEST_F(InternalServiceLoadWorkPoolTest, AddBlockUsesLoadHeavyPool) {
-    ASSERT_TRUE(_service->_heavy_work_pool.try_offer([] {}));
+TEST_F(InternalServiceLoadWorkPoolTest, AddBlockKeepsUsingHeavyPool) {
     ASSERT_TRUE(_service->_load_light_work_pool.try_offer([] {}));
 
     PTabletWriterAddBlockRequest request;
@@ -159,19 +155,19 @@ TEST_F(InternalServiceLoadWorkPoolTest, AddBlockUsesLoadHeavyPool) {
     LoadRpcCountingClosure done;
     _service->tablet_writer_add_block(nullptr, &request, &response, &done);
     EXPECT_EQ(done.calls.load(), 0);
-    EXPECT_EQ(_service->_load_heavy_work_pool.get_queue_size(), 1);
+    EXPECT_EQ(_service->_heavy_work_pool.get_queue_size(), 1);
     EXPECT_EQ(_service->_light_work_pool.get_queue_size(), 0);
 
     _service->tablet_writer_add_block(nullptr, &request, &response, &done);
     EXPECT_EQ(done.calls.load(), 1);
     EXPECT_EQ(response.status().status_code(), TStatusCode::CANCELLED);
     ASSERT_EQ(response.status().error_msgs_size(), 1);
-    EXPECT_NE(response.status().error_msgs(0).find("brpc_load_heavy"), std::string::npos);
+    EXPECT_NE(response.status().error_msgs(0).find("brpc_heavy"), std::string::npos);
 }
 
-TEST_F(InternalServiceLoadWorkPoolTest, StreamingCloseUsesLoadHeavyPool) {
-    EXPECT_EQ(_exec_env.load_stream_mgr()->heavy_work_pool(), &_service->_load_heavy_work_pool);
-    EXPECT_NE(_exec_env.load_stream_mgr()->heavy_work_pool(), &_service->_heavy_work_pool);
+TEST_F(InternalServiceLoadWorkPoolTest, StreamingCloseKeepsUsingHeavyPool) {
+    EXPECT_EQ(_exec_env.load_stream_mgr()->heavy_work_pool(), &_service->_heavy_work_pool);
+    EXPECT_NE(_exec_env.load_stream_mgr()->heavy_work_pool(), &_service->_load_light_work_pool);
 }
 
 } // namespace doris
