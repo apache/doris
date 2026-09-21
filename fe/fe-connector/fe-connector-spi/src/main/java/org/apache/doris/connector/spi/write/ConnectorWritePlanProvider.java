@@ -161,6 +161,16 @@ public interface ConnectorWritePlanProvider {
     }
 
     /**
+     * Returns the table's write distribution, or {@code null} to retain the engine's existing generic
+     * distribution rules. An external hash function name and its options are connector-owned opaque values;
+     * FE Core only resolves column names and transports the descriptor to BE.
+     */
+    default ConnectorWriteDistribution getWriteDistribution(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        return null;
+    }
+
+    /**
      * Declares the connector's <b>synthetic write columns</b> for the target — request-scoped hidden
      * columns the engine injects into {@code PluginDrivenExternalTable.getFullSchema()} while a write/DML
      * over this table is in flight, in an engine-neutral form. The engine appends these (converted via

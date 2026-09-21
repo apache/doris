@@ -42,6 +42,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
+import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -510,6 +511,29 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 .map(connector::getWritePlanProvider)
                 .map(ConnectorWritePlanProvider::requiresPartitionHashWrite)
                 .orElse(false);
+    }
+
+    /** Returns this table's connector-owned write distribution, or empty for generic planning. */
+    public Optional<ConnectorWriteDistribution> getConnectorWriteDistribution() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Optional.empty();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
+        if (!handle.isPresent()) {
+            return Optional.empty();
+        }
+        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle.get());
+        if (provider == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(provider.getWriteDistribution(session, handle.get()));
     }
 
     /**
