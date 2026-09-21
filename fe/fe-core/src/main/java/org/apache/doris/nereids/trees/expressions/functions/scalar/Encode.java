@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
@@ -51,6 +52,22 @@ public class Encode extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     private Encode(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!getArgument(1).isConstant()) {
+            throw new AnalysisException("the second argument of function "
+                    + getName() + " must be constant: " + toSql());
+        }
+    }
+
+    // Invalid character sets must still be rejected when the first argument is a
+    // null literal. FoldConstantRuleOnFE otherwise rewrites PropagateNullable
+    // calls with any null child to NULL and skips backend evaluation.
+    @Override
+    public boolean foldable() {
+        return false;
     }
 
     /**

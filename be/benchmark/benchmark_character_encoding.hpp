@@ -77,7 +77,7 @@ CharacterEncodingData make_character_encoding_data(size_t length) {
 
 // Benchmark actual block execution, including result allocation and converter setup, not just
 // ICU calls. Inputs are materialized columns so constant folding cannot eliminate conversion.
-// Args: input size, constant charset (0/1). Large rows use smaller blocks to bound working memory.
+// The charset is constant by contract. Large rows use smaller blocks to bound working memory.
 template <bool Encode, int Scenario>
 void BM_character_encoding(benchmark::State& state) {
     const size_t length = state.range(0);
@@ -92,16 +92,8 @@ void BM_character_encoding(benchmark::State& state) {
         values->insert_data(input.data(), input.size());
     }
     auto charsets = ColumnString::create();
-    const bool constant_charset = state.range(1) != 0;
-    for (size_t i = 0; i < (constant_charset ? 1 : rows); ++i) {
-        charsets->insert_data(charset.data(), charset.size());
-    }
-    ColumnPtr charset_column;
-    if (constant_charset) {
-        charset_column = ColumnConst::create(std::move(charsets), rows);
-    } else {
-        charset_column = std::move(charsets);
-    }
+    charsets->insert_data(charset.data(), charset.size());
+    ColumnPtr charset_column = ColumnConst::create(std::move(charsets), rows);
     Block block {{std::move(values), input_type, "input"},
                  {std::move(charset_column), string_type, "charset"}};
     auto function = SimpleFunctionFactory::instance().get_function(
@@ -163,19 +155,19 @@ void BM_character_encoding(benchmark::State& state) {
 
 BENCHMARK_TEMPLATE(BM_character_encoding, true, 0)
         ->Name("encode_utf16be_ascii")
-        ->ArgsProduct({{15, 63, 1023, 65535}, {0, 1}});
+        ->ArgsProduct({{15, 63, 1023, 65535}});
 BENCHMARK_TEMPLATE(BM_character_encoding, false, 1)
         ->Name("decode_latin1_nonascii")
-        ->ArgsProduct({{15, 63, 1023, 65535}, {0, 1}});
+        ->ArgsProduct({{15, 63, 1023, 65535}});
 BENCHMARK_TEMPLATE(BM_character_encoding, true, 2)
         ->Name("encode_utf8_mixed")
-        ->ArgsProduct({{15, 63, 1023, 65535}, {0, 1}});
+        ->ArgsProduct({{15, 63, 1023, 65535}});
 BENCHMARK_TEMPLATE(BM_character_encoding, false, 2)
         ->Name("decode_utf8_mixed")
-        ->ArgsProduct({{15, 63, 1023, 65535}, {0, 1}});
+        ->ArgsProduct({{15, 63, 1023, 65535}});
 BENCHMARK_TEMPLATE(BM_character_encoding, false, 3)
         ->Name("decode_utf16be_cjk")
-        ->ArgsProduct({{16, 64, 1024, 65536}, {0, 1}});
+        ->ArgsProduct({{16, 64, 1024, 65536}});
 
 } // namespace
 } // namespace doris

@@ -215,6 +215,8 @@ public:
         return have_nullable(arguments) ? make_nullable(result_type) : result_type;
     }
 
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
+
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
@@ -223,6 +225,7 @@ public:
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         auto [character_set_column, character_set_is_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
+        DCHECK(character_set_is_const);
         const auto* input_nullable = check_and_get_column<ColumnNullable>(input_column.get());
         const auto* character_set_nullable =
                 check_and_get_column<ColumnNullable>(character_set_column.get());
@@ -260,32 +263,25 @@ public:
 
         for (size_t row = 0; row < input_rows_count; ++row) {
             const size_t input_index = index_check_const(row, input_is_const);
-            const size_t character_set_index = index_check_const(row, character_set_is_const);
             const bool input_is_null = input_null_map && (*input_null_map)[input_index];
             const bool character_set_is_null =
-                    character_set_null_map && (*character_set_null_map)[character_set_index];
+                    character_set_null_map && (*character_set_null_map)[0];
             if (input_is_null || character_set_is_null) {
                 result_column->insert_default();
                 result_null_column->get_data()[row] = 1;
                 continue;
             }
 
-            CharacterSet character_set = constant_character_set;
-            if (!character_set_is_const) {
-                RETURN_IF_ERROR(parse_character_set(character_sets.get_data_at(character_set_index),
-                                                    character_set));
-            }
-
             const StringRef input = input_nested->get_data_at(input_index);
             if constexpr (Encode) {
                 scratch.clear();
-                RETURN_IF_ERROR(convert_input(input, character_set, converters, scratch));
+                RETURN_IF_ERROR(convert_input(input, constant_character_set, converters, scratch));
                 result_column->insert_data(reinterpret_cast<const char*>(scratch.data()),
                                            scratch.size());
             } else {
                 // Write straight into the result column, including when the buffer grows.
                 auto& chars = result_column->get_chars();
-                RETURN_IF_ERROR(convert_input(input, character_set, converters, chars));
+                RETURN_IF_ERROR(convert_input(input, constant_character_set, converters, chars));
                 result_column->get_offsets().push_back(chars.size());
             }
         }

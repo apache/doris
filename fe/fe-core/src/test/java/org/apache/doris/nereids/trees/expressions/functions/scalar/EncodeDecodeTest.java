@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -99,5 +101,31 @@ public class EncodeDecodeTest {
 
         Assertions.assertSame(encode, encode.accept(visitor, null));
         Assertions.assertSame(decode, decode.accept(visitor, null));
+    }
+
+    @Test
+    public void testCharacterSetMustBeConstant() {
+        SlotReference characterSetColumn = new SlotReference("charset", StringType.INSTANCE);
+        Encode encode = new Encode(new StringLiteral("hello"), characterSetColumn);
+        Decode decode = new Decode(new VarBinaryLiteral(new byte[] {0x68, 0x69}),
+                characterSetColumn);
+
+        AnalysisException encodeException = Assertions.assertThrows(
+                AnalysisException.class, encode::checkLegalityBeforeTypeCoercion);
+        Assertions.assertTrue(encodeException.getMessage().contains(
+                "second argument of function encode must be constant"));
+        AnalysisException decodeException = Assertions.assertThrows(
+                AnalysisException.class, decode::checkLegalityBeforeTypeCoercion);
+        Assertions.assertTrue(decodeException.getMessage().contains(
+                "second argument of function decode must be constant"));
+
+        Assertions.assertDoesNotThrow(new Encode(new StringLiteral("hello"),
+                new Upper(new StringLiteral("utf-8")))::checkLegalityBeforeTypeCoercion);
+        Assertions.assertDoesNotThrow(new Decode(new VarBinaryLiteral(new byte[] {0x68, 0x69}),
+                new StringLiteral("UTF-8"))::checkLegalityBeforeTypeCoercion);
+        Assertions.assertFalse(new Encode(new StringLiteral("hello"),
+                new StringLiteral("UTF-8")).foldable());
+        Assertions.assertFalse(new Decode(new VarBinaryLiteral(new byte[] {0x68, 0x69}),
+                new StringLiteral("UTF-8")).foldable());
     }
 }

@@ -26,9 +26,26 @@ namespace doris {
 
 using namespace ut_type;
 
+template <typename ReturnType>
+void check_character_encoding(const std::string& function_name, PrimitiveType input_type,
+                              const DataSet& data_set) {
+    for (bool input_is_const : {false, true}) {
+        for (const auto& line : data_set) {
+            InputTypeSet input_types;
+            if (input_is_const) {
+                input_types.emplace_back(Consted {input_type});
+            } else {
+                input_types.emplace_back(input_type);
+            }
+            input_types.emplace_back(Consted {PrimitiveType::TYPE_VARCHAR});
+            ASSERT_TRUE(
+                    (check_function<ReturnType, true>(function_name, input_types, {line}).ok()));
+        }
+    }
+}
+
 TEST(function_character_encoding_test, encode_supported_charsets) {
     // The UTF-16 byte pairs 0x4E2D and 0x2D4E are "N-" and "-N" as raw bytes.
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             {{std::string("A"), std::string("US-ASCII")}, VARBINARY("A")},
             {{std::string("é"), std::string("ISO-8859-1")}, VARBINARY("\xE9")},
@@ -45,12 +62,11 @@ TEST(function_character_encoding_test, encode_supported_charsets) {
             {{std::string("text"), Null()}, Null()},
     };
 
-    check_function_all_arg_comb<DataTypeVarbinary, true>("encode", input_types, data_set);
+    check_character_encoding<DataTypeVarbinary>("encode", PrimitiveType::TYPE_VARCHAR, data_set);
 }
 
 TEST(function_character_encoding_test, decode_supported_charsets) {
     // The UTF-16 byte pairs 0x4E2D and 0x2D4E are "N-" and "-N" as raw bytes.
-    InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {
             {{VARBINARY("A"), std::string("US-ASCII")}, std::string("A")},
             {{VARBINARY("\xE9"), std::string("ISO-8859-1")}, std::string("é")},
@@ -70,12 +86,13 @@ TEST(function_character_encoding_test, decode_supported_charsets) {
             {{VARBINARY("text"), Null()}, Null()},
     };
 
-    check_function_all_arg_comb<DataTypeString, true>("decode", input_types, data_set);
+    check_character_encoding<DataTypeString>("decode", PrimitiveType::TYPE_VARBINARY, data_set);
 }
 
 TEST(function_character_encoding_test, rejects_invalid_conversions) {
     {
-        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
         DataSet data_set = {
                 {{std::string("text"), std::string("GBK")}, VARBINARY("")},
         };
@@ -87,7 +104,8 @@ TEST(function_character_encoding_test, rejects_invalid_conversions) {
     }
 
     {
-        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
         DataSet data_set = {
                 {{std::string("中"), std::string("US-ASCII")}, VARBINARY("")},
         };
@@ -100,7 +118,8 @@ TEST(function_character_encoding_test, rejects_invalid_conversions) {
     }
 
     {
-        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARCHAR};
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARBINARY,
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
         DataSet data_set = {
                 {{VARBINARY("\xE4\xB8"), std::string("UTF-8")}, std::string("")},
         };
@@ -111,6 +130,46 @@ TEST(function_character_encoding_test, rejects_invalid_conversions) {
         EXPECT_NE(status.to_string().find("Character conversion using 'UTF-8' failed"),
                   std::string::npos);
     }
+}
+
+TEST(function_character_encoding_test, invalid_constant_character_set_precedes_null_input) {
+    DataSet encode_data = {
+            {{Null(), std::string("GBK")}, Null()},
+    };
+    Status encode_status = check_function<DataTypeVarbinary, true>(
+            "encode", {PrimitiveType::TYPE_VARCHAR, Consted {PrimitiveType::TYPE_VARCHAR}},
+            encode_data, -1, -1, true);
+    ASSERT_TRUE(encode_status.is<ErrorCode::INVALID_ARGUMENT>()) << encode_status;
+    EXPECT_NE(encode_status.to_string().find("Unsupported character set"), std::string::npos);
+
+    DataSet decode_data = {
+            {{Null(), std::string("GBK")}, Null()},
+    };
+    Status decode_status = check_function<DataTypeString, true>(
+            "decode", {PrimitiveType::TYPE_VARBINARY, Consted {PrimitiveType::TYPE_VARCHAR}},
+            decode_data, -1, -1, true);
+    ASSERT_TRUE(decode_status.is<ErrorCode::INVALID_ARGUMENT>()) << decode_status;
+    EXPECT_NE(decode_status.to_string().find("Unsupported character set"), std::string::npos);
+}
+
+TEST(function_character_encoding_test, requires_constant_character_set) {
+    DataSet encode_data = {
+            {{std::string("A"), std::string("UTF-8")}, VARBINARY("A")},
+    };
+    Status encode_status = check_function<DataTypeVarbinary, true>(
+            "encode", {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR}, encode_data, -1,
+            -1, true);
+    ASSERT_TRUE(encode_status.is<ErrorCode::INVALID_ARGUMENT>()) << encode_status;
+    EXPECT_NE(encode_status.to_string().find("must be constant"), std::string::npos);
+
+    DataSet decode_data = {
+            {{VARBINARY("A"), std::string("UTF-8")}, std::string("A")},
+    };
+    Status decode_status = check_function<DataTypeString, true>(
+            "decode", {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARCHAR}, decode_data, -1,
+            -1, true);
+    ASSERT_TRUE(decode_status.is<ErrorCode::INVALID_ARGUMENT>()) << decode_status;
+    EXPECT_NE(decode_status.to_string().find("must be constant"), std::string::npos);
 }
 
 TEST(function_character_encoding_test, streaming_boundaries_and_row_reuse) {
@@ -133,8 +192,7 @@ TEST(function_character_encoding_test, streaming_boundaries_and_row_reuse) {
                 {{std::string("A"), std::string("UTF-16BE")},
                  VARBINARY(std::string_view("\0A", 2))},
         };
-        check_function_all_arg_comb<DataTypeVarbinary, true>(
-                "encode", {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR}, encoded);
+        check_character_encoding<DataTypeVarbinary>("encode", PrimitiveType::TYPE_VARCHAR, encoded);
 
         std::string latin1(length, '\xE9');
         std::string expanded;
@@ -151,8 +209,7 @@ TEST(function_character_encoding_test, streaming_boundaries_and_row_reuse) {
                 {{VARBINARY("\xFE\xFF"), std::string("UTF-16")}, std::string("")},
                 {{VARBINARY("\xE9"), std::string("ISO-8859-1")}, std::string("é")},
         };
-        check_function_all_arg_comb<DataTypeString, true>(
-                "decode", {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARCHAR}, decoded);
+        check_character_encoding<DataTypeString>("decode", PrimitiveType::TYPE_VARBINARY, decoded);
     }
 }
 
@@ -162,15 +219,15 @@ TEST(function_character_encoding_test, rejects_invalid_input_after_streaming) {
     for (const auto& input : {invalid_utf8, unrepresentable}) {
         DataSet data_set = {{{input, std::string("US-ASCII")}, VARBINARY("")}};
         Status status = check_function<DataTypeVarbinary, true>(
-                "encode", {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR}, data_set, -1,
-                -1, true);
+                "encode", {PrimitiveType::TYPE_VARCHAR, Consted {PrimitiveType::TYPE_VARCHAR}},
+                data_set, -1, -1, true);
         ASSERT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
     }
     const std::string expanding_invalid_utf8 = std::string(50000, 'A') + "\xE4\xB8";
     DataSet invalid_encode = {{{expanding_invalid_utf8, std::string("UTF-16BE")}, VARBINARY("")}};
     Status encode_status = check_function<DataTypeVarbinary, true>(
-            "encode", {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR}, invalid_encode,
-            -1, -1, true);
+            "encode", {PrimitiveType::TYPE_VARCHAR, Consted {PrimitiveType::TYPE_VARCHAR}},
+            invalid_encode, -1, -1, true);
     ASSERT_TRUE(encode_status.is<ErrorCode::INVALID_ARGUMENT>()) << encode_status;
 
     std::string invalid_utf16;
@@ -180,8 +237,8 @@ TEST(function_character_encoding_test, rejects_invalid_input_after_streaming) {
     invalid_utf16.append("\xD8\x3D", 2); // An unpaired high surrogate after several pivot fills.
     DataSet data_set = {{{VARBINARY(invalid_utf16), std::string("UTF-16BE")}, std::string("")}};
     Status status = check_function<DataTypeString, true>(
-            "decode", {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARCHAR}, data_set, -1,
-            -1, true);
+            "decode", {PrimitiveType::TYPE_VARBINARY, Consted {PrimitiveType::TYPE_VARCHAR}},
+            data_set, -1, -1, true);
     ASSERT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
 }
 

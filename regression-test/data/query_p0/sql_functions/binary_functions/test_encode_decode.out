@@ -27,3 +27,15 @@
 8	
 9	中
 
+-- !encode_constant_expr --
+E4B8AD
+
+-- !decode_constant_expr --
+中
+
+-- !encode_null_valid_charset --
+\N
+
+-- !decode_null_valid_charset --
+\N
+
