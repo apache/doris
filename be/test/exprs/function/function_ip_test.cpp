@@ -80,6 +80,24 @@ TEST(FunctionIpTest, StringToNumRejectsEmbeddedNullTail) {
     check_function_all_arg_comb<DataTypeString, true>("inet6_aton", input_types, ipv6_null_data);
 }
 
+TEST(FunctionIpTest, IPv6FromUInt128StringRejectsEmptyAndOverflow) {
+    const std::string max_uint128 = "340282366920938463463374607431768211455";
+    IPv6 max_value = 0;
+    EXPECT_TRUE(IPv6Value::from_uint128_string(max_value, max_uint128.data(), max_uint128.size()));
+    EXPECT_EQ(max_value, static_cast<IPv6>(-1));
+
+    for (const auto& value :
+         {std::string("340282366920938463463374607431768211456"),
+          std::string("680564733841876926926749214863536422913"), std::string()}) {
+        IPv6 parsed = 0;
+        EXPECT_FALSE(IPv6Value::from_uint128_string(parsed, value.data(), value.size()));
+    }
+
+    IPv6 parsed = 0;
+    EXPECT_TRUE(IPv6Value::from_uint128_string(parsed, "1", 1));
+    EXPECT_EQ(parsed, static_cast<IPv6>(1));
+}
+
 TEST(FunctionIpTest, StringToIPv6AcceptsLongIPv4Spellings) {
     std::string mapped_ipv4_zero(IPV6_BINARY_LENGTH, '\0');
     mapped_ipv4_zero[10] = static_cast<char>(0xff);
