@@ -49,7 +49,8 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                     "driver_class" = "oracle.jdbc.driver.OracleDriver"
         );"""
         order_qt_show_db """ show databases from ${catalog_name}; """
-        assertTrue((sql """show databases from ${catalog_name} like 'SYS'""").isEmpty())
+        def defaultInternalDatabases = sql """show databases from ${catalog_name} like 'SYS'"""
+        assertTrue(defaultInternalDatabases.isEmpty())
 
         // Include SYS with a case-insensitive property value, using the same Oracle account.
         String internal_catalog_name = "oracle_catalog_include_internal";
@@ -65,14 +66,18 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
                 "include_internal_database_list" = "sys"
             );"""
 
-            assertEquals([["SYS"]], sql """show databases from ${internal_catalog_name} like 'SYS'""")
-            assertTrue((sql """show databases from ${internal_catalog_name} like 'SYSTEM'""").isEmpty())
-            assertEquals([[ex_db_name]],
-                    sql """show databases from ${internal_catalog_name} like '${ex_db_name}'""")
+            def includedInternalDatabases = sql """show databases from ${internal_catalog_name} like 'SYS'"""
+            assertEquals([["SYS"]], includedInternalDatabases)
+            def excludedInternalDatabases = sql """show databases from ${internal_catalog_name} like 'SYSTEM'"""
+            assertTrue(excludedInternalDatabases.isEmpty())
+            def userDatabases = sql """show databases from ${internal_catalog_name} like '${ex_db_name}'"""
+            assertEquals([[ex_db_name]], userDatabases)
 
             // SYS.DUAL is accessible to ordinary Oracle users through PUBLIC privileges.
-            assertEquals([["DUAL"]], sql """show tables from ${internal_catalog_name}.SYS like 'DUAL'""")
-            assertEquals([["X"]], sql """select DUMMY from ${internal_catalog_name}.SYS.DUAL""")
+            def internalDatabaseTables = sql """show tables from ${internal_catalog_name}.SYS like 'DUAL'"""
+            assertEquals([["DUAL"]], internalDatabaseTables)
+            def internalTableRows = sql """select DUMMY from ${internal_catalog_name}.SYS.DUAL"""
+            assertEquals([["X"]], internalTableRows)
         } finally {
             sql """drop catalog if exists ${internal_catalog_name}"""
         }
