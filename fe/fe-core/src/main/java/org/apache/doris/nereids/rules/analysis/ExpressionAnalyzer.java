@@ -496,7 +496,7 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                 // layer several local scopes and a correlated subquery sees its outer scope:
                 //   select id from t order by array_sum(array_map(x -> x + v, arr))  -- v is not in the output
                 if (bindSlotByThisScope(unboundSlot).isEmpty()) {
-                    return enclosingAnalyzer.visitUnboundSlot(unboundSlot, context);
+                    return enclosingAnalyzer.visitUnboundSlotOfLambdaBody(unboundSlot, context, this);
                 }
                 return super.visitUnboundSlot(unboundSlot, context);
             }
@@ -509,6 +509,22 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             }
         };
         return lambdaAnalyzer.analyze(lambdaFunction, context);
+    }
+
+    /**
+     * Bind a name of a lambda body that is not a lambda argument. The element_at chain around the name is
+     * visited by the lambda analyzer, so whether the variant cast of the name is suppressed is the state of
+     * the lambda analyzer, not the state of this analyzer, which may be in a chain around the lambda.
+     */
+    private Expression visitUnboundSlotOfLambdaBody(UnboundSlot unboundSlot, ExpressionRewriteContext context,
+            ExpressionAnalyzer lambdaAnalyzer) {
+        int enclosingDepth = suppressVariantElementAtCastDepth;
+        suppressVariantElementAtCastDepth = lambdaAnalyzer.suppressVariantElementAtCastDepth;
+        try {
+            return visitUnboundSlot(unboundSlot, context);
+        } finally {
+            suppressVariantElementAtCastDepth = enclosingDepth;
+        }
     }
 
     /** Whether relation-qualified columns should be resolved across scopes before nested fields. */
