@@ -198,6 +198,36 @@ TEST_F(AsyncCachedRemoteFileReaderTest, sync_write_path_preserves_tablet_id) {
     EXPECT_EQ(blocks.begin()->second->tablet_id(), 10086);
 }
 
+TEST_F(AsyncCachedRemoteFileReaderTest, external_reader_normalizes_tablet_id_for_cache_writes) {
+    create_cache("cached_external_reader_tablet_id");
+    FileReaderOptions options;
+    options.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+    auto reader = std::make_shared<CachedRemoteFileReader>(open_remote_file(), options);
+
+    std::string result(64_kb, '\0');
+    FileCacheStatistics stats;
+    IOContext context;
+    context.file_cache_stats = &stats;
+    context.is_warmup = true;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(0, Slice(result.data(), result.size()), &bytes_read, &context).ok());
+    EXPECT_EQ(bytes_read, result.size());
+
+    context.is_warmup = false;
+    bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(1_mb, Slice(result.data(), result.size()), &bytes_read, &context).ok());
+    EXPECT_EQ(bytes_read, result.size());
+    wait_for_async_writes();
+
+    const auto blocks = cache()->get_blocks_by_key(reader->_cache_hash);
+    ASSERT_EQ(blocks.size(), 2);
+    for (const auto& [offset, block] : blocks) {
+        EXPECT_EQ(block->tablet_id(), 0) << "offset=" << offset;
+    }
+}
+
 TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_short_file_tail) {
     create_cache("cached_remote_reader_async_preallocated_file_tail");
     auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());

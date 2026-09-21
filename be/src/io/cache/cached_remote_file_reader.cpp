@@ -121,7 +121,7 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         : _is_doris_table(opts.is_doris_table),
           _cache_align_mode(opts.align_mode),
           _cache_write_mode(opts.cache_write_mode),
-          _tablet_id(opts.tablet_id),
+          _tablet_id(opts.is_doris_table ? opts.tablet_id : 0),
           _storage_resource_id(opts.storage_resource_id),
           _remote_file_reader(std::move(remote_file_reader)) {
     DCHECK(!_is_doris_table || _tablet_id > 0);
