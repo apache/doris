@@ -20,7 +20,6 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <rapidjson/rapidjson.h>
 
-#include <algorithm>
 #include <cctype>
 #include <memory>
 #include <string>
@@ -207,6 +206,27 @@ protected:
         }
 
         results.emplace_back(text.data(), text.size());
+        return Status::OK();
+    }
+
+    Status append_parsed_embedding_result(const rapidjson::Value& embedding,
+                                          std::vector<std::vector<float>>& results,
+                                          const std::string& response_body) const {
+        if (!embedding.IsArray()) {
+            return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
+                                         response_body);
+        }
+
+        std::vector<float> parsed_embedding;
+        parsed_embedding.reserve(embedding.Size());
+        for (const auto& value : embedding.GetArray()) {
+            if (!value.IsNumber()) {
+                return Status::InternalError("Invalid {} response format: {}",
+                                             _config.provider_type, response_body);
+            }
+            parsed_embedding.emplace_back(value.GetFloat());
+        }
+        results.emplace_back(std::move(parsed_embedding));
         return Status::OK();
     }
 
@@ -407,14 +427,12 @@ public:
         const auto& data = doc["data"];
         results.reserve(data.Size());
         for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
-            if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
+            if (!data[i].IsObject() || !data[i].HasMember("embedding")) {
                 return Status::InternalError("Invalid {} response format: {}",
                                              _config.provider_type, response_body);
             }
-
-            std::transform(data[i]["embedding"].Begin(), data[i]["embedding"].End(),
-                           std::back_inserter(results.emplace_back()),
-                           [](const auto& val) { return val.GetFloat(); });
+            RETURN_IF_ERROR(
+                    append_parsed_embedding_result(data[i]["embedding"], results, response_body));
         }
 
         return Status::OK();
@@ -481,6 +499,14 @@ public:
             results.reserve(choices.Size());
 
             for (rapidjson::SizeType i = 0; i < choices.Size(); i++) {
+                if (!choices[i].IsObject()) {
+                    return Status::InternalError("Invalid {} response format: {}",
+                                                 _config.provider_type, response_body);
+                }
+                if (choices[i].HasMember("message") && !choices[i]["message"].IsObject()) {
+                    return Status::InternalError("Invalid {} response format: {}",
+                                                 _config.provider_type, response_body);
+                }
                 if (choices[i].HasMember("message") && choices[i]["message"].HasMember("content") &&
                     choices[i]["message"]["content"].IsString()) {
                     RETURN_IF_ERROR(append_parsed_text_result(
@@ -560,37 +586,31 @@ public:
         }
 
         // parse different response format
-        rapidjson::Value embedding;
         if (doc.HasMember("data") && doc["data"].IsArray()) {
             // "data":["object":"embedding", "embedding":[0.1, 0.2...], "index":0]
             const auto& data = doc["data"];
             results.reserve(data.Size());
             for (rapidjson::SizeType i = 0; i < data.Size(); i++) {
-                if (!data[i].HasMember("embedding") || !data[i]["embedding"].IsArray()) {
+                if (!data[i].IsObject() || !data[i].HasMember("embedding")) {
                     return Status::InternalError("Invalid {} response format",
                                                  _config.provider_type);
                 }
-
-                std::transform(data[i]["embedding"].Begin(), data[i]["embedding"].End(),
-                               std::back_inserter(results.emplace_back()),
-                               [](const auto& val) { return val.GetFloat(); });
+                RETURN_IF_ERROR(append_parsed_embedding_result(data[i]["embedding"], results,
+                                                               response_body));
             }
         } else if (doc.HasMember("embeddings") && doc["embeddings"].IsArray()) {
             // "embeddings":[[0.1, 0.2, ...]]
-            results.reserve(1);
-            for (int i = 0; i < doc["embeddings"].Size(); i++) {
-                embedding = doc["embeddings"][i];
-                std::transform(embedding.Begin(), embedding.End(),
-                               std::back_inserter(results.emplace_back()),
-                               [](const auto& val) { return val.GetFloat(); });
+            const auto& embeddings = doc["embeddings"];
+            results.reserve(embeddings.Size());
+            for (rapidjson::SizeType i = 0; i < embeddings.Size(); i++) {
+                RETURN_IF_ERROR(
+                        append_parsed_embedding_result(embeddings[i], results, response_body));
             }
         } else if (doc.HasMember("embedding") && doc["embedding"].IsArray()) {
             // "embedding":[0.1, 0.2, ...]
             results.reserve(1);
-            embedding = doc["embedding"];
-            std::transform(embedding.Begin(), embedding.End(),
-                           std::back_inserter(results.emplace_back()),
-                           [](const auto& val) { return val.GetFloat(); });
+            RETURN_IF_ERROR(
+                    append_parsed_embedding_result(doc["embedding"], results, response_body));
         } else {
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
@@ -945,7 +965,8 @@ public:
             results.reserve(choices.Size());
 
             for (rapidjson::SizeType i = 0; i < choices.Size(); i++) {
-                if (!choices[i].HasMember("message") ||
+                if (!choices[i].IsObject() || !choices[i].HasMember("message") ||
+                    !choices[i]["message"].IsObject() ||
                     !choices[i]["message"].HasMember("content") ||
                     !choices[i]["message"]["content"].IsString()) {
                     return Status::InternalError("Invalid choice format in {} response: {}",
@@ -1129,14 +1150,12 @@ public:
             const auto& embeddings = doc["output"]["embeddings"];
             results.reserve(embeddings.Size());
             for (rapidjson::SizeType i = 0; i < embeddings.Size(); i++) {
-                if (!embeddings[i].HasMember("embedding") ||
-                    !embeddings[i]["embedding"].IsArray()) {
+                if (!embeddings[i].IsObject() || !embeddings[i].HasMember("embedding")) {
                     return Status::InternalError("Invalid {} response format: {}",
                                                  _config.provider_type, response_body);
                 }
-                std::transform(embeddings[i]["embedding"].Begin(), embeddings[i]["embedding"].End(),
-                               std::back_inserter(results.emplace_back()),
-                               [](const auto& val) { return val.GetFloat(); });
+                RETURN_IF_ERROR(append_parsed_embedding_result(embeddings[i]["embedding"], results,
+                                                               response_body));
             }
             return Status::OK();
         }
@@ -1323,10 +1342,12 @@ public:
         results.reserve(candidates.Size());
 
         for (rapidjson::SizeType i = 0; i < candidates.Size(); i++) {
-            if (!candidates[i].HasMember("content") ||
+            if (!candidates[i].IsObject() || !candidates[i].HasMember("content") ||
+                !candidates[i]["content"].IsObject() ||
                 !candidates[i]["content"].HasMember("parts") ||
                 !candidates[i]["content"]["parts"].IsArray() ||
                 candidates[i]["content"]["parts"].Empty() ||
+                !candidates[i]["content"]["parts"][0].IsObject() ||
                 !candidates[i]["content"]["parts"][0].HasMember("text") ||
                 !candidates[i]["content"]["parts"][0]["text"].IsString()) {
                 return Status::InternalError("Invalid candidate format in {} response",
@@ -1498,13 +1519,12 @@ public:
             const auto& embeddings = doc["embeddings"];
             results.reserve(embeddings.Size());
             for (rapidjson::SizeType i = 0; i < embeddings.Size(); i++) {
-                if (!embeddings[i].HasMember("values") || !embeddings[i]["values"].IsArray()) {
+                if (!embeddings[i].IsObject() || !embeddings[i].HasMember("values")) {
                     return Status::InternalError("Invalid {} response format: {}",
                                                  _config.provider_type, response_body);
                 }
-                std::transform(embeddings[i]["values"].Begin(), embeddings[i]["values"].End(),
-                               std::back_inserter(results.emplace_back()),
-                               [](const auto& val) { return val.GetFloat(); });
+                RETURN_IF_ERROR(append_parsed_embedding_result(embeddings[i]["values"], results,
+                                                               response_body));
             }
             return Status::OK();
         }
@@ -1519,13 +1539,12 @@ public:
           }
         }*/
         const auto& embedding = doc["embedding"];
-        if (!embedding.HasMember("values") || !embedding["values"].IsArray()) {
+        if (!embedding.HasMember("values")) {
             return Status::InternalError("Invalid {} response format: {}", _config.provider_type,
                                          response_body);
         }
-        std::transform(embedding["values"].Begin(), embedding["values"].End(),
-                       std::back_inserter(results.emplace_back()),
-                       [](const auto& val) { return val.GetFloat(); });
+        RETURN_IF_ERROR(
+                append_parsed_embedding_result(embedding["values"], results, response_body));
 
         return Status::OK();
     }
@@ -1625,6 +1644,10 @@ public:
 
         std::string result;
         for (rapidjson::SizeType i = 0; i < content.Size(); i++) {
+            if (!content[i].IsObject()) {
+                return Status::InternalError("Invalid {} response format: {}",
+                                             _config.provider_type, response_body);
+            }
             if (!content[i].HasMember("type") || !content[i]["type"].IsString() ||
                 !content[i].HasMember("text") || !content[i]["text"].IsString()) {
                 continue;
@@ -1696,10 +1719,7 @@ public:
         }
 
         results.reserve(1);
-        std::transform(doc["embedding"].Begin(), doc["embedding"].End(),
-                       std::back_inserter(results.emplace_back()),
-                       [](const auto& val) { return val.GetFloat(); });
-        return Status::OK();
+        return append_parsed_embedding_result(doc["embedding"], results, response_body);
     }
 
 private:

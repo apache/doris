@@ -863,6 +863,20 @@ TEST(AI_ADAPTER_TEST, parse_response_wrong_type) {
                 ::testing::HasSubstr("Unsupported response format from local AI."));
 }
 
+TEST(AI_ADAPTER_TEST, local_adapter_rejects_non_object_choice) {
+    LocalAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, local_adapter_rejects_non_object_message) {
+    LocalAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[{"message":1}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choice_format_error) {
     OpenAIAdapter adapter;
     // message field missing
@@ -878,6 +892,20 @@ TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_choice_format_error) {
     st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
     EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid choice format in  response"));
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_rejects_non_object_choice) {
+    OpenAIAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, openai_adapter_rejects_non_object_message) {
+    OpenAIAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"choices":[{"message":1}]})", results);
+    ASSERT_FALSE(st.ok());
 }
 
 TEST(AI_ADAPTER_TEST, openai_adapter_parse_response_parse_error) {
@@ -916,6 +944,27 @@ TEST(AI_ADAPTER_TEST, gemini_parse_response_missing_candidates) {
     EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
 }
 
+TEST(AI_ADAPTER_TEST, gemini_adapter_rejects_non_object_candidate) {
+    GeminiAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"candidates":[1]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, gemini_adapter_rejects_non_object_content) {
+    GeminiAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"candidates":[{"content":1}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
+TEST(AI_ADAPTER_TEST, gemini_adapter_rejects_non_object_part) {
+    GeminiAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"candidates":[{"content":{"parts":[1]}}]})", results);
+    ASSERT_FALSE(st.ok());
+}
+
 TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_parse_error) {
     AnthropicAdapter adapter;
     std::string resp = "not a json";
@@ -932,6 +981,13 @@ TEST(AI_ADAPTER_TEST, anthropic_adapter_parse_response_content_not_array) {
     Status st = adapter.parse_response(resp, results);
     ASSERT_FALSE(st.ok());
     EXPECT_THAT(st.to_string().c_str(), ::testing::HasSubstr("Invalid  response format"));
+}
+
+TEST(AI_ADAPTER_TEST, anthropic_adapter_rejects_non_object_content_item) {
+    AnthropicAdapter adapter;
+    std::vector<std::string> results;
+    Status st = adapter.parse_response(R"({"content":[1]})", results);
+    ASSERT_FALSE(st.ok());
 }
 
 TEST(AI_ADAPTER_TEST, voyage_adapter_chat_test) {
