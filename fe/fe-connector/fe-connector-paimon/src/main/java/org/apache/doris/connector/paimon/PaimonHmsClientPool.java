@@ -32,8 +32,10 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.security.PrivilegedAction;
+import java.util.Objects;
 
 /** Applies the HMS identity at Paimon's metastore client acquisition and RPC boundary. */
 final class PaimonHmsClientPool implements ClientPool<IMetaStoreClient, TException> {
@@ -43,7 +45,7 @@ final class PaimonHmsClientPool implements ClientPool<IMetaStoreClient, TExcepti
 
     private PaimonHmsClientPool(ClientPool<IMetaStoreClient, TException> delegate,
             HadoopAuthenticator authenticator) {
-        this.delegate = delegate;
+        this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.authenticator = authenticator;
     }
 
@@ -61,11 +63,17 @@ final class PaimonHmsClientPool implements ClientPool<IMetaStoreClient, TExcepti
             throw new IllegalStateException("Expected a Paimon HiveCatalog for HMS authentication");
         }
         try {
+            // HiveCatalog creates its client pool lazily in the private clients() accessor. Reading the
+            // field directly before the first catalog operation returns null; replacing that null with our
+            // wrapper also prevents HiveCatalog from ever creating the real pool. Initialize it through the
+            // accessor first, then replace the field with the authenticated wrapper.
+            Method clientsAccessor = HiveCatalog.class.getDeclaredMethod("clients");
+            clientsAccessor.setAccessible(true);
             Field clients = HiveCatalog.class.getDeclaredField("clients");
             clients.setAccessible(true);
             @SuppressWarnings("unchecked")
             ClientPool<IMetaStoreClient, TException> delegate =
-                    (ClientPool<IMetaStoreClient, TException>) clients.get(root);
+                    (ClientPool<IMetaStoreClient, TException>) clientsAccessor.invoke(root);
             // Paimon exposes no client-pool injection seam; replacing only this field prevents the HMS user
             // from leaking into FileIO while covering both cached-pool client creation and every metastore RPC.
             clients.set(root, wrap(delegate, authenticator));

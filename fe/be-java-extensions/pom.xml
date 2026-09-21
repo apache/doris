@@ -30,6 +30,7 @@ under the License.
         <module>hive-apache-shade</module>
         <module>java-udf</module>
         <module>jdbc-scanner</module>
+        <module>paimon-s3-shade</module>
         <module>paimon-scanner</module>
         <module>max-compute-connector</module>
         <module>trino-connector-scanner</module>
@@ -69,7 +70,7 @@ under the License.
           surface - adding an interface or a method counts, not only removing or changing one. That
           definition is what makes a differing minor safe to ignore.
         -->
-        <jni.plugin.api.version>3.0</jni.plugin.api.version>
+        <jni.plugin.api.version>4.0</jni.plugin.api.version>
     </properties>
 
     <build>

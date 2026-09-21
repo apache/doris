@@ -38,6 +38,7 @@ import org.apache.doris.tablefunction.FileTableValuedFunction;
 import org.apache.doris.tablefunction.PluginDrivenQueryTableValueFunction;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
@@ -71,6 +72,7 @@ public class FileQueryScanNodeTest {
 
     private static class TestFileQueryScanNode extends FileQueryScanNode {
         private TableIf targetTable;
+        private boolean applyColumnDefaultsOnRead = true;
 
         TestFileQueryScanNode(SessionVariable sv) {
             super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), "test", ScanContext.EMPTY, false, sv);
@@ -86,6 +88,15 @@ public class FileQueryScanNodeTest {
 
         void initSchemaParamsForTest() throws UserException {
             initSchemaParams();
+        }
+
+        void setApplyColumnDefaultsOnRead(boolean applyColumnDefaultsOnRead) {
+            this.applyColumnDefaultsOnRead = applyColumnDefaultsOnRead;
+        }
+
+        @Override
+        protected boolean applyColumnDefaultsOnRead() {
+            return applyColumnDefaultsOnRead;
         }
 
         @Override
@@ -335,6 +346,29 @@ public class FileQueryScanNodeTest {
         Assertions.assertSame(slotInfo, updatedSlotInfo);
         Assertions.assertTrue(updatedSlotInfo.isSetDefaultValueExpr());
         Assertions.assertSame(defaultExpr, updatedSlotInfo.getDefaultValueExpr());
+    }
+
+    @Test
+    public void testConnectorCanKeepColumnDefaultWriteOnly() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.setTargetTable(table);
+        node.setApplyColumnDefaultsOnRead(false);
+
+        Column column = new Column("added_later", Type.INT, false, null, true, "7", "");
+        TupleDescriptor desc = node.getTupleDescriptor();
+        desc.setTable(table);
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), desc.getId());
+        slot.setColumn(column);
+        desc.addSlot(slot);
+        Mockito.when(table.getBaseSchema(false)).thenReturn(Collections.singletonList(column));
+        Mockito.when(table.getFullSchema()).thenReturn(Collections.singletonList(column));
+
+        node.initSchemaParamsForTest();
+
+        TExpr missingColumnExpr = node.getFileScanRangeParams()
+                .getRequiredSlots().get(0).getDefaultValueExpr();
+        Assertions.assertEquals(TExprNodeType.NULL_LITERAL,
+                missingColumnExpr.getNodes().get(0).getNodeType());
     }
 
 }

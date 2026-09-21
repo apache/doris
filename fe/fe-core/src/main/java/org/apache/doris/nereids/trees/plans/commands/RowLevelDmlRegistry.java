@@ -35,7 +35,7 @@ import java.util.Optional;
 public final class RowLevelDmlRegistry {
 
     private static final List<RowLevelDmlTransform> TRANSFORMS =
-            ImmutableList.of(new IcebergRowLevelDmlTransform());
+            ImmutableList.of(new PaimonRowLevelDmlTransform(), new IcebergRowLevelDmlTransform());
 
     private RowLevelDmlRegistry() {
     }

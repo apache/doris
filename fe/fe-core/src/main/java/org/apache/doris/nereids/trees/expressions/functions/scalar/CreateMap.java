@@ -85,11 +85,13 @@ public class CreateMap extends ScalarFunction
         if (arity() % 2 != 0) {
             throw new AnalysisException("map can't be odd parameters, need even parameters " + this.toSql());
         }
-        children.forEach(child -> {
-            if (child.getDataType().isJsonType() || child.getDataType().isVariantType()) {
+        for (int i = 0; i < arity(); i++) {
+            DataType childType = getArgument(i).getDataType();
+            boolean isKey = i % 2 == 0;
+            if (childType.isJsonType() || (isKey && childType.isVariantType())) {
                 throw new AnalysisException("map does not support jsonb/variant type");
             }
-        });
+        }
     }
 
     /**

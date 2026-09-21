@@ -50,24 +50,24 @@ suite("test_paimon_ctas_atomicity_negative",
         sql """switch ${catalogName}"""
         sql """use ${dbName}"""
 
-        // A failed CTAS must not leave metadata that makes a retry fail with TABLE ALREADY EXISTS.
-        // On the connector-SPI path the sink rejection is worded by the connector's declared write
-        // capabilities (the paimon connector declares none) rather than by the legacy fe-core
-        // "Load data to PaimonExternalCatalog is not supported"; the CTAS still fails at the same point.
-        test {
-            sql """
-                create table ctas_target engine=paimon
-                as select cast(1 as int) as id, cast('candidate' as string) as payload
-            """
-            exception "does not support INSERT operations"
-        }
-        assertEquals(0, (sql """show tables like 'ctas_target'""").size())
+        // Paimon writes make CTAS a supported create-and-insert operation. Verify both the
+        // metadata and inserted row before resetting the target for the existing-table cases.
+        sql """
+            create table ctas_target engine=paimon
+            as select cast(1 as int) as id, cast('candidate' as string) as payload
+        """
+        assertEquals(1, (sql """show tables like 'ctas_target'""").size())
+        def ctasRows = sql """select * from ctas_target order by id"""
+        assertEquals(1, ctasRows.size())
+        assertEquals("1", ctasRows[0][0].toString())
+        assertEquals("candidate", ctasRows[0][1].toString())
+        sql """drop table ctas_target"""
 
         spark_paimon """
             create table paimon.${dbName}.ctas_target (id int, payload string)
             using paimon
         """
-        // IF NOT EXISTS must remain a no-op even though Paimon does not support the CTAS sink.
+        // IF NOT EXISTS remains a no-op and must not insert into the pre-existing target.
         sql """
             create table if not exists ctas_target engine=paimon
             as select cast(1 as int) as id, cast('candidate' as string) as payload
@@ -75,7 +75,7 @@ suite("test_paimon_ctas_atomicity_negative",
         assertEquals(1, (sql """show tables like 'ctas_target'""").size())
         assertEquals(0, (sql """select * from ctas_target""").size())
 
-        // An existing non-idempotent target must keep catalog error precedence; no sink can own it.
+        // An existing non-idempotent target must keep catalog error precedence.
         test {
             sql """
                 create table ctas_target engine=paimon

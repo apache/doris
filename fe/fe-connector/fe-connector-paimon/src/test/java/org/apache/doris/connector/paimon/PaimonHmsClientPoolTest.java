@@ -20,15 +20,19 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.paimon.client.ClientPool;
+import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.hive.HiveCatalog;
 import org.apache.thrift.TException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.reflect.Field;
 
 public class PaimonHmsClientPoolTest {
 
@@ -53,6 +57,25 @@ public class PaimonHmsClientPoolTest {
 
         String user = PaimonHmsClientPool.wrap(delegate, auth).run(client -> currentUser());
         Assertions.assertEquals("paimon-hms-user", user);
+    }
+
+    @Test
+    public void installInitializesLazyHiveClientPoolBeforeWrapping() throws Exception {
+        HiveConf hiveConf = new HiveConf();
+        // CachedClientPool otherwise eagerly connects during construction. SASL mode keeps the
+        // test focused on HiveCatalog's lazy pool initialization without requiring a live HMS.
+        hiveConf.setBoolean("hive.metastore.sasl.enabled", true);
+        HiveCatalog catalog = new HiveCatalog(
+                LocalFileIO.create(), hiveConf,
+                "org.apache.hadoop.hive.metastore.HiveMetaStoreClient", "file:///tmp/warehouse");
+        Configuration conf = new Configuration();
+        conf.set("hadoop.username", "paimon-hms-user");
+
+        PaimonHmsClientPool.install(catalog, HadoopAuthenticator.getHadoopAuthenticator(conf));
+
+        Field clients = HiveCatalog.class.getDeclaredField("clients");
+        clients.setAccessible(true);
+        Assertions.assertInstanceOf(PaimonHmsClientPool.class, clients.get(catalog));
     }
 
     private static String currentUser() {

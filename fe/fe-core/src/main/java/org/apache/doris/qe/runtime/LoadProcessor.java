@@ -246,7 +246,8 @@ public class LoadProcessor extends AbstractJobProcessor {
             loadContext.updateErrorTabletInfos(params.getErrorTabletInfos());
         }
         long txnId = loadContext.getTransactionId();
-        if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas()) {
+        if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
+                || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages()) {
             Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);
             if (params.isSetHivePartitionUpdates()) {
                 CommitDataSerializer.feed(txn, params.getHivePartitionUpdates());
@@ -256,6 +257,9 @@ public class LoadProcessor extends AbstractJobProcessor {
             }
             if (params.isSetMcCommitDatas()) {
                 CommitDataSerializer.feed(txn, params.getMcCommitDatas());
+            }
+            if (params.isSetPaimonCommitMessages()) {
+                CommitDataSerializer.feed(txn, params.getPaimonCommitMessages());
             }
         }
     }
