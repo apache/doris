@@ -24,6 +24,7 @@ import org.apache.doris.datasource.doris.DorisExternalMetaCache;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalMetaCache;
 import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
@@ -379,6 +380,7 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateCatalog(long catalogId) {
+        invalidateLanceTableAccess(catalogId);
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateCatalog",
                 () -> cache.invalidateCatalogEntries(catalogId)));
@@ -489,6 +491,7 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateTable(long catalogId, String dbName, String tableName) {
+        invalidateLanceTableAccess(catalogId);
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTable",
                 () -> cache.invalidateTable(catalogId, dbName, tableName)));
@@ -498,6 +501,15 @@ public class ExternalMetaCacheMgr {
         routeSpecifiedEngine(engine, cache -> safeInvalidate(
                 cache, catalogId, "invalidateTableByEngine",
                 () -> cache.invalidateTable(catalogId, dbName, tableName)));
+    }
+
+    private void invalidateLanceTableAccess(long catalogId) {
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        if (catalog instanceof LanceExternalCatalog) {
+            // Access keys use remote namespace names, whereas refresh can use mapped Doris names.
+            // Retire this small catalog-wide cache to also fence concurrent loads and name remaps.
+            ((LanceExternalCatalog) catalog).invalidateTableAccessCache();
+        }
     }
 
     public void invalidatePartitions(long catalogId,
