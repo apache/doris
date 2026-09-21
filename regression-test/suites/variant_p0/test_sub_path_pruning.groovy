@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("variant_sub_path_pruning", "variant_type"){
+suite("test_sub_path_pruning", "variant_type"){
 
     def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
     def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
