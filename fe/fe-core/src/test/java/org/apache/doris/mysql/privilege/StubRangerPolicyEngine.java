@@ -17,7 +17,6 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.catalog.authorizer.ranger.BackgroundLoadedRangerPlugin;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisResource;
 
 import com.google.common.collect.Lists;
@@ -26,6 +25,7 @@ import org.apache.ranger.plugin.policyengine.RangerAccessRequest.ResourceMatchin
 import org.apache.ranger.plugin.policyengine.RangerAccessResource;
 import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.apache.ranger.plugin.policyengine.RangerAccessResultProcessor;
+import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.Collection;
 import java.util.List;
@@ -61,7 +61,7 @@ import java.util.List;
  * deferring to whoever owns global scope, and pinning it here is what keeps that deference from being dropped
  * or widened unnoticed.
  */
-public class StubRangerPolicyEngine extends BackgroundLoadedRangerPlugin {
+public class StubRangerPolicyEngine extends RangerBasePlugin {
     public static final String ALLOWED_USER = "ranger_user";
     public static final String ALLOWED_DB = "pdb";
     public static final String ALLOWED_TABLE = "ptbl";

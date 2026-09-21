@@ -191,11 +191,11 @@ public class CatalogFactory {
         try {
             catalog.setDefaultPropsIfMissing(false);
             catalog.checkWhenCreating();
-            // This will check if the customized access controller can be created successfully - whether its
-            // constructor accepts the properties and the configuration it reads, which is all a dry run can
-            // see: a Ranger source verifies its configuration here and loads its policies on a thread of its
-            // own afterwards, and what that load finds is logged by the source, not thrown here.
-            // If failed, it will throw exception and the catalog will not be created.
+            // This will check if the customized access controller can be created successfully.
+            // If failed, it will throw exception and the catalog will not be created. A Ranger source refuses
+            // to be built without its service's policies, so a Ranger admin that cannot be reached and has
+            // left no policy cache fails the CREATE here, with the cause, rather than leaving a catalog
+            // behind that refuses every statement.
             try {
                 catalog.initAccessController(true);
             } catch (Throwable e) {

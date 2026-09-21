@@ -27,7 +27,6 @@ import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.ResourceKind;
 import org.apache.doris.authorization.spi.AuthorizationContext;
-import org.apache.doris.catalog.authorizer.ranger.BackgroundLoadedRangerPlugin;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -48,15 +47,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class RangerTest {
 
-    public static class DorisTestPlugin extends BackgroundLoadedRangerPlugin {
+    public static class DorisTestPlugin extends RangerBasePlugin {
         /** The access type the last masking lookup asked with; see testDataMaskLookupAsksWithTheReadAccessType. */
         private String lastDataMaskAccessType;
         /** How many questions reached the policy engine, for the cases about not asking it at all. */
@@ -157,7 +152,7 @@ public class RangerTest {
      * Grants one action per level of the hierarchy and counts what was asked, so that an action a level
      * already granted being asked about again further down is observable.
      */
-    public static class LevelledPlugin extends BackgroundLoadedRangerPlugin {
+    public static class LevelledPlugin extends RangerBasePlugin {
         private final AtomicInteger requests = new AtomicInteger();
 
         public LevelledPlugin() {
@@ -426,84 +421,6 @@ public class RangerTest {
                 .createRequest(USER, AccessContext.NONE);
 
         Assertions.assertTrue(request.getUserGroups().isEmpty());
-    }
-
-    /** A plugin whose first load ends when the test says so, the way a Ranger admin's answer would end it. */
-    private static final class StillLoadingPlugin extends BackgroundLoadedRangerPlugin {
-        private final CountDownLatch adminAnswers = new CountDownLatch(1);
-        private final CountDownLatch loadStarted = new CountDownLatch(1);
-
-        private StillLoadingPlugin() {
-            // A service name and an admin URL, which init() builds a client for before the load - the one
-            // thing it insists on knowing about the admin. Nothing dials it: the load below never polls.
-            super("test", "test", null);
-            getConfig().set("ranger.plugin.test.policy.rest.url", "http://ranger.invalid:6080");
-        }
-
-        /** Left alone: a singleton of the JVM, and a load that never polls has no audit to write. */
-        @Override
-        protected void initializeAudit(boolean again) {
-        }
-
-        @Override
-        protected void firstLoad() {
-            loadStarted.countDown();
-            try {
-                Assertions.assertTrue(adminAnswers.await(30, TimeUnit.SECONDS), "the test never let the load end");
-            } catch (InterruptedException e) {
-                throw new IllegalStateException(e);
-            }
-        }
-    }
-
-    /**
-     * A check waiting for the plugin's first load is refused the moment its controller is closed, not once
-     * the load has ended: closed, the controller refuses whatever the load brings, and a query holding a
-     * controller its catalog has let go of should not sit out the REST timeouts of an admin that is not
-     * answering - which is also how long the plugin's own {@code cleanup()} deliberately does not wait.
-     */
-    @Test
-    public void testACheckWaitingForTheLoadIsRefusedOnceTheControllerIsClosed() throws Exception {
-        StillLoadingPlugin plugin = new StillLoadingPlugin();
-        try {
-            plugin.init();
-            Assertions.assertTrue(plugin.loadStarted.await(10, TimeUnit.SECONDS));
-            RangerDorisAccessController controller =
-                    new RangerDorisAccessController(plugin, NOTHING_GRANTED_ELSEWHERE);
-            AuthorizedResource.Table table = AuthorizedResource.table("ctl1", "db1", "tbl1");
-
-            CompletableFuture<Void> check = CompletableFuture.runAsync(() -> {
-                try {
-                    controller.checkPrivilege(USER, table, AccessRequirements.SELECT, AccessContext.NONE);
-                } catch (AccessDeniedException e) {
-                    throw new IllegalStateException(e);
-                }
-            });
-            CompletableFuture<List<?>> filters = CompletableFuture.supplyAsync(
-                    () -> controller.getRowFilters(USER, table, AccessContext.NONE));
-            Thread.sleep(200);
-            Assertions.assertFalse(check.isDone(), "answered before the load had ended");
-            Assertions.assertFalse(filters.isDone(), "answered before the load had ended");
-
-            // Built directly, the controller owns the plugin and stops it on close; still loading, the plugin
-            // returns at once and stops itself when the load ends. Neither waits for the admin - and now,
-            // neither does the check.
-            controller.close();
-
-            ExecutionException refused = Assertions.assertThrows(ExecutionException.class,
-                    () -> check.get(10, TimeUnit.SECONDS));
-            Assertions.assertTrue(refused.getCause().getCause() instanceof AccessDeniedException,
-                    "not refused: " + refused.getCause());
-            Assertions.assertTrue(refused.getCause().getCause().getMessage().contains("has been closed"),
-                    refused.getCause().getCause().getMessage());
-            refused = Assertions.assertThrows(ExecutionException.class, () -> filters.get(10, TimeUnit.SECONDS));
-            Assertions.assertTrue(refused.getCause() instanceof IllegalStateException, "not refused: " + refused);
-            Assertions.assertTrue(refused.getCause().getMessage().contains("has been closed"),
-                    refused.getCause().getMessage());
-            Assertions.assertFalse(plugin.isLoaded(), "the load was waited for after all");
-        } finally {
-            plugin.adminAnswers.countDown();
-        }
     }
 
     /** The whole point: a policy item written against a group decides, once the user is in that group. */

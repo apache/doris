@@ -24,6 +24,7 @@ import org.apache.ranger.plugin.contextenricher.RangerAdminUserStoreRetriever;
 import org.apache.ranger.plugin.contextenricher.RangerUserStoreEnricher;
 import org.apache.ranger.plugin.policyengine.RangerPluginContext;
 import org.apache.ranger.plugin.service.RangerAuthContext;
+import org.apache.ranger.plugin.service.RangerBasePlugin;
 import org.apache.ranger.plugin.util.RangerUserStoreUtil;
 import org.apache.ranger.plugin.util.ServiceDefUtil;
 import org.apache.ranger.plugin.util.ServicePolicies;
@@ -80,7 +81,7 @@ public final class RangerUserStoreGroups {
      * Puts a user store enricher on the service definition Ranger just downloaded, unless one is there or
      * this is switched off, so that the plugin fetches and refreshes the user store {@link #groupsOf} reads.
      *
-     * <p>Called by {@link BackgroundLoadedRangerPlugin#setPolicies} before handing the policies on, on every
+     * <p>Called by {@link LoadedRangerPlugin#setPolicies} before handing the policies on, on every
      * call and not only the first: a download of policy deltas comes with its own copy of the service
      * definition, which is why {@code RangerBasePlugin} re-adds the enricher on deltas too. The retriever
      * class and the refresh interval are read under the option names Ranger itself reads them under, so that
@@ -116,18 +117,16 @@ public final class RangerUserStoreGroups {
     /**
      * The groups the user store {@code plugin} has downloaded puts {@code user} in.
      *
-     * <p>Read once the plugin's first load has ended, since the store arrives with it: asked earlier, this
-     * would say "no groups" about a user the store is about to put in several. Empty when this is switched
-     * off, when no store arrived - Ranger Admin could not be reached, and nothing was cached - and when the
+     * <p>Empty when this is switched off, when no store has arrived - Ranger Admin could not be reached for
+     * it and nothing was cached, which {@link LoadedRangerPlugin} says why it does not refuse - and when the
      * store does not know the user, which is the case for every account that exists in Doris only. Empty
      * and not null on purpose: a request with an empty group set matches items written against users and
      * roles exactly as it did before.
      */
-    public static Set<String> groupsOf(BackgroundLoadedRangerPlugin plugin, String user) {
+    public static Set<String> groupsOf(RangerBasePlugin plugin, String user) {
         if (user == null || !enabledFor(plugin.getConfig())) {
             return Collections.emptySet();
         }
-        plugin.awaitLoaded();
         // The auth context the policy engine publishes is where Ranger's own request processing reads the
         // store from; it is replaced together with the engine, and the store is carried over when it is.
         RangerPluginContext pluginContext = plugin.getPluginContext();

@@ -33,9 +33,8 @@ import java.util.concurrent.TimeUnit;
  * <p>Bundled because the three are one lifetime - the handler is configured out of the plugin and the task
  * exists to drain the handler - and because that lifetime is not a binding's. A catalog bound to this source
  * is detached and re-attached by a plain {@code ALTER CATALOG}, and tearing a stack down between those two
- * costs a {@code cleanup()} on the DDL thread and, on the way back up, the plugin's whole first load - roles,
- * policies and user store from the Ranger admin - before the catalog answers a single check again. So
- * {@link RangerHiveAccessControllerFactory} keeps one stack per Ranger service, hands it to
+ * costs a {@code cleanup()} on the DDL thread and three synchronous REST calls to the Ranger admin on the way
+ * back up. So {@link RangerHiveAccessControllerFactory} keeps one stack per Ranger service, hands it to
  * every controller reading that service, and stops it only once nothing has read it for a while - while a
  * controller built directly, a test or an embedding that owns its own, starts and stops one of its own.
  */
@@ -82,11 +81,11 @@ class RangerHiveAuditStack {
                     new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
             return new RangerHiveAuditStack(plugin, auditHandler, flushFuture);
         } catch (RuntimeException | Error e) {
-            // The plugin is already loading when its constructor returns - on a thread of its own, which goes
-            // on to start a policy refresher thread and a policy download timer - and a stack that is not
-            // returned is one nothing holds a reference to. The handler reads ranger.plugin.hive.* through
-            // Hadoop's Configuration.getInt, so a malformed integer property leaves one of these behind per
-            // attempt rather than per service name, and nothing can ever stop it.
+            // The plugin is already polling when its constructor returns - a policy refresher thread and a
+            // policy download timer - and a stack that is not returned is one nothing holds a reference to.
+            // The handler reads ranger.plugin.hive.* through Hadoop's Configuration.getInt, so a malformed
+            // integer property leaves one of these behind per attempt rather than per service name, and
+            // nothing can ever stop it.
             try {
                 plugin.cleanup();
             } catch (Throwable suppressed) {

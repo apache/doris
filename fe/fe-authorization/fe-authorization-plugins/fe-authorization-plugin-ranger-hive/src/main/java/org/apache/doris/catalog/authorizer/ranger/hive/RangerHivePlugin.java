@@ -17,24 +17,24 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
-import org.apache.doris.catalog.authorizer.ranger.BackgroundLoadedRangerPlugin;
+import org.apache.doris.catalog.authorizer.ranger.LoadedRangerPlugin;
 
 import org.apache.ranger.plugin.service.RangerAuthContextListener;
 
 /**
- * The plugin over a Ranger service of type {@code hive}. Loading when it is built, on a thread of its own:
- * binding a catalog to it returns at once, and it is the first check against that catalog that waits for
- * the Ranger admin, see {@link BackgroundLoadedRangerPlugin}. The groups its requests carry are Ranger's
- * own, where Hive's plugin would have asked Hadoop's group mapping, which Doris has no equivalent of.
+ * The plugin over a Ranger service of type {@code hive}: built with the service's policies or not at all, so
+ * that a catalog is bound to it with them or the binding fails; see {@link LoadedRangerPlugin}. The groups
+ * its requests carry are Ranger's own, where Hive's plugin would have asked Hadoop's group mapping, which
+ * Doris has no equivalent of.
  */
-public class RangerHivePlugin extends BackgroundLoadedRangerPlugin {
+public class RangerHivePlugin extends LoadedRangerPlugin {
     public RangerHivePlugin(String serviceName) {
         this(serviceName, null);
     }
 
     public RangerHivePlugin(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
         super(serviceName, null, null);
-        // Registered before the load starts, so that the listener hears of the engine the load installs.
+        // Registered before the load, so that the listener hears of the engine the load installs.
         registerAuthContextEventListener(rangerAuthContextListener);
         init();
     }

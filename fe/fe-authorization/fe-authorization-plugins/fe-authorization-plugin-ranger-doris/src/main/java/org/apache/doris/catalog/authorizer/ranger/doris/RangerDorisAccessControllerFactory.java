@@ -20,17 +20,15 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
-import org.apache.doris.catalog.authorizer.ranger.BackgroundLoadedRangerPlugin;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.ranger.plugin.service.RangerBasePlugin;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -61,22 +59,12 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
      * one Ranger service, which is bounded and not a leak that grows. Stopping it would cost more than that:
      * a plain {@code ALTER CATALOG} detaches and re-attaches the catalog's access controller, and a plugin
      * torn down and rebuilt between those two pays {@code cleanup()} on the DDL thread - it interrupts the
-     * policy refresher and joins it without a timeout - and then the whole first load on the way back up:
-     * roles, policies and user store downloaded again, on the plugin's own thread, before the catalog answers
-     * a single check.
-     *
-     * <p>The one exception is a plugin whose first load threw: it has stopped itself and refuses every
-     * check, and the next binding lets go of it and builds a new one, see {@link #letGoOfAFailedPlugin()}.
+     * policy refresher and joins it without a timeout - and then three synchronous admin REST calls on the
+     * way back up, since {@code RangerBasePlugin.init()} loads the service's roles, policies and user store
+     * before it returns.
      */
-    private static BackgroundLoadedRangerPlugin sharedPlugin;
+    private static RangerBasePlugin sharedPlugin;
     private static final Map<Map<String, String>, Held> byConfiguration = new LinkedHashMap<>();
-    /**
-     * The controllers let go of with a failed plugin while bindings still hold them: handed out to nobody,
-     * released like the others, so that it is the last binding letting go that fences a controller - as it
-     * would have been had the plugin not failed - and not the first. One of them may stay for the life of the
-     * process: the instance-scope source's, which nothing ever releases.
-     */
-    private static final List<Held> retired = new ArrayList<>();
 
     /** One controller and the number of bindings holding it; the last one to let go takes it out. */
     private static final class Held {
@@ -113,17 +101,8 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
         RangerAccessController.validateProperties(properties);
         Map<String, String> configuration = normalize(properties);
 
-        BackgroundLoadedRangerPlugin failed;
-        synchronized (LOCK) {
-            failed = letGoOfAFailedPlugin();
-        }
-        if (failed != null) {
-            // With no lock held, like every stop. A plugin whose load threw has stopped itself, so this is a
-            // no-op that waits for nothing; but what the factory lets go of, it stops.
-            failed.cleanup();
-        }
-        BackgroundLoadedRangerPlugin built = null;
-        BackgroundLoadedRangerPlugin toStop = null;
+        RangerBasePlugin built = null;
+        RangerBasePlugin toStop = null;
         try {
             while (true) {
                 synchronized (LOCK) {
@@ -152,16 +131,14 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
                         return held.controller;
                     }
                 }
-                // Built with no lock held. The constructor starts the load of roles, policies and user store
-                // on the plugin's own thread and returns, but what it does before that - reading the plugin's
-                // configuration, a Kerberos login if one is configured - is nothing every other binding's
-                // create and close should queue behind either; and stopping the loser of the race this opens
-                // (the finally below) can block, which is the stronger reason. Losing costs one plugin.
+                // Built with no lock held: RangerBasePlugin.init() loads the service's roles, policies and user
+                // store over REST before it returns, so against a slow or unreachable Ranger admin doing it under
+                // the lock queues every other binding's create - and close - behind the whole REST timeout.
+                // Losing the race that opens costs one plugin, stopped in the finally below.
                 built = new RangerDorisPlugin(SERVICE_NAME);
             }
         } finally {
-            // With no lock held: cleanup() interrupts the policy refresher and joins it without a timeout,
-            // and a refresher part way through a download finishes it first.
+            // With no lock held: cleanup() interrupts the policy refresher and joins it without a timeout.
             if (toStop != null) {
                 toStop.cleanup();
             }
@@ -169,37 +146,6 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
                 built.cleanup();
             }
         }
-    }
-
-    /**
-     * Lets go of the shared plugin when its first load threw, so that the binding being made gets a new one;
-     * returns the plugin for the caller to stop, or null.
-     *
-     * <p>A plugin whose load threw has stopped itself and refuses every check, see
-     * {@link BackgroundLoadedRangerPlugin#isFailed()}. The load fails on what its preflight could not check
-     * for it, and what the operator then fixes in {@code fe/conf} reaches this source through its next
-     * binding - a {@code CREATE CATALOG}, or the {@code ALTER CATALOG} that detaches and re-attaches a catalog
-     * bound to the failed one - which is why a failed plugin is not shared any further: kept, it would be
-     * handed to every binding until the FE was restarted. Its controllers go with it, because a re-attach
-     * that found one in {@link #byConfiguration} would be handed the failed plugin again; the bindings still
-     * holding them go on refusing, as they have since the load failed, and are accounted for in
-     * {@link #retired} until the last of them lets go.
-     *
-     * <p>Caller holds {@link #LOCK}.
-     */
-    private static BackgroundLoadedRangerPlugin letGoOfAFailedPlugin() {
-        if (sharedPlugin == null || !sharedPlugin.isFailed()) {
-            return null;
-        }
-        LOG.warn("The Ranger plugin of {} failed its first load; a new one is built for this binding, and the"
-                        + " {} controller(s) over the failed one refuse until what holds them is bound again"
-                        + " (a catalog by ALTER CATALOG, the instance by an FE restart).",
-                RangerDorisAccessController.NAME, byConfiguration.size());
-        BackgroundLoadedRangerPlugin failed = sharedPlugin;
-        sharedPlugin = null;
-        retired.addAll(byConfiguration.values());
-        byConfiguration.clear();
-        return failed;
     }
 
     /**
@@ -218,36 +164,22 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
         }
         synchronized (LOCK) {
             Map<String, String> configuration = configurationOf(controller);
-            Held held = configuration != null ? byConfiguration.get(configuration) : retiredHoldOf(controller);
-            if (held == null) {
+            if (configuration == null) {
                 return false;
             }
+            Held held = byConfiguration.get(configuration);
             if (--held.holders > 0) {
                 return true;
             }
-            if (configuration == null) {
-                retired.remove(held);
-            } else {
-                byConfiguration.remove(configuration);
-                LOG.info("Last binding of configuration {} of {} released; {} configuration(s) of this source"
-                                + " still in use.", describe(configuration), RangerDorisAccessController.NAME,
-                        byConfiguration.size());
-            }
+            byConfiguration.remove(configuration);
+            LOG.info("Last binding of configuration {} of {} released; {} configuration(s) of this source"
+                            + " still in use.", describe(configuration), RangerDorisAccessController.NAME,
+                    byConfiguration.size());
         }
         // Fence with no lock held: from here nothing reaches the plugin through this controller. A query that
         // is still holding it is refused rather than answered by a controller nothing is bound to.
         controller.fenceOff();
         return true;
-    }
-
-    /** The hold on {@code controller} among the ones let go of with a failed plugin, or null. */
-    private static Held retiredHoldOf(RangerDorisAccessController controller) {
-        for (Held held : retired) {
-            if (held.controller == controller) {
-                return held;
-            }
-        }
-        return null;
     }
 
     /** The configuration {@code controller} was built for, or null when this factory did not build it. */

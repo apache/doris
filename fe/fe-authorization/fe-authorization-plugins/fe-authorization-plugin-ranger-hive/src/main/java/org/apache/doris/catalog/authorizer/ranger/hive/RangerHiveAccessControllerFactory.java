@@ -26,12 +26,9 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
@@ -73,26 +70,16 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
      * <p>A stack outlives the binding that started it, but not the process. The last binding letting go does
      * not stop it, because a plain {@code ALTER CATALOG} detaches and re-attaches the catalog's access
      * controller and a stack stopped between those two costs a {@code cleanup()} on the DDL thread - it
-     * interrupts the policy refresher and joins it without a timeout - and the whole first load on the way
-     * back up, roles, policies and user store downloaded again before the catalog answers a single check.
-     * What happens instead is that a stack nothing reads any more is stopped after
+     * interrupts the policy refresher and joins it without a timeout - and three synchronous admin REST calls
+     * on the way back up. What happens instead is that a stack nothing reads any more is stopped after
      * {@link #idleStackGraceSeconds}, and anything asking for that service again in the meantime cancels
      * the stop. Without it the map would grow by one entry, one policy refresher thread and one download
      * timer for every distinct {@code ranger.service.name} this FE was ever asked about - including the ones
      * a rejected {@code CREATE CATALOG} asked about, and including names that resolve to nothing, which log
      * an error to fe.log every thirty seconds for as long as the process lives.
-     *
-     * <p>A stack whose plugin failed its first load is not kept for anybody: it refuses every check, and the
-     * next binding on its service stops it and builds a new one, see {@link #letGoOfAFailedStack}.
      */
     private static final Map<String, Shared> STACKS_BY_SERVICE = new HashMap<>();
     private static final Map<Map<String, String>, Held> BY_CONFIGURATION = new LinkedHashMap<>();
-    /**
-     * The controllers let go of with a failed stack while bindings still hold them: handed out to nobody,
-     * released like the others, so that it is the last binding letting go that fences a controller - as it
-     * would have been had the stack not failed - and not the first.
-     */
-    private static final List<Held> RETIRED = new ArrayList<>();
 
     /** One audit stack, and the stop scheduled for it while nothing reads it. */
     private static final class Shared {
@@ -140,16 +127,6 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
         Map<String, String> configuration = normalize(properties);
         String serviceName = configuration.get(RangerHiveAccessController.SERVICE_NAME_PROPERTY);
 
-        RangerHiveAuditStack failed;
-        synchronized (LOCK) {
-            failed = letGoOfAFailedStack(serviceName);
-        }
-        if (failed != null) {
-            // With no lock held, like every stop. The plugin has stopped itself already, so this is what is
-            // left of the stack: the audit it decided before that, and the timer draining it.
-            failed.stop();
-        }
-
         RangerHiveAuditStack built = null;
         RangerHiveAuditStack toStop = null;
         try {
@@ -191,12 +168,11 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
                         return held.controller;
                     }
                 }
-                // Nothing reads this service yet. Starting to read it returns as soon as the plugin's own
-                // thread has been sent to the Ranger admin for the roles, the policies and the user store,
-                // but what comes before that - reading the plugin's configuration, a Kerberos login if one is
-                // configured - and, above all, stopping the loser of the race this opens (the finally below)
-                // can both block, and neither is anything every other binding's create and close should
-                // queue behind. Built with no lock held; losing costs one plugin.
+                // Nothing reads this service yet, and starting to read it talks to the Ranger admin three
+                // times before it returns: RangerBasePlugin.init() loads the service's roles, policies and user
+                // store synchronously, before the refresher thread starts. Built with no lock held, so that a slow
+                // or unreachable admin cannot queue every other binding's create - and close - behind it.
+                // Losing the race that opens costs one plugin, stopped in the finally below.
                 built = RangerHiveAuditStack.startFor(serviceName);
             }
         } finally {
@@ -208,47 +184,6 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
                 built.stop();
             }
         }
-    }
-
-    /**
-     * Takes the stack serving {@code serviceName} out when its plugin's first load threw, so that the binding
-     * being made gets a new one; returns the stack for the caller to stop, or null.
-     *
-     * <p>A plugin whose load threw has stopped itself and refuses every check, see
-     * {@link org.apache.doris.catalog.authorizer.ranger.BackgroundLoadedRangerPlugin#isFailed()}. The load
-     * fails on what its preflight could not check for it, and what the operator then fixes in {@code fe/conf}
-     * reaches this source through its next binding on that service - a {@code CREATE CATALOG}, or the
-     * {@code ALTER CATALOG} that detaches and re-attaches a catalog bound to the failed one - which is why a
-     * failed stack is kept for nobody, not even for the grace period, which is for a stack a re-attach is
-     * about to ask for again. Its controllers go with it, because a re-attach that found one in
-     * {@link #BY_CONFIGURATION} would be handed the failed stack again; the bindings still holding them go on
-     * refusing, as they have since the load failed, and are accounted for in {@link #RETIRED} until the last
-     * of them lets go - with nothing of theirs to stop then, since none of them owns the stack.
-     *
-     * <p>Caller holds {@link #LOCK}.
-     */
-    private static RangerHiveAuditStack letGoOfAFailedStack(String serviceName) {
-        Shared shared = STACKS_BY_SERVICE.get(serviceName);
-        if (shared == null || !shared.stack.getPlugin().isFailed()) {
-            return null;
-        }
-        cancelPendingStop(shared);
-        STACKS_BY_SERVICE.remove(serviceName);
-        int letGo = 0;
-        for (Iterator<Map.Entry<Map<String, String>, Held>> entries = BY_CONFIGURATION.entrySet().iterator();
-                entries.hasNext();) {
-            Map.Entry<Map<String, String>, Held> entry = entries.next();
-            if (Objects.equals(serviceName, entry.getKey().get(RangerHiveAccessController.SERVICE_NAME_PROPERTY))) {
-                RETIRED.add(entry.getValue());
-                entries.remove();
-                letGo++;
-            }
-        }
-        LOG.warn("The Ranger plugin of {} on service {} failed its first load; it is stopped, a new one is"
-                        + " built for this binding, and the {} controller(s) over the failed one refuse until"
-                        + " their catalogs are bound again (ALTER CATALOG).", RangerHiveAccessController.NAME,
-                serviceName, letGo);
-        return shared.stack;
     }
 
     /**
@@ -267,24 +202,18 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
         }
         synchronized (LOCK) {
             Map<String, String> configuration = configurationOf(controller);
-            Held held = configuration != null ? BY_CONFIGURATION.get(configuration) : retiredHoldOf(controller);
-            if (held == null) {
+            if (configuration == null) {
                 return false;
             }
+            Held held = BY_CONFIGURATION.get(configuration);
             if (--held.holders > 0) {
                 return true;
             }
-            if (configuration == null) {
-                // Over a stack the factory has already let go of and stopped; nothing reads it, so there is
-                // no stop to schedule.
-                RETIRED.remove(held);
-            } else {
-                BY_CONFIGURATION.remove(configuration);
-                LOG.info("Last binding of configuration {} of {} released; {} configuration(s) of this source"
-                                + " still in use.", describe(configuration), RangerHiveAccessController.NAME,
-                        BY_CONFIGURATION.size());
-                stopUnlessStillRead(configuration.get(RangerHiveAccessController.SERVICE_NAME_PROPERTY));
-            }
+            BY_CONFIGURATION.remove(configuration);
+            LOG.info("Last binding of configuration {} of {} released; {} configuration(s) of this source"
+                            + " still in use.", describe(configuration), RangerHiveAccessController.NAME,
+                    BY_CONFIGURATION.size());
+            stopUnlessStillRead(configuration.get(RangerHiveAccessController.SERVICE_NAME_PROPERTY));
         }
         // Fence with no lock held: from here nothing reaches the plugin through this controller. A query that
         // is still holding it is refused rather than answered by a controller nothing is bound to.
@@ -357,16 +286,6 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
             shared.pendingStop.cancel(false);
             shared.pendingStop = null;
         }
-    }
-
-    /** The hold on {@code controller} among the ones let go of with a failed stack, or null. */
-    private static Held retiredHoldOf(RangerHiveAccessController controller) {
-        for (Held held : RETIRED) {
-            if (held.controller == controller) {
-                return held;
-            }
-        }
-        return null;
     }
 
     /** The configuration {@code controller} was built for, or null when this factory did not build it. */
