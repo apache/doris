@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
 import org.junit.jupiter.api.Assertions;
@@ -64,6 +65,18 @@ public class SearchExpressionTest {
         Assertions.assertEquals(slotChildren, searchExpr.getSlotChildren());
         Assertions.assertEquals(1, searchExpr.children().size());
         Assertions.assertEquals(titleSlot, searchExpr.children().get(0));
+    }
+
+    @Test
+    public void testAlwaysNullable() {
+        // BE answers UNKNOWN for a clause its index cannot evaluate, whatever the field's nullability, and a scan
+        // only carries that UNKNOWN into a virtual column while this expression is nullable.
+        SlotReference notNullSlot = new SlotReference("age", IntegerType.INSTANCE, false, Arrays.asList());
+        SearchExpression searchExpr = new SearchExpression("age:[18 TO 30]", createTestPlan(),
+                Arrays.asList(notNullSlot));
+
+        Assertions.assertFalse(notNullSlot.nullable());
+        Assertions.assertTrue(searchExpr.nullable());
     }
 
     @Test

@@ -234,6 +234,20 @@
 hello
 hello world
 
+-- !search_bkd_term_scan --
+2
+3
+4
+
+-- !search_bkd_term_join --
+2
+3
+4
+
+-- !search_bkd_range_scan --
+
+-- !search_bkd_range_join --
+
 -- !nullside_nonstrict_match_where --
 \N
 1

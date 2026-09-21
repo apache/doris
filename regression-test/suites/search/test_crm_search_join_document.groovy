@@ -993,6 +993,37 @@ select objects_0_1___OBJECTID from `results`
         (SELECT content FROM crm_search_full_a WHERE search('content:hello'))
         INTERSECT (SELECT name FROM crm_search_names)
     """
+    // A BKD (numeric) index answers only TERM/EXACT clauses, so BE returns UNKNOWN for every row of any other
+    // clause. A residual SEARCH materialized as a scan virtual column must carry that UNKNOWN exactly as the
+    // filter on the scan does, whatever the field's nullability: when it does not, UNKNOWN becomes FALSE and
+    // NOT search(...) selects every row. Each pair below must keep matching, whichever clauses the index grows.
+    sql "DROP TABLE IF EXISTS crm_search_ages"
+    sql """CREATE TABLE crm_search_ages (id INT NOT NULL, age INT NOT NULL,
+        INDEX idx_age(age) USING INVERTED)
+        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num"="1")"""
+    sql "INSERT INTO crm_search_ages VALUES (1,20),(2,25),(3,40),(4,50)"
+    sql "DROP TABLE IF EXISTS crm_search_age_join"
+    sql """CREATE TABLE crm_search_age_join (k1 INT)
+        DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1
+        PROPERTIES("replication_num"="1")"""
+    sql "INSERT INTO crm_search_age_join VALUES (1),(2),(3),(4)"
+    order_qt_search_bkd_term_scan """
+        SELECT id FROM crm_search_ages WHERE NOT search('age:20')
+    """
+    order_qt_search_bkd_term_join """
+        SELECT a.id FROM crm_search_ages a LEFT JOIN crm_search_age_join j ON a.id = j.k1
+        WHERE (NOT search('age:20')) OR j.k1 = 100
+    """
+    // A range clause the BKD index cannot answer: UNKNOWN, so neither shape selects a row.
+    order_qt_search_bkd_range_scan """
+        SELECT id FROM crm_search_ages WHERE NOT search('age:[18 TO 30]')
+    """
+    order_qt_search_bkd_range_join """
+        SELECT a.id FROM crm_search_ages a LEFT JOIN crm_search_age_join j ON a.id = j.k1
+        WHERE (NOT search('age:[18 TO 30]')) OR j.k1 = 100
+    """
+
     // A SEARCH that cannot reach one scan is rejected instead of being evaluated without an index.
     test {
         sql """SELECT k1 FROM (SELECT k1, content FROM crm_search_full_a ORDER BY k1 LIMIT 3) t

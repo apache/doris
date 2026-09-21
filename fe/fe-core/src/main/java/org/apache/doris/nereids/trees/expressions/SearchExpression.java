@@ -62,8 +62,12 @@ public class SearchExpression extends Expression {
 
     @Override
     public boolean nullable() throws UnboundException {
-        // Search expressions can be null if any child slot is null
-        return children().stream().anyMatch(Expression::nullable);
+        // A SEARCH is UNKNOWN wherever its inverted indexes cannot answer the DSL, not only where its fields are
+        // NULL: BE returns an all-rows null bitmap for a clause type an index does not implement (a range on a BKD
+        // index), an unparseable value, or a missing iterator. A scan writes that bitmap into a virtual column only
+        // when this expression is nullable (segment_iterator.cpp, _output_index_result_column), so declaring it
+        // non-nullable over NOT NULL fields would turn UNKNOWN into FALSE and make NOT search(...) true everywhere.
+        return true;
     }
 
     @Override
