@@ -20,7 +20,9 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -37,6 +39,7 @@ import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Tests for {@link PhysicalConnectorTableSink#getRequirePhysicalProperties()} (FIX-WRITE-DISTRIBUTION,
@@ -341,6 +344,30 @@ public class PhysicalConnectorTableSinkTest {
                 "a non-partitioned hash-write connector falls through to parallel writers, not the hash arm");
     }
 
+    @Test
+    public void connectorOwnedHashDistributionStaysOpaqueInFeCore() {
+        SlotReference operationSlot = new SlotReference("connector_operation", IntegerType.INSTANCE);
+        SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
+        PluginDrivenExternalTable table = table(false, false, ImmutableList.of(),
+                ImmutableList.of(DATA, PART));
+        Mockito.when(table.getConnectorWriteDistribution()).thenReturn(Optional.of(
+                ConnectorWriteDistribution.externalHash(ImmutableList.of("part"),
+                        "connector_bucket", java.util.Collections.singletonMap("buckets", "8"),
+                        ConnectorWriteDistribution.WriterAssignment.IDENTITY)));
+        PhysicalConnectorTableSink<Plan> sink = sink(table, Arrays.asList(DATA, PART),
+                ImmutableList.of(operationSlot, dataSlot, partSlot));
+        Deencapsulation.setField(sink, "hasRowOperationColumn", true);
+
+        DistributionSpecExternalTableSinkHashPartitioned distribution
+                = (DistributionSpecExternalTableSinkHashPartitioned)
+                sink.getRequirePhysicalProperties().getDistributionSpec();
+        Assertions.assertEquals(ImmutableList.of(partSlot.getExprId()),
+                distribution.getOutputColumnExprIds());
+        Assertions.assertEquals("connector_bucket", distribution.getPartitionFunction());
+        Assertions.assertEquals("8", distribution.getPartitionFunctionOptions().get("buckets"));
+    }
+
     // ==================== helpers ====================
 
     private static PluginDrivenExternalTable table(boolean parallelWrite, boolean requirePartitionSort,
@@ -350,6 +377,7 @@ public class PhysicalConnectorTableSinkTest {
         Mockito.when(table.requirePartitionLocalSortOnWrite()).thenReturn(requirePartitionSort);
         Mockito.when(table.getPartitionColumns()).thenReturn(partitionColumns);
         Mockito.when(table.getFullSchema()).thenReturn(fullSchema);
+        Mockito.when(table.getConnectorWriteDistribution()).thenReturn(Optional.empty());
         return table;
     }
 

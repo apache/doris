@@ -66,6 +66,8 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
@@ -218,6 +220,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
@@ -3759,6 +3762,35 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return new DataPartition(partitionType, partitionExprs);
         } else if (distributionSpec instanceof DistributionSpecOlapTableSinkHashPartitioned) {
             return DataPartition.TABLET_ID;
+        } else if (distributionSpec instanceof DistributionSpecExternalTableSinkHashPartitioned) {
+            DistributionSpecExternalTableSinkHashPartitioned externalSpec
+                    = (DistributionSpecExternalTableSinkHashPartitioned) distributionSpec;
+            List<Expr> partitionExprs = Lists.newArrayList();
+            for (ExprId partitionExprId : externalSpec.getOutputColumnExprIds()) {
+                if (childOutputIds.contains(partitionExprId)) {
+                    partitionExprs.add(context.findSlotRef(partitionExprId));
+                }
+            }
+            Preconditions.checkState(partitionExprs.size()
+                            == externalSpec.getOutputColumnExprIds().size(),
+                    "External sink route expressions must be present in child output");
+            TExternalTableSinkWriterAssignment writerAssignment;
+            switch (externalSpec.getWriterAssignment()) {
+                case IDENTITY:
+                    writerAssignment = TExternalTableSinkWriterAssignment.IDENTITY;
+                    break;
+                case SKEWED:
+                    writerAssignment = TExternalTableSinkWriterAssignment.SKEWED;
+                    break;
+                default:
+                    throw new IllegalStateException("Unsupported external sink writer assignment: "
+                            + externalSpec.getWriterAssignment());
+            }
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED,
+                    partitionExprs, externalSpec.getPartitionFunction(),
+                    externalSpec.getPartitionFunctionOptions(), writerAssignment);
+        } else if (distributionSpec instanceof DistributionSpecExternalTableSinkUnPartitioned) {
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED);
         } else if (distributionSpec instanceof DistributionSpecHiveTableSinkHashPartitioned) {
             DistributionSpecHiveTableSinkHashPartitioned partitionSpecHash =
                     (DistributionSpecHiveTableSinkHashPartitioned) distributionSpec;

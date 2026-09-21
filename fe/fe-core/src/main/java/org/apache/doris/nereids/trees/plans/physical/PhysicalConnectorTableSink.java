@@ -18,10 +18,14 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Config;
+import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
@@ -29,6 +33,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -36,13 +41,16 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.model.Statistics;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -349,6 +357,12 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
         }
         PluginDrivenExternalTable table = (PluginDrivenExternalTable) targetTable;
 
+        Optional<ConnectorWriteDistribution> connectorDistribution
+                = table.getConnectorWriteDistribution();
+        if (connectorDistribution.isPresent()) {
+            return toPhysicalProperties(connectorDistribution.get());
+        }
+
         if (table.requirePartitionLocalSortOnWrite()) {
             Set<String> partitionNames = boundPartitionColumns.stream()
                     .map(Column::getName)
@@ -431,5 +445,54 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
             return PhysicalProperties.SINK_RANDOM_PARTITIONED;
         }
         return PhysicalProperties.GATHER;
+    }
+
+    private PhysicalProperties toPhysicalProperties(ConnectorWriteDistribution distribution) {
+        switch (distribution.getMode()) {
+            case EXECUTION_ANY:
+                return PhysicalProperties.EXECUTION_ANY;
+            case GATHER:
+                return PhysicalProperties.GATHER;
+            case HASH:
+                return PhysicalProperties.createHash(
+                        routeExprIds(distribution.getRouteColumns()), ShuffleType.REQUIRE);
+            case EXTERNAL_UNPARTITIONED:
+                requireExternalWriterRoutingSupport();
+                return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
+            case EXTERNAL_HASH:
+                requireExternalWriterRoutingSupport();
+                return new PhysicalProperties(new DistributionSpecExternalTableSinkHashPartitioned(
+                        routeExprIds(distribution.getRouteColumns()),
+                        distribution.getPartitionFunction(),
+                        distribution.getPartitionFunctionOptions(),
+                        distribution.getWriterAssignment()));
+            default:
+                throw new IllegalStateException("Unsupported connector write distribution: "
+                        + distribution.getMode());
+        }
+    }
+
+    private void requireExternalWriterRoutingSupport() {
+        Preconditions.checkState(Config.be_exec_version
+                        >= DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION,
+                "External table sink distribution requires BE execution version %s or newer",
+                DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION);
+    }
+
+    private List<ExprId> routeExprIds(List<String> routeColumns) {
+        List<Slot> output = child().getOutput();
+        int offset = hasRowOperationColumn() ? 1 : 0;
+        Preconditions.checkState(boundTargetSchema.size() + offset == output.size(),
+                "Connector sink schema must match child output for routed writes");
+        Map<String, ExprId> outputByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (int i = 0; i < boundTargetSchema.size(); i++) {
+            outputByName.put(boundTargetSchema.get(i).getName(), output.get(i + offset).getExprId());
+        }
+        List<ExprId> exprIds = new ArrayList<>(routeColumns.size());
+        for (String column : routeColumns) {
+            exprIds.add(Preconditions.checkNotNull(outputByName.get(column),
+                    "Connector route column is missing from sink output: " + column));
+        }
+        return exprIds;
     }
 }
