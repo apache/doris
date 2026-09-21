@@ -87,8 +87,8 @@ public class CostBasedRewriteJob implements RewriteJob {
         // If one of them optimize failed, just return
         if (!skipCboRuleCost.isPresent() || !appliedCboRuleCost.isPresent()) {
             LOG.warn("Cbo rewrite execute failed on sql: {}, jobs are {}, plan is {}.",
-                    currentCtx.getStatementContext().getOriginStatement().originStmt,
-                    rewriteJobs, currentCtx.getRewritePlan());
+                    getOriginSqlForLogging(currentCtx.getStatementContext()), rewriteJobs,
+                    currentCtx.getRewritePlan());
             return;
         }
         if (checkHint.first) {
@@ -104,6 +104,12 @@ public class CostBasedRewriteJob implements RewriteJob {
         if (appliedCboRuleCost.get().first.getValue() < skipCboRuleCost.get().first.getValue()) {
             currentCtx.setRewritePlan(applyCboPlan);
         }
+    }
+
+    static String getOriginSqlForLogging(StatementContext statementContext) {
+        return Optional.ofNullable(statementContext.getOriginStatement())
+                .map(origin -> origin.originStmt)
+                .orElse("<unknown>");
     }
 
     /**

@@ -70,10 +70,15 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
 
     public VectorSearchTableValuedFunction(Map<String, String> properties)
             throws AnalysisException {
-        super(prepare(properties));
+        this(properties, false);
     }
 
-    private static PreparedSearch prepare(Map<String, String> properties)
+    public VectorSearchTableValuedFunction(Map<String, String> properties, boolean deferQueryVector)
+            throws AnalysisException {
+        super(prepare(properties, deferQueryVector));
+    }
+
+    private static PreparedSearch prepare(Map<String, String> properties, boolean deferQueryVector)
             throws AnalysisException {
         Map<String, String> params = normalizeProperties(properties, PROPERTIES, NAME);
         boolean useIndex = !params.containsKey(USE_INDEX)
@@ -85,8 +90,14 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
                 common.metadata().getSchema(), required(params, COLUMN, NAME), "vector");
         int vectorFieldId = useIndex
                 ? requireLanceFieldId(common.metadata(), vectorField) : -1;
-        TSearchVector queryVector = parseAndEncodeQueryVector(
-                vectorField, required(params, QUERY_VECTOR, NAME));
+        // PREPARE needs the table schema, but the vector is supplied only at EXECUTE.
+        TSearchVector queryVector = null;
+        if (deferQueryVector) {
+            analyzeQueryVectorField(vectorField);
+        } else {
+            queryVector = parseAndEncodeQueryVector(
+                    vectorField, required(params, QUERY_VECTOR, NAME));
+        }
 
         TVectorSearchParams vectorParams = new TVectorSearchParams()
                 .setColumn(vectorField.getName())
@@ -95,11 +106,13 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
                 .setOffset(common.offset());
         // Pin the planner's default on every split; Lance otherwise inherits an index metric.
         vectorParams.setMetric(params.containsKey(METRIC) ? parseMetric(params.get(METRIC)) : TVectorMetric.L2);
-        validateMultiVectorBudget(queryVector, common.topK(), common.offset(),
-                params.containsKey(REFINE_FACTOR) ? parsePositiveInt(params.get(REFINE_FACTOR), REFINE_FACTOR) : 1);
-
-        if (queryVector.isSetNumVectors() && vectorParams.getMetric() == TVectorMetric.HAMMING) {
-            throw new AnalysisException("Lance multi-vector search supports l2, cosine, and dot metrics");
+        // Query-dependent checks need the bound vector; schema-only PREPARE has no vector yet.
+        if (!deferQueryVector) {
+            validateMultiVectorBudget(queryVector, common.topK(), common.offset(),
+                    params.containsKey(REFINE_FACTOR) ? parsePositiveInt(params.get(REFINE_FACTOR), REFINE_FACTOR) : 1);
+            if (queryVector.isSetNumVectors() && vectorParams.getMetric() == TVectorMetric.HAMMING) {
+                throw new AnalysisException("Lance multi-vector search supports l2, cosine, and dot metrics");
+            }
         }
         TExternalSearchRequest searchRequest = new TExternalSearchRequest()
                 .setSchemaVersion(1)
@@ -215,23 +228,7 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
     static TSearchVector parseAndEncodeQueryVector(Field field, String json)
             throws AnalysisException {
         boolean multiVector = field.getType().getTypeID() == ArrowType.ArrowTypeID.List;
-        Field vectorField = field;
-        if (multiVector) {
-            if (hasExtension(field) || field.getDictionary() != null || field.getChildren().size() != 1) {
-                throw unsupportedVectorType(field);
-            }
-            vectorField = field.getChildren().get(0);
-            // Lance's multi-vector distance kernels do not consult inner validity bitmaps.
-            if (vectorField.isNullable() || vectorField.getChildren().size() != 1) {
-                throw new AnalysisException("Lance multi-vector columns require non-nullable subvectors");
-            }
-        }
-        VectorEncodingSpec encodingSpec = analyzeVectorField(vectorField);
-        if (multiVector && encodingSpec.elementType != TVectorElementType.FLOAT16
-                && encodingSpec.elementType != TVectorElementType.FLOAT32
-                && encodingSpec.elementType != TVectorElementType.FLOAT64) {
-            throw unsupportedVectorType(field);
-        }
+        VectorEncodingSpec encodingSpec = analyzeQueryVectorField(field);
         JsonArray values = parseQueryVector(json, field, multiVector ? -1 : encodingSpec.dimension);
         int numVectors = multiVector ? values.size() : 1;
         if (multiVector) {
@@ -266,6 +263,28 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
             query.setNumVectors(numVectors);
         }
         return query;
+    }
+
+    private static VectorEncodingSpec analyzeQueryVectorField(Field field) throws AnalysisException {
+        boolean multiVector = field.getType().getTypeID() == ArrowType.ArrowTypeID.List;
+        Field vectorField = field;
+        if (multiVector) {
+            if (hasExtension(field) || field.getDictionary() != null || field.getChildren().size() != 1) {
+                throw unsupportedVectorType(field);
+            }
+            vectorField = field.getChildren().get(0);
+            // Lance's multi-vector distance kernels do not consult inner validity bitmaps.
+            if (vectorField.isNullable() || vectorField.getChildren().size() != 1) {
+                throw new AnalysisException("Lance multi-vector columns require non-nullable subvectors");
+            }
+        }
+        VectorEncodingSpec encodingSpec = analyzeVectorField(vectorField);
+        if (multiVector && encodingSpec.elementType != TVectorElementType.FLOAT16
+                && encodingSpec.elementType != TVectorElementType.FLOAT32
+                && encodingSpec.elementType != TVectorElementType.FLOAT64) {
+            throw unsupportedVectorType(field);
+        }
+        return encodingSpec;
     }
 
     private static VectorEncodingSpec analyzeVectorField(Field field) throws AnalysisException {

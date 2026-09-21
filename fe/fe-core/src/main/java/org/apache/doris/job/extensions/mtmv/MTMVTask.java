@@ -63,6 +63,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -256,6 +257,17 @@ public class MTMVTask extends AbstractTask {
             }
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
             this.completedPartitions = Lists.newCopyOnWriteArrayList();
+            try {
+                // Snapshot persistence happens after refresh partitions are split into execution groups. Load the
+                // complete union here so the default one-partition group size cannot turn a large Hive MTMV into
+                // one metadata request per MV partition; generatePartitionSnapshots reuses this context cache.
+                context.preparePartitionSnapshots(Sets.newHashSet(needRefreshPartitions));
+            } catch (Exception e) {
+                // Preloading is only a batching optimization. Retrying through the existing per-group load below
+                // preserves completed-group progress when a later chunk of the union fails.
+                LOG.warn("Failed to preload partition snapshots for mv={}, taskId={}; "
+                        + "falling back to per-group loading", mtmv.getName(), getTaskId(), e);
+            }
             int refreshPartitionNum = mtmv.getRefreshPartitionNum();
             long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
                     % refreshPartitionNum) > 0 ? 1 : 0);
@@ -333,7 +345,8 @@ public class MTMVTask extends AbstractTask {
             Map<TableIf, String> tableWithPartKey, ConnectContext taskContext)
             throws Exception {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        StatementContext statementContext = new StatementContext();
+        StatementContext statementContext = new StatementContext(
+                ctx, new OriginStatement(mtmv.getQuerySql(), 0));
         ctx.setStatementContext(statementContext);
         executor = null;
         try {
@@ -347,7 +360,7 @@ public class MTMVTask extends AbstractTask {
             UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                     .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                             ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
-            executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
+            executor = createExecutor(ctx, command, statementContext);
             ctx.setExecutor(executor);
             ctx.setQueryId(queryId);
             ctx.getState().setNereids(true);
@@ -369,6 +382,14 @@ public class MTMVTask extends AbstractTask {
                 closeExecutionContext(ctx, taskContext);
             }
         }
+    }
+
+    private static StmtExecutor createExecutor(ConnectContext ctx, UpdateMvByPartitionCommand command,
+            StatementContext statementContext) {
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(command, statementContext);
+        // StmtExecutor copies the adapter origin back into StatementContext during construction.
+        adapter.setOrigStmt(statementContext.getOriginStatement());
+        return new StmtExecutor(ctx, adapter);
     }
 
     private static void closeExecutionContext(ConnectContext ctx) {
@@ -723,9 +744,11 @@ public class MTMVTask extends AbstractTask {
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return Lists.newArrayList(mtmv.getPartitionNames());
         }
-        // An incomplete baseline cannot be checked by isMTMVSync, because the current exclude rules may
-        // skip the changed base tables and incorrectly mark the MV as fresh. Rebuild it with a full refresh.
-        if (!mtmv.hasCompleteRefreshSnapshot()) {
+        // A baseline that was invalidated as a whole cannot be checked by isMTMVSync, because the current
+        // exclude rules may skip the changed base tables and incorrectly mark the MV as fresh. Rebuild it
+        // with a full refresh. A partition that partition sync has just added is not such a case: it has no
+        // snapshot yet but is still compared per partition below, so only the new partition gets refreshed.
+        if (!mtmv.hasRefreshSnapshot()) {
             return Lists.newArrayList(mtmv.getPartitionNames());
         }
         // check if data is fresh

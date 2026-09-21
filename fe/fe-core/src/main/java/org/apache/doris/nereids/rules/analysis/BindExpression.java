@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -72,6 +73,8 @@ import org.apache.doris.nereids.trees.expressions.functions.table.FullTextSearch
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -1777,6 +1780,39 @@ public class BindExpression implements AnalysisRuleFactory {
 
         String functionName = unboundTVFRelation.getFunctionName();
         Properties arguments = unboundTVFRelation.getProperties();
+        if (!unboundTVFRelation.getPropertyParameters().isEmpty()) {
+            // The unbound plan is retained across EXECUTEs. Never overwrite its parameter slots
+            // or cache a bound TVF, which would retain a previous vector and Lance snapshot.
+            Map<String, String> boundProperties = new HashMap<>(arguments.getMap());
+            for (Map.Entry<String, Placeholder> parameter : unboundTVFRelation.getPropertyParameters().entrySet()) {
+                String key = parameter.getKey();
+                if (statementContext.isPrepareStage()) {
+                    // These values only determine the result schema; PREPARE does not execute a search.
+                    switch (key) {
+                        case "top_k":
+                            boundProperties.put(key, "1");
+                            break;
+                        case "offset":
+                            boundProperties.put(key, "0");
+                            break;
+                        case "filter":
+                            boundProperties.put(key, "true");
+                            break;
+                        default:
+                            break;
+                    }
+                } else {
+                    Expression value = statementContext.getIdToPlaceholderRealExpr()
+                            .get(parameter.getValue().getPlaceholderId());
+                    if (!(value instanceof Literal) || value instanceof NullLiteral) {
+                        throw new AnalysisException("vector_search parameter '" + key
+                                + "' must be a non-null literal");
+                    }
+                    boundProperties.put(key, ((Literal) value).getStringValue());
+                }
+            }
+            arguments = new Properties(boundProperties);
+        }
         FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, arguments);
         Pair<? extends Expression, ? extends BoundFunction> bindResult
                 = functionBuilder.build(functionName, arguments);
@@ -1788,6 +1824,10 @@ public class BindExpression implements AnalysisRuleFactory {
             sqlCacheContext.get().setCannotProcessExpression(true);
         }
         TableValuedFunction tableValuedFunction = (TableValuedFunction) bindResult.first;
+        if (tableValuedFunction instanceof VectorSearch && statementContext.isPrepareStage()
+                && unboundTVFRelation.getPropertyParameters().containsKey("query_vector")) {
+            tableValuedFunction = new VectorSearch(arguments, true);
+        }
         LogicalTVFRelation relation = new LogicalTVFRelation(
                 unboundTVFRelation.getRelationId(), tableValuedFunction, ImmutableList.of());
         if (!(tableValuedFunction instanceof VectorSearch)
