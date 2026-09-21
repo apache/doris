@@ -85,9 +85,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // ConnectorSession's external-scan-reuse policy requires major 10: an API-9 FE does not
-        // provide the newly added interface method to an independently built connector plugin.
-        Assertions.assertEquals("10.0", version.getProperty("api.version"));
+        // Row-change style requires major 11 so an API-10 FE cannot misroute a plugin's row-level DML.
+        Assertions.assertEquals("11.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -109,7 +108,8 @@ public class ConnectorPluginSurfaceTest {
 
     /** Public enum constants linked directly by connector plugin bytecode. */
     private static final List<Class<? extends Enum<?>>> FROZEN_ENUM_TYPES =
-            Arrays.asList(ConnectorCapability.class);
+            Arrays.asList(ConnectorCapability.class,
+                    org.apache.doris.connector.spi.write.ConnectorRowChangeStyle.class);
 
     @Test
     public void pluginApiSurfaceMatchesRecordedBaseline() throws IOException, IllegalAccessException {

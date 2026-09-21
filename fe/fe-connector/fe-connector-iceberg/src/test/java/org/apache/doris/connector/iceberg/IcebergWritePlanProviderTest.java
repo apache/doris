@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
@@ -1868,6 +1869,7 @@ public class IcebergWritePlanProviderTest {
 
         Assertions.assertEquals(EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE,
                 WriteOperation.DELETE, WriteOperation.MERGE, WriteOperation.REWRITE), provider.supportedOperations());
+        Assertions.assertEquals(ConnectorRowChangeStyle.POSITION_DELETE, provider.getRowChangeStyle());
         Assertions.assertTrue(provider.supportsWriteBranch());
         Assertions.assertTrue(provider.requiresParallelWrite());
         Assertions.assertTrue(provider.requiresFullSchemaWriteOrder());

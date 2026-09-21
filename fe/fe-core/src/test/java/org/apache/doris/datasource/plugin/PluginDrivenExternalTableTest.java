@@ -35,6 +35,7 @@ import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -107,6 +108,11 @@ public class PluginDrivenExternalTableTest {
      */
     private static PluginDrivenExternalTable capabilityTable(boolean handlePresent,
             Set<WriteOperation> ops, boolean branch) {
+        return capabilityTable(handlePresent, ops, branch, ConnectorRowChangeStyle.POSITION_DELETE);
+    }
+
+    private static PluginDrivenExternalTable capabilityTable(boolean handlePresent,
+            Set<WriteOperation> ops, boolean branch, ConnectorRowChangeStyle style) {
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
@@ -115,6 +121,7 @@ public class PluginDrivenExternalTableTest {
         // provider, so stub them where they are actually declared.
         ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
         Mockito.when(provider.supportedOperations()).thenReturn(ops);
+        Mockito.when(provider.getRowChangeStyle()).thenReturn(style);
         Mockito.when(provider.supportsWriteBranch()).thenReturn(branch);
         Mockito.when(provider.requiresPartitionHashWrite()).thenReturn(true);
         Mockito.when(provider.requiresMaterializeStaticPartitionValues()).thenReturn(true);
@@ -137,6 +144,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalTable table = capabilityTable(true, ops, true);
         Assertions.assertEquals(ops, table.connectorSupportedWriteOperations(),
                 "the write ops must come from the connector's per-handle overload (resolved via the handle)");
+        Assertions.assertEquals(ConnectorRowChangeStyle.POSITION_DELETE, table.getConnectorRowChangeStyle());
         Assertions.assertTrue(table.connectorSupportsWriteBranch(),
                 "the branch capability must come from the connector's per-handle overload");
         Assertions.assertTrue(table.requirePartitionHashOnWrite(),
@@ -152,6 +160,7 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalTable table = capabilityTable(false, EnumSet.of(WriteOperation.DELETE), true);
         Assertions.assertTrue(table.connectorSupportedWriteOperations().isEmpty(),
                 "an unresolvable handle degrades write ops to the empty set");
+        Assertions.assertEquals(ConnectorRowChangeStyle.NONE, table.getConnectorRowChangeStyle());
         Assertions.assertFalse(table.connectorSupportsWriteBranch(),
                 "an unresolvable handle degrades branch support to false");
         Assertions.assertFalse(table.requirePartitionHashOnWrite(),
@@ -170,7 +179,17 @@ public class PluginDrivenExternalTableTest {
         Deencapsulation.setField(table, "catalog", catalog);
         Assertions.assertTrue(table.connectorSupportedWriteOperations().isEmpty(),
                 "a null connector degrades write ops to the empty set");
+        Assertions.assertEquals(ConnectorRowChangeStyle.NONE, table.getConnectorRowChangeStyle());
         Assertions.assertFalse(table.connectorSupportsWriteBranch(), "a null connector degrades branch to false");
+    }
+
+    @Test
+    public void rowChangeStyleComesFromThePerHandleWriteProvider() {
+        PluginDrivenExternalTable table = capabilityTable(true,
+                EnumSet.of(WriteOperation.INSERT, WriteOperation.DELETE), false,
+                ConnectorRowChangeStyle.CHANGELOG);
+
+        Assertions.assertEquals(ConnectorRowChangeStyle.CHANGELOG, table.getConnectorRowChangeStyle());
     }
 
     // ==================== §4.4 W4: per-handle transaction write-target handle resolution ====================
