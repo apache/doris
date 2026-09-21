@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.connector.converter.WriteConstraintExtractor;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -84,6 +85,8 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
     @Override
     public boolean handles(TableIf table) {
         return table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).getConnectorRowChangeStyle()
+                        == ConnectorRowChangeStyle.POSITION_DELETE
                 && pluginConnectorSupportsRowLevelDml((PluginDrivenExternalTable) table);
     }
 
@@ -97,8 +100,8 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
      * admits "supports any row-level DML"; per-op validity (e.g. UPDATE against a delete-only connector) is
      * enforced later in {@link #checkMode}.</p>
      *
-     * <p>Today only the iceberg connector declares these capabilities (every other SPI connector inherits
-     * the {@code ConnectorWriteOps} default {@code false}).</p>
+     * <p>The representation check in {@link #handles} must precede this capability check: a connector
+     * using changelog rows may support the same operations but cannot use the position-delete plan.</p>
      */
     private static boolean pluginConnectorSupportsRowLevelDml(PluginDrivenExternalTable table) {
         // Per-handle write-op probe: a heterogeneous gateway admits row-level DML for its iceberg tables only.

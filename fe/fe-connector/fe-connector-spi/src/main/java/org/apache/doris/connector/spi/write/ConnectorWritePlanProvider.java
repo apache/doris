@@ -191,12 +191,23 @@ public interface ConnectorWritePlanProvider {
      * The write operations this provider can plan, in one place — the single source of truth for a
      * connector's write capability. Replaces the removed {@code ConnectorWriteOps} boolean methods and
      * the removed INSERT-support capability switch. Default: INSERT only (any write provider can at least
-     * append). A connector overrides this to add OVERWRITE / DELETE / MERGE / REWRITE. Connector-level
+     * append). A connector overrides this to add OVERWRITE / DELETE / UPDATE / MERGE / REWRITE. Connector-level
      * (does not vary per table); per-table mode constraints stay in
-     * {@link org.apache.doris.connector.spi.ConnectorWriteOps#validateRowLevelDmlMode}.
+     * {@link org.apache.doris.connector.spi.ConnectorWriteOps#validateRowLevelDmlMode}. A provider
+     * advertising DELETE, UPDATE, or MERGE must also declare its {@link #getRowChangeStyle()}.
      */
     default Set<WriteOperation> supportedOperations() {
         return EnumSet.of(WriteOperation.INSERT);
+    }
+
+    /**
+     * Returns the physical representation of row-level changes planned by this provider.
+     * The engine selects this provider per table handle, so a heterogeneous catalog can
+     * use different row-level plans for different tables. Connectors that only insert
+     * rows retain {@link ConnectorRowChangeStyle#NONE}.
+     */
+    default ConnectorRowChangeStyle getRowChangeStyle() {
+        return ConnectorRowChangeStyle.NONE;
     }
 
     /** Whether this connector can write into a named table branch ({@code INSERT INTO t@branch(name)}). Default: no. */

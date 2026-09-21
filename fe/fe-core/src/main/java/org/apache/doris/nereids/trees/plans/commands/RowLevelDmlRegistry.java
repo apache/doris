@@ -18,11 +18,15 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Registry of {@link RowLevelDmlTransform}s. The dispatching DML commands consult this instead of testing the
@@ -30,7 +34,7 @@ import java.util.Optional;
  *
  * <p>Explicit static registration (no {@code ServiceLoader}) — avoids the thread-context-classloader pitfalls
  * seen with SPI loaders. Today the single entry is {@link IcebergRowLevelDmlTransform}, whose {@code handles}
- * is a connector-capability probe (supportsDelete/supportsMerge), not a source-type check.</p>
+ * checks the connector's row-change representation and operations, not its source name.</p>
  */
 public final class RowLevelDmlRegistry {
 
@@ -48,6 +52,15 @@ public final class RowLevelDmlRegistry {
         for (RowLevelDmlTransform transform : TRANSFORMS) {
             if (transform.handles(table)) {
                 return Optional.of(transform);
+            }
+        }
+        if (table instanceof PluginDrivenExternalTable) {
+            PluginDrivenExternalTable connectorTable = (PluginDrivenExternalTable) table;
+            Set<WriteOperation> operations = connectorTable.connectorSupportedWriteOperations();
+            if (operations.contains(WriteOperation.DELETE) || operations.contains(WriteOperation.UPDATE)
+                    || operations.contains(WriteOperation.MERGE)) {
+                throw new AnalysisException("No row-level DML plan for connector row-change style "
+                        + connectorTable.getConnectorRowChangeStyle());
             }
         }
         return Optional.empty();

@@ -43,7 +43,7 @@ import java.util.Optional;
  */
 public interface RowLevelDmlTransform {
 
-    /** Whether this transform handles the given target table (a connector-capability probe). */
+    /** Whether this transform handles the table's row-change representation and write operations. */
     boolean handles(TableIf table);
 
     /** Reject unsupported table modes (e.g. copy-on-write) for the operation, mirroring legacy command checks. */

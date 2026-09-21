@@ -161,7 +161,11 @@ org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:TEXT_PROPERTY_PRE
 org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:TEXT_SERDE_LIB:java.lang.String=hive.text.serde_lib
 org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:TEXT_SKIP_LINES:java.lang.String=hive.text.skip_lines
 org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:TEXT_TRIM_DOUBLE_QUOTES:java.lang.String=hive.text.trim_double_quotes
+org.apache.doris.connector.spi.write.ConnectorRowChangeStyle#enum:CHANGELOG
+org.apache.doris.connector.spi.write.ConnectorRowChangeStyle#enum:NONE
+org.apache.doris.connector.spi.write.ConnectorRowChangeStyle#enum:POSITION_DELETE
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#appendExplainInfo(java.lang.StringBuilder,java.lang.String,org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorWriteHandle):void
+org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getRowChangeStyle():org.apache.doris.connector.spi.write.ConnectorRowChangeStyle
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getSyntheticWriteColumns(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):java.util.List
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getWriteColumns(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.Optional):java.util.Optional
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#getWriteMetadataIdentity(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle):java.lang.String

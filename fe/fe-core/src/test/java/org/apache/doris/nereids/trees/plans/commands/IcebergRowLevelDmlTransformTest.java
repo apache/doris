@@ -29,6 +29,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -96,6 +97,11 @@ public class IcebergRowLevelDmlTransformTest {
      * {@code getConnector().getWritePlanProvider(handle).supportedOperations()} probe.
      */
     private static PluginDrivenExternalTable pluginTable(boolean supportsDelete, boolean supportsMerge) {
+        return pluginTable(supportsDelete, supportsMerge, ConnectorRowChangeStyle.POSITION_DELETE);
+    }
+
+    private static PluginDrivenExternalTable pluginTable(boolean supportsDelete, boolean supportsMerge,
+            ConnectorRowChangeStyle style) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Connector connector = Mockito.mock(Connector.class);
@@ -108,6 +114,7 @@ public class IcebergRowLevelDmlTransformTest {
         }
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(table.getConnectorRowChangeStyle()).thenReturn(style);
         // The row-level DML admission probe now resolves per-handle via the table helper; stub it directly. The
         // catalog -> connector chain is still needed for checkMode (validateRowLevelDmlMode).
         Mockito.when(table.connectorSupportedWriteOperations()).thenReturn(ops);
@@ -116,17 +123,29 @@ public class IcebergRowLevelDmlTransformTest {
 
     @Test
     public void handlesPluginDrivenTableByRowLevelDmlCapability() {
-        // An iceberg table presents as PluginDrivenExternalTable; it is admitted via the
-        // neutral connector capability (supportsDelete || supportsMerge), NOT a concrete iceberg cast.
+        // Position-delete tables are admitted by representation and capability, not a concrete source cast.
         Assertions.assertTrue(transform.handles(pluginTable(true, false)));
         Assertions.assertTrue(transform.handles(pluginTable(false, true)));
         Assertions.assertTrue(transform.handles(pluginTable(true, true)));
-        // A plugin connector with neither capability (e.g. jdbc/es/paimon today) must NOT be admitted,
+        // A plugin connector with neither capability (e.g. jdbc/es) must NOT be admitted,
         // else its row-level DML would route through the iceberg synthesis path.
         Assertions.assertFalse(transform.handles(pluginTable(false, false)));
         // Non-plugin table types and null are never admitted.
         Assertions.assertFalse(transform.handles(Mockito.mock(TableIf.class)));
         Assertions.assertFalse(transform.handles(null));
+    }
+
+    @Test
+    public void changelogOperationsCannotEnterThePositionDeletePlan() {
+        PluginDrivenExternalTable changelog = pluginTable(true, true, ConnectorRowChangeStyle.CHANGELOG);
+        PluginDrivenExternalTable undeclared = pluginTable(true, false, ConnectorRowChangeStyle.NONE);
+
+        Assertions.assertFalse(transform.handles(changelog));
+        Assertions.assertFalse(transform.handles(undeclared));
+        Assertions.assertThrows(AnalysisException.class, () -> RowLevelDmlRegistry.find(changelog));
+        Assertions.assertThrows(AnalysisException.class, () -> RowLevelDmlRegistry.find(undeclared));
+        Assertions.assertTrue(RowLevelDmlRegistry.find(pluginTable(true, true))
+                .orElseThrow(AssertionError::new) instanceof IcebergRowLevelDmlTransform);
     }
 
     /**

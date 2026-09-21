@@ -39,6 +39,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -218,6 +219,21 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 .map(connector::getWritePlanProvider)
                 .map(ConnectorWritePlanProvider::supportedOperations)
                 .orElseGet(() -> EnumSet.noneOf(WriteOperation.class));
+    }
+
+    /** Returns the row-change representation declared for this table's write provider. */
+    public ConnectorRowChangeStyle getConnectorRowChangeStyle() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return ConnectorRowChangeStyle.NONE;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            return ConnectorRowChangeStyle.NONE;
+        }
+        return resolveWriteCapabilityHandle(connector)
+                .map(connector::getWritePlanProvider)
+                .map(ConnectorWritePlanProvider::getRowChangeStyle)
+                .orElse(ConnectorRowChangeStyle.NONE);
     }
 
     /**
