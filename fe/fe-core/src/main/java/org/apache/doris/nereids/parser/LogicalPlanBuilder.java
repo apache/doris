@@ -530,7 +530,6 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintOrdered;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
-import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -556,7 +555,9 @@ import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IntegralDivide;
+import org.apache.doris.nereids.trees.expressions.IsFalse;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.IsTrue;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -1093,7 +1094,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -4865,26 +4865,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         case "ordered":
                             hints.add(new SelectHintOrdered(hintName));
                             break;
-                        case "use_cbo_rule":
-                            List<String> useRuleParameters = new ArrayList<>();
-                            for (HintAssignmentContext kv : hintStatement.parameters) {
-                                if (kv.key != null) {
-                                    String parameterName = visitIdentifierOrText(kv.key);
-                                    useRuleParameters.add(parameterName);
-                                }
-                            }
-                            hints.add(new SelectHintUseCboRule(hintName, useRuleParameters, false));
-                            break;
-                        case "no_use_cbo_rule":
-                            List<String> noUseRuleParameters = new ArrayList<>();
-                            for (HintAssignmentContext kv : hintStatement.parameters) {
-                                String parameterName = visitIdentifierOrText(kv.key);
-                                if (kv.key != null) {
-                                    noUseRuleParameters.add(parameterName);
-                                }
-                            }
-                            hints.add(new SelectHintUseCboRule(hintName, noUseRuleParameters, true));
-                            break;
                         default:
                             break;
                     }
@@ -5147,12 +5127,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     outExpression = new IsNull(valueExpression);
                     break;
                 case DorisParser.TRUE:
-                    outExpression = new Cast(valueExpression,
-                            BooleanType.INSTANCE, true);
+                    outExpression = new IsTrue(valueExpression);
                     break;
                 case DorisParser.FALSE:
-                    outExpression = new Not(new Cast(valueExpression,
-                            BooleanType.INSTANCE, true));
+                    outExpression = new IsFalse(valueExpression);
                     break;
                 case DorisParser.MATCH:
                 case DorisParser.MATCH_ANY:

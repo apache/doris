@@ -21,14 +21,21 @@ import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsFalse;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.IsTrue;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BooleanType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -95,5 +102,35 @@ public class ExpressionAnalyzerTest {
                 new SlotReference(new ExprId(2), "c2", BigIntType.INSTANCE, true, ImmutableList.of())
         );
         Assertions.assertEquals(expectedResult, result);
+    }
+
+    @Test
+    public void testAnalyzeIsTrueAndIsFalse() {
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(ImmutableList.of()),
+                null, true, true);
+        SlotReference slot = new SlotReference(new ExprId(1), "c1", BigIntType.INSTANCE, true, ImmutableList.of());
+
+        Expression isTrue = analyzer.analyze(new IsTrue(slot));
+        Assertions.assertInstanceOf(And.class, isTrue);
+        Assertions.assertInstanceOf(Cast.class, isTrue.child(0));
+        Assertions.assertEquals(BooleanType.INSTANCE, isTrue.child(0).getDataType());
+        Assertions.assertInstanceOf(Not.class, isTrue.child(1));
+        Assertions.assertInstanceOf(IsNull.class, isTrue.child(1).child(0));
+
+        Expression isFalse = analyzer.analyze(new IsFalse(slot));
+        Assertions.assertInstanceOf(And.class, isFalse);
+        Assertions.assertInstanceOf(Not.class, isFalse.child(0));
+        Assertions.assertInstanceOf(Cast.class, isFalse.child(0).child(0));
+        Assertions.assertEquals(BooleanType.INSTANCE, isFalse.child(0).child(0).getDataType());
+        Assertions.assertInstanceOf(Not.class, isFalse.child(1));
+        Assertions.assertInstanceOf(IsNull.class, isFalse.child(1).child(0));
+
+        Expression isNotTrue = analyzer.analyze(new Not(new IsTrue(slot)));
+        Assertions.assertInstanceOf(Not.class, isNotTrue);
+        Assertions.assertInstanceOf(And.class, isNotTrue.child(0));
+
+        Expression isNotFalse = analyzer.analyze(new Not(new IsFalse(slot)));
+        Assertions.assertInstanceOf(Not.class, isNotFalse);
+        Assertions.assertInstanceOf(And.class, isNotFalse.child(0));
     }
 }

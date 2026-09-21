@@ -255,6 +255,18 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     }
 
     /**
+     * getRightConditionSlot
+     */
+    public Set<Slot> getRightConditionSlot() {
+        Set<Slot> rightOutputSet = this.right().getOutputSet();
+        return Stream
+                .concat(Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream()),
+                        markJoinConjuncts.stream())
+                .flatMap(expr -> expr.getInputSlots().stream()).filter(rightOutputSet::contains)
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
      * getOnClauseCondition
      */
     public Optional<Expression> getOnClauseCondition() {

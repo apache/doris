@@ -39,6 +39,7 @@ import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
@@ -130,6 +131,8 @@ public class StatementContext implements Closeable {
     }
 
     private ConnectContext connectContext;
+    // Initialized on first cost calculation so per-query SET_VAR hints have already taken effect.
+    private CostWeight costWeight;
 
     private final Stopwatch stopwatch = Stopwatch.createUnstarted();
     private final Stopwatch materializedViewStopwatch = Stopwatch.createUnstarted();
@@ -149,6 +152,7 @@ public class StatementContext implements Closeable {
 
     private boolean isDpHyp = false;
 
+    private boolean isDelete = false;
     private boolean hasNondeterministic = false;
 
     // hasUnknownColStats true if any column stats in the tables used by this sql is
@@ -326,8 +330,6 @@ public class StatementContext implements Closeable {
     private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
 
     private boolean isInsert = false;
-    private boolean skipPrunePredicate = false;
-
     private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
 
     // For Iceberg rewrite operations: store file scan tasks to be used by
@@ -521,6 +523,9 @@ public class StatementContext implements Closeable {
 
     public void setConnectContext(ConnectContext connectContext) {
         this.connectContext = connectContext;
+        // Prepared statements reuse their StatementContext across executions. Each execution must
+        // capture the weights currently effective in the owning ConnectContext.
+        this.costWeight = null;
     }
 
     public void setHasNondeterministic(boolean hasNondeterministic) {
@@ -533,6 +538,14 @@ public class StatementContext implements Closeable {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    /** Get the cost weights shared by all cost calculations in this statement. */
+    public CostWeight getCostWeight() {
+        if (costWeight == null) {
+            costWeight = CostWeight.get(connectContext.getSessionVariable());
+        }
+        return costWeight;
     }
 
     public Set<String> getUsedAIResourceNames() {
@@ -1728,14 +1741,6 @@ public class StatementContext implements Closeable {
         return this.useGatherForIcebergRewrite;
     }
 
-    public boolean isSkipPrunePredicate() {
-        return skipPrunePredicate;
-    }
-
-    public void setSkipPrunePredicate(boolean skipPrunePredicate) {
-        this.skipPrunePredicate = skipPrunePredicate;
-    }
-
     public boolean hasNestedColumns() {
         return hasNestedColumns;
     }
@@ -1768,6 +1773,14 @@ public class StatementContext implements Closeable {
 
     public Optional<IcebergWriteSchemaContext> getIcebergWriteSchemaContext() {
         return icebergWriteSchemaContext;
+    }
+
+    public boolean isDelete() {
+        return isDelete;
+    }
+
+    public void setIsDelete(boolean del) {
+        isDelete = del;
     }
 
     public void setIcebergWriteSchemaContext(
