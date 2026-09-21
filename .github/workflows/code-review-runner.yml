@@ -23,28 +23,6 @@ on:
         required: false
         type: boolean
         default: true
-  workflow_call:
-    inputs:
-      pr_number:
-        required: true
-        type: string
-      head_sha:
-        required: true
-        type: string
-      base_sha:
-        required: true
-        type: string
-      review_focus:
-        required: false
-        type: string
-        default: ''
-      manage_status:
-        description: >-
-          Update the code-review commit status. Callers that enable this must
-          grant statuses: write.
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   statuses: write
