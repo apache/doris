@@ -17,6 +17,7 @@
 
 package org.apache.doris.arrowflight;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -26,19 +27,27 @@ import org.apache.arrow.vector.complex.MapVector;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.DateUnit;
+import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.lang.reflect.Method;
 import java.nio.channels.Channels;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * What {@code CommandGetTables} says a column is, against what the query that follows actually
@@ -76,6 +85,119 @@ public class FlightSqlSchemaHelperArrowTypeTest {
 
     private static Field buildField(TColumnDesc columnDesc) {
         return Deencapsulation.invoke(FlightSqlSchemaHelper.class, "buildField", DB, TABLE, columnDesc);
+    }
+
+    private static ArrowType arrowType(PrimitiveType type, Integer precision, Integer scale) throws Exception {
+        // Plain reflection rather than Deencapsulation: the descriptor of a column that has no precision
+        // or scale hands the mapping null for both, and that null is part of what the table pins.
+        Method getArrowType = FlightSqlSchemaHelper.class.getDeclaredMethod("getArrowType",
+                PrimitiveType.class, Integer.class, Integer.class);
+        getArrowType.setAccessible(true);
+        return (ArrowType) getArrowType.invoke(null, type, precision, scale);
+    }
+
+    private static Arguments row(PrimitiveType type, ArrowType expected) {
+        return Arguments.of(type, null, null, expected);
+    }
+
+    private static Arguments row(PrimitiveType type, int precision, int scale, ArrowType expected) {
+        return Arguments.of(type, precision, scale, expected);
+    }
+
+    private static ArrowType timestamp(TimeUnit unit, String timezone) {
+        return new ArrowType.Timestamp(unit, timezone);
+    }
+
+    /**
+     * The mapping as it stands today, one row per {@link PrimitiveType} (plus one per precision / scale
+     * band where the band picks the Arrow type). This is a record of the present, not of the ideal: the
+     * rows marked "kept as is" are known to disagree with what BE emits and stay that way on purpose
+     * until the BE Arrow type layer is reworked, after which the whole table is corrected in one step
+     * against a golden shared with BE (tracked in #67577). Until then a change to any row is a
+     * behaviour change that every {@code GetTables} client sees, and this test is what makes it
+     * deliberate.
+     */
+    private static Stream<Arguments> mapping() {
+        return Stream.of(
+                row(PrimitiveType.BOOLEAN, new ArrowType.Bool()),
+                row(PrimitiveType.TINYINT, new ArrowType.Int(8, true)),
+                row(PrimitiveType.SMALLINT, new ArrowType.Int(16, true)),
+                row(PrimitiveType.INT, new ArrowType.Int(32, true)),
+                row(PrimitiveType.BIGINT, new ArrowType.Int(64, true)),
+                row(PrimitiveType.FLOAT, new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)),
+                row(PrimitiveType.DOUBLE, new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)),
+                // BE writes a LARGEINT as its decimal text: it does not fit decimal128.
+                row(PrimitiveType.LARGEINT, new ArrowType.Utf8()),
+                row(PrimitiveType.CHAR, new ArrowType.Utf8()),
+                row(PrimitiveType.VARCHAR, new ArrowType.Utf8()),
+                row(PrimitiveType.STRING, new ArrowType.Utf8()),
+                row(PrimitiveType.JSONB, new ArrowType.Utf8()),
+                row(PrimitiveType.VARIANT, new ArrowType.Utf8()),
+                // IPV4 rides in an int32 (parquet has no uint32); IPV6 is text.
+                row(PrimitiveType.IPV4, new ArrowType.Int(32, true)),
+                row(PrimitiveType.IPV6, new ArrowType.Utf8()),
+                // The v1 date types stay text; DATEV2 is a day number, see dateV2IsDescribedAsDate32.
+                row(PrimitiveType.DATE, new ArrowType.Utf8()),
+                row(PrimitiveType.DATETIME, new ArrowType.Utf8()),
+                row(PrimitiveType.DATEV2, new ArrowType.Date(DateUnit.DAY)),
+                // DATETIMEV2 is a wall-clock value: a timezone-naive timestamp whose unit follows the scale,
+                // with the bands' edges at scale 0 / 1 and 3 / 4.
+                row(PrimitiveType.DATETIMEV2, 18, 0, timestamp(TimeUnit.SECOND, null)),
+                row(PrimitiveType.DATETIMEV2, 19, 1, timestamp(TimeUnit.MILLISECOND, null)),
+                row(PrimitiveType.DATETIMEV2, 21, 3, timestamp(TimeUnit.MILLISECOND, null)),
+                row(PrimitiveType.DATETIMEV2, 22, 4, timestamp(TimeUnit.MICROSECOND, null)),
+                row(PrimitiveType.DATETIMEV2, 24, 6, timestamp(TimeUnit.MICROSECOND, null)),
+                row(PrimitiveType.TIMESTAMP_NS, 27, 9, timestamp(TimeUnit.NANOSECOND, null)),
+                // The same bands as DATETIMEV2, but the timezone is the literal "UTC" where BE stamps
+                // the session timezone. Kept as is (#67577).
+                row(PrimitiveType.TIMESTAMPTZ, 18, 0, timestamp(TimeUnit.SECOND, "UTC")),
+                row(PrimitiveType.TIMESTAMPTZ, 21, 3, timestamp(TimeUnit.MILLISECOND, "UTC")),
+                row(PrimitiveType.TIMESTAMPTZ, 24, 6, timestamp(TimeUnit.MICROSECOND, "UTC")),
+                // DECIMALV2 is always (27, 9) whatever the column declares; the v3 decimals carry theirs.
+                row(PrimitiveType.DECIMALV2, 10, 2, new ArrowType.Decimal(27, 9, 128)),
+                row(PrimitiveType.DECIMAL32, 9, 2, new ArrowType.Decimal(9, 2, 128)),
+                row(PrimitiveType.DECIMAL64, 18, 4, new ArrowType.Decimal(18, 4, 128)),
+                row(PrimitiveType.DECIMAL128, 38, 10, new ArrowType.Decimal(38, 10, 128)),
+                row(PrimitiveType.DECIMAL256, 76, 20, new ArrowType.Decimal(76, 20, 256)),
+                row(PrimitiveType.HLL, new ArrowType.Binary()),
+                row(PrimitiveType.BITMAP, new ArrowType.Binary()),
+                row(PrimitiveType.QUANTILE_STATE, new ArrowType.Binary()),
+                // BE emits float64 for TIMEV2 and binary for VARBINARY and AGG_STATE; the schema says
+                // Null for all three. Kept as is (#67577).
+                row(PrimitiveType.TIMEV2, 18, 0, new ArrowType.Null()),
+                row(PrimitiveType.VARBINARY, new ArrowType.Null()),
+                row(PrimitiveType.AGG_STATE, new ArrowType.Null()),
+                // The element types of a complex column live in the field's children, not in its type.
+                row(PrimitiveType.ARRAY, new ArrowType.List()),
+                row(PrimitiveType.MAP, new ArrowType.Map(false)),
+                row(PrimitiveType.STRUCT, new ArrowType.Struct()),
+                // Types that never name a stored column fall through to Null.
+                row(PrimitiveType.INVALID_TYPE, new ArrowType.Null()),
+                row(PrimitiveType.UNSUPPORTED, new ArrowType.Null()),
+                row(PrimitiveType.NULL_TYPE, new ArrowType.Null()),
+                row(PrimitiveType.LAMBDA_FUNCTION, new ArrowType.Null()),
+                row(PrimitiveType.TEMPLATE, new ArrowType.Null()),
+                row(PrimitiveType.BINARY, new ArrowType.Null()));
+    }
+
+    @ParameterizedTest(name = "{0}({1}, {2}) is described as {3}")
+    @MethodSource("mapping")
+    public void everyTypeIsDescribedAsToday(PrimitiveType type, Integer precision, Integer scale,
+            ArrowType expected) throws Exception {
+        Assertions.assertEquals(expected, arrowType(type, precision, scale));
+    }
+
+    /**
+     * A type this table does not know is a type whose schema nobody has looked at: a new
+     * {@link PrimitiveType} must get a row here, and the row must say what BE emits for it.
+     */
+    @Test
+    public void everyPrimitiveTypeHasARow() {
+        Set<PrimitiveType> covered = mapping().map(row -> (PrimitiveType) row.get()[0])
+                .collect(Collectors.toSet());
+        for (PrimitiveType type : PrimitiveType.values()) {
+            Assertions.assertTrue(covered.contains(type), type + " has no row in the mapping table");
+        }
     }
 
     /**
