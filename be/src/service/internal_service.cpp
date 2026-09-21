@@ -163,8 +163,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_max_threads, MetricUnit::NO
 
 static bvar::LatencyRecorder g_process_remote_fetch_rowsets_latency("process_remote_fetch_rowsets");
 
-static constexpr int32_t LOAD_LIGHT_WORK_POOL_THREADS = 32;
-
 static int32_t resolved_brpc_load_light_work_pool_max_queue_size() {
     return config::brpc_load_light_work_pool_max_queue_size != -1
                    ? config::brpc_load_light_work_pool_max_queue_size
@@ -236,7 +234,7 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_heavy"),
           // Keep cancellation dispatch independent of potentially blocking opens and writes.
-          _load_light_work_pool(LOAD_LIGHT_WORK_POOL_THREADS,
+          _load_light_work_pool(config::brpc_load_light_work_pool_threads,
                                 resolved_brpc_load_light_work_pool_max_queue_size(),
                                 "brpc_load_light"),
           // peer fetch threadpool isolates fetch_peer_data from heavy load traffic to avoid peer reads starving imports.
@@ -265,7 +263,7 @@ PInternalService::PInternalService(ExecEnv* exec_env)
     REGISTER_HOOK_METRIC(load_light_work_pool_max_queue_size,
                          []() { return resolved_brpc_load_light_work_pool_max_queue_size(); });
     REGISTER_HOOK_METRIC(load_light_work_max_threads,
-                         []() { return LOAD_LIGHT_WORK_POOL_THREADS; });
+                         []() { return config::brpc_load_light_work_pool_threads; });
 
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });

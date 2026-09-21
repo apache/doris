@@ -656,8 +656,11 @@ DEFINE_mInt64(load_error_log_reserve_hours, "48");
 // error log size limit, default 200MB
 DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
 
-// Queue for the fixed 32-thread load cancellation pool. -1 selects a CPU-scaled default.
-// Requires a restart.
+// Dedicated load cancellation workers. Requires a restart.
+DEFINE_Int32(brpc_load_light_work_pool_threads, "32");
+DEFINE_Validator(brpc_load_light_work_pool_threads,
+                 [](const int config) -> bool { return config > 0; });
+// Queue capacity: -1 selects a CPU-scaled default. Requires a restart.
 DEFINE_Int32(brpc_load_light_work_pool_max_queue_size, "-1");
 DEFINE_Validator(brpc_load_light_work_pool_max_queue_size,
                  [](const int config) -> bool { return config == -1 || config > 0; });

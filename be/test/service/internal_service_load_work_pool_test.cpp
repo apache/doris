@@ -70,17 +70,20 @@ public:
 class InternalServiceLoadWorkPoolTest : public testing::TestWithParam<int> {
 protected:
     void SetUp() override {
-        // Keep configurable pools and queues small; cancellation retains its fixed 32 workers.
+        // Keep pools and queues small and restore configuration after each test.
         for (auto* setting :
              {&config::brpc_heavy_work_pool_threads, &config::brpc_heavy_work_pool_max_queue_size,
               &config::brpc_light_work_pool_threads, &config::brpc_light_work_pool_max_queue_size,
               &config::brpc_peer_fetch_pool_threads, &config::brpc_peer_fetch_pool_max_queue_size,
               &config::brpc_arrow_flight_work_pool_threads,
               &config::brpc_arrow_flight_work_pool_max_queue_size,
+              &config::brpc_load_light_work_pool_threads,
               &config::brpc_load_light_work_pool_max_queue_size}) {
             _saved_config.emplace_back(setting, *setting);
             *setting = 1;
         }
+        // Use a non-default value to verify that the cancellation pool honors configuration.
+        config::brpc_load_light_work_pool_threads = 3;
         _exec_env._load_stream_mgr = std::make_unique<LoadStreamMgr>(1);
         _service = std::make_unique<PInternalService>(&_exec_env);
         for (auto* pool : {&_service->_heavy_work_pool, &_service->_light_work_pool,
@@ -106,7 +109,7 @@ protected:
 };
 
 TEST_F(InternalServiceLoadWorkPoolTest, CancelBypassesFullHeavyPool) {
-    EXPECT_EQ(_service->_load_light_work_pool.get_active_threads(), 32);
+    EXPECT_EQ(_service->_load_light_work_pool.get_active_threads(), 3);
     ASSERT_TRUE(_service->_heavy_work_pool.try_offer([] {}));
 
     PTabletWriterCancelRequest request;
