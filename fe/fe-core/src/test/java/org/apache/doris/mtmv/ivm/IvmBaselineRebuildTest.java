@@ -168,14 +168,14 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     /**
-     * Invalidation reads the mapping by lineage, not by the partition_sync_limit window. A base partition
-     * the window no longer covers can still have its rows in an MV partition -- the MV was built while the
-     * partition was inside the window, and partition sync keeps the MV partition once a widened window
-     * covers the base partition again -- so a windowed mapping would report no MV partition for the change
-     * and leave those rows behind, with no binlog to repair them.
+     * A base partition the partition_sync_limit window no longer covers can still have its rows in an MV
+     * partition: the MV was built while that partition was inside the window, shrinking the window does not
+     * touch the MV's own partitions, and widening it again makes partition sync keep the partition holding
+     * those rows. TRUNCATE emits no binlog, so nothing incremental can repair them -- the whole MV has to be
+     * rebuilt rather than a partition being guessed at.
      */
     @Test
-    public void testChangedPartitionOutsideTheSyncWindowStillMarksItsMvPartition() throws Exception {
+    public void testChangedPartitionOutsideTheSyncWindowRebuildsTheWholeMv() throws Exception {
         String db = "ivm_baseline_sync_window";
         String thisYear = LocalDate.now().withDayOfYear(1).toString();
         String nextYear = LocalDate.now().withDayOfYear(1).plusYears(1).toString();
@@ -201,21 +201,15 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
                 + "AS SELECT dt, k1, v1 FROM ivm_base");
         MTMV mtmv = getMtmv(db);
         Assertions.assertEquals(3, mtmv.getPartitionNames().size());
-        Set<String> expected = mvPartitionsWithSameRange(mtmv, getBaseTable(db), "p202001");
-        Assertions.assertEquals(1, expected.size());
 
-        // The window now keeps only this year's partition, so the mapping still describes this base table
-        // while p202001 drops out of it: the lookup for the changed partition is empty, and only the
-        // lineage mapping knows which MV partition holds its rows.
+        // The window now keeps only this year's partition, so p202001 leaves the mapping while the MV's own
+        // partition for it stays. TRUNCATE leaves the base partition in place, so partition sync would keep
+        // that MV partition too -- the rows it still holds are exactly what the rebuild has to remove.
         executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1',"
                 + " 'partition_sync_time_unit' = 'YEAR')");
-
-        // TRUNCATE leaves the base partition in place, so partition sync keeps the MV partition holding its
-        // rows. A DROP would take that MV partition with it and hide the problem.
         executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001)");
 
-        Assertions.assertFalse(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
-        Assertions.assertEquals(expected, mtmv.getIvmInfo().getPendingBaselineRebuildPartitions());
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
     }
 
     /**

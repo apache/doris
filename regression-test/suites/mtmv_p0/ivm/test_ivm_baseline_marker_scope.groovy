@@ -65,6 +65,13 @@ suite("test_ivm_baseline_marker_scope") {
         return taskResult[0].TaskId.toString()
     }
 
+    def taskStatus = { String id ->
+        def rows = sql_return_maparray("""
+            SELECT Status FROM tasks('type'='mv') WHERE TaskId = '${id}'
+        """)
+        return rows[0].Status.toString()
+    }
+
     // Unset RefreshMode / IvmFallbackReason come back as the literal two-character string "\N",
     // which does not survive the .out round trip, so fold the unset value into a printable token.
     def taskQuery = { String taskId ->
@@ -174,6 +181,9 @@ suite("test_ivm_baseline_marker_scope") {
     sql """ALTER TABLE ${factTable} DROP PARTITION p202601"""
     sql """REFRESH MATERIALIZED VIEW ${mvName} AUTO"""
     taskId = waitForNewTask(taskId)
+    // waitForNewTask returns on any terminal state, and partition sync already dropped the MV partition,
+    // so the row set below would match even if this refresh failed. The task itself has to be asserted.
+    assertEquals("SUCCESS", taskStatus(taskId))
     order_qt_narrowed_mv """SELECT order_id, dt, amount, dimension_name
         FROM ${mvName}"""
 }
