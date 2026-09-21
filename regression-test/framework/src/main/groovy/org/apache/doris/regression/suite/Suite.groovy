@@ -386,7 +386,7 @@ class Suite implements GroovyInterceptable {
                 // task observed no advancement while Meta Service was finalizing lazy commit.
                 if (!backendClients.isEmpty() && pollCount++ % 10 == 0) {
                     tabletGroups.each { backendId, backendTablets ->
-                        backendClients[backendId].client.sync_load_for_tablets(
+                        backendClients[backendId].client.syncLoadForTablets(
                                 new TSyncLoadForTabletsRequest(
                                         backendTablets.collect { it.TabletId as long }))
                     }
