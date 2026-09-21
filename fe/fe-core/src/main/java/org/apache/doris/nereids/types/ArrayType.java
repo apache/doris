@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import java.util.Objects;
@@ -63,7 +62,10 @@ public class ArrayType extends DataType implements ComplexDataType, NestedColumn
         if (target instanceof ArrayType) {
             return itemType.isInjectiveCastTo(((ArrayType) target).itemType);
         }
-        return target instanceof CharacterType;
+        // BE's DataTypeArraySerDe::to_string writes element text separated by ", " without
+        // escaping delimiter-like content. Therefore different arrays can have the same text,
+        // for example ARRAY('a", "b') and ARRAY('a', 'b'), so ARRAY -> STRING is not injective.
+        return false;
     }
 
     @Override

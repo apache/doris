@@ -85,20 +85,22 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // OpenCSV scan properties require major 9: inlined keys cannot fail JVM linkage on an older FE.
-        // Connector partition pruning is the other half of this major: it added
+        // ConnectorSession's external-scan-reuse policy requires major 10: an API-9 FE does not
+        // provide the newly added interface method to an independently built connector plugin.
+        // Connector partition pruning requires major 11: it added
         // ConnectorCapability.SUPPORTS_CONNECTOR_PARTITION_PRUNING, on top of the storage predicate pruning,
         // provider-level DDL validation and ConnectorMetadata's listsPartitionsAtSnapshot already in the
         // surface - the method a connector answers "my partition listing is exact at the pinned snapshot"
         // with. A plugin built against an earlier major must be refused rather than run against a contract it
         // did not compile against.
-        Assertions.assertEquals("9.0", version.getProperty("api.version"));
+        Assertions.assertEquals("11.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorProvider.class,
             ConnectorContext.class,
+            ConnectorSession.class,
             Connector.class,
             ConnectorColumnHandle.class,
             ConnectorTableSchema.class,

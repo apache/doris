@@ -241,7 +241,6 @@ protected:
                                             int expect_total_rows, int rows_mark_deleted,
                                             bool skip_value_check = false) {
         RowsetReaderContext reader_context;
-        reader_context.tablet_schema = tablet_schema;
         // use this type to avoid cache from other ut
         reader_context.reader_type = ReaderType::READER_QUERY;
         reader_context.need_ordered_result = true;
@@ -249,6 +248,11 @@ protected:
         auto read_schema = std::make_shared<ReadSchema>(
                 project_columns_by_ordinal(tablet_schema->columns(), return_columns));
         reader_context.read_schema = read_schema;
+        EXPECT_TRUE(read_schema
+                            ->init_from_tablet_schema(*tablet_schema,
+                                                      /*merge_by_sequence_mapping=*/false,
+                                                      /*map_row_binlog_columns=*/false)
+                            .ok());
         reader_context.stats = &_stats;
         reader_context.delete_bitmap = delete_bitmap;
 

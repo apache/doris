@@ -26,7 +26,7 @@ fi
 
 benchmark_binary=$1
 result_dir=$2
-benchmark_filter=${3:-'^BM_Variant(IngestToSegment|ReadWholeColumn|ReadExactPath|ScanAndRewriteSegment)/'}
+benchmark_filter=${3:-'^BM_VariantCumulativeCompaction/'}
 script_path=$(realpath "${BASH_SOURCE[0]}")
 repo_root=$(git -C "$(dirname "${script_path}")" rev-parse --show-toplevel)
 be_config=${repo_root}/conf/be.conf
@@ -57,25 +57,39 @@ mkdir -p "${result_dir}"
     echo "repo_root=${repo_root}"
     echo "invocation_pwd=${PWD}"
     echo "git_head=$(git -C "${repo_root}" rev-parse HEAD)"
+    echo "git_parent=$(git -C "${repo_root}" rev-parse HEAD^)"
+    echo "git_describe=$(git -C "${repo_root}" describe --always --dirty)"
     git -C "${repo_root}" status --short --branch
     echo "benchmark_binary=${benchmark_binary}"
     sha256sum "${benchmark_binary}"
+    echo "benchmark_binary_verified_against_source=no (this hash only identifies the binary; it is not independently checked against git_head/source.diff/thirdparty fingerprints below -- retain this exact binary alongside this environment.txt for a trustworthy comparison)"
     echo "JAVA_HOME=${JAVA_HOME}"
     echo "runtime_LD_LIBRARY_PATH=${runtime_library_path}"
     LD_LIBRARY_PATH="${runtime_library_path}" ldd "${benchmark_binary}"
     echo "be_config=${be_config}"
     sha256sum "${be_config}"
-    echo "variant_storage_parse_mode_config:"
-    grep -nE '^[[:space:]]*variant_storage_parse_mode[[:space:]]*=' "${be_config}" ||
-        echo "<compiled default>"
+    echo "benchmark_source=be/benchmark/variant/benchmark_variant_segment.hpp"
+    sha256sum "${repo_root}/be/benchmark/variant/benchmark_variant_segment.hpp"
     echo "thirdparty_installed=${thirdparty_installed_path}"
     while IFS= read -r fingerprint; do
         echo "$(basename "${fingerprint}")=$(< "${fingerprint}")"
     done < <(find "${thirdparty_installed_path}" -maxdepth 1 -type f \
         -name '*-build-fingerprint.txt' | sort)
-    if [[ -f "${repo_root}/be/build_Release/CMakeCache.txt" ]]; then
-        sha256sum "${repo_root}/be/build_Release/CMakeCache.txt"
-        grep -n '^CMAKE_BUILD_TYPE:' "${repo_root}/be/build_Release/CMakeCache.txt"
+    # ./build.sh --benchmark without an explicit BUILD_TYPE can name the build directory either
+    # build_RELEASE (BUILD_TYPE=RELEASE, as this script's own instructions set) or build_Release
+    # (build.sh's internal default casing); probe both so the documented bare invocation is still
+    # covered.
+    cmake_cache_found=0
+    for cmake_build_dir in "${repo_root}/be/build_RELEASE" "${repo_root}/be/build_Release"; do
+        if [[ -f "${cmake_build_dir}/CMakeCache.txt" ]]; then
+            sha256sum "${cmake_build_dir}/CMakeCache.txt"
+            grep -n '^CMAKE_BUILD_TYPE:' "${cmake_build_dir}/CMakeCache.txt"
+            cmake_cache_found=1
+            break
+        fi
+    done
+    if [[ "${cmake_cache_found}" -eq 0 ]]; then
+        echo "cmake_cache=not found under be/build_RELEASE or be/build_Release"
     fi
     echo "benchmark_root=${benchmark_root}"
     df -h "${benchmark_root}"
@@ -87,7 +101,6 @@ mkdir -p "${result_dir}"
     lscpu
     echo "load_before=$(< /proc/loadavg)"
     echo "rows=${DORIS_VARIANT_BENCHMARK_ROWS:-1000000}"
-    echo "rows_per_segment=${DORIS_VARIANT_BENCHMARK_ROWS_PER_SEGMENT:-1000000}"
     echo "filter=${benchmark_filter}"
     echo "cpu=${DORIS_BENCHMARK_CPU:-unbound}"
 } >"${result_dir}/environment.txt"
