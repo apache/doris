@@ -41,19 +41,14 @@ std::vector<SchemaScanner::ColumnDesc> SchemaLoadJobScanner::_s_tbls_columns = {
         {"TYPE", TYPE_STRING, sizeof(StringRef), true},
         {"ETL_INFO", TYPE_STRING, sizeof(StringRef), true},
         {"TASK_INFO", TYPE_STRING, sizeof(StringRef), true},
-        {"ERROR_MSG", TYPE_STRING, sizeof(StringRef), true},
         {"CREATE_TIME", TYPE_STRING, sizeof(StringRef), true},
-        {"ETL_START_TIME", TYPE_STRING, sizeof(StringRef), true},
-        {"ETL_FINISH_TIME", TYPE_STRING, sizeof(StringRef), true},
         {"LOAD_START_TIME", TYPE_STRING, sizeof(StringRef), true},
         {"LOAD_FINISH_TIME", TYPE_STRING, sizeof(StringRef), true},
-        {"URL", TYPE_STRING, sizeof(StringRef), true},
-        {"JOB_DETAILS", TYPE_STRING, sizeof(StringRef), true},
         {"TRANSACTION_ID", TYPE_STRING, sizeof(StringRef), true},
-        {"ERROR_TABLETS", TYPE_STRING, sizeof(StringRef), true},
         {"USER", TYPE_STRING, sizeof(StringRef), true},
         {"COMMENT", TYPE_STRING, sizeof(StringRef), true},
         {"FIRST_ERROR_MSG", TYPE_STRING, sizeof(StringRef), true},
+        {"ERROR_DETAIL", TYPE_STRING, sizeof(StringRef), true},
 };
 
 SchemaLoadJobScanner::SchemaLoadJobScanner()
@@ -130,45 +125,30 @@ Status SchemaLoadJobScanner::_fill_block_impl(Block* block) {
                 case 6: // TASK_INFO
                     column_value = job_info.__isset.task_info ? job_info.task_info : "";
                     break;
-                case 7: // ERROR_MSG
-                    column_value = job_info.__isset.error_msg ? job_info.error_msg : "";
-                    break;
-                case 8: // CREATE_TIME
+                case 7: // CREATE_TIME
                     column_value = job_info.__isset.create_time ? job_info.create_time : "";
                     break;
-                case 9: // ETL_START_TIME
-                    column_value = job_info.__isset.etl_start_time ? job_info.etl_start_time : "";
-                    break;
-                case 10: // ETL_FINISH_TIME
-                    column_value = job_info.__isset.etl_finish_time ? job_info.etl_finish_time : "";
-                    break;
-                case 11: // LOAD_START_TIME
+                case 8: // LOAD_START_TIME
                     column_value = job_info.__isset.load_start_time ? job_info.load_start_time : "";
                     break;
-                case 12: // LOAD_FINISH_TIME
+                case 9: // LOAD_FINISH_TIME
                     column_value =
                             job_info.__isset.load_finish_time ? job_info.load_finish_time : "";
                     break;
-                case 13: // URL
-                    column_value = job_info.__isset.url ? job_info.url : "";
-                    break;
-                case 14: // JOB_DETAILS
-                    column_value = job_info.__isset.job_details ? job_info.job_details : "";
-                    break;
-                case 15: // TRANSACTION_ID
+                case 10: // TRANSACTION_ID
                     column_value = job_info.__isset.transaction_id ? job_info.transaction_id : "";
                     break;
-                case 16: // ERROR_TABLETS
-                    column_value = job_info.__isset.error_tablets ? job_info.error_tablets : "";
-                    break;
-                case 17: // USER
+                case 11: // USER
                     column_value = job_info.__isset.user ? job_info.user : "";
                     break;
-                case 18: // COMMENT
+                case 12: // COMMENT
                     column_value = job_info.__isset.comment ? job_info.comment : "";
                     break;
-                case 19: // FIRST_ERROR_MSG
+                case 13: // FIRST_ERROR_MSG
                     column_value = job_info.__isset.first_error_msg ? job_info.first_error_msg : "";
+                    break;
+                case 14: // ERROR_DETAIL
+                    column_value = job_info.__isset.error_detail ? job_info.error_detail : "";
                     break;
                 }
 

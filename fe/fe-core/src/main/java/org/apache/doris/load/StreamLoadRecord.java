@@ -39,6 +39,8 @@ public class StreamLoadRecord {
     private String filteredRows;
     private String unselectedRows;
     private String loadBytes;
+    private String beginTxnTimeMs;
+    private String streamLoadPutTimeMs;
     private String startTime;
     private String finishTime;
     private String comment;
@@ -48,6 +50,14 @@ public class StreamLoadRecord {
     public StreamLoadRecord(String label, String db, String table, String clientIp, String status,
             String message, String url, String totalRows, String loadedRows, String filteredRows, String unselectedRows,
             String loadBytes, String startTime, String finishTime, String user, String comment, String firstErrorMsg) {
+        this(label, db, table, clientIp, status, message, url, totalRows, loadedRows, filteredRows, unselectedRows,
+                loadBytes, "", "", startTime, finishTime, user, comment, firstErrorMsg);
+    }
+
+    public StreamLoadRecord(String label, String db, String table, String clientIp, String status,
+            String message, String url, String totalRows, String loadedRows, String filteredRows, String unselectedRows,
+            String loadBytes, String beginTxnTimeMs, String streamLoadPutTimeMs, String startTime, String finishTime,
+            String user, String comment, String firstErrorMsg) {
         this.label = label;
         this.db = db;
         this.table = table;
@@ -61,6 +71,8 @@ public class StreamLoadRecord {
         this.filteredRows = filteredRows;
         this.unselectedRows = unselectedRows;
         this.loadBytes = loadBytes;
+        this.beginTxnTimeMs = beginTxnTimeMs;
+        this.streamLoadPutTimeMs = streamLoadPutTimeMs;
         this.startTime = startTime;
         this.finishTime = finishTime;
         this.comment = comment;
@@ -103,5 +115,65 @@ public class StreamLoadRecord {
 
     public String getTable() {
         return table;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public String getUser() {
+        return user;
+    }
+
+    public String getClientIp() {
+        return clientIp;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public String getUrl() {
+        return url;
+    }
+
+    public String getTotalRows() {
+        return totalRows;
+    }
+
+    public String getLoadedRows() {
+        return loadedRows;
+    }
+
+    public String getFilteredRows() {
+        return filteredRows;
+    }
+
+    public String getUnselectedRows() {
+        return unselectedRows;
+    }
+
+    public String getLoadBytes() {
+        return loadBytes;
+    }
+
+    public String getBeginTxnTimeMs() {
+        return beginTxnTimeMs;
+    }
+
+    public String getStreamLoadPutTimeMs() {
+        return streamLoadPutTimeMs;
+    }
+
+    public String getStartTime() {
+        return startTime;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public String getFirstErrorMsg() {
+        return firstErrorMsg;
     }
 }

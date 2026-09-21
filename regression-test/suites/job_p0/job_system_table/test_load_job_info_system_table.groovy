@@ -49,26 +49,20 @@ suite("test_load_job_info_system_table", "p0") {
         TYPE,
         ETL_INFO,
         TASK_INFO,
-        ERROR_MSG,
         CREATE_TIME,
-        ETL_START_TIME,
-        ETL_FINISH_TIME,
         LOAD_START_TIME,
         LOAD_FINISH_TIME,
-        URL,
-        JOB_DETAILS,
         TRANSACTION_ID,
-        ERROR_TABLETS,
         USER,
         COMMENT,
-        FIRST_ERROR_MSG
-    FROM 
-        information_schema.load_jobs
-    WHERE 
+        FIRST_ERROR_MSG,
+        ERROR_DETAIL
+    FROM
+        information_schema.loads
+    WHERE
         LABEL = '${label}'
     """
 
     log.info("Result size: ${res.size()}")
-    assertTrue(res.size() > 0, "Job should appear in load_jobs system table after ${label} insert")
+    assertTrue(res.size() > 0, "Job should appear in loads system table after ${label} insert")
 }
-

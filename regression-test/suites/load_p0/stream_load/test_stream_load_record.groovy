@@ -15,62 +15,124 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_stream_load_record", "p0") {
+// nonConcurrent because it toggles the BE config enable_stream_load_record.
+suite("test_stream_load_record", "p0,nonConcurrent") {
     def tableName = "test_stream_load_record"
 
-    sql """ DROP TABLE IF EXISTS ${tableName} """
-    sql """
-        CREATE TABLE IF NOT EXISTS ${tableName} (
-            `k1` bigint(20) NULL,
-            `k2` bigint(20) NULL,
-            `v1` tinyint(4) SUM NULL,
-            `v2` tinyint(4) REPLACE NULL,
-            `v3` tinyint(4) REPLACE_IF_NOT_NULL NULL,
-            `v4` smallint(6) REPLACE_IF_NOT_NULL NULL,
-            `v5` int(11) REPLACE_IF_NOT_NULL NULL,
-            `v6` bigint(20) REPLACE_IF_NOT_NULL NULL,
-            `v7` largeint(40) REPLACE_IF_NOT_NULL NULL,
-            `v8` datetime REPLACE_IF_NOT_NULL NULL,
-            `v9` date REPLACE_IF_NOT_NULL NULL,
-            `v10` char(10) REPLACE_IF_NOT_NULL NULL,
-            `v11` varchar(6) REPLACE_IF_NOT_NULL NULL,
-            `v12` decimal(27, 9) REPLACE_IF_NOT_NULL NULL
-        ) ENGINE=OLAP
-        AGGREGATE KEY(`k1`, `k2`)
-        COMMENT 'OLAP'
-        PARTITION BY RANGE(`k1`)
-        (PARTITION partition_a VALUES [("-9223372036854775808"), ("100000")),
-        PARTITION partition_b VALUES [("100000"), ("1000000000")),
-        PARTITION partition_c VALUES [("1000000000"), ("10000000000")),
-        PARTITION partition_d VALUES [("10000000000"), (MAXVALUE)))
-        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
-        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
-    """
+    // Enable BE RocksDB stream-load-record so the completed record is persisted and can be read
+    // on demand by information_schema.loads.
+    set_be_param("enable_stream_load_record", "true")
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                `k1` bigint(20) NULL,
+                `k2` bigint(20) NULL,
+                `v1` tinyint(4) SUM NULL,
+                `v2` tinyint(4) REPLACE NULL,
+                `v3` tinyint(4) REPLACE_IF_NOT_NULL NULL,
+                `v4` smallint(6) REPLACE_IF_NOT_NULL NULL,
+                `v5` int(11) REPLACE_IF_NOT_NULL NULL,
+                `v6` bigint(20) REPLACE_IF_NOT_NULL NULL,
+                `v7` largeint(40) REPLACE_IF_NOT_NULL NULL,
+                `v8` datetime REPLACE_IF_NOT_NULL NULL,
+                `v9` date REPLACE_IF_NOT_NULL NULL,
+                `v10` char(10) REPLACE_IF_NOT_NULL NULL,
+                `v11` varchar(6) REPLACE_IF_NOT_NULL NULL,
+                `v12` decimal(27, 9) REPLACE_IF_NOT_NULL NULL
+            ) ENGINE=OLAP
+            AGGREGATE KEY(`k1`, `k2`)
+            COMMENT 'OLAP'
+            PARTITION BY RANGE(`k1`)
+            (PARTITION partition_a VALUES [("-9223372036854775808"), ("100000")),
+            PARTITION partition_b VALUES [("100000"), ("1000000000")),
+            PARTITION partition_c VALUES [("1000000000"), ("10000000000")),
+            PARTITION partition_d VALUES [("10000000000"), (MAXVALUE)))
+            DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+        """
 
-    // test strict_mode success
-    streamLoad {
-        table "${tableName}"
+        def label = "test_stream_load_record_" + UUID.randomUUID().toString().replace("-", "")
 
-        set 'column_separator', '\t'
-        set 'columns', 'k1, k2, v2, v10, v11'
-        set 'partitions', 'partition_a, partition_b, partition_c, partition_d'
-        set 'strict_mode', 'true'
+        // test strict_mode success
+        streamLoad {
+            table "${tableName}"
 
-        file 'test_strict_mode.csv'
-        time 10000 // limit inflight 10s
-    }
+            set 'label', label
+            set 'column_separator', '\t'
+            set 'columns', 'k1, k2, v2, v10, v11'
+            set 'partitions', 'partition_a, partition_b, partition_c, partition_d'
+            set 'strict_mode', 'true'
 
-    def count = 0
-    while (true) {
-        sleep(1000)
-        def res = sql"show stream load"
-        log.info("Stream load result: ${res}", res)
-        if (res.size() > 0) {
-            break
+            file 'test_strict_mode.csv'
+            time 10000 // limit inflight 10s
         }
-        if (count > 150) {
-            assertTrue(-1 > 0)
+
+        // Query information_schema.loads directly. This reads BE RocksDB on demand and does NOT
+        // wait for SHOW STREAM LOAD / the FE periodic cache. The only latency is the BE persisting
+        // the record to RocksDB right after the load finishes, so a short bounded retry is enough.
+        def loadRows = []
+        def count = 0
+        while (true) {
+            sleep(1000)
+            loadRows = sql """
+                SELECT
+                    LABEL,
+                    STATE,
+                    PROGRESS,
+                    TYPE,
+                    TASK_INFO,
+                    ERROR_DETAIL,
+                    USER,
+                    COMMENT,
+                    FIRST_ERROR_MSG
+                FROM information_schema.loads
+                WHERE LABEL = '${label}' AND TYPE = 'STREAM_LOAD'
+            """
+            log.info("information_schema.loads stream load result for ${label}: ${loadRows}")
+            if (loadRows.size() > 0) {
+                break
+            }
+            if (count > 60) {
+                assertTrue(false, "information_schema.loads should contain stream load label ${label}")
+            }
+            count++
         }
-        count++
+
+        // Selected column order above:
+        // 0 LABEL, 1 STATE, 2 PROGRESS, 3 TYPE, 4 TASK_INFO, 5 ERROR_DETAIL,
+        // 6 USER, 7 COMMENT, 8 FIRST_ERROR_MSG
+        def row = loadRows[0]
+
+        // STATE is now unified with LoadManager vocabulary: "Success" → "FINISHED"
+        assertEquals(label, row[0].toString())            // LABEL
+        assertEquals("FINISHED", row[1].toString())       // STATE (unified: Success→FINISHED)
+        assertEquals("100%", row[2].toString())           // PROGRESS
+        assertEquals("STREAM_LOAD", row[3].toString())    // TYPE
+        assertTrue(row[6].toString().length() > 0)        // USER is populated
+        assertNotNull(row[7])                             // COMMENT
+        assertNotNull(row[8])                             // FIRST_ERROR_MSG
+
+        // TASK_INFO JSON carries Stream Load context and row/byte/timing counters.
+        def taskInfo = row[4].toString()
+        assertTrue(taskInfo.contains("Db"))
+        assertTrue(taskInfo.contains("Table"))
+        assertTrue(taskInfo.contains("ClientIp"))
+        assertTrue(taskInfo.contains(tableName))
+        assertTrue(taskInfo.contains("TotalRows"))
+        assertTrue(taskInfo.contains("LoadedRows"))
+        assertTrue(taskInfo.contains("FilteredRows"))
+        assertTrue(taskInfo.contains("UnselectedRows"))
+        assertTrue(taskInfo.contains("LoadBytes"))
+        assertTrue(taskInfo.contains("BeginTxnTimeMs"))
+        assertFalse(taskInfo.contains("StreamLoadPutTimeMs"))
+
+        // ERROR_DETAIL groups URL, tablet errors and the load error summary.
+        def errorDetail = row[5].toString()
+        assertTrue(errorDetail.contains("URL"))
+        assertTrue(errorDetail.contains("ERROR_TABLETS"))
+        assertTrue(errorDetail.contains("ERROR_MSG"))
+    } finally {
+        set_be_param("enable_stream_load_record", "false")
     }
 }
