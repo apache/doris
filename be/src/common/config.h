@@ -739,6 +739,17 @@ DECLARE_mInt64(load_error_log_reserve_hours);
 // error log size limit, default 200MB
 DECLARE_mInt64(load_error_log_limit_bytes);
 
+// Dedicated load data pool for add-block and streaming flush/close work.
+// -1 inherits brpc_heavy_work_pool_threads/max_queue_size (including CPU-scaled defaults).
+DECLARE_Int32(brpc_load_heavy_work_pool_threads);
+DECLARE_Int32(brpc_load_heavy_work_pool_max_queue_size);
+// Dedicated load control pool for writer open/cancel and stream open. These handlers may
+// acquire locks or access storage, so they must not use the query light pool.
+// -1 selects max(32, CPU cores) threads and max(1024, CPU cores * 32) queued requests.
+// All four load pool settings require a restart.
+DECLARE_Int32(brpc_load_light_work_pool_threads);
+DECLARE_Int32(brpc_load_light_work_pool_max_queue_size);
+
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_block etc
