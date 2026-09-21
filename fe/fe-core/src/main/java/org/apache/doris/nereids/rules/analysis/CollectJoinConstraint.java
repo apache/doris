@@ -62,6 +62,14 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                 Long leftHand = LongBitmap.computeTableBitmap(join.left().getInputRelations());
                 Long rightHand = LongBitmap.computeTableBitmap(join.right().getInputRelations());
                 join.setBitmap(LongBitmap.or(leftHand, rightHand));
+                JoinType joinType = join.getJoinType();
+                if (joinType.isRightJoin()) {
+                    // LEADING constraints model the preserved/output side as the left child.
+                    Long originalLeftHand = leftHand;
+                    leftHand = rightHand;
+                    rightHand = originalLeftHand;
+                    joinType = joinType.swap();
+                }
                 List<Expression> expressions = join.getHashJoinConjuncts();
                 Long totalFilterBitMap = 0L;
                 Long nonNullableSlotBitMap = 0L;
@@ -70,11 +78,11 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     nonNullableSlotBitMap = LongBitmap.or(nonNullableSlotBitMap, nonNullable);
                     Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
-                    if (join.getJoinType().isLeftJoin()) {
+                    if (joinType.isLeftJoin()) {
                         filterBitMap = LongBitmap.or(filterBitMap, rightHand);
                     }
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
-                    leading.putConditionJoinType(expression, join.getJoinType());
+                    leading.putConditionJoinType(expression, joinType);
                 }
                 expressions = join.getOtherJoinConjuncts();
                 for (Expression expression : expressions) {
@@ -82,13 +90,14 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
                     nonNullableSlotBitMap = LongBitmap.or(nonNullableSlotBitMap, nonNullable);
                     Long filterBitMap = calSlotsTableBitMap(leading, expression.getInputSlots(), false);
                     totalFilterBitMap = LongBitmap.or(totalFilterBitMap, filterBitMap);
-                    if (join.getJoinType().isLeftJoin()) {
+                    if (joinType.isLeftJoin()) {
                         filterBitMap = LongBitmap.or(filterBitMap, rightHand);
                     }
                     leading.getFilters().add(Pair.of(filterBitMap, expression));
-                    leading.putConditionJoinType(expression, join.getJoinType());
+                    leading.putConditionJoinType(expression, joinType);
                 }
-                collectJoinConstraintList(leading, leftHand, rightHand, join, totalFilterBitMap, nonNullableSlotBitMap);
+                collectJoinConstraintList(
+                        leading, leftHand, rightHand, joinType, totalFilterBitMap, nonNullableSlotBitMap);
 
                 return ctx.root;
             }).toRule(RuleType.COLLECT_JOIN_CONSTRAINT)
@@ -115,14 +124,14 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
         leading.getRelationIdToScanMap().put(relationId, child);
     }
 
-    private void collectJoinConstraintList(LeadingHint leading, Long leftHand, Long rightHand, LogicalJoin join,
+    private void collectJoinConstraintList(LeadingHint leading, Long leftHand, Long rightHand, JoinType joinType,
                                             Long filterTableBitMap, Long nonNullableSlotBitMap) {
         Long totalTables = LongBitmap.or(leftHand, rightHand);
-        if (join.getJoinType().isInnerOrCrossJoin()) {
+        if (joinType.isInnerOrCrossJoin()) {
             leading.setInnerJoinBitmap(LongBitmap.or(leading.getInnerJoinBitmap(), totalTables));
             return;
         }
-        if (join.getJoinType().isFullOuterJoin()) {
+        if (joinType.isFullOuterJoin()) {
             JoinConstraint newJoinConstraint = new JoinConstraint(leftHand, rightHand, leftHand, rightHand,
                     JoinType.FULL_OUTER_JOIN, false);
             leading.getJoinConstraintList().add(newJoinConstraint);
@@ -155,7 +164,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
 
             if (LongBitmap.isOverlap(leftHand, other.getRightHand())) {
                 if (LongBitmap.isOverlap(filterTableBitMap, other.getRightHand())
-                        && (join.getJoinType().isSemiOrAntiJoin()
+                        && (joinType.isSemiOrAntiJoin()
                         || !LongBitmap.isOverlap(nonNullableSlotBitMap, other.getMinRightHand()))) {
                     minLeftHand = LongBitmap.or(minLeftHand,
                         other.getLeftHand());
@@ -167,7 +176,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
             if (LongBitmap.isOverlap(rightHand, other.getRightHand())) {
                 if (LongBitmap.isOverlap(filterTableBitMap, other.getRightHand())
                         || !LongBitmap.isOverlap(filterTableBitMap, other.getMinLeftHand())
-                        || join.getJoinType().isSemiOrAntiJoin()
+                        || joinType.isSemiOrAntiJoin()
                         || other.getJoinType().isSemiOrAntiJoin()
                         || !other.isLhsStrict()) {
                     minRightHand = LongBitmap.or(minRightHand, other.getLeftHand());
@@ -183,7 +192,7 @@ public class CollectJoinConstraint implements RewriteRuleFactory {
         }
 
         JoinConstraint newJoinConstraint = new JoinConstraint(minLeftHand, minRightHand, leftHand, rightHand,
-                join.getJoinType(), isStrict);
+                joinType, isStrict);
         leading.getJoinConstraintList().add(newJoinConstraint);
     }
 
