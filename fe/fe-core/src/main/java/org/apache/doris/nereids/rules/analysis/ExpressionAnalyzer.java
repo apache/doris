@@ -328,8 +328,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         // A multipart name can be either a relation-qualified column (t.col) or a nested field
         // reference (col.field). Try the relation-qualified interpretation in every visible scope
         // first, so a nearer name "t" does not hide a farther relation alias "t". The visible scopes
-        // are the local ones, which GROUP BY, HAVING, QUALIFY and ORDER BY layer from the select output
-        // and its child output, and then the outer scope of a correlated subquery:
+        // are the local ones, which HAVING, QUALIFY and ORDER BY layer from the select output and its
+        // child output in a clause specific order, and then the outer scope of a correlated subquery:
         //   select q.v as q from t q order by q.v  -- q.v is the column of relation q, not alias q
         if (shouldPrioritizeRelationQualifier() && unboundSlot.getNameParts().size() > 1) {
             SlotBinding localRelationBinding = bindSlotByRelationQualifierInThisScope(unboundSlot);
