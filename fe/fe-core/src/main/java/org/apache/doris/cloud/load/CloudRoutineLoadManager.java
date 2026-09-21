@@ -68,7 +68,13 @@ public class CloudRoutineLoadManager extends RoutineLoadManager {
 
     @Override
     public void replayChangeRoutineLoadJob(RoutineLoadOperation operation) {
-        getJob(operation.getId()).setCloudCluster();
+        RoutineLoadJob job = getJob(operation.getId());
+        if (job == null) {
+            LOG.warn("routine load job {} does not exist when replaying change routine load job, ignore it",
+                    operation.getId());
+            return;
+        }
+        job.setCloudCluster();
         super.replayChangeRoutineLoadJob(operation);
     }
 }
