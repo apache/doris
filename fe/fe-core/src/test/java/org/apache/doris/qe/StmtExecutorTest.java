@@ -101,7 +101,7 @@ public class StmtExecutorTest extends TestWithFeService {
     }
 
     // The deferral gate (#67503): a coordinator is kept alive past GetFlightInfo only when the BE
-    // still fetches splits from it (Coordinator.hasBatchSplitSource), and the execution timeout it
+    // still depends on it (Coordinator.mustOutliveDispatch), and the execution timeout it
     // ran with is frozen at that moment. SET_VAR hint values are reverted when execute() ends, so
     // the idle reaper must not read the session value later.
     @Test
