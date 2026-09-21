@@ -255,6 +255,17 @@ public class TestDereference extends TestWithFeService {
     }
 
     @Test
+    public void testRelationQualifierOccupiesNestedOutputAliasPath() {
+        // q.v is the scalar column v of relation q, so q.v.b is not the path v.b of the struct alias q
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext)
+                        .analyze("select named_struct('v', named_struct('b', 1)) as q "
+                                + "from shadow_table q order by q.v.b"));
+        Assertions.assertTrue(exception.getMessage().contains("No such field 'b' in 'v'"),
+                exception.getMessage());
+    }
+
+    @Test
     public void testOutputAliasKeepsNestedFieldFallback() {
         // no relation-qualified column matches, so the first part falls back to the output alias
         assertBoundToNestedField("select q.s as a from shadow_table q order by a.v");
@@ -295,6 +306,17 @@ public class TestDereference extends TestWithFeService {
                         .analyze("select id from shadow_table order by array_map(x -> x + unknown_column, arr)"));
         Assertions.assertTrue(exception.getMessage().contains("Unknown column 'unknown_column'"),
                 exception.getMessage());
+    }
+
+    @Test
+    public void testLambdaBodyFollowsAmbiguityOfEnclosingClause() {
+        // id is both the output alias of q.id and the output slot p.id, HAVING does not pick the exact match
+        String having = "select q.id as id, p.id from shadow_table q join plain_table p on q.id = p.id having ";
+        for (String predicate : ImmutableList.of("id > 0", "array_sum(array_map(x -> x + id, q.arr)) > 0")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> PlanChecker.from(connectContext).analyze(having + predicate), predicate);
+            Assertions.assertTrue(exception.getMessage().contains("id is ambiguous"), exception.getMessage());
+        }
     }
 
     @Test

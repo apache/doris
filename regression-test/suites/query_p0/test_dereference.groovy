@@ -294,6 +294,30 @@ suite("test_dereference") {
             order by array_sum(array_map(x -> x + q.v, [1]))
             """
 
+    // q is only a scalar output alias here, the relation is p
+    test {
+        sql "select p.v as q from test_dereference_alias_shadow p order by q.v"
+        exception "No such field 'v' in 'q'"
+    }
+
+    // q.v is the scalar column v of relation q, so q.v.b is not the path v.b of the struct alias q
+    test {
+        sql """
+            select named_struct('v', named_struct('b', 1)) as q
+            from test_dereference_alias_shadow q order by q.v.b
+            """
+        exception "No such field 'b' in 'v'"
+    }
+
+    // an unknown name in a lambda body reports the error of the clause around it
+    test {
+        sql """
+            select id from test_dereference_alias_shadow
+            order by array_sum(array_map(x -> x + unknown_column, [1]))
+            """
+        exception "Unknown column 'unknown_column'"
+    }
+
     test {
         sql """
             select t1.id
