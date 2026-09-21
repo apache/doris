@@ -21,6 +21,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <future>
 #include <iosfwd>
 #include <vector>
 
@@ -295,6 +296,93 @@ TEST_F(CacheTest, EvictionPolicyWithDurable) {
     EXPECT_EQ(-1, Lookup(300));
     EXPECT_EQ(101, Lookup(100));
     EXPECT_EQ(201, Lookup(200));
+}
+
+TEST_F(CacheTest, UpdateChargeDoesNotDoubleTrackMemory) {
+    init_size_cache(1024 * 1024);
+    const CacheKey key("growing");
+    auto* handle = cache()->insert(key, new CacheValue(EncodeValue(1)), 100, 100);
+    const auto usage = cache()->get_usage();
+    const auto tracked = cache()->mem_consumption();
+    cache()->_cache->update_charge(handle, 500);
+    EXPECT_EQ(cache()->get_usage(), usage + 400);
+    EXPECT_EQ(cache()->mem_consumption(), tracked);
+    // Repeated initialization and older snapshots cannot undo the larger charge.
+    cache()->_cache->update_charge(handle, 500);
+    cache()->_cache->update_charge(handle, 200);
+    EXPECT_EQ(cache()->get_usage(), usage + 400);
+    cache()->release(handle);
+    cache()->prune_all(true);
+    EXPECT_EQ(cache()->get_usage(), 0);
+    EXPECT_EQ(cache()->mem_consumption(), 0);
+}
+
+TEST_F(CacheTest, UpdateChargeEvictsIdleEntriesAndReleasesOversizedEntry) {
+    LRUCache cache(LRUCacheType::SIZE);
+    cache.set_capacity(1024);
+    CacheKey idle("idle"), growing("growing");
+    cache.release(cache.insert(idle, 1, new CacheValue(EncodeValue(1)), 100));
+    auto* handle = cache.insert(growing, 2, new CacheValue(EncodeValue(2)), 100);
+    cache.update_charge(handle, 2048);
+    EXPECT_EQ(cache.lookup(idle, 1), nullptr);
+    EXPECT_GT(cache.get_usage(), 2048);
+    // The caller's live handle remains usable even while over capacity.
+    EXPECT_EQ(DecodeValue(
+                      static_cast<CacheValue*>(reinterpret_cast<LRUHandle*>(handle)->value)->value),
+              2);
+    cache.release(handle);
+    EXPECT_EQ(cache.get_usage(), 0);
+    EXPECT_EQ(cache.lookup(growing, 2), nullptr);
+}
+
+TEST_F(CacheTest, UpdateChargeIgnoresReplacedEntry) {
+    LRUCache cache(LRUCacheType::SIZE);
+    cache.set_capacity(4096);
+    CacheKey key("replaced");
+    auto* old = cache.insert(key, 1, new CacheValue(EncodeValue(1)), 100);
+    auto* current = cache.insert(key, 1, new CacheValue(EncodeValue(2)), 200);
+    const auto usage = cache.get_usage();
+    cache.update_charge(old, 8192);
+    EXPECT_EQ(cache.get_usage(), usage);
+    cache.release(old);
+    cache.release(current);
+    EXPECT_EQ(cache.get_usage(), usage);
+}
+
+TEST_F(CacheTest, UpdateChargeConcurrentGrowth) {
+    LRUCache cache(LRUCacheType::SIZE);
+    cache.set_capacity(1024 * 1024);
+    CacheKey key("concurrent");
+    auto* handle = cache.insert(key, 1, new CacheValue(EncodeValue(1)), 100);
+    const auto usage = cache.get_usage();
+    std::vector<std::future<void>> updates;
+    for (size_t charge = 200; charge <= 900; charge += 100) {
+        auto* held = cache.lookup(key, 1);
+        ASSERT_NE(held, nullptr);
+        updates.emplace_back(std::async(std::launch::async, [&, held, charge] {
+            cache.update_charge(held, charge);
+            cache.release(held);
+        }));
+    }
+    for (auto& update : updates) {
+        update.get();
+    }
+    EXPECT_EQ(cache.get_usage(), usage + 800);
+    cache.release(handle);
+}
+
+TEST_F(CacheTest, UpdateChargePreservesOtherOutstandingHandles) {
+    LRUCache cache(LRUCacheType::SIZE);
+    cache.set_capacity(1024);
+    CacheKey key("shared");
+    auto* first = cache.insert(key, 1, new CacheValue(EncodeValue(1)), 100);
+    auto* second = cache.lookup(key, 1);
+    ASSERT_NE(second, nullptr);
+    cache.update_charge(first, 2048);
+    cache.release(first);
+    EXPECT_GT(cache.get_usage(), 2048);
+    cache.release(second);
+    EXPECT_EQ(cache.get_usage(), 0);
 }
 
 TEST_F(CacheTest, Usage) {

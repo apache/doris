@@ -28,6 +28,7 @@
 #include "runtime/exec_env.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/segment_loader.h"
 #include "storage/segment/segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema_helper.h"
@@ -104,6 +105,88 @@ protected:
     std::string _present_key;
     std::string _missing_key;
 };
+
+TEST_F(SegmentPrimaryKeyLookupTest, CachedRootPagesIncreaseChargeOnlyOnce) {
+    SegmentCache cache(1024 * 1024 * 1024, 10000);
+    SegmentCacheHandle handle;
+    const SegmentCache::CacheKey key(_segment->rowset_id(), _segment->id());
+    cache.insert(key, *new SegmentCache::CacheValue(_segment), &handle);
+    const auto usage = cache.get_usage();
+    const auto tracked = cache.mem_consumption();
+    RowLocation location;
+    ASSERT_TRUE(lookup(_missing_key, &location).is<ErrorCode::KEY_NOT_FOUND>());
+    EXPECT_EQ(cache.get_usage(), usage);
+    ASSERT_TRUE(lookup(_present_key, &location).ok());
+    const auto roots = _segment->_pk_index_reader->get_memory_size();
+    EXPECT_GT(roots, 300000);
+    EXPECT_EQ(cache.get_usage(), usage + roots);
+    EXPECT_EQ(cache.mem_consumption(), tracked);
+    ASSERT_TRUE(_segment->load_index(nullptr).ok());
+    EXPECT_EQ(cache.get_usage(), usage + roots);
+}
+
+TEST_F(SegmentPrimaryKeyLookupTest, LazyRootLoadingEvictsOversizedSegment) {
+    // SegmentCache has 64 shards. Metadata fits; the large PK roots do not.
+    SegmentCache cache((_segment->cache_charge() + 65536) * 64, 10000);
+    SegmentCacheHandle handle;
+    const SegmentCache::CacheKey key(_segment->rowset_id(), _segment->id());
+    cache.insert(key, *new SegmentCache::CacheValue(_segment), &handle);
+    ASSERT_EQ(cache.get_element_count(), 1);
+    ASSERT_TRUE(_segment->load_index(nullptr).ok());
+    EXPECT_EQ(cache.get_element_count(), 0);
+    EXPECT_EQ(cache.get_usage(), 0);
+    // Eviction drops cache ownership, not the active operation's shared_ptr.
+    RowLocation location;
+    ASSERT_TRUE(lookup(_present_key, &location).ok());
+    EXPECT_EQ(location.row_id, 0);
+}
+
+TEST_F(SegmentPrimaryKeyLookupTest, EagerRootLoadingChargesOnInsert) {
+    const auto capacity = (_segment->cache_charge() + 65536) * 64;
+    ASSERT_TRUE(_segment->load_index(nullptr).ok());
+    SegmentCache cache(capacity, 10000);
+    SegmentCacheHandle handle;
+    const SegmentCache::CacheKey key(_segment->rowset_id(), _segment->id());
+    cache.insert(key, *new SegmentCache::CacheValue(_segment), &handle);
+    EXPECT_EQ(cache.get_usage(), 0);
+    EXPECT_EQ(cache.get_element_count(), 0);
+    EXPECT_EQ(handle.get_segments().front(), _segment);
+}
+
+TEST_F(SegmentPrimaryKeyLookupTest, OldSegmentDoesNotChargeItsReplacement) {
+    SegmentCache cache(1024 * 1024 * 1024, 10000);
+    const SegmentCache::CacheKey key(_segment->rowset_id(), _segment->id());
+    SegmentCacheHandle old_handle, new_handle;
+    cache.insert(key, *new SegmentCache::CacheValue(_segment), &old_handle);
+    auto replacement = std::make_shared<segment_v2::Segment>(_segment->id(), _segment->rowset_id(),
+                                                             _schema, InvertedIndexFileInfo {});
+    cache.insert(key, *new SegmentCache::CacheValue(replacement), &new_handle);
+    const auto usage = cache.get_usage();
+    ASSERT_TRUE(_segment->load_index(nullptr).ok());
+    EXPECT_EQ(cache.get_usage(), usage);
+    EXPECT_EQ(cache.get_element_count(), 1);
+}
+
+TEST_F(SegmentPrimaryKeyLookupTest, SegmentCanOutliveCache) {
+    {
+        SegmentCache cache(1024 * 1024 * 1024, 10000);
+        SegmentCacheHandle handle;
+        const SegmentCache::CacheKey key(_segment->rowset_id(), _segment->id());
+        cache.insert(key, *new SegmentCache::CacheValue(_segment), &handle);
+    }
+    ASSERT_TRUE(_segment->load_index(nullptr).ok());
+    RowLocation location;
+    ASSERT_TRUE(lookup(_present_key, &location).ok());
+}
+
+TEST_F(SegmentPrimaryKeyLookupTest, FailedIndexLoadDoesNotPinPartialRoots) {
+    auto meta = *_segment->_pk_index_meta;
+    meta.mutable_primary_key_index()->mutable_value_index_meta()->mutable_root_page()->set_offset(
+            uint64_t {1} << 50);
+    PrimaryKeyIndexReader reader;
+    EXPECT_FALSE(reader.parse_index(_segment->file_reader(), meta, nullptr).ok());
+    EXPECT_EQ(reader._index_reader, nullptr);
+}
 
 TEST_F(SegmentPrimaryKeyLookupTest, BloomFilterMissDoesNotLoadIndex) {
     RowLocation location;
