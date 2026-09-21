@@ -392,6 +392,95 @@ class ConcurrentLong2ObjectHashMapTest {
         Assertions.assertEquals(0, errors.get());
     }
 
+    // ---- Deadlock-safety tests ----
+
+    @Test
+    void testForEachWithMutatingCallbackDoesNotDeadlock() throws Exception {
+        // Before the fix, forEach held a read lock and the callback calling put() would try
+        // to acquire a write lock on the same segment, causing a read-to-write upgrade deadlock.
+        ConcurrentLong2ObjectHashMap<String> map = new ConcurrentLong2ObjectHashMap<>(1);
+        map.put(1L, "one");
+        map.put(2L, "two");
+
+        // Run in a separate thread with a timeout so the test fails fast instead of hanging
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<?> future = null;
+        try {
+            future = executor.submit(() -> {
+                map.forEach((ConcurrentLong2ObjectHashMap.LongObjConsumer<String>) (k, v) -> {
+                    map.put(k + 1000L, v + "-copy");
+                });
+            });
+            // Should complete within 5 seconds; if it deadlocks, get() will time out
+            future.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            if (future != null && !future.isDone()) {
+                future.cancel(true);
+            }
+            throw e;
+        } finally {
+            executor.shutdownNow();
+        }
+
+        Assertions.assertEquals("one-copy", map.get(1001L));
+        Assertions.assertEquals("two-copy", map.get(1002L));
+    }
+
+    @Test
+    void testReentrantComputeThrowsIllegalStateException() {
+        ConcurrentLong2ObjectHashMap<String> map = new ConcurrentLong2ObjectHashMap<>();
+        map.put(1L, "one");
+
+        // compute callback tries to call put on the same map — should throw ISE
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            map.compute(1L, (k, v) -> {
+                map.put(2L, "two");
+                return v;
+            });
+        });
+    }
+
+    @Test
+    void testReentrantComputeIfAbsentThrowsIllegalStateException() {
+        ConcurrentLong2ObjectHashMap<String> map = new ConcurrentLong2ObjectHashMap<>();
+
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            map.computeIfAbsent(1L, (long k) -> {
+                map.put(2L, "two");
+                return "one";
+            });
+        });
+    }
+
+    @Test
+    void testReentrantMergeThrowsIllegalStateException() {
+        ConcurrentLong2ObjectHashMap<String> map = new ConcurrentLong2ObjectHashMap<>();
+        map.put(1L, "one");
+
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            map.merge(1L, "new", (oldVal, newVal) -> {
+                map.remove(2L);
+                return oldVal + newVal;
+            });
+        });
+    }
+
+    @Test
+    void testReentrantReadFromCallbackThrowsIllegalStateException() {
+        ConcurrentLong2ObjectHashMap<String> map = new ConcurrentLong2ObjectHashMap<>();
+        map.put(1L, "one");
+        map.put(2L, "two");
+
+        // Read access (get) from within a compute callback should also throw ISE
+        // to prevent cross-segment ABBA deadlocks
+        Assertions.assertThrows(IllegalStateException.class, () -> {
+            map.compute(1L, (k, v) -> {
+                map.get(2L);
+                return v;
+            });
+        });
+    }
+
     // ---- Gson serialization tests ----
 
     @Test
