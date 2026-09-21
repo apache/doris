@@ -93,6 +93,35 @@ suite("test_remote_doris_flight_session", "p0,external") {
             assertEquals([[1, 'a'], [2, 'b'], [3, 'c']], rows)
             assertEquals(0L, flightSessionsOfCatalogUser())
         }
+
+        // A plan no coordinator ever takes is released when the statement ends instead. INSERT
+        // OVERWRITE plans the query once only to find the target partitions and discards that plan
+        // (its scan opened a session on the remote frontend) before the insert plans again ...
+        sql """DROP TABLE IF EXISTS `${db}`.`${table}_sink`"""
+        sql """
+            CREATE TABLE `${db}`.`${table}_sink` (
+              `id` int NOT NULL,
+              `v` varchar(16) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+        """
+        sql """INSERT OVERWRITE TABLE `${db}`.`${table}_sink` SELECT id, v FROM `${catalog}`.`${db}`.`${table}`"""
+        assertEquals([[3L]], sql("""SELECT COUNT(*) FROM `${db}`.`${table}_sink`"""))
+        assertEquals(0L, flightSessionsOfCatalogUser())
+
+        // ... and a statement that fails after planning - here an INSERT whose label was already
+        // used, refused when its transaction begins - has built no coordinator to close the session.
+        sql """INSERT INTO `${db}`.`${table}_sink` WITH LABEL test_remote_doris_flight_session_label SELECT id, v FROM `${catalog}`.`${db}`.`${table}`"""
+        assertEquals(0L, flightSessionsOfCatalogUser())
+        test {
+            sql """INSERT INTO `${db}`.`${table}_sink` WITH LABEL test_remote_doris_flight_session_label SELECT id, v FROM `${catalog}`.`${db}`.`${table}`"""
+            exception "already been used"
+        }
+        assertEquals(0L, flightSessionsOfCatalogUser())
     } finally {
         sql """DROP CATALOG IF EXISTS `${catalog}`"""
         sql """DROP USER IF EXISTS '${user}'@'%'"""

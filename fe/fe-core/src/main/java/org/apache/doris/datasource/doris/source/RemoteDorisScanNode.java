@@ -72,11 +72,16 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     private RemoteDorisSource source;
 
     // The Flight SQL session this scan opened on the remote frontend, from getSplits until stop()
-    // closes it (see RemoteDorisFlightSession for why it must live that long and no longer). Both
-    // guarded by this: stop() may run on another thread than the one that planned the query - a
-    // KILL, the timeout checker - and more than once (cancel, then close).
+    // closes it (see RemoteDorisFlightSession for why it must live that long and no longer). All
+    // three guarded by this: stop() may run on another thread than the one that planned the query -
+    // a KILL, the timeout checker - and more than once (cancel, then close).
     private RemoteDorisFlightSession flightSession;
     private boolean stopped;
+    // Whether stop() ended a session this scan had opened: the endpoints handed to the backend
+    // belong to that session's query, and a plan dispatched again with them (the same-plan retry
+    // of StmtExecutor.handleQueryWithRetry) would read what the remote frontend may have torn
+    // down with the session.
+    private boolean sessionClosedByStop;
 
     public RemoteDorisScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
                                SessionVariable sv, ScanContext scanContext) {
@@ -210,7 +215,9 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     /**
      * Holds {@code session} until {@link #stop()}. A session handed over after stop() already ran,
      * or on top of one still held, is closed at once instead: this scan owns one session at most,
-     * and none once stopped.
+     * and none once stopped. The statement registers the node as well: stop() is the coordinator's
+     * to call, but a plan that never gets one, or whose coordinator nobody closes, is stopped when
+     * the statement ends instead ({@link org.apache.doris.nereids.StatementContext#stopScanNodeAtClose}).
      */
     @VisibleForTesting
     void keepFlightSession(RemoteDorisFlightSession session) {
@@ -225,6 +232,21 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
         }
         if (toClose != null) {
             toClose.close();
+        }
+        if (toClose != session) {
+            ConnectContext.get().getStatementContext().stopScanNodeAtClose(this);
+        }
+    }
+
+    /**
+     * True once {@link #stop()} ended the session this scan opened: the endpoints in its scan
+     * ranges belong to that session's query on the remote frontend, so the same plan must not be
+     * dispatched again (see {@link ScanNode#cannotBeRedispatched()}).
+     */
+    @Override
+    public boolean cannotBeRedispatched() {
+        synchronized (this) {
+            return sessionClosedByStop;
         }
     }
 
@@ -258,6 +280,9 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
             stopped = true;
             session = flightSession;
             flightSession = null;
+            if (session != null) {
+                sessionClosedByStop = true;
+            }
         }
         if (session != null) {
             session.close();

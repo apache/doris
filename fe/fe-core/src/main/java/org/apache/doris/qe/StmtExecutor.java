@@ -814,6 +814,21 @@ public class StmtExecutor {
                 originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
     }
 
+    // Whether a scan node of the current plan released, when the failed attempt was cancelled, what
+    // the BE would scan with again if handleQueryWithRetry dispatched the same plan once more
+    // (ScanNode.cannotBeRedispatched).
+    private boolean planCannotBeRedispatched() {
+        if (planner == null) {
+            return false;
+        }
+        for (ScanNode scanNode : planner.getScanNodes()) {
+            if (scanNode.cannotBeRedispatched()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void checkBlockRulesByScan(Planner planner) throws AnalysisException {
         if (planner == null) {
             return;
@@ -1274,6 +1289,15 @@ public class StmtExecutor {
                         }
                     }
                 }
+                if (isNeedRetry && planCannotBeRedispatched()) {
+                    // The failed attempt's cancel() stopped the scan nodes, and one of them released
+                    // what the BE scans with: a remote Doris scan's session on the other frontend,
+                    // whose query the scan ranges point at. The same plan cannot be dispatched again.
+                    LOG.warn("not retrying query {} with the same plan: a scan node released what the backend"
+                            + " scans with when the failed attempt was cancelled. stmt: {}",
+                            DebugUtil.printId(context.queryId()), parsedStmt.getOrigStmt().originStmt);
+                    throw e;
+                }
                 if (i != retryTime - 1 && isNeedRetry && context.getProtocolAdapter().canRetryQuery(context)) {
                     LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
                 } else {
@@ -1684,6 +1708,10 @@ public class StmtExecutor {
                 // LogicalResultSinkToShortCircuitPointQuery keeps a Flight session on the normal
                 // execution path (ProtocolAdapter.supportsShortCircuitPointQuery, #67368).
                 if (coordBase == coord && coord.mustOutliveDispatch()) {
+                    // The coordinator outlives this statement, and with it what its scan nodes hold
+                    // for the BE: the statement's own end must not stop them (StatementContext.close
+                    // is the fallback for a plan no coordinator owns), the coordinator's close does.
+                    statementContext.handOverScanNodesToDeferredCoordinator(planner.getScanNodes());
                     deferForArrowFlight();
                 }
                 return;

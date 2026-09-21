@@ -19,9 +19,12 @@ package org.apache.doris.datasource.doris.source;
 
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -56,8 +59,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /**
  * The Flight SQL session a remote Doris scan opens on the remote frontend lives exactly as long as
  * the scan: opened for the query in getSplits, ended with a CloseSession when the coordinator stops
- * the scan node, and never left behind - not by a failed query, not by a stop() that came first.
- * The remote frontend is an in-process Flight SQL server that counts what the scan does to it.
+ * the scan node - or when the statement ends, for a plan no coordinator ever took - and never left
+ * behind - not by a failed query, not by a stop() that came first. The remote frontend is an
+ * in-process Flight SQL server that counts what the scan does to it.
  */
 public class RemoteDorisScanNodeTest {
     private static final String USER = "catalog_user";
@@ -95,9 +99,16 @@ public class RemoteDorisScanNodeTest {
     private RecordingRemoteFrontend remote;
     private FlightServer server;
     private Pair<String, Integer> hostAndPort;
+    // The statement the scan plans under: a scan node registers itself with it when it keeps a
+    // session, so that a statement no coordinator ever takes the plan of still ends the session.
+    private StatementContext statementContext;
 
     @BeforeEach
     public void startRemoteFrontend() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        statementContext = new StatementContext(ctx, new OriginStatement("select 1", 0));
+        ctx.setStatementContext(statementContext);
+        ctx.setThreadLocalInfo();
         serverAllocator = new RootAllocator();
         remote = new RecordingRemoteFrontend();
         // The handshake the scan performs (authenticateBasicToken) opens a session and issues a bearer
@@ -117,6 +128,10 @@ public class RemoteDorisScanNodeTest {
 
     @AfterEach
     public void stopRemoteFrontend() throws Exception {
+        // The statement ends while the remote frontend is still up, as it does in production; a
+        // session a test left to the statement is closed here, one it already ended is a no-op.
+        statementContext.close();
+        ConnectContext.remove();
         server.close();
         serverAllocator.close();
     }
@@ -188,6 +203,59 @@ public class RemoteDorisScanNodeTest {
 
         Assertions.assertEquals(Collections.singletonList(USER), remote.closedSessions);
         Assertions.assertFalse(node.coordinatorMustOutliveDispatch());
+    }
+
+    @Test
+    public void testSessionOfAScanNoCoordinatorTakesEndsWithTheStatement() throws Exception {
+        RemoteDorisScanNode node = scanNode();
+        node.executeFlightSqlQuery(hostAndPort, USER, PASSWORD, "select 1", 10);
+        Assertions.assertTrue(remote.closedSessions.isEmpty());
+
+        // The statement fails after planning (a SQL block rule on the scan, an INSERT whose
+        // transaction cannot begin) or discards the plan (the INSERT OVERWRITE probe): no
+        // coordinator ever calls stop(), the statement's end does.
+        statementContext.close();
+
+        Assertions.assertEquals(Collections.singletonList(USER), remote.closedSessions);
+        Assertions.assertFalse(node.coordinatorMustOutliveDispatch());
+        // A coordinator closing afterwards finds nothing left to end.
+        node.stop();
+        Assertions.assertEquals(1, remote.closedSessions.size());
+    }
+
+    @Test
+    public void testSessionHandedToADeferredCoordinatorOutlivesTheStatement() throws Exception {
+        RemoteDorisScanNode node = scanNode();
+        node.executeFlightSqlQuery(hostAndPort, USER, PASSWORD, "select 1", 10);
+
+        // An Arrow Flight SQL query keeps its coordinator past the statement (deferForArrowFlight):
+        // the BE reads the remote query after the statement ended, so the statement's end must not
+        // close the session; the coordinator's close does, later.
+        statementContext.handOverScanNodesToDeferredCoordinator(Collections.singletonList(node));
+        statementContext.close();
+        Assertions.assertTrue(remote.closedSessions.isEmpty());
+        Assertions.assertTrue(node.coordinatorMustOutliveDispatch());
+
+        node.stop();
+        Assertions.assertEquals(Collections.singletonList(USER), remote.closedSessions);
+    }
+
+    @Test
+    public void testAPlanWhoseSessionStopEndedCannotBeRedispatched() throws Exception {
+        RemoteDorisScanNode node = scanNode();
+        Assertions.assertFalse(node.cannotBeRedispatched());
+        node.executeFlightSqlQuery(hostAndPort, USER, PASSWORD, "select 1", 10);
+        Assertions.assertFalse(node.cannotBeRedispatched());
+
+        // cancel() of a failed attempt stops the node: the endpoints in its scan ranges belong to
+        // the query of a session that is gone, so the same-plan retry must not dispatch them again.
+        node.stop();
+        Assertions.assertTrue(node.cannotBeRedispatched());
+
+        // A node that never held a session releases nothing when stopped.
+        RemoteDorisScanNode idle = scanNode();
+        idle.stop();
+        Assertions.assertFalse(idle.cannotBeRedispatched());
     }
 
     @Test
