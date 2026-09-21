@@ -51,6 +51,7 @@ import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -280,9 +281,53 @@ public class MTMVTaskTest {
         Assertions.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), toNames(attempts));
     }
 
+    @Test
+    public void testBuildAttemptsIgnoresAStreamOnlyTheClosureCarries() throws Exception {
+        Mockito.when(mtmv.isIvm()).thenReturn(true);
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getId()).thenReturn(7L);
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.INCREMENTAL);
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Collections.emptySet());
+        // The MV of a chain reads the upstream MV, and the upstream's own base table is in the relation
+        // only because the closure carries it: (t1) => upstream => mv.
+        OlapTable upstream = Mockito.mock(OlapTable.class);
+        Mockito.when(upstream.getFullQualifiers()).thenReturn(Lists.newArrayList("internal", "db", "upstream"));
+        OlapTable grandParent = Mockito.mock(OlapTable.class);
+        Mockito.when(grandParent.getFullQualifiers()).thenReturn(Lists.newArrayList("internal", "db", "t1"));
+        BaseTableInfo upstreamInfo = Mockito.mock(BaseTableInfo.class);
+        BaseTableInfo grandParentInfo = Mockito.mock(BaseTableInfo.class);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(upstreamInfo)).thenReturn(upstream);
+        mtmvUtilStatic.when(() -> MTMVUtil.getTable(grandParentInfo)).thenReturn(grandParent);
+        // The upstream's stream is there, the grandparent's is not.
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
+        Mockito.when(stream.getBaseTableFullQualifiers())
+                .thenReturn(Lists.newArrayList("internal", "db", "upstream"));
+        Mockito.when(stream.isDisabled()).thenReturn(false);
+        Mockito.when(stream.isStale()).thenReturn(false);
+        Mockito.when(stream.getBaseTableNullable()).thenReturn(upstream);
+        Database mvDb = Mockito.mock(Database.class);
+        Mockito.when(mvDb.getTableNullable(IvmUtil.streamName(7L, upstream.getFullQualifiers())))
+                .thenReturn(stream);
+        Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
+        MTMVRelation chainedRelation = new MTMVRelation(Sets.newHashSet(upstreamInfo, grandParentInfo),
+                Sets.newHashSet(upstreamInfo), Sets.newHashSet(upstreamInfo), Sets.newHashSet(),
+                Sets.newHashSet());
+
+        MTMVTask task = new MTMVTask(mtmv, chainedRelation, MTMVTaskContext.of(
+                MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, true, null));
+        Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
+        List<?> attempts = (List<?>) Deencapsulation.invoke(task, "buildAttempts", request, false);
+
+        // No rewrite reads the grandparent's stream, so its absence is no reason to rebuild the MV.
+        Assertions.assertEquals(Lists.newArrayList("IVM", "PARTITIONS", "COMPLETE"), toNames(attempts));
+        Assertions.assertNull(Deencapsulation.getField(task, "ivmFallbackReason"));
+    }
+
     private MTMVRelation relationWithOneBaseTable() {
-        return new MTMVRelation(Sets.newHashSet(Mockito.mock(BaseTableInfo.class)), Sets.newHashSet(),
-                Sets.newHashSet(), Sets.newHashSet(), Sets.newHashSet());
+        BaseTableInfo baseTable = Mockito.mock(BaseTableInfo.class);
+        // A table of the query is in the plan, in the first level of the query, and in the closure.
+        return new MTMVRelation(Sets.newHashSet(baseTable), Sets.newHashSet(baseTable),
+                Sets.newHashSet(baseTable), Sets.newHashSet(), Sets.newHashSet());
     }
 
     private static List<String> toNames(List<?> attempts) {

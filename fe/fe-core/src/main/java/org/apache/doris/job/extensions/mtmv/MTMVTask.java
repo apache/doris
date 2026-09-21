@@ -445,11 +445,11 @@ public class MTMVTask extends AbstractTask {
         if (shouldUseCompleteForInitialIvmRefresh(containsOneRowRelation)) {
             return Lists.newArrayList(RefreshAttemptType.COMPLETE);
         }
-        // A base table without a usable stream makes every other attempt fail: the incremental rewrite
-        // reads the stream of every base table, and a partition refresh reads those of the PCT tables it
-        // realigns as well. Only the COMPLETE attempt reconciles streams, so it is the one that has to
-        // run. Deciding it here keeps the attempt that cannot succeed -- and the baseline barrier a
-        // partition refresh writes before it starts -- out of the way altogether.
+        // A base table the plan scans without a usable stream makes every other attempt fail: the
+        // incremental rewrite reads the stream of every table it scans, and a partition refresh reads
+        // those of the PCT tables it realigns as well. Only the COMPLETE attempt reconciles streams, so
+        // it is the one that has to run. Deciding it here keeps the attempt that cannot succeed -- and
+        // the baseline barrier a partition refresh writes before it starts -- out of the way altogether.
         if (request.allowFallback && mtmv.isIvm() && hasUnusableIvmStream()) {
             ivmFallbackReason = IvmFailureReason.STREAM_UNSUPPORTED.name();
             LOG.warn("IVM stream is unusable, mv={}, taskId={}. Continuing with COMPLETE refresh.",
@@ -890,8 +890,8 @@ public class MTMVTask extends AbstractTask {
     }
 
     /**
-     * Whether a base table of the MV has no stream that can be read, which no attempt other than
-     * COMPLETE can work around.
+     * Whether a base table the refresh reads has no stream that can be read, which no attempt other
+     * than COMPLETE can work around.
      *
      * <p>A base table that cannot be resolved is skipped rather than judged: it says nothing about the
      * streams, and the refresh fails on it for its own reasons -- the attempt that runs reports that,
@@ -904,7 +904,11 @@ public class MTMVTask extends AbstractTask {
             return false;
         }
         Set<TableNameInfo> excluded = mtmv.getExcludedTriggerTables();
-        for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+        // The tables in the plan, not the relation's closure: a chained MV is created with a stream for
+        // every base table behind the MVs it reads, but no rewrite ever looks those up -- the incremental
+        // rewriter and the full refresh take the streams of the plan's scans -- so judging them would
+        // rebuild an MV whose refresh had nothing wrong with it.
+        for (BaseTableInfo baseTableInfo : relation.getBaseTablesOneLevelAndFromView()) {
             OlapTable baseTable;
             try {
                 baseTable = (OlapTable) MTMVUtil.getTable(baseTableInfo);
