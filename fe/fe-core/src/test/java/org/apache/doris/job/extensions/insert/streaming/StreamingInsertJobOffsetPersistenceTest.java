@@ -202,7 +202,9 @@ public class StreamingInsertJobOffsetPersistenceTest {
         Deencapsulation.setField(job, "jobName", "test_job");
         Deencapsulation.setField(job, "jobStatus", JobStatus.RUNNING);
         Deencapsulation.setField(job, "offsetProvider", provider);
-        Deencapsulation.setField(job, "properties", new HashMap<String, String>());
+        HashMap<String, String> properties = new HashMap<>();
+        Deencapsulation.setField(job, "properties", properties);
+        Deencapsulation.setField(job, "jobProperties", new StreamingJobProperties(properties));
         Deencapsulation.setField(job, "targetProperties", new HashMap<String, String>());
         Deencapsulation.setField(job, "runningStreamTask", new NoopStreamingMultiTblTask(taskId));
         return job;
