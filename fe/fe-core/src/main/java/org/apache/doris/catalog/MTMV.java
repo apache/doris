@@ -54,6 +54,7 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.persist.AlterMTMV;
@@ -532,13 +533,17 @@ public class MTMV extends OlapTable {
                 currentSessionVars, this.sessionVariables);
         boolean guarded = !sessionVarsMatch;
         MTMVCacheManager manager = Env.getCurrentEnv().getMtmvCacheManager();
+        StatementContext statementContext = connectionContext.getStatementContext();
 
         while (true) {
             long cacheGeneration;
             MTMVCache cached;
             readMvLock();
             try {
-                cached = manager.getIfPresent(this.id, guarded);
+                cached = manager.isEnabled() ? manager.getIfPresent(this.id, guarded) : null;
+                if (cached == null && statementContext != null) {
+                    cached = statementContext.getQueryLocalMtmvCache(this.id, guarded);
+                }
                 cacheGeneration = rewriteCacheGeneration;
             } finally {
                 readMvUnlock();
@@ -553,12 +558,21 @@ public class MTMV extends OlapTable {
                     // Someone invalidated between our snapshot and now; drop the stale build and retry.
                     continue;
                 }
-                MTMVCache existing = manager.getIfPresent(this.id, guarded);
-                if (existing != null) {
-                    return existing;
-                }
-                if (!isDropped) {
-                    manager.put(this.id, guarded, generated);
+                if (manager.isEnabled()) {
+                    MTMVCache existing = manager.getIfPresent(this.id, guarded);
+                    if (existing != null) {
+                        return existing;
+                    }
+                    if (!isDropped) {
+                        manager.put(this.id, guarded, generated);
+                    }
+                } else if (statementContext != null && !isDropped) {
+                    // Global cache is disabled (maximumSize=0); keep one copy for this statement only.
+                    MTMVCache existing = statementContext.getQueryLocalMtmvCache(this.id, guarded);
+                    if (existing != null) {
+                        return existing;
+                    }
+                    statementContext.putQueryLocalMtmvCache(this.id, guarded, generated);
                 }
                 return generated;
             } finally {

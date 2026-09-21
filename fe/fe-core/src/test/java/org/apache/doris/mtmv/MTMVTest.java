@@ -48,6 +48,7 @@ import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.OperationType;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -502,6 +503,39 @@ public class MTMVTest {
             Assertions.assertEquals(0, mtmv.refreshBuildCount);
             Assertions.assertNull(manager.getIfPresent(mtmv.getId(), true));
             Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+        } finally {
+            Config.mtmv_cache_manage_num = originalMaxSize;
+        }
+    }
+
+    @Test
+    public void testDisabledCacheReusesPlanWithinSameStatement() throws Exception {
+        int originalMaxSize = Config.mtmv_cache_manage_num;
+        try {
+            Config.mtmv_cache_manage_num = 0;
+            MTMVCacheManager manager = new MTMVCacheManager();
+            Assertions.assertFalse(manager.isEnabled());
+
+            HookedMTMV mtmv = buildHookedMTMV();
+            MTMVCache plan = Mockito.mock(MTMVCache.class);
+            mtmv.lazyCaches.add(plan);
+
+            ConnectContext context = mockConnectContext();
+            StatementContext statementContext = new StatementContext();
+            Mockito.when(context.getStatementContext()).thenReturn(statementContext);
+
+            Env env = mockEnv(manager);
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                MTMVCache first = mtmv.getOrGenerateCache(context);
+                MTMVCache second = mtmv.getOrGenerateCache(context);
+                Assertions.assertSame(plan, first);
+                Assertions.assertSame(first, second);
+            }
+
+            Assertions.assertEquals(1, mtmv.lazyBuildCount);
+            Assertions.assertNull(manager.getIfPresent(mtmv.getId(), false));
+            Assertions.assertSame(plan, statementContext.getQueryLocalMtmvCache(mtmv.getId(), false));
         } finally {
             Config.mtmv_cache_manage_num = originalMaxSize;
         }

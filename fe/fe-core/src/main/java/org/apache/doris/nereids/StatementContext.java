@@ -40,6 +40,7 @@ import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.cost.CostWeight;
@@ -314,6 +315,10 @@ public class StatementContext implements Closeable {
 
     // Record mtmv and valid partitions map because this is time-consuming behavior
     private final Map<BaseTableInfo, Collection<Partition>> mvCanRewritePartitionsMap = new HashMap<>();
+
+    // When the Env-wide MTMVCacheManager is disabled (mtmv_cache_manage_num=0), reuse rewrite plans
+    // in the same statement so multiple rewrite paths do not rebuild the same MV plan.
+    private final Map<Pair<Long, Boolean>, MTMVCache> queryLocalMtmvCaches = new HashMap<>();
 
     /// for dictionary sink.
     private List<Backend> usedBackendsDistributing; // report used backends after done distribute planning.
@@ -1543,6 +1548,14 @@ public class StatementContext implements Closeable {
 
     public void addMaterializationRewrittenSuccess(List<String> materializationQualifier) {
         this.materializationRewrittenSuccessSet.add(materializationQualifier);
+    }
+
+    public MTMVCache getQueryLocalMtmvCache(long mtmvId, boolean guarded) {
+        return queryLocalMtmvCaches.get(Pair.of(mtmvId, guarded));
+    }
+
+    public void putQueryLocalMtmvCache(long mtmvId, boolean guarded, MTMVCache cache) {
+        queryLocalMtmvCaches.put(Pair.of(mtmvId, guarded), cache);
     }
 
     public Multimap<List<String>, Pair<RelationId, Set<String>>> getTableUsedPartitionNameMap() {
