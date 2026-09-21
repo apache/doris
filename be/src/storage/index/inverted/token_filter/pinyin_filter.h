@@ -42,6 +42,10 @@ public:
 
     void reset() override;
 
+#ifdef BE_TEST
+    size_t current_runes_capacity_for_test() const { return current_runes_.capacity(); }
+#endif
+
 private:
     struct RuneInfo {
         UChar32 cp;
@@ -68,6 +72,8 @@ private:
     std::string trim(const std::string& str);
 
     std::vector<RuneInfo> convertToRunes(const std::string& text, std::vector<UChar32>& codepoints);
+
+    void convertToCodepoints(const std::string& text, std::vector<UChar32>& codepoints);
 
 private:
     // Configuration

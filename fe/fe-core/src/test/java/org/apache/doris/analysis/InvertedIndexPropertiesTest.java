@@ -48,6 +48,37 @@ import java.util.Map;
 public class InvertedIndexPropertiesTest {
 
     @Test
+    public void testRejectsTypeOnlyAndExplicitDefaultPinyinAnalyzers() {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(policyMgr.getPolicyByName("pinyin_type_only")).thenReturn(new IndexPolicy(
+                1, "pinyin_type_only", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "pinyin")));
+        Mockito.when(policyMgr.getPolicyByName("pinyin_defaults")).thenReturn(new IndexPolicy(
+                2, "pinyin_defaults", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_first_letter", "true",
+                        "keep_full_pinyin", "true", "keep_original", "false",
+                        "ignore_pinyin_offset", "true", "limit_first_letter_length", "16")));
+        Mockito.when(policyMgr.getPolicyByName("type_only_analyzer")).thenReturn(new IndexPolicy(
+                3, "type_only_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "pinyin_type_only")));
+        Mockito.when(policyMgr.getPolicyByName("defaulted_analyzer")).thenReturn(new IndexPolicy(
+                4, "defaulted_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "pinyin_defaults")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        IndexDefinition typeOnly = new IndexDefinition("idx_type_only", false, List.of("content"),
+                "INVERTED", Map.of("analyzer", "type_only_analyzer"), "");
+        IndexDefinition explicitDefaults = new IndexDefinition("idx_explicit_defaults", false,
+                List.of("content"), "INVERTED", Map.of("analyzer", "defaulted_analyzer"), "");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertFalse(InvertedIndexUtil.canHaveMultipleInvertedIndexes(
+                    StringType.INSTANCE, List.of(typeOnly, explicitDefaults)));
+        }
+    }
+
+    @Test
     public void testRejectsAmbiguousOuterCharFiltersForSameAnalyzer() {
         IndexDefinition replaceA = new IndexDefinition("idx_replace_a", false, List.of("content"),
                 "INVERTED", Map.of("analyzer", "standard", "char_filter_type", "char_replace",

@@ -231,10 +231,12 @@ public final class AnalyzerIdentityBuilder {
                             if ("empty".equals(normalizedType)) {
                                 return "";
                             }
+                            sortedProps.put(IndexPolicy.PROP_TYPE, normalizedType);
+                            canonicalizeEffectiveComponentProperties(
+                                    sortedProps, normalizedType, expectedType);
                             if (sortedProps.size() == 1) {
                                 return normalizedType;
                             }
-                            sortedProps.put(IndexPolicy.PROP_TYPE, normalizedType);
                         }
                         if (expectedType == IndexPolicyTypeEnum.TOKENIZER
                                 && "ngram".equals(sortedProps.get(IndexPolicy.PROP_TYPE))) {
@@ -252,6 +254,9 @@ public final class AnalyzerIdentityBuilder {
                             sortedProps.put("pattern", pattern);
                             sortedProps.put("replacement", replacement);
                         }
+                        if (normalizedType != null && sortedProps.size() == 1) {
+                            return normalizedType;
+                        }
                         return sortedProps.toString();
                     }
                 }
@@ -262,6 +267,128 @@ public final class AnalyzerIdentityBuilder {
 
         String normalizedName = normalizeBuiltinComponentName(name, expectedType);
         return "empty".equals(normalizedName) ? "" : normalizedName == null ? name : normalizedName;
+    }
+
+    private static void canonicalizeEffectiveComponentProperties(
+            TreeMap<String, String> properties, String type, IndexPolicyTypeEnum expectedType) {
+        if ("pinyin".equals(type)) {
+            removeBooleanDefaults(properties, true,
+                    "keep_first_letter", "keep_full_pinyin", "keep_none_chinese",
+                    "keep_none_chinese_together", "keep_none_chinese_in_first_letter",
+                    "lowercase", "trim_whitespace", "ignore_pinyin_offset",
+                    "none_chinese_pinyin_tokenize");
+            removeBooleanDefaults(properties, false,
+                    "keep_separate_first_letter", "keep_joined_full_pinyin", "keep_original",
+                    "keep_none_chinese_in_joined_full_pinyin", "remove_duplicated_term",
+                    "fixed_pinyin_offset", "keep_separate_chinese");
+            removeIntegerDefault(properties, "limit_first_letter_length", 16);
+            return;
+        }
+
+        if (expectedType == IndexPolicyTypeEnum.TOKEN_FILTER) {
+            if ("asciifolding".equals(type)) {
+                removeBooleanDefaults(properties, false, "preserve_original");
+            } else if ("word_delimiter".equals(type)) {
+                removeBooleanDefaults(properties, true, "generate_word_parts", "generate_number_parts",
+                        "split_on_case_change", "split_on_numerics", "stem_english_possessive");
+                removeBooleanDefaults(properties, false, "catenate_words", "catenate_numbers",
+                        "catenate_all", "preserve_original");
+            } else if ("icu_normalizer".equals(type)) {
+                canonicalizeIcuNormalizerDefaults(properties, false);
+            }
+            return;
+        }
+
+        if (expectedType == IndexPolicyTypeEnum.CHAR_FILTER) {
+            if ("icu_normalizer".equals(type)) {
+                canonicalizeIcuNormalizerDefaults(properties, true);
+            }
+            return;
+        }
+
+        if (expectedType != IndexPolicyTypeEnum.TOKENIZER) {
+            return;
+        }
+        switch (type) {
+            case "ngram":
+                removeIntegerDefault(properties, "min_gram", 1);
+                removeIntegerDefault(properties, "max_gram", 2);
+                break;
+            case "edge_ngram":
+                removeIntegerDefault(properties, "min_gram", 1);
+                removeIntegerDefault(properties, "max_gram", 2);
+                break;
+            case "standard":
+            case "char_group":
+                removeIntegerDefault(properties, "max_token_length", 255);
+                break;
+            case "keyword":
+                removeIntegerDefault(properties, "buffer_size", 256);
+                break;
+            case "basic":
+                removeStringDefault(properties, "extra_chars", "");
+                break;
+            default:
+                break;
+        }
+    }
+
+    private static void removeBooleanDefaults(
+            TreeMap<String, String> properties, boolean defaultValue, String... keys) {
+        for (String key : keys) {
+            String value = properties.get(key);
+            if (value == null || !("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value))) {
+                continue;
+            }
+            boolean parsed = Boolean.parseBoolean(value);
+            if (parsed == defaultValue) {
+                properties.remove(key);
+            } else {
+                properties.put(key, Boolean.toString(parsed));
+            }
+        }
+    }
+
+    private static void removeIntegerDefault(
+            TreeMap<String, String> properties, String key, int defaultValue) {
+        String value = properties.get(key);
+        if (value == null) {
+            return;
+        }
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed == defaultValue) {
+                properties.remove(key);
+            } else {
+                properties.put(key, Integer.toString(parsed));
+            }
+        } catch (NumberFormatException e) {
+            // Invalid policies keep their original identity.
+        }
+    }
+
+    private static void canonicalizeIcuNormalizerDefaults(
+            TreeMap<String, String> properties, boolean hasMode) {
+        String name = properties.get("name");
+        if (name != null) {
+            String normalizedName = name.trim().toLowerCase(Locale.ROOT);
+            if ("nfkc_cf".equals(normalizedName)) {
+                properties.remove("name");
+            } else {
+                properties.put("name", normalizedName);
+            }
+        }
+        removeStringDefault(properties, "unicode_set_filter", "");
+        if (hasMode) {
+            removeStringDefault(properties, "mode", "compose");
+        }
+    }
+
+    private static void removeStringDefault(
+            TreeMap<String, String> properties, String key, String defaultValue) {
+        if (defaultValue.equals(properties.get(key))) {
+            properties.remove(key);
+        }
     }
 
     private static String normalizeBuiltinComponentName(String name, IndexPolicyTypeEnum expectedType) {

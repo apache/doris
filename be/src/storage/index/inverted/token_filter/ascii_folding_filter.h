@@ -32,6 +32,11 @@ public:
     Token* next(Token* t) override;
     void reset() override;
 
+    std::span<const int32_t> get_source_byte_offsets() const override;
+    std::span<const int32_t> get_source_byte_end_offsets() const override;
+    bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override;
+    void set_source_byte_offsets_enabled(bool enabled) override;
+
     static int32_t fold_to_ascii(const char* in, int32_t input_pos, char* out, int32_t output_pos,
                                  int32_t length);
 
@@ -44,6 +49,11 @@ private:
     bool _preserve_original = false;
     int32_t _output_pos;
     std::string _output;
+    int32_t _source_start = 0;
+    int32_t _source_end = 0;
+    bool _rune_count_changed = false;
+    bool _has_source_span = false;
+    bool _source_byte_offsets_enabled = false;
 };
 
 } // namespace doris::segment_v2::inverted_index

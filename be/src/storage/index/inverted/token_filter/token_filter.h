@@ -52,6 +52,22 @@ public:
     }
 
 protected:
+    bool get_delegated_source_byte_span(const Token& token, int32_t& start, int32_t& end) const {
+        if (DorisTokenFilter::get_conservative_source_byte_span(start, end)) {
+            return true;
+        }
+        const auto offsets = DorisTokenFilter::get_source_byte_offsets();
+        if (!offsets.empty()) {
+            const auto end_offsets = DorisTokenFilter::get_source_byte_end_offsets();
+            start = offsets.front();
+            end = end_offsets.empty() ? offsets.back() : end_offsets.back();
+            return true;
+        }
+        start = 0;
+        end = token.endOffset() - token.startOffset();
+        return end >= 0;
+    }
+
     TokenStreamPtr _in;
 };
 using TokenFilterPtr = std::shared_ptr<DorisTokenFilter>;

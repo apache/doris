@@ -61,14 +61,22 @@ InvertedIndexAnalyzerCtx analyzer_context_from_properties(
     return analyzer_ctx;
 }
 
-std::vector<TermInfo> analyze_plain_query(const std::string& value,
-                                          const InvertedIndexAnalyzerCtx& analyzer_ctx) {
+Result<std::vector<TermInfo>> analyze_plain_query(const std::string& value,
+                                                  const InvertedIndexAnalyzerCtx& analyzer_ctx) {
     DORIS_CHECK(analyzer_ctx.analyzer_provider != nullptr);
-    auto analyzer = analyzer_ctx.analyzer_provider->get_analyzer();
-    auto reader =
-            inverted_index::InvertedIndexAnalyzer::create_reader(analyzer_ctx.char_filter_map);
-    reader->init(value.data(), static_cast<int32_t>(value.size()), true);
-    return inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader, analyzer.get());
+    try {
+        auto analyzer = analyzer_ctx.analyzer_provider->get_analyzer();
+        auto reader =
+                inverted_index::InvertedIndexAnalyzer::create_reader(analyzer_ctx.char_filter_map);
+        reader->init(value.data(), static_cast<int32_t>(value.size()), true);
+        return inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader, analyzer.get());
+    } catch (const CLuceneError& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyze scoring query failed: {}", error.what()));
+    } catch (const Exception& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyze scoring query failed: {}", error.what()));
+    }
 }
 
 Status append_scoring_leaf(CollectInfo* collect_info, const std::vector<TermInfo>& term_infos) {
@@ -389,7 +397,7 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     DORIS_CHECK(analyzer_ctx->analyzer_provider != nullptr);
     auto options = DataTypeSerDe::get_default_format_options();
     options.timezone = &state->timezone_obj();
-    auto term_infos = analyze_plain_query(right_literal->value(options), *analyzer_ctx);
+    auto term_infos = DORIS_TRY(analyze_plain_query(right_literal->value(options), *analyzer_ctx));
     if (expr->op() == TExprOpcode::MATCH_PHRASE_PREFIX && !term_infos.empty()) {
         term_infos.pop_back();
     }
@@ -526,13 +534,13 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
         term_infos.emplace_back(value);
     } else if (category == ClauseTypeCategory::TOKENIZED) {
         if (analyzer_ctx.has_value()) {
-            term_infos = analyze_plain_query(value, *analyzer_ctx);
+            term_infos = DORIS_TRY(analyze_plain_query(value, *analyzer_ctx));
         } else {
             term_infos.emplace_back(value);
         }
     } else if (category == ClauseTypeCategory::NON_TOKENIZED) {
         if (clause_type == "TERM" && analyzer_ctx.has_value()) {
-            term_infos = analyze_plain_query(value, *analyzer_ctx);
+            term_infos = DORIS_TRY(analyze_plain_query(value, *analyzer_ctx));
         } else {
             term_infos.emplace_back(value);
         }

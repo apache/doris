@@ -442,6 +442,59 @@ public class AnalyzerIdentityBuilderTest {
     }
 
     @Test
+    public void testExplicitPinyinDefaultsMatchTypeOnlyIdentity() throws Exception {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(policyMgr.getPolicyByName("pinyin_type_only")).thenReturn(new IndexPolicy(
+                1, "pinyin_type_only", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "pinyin")));
+        Mockito.when(policyMgr.getPolicyByName("pinyin_defaults")).thenReturn(new IndexPolicy(
+                2, "pinyin_defaults", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_first_letter", "TRUE",
+                        "keep_full_pinyin", "true", "keep_original", "FALSE",
+                        "ignore_pinyin_offset", "true", "limit_first_letter_length", "016")));
+        Mockito.when(policyMgr.getPolicyByName("pinyin_non_default")).thenReturn(new IndexPolicy(
+                3, "pinyin_non_default", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "pinyin", "keep_original", "true")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
+                "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);
+        resolve.setAccessible(true);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Object typeOnly = resolve.invoke(null, "pinyin_type_only", IndexPolicyTypeEnum.TOKEN_FILTER);
+            Assertions.assertEquals(typeOnly,
+                    resolve.invoke(null, "pinyin_defaults", IndexPolicyTypeEnum.TOKEN_FILTER));
+            Assertions.assertNotEquals(typeOnly,
+                    resolve.invoke(null, "pinyin_non_default", IndexPolicyTypeEnum.TOKEN_FILTER));
+        }
+    }
+
+    @Test
+    public void testExplicitComponentDefaultsMatchBuiltinIdentity() throws Exception {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(policyMgr.getPolicyByName("asciifolding_defaults")).thenReturn(new IndexPolicy(
+                1, "asciifolding_defaults", IndexPolicyTypeEnum.TOKEN_FILTER,
+                Map.of("type", "asciifolding", "preserve_original", "FALSE")));
+        Mockito.when(policyMgr.getPolicyByName("edge_ngram_defaults")).thenReturn(new IndexPolicy(
+                2, "edge_ngram_defaults", IndexPolicyTypeEnum.TOKENIZER,
+                Map.of("type", "edge_ngram", "min_gram", "01", "max_gram", "002")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Method resolve = AnalyzerIdentityBuilder.class.getDeclaredMethod(
+                "resolveComponentIdentity", String.class, IndexPolicyTypeEnum.class);
+        resolve.setAccessible(true);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertEquals("asciifolding",
+                    resolve.invoke(null, "asciifolding_defaults", IndexPolicyTypeEnum.TOKEN_FILTER));
+            Assertions.assertEquals("edge_ngram",
+                    resolve.invoke(null, "edge_ngram_defaults", IndexPolicyTypeEnum.TOKENIZER));
+        }
+    }
+
+    @Test
     public void testNamedEmptyFiltersAreOmittedFromIdentity() {
         IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
         Mockito.when(policyMgr.getPolicyByName("empty_token_filter")).thenReturn(new IndexPolicy(

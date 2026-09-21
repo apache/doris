@@ -140,6 +140,14 @@ private:
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
 };
 
+class FailingAnalyzerProvider final : public segment_v2::inverted_index::AnalyzerProvider {
+public:
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "forced missing dictionary failure");
+    }
+};
+
 class MockVSlotRef : public VSlotRef {
 public:
     MockVSlotRef(const std::string& column_name, SlotId slot_id)
@@ -2087,6 +2095,28 @@ TEST_F(CollectionStatisticsTest, CollectUsesMatchRequestAnalyzerProvider) {
     ASSERT_EQ(collect_info.logical_scoring_leaves[0].clauses.size(), 2u);
     EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses[0].df_slot, 0u);
     EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses[1].df_slot, 1u);
+}
+
+TEST_F(CollectionStatisticsTest, CollectConvertsAnalyzerFailureToStatus) {
+    auto tablet_schema = create_tablet_schema_with_inverted_index();
+    auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
+    analyzer_ctx->analyzer_provider =
+            std::make_shared<collection_statistics::FailingAnalyzerProvider>();
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("content", SlotId(1)));
+    match_expr->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("query"));
+
+    MatchPredicateCollector collector;
+    CollectInfoMap collect_infos;
+    Status status;
+    EXPECT_NO_THROW(status = collector.collect(runtime_state_.get(), tablet_schema, match_expr,
+                                               &collect_infos));
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+    EXPECT_NE(status.msg().find("forced missing dictionary failure"), std::string::npos);
+    EXPECT_TRUE(collect_infos.empty());
 }
 
 TEST_F(CollectionStatisticsTest, CollectPhrasePrefixExcludesScoringTail) {

@@ -80,13 +80,16 @@ Token* PinyinFilter::next(Token* token) {
         current_token_text_ = std::string(token->termBuffer<char>(), token->termLength<char>());
         current_start_offset_ = token->startOffset();
         current_end_offset_ = token->endOffset();
-        auto source_byte_offsets = get_source_byte_offsets();
-        current_source_byte_offsets_.assign(source_byte_offsets.begin(), source_byte_offsets.end());
-        auto source_byte_end_offsets = get_source_byte_end_offsets();
-        current_source_byte_end_offsets_.assign(source_byte_end_offsets.begin(),
-                                                source_byte_end_offsets.end());
-        has_current_conservative_source_span_ = get_conservative_source_byte_span(
-                current_conservative_source_start_, current_conservative_source_end_);
+        if (!config_->ignorePinyinOffset) {
+            auto source_byte_offsets = get_source_byte_offsets();
+            current_source_byte_offsets_.assign(source_byte_offsets.begin(),
+                                                source_byte_offsets.end());
+            auto source_byte_end_offsets = get_source_byte_end_offsets();
+            current_source_byte_end_offsets_.assign(source_byte_end_offsets.begin(),
+                                                    source_byte_end_offsets.end());
+            has_current_conservative_source_span_ = get_conservative_source_byte_span(
+                    current_conservative_source_start_, current_conservative_source_end_);
+        }
 
         done_ = false;
     }
@@ -115,6 +118,11 @@ void PinyinFilter::reset() {
     done_ = true;
     resetVariables();
     has_current_token_ = false;
+    std::vector<RuneInfo>().swap(current_runes_);
+    std::vector<int32_t>().swap(current_source_byte_offsets_);
+    std::vector<int32_t>().swap(current_source_byte_end_offsets_);
+    std::string().swap(current_token_text_);
+    std::string().swap(current_source_);
 }
 
 void PinyinFilter::resetVariables() {
@@ -244,11 +252,26 @@ bool PinyinFilter::prepareCurrentSource(std::vector<UChar32>& source_codepoints)
         return false;
     }
 
+    if (config_->ignorePinyinOffset) {
+        convertToCodepoints(current_source_, source_codepoints);
+        current_start_offset_ += static_cast<int32_t>(source_start);
+        current_end_offset_ =
+                current_start_offset_ + static_cast<int32_t>(source_end - source_start);
+        return !source_codepoints.empty();
+    }
+
     current_runes_ = convertToRunes(current_source_, source_codepoints);
 
-    std::vector<UChar32> original_codepoints;
-    const auto original_runes = convertToRunes(current_token_text_, original_codepoints);
-    if (current_source_byte_offsets_.size() == original_runes.size() + 1) {
+    std::vector<RuneInfo> original_runes;
+    if (!current_source_byte_offsets_.empty()) {
+        std::vector<UChar32> original_codepoints;
+        original_runes = convertToRunes(current_token_text_, original_codepoints);
+        if (current_source_byte_offsets_.size() != original_runes.size() + 1) {
+            current_source_byte_offsets_.clear();
+            current_source_byte_end_offsets_.clear();
+        }
+    }
+    if (!current_source_byte_offsets_.empty()) {
         DORIS_CHECK(current_source_byte_end_offsets_.empty() ||
                     current_source_byte_end_offsets_.size() == original_runes.size());
         const auto start_rune = std::ranges::lower_bound(
@@ -551,6 +574,18 @@ std::vector<PinyinFilter::RuneInfo> PinyinFilter::convertToRunes(const std::stri
     }
 
     return runes;
+}
+
+void PinyinFilter::convertToCodepoints(const std::string& text, std::vector<UChar32>& codepoints) {
+    codepoints.clear();
+    const char* data = text.data();
+    const auto length = static_cast<int32_t>(text.length());
+    int32_t offset = 0;
+    while (offset < length) {
+        UChar32 codepoint = U_UNASSIGNED;
+        U8_NEXT(data, offset, length, codepoint);
+        codepoints.push_back(codepoint);
+    }
 }
 
 } // namespace doris::segment_v2::inverted_index
