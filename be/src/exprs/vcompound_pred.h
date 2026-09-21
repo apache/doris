@@ -626,7 +626,7 @@ private:
                 lhs[i] &= rhs[i];
             } else {
                 // Logical OR must produce a canonical Boolean instead of preserving input bits.
-                lhs[i] = (lhs[i] != 0) || (rhs[i] != 0);
+                lhs[i] = (lhs[i] | rhs[i]) != 0;
             }
         }
     }
@@ -651,7 +651,7 @@ private:
                 res_null[i] = apply_or_null(lhs_data[i], lhs_null[i], rhs_data[i], rhs_null[i]);
                 // A NULL row may carry an arbitrary nested byte. If the result remains NULL the
                 // byte is ignored; otherwise normalization prevents it from becoming visible.
-                res_data[i] = (lhs_data[i] != 0) || (rhs_data[i] != 0);
+                res_data[i] = (lhs_data[i] | rhs_data[i]) != 0;
             }
         }
     }
