@@ -88,6 +88,12 @@ Status LanceTableReader::init(TableReadOptions&& options) {
                                                     LANCE_READER_PROFILE, 1);
     _arrow_to_doris_block_time = ADD_CHILD_TIMER_WITH_LEVEL(
             _scanner_profile, "LanceArrowToDorisBlockTime", LANCE_READER_PROFILE, 1);
+    _data_cache_bytes_read_from_cache =
+            ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceDataCacheBytesReadFromCache",
+                                         TUnit::BYTES, LANCE_READER_PROFILE, 1);
+    _data_cache_bytes_read_from_remote =
+            ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceDataCacheBytesReadFromRemote",
+                                         TUnit::BYTES, LANCE_READER_PROFILE, 1);
     if (_search_kind != SearchKind::NORMAL) {
         RETURN_IF_ERROR(_validate_external_search_request());
         const auto& request = lance_scan_params.external_search_request;
@@ -639,12 +645,6 @@ void LanceTableReader::_init_scanner_profile() {
                                                        TUnit::UNIT, LANCE_READER_PROFILE, 1);
     _execution_bytes_read = ADD_CHILD_COUNTER_WITH_LEVEL(
             _scanner_profile, "LanceExecutionIOBytesRead", TUnit::BYTES, LANCE_READER_PROFILE, 1);
-    _data_cache_bytes_read_from_cache =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceDataCacheBytesReadFromCache",
-                                         TUnit::BYTES, LANCE_READER_PROFILE, 1);
-    _data_cache_bytes_read_from_remote =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceDataCacheBytesReadFromRemote",
-                                         TUnit::BYTES, LANCE_READER_PROFILE, 1);
     _index_partition_cache_miss_loads =
             ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceIndexPartitionCacheMissLoads",
                                          TUnit::UNIT, LANCE_READER_PROFILE, 1);

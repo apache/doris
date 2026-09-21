@@ -522,8 +522,7 @@ Status LanceArrowArrayNormalizer::normalize_for_doris(
         }
         storage_array = extension_array->storage();
     }
-    // Extension and BFloat16 arrays are first converted to their physical storage representation;
-    // nested children are then normalized recursively before Doris reads the result.
+    // Extension and BFloat16 arrays are first converted to their physical storage representation.
     if (storage_array->type_id() != _storage_type->id()) {
         return Status::InvalidArgument(
                 "Lance field '{}' storage type {} does not match array type {}", _field_name,
@@ -533,14 +532,9 @@ Status LanceArrowArrayNormalizer::normalize_for_doris(
         return convert_bfloat16_array(storage_array, memory_pool, normalized);
     }
 
-    std::shared_ptr<arrow::Array> compacted_array;
-    RETURN_IF_ERROR(compact_lance_array_if_needed(storage_array, memory_pool, &compacted_array));
-    storage_array = std::move(compacted_array);
-    if (_child_normalizers.empty()) {
-        *normalized = std::move(storage_array);
-        return Status::OK();
-    }
-
+    // Normalize extension children before compacting the parent. Arrow cannot create a builder
+    // for list/struct types whose child is still an ExtensionType (Arrow 24 returns
+    // NotImplemented), while the rebuilt physical type can be compacted normally.
     const auto& child_data = storage_array->data()->child_data;
     if (_child_normalizers.size() != child_data.size()) {
         return Status::InvalidArgument(
@@ -570,15 +564,15 @@ Status LanceArrowArrayNormalizer::normalize_for_doris(
         normalized_fields[child_idx] =
                 normalized_fields[child_idx]->WithType(normalized_child->type());
     }
-    if (normalized_data == nullptr) {
-        *normalized = std::move(storage_array);
-        return Status::OK();
+    if (normalized_data != nullptr) {
+        RETURN_IF_ERROR(set_lance_nested_type(_field_name, storage_array->type(), normalized_fields,
+                                              &normalized_data));
+        storage_array = arrow::MakeArray(std::move(normalized_data));
     }
 
-    RETURN_IF_ERROR(set_lance_nested_type(_field_name, storage_array->type(), normalized_fields,
-                                          &normalized_data));
-    *normalized = arrow::MakeArray(std::move(normalized_data));
-    return Status::OK();
+    // Compact only after child types are physical, so MakeBuilder never sees a nested
+    // ExtensionType. This also preserves the existing zero-copy path when no slice is present.
+    return compact_lance_array_if_needed(storage_array, memory_pool, normalized);
 }
 
 #ifdef BE_TEST
