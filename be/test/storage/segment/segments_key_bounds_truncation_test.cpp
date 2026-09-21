@@ -38,6 +38,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_reader.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 
 namespace doris {
 static std::string kSegmentDir = "./ut_dir/segments_key_bounds_truncation_test";
@@ -659,6 +660,13 @@ TEST_F(SegmentsKeyBoundsTruncationTest, BlockReaderJudgeFuncTest) {
 
 TEST_F(SegmentsKeyBoundsTruncationTest, OrderedCompactionTest) {
     auto tablet_schema = create_schema(100);
+    Defer restore_config([saved_enable = config::enable_ordered_data_compaction,
+                          saved_min_size = config::ordered_data_compaction_min_segment_size] {
+        // Otherwise a one-byte minimum segment size leaks into every later suite and sends its
+        // compactions down the ordered link-file path instead of a real merge.
+        config::enable_ordered_data_compaction = saved_enable;
+        config::ordered_data_compaction_min_segment_size = saved_min_size;
+    });
     config::enable_ordered_data_compaction = true;
     config::ordered_data_compaction_min_segment_size = 1;
 

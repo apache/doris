@@ -19,8 +19,12 @@ package org.apache.doris.nereids.types.coercion;
 
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.SmallIntType;
 
 import org.apache.commons.lang3.NotImplementedException;
 
@@ -51,10 +55,23 @@ public class IntegralType extends NumericType {
         if (target instanceof IntegralType) {
             return this.equals(target) || ((IntegralType) target).widerThan(this);
         }
-        if (target instanceof DecimalV3Type && !(this instanceof LargeIntType)) {
-            DecimalV3Type other = (DecimalV3Type) target;
-            DecimalV3Type self = DecimalV3Type.forType(this);
-            return other.getRange() >= self.getRange();
+        // IEEE-754 FLOAT and DOUBLE have 24 and 53 bits of integer precision respectively.
+        // Consequently every TINYINT/SMALLINT value is exact in FLOAT, and every value through
+        // INT is exact in DOUBLE; wider integer domains contain values that would collide.
+        if (target instanceof FloatType) {
+            return range() <= SmallIntType.RANGE;
+        }
+        if (target instanceof DoubleType) {
+            return range() <= IntegerType.RANGE;
+        }
+        if (target instanceof DecimalV2Type) {
+            // DECIMALV2 is deprecated, so every cast involving it is conservatively non-injective.
+            return false;
+        }
+        // Decimal casts preserve an integer exactly when the target has enough integer digits.
+        // This also covers LARGEINT -> DECIMAL256 when a precision of at least 39 is available.
+        if (target instanceof DecimalV3Type) {
+            return ((DecimalV3Type) target).getRange() >= range();
         }
         return target instanceof CharacterType;
     }

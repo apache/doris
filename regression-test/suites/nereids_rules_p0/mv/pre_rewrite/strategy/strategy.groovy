@@ -268,7 +268,7 @@ suite("pre_write_strategy") {
 
 
     sql "set pre_materialized_view_rewrite_strategy = 'TRY_IN_RBO';"
-    // set pre strategy is TRY_IN_RBO, use rule ELIMINATE_CONST_JOIN_CONDITION  but rewrite fail, should use CBO
+    // With TRY_IN_RBO, eager join reorder triggers MV matching against the saved plan.
     def mv_1_0 =
             """
             select l_shipdate, o_orderdate, l_partkey, l_suppkey,
@@ -304,7 +304,7 @@ suite("pre_write_strategy") {
     async_mv_rewrite_success(db, mv_1_0, query_1_0, "mv_1_0")
     explain {
         sql("${query_1_0}")
-        contains("CBO.")
+        contains("RBO.")
     }
     order_qt_query1_0_after "${query_1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_1_0"""

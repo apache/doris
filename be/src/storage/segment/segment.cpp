@@ -27,7 +27,6 @@
 #include <cstring>
 #include <memory>
 #include <set>
-#include <sstream>
 #include <utility>
 
 #include "cloud/config.h"
@@ -972,13 +971,11 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     // on every read path (projection / predicate / MIN-MAX zone-map) instead of the placeholder 0.
     // commit_tso == -1 means it is not assigned yet (before publish); keep the on-disk value then.
     // The value is constant per segment (a segment belongs to a single rowset), so caching the
-    // ConstantColumnReader does not cross-pollute other queries. Some internal read paths (e.g. MOW
-    // partial-update row fetch) build a bare StorageReadOptions without tablet_schema, so guard it.
+    // ConstantColumnReader does not cross-pollute other queries.
     std::optional<Field> const_value;
-    if (opt->tablet_schema != nullptr && opt->version.first == opt->version.second &&
-        opt->commit_tso.end_tso() != -1) {
-        int32_t tso_idx = opt->tablet_schema->commit_tso_col_idx();
-        if (tso_idx != -1 && opt->tablet_schema->column(tso_idx).unique_id() == unique_id) {
+    if (opt->version.first == opt->version.second && opt->commit_tso.end_tso() != -1) {
+        int32_t tso_idx = _tablet_schema->commit_tso_col_idx();
+        if (tso_idx != -1 && _tablet_schema->column(tso_idx).unique_id() == unique_id) {
             const_value = Field::create_field<TYPE_BIGINT>(opt->commit_tso.end_tso());
         }
     }
@@ -1281,7 +1278,7 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
     return Status::OK();
 }
 
-Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
+Status Segment::seek_and_read_by_rowid(const TabletColumn& read_column, SlotDescriptor* slot,
                                        const std::vector<uint32_t>& row_ids,
                                        MutableColumnPtr& result,
                                        StorageReadOptions& storage_read_options,
@@ -1313,8 +1310,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         RETURN_IF_ERROR(
                 _create_column_meta_once(storage_read_options.stats, &storage_read_options.io_ctx));
 
-        const PathInData path(schema.column_by_uid(slot->col_unique_id()).name_lower_case(),
-                              slot->column_paths());
+        const PathInData path(read_column.name_lower_case(), slot->column_paths());
         TabletColumn column = variant_util::get_column_by_type(
                 make_nullable(slot->type()), path.get_path(),
                 variant_util::ExtraInfo {.parent_unique_id = slot->col_unique_id(),
@@ -1343,20 +1339,12 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         }
         RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, row_ids.size()));
     } else {
-        int index = (slot->col_unique_id() >= 0) ? schema.field_index(slot->col_unique_id())
-                                                 : schema.field_index(slot->col_name());
-        if (index < 0) {
-            std::stringstream ss;
-            ss << "field name is invalid. field=" << slot->col_name()
-               << ", field_name_to_index=" << schema.get_all_field_names();
-            return Status::InternalError(ss.str());
-        }
-        TabletColumn column = schema.column(index);
-        if (column.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
+        if (read_column.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
             DORIS_CHECK(variant_v2_type != nullptr);
         }
         if (iterator_hint == nullptr) {
-            RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));
+            RETURN_IF_ERROR(
+                    new_column_iterator(read_column, &iterator_hint, &storage_read_options));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(iterator_hint->read_by_rowids(row_ids.data(), row_ids.size(), result));

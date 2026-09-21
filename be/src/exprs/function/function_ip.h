@@ -43,6 +43,7 @@
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/ip_address_cidr.h"
+#include "core/value/ipv4_value.h"
 #include "exec/common/endian.h"
 #include "exec/common/format_ip.h"
 #include "exec/common/ipv6_to_binary.h"
@@ -135,8 +136,8 @@ public:
 /// Since IPExceptionMode means wider scope, we use more specific name here.
 enum class IPConvertExceptionMode : uint8_t { Throw, Default, Null };
 
-static inline bool try_parse_ipv4(const char* pos, Int64& result_value) {
-    return parse_ipv4_whole(pos, reinterpret_cast<unsigned char*>(&result_value));
+static inline bool try_parse_ipv4(const char* begin, const char* end, Int64& result_value) {
+    return parse_ipv4_whole(begin, end, reinterpret_cast<unsigned char*>(&result_value));
 }
 
 template <IPConvertExceptionMode exception_mode, typename ToColumn>
@@ -156,10 +157,6 @@ ColumnPtr convert_to_ipv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_ma
     auto col_res = ToColumn::create(column_size, 0);
     auto& vec_res = col_res->get_data();
 
-    const ColumnString::Chars& vec_src = column_string->get_chars();
-    const ColumnString::Offsets& offsets_src = column_string->get_offsets();
-    size_t prev_offset = 0;
-
     for (size_t i = 0; i < vec_res.size(); ++i) {
         if (null_map && (*null_map)[i]) {
             if constexpr (exception_mode == IPConvertExceptionMode::Throw) {
@@ -169,17 +166,13 @@ ColumnPtr convert_to_ipv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_ma
                         "like '0.0.0.0' first");
             }
             vec_res[i] = 0;
-            prev_offset = offsets_src[i];
             if constexpr (exception_mode == IPConvertExceptionMode::Null) {
                 (*vec_null_map_to)[i] = true;
             }
             continue;
         }
-        const char* src_start = reinterpret_cast<const char*>(&vec_src[prev_offset]);
-        size_t src_length = (i < vec_res.size() - 1) ? (offsets_src[i] - prev_offset)
-                                                     : (vec_src.size() - prev_offset);
-        std::string src(src_start, src_length);
-        bool parse_result = try_parse_ipv4(src.c_str(), vec_res[i]);
+        const auto src = column_string->get_data_at(i);
+        bool parse_result = try_parse_ipv4(src.begin(), src.end(), vec_res[i]);
 
         if (!parse_result) {
             if constexpr (exception_mode == IPConvertExceptionMode::Throw) {
@@ -191,8 +184,6 @@ ColumnPtr convert_to_ipv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_ma
                 vec_res[i] = 0;
             }
         }
-
-        prev_offset = offsets_src[i];
     }
 
     if constexpr (exception_mode == IPConvertExceptionMode::Null) {
@@ -384,15 +375,6 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
     auto col_res = column_create(column_size);
     auto& vec_res = get_vector(col_res, column_size);
 
-    using Chars = typename StringColumnType::Chars;
-    const Chars& vec_src = string_column.get_chars();
-
-    size_t src_offset = 0;
-
-    /// ColumnString contains not null terminated strings. But functions parseIPv6, parseIPv4 expect null terminated string.
-    /// TODO fix this - now parseIPv6/parseIPv4 accept end iterator, so can be parsed in-place
-    std::string string_buffer;
-
     int offset_inc = 1;
     ColumnString* column_string = nullptr;
     if constexpr (std::is_same_v<ToColumn, ColumnString>) {
@@ -401,19 +383,10 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
     }
 
     for (size_t out_offset = 0, i = 0; i < column_size; out_offset += offset_inc, ++i) {
-        char src_ipv4_buf[sizeof("::ffff:") + IPV4_MAX_TEXT_LENGTH + 1] = "::ffff:";
-        size_t src_next_offset = src_offset;
-
-        const char* src_value = nullptr;
+        const auto src = string_column.get_data_at(i);
+        const char* src_value = src.begin();
+        const char* src_end = src.end();
         auto* res_value = reinterpret_cast<unsigned char*>(&vec_res[out_offset]);
-
-        if constexpr (std::is_same_v<StringColumnType, ColumnString>) {
-            src_value = reinterpret_cast<const char*>(&vec_src[src_offset]);
-            src_next_offset = string_column.get_offsets()[i];
-
-            string_buffer.assign(src_value, src_next_offset - src_offset);
-            src_value = string_buffer.c_str();
-        }
 
         if (null_map && (*null_map)[i]) {
             if (exception_mode == IPConvertExceptionMode::Throw) {
@@ -431,7 +404,6 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
                 DCHECK(column_string != nullptr);
                 column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
             }
-            src_offset = src_next_offset;
             continue;
         }
 
@@ -442,13 +414,13 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
 
         /// If the source IP address is parsable as an IPv4 address, then transform it into a valid IPv6 address.
         /// Keeping it simple by just prefixing `::ffff:` to the IPv4 address to represent it as a valid IPv6 address.
-        size_t string_length = src_next_offset - src_offset;
+        size_t string_length = src.size;
         if (string_length != 0) {
-            if (try_parse_ipv4(src_value, dummy_result)) {
-                strncat(src_ipv4_buf, src_value, sizeof(src_ipv4_buf) - strlen(src_ipv4_buf) - 1);
-                parse_result = parse_ipv6_whole(src_ipv4_buf, res_value);
+            if (try_parse_ipv4(src_value, src_end, dummy_result)) {
+                map_ipv4_to_ipv6(static_cast<IPv4>(dummy_result), res_value);
+                parse_result = true;
             } else {
-                parse_result = parse_ipv6_whole(src_value, res_value);
+                parse_result = parse_ipv6_whole(src_value, src_end, res_value);
             }
         }
 
@@ -479,7 +451,6 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
                 (*vec_null_map_to)[i] = true;
             }
         }
-        src_offset = src_next_offset;
     }
 
     if constexpr (exception_mode == IPConvertExceptionMode::Null) {
@@ -1018,8 +989,8 @@ public:
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < col_size; ++i) {
-            auto ipv4_in = col_in->get_data_at(i);
-            if (is_ipv4_compat(reinterpret_cast<const UInt8*>(ipv4_in.data))) {
+            const auto address = col_in->get_data_at(i);
+            if (is_ipv4_compat(address)) {
                 col_res_data[i] = 1;
             }
         }
@@ -1029,9 +1000,10 @@ public:
     }
 
 private:
-    static bool is_ipv4_compat(const UInt8* address) {
-        return (LittleEndian::Load64(address) == 0) && (LittleEndian::Load32(address + 8) == 0) &&
-               (LittleEndian::Load32(address + 12) != 0);
+    static bool is_ipv4_compat(const StringRef& address) {
+        return address.size == IPV6_BINARY_LENGTH && (LittleEndian::Load64(address.data) == 0) &&
+               (LittleEndian::Load32(address.data + 8) == 0) &&
+               (LittleEndian::Load32(address.data + 12) != 0);
     }
 };
 
@@ -1058,8 +1030,8 @@ public:
         auto& col_res_data = col_res->get_data();
 
         for (size_t i = 0; i < col_size; ++i) {
-            auto ipv4_in = col_in->get_data_at(i);
-            if (is_ipv4_mapped(reinterpret_cast<const UInt8*>(ipv4_in.data))) {
+            const auto address = col_in->get_data_at(i);
+            if (is_ipv4_mapped(address)) {
                 col_res_data[i] = 1;
             }
         }
@@ -1069,9 +1041,9 @@ public:
     }
 
 private:
-    static bool is_ipv4_mapped(const UInt8* address) {
-        return (LittleEndian::Load64(address) == 0) &&
-               ((LittleEndian::Load64(address + 8) & 0x00000000FFFFFFFFULL) ==
+    static bool is_ipv4_mapped(const StringRef& address) {
+        return address.size == IPV6_BINARY_LENGTH && (LittleEndian::Load64(address.data) == 0) &&
+               ((LittleEndian::Load64(address.data + 8) & 0x00000000FFFFFFFFULL) ==
                 0x00000000FFFF0000ULL);
     }
 };
