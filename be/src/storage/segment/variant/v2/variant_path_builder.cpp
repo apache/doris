@@ -215,8 +215,16 @@ const DataTypePtr& cached_decimal_type(uint32_t scale) {
     return types[scale];
 }
 
-DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = nullptr) {
-    const ValueKind kind = value_kind(value);
+const DataTypePtr& array_element_type(const DataTypeArray& array) {
+    // DataTypeArray always wraps its element in Nullable. Borrow the element instead of copying it
+    // through remove_nullable(): element types are process-wide statics shared by concurrent
+    // flushes, so each shared_ptr copy is a contended reference-count update.
+    return assert_cast<const DataTypeNullable&>(*array.get_nested_type()).get_nested_type();
+}
+
+// Every scalar storage type is a process-wide static, so it is returned by reference.
+const DataTypePtr& infer_scalar_type(VariantRef value, ValueKind kind) {
+    DORIS_CHECK(kind != ValueKind::ARRAY);
     switch (kind) {
     case ValueKind::NULL_VALUE:
         return nothing_type();
@@ -272,8 +280,18 @@ DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = null
     case ValueKind::ARRAY:
         break;
     }
+    __builtin_unreachable();
+}
 
-    DataTypePtr element_type;
+DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = nullptr) {
+    const ValueKind kind = value_kind(value);
+    if (kind != ValueKind::ARRAY) {
+        return infer_scalar_type(value, kind);
+    }
+
+    // Borrow the static element types and only resolve a common type when elements differ.
+    DataTypePtr promoted_element;
+    const DataTypePtr* element_type = nullptr;
     const uint32_t element_count = value.num_elements();
     for (uint32_t index = 0; index < element_count; ++index) {
         const VariantRef element = value.array_at(index);
@@ -283,17 +301,18 @@ DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = null
              element.basic_type() == VariantBasicType::OBJECT)) {
             return jsonb_type();
         }
-        DataTypePtr inferred = infer_type(element);
+        const DataTypePtr& inferred = infer_scalar_type(element, element_kind);
         if (inferred->get_primitive_type() == INVALID_TYPE) {
             continue;
         }
-        element_type = element_type == nullptr ? std::move(inferred)
-                                               : path_least_common_type(element_type, inferred);
+        if (element_type == nullptr) {
+            element_type = &inferred;
+        } else if (element_type->get() != inferred.get()) {
+            promoted_element = path_least_common_type(*element_type, inferred);
+            element_type = &promoted_element;
+        }
     }
-
-    if (element_type == nullptr) {
-        element_type = nothing_type();
-    }
+    const DataTypePtr& resolved_element = element_type == nullptr ? nothing_type() : *element_type;
 
     // A path commonly sees the same ARRAY element type on every row. Reuse the builder's
     // DataTypeArray in that case instead of allocating a temporary shared_ptr per value. The
@@ -302,17 +321,20 @@ DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = null
     if (const auto* reusable_array =
                 reusable_type == nullptr ? nullptr
                                          : typeid_cast<const DataTypeArray*>(reusable_type.get())) {
-        const DataTypePtr& reusable_element = reusable_array->get_nested_type();
-        if (reusable_element.get() == element_type.get() ||
-            reusable_element->equals(*element_type)) {
+        // Inferred element types are never nullable, so compare against the unwrapped element;
+        // otherwise every ARRAY value would miss the equality check and pay
+        // get_least_supertype_jsonb() only to rebuild the same type.
+        const DataTypePtr& reusable_element = array_element_type(*reusable_array);
+        if (reusable_element.get() == resolved_element.get() ||
+            reusable_element->equals(*resolved_element)) {
             return reusable_type;
         }
-        DataTypePtr common_element = path_least_common_type(reusable_element, element_type);
+        DataTypePtr common_element = path_least_common_type(reusable_element, resolved_element);
         if (reusable_element->equals(*common_element)) {
             return reusable_type;
         }
     }
-    return std::make_shared<DataTypeArray>(element_type);
+    return std::make_shared<DataTypeArray>(resolved_element);
 }
 
 bool is_small_or_regular_integer(PrimitiveType type) {
@@ -458,8 +480,8 @@ bool value_is_representable(VariantRef value, const DataTypePtr& target_type) {
         if (kind != ValueKind::ARRAY) {
             return false;
         }
-        const DataTypePtr element_type =
-                remove_nullable(assert_cast<const DataTypeArray&>(*target_type).get_nested_type());
+        const DataTypePtr& element_type =
+                array_element_type(assert_cast<const DataTypeArray&>(*target_type));
         const uint32_t count = value.num_elements();
         for (uint32_t index = 0; index < count; ++index) {
             const VariantRef element = value.array_at(index);
@@ -769,7 +791,7 @@ void append_array(VariantRef value, const DataTypePtr& target_type, IColumn* tar
     const auto& array_type = assert_cast<const DataTypeArray&>(*target_type);
     auto& array = assert_cast<ColumnArray&>(*target);
     auto& elements = assert_cast<ColumnNullable&>(array.get_data());
-    const DataTypePtr element_type = remove_nullable(array_type.get_nested_type());
+    const DataTypePtr& element_type = array_element_type(array_type);
     // infer_type() made the first borrowed pass. Revisit the encoded children only after path type
     // promotion is complete, appending directly without an owning recursive scratch tree.
     const uint32_t count = value.num_elements();
