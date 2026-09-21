@@ -17,6 +17,8 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.thrift.TReportExecStatusParams;
+
 import org.apache.thrift.TBase;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
@@ -39,6 +41,28 @@ import java.util.stream.Collectors;
 public final class CommitDataSerializer {
 
     private CommitDataSerializer() {
+    }
+
+    /** Returns whether a fragment report carries any external connector commit data. */
+    public static boolean hasCommitData(TReportExecStatusParams params) {
+        return params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
+                || params.isSetMcCommitDatas() || params.isSetConnectorCommitData();
+    }
+
+    /** Delivers every commit-data representation carried by one fragment report. */
+    public static void feed(Transaction txn, TReportExecStatusParams params) {
+        if (params.isSetHivePartitionUpdates()) {
+            feed(txn, params.getHivePartitionUpdates());
+        }
+        if (params.isSetIcebergCommitDatas()) {
+            feed(txn, params.getIcebergCommitDatas());
+        }
+        if (params.isSetMcCommitDatas()) {
+            feed(txn, params.getMcCommitDatas());
+        }
+        if (params.isSetConnectorCommitData()) {
+            feedRaw(txn, params.getConnectorCommitData());
+        }
     }
 
     /**

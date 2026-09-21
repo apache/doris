@@ -21,6 +21,7 @@ import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TMCCommitData;
+import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TUpdateMode;
 
 import org.apache.thrift.TBase;
@@ -166,6 +167,35 @@ public class CommitDataSerializerTest {
         Assertions.assertArrayEquals(new byte[] {1, 2}, payloads.get(0));
         Assertions.assertArrayEquals(new byte[] {4, 5}, payloads.get(1));
         Assertions.assertEquals(1, fragment.position());
+    }
+
+    @Test
+    public void reportFeedRecognizesAndDeliversOpaqueConnectorData() {
+        List<byte[]> payloads = new ArrayList<>();
+        Transaction collector = new Transaction() {
+            @Override
+            public void commit() {
+                throw new UnsupportedOperationException("commit not expected in this test");
+            }
+
+            @Override
+            public void rollback() {
+                throw new UnsupportedOperationException("rollback not expected in this test");
+            }
+
+            @Override
+            public void addCommitData(byte[] commitFragment) {
+                payloads.add(commitFragment);
+            }
+        };
+        TReportExecStatusParams report = new TReportExecStatusParams()
+                .setConnectorCommitData(Arrays.asList(ByteBuffer.wrap(new byte[] {6, 7})));
+
+        Assertions.assertTrue(CommitDataSerializer.hasCommitData(report));
+        CommitDataSerializer.feed(collector, report);
+
+        Assertions.assertEquals(1, payloads.size());
+        Assertions.assertArrayEquals(new byte[] {6, 7}, payloads.get(0));
     }
 
 }
