@@ -22,12 +22,10 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.hint.OrderedHint;
-import org.apache.doris.nereids.hint.UseCboRuleHint;
 import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
-import org.apache.doris.nereids.properties.SelectHintUseCboRule;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -66,9 +64,6 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                 } else if (hintName.equalsIgnoreCase("LEADING")) {
                     extractLeading((SelectHintLeading) hint, ctx.cascadesContext,
                             ctx.statementContext, selectHintPlan);
-                } else if (hintName.equalsIgnoreCase("USE_CBO_RULE")
-                        || hintName.equalsIgnoreCase("NO_USE_CBO_RULE")) {
-                    extractRule((SelectHintUseCboRule) hint, ctx.statementContext);
                 } else if (hintName.equalsIgnoreCase("USE_MV")) {
                     extractMv((SelectHintUseMv) hint, ConnectContext.get().getStatementContext());
                 } else if (hintName.equalsIgnoreCase("NO_USE_MV")) {
@@ -113,14 +108,6 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             hint.setStatus(Hint.HintStatus.UNUSED);
         } else {
             context.setLeadingJoin(true);
-        }
-    }
-
-    private void extractRule(SelectHintUseCboRule selectHint, StatementContext statementContext) {
-        // rule hint need added to statementContext only cause it's set in all scopes
-        for (String parameter : selectHint.getParameters()) {
-            UseCboRuleHint hint = new UseCboRuleHint(parameter, selectHint.isNotUseCboRule());
-            statementContext.addHint(hint);
         }
     }
 
