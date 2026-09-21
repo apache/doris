@@ -34,6 +34,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -67,9 +68,9 @@ import java.util.stream.Collectors;
 public class OlapAnalysisTask extends BaseAnalysisTask {
 
     private static final String BASIC_STATS_TEMPLATE = "SELECT "
-            + "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) as min, "
-            + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) as max "
-            + "FROM `${dbName}`.`${tblName}` ${index}";
+            + "SUBSTRING(CAST(MIN(${colName}) AS STRING), 1, 1024) as min, "
+            + "SUBSTRING(CAST(MAX(${colName}) AS STRING), 1, 1024) as max "
+            + "FROM ${dbName}.${tblName} ${index}";
 
     private boolean keyColumnSampleTooManyRows = false;
     private boolean partitionColumnSampleTooManyRows = false;
@@ -365,12 +366,12 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("dataSizeFunction", getDataSizeFunction(col, true));
             params.put("rowCount2", "(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)");
         } else {
-            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
+            params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)");
             // For single unique key, use count as ndv.
             if (isSingleUniqueKey()) {
                 params.put("ndvFunction", String.valueOf(tableRowCount));
             } else {
-                params.put("ndvFunction", "ROUND(NDV(`${colName}`) * ${scaleFactor})");
+                params.put("ndvFunction", "ROUND(NDV(${colName}) * ${scaleFactor})");
             }
         }
     }
@@ -387,7 +388,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             if (shouldCollectHotValue()) {
                 params.put("hotValueCollectCount", String.valueOf(SessionVariable.getHotValueCollectCount()));
                 params.put("subStringColName", getStringTypeColName(col));
-                params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)");
+                params.put("rowCount2", "(SELECT COUNT(1) FROM cte1 WHERE ${colName} IS NOT NULL)");
                 runQuery(stringSubstitutor.replace(FULL_ANALYZE_TEMPLATE));
             } else {
                 runQuery(stringSubstitutor.replace(FULL_ANALYZE_WITHOUT_HOT_VALUE_TEMPLATE));
@@ -446,7 +447,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     @Override
     protected String getPartitionInfo(String partitionName) {
-        return "partition " + partitionName;
+        return "partition " + SqlUtils.getIdentSql(partitionName);
     }
 
     @Override
@@ -460,10 +461,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("idxId", String.valueOf(info.indexId));
         params.put("colId", StatisticsUtil.escapeSQL(String.valueOf(info.colName)));
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
-        params.put("catalogName", catalog.getName());
-        params.put("dbName", db.getFullName());
-        params.put("colName", StatisticsUtil.escapeColumnName(String.valueOf(info.colName)));
-        params.put("tblName", String.valueOf(tbl.getName()));
+        params.put("catalogName", SqlUtils.getIdentSql(catalog.getName()));
+        params.put("dbName", SqlUtils.getIdentSql(db.getFullName()));
+        params.put("colName", SqlUtils.getIdentSql(String.valueOf(info.colName)));
+        params.put("tblName", SqlUtils.getIdentSql(String.valueOf(tbl.getName())));
         params.put("index", getIndex());
         params.put("preAggHint", "");
         addLengthAssertParam(params);
@@ -475,7 +476,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             return "";
         } else {
             OlapTable olapTable = (OlapTable) this.tbl;
-            return "index `" + olapTable.getIndexNameById(info.indexId) + "`";
+            return "index " + SqlUtils.getIdentSql(olapTable.getIndexNameById(info.indexId));
         }
     }
 

@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -89,6 +90,44 @@ public class PaimonCatalogFactoryTest {
         // for catalog creation. MUTATION: emitting "hive"/"jdbc" or dropping warehouse -> red.
         Assertions.assertEquals("filesystem", opts.get("metastore"));
         Assertions.assertEquals("/wh", opts.get("warehouse"));
+    }
+
+    @Test
+    public void enclosingDorisWeightLimitDisablesPaimonSdkCacheOnlyByDefault() throws Exception {
+        Map<String, String> defaults = props(
+                "paimon.catalog.type", "filesystem", "warehouse", "/wh");
+
+        try (PaimonConnector ungoverned = new PaimonConnector(defaults, new RecordingConnectorContext())) {
+            Options options = ungoverned.buildCatalogOptions();
+            Assertions.assertFalse(options.contains(CatalogOptions.CACHE_ENABLED),
+                    "without a global/catalog total, Doris must preserve the Paimon SDK default");
+        }
+
+        Map<String, String> catalogLimited = new HashMap<>(defaults);
+        catalogLimited.put("meta.cache.max-weight", "1MB");
+        try (PaimonConnector governed = new PaimonConnector(catalogLimited, new RecordingConnectorContext())) {
+            Options options = governed.buildCatalogOptions();
+            Assertions.assertTrue(options.contains(CatalogOptions.CACHE_ENABLED));
+            Assertions.assertFalse(options.get(CatalogOptions.CACHE_ENABLED),
+                    "an enclosing Doris hard limit must not be bypassed by an unaccounted SDK cache");
+        }
+
+        Map<String, String> entryLimited = new HashMap<>(defaults);
+        entryLimited.put("meta.cache.paimon.partition_view.max-weight", "1MB");
+        try (PaimonConnector entryOnly = new PaimonConnector(entryLimited, new RecordingConnectorContext())) {
+            Assertions.assertFalse(entryOnly.buildCatalogOptions().contains(CatalogOptions.CACHE_ENABLED),
+                    "an entry-only limit must preserve the Paimon SDK default");
+        }
+
+        PaimonCatalogProperties explicitTrue = PaimonCatalogProperties.of(props(
+                "paimon.catalog.type", "filesystem", "warehouse", "/wh", "paimon.cache-enabled", "true"));
+        Assertions.assertTrue(PaimonCatalogFactory.buildCatalogOptions(explicitTrue, true)
+                .get(CatalogOptions.CACHE_ENABLED), "an explicit Paimon setting must win");
+
+        PaimonCatalogProperties explicitFalse = PaimonCatalogProperties.of(props(
+                "paimon.catalog.type", "filesystem", "warehouse", "/wh", "paimon.cache-enabled", "false"));
+        Assertions.assertFalse(PaimonCatalogFactory.buildCatalogOptions(explicitFalse, true)
+                .get(CatalogOptions.CACHE_ENABLED), "an explicit Paimon setting must win");
     }
 
     @Test

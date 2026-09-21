@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.SystemInfoService;
@@ -319,9 +320,7 @@ public class MTMVTask extends AbstractTask {
                 throw new JobException(e.getMessage(), e);
             }
             MTMVRefreshContext refreshContext = buildRefreshContext(tableIfs);
-            if (handlePendingIvmBaselineRebuild(refreshContext, request, ctx)) {
-                return;
-            }
+            handlePendingIvmBaselineRebuild(refreshContext, request, ctx, attempts);
             boolean disablePartitionRefresh = false;
             for (RefreshAttemptType attemptType : attempts) {
                 switch (attemptType) {
@@ -359,6 +358,8 @@ public class MTMVTask extends AbstractTask {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
             }
+        } finally {
+            closeExecutionContext(ctx);
         }
     }
 
@@ -558,28 +559,56 @@ public class MTMVTask extends AbstractTask {
         executePartitionBasedRefresh(context, RefreshMode.COMPLETE, ctx);
     }
 
-    private boolean handlePendingIvmBaselineRebuild(MTMVRefreshContext context, RefreshRequest request,
-            ConnectContext ctx)
+    /**
+     * Rebuild the MV partitions whose IVM baseline is broken, before the normal refresh runs.
+     *
+     * <p>This is a pre-step, not a terminal branch: the caller keeps running {@code attempts}
+     * afterwards, so a broken baseline no longer skips the refresh entirely. The list is rewritten
+     * in place when the baseline demands a different set of attempts.
+     *
+     * <p>Partition sync drops the MV partitions whose base partition disappeared, which is exactly
+     * what the barrier recorded when that base partition was dropped. Those partitions are resolved
+     * by the drop itself (the partition and its IVM offsets are both gone), so only the partitions
+     * that still exist need a rebuild. The barrier is released either way, otherwise the IVM attempt
+     * that follows would be rejected by {@link MTMV#validateIvmRefreshStart}.
+     */
+    private void handlePendingIvmBaselineRebuild(MTMVRefreshContext context,
+            RefreshRequest request, ConnectContext ctx, List<RefreshAttemptType> attempts)
             throws JobException, AnalysisException {
         if (!mtmv.isIvm() || request.refreshMode == RefreshMode.COMPLETE
                 || !mtmv.getIvmInfo().isBaselineRebuildRequired()) {
-            return false;
+            return;
         }
         ivmFallbackReason = IvmFailureReason.BINLOG_BROKEN.name();
         IvmInfo ivmInfo = mtmv.getIvmInfo();
+        // A lone COMPLETE attempt rebuilds every partition anyway, so a partial pre-rebuild here
+        // would be redundant; it also releases the barrier by itself once it succeeds.
+        if (attempts.size() == 1 && attempts.get(0) == RefreshAttemptType.COMPLETE) {
+            LOG.info("IVM baseline barrier is covered by the pending COMPLETE attempt, mv={}, taskId={}",
+                    mtmv.getName(), getTaskId());
+            return;
+        }
         if (ivmInfo.requiresCompleteBaselineRebuild()) {
-            executeCompleteAttempt(context, ctx);
-            return true;
+            LOG.warn("IVM baseline requires a complete rebuild, mv={}, taskId={}. "
+                    + "Continuing with COMPLETE refresh.", mtmv.getName(), getTaskId());
+            attempts.clear();
+            attempts.add(RefreshAttemptType.COMPLETE);
+            return;
         }
-        this.needRefreshPartitions = Lists.newArrayList(Sets.intersection(
+        List<String> baselinePartitions = Lists.newArrayList(Sets.intersection(
                 ivmInfo.getPendingBaselineRebuildPartitions(), mtmv.getPartitionNames()));
-        this.needRefreshPartitions.sort(String::compareTo);
-        this.refreshMode = generateRefreshMode(needRefreshPartitions);
-        if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
-            return true;
+        if (baselinePartitions.isEmpty()) {
+            // Partition sync has already dropped every partition the barrier named, so there is
+            // nothing left to rebuild. The surviving partitions are picked up by the attempts below.
+            LOG.info("IVM baseline partitions were removed by partition sync, mv={}, taskId={}",
+                    mtmv.getName(), getTaskId());
+        } else {
+            baselinePartitions.sort(String::compareTo);
+            this.needRefreshPartitions = baselinePartitions;
+            this.refreshMode = generateRefreshMode(baselinePartitions);
+            executePartitionBasedRefresh(context, RefreshMode.PARTITIONS, ctx);
         }
-        executePartitionBasedRefresh(context, RefreshMode.PARTITIONS, ctx);
-        return true;
+        mtmv.releaseIvmBaselineRebuild(mtmvSchemaChangeVersion);
     }
 
     private void validateIvmBaselineBeforePartitionSync(RefreshRequest request) throws JobException {
@@ -677,14 +706,18 @@ public class MTMVTask extends AbstractTask {
             ivmResult = executeWithRetry(() -> {
                 ConnectContext ivmConnectContext = MTMVPlanUtil.createMTMVContext(mtmv,
                         MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-                setupComputeGroup(ivmConnectContext);
-                IvmIncrRefreshContext ivmIncrRefreshContext = new IvmIncrRefreshContext(mtmv,
-                        ivmConnectContext,
-                        getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(needRefreshPartitions)),
-                        this::recordQueryId,
-                        this::registerExecutor);
-                mtmv.validateIvmRefreshStart(mtmvSchemaChangeVersion);
-                return ivmIncrRefreshManager.doRefresh(ivmIncrRefreshContext);
+                try {
+                    setupComputeGroup(ivmConnectContext);
+                    IvmIncrRefreshContext ivmIncrRefreshContext = new IvmIncrRefreshContext(mtmv,
+                            ivmConnectContext,
+                            getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(needRefreshPartitions)),
+                            this::recordQueryId,
+                            this::registerExecutor);
+                    mtmv.validateIvmRefreshStart(mtmvSchemaChangeVersion);
+                    return ivmIncrRefreshManager.doRefresh(ivmIncrRefreshContext);
+                } finally {
+                    closeExecutionContext(ivmConnectContext);
+                }
             }, "IVM refresh");
         } catch (Exception e) {
             throw new JobException("IVM incremental refresh failed for mv=" + mtmv.getName()
@@ -964,7 +997,11 @@ public class MTMVTask extends AbstractTask {
                     getRefreshAuditStmt(refreshMode, refreshPartitionNames),
                     createRefreshConsumer(signatureRef));
         } finally {
-            recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
+            try {
+                recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
+            } finally {
+                closeExecutionContext(mtmvCtx);
+            }
         }
         if (getStatus() == TaskStatus.CANCELED) {
             throw new JobException("task is CANCELED");
@@ -994,6 +1031,19 @@ public class MTMVTask extends AbstractTask {
             }
             registerExecutor(executor);
         };
+    }
+
+    private static void closeExecutionContext(ConnectContext executionContext) {
+        try {
+            if (executionContext.queryId() != null) {
+                QeProcessorImpl.INSTANCE.unregisterQuery(executionContext.queryId());
+            }
+        } finally {
+            StatementContext statementContext = executionContext.getStatementContext();
+            if (statementContext != null) {
+                statementContext.close();
+            }
+        }
     }
 
     private void setupComputeGroup(ConnectContext ctx) {

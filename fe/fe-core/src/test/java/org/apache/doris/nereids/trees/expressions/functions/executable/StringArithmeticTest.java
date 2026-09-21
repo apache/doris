@@ -17,9 +17,15 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.ExpressionEvaluator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 
 import org.junit.jupiter.api.Assertions;
@@ -73,5 +79,62 @@ class StringArithmeticTest {
                 new TimeStampNsLiteral("1970-01-01 00:00:00.000000002"));
 
         Assertions.assertEquals(2, result.getValue());
+    }
+
+    @Test
+    void testUrlDecodeDoesNotFoldInvalidUtf8() {
+        String[] invalidUtf8Values = {"%80", "%C0%AF", "%E0%80%80", "%ED%A0%80", "%FF"};
+        for (String value : invalidUtf8Values) {
+            UrlDecode urlDecode = new UrlDecode(new StringLiteral(value));
+            Assertions.assertSame(urlDecode, ExpressionEvaluator.INSTANCE.eval(urlDecode), value);
+        }
+    }
+
+    @Test
+    void testUrlDecodeStillFoldsValidUtf8() {
+        assertUrlDecodeValue("%E4%B8%AD+text", "中 text");
+        assertUrlDecodeValue("%EF%BF%BD", "�");
+    }
+
+    private void assertUrlDecodeValue(String encoded, String expected) {
+        Expression result = ExpressionEvaluator.INSTANCE.eval(new UrlDecode(new StringLiteral(encoded)));
+        Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
+    }
+
+    @Test
+    void testParseUrlQueryStopsAtFragment() {
+        // The only '?' is inside the fragment, so the url has no query component.
+        assertParseUrlQueryIsNull("http://h/p#f?k=v");
+        assertParseUrlQueryIsNull("http://h/p#f/?#k=v");
+        // The query component starts at the first '?' and ends before the fragment.
+        assertParseUrlQuery("http://h/p?k=1#f&k=2", "k=1");
+        assertParseUrlQuery("http://h/p?a=1&k=2", "a=1&k=2");
+    }
+
+    @Test
+    void testExtractUrlParameterStopsAtFragment() {
+        // The only '?' is inside the fragment, so the url has no parameters.
+        assertExtractUrlParameter("http://h/p#f?k=v", "k", "");
+        // The parameters end before the fragment.
+        assertExtractUrlParameter("http://h/p?k=1#f&k=2", "k", "1");
+        assertExtractUrlParameter("http://h/p?k1=aa&k2=bb#f", "k2", "bb");
+    }
+
+    private void assertParseUrlQuery(String url, String expected) {
+        Expression result = StringArithmetic.parseurl(
+                new StringLiteral(url), new StringLiteral("QUERY"));
+        Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
+    }
+
+    private void assertParseUrlQueryIsNull(String url) {
+        Expression result = StringArithmetic.parseurl(
+                new StringLiteral(url), new StringLiteral("QUERY"));
+        Assertions.assertTrue(result instanceof NullLiteral, url);
+    }
+
+    private void assertExtractUrlParameter(String url, String parameter, String expected) {
+        Expression result = StringArithmetic.extractUrlParameter(
+                new StringLiteral(url), new StringLiteral(parameter));
+        Assertions.assertEquals(expected, ((StringLikeLiteral) result).getValue());
     }
 }

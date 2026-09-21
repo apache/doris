@@ -286,7 +286,7 @@ public class RestoreJobTest {
         TableProperty tableProperty = new TableProperty(Maps.newHashMap());
         tableProperty.addDistributionMappingConstraint(mapping);
         expectedRestoreTbl.setTableProperty(tableProperty);
-        Assert.assertTrue(db.registerTable(expectedRestoreTbl));
+        Assertions.assertTrue(db.registerTable(expectedRestoreTbl));
         ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
         Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
         Mockito.when(constraintManager.getDistributionMappingConstraints(expectedRestoreTbl))
@@ -297,9 +297,9 @@ public class RestoreJobTest {
 
         Deencapsulation.invoke(job, "checkAndPrepareMeta");
 
-        Assert.assertFalse(job.getStatus().ok());
-        Assert.assertTrue(job.getStatus().getErrMsg().contains("Cannot restore table"));
-        Assert.assertEquals(OlapTable.OlapTableState.NORMAL, expectedRestoreTbl.getState());
+        Assertions.assertFalse(job.getStatus().ok());
+        Assertions.assertTrue(job.getStatus().getErrMsg().contains("Cannot restore table"));
+        Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, expectedRestoreTbl.getState());
         Mockito.verify(constraintManager).validateDistributionMappingFeatureCompatibility();
         Mockito.verify(constraintManager, Mockito.never())
                 .validateDistributionMappingConstraints(expectedRestoreTbl);
@@ -313,7 +313,7 @@ public class RestoreJobTest {
         TableProperty tableProperty = new TableProperty(Maps.newHashMap());
         tableProperty.addDistributionMappingConstraint(mapping);
         localTable.setTableProperty(tableProperty);
-        Assert.assertTrue(db.registerTable(localTable));
+        Assertions.assertTrue(db.registerTable(localTable));
 
         ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
         Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
@@ -325,10 +325,10 @@ public class RestoreJobTest {
 
         Deencapsulation.invoke(job, "checkAndPrepareMeta");
 
-        Assert.assertFalse(job.getStatus().ok());
-        Assert.assertTrue(job.getStatus().getErrMsg().contains(
+        Assertions.assertFalse(job.getStatus().ok());
+        Assertions.assertTrue(job.getStatus().getErrMsg().contains(
                 "Cannot restore into existing table " + localTable.getName()));
-        Assert.assertEquals(OlapTable.OlapTableState.NORMAL, localTable.getState());
+        Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, localTable.getState());
     }
 
     @Test
@@ -339,7 +339,7 @@ public class RestoreJobTest {
         backupTableProperty.addDistributionMappingConstraint(mapping);
         expectedRestoreTbl.setTableProperty(backupTableProperty);
         OlapTable localTable = expectedRestoreTbl.selectiveCopy(null, IndexExtState.VISIBLE, true);
-        Assert.assertTrue(db.registerTable(localTable));
+        Assertions.assertTrue(db.registerTable(localTable));
 
         ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
         Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
@@ -351,10 +351,10 @@ public class RestoreJobTest {
 
         Deencapsulation.invoke(job, "checkAndPrepareMeta");
 
-        Assert.assertFalse(job.getStatus().ok());
-        Assert.assertTrue(job.getStatus().getErrMsg().contains(
+        Assertions.assertFalse(job.getStatus().ok());
+        Assertions.assertTrue(job.getStatus().getErrMsg().contains(
                 "Cannot restore into existing table " + localTable.getName()));
-        Assert.assertEquals(OlapTable.OlapTableState.NORMAL, localTable.getState());
+        Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, localTable.getState());
         Mockito.verify(constraintManager).validateDistributionMappingFeatureCompatibility();
         Mockito.verify(constraintManager).validateDistributionMappingConstraints(expectedRestoreTbl);
     }
@@ -375,10 +375,10 @@ public class RestoreJobTest {
 
         boolean valid = Deencapsulation.invoke(job, "validateDistributionMappingConstraintsForRestore");
 
-        Assert.assertFalse(valid);
-        Assert.assertTrue(job.getStatus().getErrMsg().contains(
+        Assertions.assertFalse(valid);
+        Assertions.assertTrue(job.getStatus().getErrMsg().contains(
                 "Cannot atomically restore table " + expectedRestoreTbl.getName()));
-        Assert.assertFalse(expectedRestoreTbl.isInAtomicRestore());
+        Assertions.assertFalse(expectedRestoreTbl.isInAtomicRestore());
         Mockito.verify(constraintManager, Mockito.never())
                 .validateDistributionMappingFeatureCompatibility();
         Mockito.verify(constraintManager, Mockito.never())
@@ -392,7 +392,7 @@ public class RestoreJobTest {
         TableProperty tableProperty = new TableProperty(Maps.newHashMap());
         tableProperty.addDistributionMappingConstraint(mapping);
         expectedRestoreTbl.setTableProperty(tableProperty);
-        Assert.assertTrue(db.registerTable(expectedRestoreTbl));
+        Assertions.assertTrue(db.registerTable(expectedRestoreTbl));
         ConstraintManager constraintManager = Mockito.mock(ConstraintManager.class);
         Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
         Mockito.when(constraintManager.getDistributionMappingConstraints(expectedRestoreTbl))
@@ -403,9 +403,9 @@ public class RestoreJobTest {
 
         Deencapsulation.invoke(job, "checkAndPrepareMeta");
 
-        Assert.assertFalse(job.getStatus().ok());
-        Assert.assertTrue(job.getStatus().getErrMsg().contains("Cannot restore table"));
-        Assert.assertEquals(OlapTable.OlapTableState.NORMAL, expectedRestoreTbl.getState());
+        Assertions.assertFalse(job.getStatus().ok());
+        Assertions.assertTrue(job.getStatus().getErrMsg().contains("Cannot restore table"));
+        Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, expectedRestoreTbl.getState());
         Mockito.verify(constraintManager).validateDistributionMappingFeatureCompatibility();
         Mockito.verify(constraintManager).validateDistributionMappingConstraints(expectedRestoreTbl);
     }
@@ -438,8 +438,8 @@ public class RestoreJobTest {
 
         boolean valid = Deencapsulation.invoke(job, "validateDistributionMappingConstraintsForRestore");
 
-        Assert.assertFalse(valid);
-        Assert.assertTrue(job.getStatus().getErrMsg().contains("second_restore_table"));
+        Assertions.assertFalse(valid);
+        Assertions.assertTrue(job.getStatus().getErrMsg().contains("second_restore_table"));
         Mockito.verify(constraintManager).validateDistributionMappingFeatureCompatibility();
         Mockito.verify(constraintManager).validateDistributionMappingConstraints(expectedRestoreTbl);
         Mockito.verify(constraintManager).validateDistributionMappingConstraints(secondRestoreTable);

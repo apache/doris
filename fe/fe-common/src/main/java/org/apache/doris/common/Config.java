@@ -758,7 +758,9 @@ public class Config extends ConfigBase {
             + "Set long enough to fit your tablet size.")
     public static long check_consistency_default_timeout_second = 600; // 10 min
 
-    @ConfField(description = "Maximum number of MySQL server connections per FE.")
+    @ConfField(description = "Maximum number of connections per FE. MySQL connections and Arrow Flight SQL "
+            + "sessions share this one pool (see arrow_flight_max_connections for the share Flight sessions "
+            + "may take of it: half by default).")
     public static int qe_max_connection = 1024;
 
     @ConfField(mutable = true, description = "Colocate join PlanFragment instance memory limit penalty factor. The "
@@ -2008,9 +2010,11 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     public static final int TIMESTAMP_NS_MIN_BE_EXEC_VERSION = 14;
+    // Older backends ignore the optional OpenCSV flag and would silently use different row semantics.
+    public static final int HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION = 15;
 
     @ConfField(mutable = false)
-    public static int max_be_exec_version = TIMESTAMP_NS_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.
@@ -2203,6 +2207,11 @@ public class Config extends ConfigBase {
 
     @ConfField(description = "The auto-refresh interval of the external meta cache.")
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
+
+    @ConfField(mutable = false, masterOnly = false,
+            description = "FE-wide maximum weight for managed external metadata caches. Supports byte units "
+                    + "or a percentage of the JVM max heap; 0 disables the global quota.")
+    public static String external_meta_cache_max_weight = "0";
 
     // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
     @ConfField(mutable = true, masterOnly = false,
@@ -2643,16 +2652,33 @@ public class Config extends ConfigBase {
             + "automatically. Set to 0 or negative value to disable " + "this limit for user-specified buckets.")
     public static int max_bucket_num_per_partition = 768;
 
-    @ConfField(description = "Maximum number of connections for the Arrow Flight Server per FE.")
-    public static int arrow_flight_max_connections = 4096;
+    @ConfField(description = "Arrow Flight SQL sessions share the one connection pool with MySQL connections:"
+            + " both count against qe_max_connection and the user's max_user_connections. This is the sub-quota of"
+            + " Arrow Flight SQL sessions within that pool: -1 (the default) is half of qe_max_connection (512 with"
+            + " the default pool of 1024), and an explicit value never exceeds qe_max_connection (a larger one is"
+            + " capped, with a warning at startup). Mind how a Flight session ends: with CloseSession, a KILL"
+            + " CONNECTION from another connection, wait_timeout, or the expiry or eviction of its bearer token"
+            + " (arrow_flight_token_alive_time_second; the token cache, see below; and per user at most"
+            + " max_user_connections / 2 tokens). Most Flight clients never send CloseSession, so a session whose"
+            + " client has gone stays in the pool until wait_timeout (8 hours by default) or its token's expiry"
+            + " (24 hours by default), whichever comes first; the default leaves the other half of the pool to"
+            + " MySQL connections however many such sessions there are. Raise it with qe_max_connection, or set"
+            + " it to qe_max_connection on an FE that serves Arrow Flight SQL only. The bearer token cache is"
+            + " sized to this sub-quota (capped by arrow_flight_token_cache_size), so the Flight limit shows as"
+            + " the eviction of the oldest token and its session rather than as a refusal. -1 is accepted from"
+            + " this version on: an older FE that serves Arrow Flight SQL exits at startup with -1 in fe.conf;"
+            + " remove the setting or set a positive value before a downgrade.")
+    public static int arrow_flight_max_connections = -1;
 
     @ConfField(mutable = true, description = "Arrow Flight SQL only. A query that scans an external table in "
             + "batch mode keeps its FE coordinator alive after GetFlightInfo, so the BE can keep fetching splits "
             + "while the client pulls the results (DoGet); that coordinator is normally released when the "
             + "session runs its next query or is closed. Most Flight clients never close a session, so the "
             + "coordinator, and with it the query's workload group queue slot and its active_queries entry, "
-            + "would otherwise stay held until wait_timeout. If the session stays idle for longer than this "
-            + "many seconds after the query started, the coordinator is released anyway. The bound is never "
+            + "would otherwise stay held until wait_timeout. Once this many seconds have passed since the query "
+            + "started and the session is not running a statement, the coordinator is released anyway; each "
+            + "such query is bounded on its own, and the session's other commands in the meantime (a session "
+            + "option, a metadata request) neither release it earlier nor keep it longer. The bound is never "
             + "shorter than the query's own execution timeout, and the session itself is not killed "
             + "(wait_timeout still governs that). 0 disables the bound.")
     public static int arrow_flight_deferred_query_idle_timeout_second = 3600;
@@ -2670,10 +2696,13 @@ public class Config extends ConfigBase {
             + "an abnormal case and triggers an alert.")
     public static double autobucket_out_of_bounds_percent_threshold = 0.5;
 
-    @ConfField(description = "(Deprecated, replaced by arrow_flight_max_connection) The cache limit of all user "
-            + "tokens in Arrow Flight Server, which will be eliminated by LRU rules after exceeding "
-            + "the limit. Arrow Flight SQL is a stateless protocol; the connection is usually not "
-            + "actively disconnected. A bearer token evicted from the cache will unregister its " + "ConnectContext.")
+    @ConfField(description = "The cap of the bearer token cache of the Arrow Flight SQL server. The cache holds"
+            + " as many tokens as the Arrow Flight SQL sub-quota of the connection pool allows"
+            + " (arrow_flight_max_connections, half of qe_max_connection by default) but never more than"
+            + " this; beyond that the oldest token is evicted by LRU, and the session it names is closed with it."
+            + " Arrow Flight SQL clients rarely close their session, so the effective cache size - the sub-quota"
+            + " unless this is smaller - is what bounds their sessions in practice, and per user"
+            + " max_user_connections / 2 tokens. The effective cache size is logged when the server starts.")
     public static int arrow_flight_token_cache_size = 4096;
 
     @ConfField(description = "The alive time of the user token in Arrow Flight Server (expire after write), in "
@@ -2703,6 +2732,10 @@ public class Config extends ConfigBase {
             + "and use of Python UDF is disabled. In some scenarios it may be necessary to disable "
             + "this configuration to prevent command injection attacks.")
     public static boolean enable_python_udf = true;
+
+    @ConfField(description = "The user identity allowed to create AI resources, in the form 'user'@'host'. "
+            + "The default value '*' allows any user that satisfies the existing privilege checks.")
+    public static String ai_resource_allowed_user = "*";
 
     @ConfField(description = "Whether to ignore unknown modules in Image file. If true, metadata modules not in "
             + "PersistMetaModules.MODULE_NAMES will be ignored and skipped. Default is false, if Image "
@@ -2784,9 +2817,6 @@ public class Config extends ConfigBase {
             + "Doris SQL `select password('root@123')` to generate encrypted "
             + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`")
     public static String initial_root_password = "";
-
-    @ConfField(description = "The path of the nereids trace file.")
-    public static String nereids_trace_log_dir = System.getenv("LOG_DIR") + "/nereids_trace";
 
     @ConfField(mutable = true, masterOnly = true, description = "The maximum number of snapshots assigned to an "
             + "upload task during the backup process. The default " + "value is 10.")
@@ -2964,9 +2994,6 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";
-
-    @ConfField
-    public static String spilled_minidump_storage_path = System.getenv("LOG_DIR") + File.separator + "minidump";
 
     // The max number of profiles that can be stored to storage.
     @ConfField
@@ -3495,7 +3522,7 @@ public class Config extends ConfigBase {
 
     @ConfField(description = "Cloud table and partition version syncer interval. All frontends will perform the "
             + "checking.")
-    public static int cloud_version_syncer_interval_second = 20;
+    public static int cloud_version_syncer_interval_second = 60;
 
     @ConfField(mutable = true, description = "Whether to enable the function of syncing table and partition version "
             + "in cloud mode.")
@@ -3508,7 +3535,10 @@ public class Config extends ConfigBase {
     public static int cloud_sync_version_task_threads_num = 4;
 
     @ConfField(mutable = true, description = "Maximum table or partition batch size for get version tasks.")
-    public static int cloud_get_version_task_batch_size = 2000;
+    public static int cloud_get_version_task_batch_size = 200;
+
+    @ConfField(mutable = true, description = "Maximum retry times for cloud version syncer get version tasks.")
+    public static int cloud_version_syncer_get_version_retry_times = 3;
 
     @ConfField(mutable = true, description = "Whether to enable retry when a schema change job fails, default is true.")
     public static boolean enable_schema_change_retry = true;
@@ -3593,8 +3623,8 @@ public class Config extends ConfigBase {
     public static int tso_max_get_retry_count = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = "TSO service time window in milliseconds. Default is "
-            + "5000, which means the TSO service will apply for a " + "TSO time window of 5000ms from BDBJE once.")
-    public static int tso_service_window_duration_ms = 5000;
+            + "1000. Persist the readable committed TSO together with the reserved allocation window.")
+    public static int tso_service_window_duration_ms = 1000;
 
     @ConfField(mutable = true, masterOnly = true, description = "Max tolerated clock backward threshold during TSO "
             + "calibration in milliseconds. Exceeding this " + "threshold will fail enabling TSO. Default is 30 "
@@ -3683,9 +3713,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Whether to allow the use of inverted index v1 for "
             + "variant.")
     public static boolean enable_inverted_index_v1_for_variant = false;
-
-    @ConfField(mutable = true, description = "Whether to enable ColumnVariantV2 for Variant execution and storage.")
-    public static boolean enable_variant_v2 = false;
 
     @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;

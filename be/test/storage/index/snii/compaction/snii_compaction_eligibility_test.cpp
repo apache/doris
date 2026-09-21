@@ -248,6 +248,42 @@ TEST(SniiCompactionEligibilityTest, DestinationWritesNormsExactlyWhenAnalyzed) {
     EXPECT_FALSE(keyword.destination_writes_norms);
 }
 
+// The destination follows the norms policy shared with fresh writes: the "norms" property, and on
+// a variant path inverted_index_skip_norms_for_variant, which wins over the property.
+TEST(SniiCompactionEligibilityTest, DestinationWritesNormsFollowSharedNormsPolicy) {
+    const bool original_skip_norms_for_variant =
+            doris::config::inverted_index_skip_norms_for_variant;
+    auto legacy = open_index({});
+    auto writes_norms = [&legacy](const std::map<std::string, std::string>& properties,
+                                  const std::string& index_suffix) {
+        auto source_meta = make_index(properties, doris::IndexType::INVERTED, 7, index_suffix);
+        auto destination = make_index(properties, doris::IndexType::INVERTED, 7, index_suffix);
+        std::vector sources {source(*legacy, *source_meta)};
+        compaction::SniiCompactionEligibility eligibility;
+        const Status status = compaction::validate_snii_compaction_eligibility(
+                sources, *destination, &eligibility);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+        return eligibility.destination_writes_norms;
+    };
+    auto norms_off = plain_properties();
+    norms_off["norms"] = "false";
+    auto norms_on = plain_properties();
+    norms_on["norms"] = "true";
+
+    doris::config::inverted_index_skip_norms_for_variant = false;
+    EXPECT_TRUE(writes_norms(plain_properties(), ""));
+    EXPECT_FALSE(writes_norms(norms_off, ""));
+    EXPECT_TRUE(writes_norms(plain_properties(), "v.s_host"));
+    EXPECT_FALSE(writes_norms(norms_off, "v.s_host"));
+
+    doris::config::inverted_index_skip_norms_for_variant = true;
+    EXPECT_TRUE(writes_norms(plain_properties(), ""));
+    EXPECT_FALSE(writes_norms(plain_properties(), "v.s_host"));
+    EXPECT_FALSE(writes_norms(norms_on, "v.s_host"));
+
+    doris::config::inverted_index_skip_norms_for_variant = original_skip_norms_for_variant;
+}
+
 TEST(SniiCompactionEligibilityTest, RejectsLegacyBigramMarkerBeforeMergeExecution) {
     snii_test::MemoryFile file;
     writer::SniiIndexInput input;

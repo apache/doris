@@ -301,9 +301,9 @@ public class OlapTableTest {
 
         olapTable.setBeingSyncedProperties();
 
-        Assert.assertTrue(olapTable.isBeingSynced());
-        Assert.assertTrue(tableProperty.getDistributionMappingConstraints().isEmpty());
-        Assert.assertFalse(tableProperty.getProperties().containsKey(
+        Assertions.assertTrue(olapTable.isBeingSynced());
+        Assertions.assertTrue(tableProperty.getDistributionMappingConstraints().isEmpty());
+        Assertions.assertFalse(tableProperty.getProperties().containsKey(
                 TableProperty.DISTRIBUTION_MAPPING_CONSTRAINTS_PROPERTY));
     }
 
@@ -733,14 +733,16 @@ public class OlapTableTest {
             mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
             mockedConfig.when(Config::isCloudMode).thenReturn(true);
 
-            mockedVH.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenAnswer(invocation -> {
-                Cloud.GetVersionResponse.Builder builder = Cloud.GetVersionResponse.newBuilder();
-                builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                        .setCode(Cloud.MetaServiceCode.OK).build());
-                builder.addAllVersions(batchVersions.get(callCount[0]));
-                callCount[0]++;
-                return builder.build();
-            });
+            mockedVH.when(() -> VersionHelper.getVersionFromMeta(
+                    Mockito.any(Cloud.GetVersionRequest.class), Mockito.anyInt()))
+                    .thenAnswer(invocation -> {
+                        Cloud.GetVersionResponse.Builder builder = Cloud.GetVersionResponse.newBuilder();
+                        builder.setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(Cloud.MetaServiceCode.OK).build());
+                        builder.addAllVersions(batchVersions.get(callCount[0]));
+                        callCount[0]++;
+                        return builder.build();
+                    });
 
             ConnectContext ctx = new ConnectContext();
             ctx.setSessionVariable(new SessionVariable());

@@ -581,24 +581,24 @@ public class SchemaChangeJobV2Test {
         tableProperty.addDistributionMappingConstraint(mapping);
         olapTable.setTableProperty(tableProperty);
 
-        DdlException exception = Assert.assertThrows(
+        DdlException exception = Assertions.assertThrows(
                 DdlException.class,
                 () -> Env.getCurrentEnv().convertDistributionType(db, olapTable));
-        Assert.assertTrue(exception.getMessage().contains("Drop the constraints first"));
-        Assert.assertEquals(
+        Assertions.assertTrue(exception.getMessage().contains("Drop the constraints first"));
+        Assertions.assertEquals(
                 DistributionInfo.DistributionInfoType.HASH,
                 olapTable.getDefaultDistributionInfo().getType());
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 List.of(mapping),
                 masterEnv.getConstraintManager().getDistributionMappingConstraints(olapTable));
 
         TableInfo tableInfo = TableInfo.createForModifyDistribution(
                 db.getId(), olapTable.getId());
         Env.getCurrentEnv().replayConvertDistributionType(tableInfo);
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 DistributionInfo.DistributionInfoType.RANDOM,
                 olapTable.getDefaultDistributionInfo().getType());
-        Assert.assertEquals(
+        Assertions.assertEquals(
                 List.of(mapping),
                 masterEnv.getConstraintManager().getDistributionMappingConstraints(olapTable));
     }
@@ -634,8 +634,8 @@ public class SchemaChangeJobV2Test {
                 new DropColumnOp("v", rollupIndexName, Maps.newHashMap()),
                 olapTable, indexSchemaMap, new ArrayList<Index>());
 
-        Assert.assertFalse(rollupSchema.stream().anyMatch(column -> column.getName().equalsIgnoreCase("v")));
-        Assert.assertEquals(
+        Assertions.assertFalse(rollupSchema.stream().anyMatch(column -> column.getName().equalsIgnoreCase("v")));
+        Assertions.assertEquals(
                 List.of(mapping),
                 masterEnv.getConstraintManager().getDistributionMappingConstraints(olapTable));
     }

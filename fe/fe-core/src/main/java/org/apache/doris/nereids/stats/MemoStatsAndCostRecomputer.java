@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.cost.CostCalculator;
+import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -270,8 +271,6 @@ public final class MemoStatsAndCostRecomputer {
         StatsCalculator statsCalculator = new StatsCalculator(
                 groupExpression,
                 connectContext.getSessionVariable().getForbidUnknownColStats(),
-                connectContext.getTotalColumnStatisticMap(),
-                connectContext.getSessionVariable().isPlayNereidsDump(),
                 cteIdToStats,
                 cascadesContext);
         statsCalculator.estimate();
@@ -314,6 +313,7 @@ public final class MemoStatsAndCostRecomputer {
         groupExpression.clearCostState();
 
         Cost bestNodeCost = null;
+        CostWeight costWeight = cascadesContext.getStatementContext().getCostWeight();
         for (Map.Entry<PhysicalProperties, Pair<Cost, List<PhysicalProperties>>> entry
                 : originalLowestCostTable.entrySet()) {
             PhysicalProperties outputProperties = entry.getKey();
@@ -322,7 +322,7 @@ public final class MemoStatsAndCostRecomputer {
                 continue;
             }
             Cost nodeCost = CostCalculator.calculateCost(cascadesContext.getConnectContext(),
-                    groupExpression, childInputProperties);
+                    groupExpression, childInputProperties, costWeight);
             Cost totalCost = nodeCost;
             for (int i = 0; i < childInputProperties.size(); i++) {
                 Optional<Pair<Cost, GroupExpression>> childBestPlan = groupExpression.child(i)
@@ -331,8 +331,7 @@ public final class MemoStatsAndCostRecomputer {
                     totalCost = null;
                     break;
                 }
-                totalCost = CostCalculator.addChildCost(cascadesContext.getConnectContext(),
-                        groupExpression.getPlan(), totalCost, childBestPlan.get().first, i);
+                totalCost = totalCost.add(childBestPlan.get().first, costWeight);
             }
             if (totalCost == null) {
                 continue;

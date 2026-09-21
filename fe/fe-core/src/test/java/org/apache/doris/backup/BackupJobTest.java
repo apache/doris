@@ -379,8 +379,8 @@ public class BackupJobTest {
 
         OlapTable copied = table2.selectiveCopy(null, IndexExtState.VISIBLE, true);
 
-        Assert.assertNotNull(copied);
-        Assert.assertEquals(mapping, copied.getTableProperty()
+        Assertions.assertNotNull(copied);
+        Assertions.assertEquals(mapping, copied.getTableProperty()
                 .getDistributionMappingConstraints().get(mapping.getName()));
     }
 

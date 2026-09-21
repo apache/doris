@@ -552,23 +552,19 @@ Status BlockReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
-    const bool use_sequence_map = _tablet_schema->has_seq_map() &&
-                                  _tablet_schema->keys_type() == UNIQUE_KEYS && !_direct_mode &&
-                                  read_params.binlog_scan_type != TBinlogScanType::MIN_DELTA &&
-                                  read_params.binlog_scan_type != TBinlogScanType::DETAIL &&
-                                  !(read_params.reader_type == ReaderType::READER_QUERY &&
-                                    _tablet->enable_unique_key_merge_on_write());
-    if (use_sequence_map) {
-        auto read_schema = std::make_shared<ReadSchema>(*_read_schema);
-        RETURN_IF_ERROR(read_schema->init_sequence_map(*_tablet_schema));
-        _read_schema = std::move(read_schema);
-    }
-
-    if (read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
-        read_params.binlog_scan_type == TBinlogScanType::DETAIL) {
-        auto read_schema = std::make_shared<ReadSchema>(*_read_schema);
-        read_schema->init_row_binlog_column_mappings(*_tablet_schema);
-        _read_schema = std::move(read_schema);
+    // A Row Binlog scan maps the before-image columns; every other read of this reader, which is
+    // the one that merges rows across rowsets, builds the sequence mapping instead.
+    const bool map_row_binlog_columns =
+            read_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
+            read_params.binlog_scan_type == TBinlogScanType::DETAIL;
+    const bool merge_by_sequence_mapping =
+            !map_row_binlog_columns && _tablet_schema->has_seq_map() &&
+            _tablet_schema->keys_type() == UNIQUE_KEYS && !_direct_mode &&
+            !(read_params.reader_type == ReaderType::READER_QUERY &&
+              _tablet->enable_unique_key_merge_on_write());
+    RETURN_IF_ERROR(_read_schema->init_from_tablet_schema(
+            *_tablet_schema, merge_by_sequence_mapping, map_row_binlog_columns));
+    if (map_row_binlog_columns) {
         _min_delta_value_compare_unsupported = false;
     }
 
@@ -615,7 +611,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         if (read_params.reader_type == ReaderType::READER_QUERY &&
             _reader_context.enable_unique_key_merge_on_write) {
             _next_block_func = &BlockReader::_direct_next_block;
-        } else if (use_sequence_map) {
+        } else if (merge_by_sequence_mapping) {
             _next_block_func = &BlockReader::_replace_key_next_block;
         } else {
             _next_block_func = &BlockReader::_unique_key_next_block;

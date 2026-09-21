@@ -786,7 +786,6 @@ import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
-import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
@@ -1781,12 +1780,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new MTMVRefreshTriggerInfo(RefreshTrigger.SCHEDULE, visitRefreshSchedule(ctx.refreshSchedule()));
         }
         return new MTMVRefreshTriggerInfo(RefreshTrigger.MANUAL);
-    }
-
-    @Override
-    public ReplayCommand visitReplay(DorisParser.ReplayContext ctx) {
-        LogicalPlan plan = plan(ctx.replayCommand().replayType().query());
-        return new ReplayCommand(PlanType.REPLAY_COMMAND, plan);
     }
 
     @Override

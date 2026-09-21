@@ -31,10 +31,12 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
 #include "storage/id_manager.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
 class RuntimeState;
+class TQueryOptions;
 class TupleDescriptor;
 class ScannerScheduler;
 namespace io {
@@ -81,12 +83,15 @@ public:
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
 
 private:
+    static bool should_use_file_scanner_v2(const TQueryOptions& query_options,
+                                           const TFileScanRangeParams& scan_params,
+                                           const TFileRangeDesc& range);
     struct ExternalFetchStatistics;
 
     static Status read_doris_format_row(
             const std::shared_ptr<IdFileMap>& id_file_map,
             const std::shared_ptr<FileMapping>& file_mapping, const std::vector<uint32_t>& row_id,
-            std::vector<SlotDescriptor>& slots, const TabletSchema& full_read_schema,
+            std::vector<SlotDescriptor>& slots, const std::vector<TabletColumn>& fetch_columns,
             RowStoreReadStruct& row_store_read_struct, OlapReaderStatistics& stats,
             int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
             int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
@@ -117,6 +122,13 @@ private:
             const TFileScanRangeParams& rpc_scan_params,
             const std::unordered_map<std::string, int>& colname_to_slot_id,
             std::counting_semaphore<>& semaphore, TupleDescriptor& tuple_desc);
+
+    static TFileRangeDesc build_external_fetch_range(const TFileRangeDesc& source_range);
+
+    static TFileScanRangeParams build_external_scan_params(
+            const TFileScanRangeParams& source_params, const TFileRangeDesc& range,
+            const std::vector<SlotDescriptor>& scan_slots,
+            const std::vector<uint32_t>& scan_column_idxs);
 
     static std::string source_column_key(const SlotDescriptor& slot, uint32_t column_idx);
 

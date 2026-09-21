@@ -367,7 +367,7 @@ public class MetadataGenerator {
                 columnIndex = TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
                 break;
             case TSO_STATUS:
-                result = tsoStatusMetadataResult();
+                result = tsoStatusMetadataResult(schemaTableParams.isSetColumnsName());
                 columnIndex = TSO_STATUS_COLUMN_TO_INDEX;
                 break;
             case STATISTICS:
@@ -1967,6 +1967,10 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal(
                             formatMetaCacheTime(entryStats.getLastLoadFailureTimeMs(), timeZone)));
                     trow.addToColumnValue(new TCell().setStringVal(entryStats.getLastError())); // LAST_ERROR
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getMaxWeight()));
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getEstimatedWeight()));
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getWeightAdmissionRejectedCount()));
+                    trow.addToColumnValue(new TCell().setStringVal(entryStats.getLastWeightRejectReason()));
                     dataBatch.add(trow);
                 }
             }
@@ -2335,7 +2339,7 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static TFetchSchemaTableDataResult tsoStatusMetadataResult() {
+    private static TFetchSchemaTableDataResult tsoStatusMetadataResult(boolean includeCommittedTso) {
         if (!Config.enable_feature_binlog) {
             return errorResult("TSO feature is disabled, please check enable_feature_binlog");
         }
@@ -2347,10 +2351,18 @@ public class MetadataGenerator {
 
         long currentTso = statusSnapshot.getCurrentTso();
         TRow row = new TRow();
-        row.addToColumnValue(new TCell().setLongVal(statusSnapshot.getWindowEndPhysicalTime()));
+        row.addToColumnValue(new TCell().setLongVal(statusSnapshot.getWindowEndPhysicalTimeMs()));
         row.addToColumnValue(new TCell().setLongVal(currentTso));
         row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractPhysicalTime(currentTso)));
         row.addToColumnValue(new TCell().setLongVal(TSOTimestamp.extractLogicalCounter(currentTso)));
+        // Older BE scanners omit columns_name and require exactly the original four columns.
+        if (includeCommittedTso) {
+            long committedTso = statusSnapshot.getCommittedTso();
+            row.addToColumnValue(committedTso == 0 ? new TCell().setIsNull(true)
+                    : new TCell().setLongVal(committedTso));
+            row.addToColumnValue(committedTso == 0 ? new TCell().setIsNull(true)
+                    : new TCell().setLongVal(TSOTimestamp.extractPhysicalTime(committedTso)));
+        }
 
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         result.setDataBatch(Lists.newArrayList(row));

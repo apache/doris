@@ -833,6 +833,13 @@ public abstract class DataType {
 
     public abstract int width();
 
+    /**
+     * Return whether a legal cast to {@code target} preserves distinctness: two values that are
+     * distinct under this type's equality semantics must not become equal after the cast. Rewrite
+     * rules use this property when moving casts across DISTINCT or GROUP BY, so implementations
+     * must account for rounding, truncation, ambiguous text formatting, and special equality
+     * classes such as floating-point NaNs and signed zero.
+     */
     public boolean isInjectiveCastTo(DataType target) {
         return this.equals(target);
     }

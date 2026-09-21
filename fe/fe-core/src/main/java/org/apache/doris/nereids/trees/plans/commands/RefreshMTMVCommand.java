@@ -126,13 +126,13 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
             adapter.setOrigStmt(new OriginStatement(mtmv.getQuerySql(), 0));
 
             // Execute on a dedicated internal executor (admin identity, MV session variables)
-            // and stream each batch to the client's real mysql channel. The internal executor
-            // owns a fresh query id that KILL QUERY cannot reach, so forward cancellations of
-            // the outer statement (Ctrl+C / KILL / timeout) to it while it runs.
+            // and stream each batch to the client through this session's result sender. The
+            // internal executor owns a fresh query id that KILL QUERY cannot reach, so forward
+            // cancellations of the outer statement (Ctrl+C / KILL / timeout) to it while it runs.
             StmtExecutor internalExecutor = new StmtExecutor(internalCtx, adapter);
             internalCtx.setExecutor(internalExecutor);
             executor.setCancelDelegate(internalExecutor::cancel);
-            internalExecutor.executeInternalQueryAndSend(adapter, ctx.getMysqlChannel());
+            internalExecutor.executeInternalQueryAndSend(adapter, ctx.getResultSender());
             ctx.getState().setEof();
         } finally {
             executor.clearCancelDelegate();

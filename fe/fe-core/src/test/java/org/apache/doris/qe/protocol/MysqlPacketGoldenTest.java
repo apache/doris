@@ -20,6 +20,7 @@ package org.apache.doris.qe.protocol;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.MysqlCapability;
+import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MysqlConnectProcessor;
@@ -54,11 +55,12 @@ import java.util.List;
  *   <li>the same result set with {@code CLIENT_DEPRECATE_EOF} negotiated off, which decides whether
  *       a result set ends in an EOF or an OK, and adds one after the column definitions;</li>
  *   <li>{@code SHOW VARIABLES} (both EOF flavors), {@code DESC} (two data rows), {@code SET},
- *       {@code USE}, {@code EXPLAIN};</li>
+ *       {@code USE}, {@code EXPLAIN}, {@code EXPLAIN PLAN PROCESS};</li>
  *   <li>errors: a syntax error, an unknown table, and an error followed by a healthy statement on
  *       the same connection;</li>
  *   <li>multi-statement requests with and without {@code CLIENT_MULTI_STATEMENTS}, which decides
- *       whether the intermediate result set gets a terminator at all;</li>
+ *       whether the intermediate result set gets a terminator at all, ending in a query, in a
+ *       {@code SET} and in a {@code BEGIN};</li>
  *   <li>connection commands: {@code COM_FIELD_LIST}, {@code COM_STMT_PREPARE},
  *       {@code COM_STMT_CLOSE}, {@code COM_SET_OPTION}, {@code COM_RESET_CONNECTION},
  *       {@code COM_PING}, {@code COM_INIT_DB}, {@code COM_STATISTICS}, an unknown command, and
@@ -124,6 +126,9 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
                 .add(query("use " + DB_NAME)));
         cases.add(new GoldenCase("explain-select", MODERN_CLIENT, ProtocolGolden.Fidelity.SUMMARY)
                 .add(query("explain select 1")));
+        // The rule names and plan shapes move with the planner, like the plan text above.
+        cases.add(new GoldenCase("explain-plan-process", MODERN_CLIENT, ProtocolGolden.Fidelity.SUMMARY)
+                .add(query("explain plan process select 1")));
         cases.add(new GoldenCase("syntax-error", MODERN_CLIENT, ProtocolGolden.Fidelity.SUMMARY)
                 .add(query("select from")));
         cases.add(new GoldenCase("unknown-table", MODERN_CLIENT)
@@ -135,6 +140,23 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
                 .add(query("select 1; select 2")));
         cases.add(new GoldenCase("multi-statement-without-capability", MODERN_CLIENT)
                 .add(query("select 1; select 2")));
+        // The same two ways of finishing a request whose last statement is not a query.
+        cases.add(new GoldenCase("multi-statement-with-capability-query-then-set", MULTI_STATEMENT_CLIENT)
+                .add(query("select 1; set @a = 1")));
+        cases.add(new GoldenCase("multi-statement-without-capability-query-then-set", MODERN_CLIENT)
+                .add(query("select 1; set @a = 1")));
+        // A later statement of the request fails. With the capability the client already got the
+        // first statement's result; without it, the client gets only the ERR, numbered from where
+        // the last flush left off -- nothing of this request had reached it yet.
+        cases.add(new GoldenCase("multi-statement-with-capability-query-then-error", MULTI_STATEMENT_CLIENT)
+                .add(query("select 1; select * from no_such_table")));
+        cases.add(new GoldenCase("multi-statement-without-capability-query-then-error", MODERN_CLIENT)
+                .add(query("select 1; select * from no_such_table")));
+        // A transaction command used to reset the channel on its own; only the shape is kept, the
+        // OK carries a label derived from the query id.
+        cases.add(new GoldenCase("multi-statement-without-capability-query-then-begin", MODERN_CLIENT,
+                ProtocolGolden.Fidelity.SUMMARY)
+                .add(query("select 1; begin")));
         cases.add(new GoldenCase("com-field-list", MODERN_CLIENT)
                 .add(fieldList(TABLE_NAME)));
         cases.add(new GoldenCase("com-stmt-prepare", MODERN_CLIENT)
@@ -183,7 +205,7 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
     }
 
     private ConnectContext newContext(RecordingMysqlChannel channel, int clientFlags) {
-        ConnectContext ctx = new GoldenConnectContext(channel);
+        ConnectContext ctx = new ConnectContext(new MysqlProtocolAdapter(channel));
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setRemoteIP("127.0.0.1");
         ctx.setEnv(Env.getCurrentEnv());
@@ -244,14 +266,6 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
         byte[] argumentBytes = argument.getBytes(StandardCharsets.UTF_8);
         payload.write(argumentBytes, 0, argumentBytes.length);
         return new Command(label, payload.toByteArray());
-    }
-
-    /** A ConnectContext wired to a channel of our choosing; the field is protected, so subclass it. */
-    private static class GoldenConnectContext extends ConnectContext {
-        GoldenConnectContext(RecordingMysqlChannel channel) {
-            super();
-            this.mysqlChannel = channel;
-        }
     }
 
     private static class Command {

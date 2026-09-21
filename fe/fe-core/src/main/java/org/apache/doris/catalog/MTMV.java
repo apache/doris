@@ -645,6 +645,41 @@ public class MTMV extends OlapTable {
         editLogItem.await();
     }
 
+    /**
+     * Release the IVM baseline barrier after the partitions it named have been rebuilt, or after
+     * partition sync removed them (a dropped partition resolves its own entry: the partition and its
+     * IVM offsets are both gone).
+     *
+     * <p>Guarded by schemaChangeVersion, like {@link #persistIvmBaselineGuard}: a base-table change
+     * landing while the rebuild runs carries its own barrier entry, and a blind clear would swallow
+     * it. Failing instead preserves that entry -- the next refresh rebuilds it together with the
+     * partitions this task handled.
+     *
+     * <p>Journals the new state right away, like every other ivmInfo mutation here. A task that dies
+     * before {@link #addTaskResult} would otherwise leave the release in memory only, and a restart
+     * would resurrect the barrier from disk.
+     */
+    public void releaseIvmBaselineRebuild(long expectedSchemaChangeVersion) throws JobException {
+        EditLogItem editLogItem;
+        writeMvLock();
+        try {
+            if (ivmInfo == null || !ivmInfo.isBaselineRebuildRequired()) {
+                // Nothing to release: skip both the mutation and the journal entry. Any base-table
+                // change that raced us in is still caught by validateIvmRefreshStart() below.
+                return;
+            }
+            if (schemaChangeVersion != expectedSchemaChangeVersion) {
+                throw new JobException("Base table metadata changed before IVM baseline refresh, mv="
+                        + getName());
+            }
+            ivmInfo.clearBaselineRebuild();
+            editLogItem = submitIvmInfoChange();
+        } finally {
+            writeMvUnlock();
+        }
+        editLogItem.await();
+    }
+
     public void persistIvmBaselineGuard(RefreshMode refreshMode, Set<String> baselinePartitions,
             long expectedSchemaChangeVersion) throws JobException {
         EditLogItem editLogItem;

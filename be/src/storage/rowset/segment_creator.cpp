@@ -37,7 +37,6 @@
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_variant.h"
 #include "core/data_type/data_type.h"
 #include "core/types.h"
 #include "cpp/sync_point.h"
@@ -50,7 +49,6 @@
 #include "storage/transform/block_transform.h"
 #include "storage/utils.h"
 #include "util/debug_points.h"
-#include "util/json/json_parser.h"
 #include "util/pretty_printer.h"
 #include "util/stopwatch.hpp"
 

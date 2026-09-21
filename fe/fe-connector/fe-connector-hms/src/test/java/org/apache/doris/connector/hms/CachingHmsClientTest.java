@@ -28,6 +28,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -64,7 +65,7 @@ public class CachingHmsClientTest {
     }
 
     private static CachingHmsClient cache(HmsClient delegate, Map<String, String> properties) {
-        return new CachingHmsClient(new CatalogMetaCache(), delegate, properties);
+        return new CachingHmsClient(CatalogMetaCache.unmanaged(), delegate, properties);
     }
 
     private static void awaitLatch(CountDownLatch latch) {
@@ -93,6 +94,47 @@ public class CachingHmsClientTest {
         HmsTableInfo other = cache.getTable("db", "t2");
         Assertions.assertNotSame(first, other);
         Assertions.assertEquals(2, delegate.getTableCalls);
+    }
+
+    @Test
+    public void weightedTableRejectsALargePropertyOutsideTheOldFiveElementSample() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        Map<String, String> parameters = new LinkedHashMap<>();
+        for (int i = 0; i < 99; i++) {
+            parameters.put("small-" + i, "x");
+        }
+        parameters.put("large-tail", "x".repeat(2 * 1024 * 1024));
+        delegate.tableResult = HmsTableInfo.builder()
+                .dbName("db")
+                .tableName("t")
+                .parameters(parameters)
+                .build();
+        CachingHmsClient cache = cache(delegate,
+                props("meta.cache.hive.table.max-weight", "1MB"));
+
+        cache.getTable("db", "t");
+        cache.getTable("db", "t");
+
+        Assertions.assertEquals(2, delegate.getTableCalls,
+                "the 2MB tail must reject weighted admission instead of being hidden by five small samples");
+    }
+
+    @Test
+    public void weightedTableCachesSmallCompleteMetadata() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        delegate.tableResult = HmsTableInfo.builder()
+                .dbName("db")
+                .tableName("t")
+                .parameters(Map.of("format", "parquet"))
+                .build();
+        CachingHmsClient cache = cache(delegate,
+                props("meta.cache.hive.table.max-weight", "1MB"));
+
+        cache.getTable("db", "t");
+        cache.getTable("db", "t");
+
+        Assertions.assertEquals(1, delegate.getTableCalls,
+                "a complete small HMS graph must still be admitted to the weighted cache");
     }
 
     @Test
@@ -366,7 +408,7 @@ public class CachingHmsClientTest {
             }
         };
         delegate.absentPartitionNames.add("p=2");
-        CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate,
+        CachingHmsClient cache = new CachingHmsClient(CatalogMetaCache.unmanaged(), delegate,
                 Collections.emptyMap()) {
             @Override
             void afterPartitionLoadRegistrationForTest() {
@@ -424,7 +466,7 @@ public class CachingHmsClientTest {
             }
         };
         delegate.absentPartitionNames.add("p=2");
-        CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate,
+        CachingHmsClient cache = new CachingHmsClient(CatalogMetaCache.unmanaged(), delegate,
                 Collections.emptyMap()) {
             @Override
             void afterPartitionLoadRegistrationForTest() {
@@ -474,7 +516,7 @@ public class CachingHmsClientTest {
                 throw new HmsClientException("HMS unavailable");
             }
         };
-        CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate,
+        CachingHmsClient cache = new CachingHmsClient(CatalogMetaCache.unmanaged(), delegate,
                 Collections.emptyMap()) {
             @Override
             void afterPartitionLoadRegistrationForTest() {
@@ -517,7 +559,7 @@ public class CachingHmsClientTest {
     @Test
     public void getPartitionsInvalidationRacingInFlightFetchDoesNotRecacheStale() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CatalogMetaCache owner = new CatalogMetaCache();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
         CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap());
 
         // Model a REFRESH TABLE landing DURING the cold-cache delegate RPC: the bulk-load handle captures the
@@ -542,7 +584,7 @@ public class CachingHmsClientTest {
     @Test
     public void coldPartitionBatchInvalidationFencesInFlightFetch() throws Exception {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CatalogMetaCache owner = new CatalogMetaCache();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
         CachingHmsClient cache = new CachingHmsClient(owner, delegate,
                 props("meta.cache.hive.partition_names.ttl-second", "0"));
         CountDownLatch fetchStarted = new CountDownLatch(1);
@@ -588,7 +630,7 @@ public class CachingHmsClientTest {
         CountDownLatch releaseLoad = new CountDownLatch(1);
         CountDownLatch waiterRegistered = new CountDownLatch(1);
         AtomicInteger registrations = new AtomicInteger();
-        CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate,
+        CachingHmsClient cache = new CachingHmsClient(CatalogMetaCache.unmanaged(), delegate,
                 props("meta.cache.hive.partition.capacity", "1")) {
             @Override
             void afterPartitionLoadRegistrationForTest() {
@@ -631,7 +673,7 @@ public class CachingHmsClientTest {
     @Test
     public void handoffWaiterRetriesKeyEvictedByAnotherKeyInTheBatch() throws Exception {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CatalogMetaCache owner = new CatalogMetaCache();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
         CountDownLatch initialLoadEntered = new CountDownLatch(1);
         CountDownLatch releaseInitialLoad = new CountDownLatch(1);
         CountDownLatch handoffOwnerReady = new CountDownLatch(1);
@@ -740,7 +782,7 @@ public class CachingHmsClientTest {
             awaitLatch(releaseLoad);
         };
         CachingHmsClient cache = new CachingHmsClient(
-                new CatalogMetaCache(), delegate, Collections.emptyMap()) {
+                CatalogMetaCache.unmanaged(), delegate, Collections.emptyMap()) {
             @Override
             void afterPartitionLoadRegistrationForTest() {
                 if (registrations.incrementAndGet() == 2) {
@@ -777,7 +819,7 @@ public class CachingHmsClientTest {
         CountDownLatch releaseLoad = new CountDownLatch(1);
         CountDownLatch waiterRegistered = new CountDownLatch(1);
         AtomicInteger registrations = new AtomicInteger();
-        CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate,
+        CachingHmsClient cache = new CachingHmsClient(CatalogMetaCache.unmanaged(), delegate,
                 props("meta.cache.hive.partition.enable", "false")) {
             @Override
             void afterPartitionLoadRegistrationForTest() {
@@ -867,7 +909,7 @@ public class CachingHmsClientTest {
 
     private void assertWaiterRetriesWhenInvalidationRaces(Map<String, String> properties) throws Exception {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CatalogMetaCache owner = new CatalogMetaCache();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
         CountDownLatch firstLoadEntered = new CountDownLatch(1);
         CountDownLatch releaseFirstLoad = new CountDownLatch(1);
         CountDownLatch waiterRegistered = new CountDownLatch(1);
@@ -917,7 +959,7 @@ public class CachingHmsClientTest {
     @Test
     public void waiterRetriesHandlelessSecondCheckHandoffAfterInvalidation() throws Exception {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CatalogMetaCache owner = new CatalogMetaCache();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
         CountDownLatch initialLoadEntered = new CountDownLatch(1);
         CountDownLatch releaseInitialLoad = new CountDownLatch(1);
         CountDownLatch handoffOwnerReady = new CountDownLatch(1);
@@ -1016,7 +1058,7 @@ public class CachingHmsClientTest {
         CountDownLatch waiterRegistered = new CountDownLatch(1);
         AtomicBoolean trackRegistrations = new AtomicBoolean();
         AtomicInteger registrations = new AtomicInteger();
-        CachingHmsClient cache = new CachingHmsClient(new CatalogMetaCache(), delegate, Collections.emptyMap()) {
+        CachingHmsClient cache = new CachingHmsClient(CatalogMetaCache.unmanaged(), delegate, Collections.emptyMap()) {
             @Override
             void afterPartitionLoadRegistrationForTest() {
                 if (trackRegistrations.get() && registrations.incrementAndGet() == 2) {
@@ -1162,7 +1204,7 @@ public class CachingHmsClientTest {
     @Test
     public void tableInvalidationDropsOnlyThatTablesEntries() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CatalogMetaCache owner = new CatalogMetaCache();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
         CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap());
 
         // Populate ALL four caches for BOTH t1 and t2 (t2 must live in the three predicate-invalidated caches
@@ -1210,7 +1252,7 @@ public class CachingHmsClientTest {
     @Test
     public void databaseInvalidationDropsOnlyThatDatabasesEntries() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CatalogMetaCache owner = new CatalogMetaCache();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
         CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap());
 
         // Populate all four caches for db1.t1, plus db1.t2 (a SECOND table in the same db) and db2.t1 (a table in
@@ -1248,7 +1290,7 @@ public class CachingHmsClientTest {
     @Test
     public void catalogInvalidationDropsEverything() {
         RecordingHmsClient delegate = new RecordingHmsClient();
-        CatalogMetaCache owner = new CatalogMetaCache();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
         CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap());
 
         // Populate all four caches so flushAll's independent invalidateAll() call on each is exercised.
@@ -1331,6 +1373,7 @@ public class CachingHmsClientTest {
         int closeCalls;
         RuntimeException getTableError;
         HmsClientException getPartitionsError;
+        HmsTableInfo tableResult;
         // Partition names the fake has NO partition for (mirrors HMS omitting non-existent partitions).
         final Set<String> absentPartitionNames = new HashSet<>();
         // The partition-name list the decorator actually asked the delegate for on the LAST getPartitions call
@@ -1348,7 +1391,9 @@ public class CachingHmsClientTest {
             if (getTableError != null) {
                 throw getTableError;
             }
-            return HmsTableInfo.builder().dbName(dbName).tableName(tableName).build();
+            return tableResult == null
+                    ? HmsTableInfo.builder().dbName(dbName).tableName(tableName).build()
+                    : tableResult;
         }
 
         @Override

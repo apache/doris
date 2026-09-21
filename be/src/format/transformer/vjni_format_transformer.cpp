@@ -24,40 +24,24 @@ namespace doris {
 
 VJniFormatTransformer::VJniFormatTransformer(RuntimeState* state,
                                              const VExprContextSPtrs& output_vexpr_ctxs,
-                                             std::string writer_class,
+                                             Jni::PluginRef plugin_ref,
+                                             std::map<std::string, std::string> writer_params)
+        : VJniFormatTransformer(state, output_vexpr_ctxs, std::string(plugin_ref.plugin),
+                                std::string(plugin_ref.factory), std::move(writer_params)) {}
+
+VJniFormatTransformer::VJniFormatTransformer(RuntimeState* state,
+                                             const VExprContextSPtrs& output_vexpr_ctxs,
+                                             std::string plugin, std::string factory,
                                              std::map<std::string, std::string> writer_params)
         : VFileFormatTransformer(state, output_vexpr_ctxs, false),
-          _writer_class(std::move(writer_class)),
+          _plugin(std::move(plugin)),
+          _factory(std::move(factory)),
           _writer_params(std::move(writer_params)) {}
 
 Status VJniFormatTransformer::_init_jni_writer(JNIEnv* env, int batch_size) {
-    // Load writer class via the same class loader as JniScanner
-    Jni::GlobalClass jni_writer_cls;
-    RETURN_IF_ERROR(Jni::Util::get_jni_scanner_class(env, _writer_class.c_str(), &jni_writer_cls));
-
-    // Get constructor: (int batchSize, Map<String,String> params)
-    Jni::MethodId writer_constructor;
-    RETURN_IF_ERROR(
-            jni_writer_cls.get_method(env, "<init>", "(ILjava/util/Map;)V", &writer_constructor));
-
-    // Convert C++ params map to Java HashMap
-    Jni::LocalObject hashmap_object;
-    RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, _writer_params, &hashmap_object));
-
-    // Create writer instance
-    RETURN_IF_ERROR(jni_writer_cls.new_object(env, writer_constructor)
-                            .with_arg((jint)batch_size)
-                            .with_arg(hashmap_object)
-                            .call(&_jni_writer_obj));
-
-    // Resolve method IDs
-    RETURN_IF_ERROR(jni_writer_cls.get_method(env, "open", "()V", &_jni_writer_open));
-    RETURN_IF_ERROR(
-            jni_writer_cls.get_method(env, "write", "(Ljava/util/Map;)V", &_jni_writer_write));
-    RETURN_IF_ERROR(jni_writer_cls.get_method(env, "close", "()V", &_jni_writer_close));
-    RETURN_IF_ERROR(jni_writer_cls.get_method(env, "getStatistics", "()Ljava/util/Map;",
-                                              &_jni_writer_get_statistics));
-    return Status::OK();
+    // Built here rather than stored: PluginRef holds views, and these members are the storage.
+    return Jni::PluginRegistry::create_writer(env, Jni::PluginRef {_plugin, _factory}, batch_size,
+                                              _writer_params, &_jni_writer_obj, &_writer_api);
 }
 
 Status VJniFormatTransformer::open() {
@@ -67,7 +51,7 @@ Status VJniFormatTransformer::open() {
     int batch_size = _state->batch_size();
     RETURN_IF_ERROR(_init_jni_writer(env, batch_size));
 
-    RETURN_IF_ERROR(_jni_writer_obj.call_void_method(env, _jni_writer_open).call());
+    RETURN_IF_ERROR(_jni_writer_obj.call_void_method(env, _writer_api->open).call());
     RETURN_ERROR_IF_EXC(env);
 
     _opened = true;
@@ -106,7 +90,7 @@ Status VJniFormatTransformer::write(const Block& block) {
     RETURN_IF_ERROR(Jni::Util::convert_to_java_map(env, input_params, &input_map));
 
     RETURN_IF_ERROR(
-            _jni_writer_obj.call_void_method(env, _jni_writer_write).with_arg(input_map).call());
+            _jni_writer_obj.call_void_method(env, _writer_api->write).with_arg(input_map).call());
     RETURN_ERROR_IF_EXC(env);
 
     _cur_written_rows += block.rows();
@@ -122,7 +106,7 @@ Status VJniFormatTransformer::close() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
 
-    RETURN_IF_ERROR(_jni_writer_obj.call_void_method(env, _jni_writer_close).call());
+    RETURN_IF_ERROR(_jni_writer_obj.call_void_method(env, _writer_api->close).call());
     RETURN_ERROR_IF_EXC(env);
 
     return Status::OK();
@@ -145,7 +129,7 @@ std::map<std::string, std::string> VJniFormatTransformer::get_statistics() {
     }
 
     Jni::LocalObject stats_map;
-    if (!_jni_writer_obj.call_object_method(env, _jni_writer_get_statistics)
+    if (!_jni_writer_obj.call_object_method(env, _writer_api->get_statistics)
                  .call(&stats_map)
                  .ok()) {
         return result;

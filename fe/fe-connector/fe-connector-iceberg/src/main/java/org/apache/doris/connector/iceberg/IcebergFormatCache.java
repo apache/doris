@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
+import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -93,7 +94,7 @@ final class IcebergFormatCache {
     private final MetaCache<Key, String> entry;
 
     IcebergFormatCache(long ttlSeconds, int maxSize) {
-        this(new CatalogMetaCache(), ttlSeconds, maxSize);
+        this(CatalogMetaCache.unmanaged(), ttlSeconds, maxSize);
     }
 
     IcebergFormatCache(CatalogMetaCache owner, long ttlSeconds, int maxSize) {
@@ -102,6 +103,7 @@ final class IcebergFormatCache {
         CacheSpec spec = CacheSpec.ofConnectorTtl(ttlSeconds, maxSize);
         this.entry = owner.create(MetaCacheDefinition
                 .<Key, String>builder("iceberg-format", spec, IcebergFormatCache::scope)
+                .sizeEstimator(MetaCacheSizeEstimators.reflective())
                 .build());
     }
 

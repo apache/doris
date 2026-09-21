@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_variant_predefine_index_type", "p0"){
-    boolean enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
-    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    boolean enableVariantV2 = true
+    def variantV2Function = "parse_to_variant"
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """

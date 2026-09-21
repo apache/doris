@@ -223,6 +223,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         request.setDataSource(dataSourceType.name());
         request.setTaskId(getTaskId() + "");
         request.setToken(getToken());
+        request.setDorisUser(getUserIdentity().getQualifiedUser());
         request.setTargetDb(targetDb);
 
         Map<String, String> props = generateStreamLoadProps();

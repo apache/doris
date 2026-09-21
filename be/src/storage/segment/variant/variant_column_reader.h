@@ -28,7 +28,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "core/column/column_variant.h"
 #include "core/column/subcolumn_tree.h"
 #include "nested_group_provider.h"
 #include "nested_group_reader.h"
@@ -309,8 +308,8 @@ private:
     // Describe how a variant sub-path should be read. This is a logical plan only and
     // does not create any concrete ColumnIterator.
     enum class ReadKind {
-        ROOT_FLAT,          // root variant using `VariantRootColumnIterator`
         HIERARCHICAL,       // hierarchical merge (root + subcolumns + sparse)
+        ROOT_ONLY,          // root sidecar only for flat-leaf compaction
         HIERARCHICAL_DOC,   // hierarchical merge (root + doc)
         LEAF,               // direct leaf reader
         BINARY_EXTRACT,     // extract single path from sparse column
@@ -406,7 +405,7 @@ private:
                                        ColumnReaderCache* column_reader_cache,
                                        OlapReaderStatistics* stats,
                                        HierarchicalDataIterator::ReadType read_type,
-                                       bool use_variant_v2, const io::IOContext* io_ctx);
+                                       const io::IOContext* io_ctx);
     // Create a reader that merges subcolumns into the destination sparse column.
     // If bucket_index is set, only subcolumns whose path belongs to this bucket will be merged.
     Status _create_sparse_merge_reader(ColumnIteratorUPtr* iterator, const StorageReadOptions* opts,
@@ -443,44 +442,6 @@ private:
     // NestedGroup readers for array<object> paths
     NestedGroupReaders _nested_group_readers;
     std::unique_ptr<NestedGroupReadProvider> _nested_group_read_provider;
-};
-
-class VariantRootColumnIterator : public ColumnIterator {
-public:
-    VariantRootColumnIterator() = delete;
-
-    explicit VariantRootColumnIterator(FileColumnIteratorUPtr iter)
-            : _inner_iter(std::move(iter)) {}
-
-    ~VariantRootColumnIterator() override = default;
-
-    Status init(const ColumnIteratorOptions& opts) override { return _inner_iter->init(opts); }
-
-    Status seek_to_ordinal(ordinal_t ord_idx) override {
-        return _inner_iter->seek_to_ordinal(ord_idx);
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst) {
-        bool has_null;
-        return next_batch(n, dst, &has_null);
-    }
-
-    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
-
-    Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          MutableColumnPtr& dst) override;
-
-    ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
-
-    Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    void collect_prefetchers(
-            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
-            PrefetcherInitMethod init_method) override;
-
-private:
-    Status _process_root_column(MutableColumnPtr& dst, MutableColumnPtr& root_column,
-                                const DataTypePtr& most_common_type);
-    std::unique_ptr<FileColumnIterator> _inner_iter;
 };
 
 class DefaultNestedColumnIterator : public ColumnIterator {
