@@ -2094,6 +2094,60 @@ build_pugixml() {
 }
 
 # lance-c
+# liblance_c.a and libpaimon_c.a are both Rust staticlibs linked into the
+# same BE binary and must be built with the SAME rustc toolchain (see the
+# in-function NOTE for the rust_eh_personality collision). LANCE_C_CARGO and
+# PAIMON_RUST_CARGO are selected independently and each version check accepts
+# any toolchain at least the minimum, so supported overrides could build the
+# two libraries with different std hashes and defer the collision to the
+# final BE link, where it surfaces as an opaque duplicate-symbol error.
+# Compare the exact rustc identity (-vV: version, commit-hash, host) across
+# both builds and fail early in the second one, stamping the identity so the
+# invariant also holds across separate build-thirdparty.sh invocations
+# (--continue / package lists).
+ensure_same_rust_toolchain() {
+    # Portable array passing (bash 3.2 / macOS safe): the caller spreads its
+    # cargo_env entries as trailing arguments; at the call sites they are all
+    # space-free KEY=VALUE pairs (CFLAGS is appended only afterwards).
+    local pkg="$1"
+    local cargo_bin="$2"
+    shift 2
+
+    # Locate the rustc this cargo dispatches to: an explicit cargo path
+    # usually has rustc beside it; otherwise rustc resolves via PATH and the
+    # RUSTUP_TOOLCHAIN entry of env_arr dispatches the rustup shim.
+    local rustc_bin="rustc"
+    if [[ "${cargo_bin}" == */* && -x "${cargo_bin%/*}/rustc" ]]; then
+        rustc_bin="${cargo_bin%/*}/rustc"
+    fi
+    local identity
+    if ! identity="$(env "$@" "${rustc_bin}" -vV 2>&1)"; then
+        echo "failed to resolve the rustc identity for ${pkg} ('${rustc_bin}' -vV):"
+        echo "${identity}"
+        exit 1
+    fi
+
+    local stamp="${TP_INSTALL_DIR}/.doris-rust-toolchain-id"
+    if [[ -f "${stamp}" ]]; then
+        if ! diff -q <(printf '%s\n' "${identity}") "${stamp}" >/dev/null; then
+            echo "${pkg} would use a different rustc than the one recorded for"
+            echo "the other Rust static library:"
+            echo "-- recorded (${stamp}):"
+            cat "${stamp}"
+            echo "-- this build (${pkg}, '${rustc_bin}' -vV):"
+            printf '%s\n' "${identity}"
+            echo "liblance_c.a and libpaimon_c.a must be built with the SAME rustc"
+            echo "(different std hashes pull two std copies into the BE link and collide"
+            echo "on the unmangled rust_eh_personality symbol). Point LANCE_C_CARGO and"
+            echo "PAIMON_RUST_CARGO at one toolchain, or rebuild all Rust packages."
+            exit 1
+        fi
+    else
+        printf '%s\n' "${identity}" > "${stamp}"
+    fi
+    echo "${pkg}: rustc identity matches the shared toolchain stamp."
+}
+
 build_lance_c() {
     check_if_source_exist "${LANCE_C_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
@@ -2148,6 +2202,8 @@ build_lance_c() {
         echo "Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
+
+    ensure_same_rust_toolchain lance_c "${cargo_bin}" "${cargo_env[@]}"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
@@ -2226,6 +2282,8 @@ build_paimon_rust() {
         exit 1
     fi
 
+    ensure_same_rust_toolchain paimon_rust "${cargo_bin}" "${cargo_env[@]}"
+
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
     fi
@@ -2238,6 +2296,25 @@ build_paimon_rust() {
     # rest of the NEON accumulation is left untouched. x86_64 and other arches
     # are unaffected and keep using the pristine registry crate.
     if [[ "$(uname -m)" == "aarch64" || "$(uname -m)" == "arm64" ]]; then
+        # Retry safety: the patch + cargo update below mutate the shared
+        # workspace tree (Cargo.toml gains the [patch.crates-io] section and
+        # Cargo.lock's paimon-vindex-core entry loses its registry checksum).
+        # If a later step fails before cleanup_package_source removes the
+        # tree, the next invocation would reuse the mutated lock and the
+        # checksum extraction below would find nothing. Preserve pristine
+        # copies up front (inside the tree, so a successful cleanup removes
+        # them) and restore them before mutating again, making the whole
+        # block idempotent across retries.
+        local vindex_pristine_lock="${PWD}/.doris-vindex-pristine.lock"
+        local vindex_pristine_toml="${PWD}/.doris-vindex-pristine.toml"
+        if [[ ! -f "${vindex_pristine_lock}" ]]; then
+            cp Cargo.lock "${vindex_pristine_lock}"
+        fi
+        if [[ ! -f "${vindex_pristine_toml}" ]]; then
+            cp Cargo.toml "${vindex_pristine_toml}"
+        fi
+        cp "${vindex_pristine_lock}" Cargo.lock
+        cp "${vindex_pristine_toml}" Cargo.toml
         local vindex_override="${PWD}/.doris-vindex-override"
         local vindex_crate
         vindex_crate="$(find "${CARGO_HOME:-$HOME/.cargo}/registry/cache" \
@@ -2278,7 +2355,7 @@ build_paimon_rust() {
             END {
                 if (!found && in_pkg && name == "paimon-vindex-core" && version == "0.4.0" && checksum != "") { print checksum }
             }
-        ' Cargo.lock)"
+        ' "${vindex_pristine_lock}")"
         if [[ -z "${vindex_checksum}" ]]; then
             echo "failed to read the paimon-vindex-core 0.4.0 checksum from Cargo.lock"
             exit 1

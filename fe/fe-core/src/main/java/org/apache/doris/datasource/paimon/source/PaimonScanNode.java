@@ -72,6 +72,7 @@ import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -417,6 +418,50 @@ public class PaimonScanNode extends FileQueryScanNode {
             // paimon-cpp and paimon-rust both consume Paimon native binary serialization,
             // which only supports DataSplit. Any other split type falls back to JNI.
             boolean nativeSplit = split instanceof DataSplit;
+            // Fallback-read splits stay on JNI: FallbackDataSplit extends
+            // DataSplit, so the instanceof above passes, but its serializer
+            // appends an isFallback byte after the ordinary split that the
+            // pinned rust decoder rejects outright ("trailing bytes after
+            // DataSplit" — it requires full-buffer consumption), and even a
+            // permissive decode would still lack the second table identity
+            // needed to honor the fallback-side discriminator. Both sides of a
+            // FallbackReadFileStoreTable wrap their splits, so the table
+            // wrapper is gated as a whole (any split from it routes to JNI)
+            // until the rust ABI represents both sides; the FallbackSplit
+            // interface also catches a wrapper split regardless of how the
+            // table was resolved here.
+            boolean fallbackRead = split instanceof FallbackReadFileStoreTable.FallbackSplit
+                    || processedTable instanceof FallbackReadFileStoreTable;
+            // Serialize the same effective table that planning and the JNI reader use.
+            // Relation options such as t@options('read.batch-size'='1') are applied by
+            // getProcessedTable() (doInitialize caches it in processedTable), and the
+            // rust reader derives its read batch size from the schema options — the raw
+            // cached table would silently drop the override. Copies, delegates and
+            // fallback wrappers of getProcessedTable() are still FileStoreTable, so the
+            // instanceof gate keeps its semantics.
+            Table paimonTable = processedTable;
+            FileStoreTable paimonFileStoreTable =
+                    paimonTable instanceof FileStoreTable ? (FileStoreTable) paimonTable : null;
+            // query-auth.enabled tables stay on JNI: when catalog authorization
+            // succeeds with no row filter or column mask, Paimon still leaves an
+            // ordinary DataSplit (restricted results use QueryAuthSplit and are
+            // already handled by the nativeSplit gate above), so this table shape
+            // passes the compound gate — but the shipped schema keeps
+            // query-auth.enabled=true and the pinned rust ReadBuilder rejects
+            // every such table (its CoreOptions::ensure_read_authorized fails
+            // closed because the client cannot enforce the row filter / column
+            // masking), turning a valid authorized scan into a BE-open failure.
+            // Until the authorization result can be transported and enforced by
+            // the rust ABI, these tables route to JNI.
+            boolean queryAuthTable = false;
+            if (paimonFileStoreTable != null) {
+                CoreOptions queryAuthOptions = paimonFileStoreTable.coreOptions();
+                // Null-safe: a table handle whose CoreOptions is not resolved
+                // (e.g. some wrapper shapes) stays rust-eligible rather than
+                // failing the scan here — the rust open itself rejects such a
+                // table if the option is really set.
+                queryAuthTable = queryAuthOptions != null && queryAuthOptions.queryAuthEnabled();
+            }
             // paimon-rust additionally requires (a) FileScannerV2: the V1 FileScanner
             // explicitly rejects PAIMON_RUST, so with enable_file_scanner_v2 disabled
             // the split falls back to JNI instead of encoding a rust request that the
@@ -427,14 +472,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             // ship a schema JSON, so fall back to CPP / JNI rather than sending an
             // incomplete PAIMON_RUST request that BE would reject.
             //
-            // Serialize the same effective table that planning and the JNI reader use.
-            // Relation options such as t@options('read.batch-size'='1') are applied by
-            // getProcessedTable() (doInitialize caches it in processedTable), and the
-            // rust reader derives its read batch size from the schema options — the raw
-            // cached table would silently drop the override. Copies, delegates and
-            // fallback wrappers of getProcessedTable() are still FileStoreTable, so the
-            // instanceof gate keeps its semantics.
-            Table paimonTable = processedTable;
             // The paimon-rust S3 bridge maps static credentials, anonymous
             // access (AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS -> s3.anonymous)
             // and assume-role (AWS_ROLE_ARN / AWS_EXTERNAL_ID ->
@@ -473,9 +510,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             TableScanParams incrementalParams = getScanParams();
             boolean isIncremental = incrementalParams != null && incrementalParams.incrementalRead();
             boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
-                    && sessionVariable.enableFileScannerV2 && nativeSplit && !isIncremental
-                    && providerModeTranslatable
-                    && paimonTable instanceof FileStoreTable;
+                    && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
+                    && !isIncremental && providerModeTranslatable && !queryAuthTable
+                    && paimonFileStoreTable != null;
             if (canUseRust) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));

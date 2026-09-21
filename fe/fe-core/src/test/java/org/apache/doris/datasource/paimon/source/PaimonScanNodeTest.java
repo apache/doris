@@ -69,6 +69,8 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataInputDeserializer;
+import org.apache.paimon.io.DataOutputSerializer;
 import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.predicate.PredicateBuilder;
@@ -78,6 +80,7 @@ import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -2037,6 +2040,124 @@ public class PaimonScanNodeTest {
         Mockito.when(dataSplit.convertToRawFiles()).thenReturn(Optional.empty());
         Mockito.when(dataSplit.deletionFiles()).thenReturn(Optional.empty());
         return dataSplit;
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsFallbackSplits() throws Exception {
+        // FallbackDataSplit extends DataSplit, so the native-split instanceof
+        // gate alone would pass it to the rust reader — but its serializer
+        // appends an isFallback byte after the ordinary split that the pinned
+        // rust decoder rejects ("trailing bytes after DataSplit", full-buffer
+        // consumption), and even a permissive decode would still lack the
+        // second table identity needed to honor the fallback-side
+        // discriminator. Both a wrapped split and a FallbackReadFileStoreTable
+        // wrapper must route to JNI.
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+
+        // A real split from the fallback branch: serialize an ordinary
+        // DataSplit, append the isFallback byte exactly like
+        // FallbackDataSplit.serialize does, and deserialize it back through
+        // the public factory — so the gate is exercised against the genuine
+        // wire shape rather than a mock.
+        DataOutputSerializer out = new DataOutputSerializer(1024);
+        createDataSplit("fallback.parquet").serialize(out);
+        out.writeBoolean(true);
+        DataInputDeserializer in = new DataInputDeserializer();
+        in.setBuffer(out.getSharedBuffer(), 0, out.length());
+        FallbackReadFileStoreTable.FallbackDataSplit fallbackSplit =
+                FallbackReadFileStoreTable.FallbackDataSplit.deserialize(in);
+        Assert.assertTrue(fallbackSplit instanceof DataSplit);
+        Assert.assertTrue(fallbackSplit.isFallback());
+
+        PaimonScanNode splitNode = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+        splitNode.setSource(source);
+        setField(PaimonScanNode.class, splitNode, "processedTable", paimonTable);
+        TFileRangeDesc splitRange = new TFileRangeDesc();
+        invokePrivateMethod(splitNode, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                splitRange, new PaimonSplit(fallbackSplit));
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                splitRange.getTableFormatParams().getPaimonParams().getReaderType());
+
+        // The table wrapper alone must also gate to JNI: every split of a
+        // FallbackReadFileStoreTable (both read sides) is a FallbackDataSplit.
+        PaimonScanNode tableNode = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+        PaimonSource tableSource = Mockito.mock(PaimonSource.class);
+        tableNode.setSource(tableSource);
+        setField(PaimonScanNode.class, tableNode, "processedTable",
+                Mockito.mock(FallbackReadFileStoreTable.class));
+        TFileRangeDesc tableRange = new TFileRangeDesc();
+        invokePrivateMethod(tableNode, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                tableRange, new PaimonSplit(createDataSplit("fallback_table.parquet")));
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                tableRange.getTableFormatParams().getPaimonParams().getReaderType());
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsQueryAuthTables() throws Exception {
+        // query-auth.enabled tables must stay on JNI: when catalog
+        // authorization succeeds with no row filter or column mask, Paimon
+        // still leaves an ordinary DataSplit (so it would pass the compound
+        // gate), but the shipped schema keeps query-auth.enabled=true and the
+        // pinned rust ReadBuilder rejects every such table at open
+        // (CoreOptions::ensure_read_authorized fails closed — the client
+        // cannot enforce the row filter / column masking). Until the rust ABI
+        // can transport and enforce the authorization result, these scans
+        // route to JNI.
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+        CoreOptions queryAuthOptions = Mockito.mock(CoreOptions.class);
+        Mockito.when(paimonTable.coreOptions()).thenReturn(queryAuthOptions);
+        Mockito.when(queryAuthOptions.queryAuthEnabled()).thenReturn(true);
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(createDataSplit("query_auth.parquet")));
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+
+        // A table without the option stays rust-eligible (same node shape,
+        // only the option differs).
+        PaimonScanNode okNode = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+        PaimonSource okSource = Mockito.mock(PaimonSource.class);
+        FileStoreTable okTable = Mockito.mock(FileStoreTable.class);
+        Mockito.when(okTable.schema()).thenReturn(new TableSchema(
+                0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                0, Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyMap(), null));
+        CoreOptions okOptions = Mockito.mock(CoreOptions.class);
+        Mockito.when(okTable.coreOptions()).thenReturn(okOptions);
+        Mockito.when(okOptions.queryAuthEnabled()).thenReturn(false);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(okSource.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(externalTable.getDbName()).thenReturn("db");
+        Mockito.when(externalTable.getName()).thenReturn("t");
+        okNode.setSource(okSource);
+        setField(PaimonScanNode.class, okNode, "processedTable", okTable);
+
+        TFileRangeDesc okRange = new TFileRangeDesc();
+        invokePrivateMethod(okNode, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                okRange, new PaimonSplit(createDataSplit("query_auth_off.parquet")));
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST,
+                okRange.getTableFormatParams().getPaimonParams().getReaderType());
     }
 
     @Test
