@@ -61,6 +61,10 @@ final class PaimonCacheSizeEstimator {
             Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
             bytes = add(bytes, estimateFileStoreTable((FileStoreTable) table, visited));
         } else {
+            if (!isSupportedNonFileStoreTable(table)) {
+                return MetaCacheSizeEstimate.incomplete(
+                        "unsupported retained graph for " + table.getClass().getName());
+            }
             bytes = add(bytes, JvmSizeUtils.instanceSize(table.getClass()));
             bytes = add(bytes, ReflectiveObjectSizeEstimator.estimateComplete(table.rowType()));
             bytes = add(bytes, ReflectiveObjectSizeEstimator.estimateComplete(table.partitionKeys()));
@@ -70,6 +74,13 @@ final class PaimonCacheSizeEstimator {
             bytes = add(bytes, JvmSizeUtils.stringSize(location(table)));
         }
         return MetaCacheSizeEstimate.complete(bytes);
+    }
+
+    private static boolean isSupportedNonFileStoreTable(Table table) {
+        return table instanceof FormatTable
+                || table instanceof ObjectTable
+                || table instanceof LanceTable
+                || table instanceof IcebergTable;
     }
 
     private static long estimateFileStoreTable(FileStoreTable table, Set<Object> visited) {

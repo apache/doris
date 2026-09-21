@@ -47,6 +47,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 
 /**
@@ -78,31 +80,69 @@ final class PaimonMetaCacheCatalog extends DelegateCatalog {
     private final int snapshotMaxNumPerTable;
     private final boolean attachSdkCaches;
     private final LongSupplier nanoTime;
+    private final BiConsumer<String, Object> cacheMissObserver;
 
     static Catalog tryToCreate(Catalog wrapped, CatalogMetaCache metaCache, int tableCacheMaxSize,
             long tableCacheTtlSecond, Options catalogOptions, boolean cacheEnabled,
             boolean hasEnclosingWeightLimit) {
-        Catalog cached = new PaimonMetaCacheCatalog(wrapped, metaCache, tableCacheMaxSize,
-                tableCacheTtlSecond, catalogOptions, cacheEnabled, hasEnclosingWeightLimit, System::nanoTime);
-        return PrivilegedCatalog.tryToCreate(cached, catalogOptions);
+        return tryToCreate(wrapped, metaCache, tableCacheMaxSize, tableCacheTtlSecond,
+                catalogOptions, cacheEnabled, hasEnclosingWeightLimit,
+                catalog -> PrivilegedCatalog.tryToCreate(catalog, catalogOptions));
+    }
+
+    static Catalog tryToCreate(Catalog wrapped, CatalogMetaCache metaCache, int tableCacheMaxSize,
+            long tableCacheTtlSecond, Options catalogOptions, boolean cacheEnabled,
+            boolean hasEnclosingWeightLimit, Function<Catalog, Catalog> decorator) {
+        PaimonMetaCacheCatalog cached = null;
+        try {
+            cached = new PaimonMetaCacheCatalog(wrapped, metaCache, tableCacheMaxSize,
+                    tableCacheTtlSecond, catalogOptions, cacheEnabled, hasEnclosingWeightLimit,
+                    System::nanoTime, (name, key) -> { });
+            return decorator.apply(cached);
+        } catch (RuntimeException | Error throwable) {
+            if (cached != null) {
+                try {
+                    cached.unregisterCaches();
+                } catch (RuntimeException | Error rollbackFailure) {
+                    throwable.addSuppressed(rollbackFailure);
+                }
+            }
+            try {
+                wrapped.close();
+            } catch (Exception | Error closeFailure) {
+                throwable.addSuppressed(closeFailure);
+            }
+            throw throwable;
+        }
     }
 
     PaimonMetaCacheCatalog(Catalog wrapped, CatalogMetaCache metaCache, int tableCacheMaxSize,
             long tableCacheTtlSecond, Options catalogOptions, boolean hasEnclosingWeightLimit,
             LongSupplier nanoTime) {
         this(wrapped, metaCache, tableCacheMaxSize, tableCacheTtlSecond, catalogOptions,
-                true, hasEnclosingWeightLimit, nanoTime);
+                true, hasEnclosingWeightLimit, nanoTime, (name, key) -> { });
+    }
+
+    PaimonMetaCacheCatalog(Catalog wrapped, CatalogMetaCache metaCache, int tableCacheMaxSize,
+            long tableCacheTtlSecond, Options catalogOptions, boolean hasEnclosingWeightLimit,
+            LongSupplier nanoTime, BiConsumer<String, Object> cacheMissObserver) {
+        this(wrapped, metaCache, tableCacheMaxSize, tableCacheTtlSecond, catalogOptions,
+                true, hasEnclosingWeightLimit, nanoTime, cacheMissObserver);
     }
 
     private PaimonMetaCacheCatalog(Catalog wrapped, CatalogMetaCache metaCache, int tableCacheMaxSize,
             long tableCacheTtlSecond, Options catalogOptions, boolean cacheEnabled,
-            boolean hasEnclosingWeightLimit, LongSupplier nanoTime) {
+            boolean hasEnclosingWeightLimit, LongSupplier nanoTime,
+            BiConsumer<String, Object> cacheMissObserver) {
         super(wrapped);
         this.metaCache = metaCache;
         this.nanoTime = nanoTime;
+        this.cacheMissObserver = cacheMissObserver;
 
-        Duration expireAfterAccess = catalogOptions.get(CatalogOptions.CACHE_EXPIRE_AFTER_ACCESS);
-        Duration expireAfterWrite = catalogOptions.get(CatalogOptions.CACHE_EXPIRE_AFTER_WRITE);
+        Duration expireAfterAccess = cacheEnabled
+                ? catalogOptions.get(CatalogOptions.CACHE_EXPIRE_AFTER_ACCESS) : null;
+        Duration expireAfterWrite = cacheEnabled
+                ? catalogOptions.get(CatalogOptions.CACHE_EXPIRE_AFTER_WRITE) : null;
         if (cacheEnabled) {
             requirePositive(expireAfterAccess, CatalogOptions.CACHE_EXPIRE_AFTER_ACCESS.key());
             requirePositive(expireAfterWrite, CatalogOptions.CACHE_EXPIRE_AFTER_WRITE.key());
@@ -113,28 +153,38 @@ final class PaimonMetaCacheCatalog extends DelegateCatalog {
                 : paimonAccessNanos;
         this.databaseExpireAfterAccessNanos = paimonAccessNanos;
         this.expireAfterWriteNanos = cacheEnabled ? saturatedNanos(expireAfterWrite) : Long.MAX_VALUE;
+        this.attachSdkCaches = cacheEnabled && !hasEnclosingWeightLimit;
+        this.manifestCache = attachSdkCaches ? buildManifestCache(catalogOptions) : null;
+        this.snapshotMaxNumPerTable = attachSdkCaches
+                ? catalogOptions.get(CatalogOptions.CACHE_SNAPSHOT_MAX_NUM_PER_TABLE) : 0;
 
         CacheSpec tableSpec = CacheSpec.of(cacheEnabled,
                 cacheEnabled && tableCacheTtlSecond > 0
                         ? CacheSpec.CACHE_NO_TTL : CacheSpec.CACHE_TTL_DISABLE_CACHE,
                 tableCacheMaxSize);
-        this.tableCache = metaCache.create(MetaCacheDefinition
-                .<Identifier, ExpiringValue<Table>>builder("paimon-table", tableSpec,
-                        id -> ScopePath.table(id.getDatabaseName(), id.getTableName()))
-                .sizeEstimator((id, value) -> PaimonCacheSizeEstimator.estimateTable(
-                        id, value.value, TABLE_ENTRY_OVERHEAD_BYTES))
-                .build());
-        CacheSpec dbSpec = CacheSpec.of(cacheEnabled, cacheEnabled
-                ? CacheSpec.CACHE_NO_TTL : CacheSpec.CACHE_TTL_DISABLE_CACHE, DATABASE_CACHE_CAPACITY);
-        this.databaseCache = metaCache.create(MetaCacheDefinition
-                .<String, ExpiringValue<Database>>builder("paimon-database", dbSpec, ScopePath::database)
-                .sizeEstimator(MetaCacheSizeEstimators.reflective())
-                .build());
-
-        this.attachSdkCaches = cacheEnabled && !hasEnclosingWeightLimit;
-        this.manifestCache = attachSdkCaches ? buildManifestCache(catalogOptions) : null;
-        this.snapshotMaxNumPerTable = catalogOptions.get(
-                CatalogOptions.CACHE_SNAPSHOT_MAX_NUM_PER_TABLE);
+        MetaCache<Identifier, ExpiringValue<Table>> createdTableCache = metaCache.create(
+                MetaCacheDefinition
+                        .<Identifier, ExpiringValue<Table>>builder("paimon-table", tableSpec,
+                                id -> ScopePath.table(id.getDatabaseName(), id.getTableName()))
+                        .sizeEstimator((id, value) -> PaimonCacheSizeEstimator.estimateTable(
+                                id, value.value, TABLE_ENTRY_OVERHEAD_BYTES))
+                        .build());
+        try {
+            CacheSpec dbSpec = CacheSpec.of(cacheEnabled, cacheEnabled
+                    ? CacheSpec.CACHE_NO_TTL : CacheSpec.CACHE_TTL_DISABLE_CACHE, DATABASE_CACHE_CAPACITY);
+            this.databaseCache = metaCache.create(MetaCacheDefinition
+                    .<String, ExpiringValue<Database>>builder("paimon-database", dbSpec, ScopePath::database)
+                    .sizeEstimator(MetaCacheSizeEstimators.reflective())
+                    .build());
+        } catch (RuntimeException | Error throwable) {
+            try {
+                metaCache.remove(createdTableCache);
+            } catch (RuntimeException | Error rollbackFailure) {
+                throwable.addSuppressed(rollbackFailure);
+            }
+            throw throwable;
+        }
+        this.tableCache = createdTableCache;
     }
 
     @Override
@@ -155,53 +205,53 @@ final class PaimonMetaCacheCatalog extends DelegateCatalog {
         }
 
         while (true) {
-            long now = nanoTime.getAsLong();
             ExpiringValue<Table> cached = tableCache.getIfPresent(identifier);
-            if (cached != null) {
-                if (cached.tryAccess(now, tableExpireAfterAccessNanos, expireAfterWriteNanos)) {
-                    return cached.value;
+            if (cached == null) {
+                cacheMissObserver.accept("table", identifier);
+                try {
+                    cached = tableCache.get(identifier, ignored -> {
+                        try {
+                            Table loaded = attachPerTableCaches(super.getTable(identifier));
+                            return new ExpiringValue<>(loaded, nanoTime.getAsLong());
+                        } catch (TableNotExistException e) {
+                            throw new CatalogLoadException(e);
+                        }
+                    });
+                } catch (CatalogLoadException e) {
+                    throw (TableNotExistException) e.getCause();
                 }
-                tableCache.compareAndSet(identifier, cached, null);
-                continue;
             }
-            try {
-                return tableCache.get(identifier, ignored -> {
-                    try {
-                        Table loaded = attachPerTableCaches(super.getTable(identifier));
-                        return new ExpiringValue<>(loaded, nanoTime.getAsLong());
-                    } catch (TableNotExistException e) {
-                        throw new CatalogLoadException(e);
-                    }
-                }).value;
-            } catch (CatalogLoadException e) {
-                throw (TableNotExistException) e.getCause();
+            if (cached.tryAccess(nanoTime.getAsLong(), tableExpireAfterAccessNanos,
+                    expireAfterWriteNanos)) {
+                return cached.value;
             }
+            tableCache.compareAndSet(identifier, cached, null);
         }
     }
 
     @Override
     public Database getDatabase(String name) throws DatabaseNotExistException {
         while (true) {
-            long now = nanoTime.getAsLong();
             ExpiringValue<Database> cached = databaseCache.getIfPresent(name);
-            if (cached != null) {
-                if (cached.tryAccess(now, databaseExpireAfterAccessNanos, expireAfterWriteNanos)) {
-                    return cached.value;
+            if (cached == null) {
+                cacheMissObserver.accept("database", name);
+                try {
+                    cached = databaseCache.get(name, ignored -> {
+                        try {
+                            return new ExpiringValue<>(super.getDatabase(name), nanoTime.getAsLong());
+                        } catch (DatabaseNotExistException e) {
+                            throw new CatalogLoadException(e);
+                        }
+                    });
+                } catch (CatalogLoadException e) {
+                    throw (DatabaseNotExistException) e.getCause();
                 }
-                databaseCache.compareAndSet(name, cached, null);
-                continue;
             }
-            try {
-                return databaseCache.get(name, ignored -> {
-                    try {
-                        return new ExpiringValue<>(super.getDatabase(name), nanoTime.getAsLong());
-                    } catch (DatabaseNotExistException e) {
-                        throw new CatalogLoadException(e);
-                    }
-                }).value;
-            } catch (CatalogLoadException e) {
-                throw (DatabaseNotExistException) e.getCause();
+            if (cached.tryAccess(nanoTime.getAsLong(), databaseExpireAfterAccessNanos,
+                    expireAfterWriteNanos)) {
+                return cached.value;
             }
+            databaseCache.compareAndSet(name, cached, null);
         }
     }
 
@@ -265,6 +315,11 @@ final class PaimonMetaCacheCatalog extends DelegateCatalog {
     @Override
     public CatalogLoader catalogLoader() {
         return wrapped.catalogLoader();
+    }
+
+    private void unregisterCaches() {
+        metaCache.remove(databaseCache);
+        metaCache.remove(tableCache);
     }
 
     private Table attachPerTableCaches(Table table) {

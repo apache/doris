@@ -42,6 +42,7 @@ import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.system.AllTableOptionsTable;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -50,9 +51,15 @@ import org.junit.jupiter.api.io.TempDir;
 import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -79,6 +86,54 @@ class PaimonMetaCacheCatalogTest {
             sibling.put(TABLE, "stale");
             result.dropTable(TABLE, true);
             Assertions.assertNull(sibling.getIfPresent(TABLE));
+        }
+    }
+
+    @Test
+    void failedDecorationRollsBackCacheRegistrationsAndClosesCatalog() {
+        RecordingCatalog failed = new RecordingCatalog();
+        RecordingCatalog retry = new RecordingCatalog();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> PaimonMetaCacheCatalog.tryToCreate(failed.catalog(), owner,
+                            100, 100, cacheOptions(Duration.ofDays(1), Duration.ofDays(1)),
+                            true, false, ignored -> {
+                                throw new IllegalStateException("privilege metadata is temporarily unavailable");
+                            }));
+
+            Assertions.assertTrue(owner.entries().isEmpty());
+            Assertions.assertEquals(1, failed.closeCalls.get());
+            Assertions.assertDoesNotThrow(() -> PaimonMetaCacheCatalog.tryToCreate(retry.catalog(), owner,
+                    100, 100, cacheOptions(Duration.ofDays(1), Duration.ofDays(1)),
+                    true, false, catalog -> catalog));
+            Assertions.assertEquals(2, owner.entries().size());
+        }
+    }
+
+    @Test
+    void disabledCacheDoesNotParseUnusedSettings() {
+        Options options = new Options();
+        options.set(CatalogOptions.CACHE_EXPIRE_AFTER_ACCESS.key(), "invalid-duration");
+        options.set(CatalogOptions.CACHE_EXPIRE_AFTER_WRITE.key(), "invalid-duration");
+        options.set(CatalogOptions.CACHE_SNAPSHOT_MAX_NUM_PER_TABLE.key(), "invalid-integer");
+        options.set(CatalogOptions.CACHE_MANIFEST_SMALL_FILE_MEMORY.key(), "invalid-memory");
+        RecordingCatalog recording = new RecordingCatalog();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            Assertions.assertDoesNotThrow(() -> PaimonMetaCacheCatalog.tryToCreate(
+                    recording.catalog(), owner, 100, 100, options,
+                    false, false, catalog -> catalog));
+        }
+    }
+
+    @Test
+    void enclosingWeightLimitDoesNotParseUnusedSdkCacheSettings() {
+        Options options = cacheOptions(Duration.ofDays(1), Duration.ofDays(1));
+        options.set(CatalogOptions.CACHE_SNAPSHOT_MAX_NUM_PER_TABLE.key(), "invalid-integer");
+        options.set(CatalogOptions.CACHE_MANIFEST_SMALL_FILE_MEMORY.key(), "invalid-memory");
+        RecordingCatalog recording = new RecordingCatalog();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            Assertions.assertDoesNotThrow(() -> new PaimonMetaCacheCatalog(
+                    recording.catalog(), owner, 100, 100, options, true, System::nanoTime));
         }
     }
 
@@ -114,6 +169,72 @@ class PaimonMetaCacheCatalogTest {
             clock.set(Duration.ofSeconds(11).toNanos());
             Assertions.assertNotSame(first, catalog.getTable(TABLE));
             Assertions.assertEquals(2, writeRecording.tableLoads.get());
+        }
+    }
+
+    @Test
+    void tableMissRaceDoesNotReturnAValueThatExpiredBeforePublicationWasObserved() throws Exception {
+        AtomicLong clock = new AtomicLong();
+        AtomicInteger misses = new AtomicInteger();
+        CountDownLatch firstMiss = new CountDownLatch(1);
+        CountDownLatch releaseFirstMiss = new CountDownLatch(1);
+        RecordingCatalog recording = new RecordingCatalog();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            PaimonMetaCacheCatalog catalog = new PaimonMetaCacheCatalog(recording.catalog(), owner,
+                    100, 100, cacheOptions(Duration.ofSeconds(1), Duration.ofDays(1)),
+                    false, clock::get, (cache, key) -> {
+                        if (cache.equals("table") && misses.incrementAndGet() == 1) {
+                            firstMiss.countDown();
+                            await(releaseFirstMiss);
+                        }
+                    });
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                Future<Table> racing = executor.submit(() -> catalog.getTable(TABLE));
+                Assertions.assertTrue(firstMiss.await(10, TimeUnit.SECONDS));
+                Table expired = catalog.getTable(TABLE);
+                clock.set(Duration.ofSeconds(2).toNanos());
+                releaseFirstMiss.countDown();
+
+                Assertions.assertNotSame(expired, racing.get(10, TimeUnit.SECONDS));
+                Assertions.assertEquals(2, recording.tableLoads.get());
+            } finally {
+                releaseFirstMiss.countDown();
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    @Test
+    void databaseMissRaceDoesNotReturnAValueThatExpiredBeforePublicationWasObserved() throws Exception {
+        AtomicLong clock = new AtomicLong();
+        AtomicInteger misses = new AtomicInteger();
+        CountDownLatch firstMiss = new CountDownLatch(1);
+        CountDownLatch releaseFirstMiss = new CountDownLatch(1);
+        RecordingCatalog recording = new RecordingCatalog();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            PaimonMetaCacheCatalog catalog = new PaimonMetaCacheCatalog(recording.catalog(), owner,
+                    100, 100, cacheOptions(Duration.ofSeconds(1), Duration.ofDays(1)),
+                    false, clock::get, (cache, key) -> {
+                        if (cache.equals("database") && misses.incrementAndGet() == 1) {
+                            firstMiss.countDown();
+                            await(releaseFirstMiss);
+                        }
+                    });
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                Future<Database> racing = executor.submit(() -> catalog.getDatabase("db"));
+                Assertions.assertTrue(firstMiss.await(10, TimeUnit.SECONDS));
+                Database expired = catalog.getDatabase("db");
+                clock.set(Duration.ofSeconds(2).toNanos());
+                releaseFirstMiss.countDown();
+
+                Assertions.assertNotSame(expired, racing.get(10, TimeUnit.SECONDS));
+                Assertions.assertEquals(2, recording.databaseLoads.get());
+            } finally {
+                releaseFirstMiss.countDown();
+                executor.shutdownNow();
+            }
         }
     }
 
@@ -302,6 +423,29 @@ class PaimonMetaCacheCatalogTest {
     }
 
     @Test
+    void allTableOptionsIsNotAdmittedWithoutACompleteRetainedSizeEstimate() throws Exception {
+        Map<Identifier, Map<String, String>> allOptions = new HashMap<>();
+        for (int i = 0; i < 100; i++) {
+            allOptions.put(Identifier.create("db", "table_" + i),
+                    Collections.singletonMap("large-option", "x".repeat(100)));
+        }
+        RecordingCatalog recording = new RecordingCatalog();
+        recording.tableSupplier = () -> new AllTableOptionsTable(allOptions);
+        MetaCacheBudgetManager budgetManager = new MetaCacheBudgetManager(OptionalLong.of(512L));
+        try (CatalogMetaCache owner = new CatalogMetaCache(
+                budgetManager, 67996L, "paimon", Collections.emptyMap())) {
+            PaimonMetaCacheCatalog catalog = new PaimonMetaCacheCatalog(recording.catalog(), owner,
+                    100, 100, cacheOptions(Duration.ofDays(1), Duration.ofDays(1)),
+                    true, System::nanoTime);
+
+            catalog.getTable(Identifier.create("sys", AllTableOptionsTable.ALL_TABLE_OPTIONS));
+            catalog.getTable(Identifier.create("sys", AllTableOptionsTable.ALL_TABLE_OPTIONS));
+            Assertions.assertEquals(2, recording.tableLoads.get());
+            Assertions.assertEquals(0L, budgetManager.getGlobalUsedWeight());
+        }
+    }
+
+    @Test
     void fallbackBranchesAreIncludedInWeightGovernedAdmission(@TempDir java.nio.file.Path warehouse)
             throws Exception {
         LocalFileIO fileIO = LocalFileIO.create();
@@ -453,10 +597,22 @@ class PaimonMetaCacheCatalogTest {
         return 0D;
     }
 
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("timed out waiting for cache race");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while waiting for cache race", e);
+        }
+    }
+
     private static final class RecordingCatalog {
         private final AtomicInteger tableLoads = new AtomicInteger();
         private final AtomicInteger databaseLoads = new AtomicInteger();
         private final AtomicInteger sdkCacheAttachments = new AtomicInteger();
+        private final AtomicInteger closeCalls = new AtomicInteger();
         private final AtomicReference<Identifier> lastLoadedTable = new AtomicReference<>();
         private final AtomicReference<Identifier> failDrop = new AtomicReference<>();
         private final AtomicReference<Identifier> failAfterDrop = new AtomicReference<>();
@@ -487,6 +643,9 @@ class PaimonMetaCacheCatalogTest {
                                 return null;
                             case "catalogLoader":
                                 return (org.apache.paimon.catalog.CatalogLoader) self::get;
+                            case "close":
+                                closeCalls.incrementAndGet();
+                                return null;
                             case "options":
                                 return Collections.emptyMap();
                             case "toString":
