@@ -18,6 +18,7 @@
 #include <unicode/ucnv.h>
 #include <unicode/ucnv_err.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -26,7 +27,6 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -127,8 +127,8 @@ public:
         return Status::OK();
     }
 
-    Status convert(StringRef input, std::string_view character_set_name, std::string& output) {
-        output.clear();
+    Status convert(StringRef input, std::string_view character_set_name,
+                   ColumnString::Chars& output) {
         if (input.size == 0) {
             return Status::OK();
         }
@@ -137,36 +137,51 @@ public:
                                            character_set_name);
         }
 
-        UErrorCode error = U_ZERO_ERROR;
-        int32_t utf16_size = ucnv_toUChars(_source.get(), nullptr, 0, input.data,
-                                           static_cast<int32_t>(input.size), &error);
-        if (error != U_BUFFER_OVERFLOW_ERROR && U_FAILURE(error)) {
-            return conversion_error(character_set_name, error);
+        // Keep only a bounded Unicode pivot, rather than materializing the entire UTF-16
+        // string and scanning both the source and the pivot twice to preflight sizes.
+        UChar pivot[1024];
+        UChar* pivot_source = pivot;
+        UChar* pivot_target = pivot;
+        const char* source = input.data;
+        const char* source_limit = input.data + input.size;
+        bool reset = true;
+        size_t available = input.size;
+        while (true) {
+            const size_t written = output.size();
+            constexpr size_t MAX_OUTPUT_SIZE = std::numeric_limits<UInt32>::max();
+            if (UNLIKELY(written == MAX_OUTPUT_SIZE)) {
+                ColumnString::check_chars_length(written + 1, 0);
+            }
+            output.reserve(written + std::min(available, MAX_OUTPUT_SIZE - written));
+            // Reuse the spare capacity of the block's result/scratch buffer. In particular,
+            // expanding rows should not need an overflow/retry on every conversion. Never
+            // reserve beyond ColumnString's UInt32 offset limit before it can report overflow.
+            const size_t target_size =
+                    std::min({output.capacity() - written, MAX_OUTPUT_SIZE - written,
+                              static_cast<size_t>(std::numeric_limits<int32_t>::max())});
+            output.resize_assume_reserved(written + target_size);
+            char* target = reinterpret_cast<char*>(output.data()) + written;
+            const char* target_limit = reinterpret_cast<char*>(output.data()) + output.size();
+            UErrorCode error = U_ZERO_ERROR;
+            ucnv_convertEx(_target.get(), _source.get(), &target, target_limit, &source,
+                           source_limit, pivot, &pivot_source, &pivot_target, pivot + 1024, reset,
+                           true, &error);
+            output.resize(target - reinterpret_cast<char*>(output.data()));
+            // Validate bytes actually produced, not the allocation bound: conversion may
+            // shrink the input, and spare capacity is not part of the result column.
+            ColumnString::check_chars_length(output.size(), 0);
+            if (error == U_BUFFER_OVERFLOW_ERROR) {
+                // Resume this row without resetting either converter or discarding pending
+                // pivot/output bytes. A new row resets the converters on its first call.
+                reset = false;
+                available *= 2;
+                continue;
+            }
+            if (U_FAILURE(error)) {
+                return conversion_error(character_set_name, error);
+            }
+            return Status::OK();
         }
-
-        _utf16.resize(static_cast<size_t>(utf16_size));
-        error = U_ZERO_ERROR;
-        ucnv_toUChars(_source.get(), _utf16.data(), utf16_size, input.data,
-                      static_cast<int32_t>(input.size), &error);
-        if (U_FAILURE(error)) {
-            return conversion_error(character_set_name, error);
-        }
-
-        error = U_ZERO_ERROR;
-        int32_t output_size =
-                ucnv_fromUChars(_target.get(), nullptr, 0, _utf16.data(), utf16_size, &error);
-        if (error != U_BUFFER_OVERFLOW_ERROR && U_FAILURE(error)) {
-            return conversion_error(character_set_name, error);
-        }
-
-        output.resize(static_cast<size_t>(output_size));
-        error = U_ZERO_ERROR;
-        ucnv_fromUChars(_target.get(), output.data(), output_size, _utf16.data(), utf16_size,
-                        &error);
-        if (U_FAILURE(error)) {
-            return conversion_error(character_set_name, error);
-        }
-        return Status::OK();
     }
 
 private:
@@ -177,7 +192,6 @@ private:
 
     ConverterPtr _source;
     ConverterPtr _target;
-    std::vector<UChar> _utf16;
 };
 
 template <bool Encode>
@@ -224,13 +238,19 @@ public:
                 character_set_nullable ? &character_set_nullable->get_null_map_data() : nullptr;
         const bool has_nullable = input_null_map != nullptr || character_set_null_map != nullptr;
         auto result_column = create_result_column();
-        result_column->reserve(input_rows_count);
+        if constexpr (Encode) {
+            result_column->get_data().reserve(input_rows_count);
+        } else {
+            result_column->reserve(input_rows_count);
+        }
         ColumnUInt8::MutablePtr result_null_column;
         if (has_nullable) {
             result_null_column = ColumnUInt8::create(input_rows_count, 0);
         }
         ConverterCache converters;
-        std::string converted;
+        // Varbinary owns out-of-line values in an arena and inlines small values. Share one
+        // tracked scratch buffer across charsets so that its capacity is not retained seven times.
+        ColumnString::Chars scratch;
         CharacterSet constant_character_set = CharacterSet::UTF_8;
         if (character_set_is_const && input_rows_count != 0 &&
             !(character_set_null_map && (*character_set_null_map)[0])) {
@@ -257,8 +277,17 @@ public:
             }
 
             const StringRef input = input_nested->get_data_at(input_index);
-            RETURN_IF_ERROR(convert_input(input, character_set, converters, converted));
-            result_column->insert_data(converted.data(), converted.size());
+            if constexpr (Encode) {
+                scratch.clear();
+                RETURN_IF_ERROR(convert_input(input, character_set, converters, scratch));
+                result_column->insert_data(reinterpret_cast<const char*>(scratch.data()),
+                                           scratch.size());
+            } else {
+                // Write straight into the result column, including when the buffer grows.
+                auto& chars = result_column->get_chars();
+                RETURN_IF_ERROR(convert_input(input, character_set, converters, chars));
+                result_column->get_offsets().push_back(chars.size());
+            }
         }
 
         if (has_nullable) {
@@ -321,7 +350,7 @@ private:
     }
 
     static Status convert_input(StringRef input, CharacterSet character_set,
-                                ConverterCache& converters, std::string& converted) {
+                                ConverterCache& converters, ColumnString::Chars& converted) {
         const ConversionSpec spec = get_conversion_spec(input, character_set);
         if (converters[spec.converter_index] == nullptr) {
             converters[spec.converter_index] = std::make_unique<ConverterPair>();
@@ -334,15 +363,15 @@ private:
             }
         }
 
-        RETURN_IF_ERROR(converters[spec.converter_index]->convert(
-                spec.input, SUPPORTED_CHARACTER_SETS[static_cast<size_t>(character_set)],
-                converted));
         if constexpr (Encode) {
             if (character_set == CharacterSet::UTF_16 && input.size != 0) {
-                converted.insert(0, "\xFE\xFF", 2);
+                converted.push_back(0xFE);
+                converted.push_back(0xFF);
             }
         }
-        return Status::OK();
+        return converters[spec.converter_index]->convert(
+                spec.input, SUPPORTED_CHARACTER_SETS[static_cast<size_t>(character_set)],
+                converted);
     }
 };
 

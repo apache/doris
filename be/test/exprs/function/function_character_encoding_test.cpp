@@ -113,4 +113,76 @@ TEST(function_character_encoding_test, rejects_invalid_conversions) {
     }
 }
 
+TEST(function_character_encoding_test, streaming_boundaries_and_row_reuse) {
+    // Cross the pivot boundary and force output expansion, including pending surrogate pairs.
+    for (size_t length : {1, 15, 1023, 1024, 1025, 65535}) {
+        std::string ascii(length, 'A');
+        std::string utf16;
+        for (size_t i = 0; i < length; ++i) {
+            utf16.append("\0A", 2);
+        }
+        const std::string utf16_bom = std::string("\xFE\xFF", 2) + utf16;
+        const std::string supplementary = ascii + "😀";
+        const std::string supplementary_utf16 = utf16 + std::string("\xD8\x3D\xDE\0", 4);
+        DataSet encoded = {
+                {{ascii, std::string("UTF-16BE")}, VARBINARY(utf16)},
+                {{supplementary, std::string("UTF-16BE")}, VARBINARY(supplementary_utf16)},
+                {{Null(), std::string("UTF-16BE")}, Null()},
+                {{std::string(""), std::string("UTF-16BE")}, VARBINARY("")},
+                {{ascii, std::string("UTF-16")}, VARBINARY(utf16_bom)},
+                {{std::string("A"), std::string("UTF-16BE")},
+                 VARBINARY(std::string_view("\0A", 2))},
+        };
+        check_function_all_arg_comb<DataTypeVarbinary, true>(
+                "encode", {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR}, encoded);
+
+        std::string latin1(length, '\xE9');
+        std::string expanded;
+        for (size_t i = 0; i < length; ++i) {
+            expanded += "é";
+        }
+        DataSet decoded = {
+                {{VARBINARY(latin1), std::string("ISO-8859-1")}, expanded},
+                {{VARBINARY(supplementary_utf16), std::string("UTF-16BE")}, supplementary},
+                {{Null(), std::string("ISO-8859-1")}, Null()},
+                {{VARBINARY(""), std::string("ISO-8859-1")}, std::string("")},
+                {{VARBINARY(utf16_bom), std::string("UTF-16")}, ascii},
+                {{VARBINARY("\xFF\xFE\x2D\x4E"), std::string("UTF-16")}, std::string("中")},
+                {{VARBINARY("\xFE\xFF"), std::string("UTF-16")}, std::string("")},
+                {{VARBINARY("\xE9"), std::string("ISO-8859-1")}, std::string("é")},
+        };
+        check_function_all_arg_comb<DataTypeString, true>(
+                "decode", {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARCHAR}, decoded);
+    }
+}
+
+TEST(function_character_encoding_test, rejects_invalid_input_after_streaming) {
+    const std::string invalid_utf8 = std::string(4096, 'A') + "\xE4\xB8";
+    const std::string unrepresentable = std::string(4096, 'A') + "中";
+    for (const auto& input : {invalid_utf8, unrepresentable}) {
+        DataSet data_set = {{{input, std::string("US-ASCII")}, VARBINARY("")}};
+        Status status = check_function<DataTypeVarbinary, true>(
+                "encode", {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR}, data_set, -1,
+                -1, true);
+        ASSERT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    }
+    const std::string expanding_invalid_utf8 = std::string(50000, 'A') + "\xE4\xB8";
+    DataSet invalid_encode = {{{expanding_invalid_utf8, std::string("UTF-16BE")}, VARBINARY("")}};
+    Status encode_status = check_function<DataTypeVarbinary, true>(
+            "encode", {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR}, invalid_encode,
+            -1, -1, true);
+    ASSERT_TRUE(encode_status.is<ErrorCode::INVALID_ARGUMENT>()) << encode_status;
+
+    std::string invalid_utf16;
+    for (size_t i = 0; i < 25000; ++i) {
+        invalid_utf16 += "N-"; // The UTF-16BE byte pair for 中.
+    }
+    invalid_utf16.append("\xD8\x3D", 2); // An unpaired high surrogate after several pivot fills.
+    DataSet data_set = {{{VARBINARY(invalid_utf16), std::string("UTF-16BE")}, std::string("")}};
+    Status status = check_function<DataTypeString, true>(
+            "decode", {PrimitiveType::TYPE_VARBINARY, PrimitiveType::TYPE_VARCHAR}, data_set, -1,
+            -1, true);
+    ASSERT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+}
+
 } // namespace doris
