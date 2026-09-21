@@ -559,6 +559,8 @@ TEST_F(BetaRowsetTest, TmpRowsetUsesCompletedSegmentIds) {
     RowsetWriterContext writer_context;
     create_rowset_writer_context(tablet_schema, &writer_context);
 
+    writer_context.is_partial_output_writer = true;
+
     EngineOptions options;
     StorageEngine engine(options);
     BetaRowsetWriterForTest writer(engine);

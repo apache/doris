@@ -1125,7 +1125,9 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
         rowset_meta->set_segments_overlap(OVERLAPPING);
     }
 
-    auto segment_num = _num_seg();
+    // A temporary rowset contains only completed segments, which may finish out of order.
+    auto segment_num =
+            completed_segment_ids != nullptr ? completed_segment_ids->size() : _num_seg();
     if (check_segment_num && config::check_segment_when_build_rowset_meta) {
         auto segments_encoded_key_bounds_size = segments_encoded_key_bounds.size();
         if (segments_encoded_key_bounds_size != segment_num) {
