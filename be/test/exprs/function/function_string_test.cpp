@@ -108,6 +108,33 @@ TEST(function_string_test, function_auto_partition_name_case_insensitive_test) {
     }
 }
 
+TEST(function_string_test, function_make_set_const_null_string_test) {
+    const InputTypeSet not_null_bits_types = {Notnull {PrimitiveType::TYPE_BIGINT},
+                                              Consted {PrimitiveType::TYPE_STRING},
+                                              PrimitiveType::TYPE_STRING};
+    const DataSet not_null_bits_data = {
+            {{BIGINT(2), Null(), std::string("B")}, std::string("B")},
+            {{BIGINT(3), Null(), std::string("C")}, std::string("C")},
+            {{BIGINT(0), Null(), std::string("D")}, std::string("")},
+    };
+    for (const auto& data : not_null_bits_data) {
+        ASSERT_TRUE(check_function<DataTypeString>("make_set", not_null_bits_types, {data}).ok());
+    }
+
+    const InputTypeSet nullable_bits_types = {Nullable {PrimitiveType::TYPE_BIGINT},
+                                              Consted {PrimitiveType::TYPE_STRING},
+                                              PrimitiveType::TYPE_STRING};
+    const DataSet nullable_bits_data = {
+            {{BIGINT(2), Null(), std::string("B")}, std::string("B")},
+            {{Null(), Null(), std::string("C")}, Null()},
+            {{BIGINT(0), Null(), std::string("D")}, std::string("")},
+    };
+    for (const auto& data : nullable_bits_data) {
+        ASSERT_TRUE((check_function<DataTypeString, true>("make_set", nullable_bits_types, {data})
+                             .ok()));
+    }
+}
+
 TEST(function_string_test, function_string_substr_test) {
     std::string func_name = "substr";
 
