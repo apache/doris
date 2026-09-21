@@ -432,12 +432,14 @@ public class Env {
 
     protected boolean isFirstTimeStartUp = false;
     protected boolean isElectable;
-    // set to true after finished replay all meta and ready to serve
-    // set to false when catalog is not ready.
+    // Metadata readiness, updated by the replayer independently of startup initialization.
     private AtomicBoolean isReady = new AtomicBoolean(false);
+    // Published after the first successful MASTER/FOLLOWER/OBSERVER initialization and FE type commit.
+    // Keep this true across UNKNOWN transitions so initialized nodes retain their existing read policy.
+    private volatile boolean startupInitialized = false;
     // set to true after http server start
     private AtomicBoolean httpReady = new AtomicBoolean(false);
-    // set to true if FE can offer READ service.
+    // Metadata read eligibility; serving reads also requires startupInitialized.
     // canRead can be true even if isReady is false.
     // for example: OBSERVER transfer to UNKNOWN, then isReady will be set to false, but canRead can still be true
     private AtomicBoolean canRead = new AtomicBoolean(false);
@@ -1304,13 +1306,18 @@ public class Env {
             Thread.sleep(100);
             if (counter++ % 100 == 0) {
                 String reason = editLog == null ? "editlog is null" : editLog.getNotReadyReason();
-                LOG.info("wait catalog to be ready. feType:{} isReady:{}, counter:{} reason: {}",
-                        feType, isReady.get(), counter, reason);
+                LOG.info("wait catalog to be ready. feType:{} metadataReady:{} startupInitialized:{}, "
+                                + "counter:{} reason: {}",
+                        feType, isMetadataReady(), startupInitialized, counter, reason);
             }
         }
     }
 
     public boolean isReady() {
+        return startupInitialized && isMetadataReady();
+    }
+
+    private boolean isMetadataReady() {
         return isReady.get();
     }
 
@@ -1953,7 +1960,8 @@ public class Env {
      */
     public boolean postProcessAfterMetadataReplayed(boolean waitCatalogReady) {
         if (waitCatalogReady) {
-            while (!isReady()) {
+            // Startup initialization itself must not wait for the serving gate that it will open.
+            while (!isMetadataReady()) {
                 // Avoid endless waiting if the state has changed.
                 //
                 // Consider the following situation:
@@ -2134,7 +2142,7 @@ public class Env {
                 replayer.start();
             }
 
-            // 'isReady' will be set to true in 'setCanRead()' method
+            // The replayer publishes metadata readiness before startup initialization completes.
             if (!postProcessAfterMetadataReplayed(true)) {
                 // A newer BDB state is already waiting in typeTransferQueue. Abort this stale transition so the
                 // state listener can process the newer state instead of waiting indefinitely for this node to
@@ -2210,7 +2218,7 @@ public class Env {
     // After the cluster initialization is complete, 'lower_case_table_names' can not be modified during the cluster
     // restart or upgrade.
     private void checkLowerCaseTableNames() {
-        while (!isReady()) {
+        while (!isMetadataReady()) {
             // Waiting for lower_case_table_names to initialize value from image or editlog.
             try {
                 LOG.info("Waiting for \'lower_case_table_names\' initialization.");
@@ -3264,7 +3272,12 @@ public class Env {
     }
 
     public void startStateListener() {
-        listener = new Daemon("stateListener", STATE_CHANGE_CHECK_INTERVAL_MS) {
+        listener = createStateListener();
+        listener.start();
+    }
+
+    Daemon createStateListener() {
+        Daemon stateListener = new Daemon("stateListener", STATE_CHANGE_CHECK_INTERVAL_MS) {
             @Override
             protected synchronized void runOneCycle() {
 
@@ -3378,13 +3391,18 @@ public class Env {
                         continue;
                     }
                     feType = newType;
+                    // INIT -> UNKNOWN is a completed no-op, not a completed startup initialization.
+                    if (newType == FrontendNodeType.MASTER || newType == FrontendNodeType.FOLLOWER
+                            || newType == FrontendNodeType.OBSERVER) {
+                        startupInitialized = true;
+                    }
                     LOG.info("finished to transfer FE type to {}", feType);
                 }
             } // end runOneCycle
         };
 
-        listener.setMetaContext(metaContext);
-        listener.start();
+        stateListener.setMetaContext(metaContext);
+        return stateListener;
     }
 
     public synchronized boolean replayJournal(long toJournalId) {
@@ -5535,7 +5553,7 @@ public class Env {
     }
 
     public boolean canRead() {
-        return this.canRead.get();
+        return startupInitialized && canRead.get();
     }
 
     public boolean isElectable() {
