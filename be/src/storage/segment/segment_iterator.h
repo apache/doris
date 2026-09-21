@@ -145,6 +145,8 @@ private:
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
+    // number of rows in `ranges` that are still set in `_row_bitmap`
+    uint64_t _count_alive_rows(const RowRanges& ranges) const;
     [[nodiscard]] Status _apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
                                                            rowid_t min_rowid,
                                                            RowRanges* row_ranges);

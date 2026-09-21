@@ -169,6 +169,36 @@ TEST_F(SegmentIteratorKeyRangeStatsTest, KeyRangeHitDoesNotInflateStatsFiltered)
     EXPECT_EQ(0, _stats.rows_stats_filtered);
 }
 
+// Disjoint key ranges leave a sparse bitmap. The zone map may only be charged for the
+// alive rows it removes, not for the rows between the key ranges.
+TEST_F(SegmentIteratorKeyRangeStatsTest, DisjointKeyRangesOnlyCountAliveRows) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+
+    constexpr int kOtherKey = 1;
+    OlapTuple other_key_tuple;
+    other_key_tuple.add_field(int_field(kOtherKey));
+    RowCursor other_key;
+    ASSERT_TRUE(other_key.init(_tablet_schema, other_key_tuple).ok());
+    OlapTuple target_key_tuple;
+    target_key_tuple.add_field(int_field(kTargetKey));
+    RowCursor target_key;
+    ASSERT_TRUE(target_key.init(_tablet_schema, target_key_tuple).ok());
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.key_ranges.emplace_back(&other_key, true, &other_key, true);
+    read_options.key_ranges.emplace_back(&target_key, true, &target_key, true);
+    read_options.col_id_to_predicates.emplace(1, make_int_eq_predicate(1, "1", kTargetKey));
+
+    // Only the row of kOtherKey sits on a page the zone map prunes.
+    EXPECT_EQ(1, read_all(segment, read_options));
+    EXPECT_EQ(kNumRows - 2, _stats.rows_key_range_filtered);
+    EXPECT_EQ(1, _stats.rows_stats_filtered);
+    EXPECT_EQ(1, _stats.rows_conditions_filtered);
+}
+
 // Without a key range the very same predicate still prunes pages by zone map.
 TEST_F(SegmentIteratorKeyRangeStatsTest, ZoneMapStillFiltersWithoutKeyRange) {
     std::shared_ptr<Segment> segment;

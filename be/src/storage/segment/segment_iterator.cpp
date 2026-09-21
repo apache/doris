@@ -899,15 +899,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         (!_opts.topn_filter_source_node_ids.empty() || !_opts.col_id_to_predicates.empty() ||
          _opts.delete_condition_predicates->num_of_column_predicate() > 0 ||
          !_common_expr_ctxs_push_down.empty())) {
-        // Start from the rows that are still alive instead of the whole segment: the
-        // bitmap already carries the key range and index pruning, so anything outside
-        // it cannot be pruned again. Starting from the whole segment would make the
-        // zone map / bloom filter counters report rows that were pruned earlier, e.g.
-        // a point lookup that already matched a single row reports the whole segment
-        // as zone-map filtered.
-        RowRanges condition_row_ranges =
-                RowRanges::create_single(static_cast<int64_t>(_row_bitmap.minimum()),
-                                         static_cast<int64_t>(_row_bitmap.maximum()) + 1);
+        RowRanges condition_row_ranges = RowRanges::create_single(_segment->num_rows());
         RETURN_IF_ERROR(_get_row_ranges_from_conditions(&condition_row_ranges));
         size_t pre_size = _row_bitmap.cardinality();
         _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
@@ -1090,7 +1082,31 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     return Status::OK();
 }
 
+uint64_t SegmentIterator::_count_alive_rows(const RowRanges& ranges) const {
+    uint64_t rows = 0;
+    for (size_t i = 0; i < ranges.range_size(); ++i) {
+        rows += roaring::api::roaring_bitmap_range_cardinality(
+                &_row_bitmap.roaring, static_cast<uint64_t>(ranges.get_range_from(i)),
+                static_cast<uint64_t>(ranges.get_range_to(i)));
+    }
+    return rows;
+}
+
 Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row_ranges) {
+    // `_row_bitmap` already carries the key range and index pruning, which may leave
+    // any set of rows (e.g. `k IN (1, 5000)`). Only count the rows a step removes that
+    // are still in the bitmap, so the zone map / bloom filter counters do not report
+    // rows that were pruned earlier.
+    uint64_t alive_rows = _count_alive_rows(*condition_row_ranges);
+    auto newly_filtered_rows = [&](size_t pre_size) -> uint64_t {
+        if (condition_row_ranges->count() == pre_size) {
+            return 0;
+        }
+        const uint64_t pre_alive_rows = alive_rows;
+        alive_rows = _count_alive_rows(*condition_row_ranges);
+        return pre_alive_rows - alive_rows;
+    };
+
     std::set<int32_t> cids;
     for (auto& entry : _opts.col_id_to_predicates) {
         cids.insert(entry.first);
@@ -1148,7 +1164,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 
         pre_size = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, bf_row_ranges, condition_row_ranges);
-        _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());
+        _opts.stats->rows_bf_filtered += newly_filtered_rows(pre_size);
     }
 
     {
@@ -1188,7 +1204,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         pre_size = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                        condition_row_ranges);
-        _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
+        _opts.stats->rows_stats_filtered += newly_filtered_rows(pre_size);
     }
 
     {
@@ -1197,8 +1213,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             const auto pre_expr_zonemap_size = condition_row_ranges->count();
             RETURN_IF_ERROR(_apply_expr_zonemap_to_row_ranges(_common_expr_ctxs_push_down, 0,
                                                               condition_row_ranges));
-            _opts.stats->rows_stats_filtered +=
-                    (pre_expr_zonemap_size - condition_row_ranges->count());
+            _opts.stats->rows_stats_filtered += newly_filtered_rows(pre_expr_zonemap_size);
         }
     }
 

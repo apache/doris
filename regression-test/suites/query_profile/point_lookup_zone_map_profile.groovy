@@ -63,6 +63,4 @@ suite('point_lookup_zone_map_profile', 'nonConcurrent') {
     statsFiltered.each {
         assertEquals('0', it, "rows pruned by the key range must not be counted again: ${profile}")
     }
-
-    sql 'DROP TABLE IF EXISTS point_lookup_zone_map_profile'
 }
