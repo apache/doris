@@ -114,6 +114,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     private final boolean nestedNamespaceEnabled;
     private final boolean enableMappingVarbinary;
     private final boolean enableMappingTimestampTz;
+    private final int lowerCaseTableNames;
     private final String icebergCatalogType;
     private final Map<String, String> catalogProperties;
     // Generally, there should be only two levels under the catalog, namely <database>.<table>,
@@ -134,6 +135,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         this.icebergCatalogType = catalogType == null ? null : catalogType.toLowerCase(Locale.ROOT);
         this.enableMappingVarbinary = dorisCatalog.getEnableMappingVarbinary();
         this.enableMappingTimestampTz = dorisCatalog.getEnableMappingTimestampTz();
+        this.lowerCaseTableNames = dorisCatalog.getLowerCaseTableNames();
 
         if (catalogProperties.containsKey(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME)) {
             externalCatalogName =
@@ -354,15 +356,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
         }
-        // 2. second, check fi table exist in local.
+        // 2. second, check if the table conflicts under Doris case-folding rules.
         // This is because case sensibility issue, eg:
         // 1. lower_case_table_name = 1
         // 2. create table tbl1;
         // 3. create table TBL1;  TBL1 does not exist in remote because the remote system is case-sensitive.
         //    but because lower_case_table_name = 1, the table can not be created in Doris because it is conflict with
         //    tbl1
-        ExternalTable dorisTable = db.getTableNullable(tableName);
-        if (dorisTable != null) {
+        // Keep this lookup on the retained Iceberg catalog generation. ExternalDatabase is resettable,
+        // so calling getTableNullable() here could enumerate a newer catalog generation.
+        if (hasCaseFoldTableCollision(db.getRemoteName(), tableName)) {
             if (createTableInfo.isIfNotExists()) {
                 LOG.info("create table[{}] which already exists", tableName);
                 return true;
@@ -1979,6 +1982,13 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     private boolean tableExistsInternal(String dbName, String tblName) {
         return catalog.tableExists(getTableIdentifier(dbName, tblName));
+    }
+
+    private boolean hasCaseFoldTableCollision(String dbName, String tblName) {
+        if (lowerCaseTableNames == 0) {
+            return false;
+        }
+        return listTableNamesInternal(dbName).stream().anyMatch(tblName::equalsIgnoreCase);
     }
 
     private boolean databaseExistsInternal(String dbName) {
