@@ -23,6 +23,10 @@ import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
 import org.apache.doris.datasource.property.metastore.AbstractLanceProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Expiry;
+import com.github.benmanes.caffeine.cache.Ticker;
 import org.apache.commons.lang3.StringUtils;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.errors.NamespaceNotFoundException;
@@ -44,6 +48,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 
 /**
  * Namespace requests and table access resolution. The catalog client owns the native resources
@@ -60,14 +66,30 @@ final class LanceNamespaceClient {
     private final List<String> parentNamespace;
     private final List<StorageProperties> storageProperties;
     private final Object namespaceLock = new Object();
+    private final long tableAccessTtlNanos;
+    private final Ticker ticker;
+    private final LongSupplier currentTimeMillis;
+    private volatile Cache<List<String>, CachedTableAccess> tableAccessCache;
 
     LanceNamespaceClient(LanceNamespace namespace, String catalogType, String rootDatabase,
             List<String> parentNamespace, List<StorageProperties> storageProperties) {
+        this(namespace, catalogType, rootDatabase, parentNamespace, storageProperties,
+                AbstractLanceProperties.DEFAULT_TABLE_ACCESS_CACHE_TTL_SECONDS,
+                Ticker.systemTicker(), System::currentTimeMillis);
+    }
+
+    LanceNamespaceClient(LanceNamespace namespace, String catalogType, String rootDatabase,
+            List<String> parentNamespace, List<StorageProperties> storageProperties,
+            long tableAccessTtlSeconds, Ticker ticker, LongSupplier currentTimeMillis) {
         this.namespace = namespace;
         this.catalogType = catalogType;
         this.rootDatabase = rootDatabase;
         this.parentNamespace = Collections.unmodifiableList(new ArrayList<>(parentNamespace));
         this.storageProperties = Collections.unmodifiableList(new ArrayList<>(storageProperties));
+        this.tableAccessTtlNanos = TimeUnit.SECONDS.toNanos(tableAccessTtlSeconds);
+        this.ticker = ticker;
+        this.currentTimeMillis = currentTimeMillis;
+        this.tableAccessCache = newTableAccessCache();
     }
 
     List<String> listDatabaseNames() {
@@ -178,14 +200,41 @@ final class LanceNamespaceClient {
     }
 
     LanceTableAccess resolveTableAccess(String dbName, String tableName) {
-        DescribeTableResponse table = describeTable(dbName, tableName);
+        List<String> tableId = tableAccessKey(dbName, tableName);
+        if (tableAccessTtlNanos == 0) {
+            return loadTableAccess(tableId).access;
+        }
+        // Cache hits avoid the catalog-wide namespace lock as well as filesystem or REST I/O.
+        return tableAccessCache.get(tableId, this::loadTableAccess).access;
+    }
+
+    LanceTableAccess resolveTableAccessUncached(String dbName, String tableName) {
+        return loadTableAccess(tableAccessKey(dbName, tableName)).access;
+    }
+
+    void invalidateTableAccessCache() {
+        // Swap generations: a describe already in flight may finish for its caller, but must
+        // never repopulate the cache used by reads admitted after an explicit refresh.
+        tableAccessCache = newTableAccessCache();
+    }
+
+    private List<String> tableAccessKey(String dbName, String tableName) {
+        try {
+            return Collections.unmodifiableList(buildTableId(dbName, tableName));
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private CachedTableAccess loadTableAccess(List<String> tableId) {
+        DescribeTableResponse table = describeTable(tableId);
         if (Boolean.TRUE.equals(table.getManagedVersioning())) {
             throw new UnsupportedOperationException(
                     "Lance managed versioning is not supported by the current BE reader");
         }
         String datasetUri = StringUtils.firstNonBlank(table.getTableUri(), table.getLocation());
         if (datasetUri == null) {
-            throw new RuntimeException("Lance namespace returned no table URI for " + dbName + "." + tableName);
+            throw new RuntimeException("Lance namespace returned no table URI for " + tableId);
         }
 
         // One option map serves both readers: the FE opens the dataset through the Lance Java SDK
@@ -193,19 +242,70 @@ final class LanceNamespaceClient {
         // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
         Map<String, String> storageOptions = LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri,
                 storageProperties, table.getStorageOptions());
-        return new LanceTableAccess(datasetUri, storageOptions);
+        return new CachedTableAccess(new LanceTableAccess(datasetUri, storageOptions),
+                tableAccessTtlNanos(table.getStorageOptions()));
     }
 
-    private DescribeTableResponse describeTable(String dbName, String tableName) {
+    private long tableAccessTtlNanos(Map<String, String> vendedOptions) {
+        if (vendedOptions == null || vendedOptions.isEmpty()) {
+            return tableAccessTtlNanos;
+        }
+        // Vended options can contain temporary credentials. Never assume they are permanent
+        // when expiry is absent, and reserve time for planning and dispatch to the BE.
+        String expiry = vendedOptions.get("expires_at_millis");
+        if (expiry == null) {
+            return 0;
+        }
         try {
-            List<String> tableId = buildTableId(dbName, tableName);
-            DescribeTableRequest request = new DescribeTableRequest().id(tableId).withTableUri(true)
-                    .vendCredentials(LANCE_REST.equals(catalogType));
-            synchronized (namespaceLock) {
-                return namespace.describeTable(request);
+            long expiresAtMillis = Long.parseLong(expiry);
+            long now = currentTimeMillis.getAsLong();
+            if (expiresAtMillis <= now) {
+                return 0;
             }
-        } catch (DdlException e) {
-            throw new RuntimeException(e);
+            long remainingMillis = Math.max(0, expiresAtMillis - now - TimeUnit.SECONDS.toMillis(30));
+            return Math.min(tableAccessTtlNanos, TimeUnit.MILLISECONDS.toNanos(remainingMillis));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private Cache<List<String>, CachedTableAccess> newTableAccessCache() {
+        return Caffeine.newBuilder().maximumSize(10_000).ticker(ticker)
+                .expireAfter(new Expiry<List<String>, CachedTableAccess>() {
+                    @Override
+                    public long expireAfterCreate(List<String> key, CachedTableAccess value, long currentTime) {
+                        return value.ttlNanos;
+                    }
+
+                    @Override
+                    public long expireAfterUpdate(List<String> key, CachedTableAccess value,
+                            long currentTime, long currentDuration) {
+                        return value.ttlNanos;
+                    }
+
+                    @Override
+                    public long expireAfterRead(List<String> key, CachedTableAccess value,
+                            long currentTime, long currentDuration) {
+                        return currentDuration;
+                    }
+                }).build();
+    }
+
+    private static final class CachedTableAccess {
+        private final LanceTableAccess access;
+        private final long ttlNanos;
+
+        private CachedTableAccess(LanceTableAccess access, long ttlNanos) {
+            this.access = access;
+            this.ttlNanos = ttlNanos;
+        }
+    }
+
+    private DescribeTableResponse describeTable(List<String> tableId) {
+        DescribeTableRequest request = new DescribeTableRequest().id(tableId).withTableUri(true)
+                .vendCredentials(LANCE_REST.equals(catalogType));
+        synchronized (namespaceLock) {
+            return namespace.describeTable(request);
         }
     }
 

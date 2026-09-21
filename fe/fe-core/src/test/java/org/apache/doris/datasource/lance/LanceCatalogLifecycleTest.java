@@ -18,7 +18,10 @@
 package org.apache.doris.datasource.lance;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.junit.jupiter.api.Assertions;
@@ -26,6 +29,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.lance.Session;
 import org.lance.namespace.LanceNamespace;
+import org.lance.namespace.model.DescribeTableResponse;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -184,6 +189,49 @@ public class LanceCatalogLifecycleTest {
             }
         } finally {
             catalog.onClose();
+        }
+    }
+
+    @Test
+    public void testMetadataRefreshInvalidatesAccessWithoutClosingSession() throws Exception {
+        Session session = Mockito.mock(Session.class);
+        LanceCatalogClient client = Mockito.spy(client(session));
+        LanceExternalCatalog catalog = catalog(client);
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogs = Mockito.mock(CatalogMgr.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogs);
+        long catalogId = catalog.getId();
+        Mockito.doReturn(catalog).when(catalogs).getCatalog(catalogId);
+        ExternalMetaCacheMgr caches = new ExternalMetaCacheMgr(true);
+        try (MockedStatic<Env> currentEnv = Mockito.mockStatic(Env.class)) {
+            currentEnv.when(Env::getCurrentEnv).thenReturn(env);
+            caches.invalidateTable(catalog.getId(), "mapped_db", "mapped_table");
+            caches.invalidateDb(catalog.getId(), "mapped_db");
+            caches.invalidateCatalog(catalog.getId());
+            Mockito.verify(client, Mockito.times(3)).invalidateTableAccessCache();
+            Mockito.verify(session, Mockito.never()).close();
+            Mockito.verify(catalog, Mockito.never()).createClient();
+        } finally {
+            catalog.onClose();
+        }
+    }
+
+    @Test
+    public void testIndexJobLocatorBypassesQueryAccessCache() throws Exception {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        Mockito.when(namespace.describeTable(Mockito.any())).thenReturn(
+                new DescribeTableResponse().tableUri("file:///warehouse/original.lance"),
+                new DescribeTableResponse().tableUri("file:///warehouse/replacement.lance"));
+        try (LanceCatalogClient client = new LanceCatalogClient(namespace, Mockito.mock(BufferAllocator.class),
+                Mockito.mock(Session.class), "filesystem", "default", Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyMap(), Collections.emptyList())) {
+            Field field = LanceCatalogClient.class.getDeclaredField("namespaceClient");
+            field.setAccessible(true);
+            LanceNamespaceClient namespaceClient = (LanceNamespaceClient) field.get(client);
+            namespaceClient.resolveTableAccess("default", "items");
+            Assertions.assertEquals(LanceIndexDatasetLocator.normalize("file:///warehouse/replacement.lance"),
+                    client.resolveCurrentIndexJobLocator("default", "items"));
+            Mockito.verify(namespace, Mockito.times(2)).describeTable(Mockito.any());
         }
     }
 
