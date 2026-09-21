@@ -657,33 +657,55 @@ public:
                     NestFuction, result_is_nullable,
                     AggregateFunctionNullVariadicInline<NestFuction, result_is_nullable>>::
                     streaming_agg_serialize_to_column(columns, dst, num_rows, arena);
-            return;
-        }
-
-        const size_t state_size = this->size_of_data();
-        std::vector<char> states(state_size * num_rows);
-        std::vector<AggregateDataPtr> places(num_rows);
-        size_t created_states = 0;
-        try {
-            for (; created_states < num_rows; ++created_states) {
-                places[created_states] = states.data() + state_size * created_states;
-                this->create(places[created_states]);
+        } else {
+            std::vector<const IColumn*> nested_columns(number_of_arguments);
+            std::array<const ColumnNullable*, MAX_ARGS> nullable_columns {};
+            for (size_t i = 0; i < number_of_arguments; ++i) {
+                if (is_nullable[i]) {
+                    nullable_columns[i] =
+                            &assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                    *columns[i]);
+                    nested_columns[i] = &nullable_columns[i]->get_nested_column();
+                } else {
+                    nested_columns[i] = columns[i];
+                }
             }
 
-            add_batch(num_rows, places.data(), 0, columns, arena, false);
+            const auto is_selected = [&](size_t row) {
+                for (size_t i = 0; i < number_of_arguments; ++i) {
+                    if (nullable_columns[i] != nullptr && nullable_columns[i]->is_null_at(row)) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            auto prepared_columns = this->nested_function->prepare_batch_columns_for_streaming(
+                    num_rows, nested_columns.data(), is_selected);
+            if (!prepared_columns.empty()) {
+                for (size_t i = 0; i < number_of_arguments; ++i) {
+                    nested_columns[i] = prepared_columns[i].get();
+                }
+            }
+
+            const size_t state_size = this->size_of_data();
+            std::vector<char> state(state_size);
             VectorBufferWriter buf(assert_cast<ColumnString&>(*dst));
             for (size_t row = 0; row < num_rows; ++row) {
-                this->serialize(places[row], buf);
-                buf.commit();
+                this->create(state.data());
+                try {
+                    if (is_selected(row)) {
+                        this->set_flag(state.data());
+                        this->nested_function->add(this->nested_place(state.data()),
+                                                   nested_columns.data(), row, arena);
+                    }
+                    this->serialize(state.data(), buf);
+                    buf.commit();
+                } catch (...) {
+                    this->destroy(state.data());
+                    throw;
+                }
+                this->destroy(state.data());
             }
-        } catch (...) {
-            for (size_t row = 0; row < created_states; ++row) {
-                this->destroy(places[row]);
-            }
-            throw;
-        }
-        for (size_t row = 0; row < created_states; ++row) {
-            this->destroy(places[row]);
         }
     }
 

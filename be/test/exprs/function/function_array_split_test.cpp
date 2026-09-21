@@ -32,6 +32,8 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "testutil/function_utils.h"
 
 namespace doris {
@@ -86,6 +88,15 @@ ColumnPtr create_const_predicate(const std::vector<UInt8>& row, size_t rows) {
     return ColumnConst::create(std::move(nullable), rows);
 }
 
+ColumnPtr create_all_null_predicate(size_t rows) {
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().resize_fill(rows, 0);
+    auto array = ColumnArray::create(
+            ColumnNullable::create(ColumnUInt8::create(), ColumnUInt8::create()),
+            std::move(offsets));
+    return ColumnNullable::create(std::move(array), ColumnUInt8::create(rows, 1));
+}
+
 DataTypePtr int_array_type() {
     return std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>()));
 }
@@ -97,6 +108,7 @@ DataTypePtr nullable_bool_array_type() {
 
 Status execute_array_split(const std::string& name, ColumnPtr source, ColumnPtr predicate,
                            Block* block) {
+    const size_t input_rows_count = source->size();
     auto source_type = int_array_type();
     auto predicate_type = nullable_bool_array_type();
     auto result_type = make_nullable(std::make_shared<DataTypeArray>(make_nullable(source_type)));
@@ -112,10 +124,36 @@ Status execute_array_split(const std::string& name, ColumnPtr source, ColumnPtr 
     RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     RETURN_IF_ERROR(function->open(fn_ctx, FunctionContext::THREAD_LOCAL));
     block->insert({nullptr, result_type, "result"});
-    auto status = function->execute(fn_ctx, *block, {0, 1}, 2, 2);
+    auto status = function->execute(fn_ctx, *block, {0, 1}, 2, input_rows_count);
     RETURN_IF_ERROR(function->close(fn_ctx, FunctionContext::THREAD_LOCAL));
     RETURN_IF_ERROR(function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
     return status;
+}
+
+void expect_all_null_predicate_skips_const_source_expansion(const std::string& name) {
+    constexpr size_t row_count = 512;
+    constexpr size_t array_size = 4096;
+    constexpr int64_t max_execution_bytes = 1024 * 1024;
+
+    auto source = ColumnConst::create(create_int_array_column({std::vector<Int32>(array_size, 1)}),
+                                      row_count);
+    auto predicate = create_all_null_predicate(row_count);
+
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "ArraySplitAllNullFastPath");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t baseline = tracker->consumption();
+
+    Block block;
+    auto status = execute_array_split(name, std::move(source), std::move(predicate), &block);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t execution_peak = tracker->peak_consumption() - baseline;
+
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(block.get_by_position(2).column->only_null());
+    EXPECT_EQ(block.get_by_position(2).column->size(), row_count);
+    EXPECT_LT(execution_peak, max_execution_bytes);
 }
 
 void expect_nullable_split_result(const std::string& name, const std::vector<UInt8>& predicate) {
@@ -173,6 +211,14 @@ TEST(function_array_split_test, reads_const_predicate_for_each_source_row) {
     const auto& values = assert_cast<const ColumnInt32&>(
             assert_cast<const ColumnNullable&>(inner_array.get_data()).get_nested_column());
     EXPECT_EQ(values.get_data(), ColumnInt32::Container({1, 2, 3, 4}));
+}
+
+TEST(function_array_split_test, all_null_predicate_skips_const_source_expansion) {
+    expect_all_null_predicate_skips_const_source_expansion("array_split");
+}
+
+TEST(function_array_split_test, reverse_all_null_predicate_skips_const_source_expansion) {
+    expect_all_null_predicate_skips_const_source_expansion("array_reverse_split");
 }
 
 } // namespace doris

@@ -17,7 +17,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "core/arena.h"
@@ -55,6 +57,29 @@ int TrackingAggregateState::merge_count = 0;
 struct PairSumAggregateState {
     Int64 value = 0;
 };
+
+struct HeapStringAggregateState {
+    ~HeapStringAggregateState() { live_bytes -= value.size(); }
+
+    void assign(StringRef source) {
+        live_bytes -= value.size();
+        value.assign(source.data, source.size);
+        live_bytes += value.size();
+        peak_live_bytes = std::max(peak_live_bytes, live_bytes);
+    }
+
+    static void reset_counters() {
+        live_bytes = 0;
+        peak_live_bytes = 0;
+    }
+
+    static size_t live_bytes;
+    static size_t peak_live_bytes;
+    String value;
+};
+
+size_t HeapStringAggregateState::live_bytes = 0;
+size_t HeapStringAggregateState::peak_live_bytes = 0;
 
 class PairSumAggregateFunction final
         : public IAggregateFunctionDataHelper<PairSumAggregateState, PairSumAggregateFunction> {
@@ -96,6 +121,44 @@ public:
 
 private:
     std::vector<size_t>* observed_column_sizes;
+};
+
+class HeapStringAggregateFunction final
+        : public IAggregateFunctionDataHelper<HeapStringAggregateState,
+                                              HeapStringAggregateFunction> {
+public:
+    HeapStringAggregateFunction()
+            : IAggregateFunctionDataHelper<HeapStringAggregateState, HeapStringAggregateFunction>(
+                      DataTypes {std::make_shared<DataTypeString>(),
+                                 std::make_shared<DataTypeInt32>()}) {}
+
+    String get_name() const override { return "heap_string"; }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
+
+    void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
+             Arena&) const override {
+        data(place).assign(assert_cast<const ColumnString&>(*columns[0]).get_data_at(row_num));
+    }
+
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena&) const override {
+        data(place).assign(StringRef(data(rhs).value));
+    }
+
+    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {
+        buf.write_binary(data(place).value);
+    }
+
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena&) const override {
+        String value;
+        buf.read_binary(value);
+        data(place).assign(StringRef(value));
+    }
+
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+        assert_cast<ColumnString&>(to).insert_data(data(place).value.data(),
+                                                   data(place).value.size());
+    }
 };
 
 class ThrowOnDeserializeAggregateFunction final
@@ -429,6 +492,50 @@ TEST_F(AggregateFunctionExceptionTest, NullableForEachStreamingNormalizesVisible
     const auto& result_data = assert_cast<const ColumnInt64&>(
             assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column());
     EXPECT_EQ(result_data.get_data(), ColumnInt64::Container({330, 440}));
+}
+
+TEST_F(AggregateFunctionExceptionTest, NullableForEachStreamingReleasesHeapStatePerRow) {
+    constexpr size_t row_count = 128;
+    constexpr size_t array_size = 8;
+    constexpr size_t payload_size = 4096;
+
+    HeapStringAggregateState::reset_counters();
+    auto nested_function = std::make_shared<HeapStringAggregateFunction>();
+    auto string_array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+    auto int_array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    auto* foreach_function = new AggregateFunctionForEach(
+            nested_function, DataTypes {string_array_type, int_array_type});
+    AggregateFunctionNullVariadicInline<AggregateFunctionForEach, true> nullable_foreach(
+            foreach_function,
+            DataTypes {make_nullable(string_array_type), make_nullable(int_array_type)}, false);
+
+    const String payload(payload_size, 'x');
+    auto string_data = ColumnString::create();
+    auto key_data = ColumnInt32::create();
+    auto string_offsets = ColumnArray::ColumnOffsets::create();
+    auto key_offsets = ColumnArray::ColumnOffsets::create();
+    for (size_t row = 0; row < row_count; ++row) {
+        for (size_t element = 0; element < array_size; ++element) {
+            string_data->insert_data(payload.data(), payload.size());
+            key_data->insert_value(static_cast<Int32>(element));
+        }
+        string_offsets->get_data().push_back((row + 1) * array_size);
+        key_offsets->get_data().push_back((row + 1) * array_size);
+    }
+    auto strings = ColumnNullable::create(
+            ColumnArray::create(std::move(string_data), std::move(string_offsets)),
+            ColumnUInt8::create(row_count, 0));
+    auto keys =
+            ColumnNullable::create(ColumnArray::create(std::move(key_data), std::move(key_offsets)),
+                                   ColumnUInt8::create(row_count, 0));
+    const IColumn* columns[] = {strings.get(), keys.get()};
+    MutableColumnPtr serialized = ColumnString::create();
+
+    nullable_foreach.streaming_agg_serialize_to_column(columns, serialized, row_count, arena);
+
+    EXPECT_EQ(serialized->size(), row_count);
+    EXPECT_LE(HeapStringAggregateState::peak_live_bytes, array_size * payload_size);
+    EXPECT_EQ(HeapStringAggregateState::live_bytes, 0);
 }
 
 } // namespace doris

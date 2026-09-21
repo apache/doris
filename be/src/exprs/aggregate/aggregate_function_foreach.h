@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
@@ -141,6 +143,8 @@ protected:
 
     // Validate all selected rows first. If their physical begins differ, compact every argument
     // once for the batch and give them shared offsets;
+    // E.g. data [9,8,7,6]/[1,2,3,4,5], offsets [1,4]/[2,5], skip row 0
+    // -> data [8,7,6]/[3,4,5], shared offsets [0,3].
     template <typename IsSelected>
     Columns normalize_batch_columns(size_t batch_size, const IColumn** columns,
                                     IsSelected&& is_selected) const {
@@ -226,7 +230,15 @@ public:
         return std::make_shared<DataTypeArray>(nested_function->get_return_type());
     }
 
+    // Use foreach-specific streaming handling to align array inputs once while keeping aggregate
+    // states row-local; prepare returns empty when the original columns are already aligned.
     bool requires_batch_add_for_streaming() const { return true; }
+
+    template <typename IsSelected>
+    Columns prepare_batch_columns_for_streaming(size_t batch_size, const IColumn** columns,
+                                                IsSelected&& is_selected) const {
+        return normalize_batch_columns(batch_size, columns, std::forward<IsSelected>(is_selected));
+    }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {
         AggregateFunctionForEachData& state = data(place);
