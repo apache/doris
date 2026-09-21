@@ -40,7 +40,9 @@ public:
     IoBatch& operator=(const IoBatch&) = delete;
 
     // A rejected range leaves the handle and registered requests unchanged.
-    Status try_add(IoReader& reader, uint64_t offset, uint64_t len, bool* accepted, size_t* handle);
+    // An oversized first range may use one wave; later ranges cannot increase its bytes.
+    Status try_add(IoReader& reader, uint64_t offset, uint64_t len, bool* accepted, size_t* handle,
+                   bool allow_oversized_first = false);
     Status fetch();
     // Views remain valid until the next fetch or clear.
     std::span<const uint8_t> get(size_t handle) const;

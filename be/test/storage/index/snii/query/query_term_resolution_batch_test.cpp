@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "storage/index/query/spi/io_batch.h"
 #include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/query/internal/docid_conjunction.h"
@@ -556,6 +557,53 @@ TEST(SniiQueryTermResolutionBatch, DictionaryWaveReusesWorkspaceAcrossBlocks) {
     EXPECT_EQ(budget.used_bytes(), 0U);
 }
 
+namespace {
+struct OpenedDictionary {
+    MemoryFile file;
+    CountingReader counting {&file};
+    reader::SniiSegmentReader segment;
+    reader::LogicalIndexReader index;
+
+    Status open(const std::vector<std::string>& terms, uint32_t target_block_bytes) {
+        RETURN_IF_ERROR(write_index(&file, terms, target_block_bytes));
+        RETURN_IF_ERROR(reader::SniiSegmentReader::open(&counting, &segment));
+        RETURN_IF_ERROR(segment.open_index(kIndexId, kIndexSuffix, &index));
+        counting.reset_counts();
+        return Status::OK();
+    }
+};
+} // namespace
+
+TEST(SniiQueryTermResolutionBatch, SharedIoBatchPreparesMultipleReadersWithoutIO) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    const std::vector<std::string> first_terms {"alpha"};
+    const std::vector<std::string> second_terms {"bravo"};
+    OpenedDictionary first;
+    OpenedDictionary second;
+    assert_ok(first.open(first_terms, 1));
+    assert_ok(second.open(second_terms, 1));
+    index_query::MemoryBudget budget(1048576);
+    reader::BatchLookupResults first_results(budget);
+    reader::BatchLookupResults second_results(budget);
+    reader::LogicalIndexReader::BatchLookupState first_state;
+    reader::LogicalIndexReader::BatchLookupState second_state;
+    assert_ok(first.index.prepare_lookup_batch(first_terms, &first_results, &first_state));
+    assert_ok(second.index.prepare_lookup_batch(second_terms, &second_results, &second_state));
+    index_query::IoBatch wave(budget, {.bytes = 1048576, .ranges = 16});
+    assert_ok(first.index.prepare_lookup_wave(&first_state, &wave));
+    assert_ok(second.index.prepare_lookup_wave(&second_state, &wave));
+    EXPECT_EQ(first.counting.rounds(), 0U);
+    EXPECT_EQ(second.counting.rounds(), 0U);
+    EXPECT_EQ(wave.pending(), 2U);
+    assert_ok(wave.fetch());
+    assert_ok(first.index.consume_lookup_wave(&first_state, wave));
+    assert_ok(second.index.consume_lookup_wave(&second_state, wave));
+    EXPECT_TRUE(first_state.done());
+    EXPECT_TRUE(second_state.done());
+    EXPECT_EQ(first_results.results().front().entry.term, "alpha");
+    EXPECT_EQ(second_results.results().front().entry.term, "bravo");
+}
+
 TEST(SniiQueryTermResolutionBatch, BudgetedResultsRejectPreparationWithoutSlotMemory) {
     ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
     MemoryFile file;
@@ -990,6 +1038,214 @@ void expect_lookup_terms(const std::vector<reader::LogicalIndexReader::BatchLook
         EXPECT_EQ(results[i].entry.term, terms[i]);
         EXPECT_EQ(results[i].entry.df, 1U);
     }
+}
+
+TEST(SniiQueryTermResolutionBatch, SharedIoBatchAppliesRangeLimitsAcrossFiles) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    const auto indexed_terms = numbered_terms(33);
+    std::vector<std::string> terms;
+    for (size_t i = 0; i < indexed_terms.size(); i += 2) {
+        terms.push_back(indexed_terms[i]);
+    }
+    std::array<OpenedDictionary, 2> fields;
+    index_query::MemoryBudget budget(1048576);
+    std::array<reader::BatchLookupResults, 2> results {reader::BatchLookupResults(budget),
+                                                       reader::BatchLookupResults(budget)};
+    std::array<reader::LogicalIndexReader::BatchLookupState, 2> states;
+    for (size_t i = 0; i < fields.size(); ++i) {
+        assert_ok(fields[i].open(indexed_terms, 1));
+        assert_ok(fields[i].index.prepare_lookup_batch(terms, &results[i], &states[i]));
+    }
+    std::vector<size_t> wave_ranges;
+    for (size_t wave_number = 0; wave_number < 3; ++wave_number) {
+        index_query::IoBatch wave(budget, {.bytes = 1048576, .ranges = 16});
+        const uint64_t before = fields[0].counting.ranges() + fields[1].counting.ranges();
+        for (size_t i = 0; i < fields.size(); ++i) {
+            if (!states[i].done()) {
+                assert_ok(fields[i].index.prepare_lookup_wave(&states[i], &wave));
+            }
+        }
+        EXPECT_EQ(fields[0].counting.ranges() + fields[1].counting.ranges(), before);
+        assert_ok(wave.fetch());
+        wave_ranges.push_back(fields[0].counting.ranges() + fields[1].counting.ranges() - before);
+        for (size_t i = 0; i < fields.size(); ++i) {
+            if (!states[i].done()) {
+                assert_ok(fields[i].index.consume_lookup_wave(&states[i], wave));
+            }
+        }
+    }
+    EXPECT_EQ(wave_ranges, (std::vector<size_t> {16, 16, 2}));
+    for (size_t i = 0; i < fields.size(); ++i) {
+        EXPECT_TRUE(states[i].done());
+        EXPECT_EQ(fields[i].counting.read_batch_calls(), 2U);
+        expect_lookup_terms(results[i].results(), terms);
+    }
+    EXPECT_LE(budget.peak_bytes(), budget.limit_bytes());
+}
+
+TEST(SniiQueryTermResolutionBatch, SharedIoBatchDeduplicatesOneBlockAcrossStates) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    OpenedDictionary field;
+    const std::vector<std::string> terms {std::string(4096, 'a')};
+    assert_ok(field.open(terms, 8192));
+    const uint64_t read_bytes = field.index.section_refs().dict_region.length;
+    index_query::MemoryBudget budget(1048576);
+    reader::BatchLookupResults first_results(budget);
+    reader::BatchLookupResults second_results(budget);
+    {
+        reader::LogicalIndexReader::BatchLookupState first_state;
+        reader::LogicalIndexReader::BatchLookupState second_state;
+        assert_ok(field.index.prepare_lookup_batch(terms, &first_results, &first_state));
+        assert_ok(field.index.prepare_lookup_batch(terms, &second_results, &second_state));
+        const uint64_t result_slots = budget.used_bytes();
+        index_query::IoBatch wave(budget, {.bytes = read_bytes, .ranges = 1});
+        assert_ok(field.index.prepare_lookup_wave(&first_state, &wave));
+        assert_ok(field.index.prepare_lookup_wave(&second_state, &wave));
+        assert_ok(wave.fetch());
+        EXPECT_EQ(budget.used_bytes(), result_slots + read_bytes);
+        assert_ok(field.index.consume_lookup_wave(&first_state, wave));
+        assert_ok(field.index.consume_lookup_wave(&second_state, wave));
+        EXPECT_TRUE(first_state.done());
+        EXPECT_TRUE(second_state.done());
+        EXPECT_EQ(field.counting.ranges(), 1U);
+        EXPECT_EQ(field.counting.bytes(), read_bytes);
+        EXPECT_EQ(field.counting.rounds(), 1U);
+    }
+    expect_lookup_terms(first_results.results(), terms);
+    expect_lookup_terms(second_results.results(), terms);
+    EXPECT_GE(budget.used_bytes(), terms.front().size() * 2);
+    EXPECT_LE(budget.peak_bytes(), budget.limit_bytes());
+}
+
+void check_shared_dictionary_byte_limit(bool oversized) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    OpenedDictionary first;
+    OpenedDictionary second;
+    const std::vector<std::string> terms {"alpha"};
+    assert_ok(first.open(terms, 1));
+    assert_ok(second.open(terms, 1));
+    const uint64_t read_bytes = first.index.section_refs().dict_region.length;
+    index_query::MemoryBudget budget(1048576);
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> first_results;
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> second_results;
+    reader::LogicalIndexReader::BatchLookupState first_state;
+    reader::LogicalIndexReader::BatchLookupState second_state;
+    assert_ok(first.index.prepare_lookup_batch(terms, &first_results, &first_state));
+    assert_ok(second.index.prepare_lookup_batch(terms, &second_results, &second_state));
+    index_query::IoBatch wave(budget, {.bytes = oversized ? 1 : read_bytes, .ranges = 16});
+    assert_ok(first.index.prepare_lookup_wave(&first_state, &wave));
+    assert_ok(second.index.prepare_lookup_wave(&second_state, &wave));
+    EXPECT_EQ(wave.pending(), 1U);
+    assert_ok(wave.fetch());
+    assert_ok(first.index.consume_lookup_wave(&first_state, wave));
+    assert_ok(second.index.consume_lookup_wave(&second_state, wave));
+    EXPECT_TRUE(first_state.done());
+    EXPECT_FALSE(second_state.done());
+    EXPECT_EQ(second.counting.rounds(), 0U);
+    wave.clear();
+    assert_ok(second.index.prepare_lookup_wave(&second_state, &wave));
+    assert_ok(wave.fetch());
+    assert_ok(second.index.consume_lookup_wave(&second_state, wave));
+    EXPECT_TRUE(second_state.done());
+    EXPECT_EQ(second.counting.rounds(), 1U);
+    expect_lookup_terms(first_results, terms);
+    expect_lookup_terms(second_results, terms);
+    wave.clear();
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
+TEST(SniiQueryTermResolutionBatch, SharedIoBatchAppliesByteLimitsAcrossFiles) {
+    check_shared_dictionary_byte_limit(false);
+}
+
+TEST(SniiQueryTermResolutionBatch, SharedIoBatchLetsAnOversizedBlockMakeProgress) {
+    check_shared_dictionary_byte_limit(true);
+}
+
+TEST(SniiQueryTermResolutionBatch, SharedIoBatchRejectsAnEmptyWaveWithNoRangeSlots) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    OpenedDictionary field;
+    const std::vector<std::string> terms {"alpha"};
+    assert_ok(field.open(terms, 1));
+    index_query::MemoryBudget budget(1048576);
+    reader::BatchLookupResults results(budget);
+    reader::LogicalIndexReader::BatchLookupState state;
+    assert_ok(field.index.prepare_lookup_batch(terms, &results, &state));
+    index_query::IoBatch empty(budget, {.bytes = 1048576, .ranges = 0});
+    const Status status = field.index.prepare_lookup_wave(&state, &empty);
+    EXPECT_TRUE(status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << status.to_string();
+    EXPECT_EQ(empty.pending(), 0U);
+    EXPECT_EQ(field.counting.rounds(), 0U);
+    index_query::IoBatch wave(budget, {.bytes = 1048576, .ranges = 16});
+    assert_ok(field.index.prepare_lookup_wave(&state, &wave));
+    assert_ok(wave.fetch());
+    assert_ok(field.index.consume_lookup_wave(&state, wave));
+    EXPECT_TRUE(state.done());
+    expect_lookup_terms(results.results(), terms);
+}
+
+TEST(SniiQueryTermResolutionBatch, SharedIoBatchPreservesStatesAfterAReaderFailure) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    OpenedDictionary first;
+    OpenedDictionary second;
+    const std::vector<std::string> terms {"alpha"};
+    assert_ok(first.open(terms, 1));
+    assert_ok(second.open(terms, 1));
+    index_query::MemoryBudget budget(1048576);
+    reader::BatchLookupResults first_results(budget);
+    reader::BatchLookupResults second_results(budget);
+    reader::LogicalIndexReader::BatchLookupState first_state;
+    reader::LogicalIndexReader::BatchLookupState second_state;
+    assert_ok(first.index.prepare_lookup_batch(terms, &first_results, &first_state));
+    assert_ok(second.index.prepare_lookup_batch(terms, &second_results, &second_state));
+    const uint64_t slots = budget.used_bytes();
+    index_query::IoBatch wave(budget, {.bytes = 1048576, .ranges = 16});
+    assert_ok(first.index.prepare_lookup_wave(&first_state, &wave));
+    assert_ok(second.index.prepare_lookup_wave(&second_state, &wave));
+    second.counting.fail_batch(1);
+    EXPECT_TRUE(wave.fetch().is<ErrorCode::IO_ERROR>());
+    EXPECT_EQ(budget.used_bytes(), slots);
+    EXPECT_EQ(wave.pending(), 2U);
+    EXPECT_FALSE(first_results.results().front().found);
+    second.counting.fail_batch(0);
+    assert_ok(wave.fetch());
+    assert_ok(first.index.consume_lookup_wave(&first_state, wave));
+    assert_ok(second.index.consume_lookup_wave(&second_state, wave));
+    EXPECT_TRUE(first_state.done());
+    EXPECT_TRUE(second_state.done());
+    expect_lookup_terms(first_results.results(), terms);
+    expect_lookup_terms(second_results.results(), terms);
+}
+
+TEST(SniiQueryTermResolutionBatch, SharedIoBatchChargesDecodeAlongsideAllReadBuffers) {
+    ScopedEnv on_demand("SNII_DICT_RESIDENT_MAX", "0");
+    OpenedDictionary first;
+    OpenedDictionary second;
+    const std::vector<std::string> terms {"alpha"};
+    assert_ok(first.open(terms, 1));
+    assert_ok(second.open(terms, 1));
+    const uint64_t read_bytes = first.index.section_refs().dict_region.length +
+                                second.index.section_refs().dict_region.length;
+    index_query::MemoryBudget budget(read_bytes);
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> first_results;
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> second_results;
+    reader::LogicalIndexReader::BatchLookupState first_state;
+    reader::LogicalIndexReader::BatchLookupState second_state;
+    assert_ok(first.index.prepare_lookup_batch(terms, &first_results, &first_state));
+    assert_ok(second.index.prepare_lookup_batch(terms, &second_results, &second_state));
+    index_query::IoBatch wave(budget, {.bytes = read_bytes, .ranges = 16});
+    assert_ok(first.index.prepare_lookup_wave(&first_state, &wave));
+    assert_ok(second.index.prepare_lookup_wave(&second_state, &wave));
+    assert_ok(wave.fetch());
+    EXPECT_EQ(budget.used_bytes(), read_bytes);
+    const Status status = first.index.consume_lookup_wave(&first_state, wave);
+    EXPECT_TRUE(status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << status.to_string();
+    EXPECT_FALSE(first_results.front().found);
+    EXPECT_EQ(first.counting.rounds(), 1U);
+    EXPECT_EQ(second.counting.rounds(), 1U);
+    EXPECT_EQ(budget.used_bytes(), read_bytes);
+    wave.clear();
+    EXPECT_EQ(budget.used_bytes(), 0U);
 }
 
 TEST(SniiQueryTermResolutionBatch, PreparesAndConsumesColdWavesWithoutReading) {

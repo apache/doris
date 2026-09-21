@@ -22,7 +22,7 @@
 namespace doris::index_query {
 
 Status IoBatch::try_add(IoReader& reader, uint64_t offset, uint64_t len, bool* accepted,
-                        size_t* handle) {
+                        size_t* handle, bool allow_oversized_first) {
     DORIS_CHECK(accepted != nullptr);
     DORIS_CHECK(handle != nullptr);
     *accepted = false;
@@ -37,7 +37,11 @@ Status IoBatch::try_add(IoReader& reader, uint64_t offset, uint64_t len, bool* a
     const uint64_t other_bytes = bytes_ - batch.bounded_bytes_;
     const size_t other_ranges = ranges_ - batch.bounded_ranges_.size();
     size_t range = 0;
-    Status status = batch.try_add(offset, len, limits_.bytes - other_bytes,
+    uint64_t max_bytes = std::max(limits_.bytes, bytes_);
+    if (allow_oversized_first && handles_.empty()) {
+        max_bytes = std::max(max_bytes, len);
+    }
+    Status status = batch.try_add(offset, len, max_bytes - other_bytes,
                                   limits_.ranges - other_ranges, accepted, &range);
     if (!status.ok() || !*accepted) {
         if (added_reader) {

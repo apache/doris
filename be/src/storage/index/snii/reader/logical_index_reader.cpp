@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/compiler_util.h"
+#include "storage/index/query/spi/io_batch.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/section_framer.h"
@@ -912,16 +913,74 @@ ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_batch_impl(
     return Status::OK();
 }
 
-ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_wave(BatchLookupState* state,
-                                                             io::BatchRangeFetcher* fetcher) const {
+namespace {
+
+ALWAYS_INLINE Status register_dictionary_blocks(io::FileReader* reader, auto& pending,
+                                                io::BatchRangeFetcher* fetcher,
+                                                index_query::IoBatch* shared_wave) {
+    if (shared_wave == nullptr && fetcher->pending() == 0) {
+        for (auto& block : pending) {
+            block.handle = fetcher->add(block.ref.offset, block.ref.length);
+        }
+    } else {
+        size_t accepted_blocks = 0;
+        for (auto& block : pending) {
+            bool accepted = false;
+            if (shared_wave != nullptr) {
+                RETURN_IF_ERROR(shared_wave->try_add(*reader, block.ref.offset, block.ref.length,
+                                                     &accepted, &block.handle, true));
+            } else {
+                RETURN_IF_ERROR(fetcher->try_add(block.ref.offset, block.ref.length,
+                                                 kMaxDictLookupBatchBytes, kMaxDictLookupBatchRuns,
+                                                 &accepted, &block.handle));
+            }
+            if (!accepted) {
+                break;
+            }
+            ++accepted_blocks;
+        }
+        pending.resize(accepted_blocks);
+    }
+    if (shared_wave != nullptr && shared_wave->pending() == 0) {
+        return Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED, false>(
+                "dictionary wave cannot admit its first block");
+    }
+    return Status::OK();
+}
+
+ALWAYS_INLINE Status reserve_dictionary_decode_memory(
+        const LogicalIndexReader& index, uint32_t ordinal, const BlockRef& ref,
+        index_query::MemoryBudget* budget, index_query::MemoryBudget::Reservation* reservation) {
+    if (budget == nullptr) {
+        return Status::OK();
+    }
+    DictBlockScanMemory memory;
+    RETURN_IF_ERROR(index.dict_block_scan_memory(ordinal, &memory));
+    // The wave owns the disk bytes; raw blocks also borrow their decoded payload.
+    uint64_t bytes = memory.decode_bytes - ref.length;
+    if ((ref.flags & format::block_ref_flags::kZstd) == 0) {
+        bytes -= ref.length;
+    }
+    return budget->reserve(bytes, reservation);
+}
+
+} // namespace
+
+ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_wave_impl(
+        BatchLookupState* state, io::BatchRangeFetcher* fetcher,
+        index_query::IoBatch* shared_wave) const {
     DORIS_CHECK(state != nullptr);
     DORIS_CHECK(state->owner_ == this);
-    DORIS_CHECK(state->wave_ == nullptr);
+    DORIS_CHECK(state->wave_ == nullptr && state->shared_wave_ == nullptr);
     DORIS_CHECK(!state->done());
-    DORIS_CHECK(fetcher != nullptr);
-    DORIS_CHECK(fetcher->reader() == reader_);
+    DORIS_CHECK((fetcher != nullptr) != (shared_wave != nullptr));
+    if (fetcher != nullptr) {
+        DORIS_CHECK(fetcher->reader() == reader_);
+    }
     if (state->result_owner_ != nullptr) {
-        DORIS_CHECK(fetcher->memory_budget() == &state->result_owner_->budget_);
+        auto* budget =
+                shared_wave != nullptr ? &shared_wave->memory_budget() : fetcher->memory_budget();
+        DORIS_CHECK(budget == &state->result_owner_->budget_);
     }
     auto& pending = state->pending_;
     pending.clear();
@@ -949,47 +1008,41 @@ ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_wave(BatchLookupState* s
         ++wave_end;
     }
     DORIS_CHECK(!pending.empty());
-    if (fetcher->pending() == 0) {
-        for (PendingBatchLookupBlock& block : pending) {
-            block.handle = fetcher->add(block.ref.offset, block.ref.length);
-        }
-    } else {
-        size_t accepted_blocks = 0;
-        for (PendingBatchLookupBlock& block : pending) {
-            bool accepted = false;
-            RETURN_IF_ERROR(fetcher->try_add(block.ref.offset, block.ref.length,
-                                             kMaxDictLookupBatchBytes, kMaxDictLookupBatchRuns,
-                                             &accepted, &block.handle));
-            if (!accepted) {
-                break;
-            }
-            ++accepted_blocks;
-        }
-        pending.resize(accepted_blocks);
-    }
+    RETURN_IF_ERROR(register_dictionary_blocks(reader_, pending, fetcher, shared_wave));
     state->wave_ = fetcher;
+    state->shared_wave_ = shared_wave;
     return Status::OK();
 }
 
-ALWAYS_INLINE Status LogicalIndexReader::consume_lookup_wave(
-        BatchLookupState* state, const io::BatchRangeFetcher& fetcher) const {
+ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_wave(BatchLookupState* state,
+                                                             io::BatchRangeFetcher* fetcher) const {
+    return prepare_lookup_wave_impl(state, fetcher, nullptr);
+}
+
+Status LogicalIndexReader::prepare_lookup_wave(BatchLookupState* state,
+                                               index_query::IoBatch* wave) const {
+    return prepare_lookup_wave_impl(state, nullptr, wave);
+}
+
+ALWAYS_INLINE Status LogicalIndexReader::consume_lookup_wave_impl(
+        BatchLookupState* state, const io::BatchRangeFetcher* fetcher,
+        const index_query::IoBatch* shared_wave) const {
     DORIS_CHECK(state != nullptr);
     DORIS_CHECK(state->owner_ == this);
-    DORIS_CHECK(state->wave_ == &fetcher);
+    DORIS_CHECK((fetcher != nullptr) != (shared_wave != nullptr));
+    DORIS_CHECK(state->wave_ == fetcher && state->shared_wave_ == shared_wave);
+    auto* budget =
+            shared_wave != nullptr ? &shared_wave->memory_budget() : fetcher->memory_budget();
     for (const PendingBatchLookupBlock& block : state->pending_) {
         index_query::MemoryBudget::Reservation decode_memory;
-        if (auto* budget = fetcher.memory_budget(); budget != nullptr) {
-            DictBlockScanMemory memory;
-            RETURN_IF_ERROR(
-                    dict_block_scan_memory(state->groups_[block.group_index].ordinal, &memory));
-            // The fetcher owns the disk bytes; raw blocks also borrow their decoded payload.
-            uint64_t bytes = memory.decode_bytes - block.ref.length;
-            if ((block.ref.flags & format::block_ref_flags::kZstd) == 0) {
-                bytes -= block.ref.length;
-            }
-            RETURN_IF_ERROR(budget->reserve(bytes, &decode_memory));
-        }
-        const Slice on_disk = fetcher.get(block.handle);
+        RETURN_IF_ERROR(reserve_dictionary_decode_memory(*this,
+                                                         state->groups_[block.group_index].ordinal,
+                                                         block.ref, budget, &decode_memory));
+        const auto shared_bytes = shared_wave != nullptr ? shared_wave->get(block.handle)
+                                                         : std::span<const uint8_t>();
+        const Slice on_disk = shared_wave != nullptr
+                                      ? Slice(shared_bytes.data(), shared_bytes.size())
+                                      : fetcher->get(block.handle);
         std::vector<uint8_t> decoded;
         Slice payload = on_disk;
         if ((block.ref.flags & format::block_ref_flags::kZstd) != 0) {
@@ -1007,7 +1060,18 @@ ALWAYS_INLINE Status LogicalIndexReader::consume_lookup_wave(
     }
     state->pending_.clear();
     state->wave_ = nullptr;
+    state->shared_wave_ = nullptr;
     return Status::OK();
+}
+
+ALWAYS_INLINE Status LogicalIndexReader::consume_lookup_wave(
+        BatchLookupState* state, const io::BatchRangeFetcher& fetcher) const {
+    return consume_lookup_wave_impl(state, &fetcher, nullptr);
+}
+
+Status LogicalIndexReader::consume_lookup_wave(BatchLookupState* state,
+                                               const index_query::IoBatch& wave) const {
+    return consume_lookup_wave_impl(state, nullptr, &wave);
 }
 
 Status LogicalIndexReader::lookup_batch(const std::vector<std::string>& terms,

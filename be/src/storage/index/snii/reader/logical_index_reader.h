@@ -56,6 +56,10 @@
 //   abs_prx = posting_region.offset + prx_base + entry.prx_off_delta
 //
 // The reader retains no raw metadata-group bytes after open.
+namespace doris::index_query {
+class IoBatch;
+}
+
 namespace doris::snii::io {
 class BatchRangeFetcher;
 }
@@ -148,7 +152,9 @@ public:
         BatchLookupState(BatchLookupState&&) = default;
         BatchLookupState& operator=(BatchLookupState&&) = default;
 
-        bool done() const { return next_group_ == groups_.size() && wave_ == nullptr; }
+        bool done() const {
+            return next_group_ == groups_.size() && wave_ == nullptr && shared_wave_ == nullptr;
+        }
 
     private:
         friend class LogicalIndexReader;
@@ -161,6 +167,7 @@ public:
         std::vector<PendingBatchLookupBlock> pending_;
         size_t next_group_ = 0;
         const io::BatchRangeFetcher* wave_ = nullptr;
+        const index_query::IoBatch* shared_wave_ = nullptr;
     };
 
     // Prepares without I/O and resolves resident blocks immediately. The reader,
@@ -176,6 +183,8 @@ public:
     Status prepare_lookup_wave(BatchLookupState* state, io::BatchRangeFetcher* fetcher) const;
     // Copies resolved entries into results; no result borrows the fetcher's bytes.
     Status consume_lookup_wave(BatchLookupState* state, const io::BatchRangeFetcher& fetcher) const;
+    Status prepare_lookup_wave(BatchLookupState* state, index_query::IoBatch* wave) const;
+    Status consume_lookup_wave(BatchLookupState* state, const index_query::IoBatch& wave) const;
 
     // One enumerated term whose key has the requested prefix, with its DictEntry
     // and the owning DICT block's frq/prx bases (for posting resolution).
@@ -319,6 +328,10 @@ private:
                                                const BatchLookupGroup& group,
                                                const format::DictBlockReader& block_reader,
                                                std::vector<BatchLookupResult>* results);
+    Status prepare_lookup_wave_impl(BatchLookupState* state, io::BatchRangeFetcher* fetcher,
+                                    index_query::IoBatch* shared_wave) const;
+    Status consume_lookup_wave_impl(BatchLookupState* state, const io::BatchRangeFetcher* fetcher,
+                                    const index_query::IoBatch* shared_wave) const;
     Status prepare_lookup_batch_impl(const std::vector<std::string>& terms,
                                      std::vector<BatchLookupResult>* results,
                                      BatchLookupState* state,

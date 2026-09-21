@@ -239,5 +239,63 @@ TEST(IndexQueryIoBatch, PreservesOtherOwnersWhenTheWholeWaveIsRejected) {
     EXPECT_EQ(budget.used_bytes(), 8U);
 }
 
+TEST(IndexQueryIoBatch, AdmitsAnOversizedFirstRangeOnlyWhenExplicitlyAllowed) {
+    CountingIoReader first;
+    CountingIoReader second;
+    MemoryBudget budget(16);
+    IoBatch batch(budget, {.bytes = 4, .ranges = 2});
+    bool accepted = false;
+    size_t handle = 99;
+    ASSERT_TRUE(batch.try_add(first, 0, 8, &accepted, &handle).ok());
+    EXPECT_FALSE(accepted);
+    EXPECT_EQ(handle, 99U);
+    ASSERT_TRUE(batch.try_add(first, 0, 8, &accepted, &handle, true).ok());
+    ASSERT_TRUE(accepted);
+    ASSERT_TRUE(batch.try_add(second, 0, 1, &accepted, &handle, true).ok());
+    EXPECT_FALSE(accepted);
+    ASSERT_TRUE(batch.fetch().ok());
+    EXPECT_EQ(first.calls, 1U);
+    EXPECT_EQ(second.calls, 0U);
+    EXPECT_EQ(budget.used_bytes(), 8U);
+}
+
+TEST(IndexQueryIoBatch, OversizedWaveSharesExistingBytesWithoutGrowing) {
+    CountingIoReader reader;
+    MemoryBudget budget(16);
+    IoBatch batch(budget, {.bytes = 4, .ranges = 1});
+    bool accepted = false;
+    size_t original = 0;
+    ASSERT_TRUE(batch.try_add(reader, 0, 8, &accepted, &original, true).ok());
+    ASSERT_TRUE(accepted);
+    size_t overlapping = 0;
+    ASSERT_TRUE(batch.try_add(reader, 2, 4, &accepted, &overlapping).ok());
+    ASSERT_TRUE(accepted);
+    size_t rejected = 99;
+    ASSERT_TRUE(batch.try_add(reader, 7, 2, &accepted, &rejected, true).ok());
+    EXPECT_FALSE(accepted);
+    EXPECT_EQ(rejected, 99U);
+    ASSERT_TRUE(batch.fetch().ok());
+    EXPECT_EQ(batch.get(original).data() + 2, batch.get(overlapping).data());
+    EXPECT_EQ(budget.used_bytes(), 8U);
+    EXPECT_EQ(reader.calls, 1U);
+}
+
+TEST(IndexQueryIoBatch, OversizedFirstRangeStillRequiresARangeSlotAndMemory) {
+    CountingIoReader reader;
+    MemoryBudget budget(7);
+    IoBatch no_ranges(budget, {.bytes = 4, .ranges = 0});
+    bool accepted = false;
+    size_t handle = 99;
+    ASSERT_TRUE(no_ranges.try_add(reader, 0, 8, &accepted, &handle, true).ok());
+    EXPECT_FALSE(accepted);
+    EXPECT_EQ(handle, 99U);
+    IoBatch no_memory(budget, {.bytes = 4, .ranges = 1});
+    ASSERT_TRUE(no_memory.try_add(reader, 0, 8, &accepted, &handle, true).ok());
+    ASSERT_TRUE(accepted);
+    EXPECT_TRUE(no_memory.fetch().is<ErrorCode::MEM_LIMIT_EXCEEDED>());
+    EXPECT_EQ(reader.calls, 0U);
+    EXPECT_EQ(budget.used_bytes(), 0U);
+}
+
 } // namespace
 } // namespace doris::index_query
