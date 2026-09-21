@@ -304,6 +304,23 @@ TEST_F(DataTypeDateTimeV2SerDeTest, SerializeDateTimeV2KeepsScale) {
             serialized);
 }
 
+TEST_F(DataTypeDateTimeV2SerDeTest, FromFeStringNormalizesFractionalSecondsToScale) {
+    DataTypeDateTimeV2SerDe serde(/*scale=*/0);
+    Field field;
+
+    auto status = serde.from_fe_string("2026-09-21 12:34:56.100000", field);
+
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& value = field.get<TYPE_DATETIMEV2>();
+    EXPECT_EQ(value.year(), 2026);
+    EXPECT_EQ(value.month(), 9);
+    EXPECT_EQ(value.day(), 21);
+    EXPECT_EQ(value.hour(), 12);
+    EXPECT_EQ(value.minute(), 34);
+    EXPECT_EQ(value.second(), 56);
+    EXPECT_EQ(value.microsecond(), 0);
+}
+
 // Run with UBSan enabled to catch misalignment errors.
 TEST_F(DataTypeDateTimeV2SerDeTest, ArrowMemNotAlignedDate) {
     // 1.Prepare the data.

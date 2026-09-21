@@ -353,8 +353,7 @@ Status DataTypeDateTimeV2SerDe::from_string(StringRef& str, IColumn& column,
 // Deserializes a DateTimeV2 value from its OLAP string representation (e.g. from ZoneMap protobuf).
 // This is the inverse of to_olap_string().
 //
-// Uses from_date_format_str("%Y-%m-%d %H:%i:%s.%f") to parse.
-// DateTimeV2 supports microsecond precision (scale 0-6) via a 20-bit microsecond_ field.
+// Uses the DATETIMEV2 cast parser so that fractional seconds are normalized to the declared scale.
 //
 // Expected input format: "YYYY-MM-DD HH:MM:SS[.ffffff]"
 // Examples:
@@ -370,13 +369,12 @@ Status DataTypeDateTimeV2SerDe::from_olap_string(const std::string& str, Field& 
     CastParameters params {.status = Status::OK(), .is_strict = false};
 
     DateV2Value<DateTimeV2ValueType> res;
-    std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
-
     // In paths like partial update, we may fill default values into zonemap, while the default values for date-related
     // types are filled with the default value 0 of the number base, corresponding to the date 0000-00-00, which is not always valid.
     // so for the parse path of zonemap strings, we swallow the failure and return a default value. the value itself does not matter,
     // after compaction it will be replaced.
-    if (!res.from_date_format_str(date_format.data(), date_format.size(), str.data(), str.size())) {
+    if (!CastToDatetimeV2::from_string_non_strict_mode(StringRef(str), res, options.timezone,
+                                                       _scale, params)) {
         res = DateV2Value<DateTimeV2ValueType>(MIN_DATETIME_V2);
     }
     field = Field::create_field<TYPE_DATETIMEV2>(std::move(res));

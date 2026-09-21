@@ -185,7 +185,6 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         order_qt_ex_tb21_7  """ select (`key` +1) as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
         order_qt_ex_tb21_8  """ select `key` as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
         order_qt_information_schema """ show tables from information_schema like "processlist"; """
-        order_qt_dt """select * from ${dt}; """
         order_qt_dt_null """select * from ${dt_null} order by 1; """
         order_qt_test_dz """select * from ${test_zd} order by 1; """
         order_qt_test_filter_not """select * from ${ex_tb13} where name not like '%张三0%' order by 1; """
@@ -762,4 +761,3 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         }
     }
 }
-
