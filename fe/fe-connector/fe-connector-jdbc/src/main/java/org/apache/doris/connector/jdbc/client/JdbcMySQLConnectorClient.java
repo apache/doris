@@ -47,6 +47,7 @@ import java.util.function.Consumer;
 public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
 
     private static final Logger LOG = LogManager.getLogger(JdbcMySQLConnectorClient.class);
+    private static final String DORIS_SERVER_IDENTITY = "apache_doris";
 
     private final boolean convertDateToNull;
     private boolean isDoris = false;
@@ -76,16 +77,25 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
         try {
             conn = getConnection();
             stmt = conn.createStatement();
-            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'doris_server_identity'");
             if (rs.next()) {
-                String versionComment = rs.getString("Value");
-                isDoris = isDorisCompatibleVersionComment(versionComment);
+                isDoris = isDorisServerIdentity(rs.getString("Value"));
+            } else {
+                closeResources(rs);
+                rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+                if (rs.next()) {
+                    isDoris = isDorisCompatibleVersionComment(rs.getString("Value"));
+                }
             }
         } catch (Exception e) {
             LOG.warn("Failed to detect if remote MySQL is Doris: {}", e.getMessage());
         } finally {
             closeResources(rs, stmt, conn);
         }
+    }
+
+    static boolean isDorisServerIdentity(String serverIdentity) {
+        return DORIS_SERVER_IDENTITY.equalsIgnoreCase(serverIdentity);
     }
 
     static boolean isDorisCompatibleVersionComment(String versionComment) {

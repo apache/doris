@@ -45,6 +45,8 @@ import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
 
+    private static final String DORIS_SERVER_IDENTITY = "apache_doris";
+
     private boolean convertDateToNull = false;
     private boolean isDoris = false;
 
@@ -57,10 +59,15 @@ public class JdbcMySQLClient extends JdbcClient {
         try {
             conn = super.getConnection();
             stmt = conn.createStatement();
-            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+            rs = stmt.executeQuery("SHOW VARIABLES LIKE 'doris_server_identity'");
             if (rs.next()) {
-                String versionComment = rs.getString("Value");
-                isDoris = isDorisCompatibleVersionComment(versionComment);
+                isDoris = isDorisServerIdentity(rs.getString("Value"));
+            } else {
+                close(rs);
+                rs = stmt.executeQuery("SHOW VARIABLES LIKE 'version_comment'");
+                if (rs.next()) {
+                    isDoris = isDorisCompatibleVersionComment(rs.getString("Value"));
+                }
             }
         } catch (SQLException | JdbcClientException e) {
             closeClient();
@@ -74,6 +81,10 @@ public class JdbcMySQLClient extends JdbcClient {
         super(jdbcClientConfig);
         convertDateToNull = isConvertDatetimeToNull(jdbcClientConfig);
         this.dbType = dbType;
+    }
+
+    static boolean isDorisServerIdentity(String serverIdentity) {
+        return DORIS_SERVER_IDENTITY.equalsIgnoreCase(serverIdentity);
     }
 
     static boolean isDorisCompatibleVersionComment(String versionComment) {
