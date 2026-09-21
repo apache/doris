@@ -54,7 +54,9 @@ public class FinalizeCombinator extends ScalarFunction
 
     private void checkStateFunction() {
         AggStateType inputType = (AggStateType) getArgument(0).getDataType();
-        // AggStateType canonicalizes aliases; acceptsType alone accepts unrelated aggregate states.
+        // Keep the name check because acceptsType alone accepts unrelated aggregate states.
+        // TODO: Unify aggregate alias canonicalization across FE and BE. Stored aliases absent
+        // from AggStateType's mapping (for example, std) remain unsupported by finalize for now.
         AggStateType expected = new AggStateType(nested.getName(), inputType.getSubTypes(),
                 inputType.getSubTypeNullables(), nested.nullable());
         if (!inputType.getFunctionName().equals(expected.getFunctionName())) {
