@@ -78,7 +78,7 @@ public class ProjectOtherJoinConditionForNestedLoopJoinTest implements MemoPatte
     @Test
     public void testLambdaBodyIsNotProjected() {
         // t1.id < array_sum(array_map(x -> x + t2.id, [0]))
-        // `x + t2.id` has only t2.id as input slot, but x is a lambda argument that no child outputs
+        // all input slots of the higher order function come from t2, it is projected as a whole with its lambda
         Slot a = scan1.getOutput().get(0);
         Slot b = scan2.getOutput().get(0);
         ArrayItemReference item = new ArrayItemReference("x",
@@ -100,7 +100,9 @@ public class ProjectOtherJoinConditionForNestedLoopJoinTest implements MemoPatte
                                 .noneMatch(conjunct -> conjunct.containsType(Lambda.class)))
                 );
 
-        // x + t1.id + t2.id references both sides, the lambda stays in the join condition as a whole
+        // x + t1.id + t2.id references both sides, the lambda stays in the join condition as a whole.
+        // `x + t1.id` has only t1.id as input slot, but x is a lambda argument that no child outputs,
+        // so it can not be projected to the left child
         Lambda mixed = new Lambda(ImmutableList.of("x"), new Add(new Add(item.toSlot(), a), b),
                 ImmutableList.of(item));
         Expression mixedCondition = new LessThan(a, new ArraySum(new ArrayMap(mixed)));
