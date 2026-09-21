@@ -597,6 +597,10 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     if (tablet_schema.__isset.row_lsn_col_idx) {
         tablet_schema_pb->set_row_lsn_col_idx(tablet_schema.row_lsn_col_idx);
     }
+    tablet_schema_pb->set_ttl_col_idx(tablet_schema.ttl_col_idx);
+    tablet_schema_pb->set_row_ttl_duration_us(tablet_schema.row_ttl_duration_us);
+    tablet_schema_pb->set_row_ttl_time_zone_offset_seconds(
+            tablet_schema.row_ttl_time_zone_offset_seconds);
     if (tablet_schema.__isset.store_row_column) {
         tablet_schema_pb->set_store_row_column(tablet_schema.store_row_column);
     }

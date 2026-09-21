@@ -587,6 +587,13 @@ message TabletSchemaPB {
     // cid of the binlog op column (__DORIS_BINLOG_OP__).
     optional int32 binlog_op_col_idx = 43 [default = -1];
 
+    optional int64 row_ttl_duration_us = 44 [default = -1];
+    // Fixed UTC offset for temporal row TTL in [-43200, 50400].
+    // UTC is 0; direct-expiration and non-TTL schemas also use 0.
+    optional int32 row_ttl_time_zone_offset_seconds = 45 [default = 0];
+    // cid of the row TTL hidden column (__DORIS_TTL_COL__).
+    optional int32 ttl_col_idx = 46 [default = -1];
+
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
@@ -648,6 +655,13 @@ message TabletSchemaCloudPB {
 
     // cid of the binlog op column (__DORIS_BINLOG_OP__).
     optional int32 binlog_op_col_idx = 44 [default = -1];
+
+    optional int64 row_ttl_duration_us = 45 [default = -1];
+    // Fixed UTC offset for temporal row TTL in [-43200, 50400].
+    // UTC is 0; direct-expiration and non-TTL schemas also use 0.
+    optional int32 row_ttl_time_zone_offset_seconds = 46 [default = 0];
+    // cid of the row TTL hidden column (__DORIS_TTL_COL__).
+    optional int32 ttl_col_idx = 47 [default = -1];
 
     optional bool is_dynamic_schema = 100 [default=false];
 
@@ -899,6 +913,8 @@ message PartialUpdateInfoPB {
     optional int32 nano_seconds = 13 [default = 0];
     optional UniqueKeyUpdateModePB partial_update_mode = 14 [default = UPSERT];
     optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 15 [default = APPEND];
+    optional int32 row_ttl_source_column_cid = 16 [default = -1];
+    optional int32 row_ttl_source_column_uid = 17 [default = -1];
 }
 
 message FileEncryptionInfoPB {

@@ -888,6 +888,8 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _commit_tso_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == ROW_LSN_COL)) {
         _row_lsn_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == TTL_COL)) {
+        _ttl_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == BINLOG_TSO_COL)) {
         _binlog_tso_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == BINLOG_LSN_COL)) {
@@ -1098,6 +1100,9 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
     _commit_tso_col_idx = schema.commit_tso_col_idx();
     _row_lsn_col_idx = schema.row_lsn_col_idx();
+    _ttl_col_idx = schema.ttl_col_idx();
+    _row_ttl_duration_us = schema.row_ttl_duration_us();
+    _row_ttl_time_zone_offset_seconds = schema.row_ttl_time_zone_offset_seconds();
     _binlog_tso_col_idx = schema.binlog_tso_col_idx();
     _binlog_lsn_col_idx = schema.binlog_lsn_col_idx();
     _binlog_op_col_idx = schema.binlog_op_col_idx();
@@ -1206,6 +1211,7 @@ void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schem
     _skip_bitmap_col_idx = -1;
     _commit_tso_col_idx = -1;
     _row_lsn_col_idx = -1;
+    _ttl_col_idx = -1;
     _binlog_tso_col_idx = -1;
     _binlog_lsn_col_idx = -1;
     _binlog_op_col_idx = -1;
@@ -1253,6 +1259,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _row_store_page_size = ori_tablet_schema.row_store_page_size();
     _storage_page_size = ori_tablet_schema.storage_page_size();
     _storage_dict_page_size = ori_tablet_schema.storage_dict_page_size();
+    _row_ttl_duration_us = ori_tablet_schema.row_ttl_duration_us();
+    _row_ttl_time_zone_offset_seconds = ori_tablet_schema._row_ttl_time_zone_offset_seconds;
     _deprecated_enable_variant_flatten_nested =
             ori_tablet_schema.deprecated_variant_flatten_nested();
 
@@ -1275,6 +1283,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _skip_bitmap_col_idx = -1;
     _commit_tso_col_idx = -1;
     _row_lsn_col_idx = -1;
+    _ttl_col_idx = -1;
     _binlog_tso_col_idx = -1;
     _binlog_lsn_col_idx = -1;
     _binlog_op_col_idx = -1;
@@ -1307,6 +1316,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _commit_tso_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == ROW_LSN_COL)) {
             _row_lsn_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == TTL_COL)) {
+            _ttl_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == BINLOG_TSO_COL)) {
             _binlog_tso_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == BINLOG_LSN_COL)) {
@@ -1438,6 +1449,9 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_commit_tso_col_idx(_commit_tso_col_idx);
     tablet_schema_pb->set_row_lsn_col_idx(_row_lsn_col_idx);
+    tablet_schema_pb->set_ttl_col_idx(_ttl_col_idx);
+    tablet_schema_pb->set_row_ttl_duration_us(_row_ttl_duration_us);
+    tablet_schema_pb->set_row_ttl_time_zone_offset_seconds(_row_ttl_time_zone_offset_seconds);
     tablet_schema_pb->set_binlog_tso_col_idx(_binlog_tso_col_idx);
     tablet_schema_pb->set_binlog_lsn_col_idx(_binlog_lsn_col_idx);
     tablet_schema_pb->set_binlog_op_col_idx(_binlog_op_col_idx);
@@ -1828,6 +1842,15 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._skip_bitmap_col_idx != b._skip_bitmap_col_idx) return false;
     if (a._commit_tso_col_idx != b._commit_tso_col_idx) return false;
     if (a._row_lsn_col_idx != b._row_lsn_col_idx) return false;
+    if (a._ttl_col_idx != b._ttl_col_idx) {
+        return false;
+    }
+    if (a._row_ttl_duration_us != b._row_ttl_duration_us) {
+        return false;
+    }
+    if (a._row_ttl_time_zone_offset_seconds != b._row_ttl_time_zone_offset_seconds) {
+        return false;
+    }
     if (a._binlog_tso_col_idx != b._binlog_tso_col_idx) return false;
     if (a._binlog_lsn_col_idx != b._binlog_lsn_col_idx) return false;
     if (a._binlog_op_col_idx != b._binlog_op_col_idx) return false;
