@@ -651,7 +651,9 @@ FRAC:
                 SET_PARAMS_RET_FALSE_IFN((consume_digit<UInt32, 2>(ptr, end, part[0])),
                                          "invalid hour offset '{}'", std::string {ptr, end});
             }
-            SET_PARAMS_RET_FALSE_IFN(part[0] <= 14, "invalid hour offset '{}'", part[0]);
+            SET_PARAMS_RET_FALSE_IFN(
+                    part[0] < (type == DataTimeCastEnumType::TIMESTAMP_TZ ? 24U : 15U),
+                    "invalid hour offset '{}'", part[0]);
             if (ptr < end) {
                 if (*ptr == ':') {
                     ++ptr;
@@ -676,17 +678,15 @@ FRAC:
                                              "invalid minute offset '{}'", part[1]);
                 }
             }
-            SET_PARAMS_RET_FALSE_IFN(part[0] != 14 || (part[1] == 0 && second_offset == 0),
-                                     "invalid timezone offset '{}'",
-                                     combine_tz_offset(sign, part[0], part[1]));
-
-            if (second_offset != 0) {
-                SET_PARAMS_RET_FALSE_IFN(sign != '-' || part[0] <= 12, "invalid hour offset '{}'",
-                                         part[0]);
+            if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
+                // Wire offsets include historical zones outside the session fixed-zone range.
+                // Use the exact offset even when it has no seconds (for example, Guam's -14:21).
                 const auto offset = static_cast<int>(part[0] * 3600 + part[1] * 60 + second_offset);
                 parsed_tz = cctz::fixed_time_zone(cctz::seconds(sign == '-' ? -offset : offset));
             } else {
-                // Preserve the cached lookup for ordinary minute-aligned offsets.
+                SET_PARAMS_RET_FALSE_IFN(part[0] != 14 || part[1] == 0,
+                                         "invalid timezone offset '{}'",
+                                         combine_tz_offset(sign, part[0], part[1]));
                 SET_PARAMS_RET_FALSE_IFN(
                         TimezoneUtils::find_cctz_time_zone(
                                 combine_tz_offset(sign, part[0], part[1]), parsed_tz),
@@ -952,7 +952,9 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
             } else {
                 PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, hour_offset)));
             }
-            SET_PARAMS_RET_FALSE_IFN(hour_offset <= 14, "invalid hour offset '{}'", hour_offset);
+            SET_PARAMS_RET_FALSE_IFN(
+                    hour_offset < (type == DataTimeCastEnumType::TIMESTAMP_TZ ? 24U : 15U),
+                    "invalid hour offset '{}'", hour_offset);
             if (ptr < end) {
                 if (*ptr == ':') {
                     ++ptr;
@@ -974,19 +976,15 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
                             "invalid minute offset {}", minute_offset);
                 }
             }
-            SET_PARAMS_RET_FALSE_IFN(
-                    hour_offset != 14 || (minute_offset == 0 && second_offset == 0),
-                    "invalid timezone offset '{}'",
-                    combine_tz_offset(sign, hour_offset, minute_offset));
-
-            if (second_offset != 0) {
-                SET_PARAMS_RET_FALSE_IFN(sign != '-' || hour_offset <= 12,
-                                         "invalid hour offset '{}'", hour_offset);
+            if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
+                // Match strict parsing: a serialized historical offset is not a session setting.
                 const auto offset =
                         static_cast<int>(hour_offset * 3600 + minute_offset * 60 + second_offset);
                 parsed_tz = cctz::fixed_time_zone(cctz::seconds(sign == '-' ? -offset : offset));
             } else {
-                // Preserve the cached lookup for ordinary minute-aligned offsets.
+                SET_PARAMS_RET_FALSE_IFN(hour_offset != 14 || minute_offset == 0,
+                                         "invalid timezone offset '{}'",
+                                         combine_tz_offset(sign, hour_offset, minute_offset));
                 SET_PARAMS_RET_FALSE_IFN(
                         TimezoneUtils::find_cctz_time_zone(
                                 combine_tz_offset(sign, hour_offset, minute_offset), parsed_tz),

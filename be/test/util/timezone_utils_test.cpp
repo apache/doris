@@ -97,10 +97,29 @@ TEST(TimezoneUtilsTest, ParseOffset) {
     EXPECT_FALSE(TimezoneUtils::parse_tz_offset_string("UTC+8:75", result));
 }
 
+TEST(TimezoneUtilsTest, FixedOffsetAliasEndpoints) {
+    TimezoneUtils::clear_timezone_caches();
+    TimezoneUtils::load_offsets_to_cache();
+    cctz::time_zone result;
+    for (const auto* prefix : {"UTC", "GMT", ""}) {
+        for (const auto* offset : {"+14:00", "-12:00", "+13:59", "-11:59"}) {
+            EXPECT_TRUE(
+                    TimezoneUtils::parse_tz_offset_string(std::string(prefix) + offset, result));
+            EXPECT_TRUE(TimezoneUtils::find_cctz_time_zone(std::string(prefix) + offset, result));
+        }
+        // Alias normalization must validate the whole offset, including endpoint minutes.
+        for (const auto* offset : {"+14:01", "-12:01", "+14:30", "-12:30"}) {
+            EXPECT_FALSE(
+                    TimezoneUtils::parse_tz_offset_string(std::string(prefix) + offset, result));
+            EXPECT_FALSE(TimezoneUtils::find_cctz_time_zone(std::string(prefix) + offset, result));
+        }
+    }
+}
+
 TEST(TimezoneUtilsTest, LoadOffsets) {
     TimezoneUtils::clear_timezone_caches();
     TimezoneUtils::load_offsets_to_cache();
-    EXPECT_EQ(TimezoneUtils::cache_size(), (13 + 15) * 3);
+    EXPECT_EQ(TimezoneUtils::cache_size(), (13 + 15) * 3 - 4);
 
     TimezoneUtils::load_timezones_to_cache();
     EXPECT_GE(TimezoneUtils::cache_size(), 100);

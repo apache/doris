@@ -135,7 +135,10 @@ void TimezoneUtils::load_offsets_to_cache() {
             snprintf(min_str, sizeof(min_str), "%02d", minute);
             std::string offset_str = (hour >= 0 ? "+" : "") + to_hour_string(hour) + ':' + min_str;
             cctz::time_zone result;
-            parse_tz_offset_string(offset_str, result);
+            // Rejected endpoint minutes must not be cached as the default UTC zone.
+            if (!parse_tz_offset_string(offset_str, result)) {
+                continue;
+            }
             lower_zone_cache_->emplace(offset_str, result);
         }
     }
@@ -230,7 +233,8 @@ static bool normalize_offset_string(const std::string& timezone, bool allow_hour
         hour = std::stoi(std::string(rest));
     }
 
-    if ((!positive && hour > 12) || (positive && hour > 14) || minute >= 60) {
+    // Session fixed offsets include the endpoints only when their minutes are zero.
+    if (minute >= 60 || hour * 60 + minute > (positive ? 14 : 12) * 60) {
         return false;
     }
 
