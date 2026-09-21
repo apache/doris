@@ -305,6 +305,24 @@ public class PhysicalConnectorTableSinkTest {
                         + "would pay an unnecessary sort the legacy path never had");
     }
 
+    @Test
+    public void changelogWriteSkipsOperationColumnWhenLocatingPartition() {
+        SlotReference operationSlot = new SlotReference("connector_operation", IntegerType.INSTANCE);
+        SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
+        PhysicalConnectorTableSink<Plan> sink = sink(
+                table(true, false, true, ImmutableList.of(PART), ImmutableList.of(DATA, PART)),
+                Arrays.asList(DATA, PART),
+                ImmutableList.of(operationSlot, dataSlot, partSlot));
+        Deencapsulation.setField(sink, "hasRowOperationColumn", true);
+
+        PhysicalProperties props = sink.getRequirePhysicalProperties();
+        DistributionSpecHiveTableSinkHashPartitioned dist =
+                (DistributionSpecHiveTableSinkHashPartitioned) props.getDistributionSpec();
+        Assertions.assertEquals(ImmutableList.of(partSlot.getExprId()), dist.getOutputColExprIds(),
+                "the connector operation column must not shift partition routing onto a data column");
+    }
+
     /**
      * Non-partitioned write on a hash-write connector: the hash arm's {@code !partitionNames.isEmpty()}
      * gate falls through to the parallel arm, matching legacy {@code PhysicalHiveTableSink}'s

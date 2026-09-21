@@ -21,6 +21,8 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
+import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
@@ -85,7 +87,7 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Row-change style requires major 11 so an API-10 FE cannot misroute a plugin's row-level DML.
+        // This PR changes the connector SPI surface once, from major 10 to major 11.
         Assertions.assertEquals("11.0", version.getProperty("api.version"));
     }
 
@@ -101,6 +103,8 @@ public class ConnectorPluginSurfaceTest {
             org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.Builder.class,
             ConnectorScanPlanProvider.class,
             ConnectorWriteHandle.class,
+            ConnectorChangelogMode.class,
+            ConnectorRowLevelDmlRequest.class,
             ConnectorWritePlanProvider.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,

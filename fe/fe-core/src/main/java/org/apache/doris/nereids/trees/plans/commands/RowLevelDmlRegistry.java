@@ -33,13 +33,13 @@ import java.util.Set;
  * target table type, so the reverse {@code instanceof} dispatch is consolidated here.
  *
  * <p>Explicit static registration (no {@code ServiceLoader}) — avoids the thread-context-classloader pitfalls
- * seen with SPI loaders. Today the single entry is {@link IcebergRowLevelDmlTransform}, whose {@code handles}
- * checks the connector's row-change representation and operations, not its source name.</p>
+ * seen with SPI loaders. Each entry checks the connector's row-change representation and operations,
+ * not its source name.</p>
  */
 public final class RowLevelDmlRegistry {
 
     private static final List<RowLevelDmlTransform> TRANSFORMS =
-            ImmutableList.of(new IcebergRowLevelDmlTransform());
+            ImmutableList.of(new PositionDeleteRowLevelDmlTransform(), new ChangelogRowLevelDmlTransform());
 
     private RowLevelDmlRegistry() {
     }

@@ -709,13 +709,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         "Table not found: " + targetTable.getRemoteDbName()
                                 + "." + targetTable.getRemoteName()
                                 + " in catalog " + catalog.getName()));
-        // Resolve the provider once: it both admits INSERT and plans the sink (see the row-level DML arm).
+        // Resolve the provider once: it both admits this write operation and plans the sink.
         ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider(providerTableHandle);
+        WriteOperation writeOperation = connectorWriteOperation(connectorTableSink);
         if (writePlanProvider == null
-                || !writePlanProvider.supportedOperations().contains(WriteOperation.INSERT)) {
+                || !writePlanProvider.supportedOperations().contains(writeOperation)) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
-                            + ") does not support INSERT operations");
+                            + ") does not support " + writeOperation + " operations");
         }
 
         // Preserve the generation captured from the exact remote table load that supplied the bound schema.
@@ -729,12 +730,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 writePlanProvider.getWriteSortColumns(connSession, providerTableHandle, boundOutputColumns),
                 connectorTableSink, context);
 
-        // A distributed rewrite_data_files INSERT-SELECT threads WriteOperation.REWRITE so the connector's
-        // planWrite enters its REWRITE arm (RewriteFiles semantics) instead of the plain-INSERT append; the
-        // rewrite marker rides on the sink (PhysicalConnectorTableSink.isRewrite), not on a ConnectContext or
-        // an instanceof Iceberg. Ordinary connector INSERTs keep WriteOperation.INSERT (byte-identical).
-        WriteOperation writeOperation = connectorTableSink.isRewrite()
-                ? WriteOperation.REWRITE : WriteOperation.INSERT;
         // The write list can omit explicit/static-partition columns, but schema-drift validation must
         // retain the complete generation captured by BindSink instead of comparing that subset.
         PluginDrivenTableSink providerSink = new PluginDrivenTableSink(targetTable,
@@ -743,6 +738,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 boundWriteMetadataIdentity, metadata);
         rootFragment.setSink(providerSink);
         return rootFragment;
+    }
+
+    private WriteOperation connectorWriteOperation(PhysicalConnectorTableSink<?> sink) {
+        switch (sink.getDmlCommandType()) {
+            case DELETE:
+                return WriteOperation.DELETE;
+            case UPDATE:
+                return WriteOperation.UPDATE;
+            case MERGE:
+                return WriteOperation.MERGE;
+            default:
+                return sink.isRewrite() ? WriteOperation.REWRITE : WriteOperation.INSERT;
+        }
     }
 
     private static ConnectorColumn toWriteConnectorColumn(Column column) {
@@ -762,9 +770,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> orderingExprs = Lists.newArrayList();
         List<Boolean> isAscOrder = Lists.newArrayList();
         List<Boolean> nullsFirst = Lists.newArrayList();
+        int outputOffset = connectorTableSink.hasRowOperationColumn() ? 1 : 0;
         for (ConnectorWriteSortColumn sortColumn : sortColumns) {
             orderingExprs.add(context.findSlotRef(
-                    connectorTableSink.getOutput().get(sortColumn.getColumnIndex()).getExprId()));
+                    connectorTableSink.getOutput().get(
+                            sortColumn.getColumnIndex() + outputOffset).getExprId()));
             isAscOrder.add(sortColumn.isAsc());
             nullsFirst.add(sortColumn.isNullsFirst());
         }

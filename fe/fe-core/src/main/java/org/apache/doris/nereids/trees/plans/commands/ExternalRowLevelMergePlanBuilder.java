@@ -71,7 +71,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Iceberg MERGE INTO plan synthesizer, invoked via IcebergRowLevelDmlTransform.synthesize
+ * Position-delete MERGE INTO plan synthesizer, invoked via PositionDeleteRowLevelDmlTransform.synthesize
  * (legacy execution half removed as dead code).
  */
 public class ExternalRowLevelMergePlanBuilder {

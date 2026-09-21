@@ -60,6 +60,15 @@ public class FunctionCallExpr extends Expr {
 
     // use to record the num of json_object parameters
     private int originChildSize;
+    private boolean forceShortCircuitEvaluation = false;
+
+    public void setForceShortCircuitEvaluation(boolean forceShortCircuitEvaluation) {
+        this.forceShortCircuitEvaluation = forceShortCircuitEvaluation;
+    }
+
+    public boolean isForceShortCircuitEvaluation() {
+        return forceShortCircuitEvaluation;
+    }
 
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
@@ -145,6 +154,7 @@ public class FunctionCallExpr extends Expr {
         this.isMergeAggFn = other.isMergeAggFn;
         fn = other.fn;
         this.isTableFnCall = other.isTableFnCall;
+        this.forceShortCircuitEvaluation = other.forceShortCircuitEvaluation;
     }
 
     @Override
@@ -173,7 +183,8 @@ public class FunctionCallExpr extends Expr {
         }
         return /*opcode == o.opcode && aggOp == o.aggOp &&*/ fnName.equals(o.fnName)
                 && fnParams.isDistinct() == o.fnParams.isDistinct()
-                && fnParams.isStar() == o.fnParams.isStar();
+                && fnParams.isStar() == o.fnParams.isStar()
+                && forceShortCircuitEvaluation == o.forceShortCircuitEvaluation;
     }
 
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
@@ -302,6 +313,7 @@ public class FunctionCallExpr extends Expr {
     public int hashCode() {
         int result = super.hashCode();
         result = 31 * result + Objects.hashCode(fnName);
+        result = 31 * result + Objects.hashCode(forceShortCircuitEvaluation);
         return result;
     }
 

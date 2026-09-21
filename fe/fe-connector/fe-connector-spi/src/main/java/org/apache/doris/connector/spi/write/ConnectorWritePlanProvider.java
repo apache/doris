@@ -210,6 +210,42 @@ public interface ConnectorWritePlanProvider {
         return ConnectorRowChangeStyle.NONE;
     }
 
+    /**
+     * Returns the connector-owned operation-column encoding for {@link ConnectorRowChangeStyle#CHANGELOG}.
+     * A provider declaring another row-change style keeps the empty default.
+     */
+    default Optional<ConnectorChangelogMode> getChangelogMode() {
+        return Optional.empty();
+    }
+
+    /** Returns the target primary-key columns used to shape changelog DELETE and MERGE plans. */
+    default List<String> getRowLevelPrimaryKeyColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        return Collections.emptyList();
+    }
+
+    /** Performs connector-specific validation before a row-level DML plan is synthesized. */
+    default void validateRowLevelDml(ConnectorSession session, ConnectorTableHandle tableHandle,
+            ConnectorRowLevelDmlRequest request) {
+        // Default: no additional validation.
+    }
+
+    /**
+     * Column names that must not participate in row-level optimistic-conflict predicates.
+     * Connectors use this for synthetic row identity and file-position metadata columns.
+     */
+    default Set<String> getRowLevelWriteConstraintExcludedColumns() {
+        return Collections.emptySet();
+    }
+
+    /**
+     * Stable transaction-label prefix for a row-level operation. The provider selected for
+     * the table supplies it so generic engine planning does not embed a connector name.
+     */
+    default String getRowLevelDmlLabelPrefix(WriteOperation operation) {
+        return "connector_" + operation.name().toLowerCase(java.util.Locale.ROOT);
+    }
+
     /** Whether this connector can write into a named table branch ({@code INSERT INTO t@branch(name)}). Default: no. */
     default boolean supportsWriteBranch() {
         return false;

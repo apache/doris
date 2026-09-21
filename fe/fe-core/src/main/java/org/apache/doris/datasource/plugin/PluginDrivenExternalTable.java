@@ -39,7 +39,9 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
+import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -234,6 +236,77 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 .map(connector::getWritePlanProvider)
                 .map(ConnectorWritePlanProvider::getRowChangeStyle)
                 .orElse(ConnectorRowChangeStyle.NONE);
+    }
+
+    /** Returns the operation-column encoding declared for this table's changelog writes. */
+    public Optional<ConnectorChangelogMode> getConnectorChangelogMode() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Optional.empty();
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        return resolveWriteCapabilityHandle(connector)
+                .map(connector::getWritePlanProvider)
+                .flatMap(ConnectorWritePlanProvider::getChangelogMode);
+    }
+
+    /** Returns the primary-key columns used by this table's changelog row-level plan. */
+    public List<String> getConnectorRowLevelPrimaryKeyColumns() {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                .orElseThrow(() -> new DorisConnectorException(
+                        "Cannot resolve row-level DML target " + getName()));
+        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle);
+        return provider.getRowLevelPrimaryKeyColumns(session, handle);
+    }
+
+    /** Runs the engine-neutral mode check and connector-specific row-level validation. */
+    public void validateConnectorRowLevelDml(ConnectorRowLevelDmlRequest request) {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                .orElseThrow(() -> new DorisConnectorException(
+                        "Cannot resolve row-level DML target " + getName()));
+        metadata.validateRowLevelDmlMode(session, handle, request.getOperation());
+        connector.getWritePlanProvider(handle).validateRowLevelDml(session, handle, request);
+    }
+
+    /** Returns connector-declared synthetic columns excluded from row-level write constraints. */
+    public Set<String> getConnectorRowLevelWriteConstraintExcludedColumns() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Collections.emptySet();
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            return Collections.emptySet();
+        }
+        return resolveWriteCapabilityHandle(connector)
+                .map(connector::getWritePlanProvider)
+                .map(ConnectorWritePlanProvider::getRowLevelWriteConstraintExcludedColumns)
+                .orElseGet(Collections::emptySet);
+    }
+
+    /** Returns the connector-owned transaction-label prefix for one row-level operation. */
+    public String getConnectorRowLevelDmlLabelPrefix(WriteOperation operation) {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            throw new DorisConnectorException("Row-level DML requires a plugin-driven catalog");
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        if (connector == null) {
+            throw new DorisConnectorException("Connector is unavailable for row-level DML");
+        }
+        return resolveWriteCapabilityHandle(connector)
+                .map(connector::getWritePlanProvider)
+                .map(provider -> provider.getRowLevelDmlLabelPrefix(operation))
+                .orElseThrow(() -> new DorisConnectorException(
+                        "Cannot resolve the connector write provider for row-level DML"));
     }
 
     /**
