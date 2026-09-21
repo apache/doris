@@ -178,6 +178,26 @@ private:
 
 } // namespace
 
+TEST_F(AsyncCachedRemoteFileReaderTest, sync_write_path_preserves_tablet_id) {
+    create_cache("cached_remote_reader_sync_write_tablet_id");
+    auto reader = create_reader(open_remote_file());
+
+    std::string result(64_kb, '\0');
+    FileCacheStatistics stats;
+    IOContext context;
+    context.file_cache_stats = &stats;
+    context.is_warmup = true;
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            reader->read_at(0, Slice(result.data(), result.size()), &bytes_read, &context).ok());
+    EXPECT_EQ(bytes_read, result.size());
+    EXPECT_EQ(result, std::string(result.size(), '0'));
+
+    const auto blocks = cache()->get_blocks_by_key(reader->_cache_hash);
+    ASSERT_EQ(blocks.size(), 1);
+    EXPECT_EQ(blocks.begin()->second->tablet_id(), 10086);
+}
+
 TEST_F(AsyncCachedRemoteFileReaderTest, preallocated_cache_block_can_cover_the_short_file_tail) {
     create_cache("cached_remote_reader_async_preallocated_file_tail");
     auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());

@@ -1078,6 +1078,7 @@ Status CachedRemoteFileReader::_read_from_indirect_cache(size_t offset, Slice re
             s_align_size(offset + already_read, bytes_req - already_read, size());
     CacheContext cache_context(io_ctx);
     cache_context.stats = &stats;
+    cache_context.tablet_id = _tablet_id;
     MonotonicStopWatch sw;
     sw.start();
     ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set->increment();
