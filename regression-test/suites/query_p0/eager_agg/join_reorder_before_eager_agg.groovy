@@ -16,6 +16,7 @@
 // under the License.
 
 suite("join_reorder_before_eager_agg") {
+    sql "set parallel_pipeline_task_num=2"
     sql "set disable_join_reorder=false;"
     sql "set enable_cost_based_join_reorder=false;"
     sql "set memo_max_group_expression_size=1;"
