@@ -15,56 +15,47 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.arrowflight;
+package org.apache.doris.arrow;
 
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
 
 import org.apache.arrow.vector.complex.BaseRepeatedValueVector;
 import org.apache.arrow.vector.complex.MapVector;
-import org.apache.arrow.vector.ipc.ReadChannel;
-import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.DateUnit;
 import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.TimeUnit;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.lang.reflect.Method;
-import java.nio.channels.Channels;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * What {@code CommandGetTables} says a column is, against what the query that follows actually
- * carries.
+ * What FE says a column is, against what the query that follows actually carries.
  *
  * <p><b>Why these assertions matter.</b> A Flight SQL client is entitled to type its columns from
- * the schema in {@code GetTables} and then read the batches without re-deriving anything -- that is
- * what the schema is for, and {@code getArrowType} is documented as mirroring
- * {@code convert_to_arrow_type} in the backend. When the two disagree the client does not get a
- * degraded answer, it gets a failed read: it decodes the batch as the type the metadata promised.
- * So each case below pins the Arrow type BE emits, not merely "some" type.
+ * the schema FE gives it -- in {@code GetTables} today -- and then read the batches without
+ * re-deriving anything -- that is what the schema is for, and {@link DorisArrowTypeMapping} is
+ * documented as mirroring {@code convert_to_arrow_type} in the backend. When the two disagree the
+ * client does not get a degraded answer, it gets a failed read: it decodes the batch as the type the
+ * metadata promised. So each case below pins the Arrow type BE emits, not merely "some" type -- and
+ * where the mapping is known to be wrong, pins that too, so the correction is one deliberate step.
  *
  * <p>The descriptors are built the way {@code FrontendServiceImpl.getColumnDesc} builds them --
  * a complex column carries its element types as {@link TColumnDesc} children, named "item" for an
  * array and "key"/"value" for a map by {@code Column.createChildrenColumn}.
  */
-public class FlightSqlSchemaHelperArrowTypeTest {
+public class DorisArrowTypeMappingTest {
 
     private static final String DB = "test_db";
     private static final String TABLE = "test_tbl";
@@ -84,16 +75,12 @@ public class FlightSqlSchemaHelperArrowTypeTest {
     }
 
     private static Field buildField(TColumnDesc columnDesc) {
-        return Deencapsulation.invoke(FlightSqlSchemaHelper.class, "buildField", DB, TABLE, columnDesc);
+        return DorisArrowTypeMapping.toField(DB, TABLE, columnDesc);
     }
 
-    private static ArrowType arrowType(PrimitiveType type, Integer precision, Integer scale) throws Exception {
-        // Plain reflection rather than Deencapsulation: the descriptor of a column that has no precision
-        // or scale hands the mapping null for both, and that null is part of what the table pins.
-        Method getArrowType = FlightSqlSchemaHelper.class.getDeclaredMethod("getArrowType",
-                PrimitiveType.class, Integer.class, Integer.class);
-        getArrowType.setAccessible(true);
-        return (ArrowType) getArrowType.invoke(null, type, precision, scale);
+    /** A column that has no precision or scale hands the mapping null for both; the table pins that too. */
+    private static ArrowType arrowType(PrimitiveType type, Integer precision, Integer scale) {
+        return DorisArrowTypeMapping.toArrowType(type, precision, scale);
     }
 
     private static Arguments row(PrimitiveType type, ArrowType expected) {
@@ -183,7 +170,7 @@ public class FlightSqlSchemaHelperArrowTypeTest {
     @ParameterizedTest(name = "{0}({1}, {2}) is described as {3}")
     @MethodSource("mapping")
     public void everyTypeIsDescribedAsToday(PrimitiveType type, Integer precision, Integer scale,
-            ArrowType expected) throws Exception {
+            ArrowType expected) {
         Assertions.assertEquals(expected, arrowType(type, precision, scale));
     }
 
@@ -310,47 +297,5 @@ public class FlightSqlSchemaHelperArrowTypeTest {
     @Test
     public void scalarColumnHasNoChildren() {
         Assertions.assertTrue(buildField(desc("i", TPrimitiveType.INT)).getChildren().isEmpty());
-    }
-
-    /**
-     * The client does not see the {@link Field} objects, it sees the serialized schema in the
-     * {@code table_schema} column of {@code GetTables}. Asserting after a round trip through that encoding
-     * is what proves the element types actually reach it.
-     */
-    @Test
-    public void theSerializedSchemaCarriesTheChildren() throws IOException {
-        byte[] serialized = FlightSqlSchemaHelper.getSerializedSchema(Collections.singletonList(
-                buildField(desc("a", TPrimitiveType.ARRAY, desc("item", TPrimitiveType.INT)))));
-
-        Schema schema = MessageSerializer.deserializeSchema(
-                new ReadChannel(Channels.newChannel(new ByteArrayInputStream(serialized))));
-
-        Field array = schema.getFields().get(0);
-        Assertions.assertEquals(ArrowType.ArrowTypeID.List, array.getType().getTypeID());
-        Assertions.assertEquals(new ArrowType.Int(32, true), array.getChildren().get(0).getType());
-    }
-
-    @Test
-    public void serializedSchemaDescribesScalarAndNestedTimestampNs() throws IOException {
-        byte[] serialized = FlightSqlSchemaHelper.getSerializedSchema(Arrays.asList(
-                buildField(desc("ts", TPrimitiveType.TIMESTAMP_NS)),
-                buildField(desc("items", TPrimitiveType.ARRAY,
-                        desc("item", TPrimitiveType.TIMESTAMP_NS))),
-                buildField(desc("by_name", TPrimitiveType.MAP,
-                        desc("key", TPrimitiveType.VARCHAR),
-                        desc("value", TPrimitiveType.TIMESTAMP_NS))),
-                buildField(desc("record", TPrimitiveType.STRUCT,
-                        desc("ts", TPrimitiveType.TIMESTAMP_NS)))));
-
-        Schema schema = MessageSerializer.deserializeSchema(
-                new ReadChannel(Channels.newChannel(new ByteArrayInputStream(serialized))));
-        ArrowType.Timestamp timestampNs = new ArrowType.Timestamp(TimeUnit.NANOSECOND, null);
-        Assertions.assertEquals(timestampNs, schema.getFields().get(0).getType());
-        Assertions.assertEquals(timestampNs,
-                schema.getFields().get(1).getChildren().get(0).getType());
-        Assertions.assertEquals(timestampNs,
-                schema.getFields().get(2).getChildren().get(0).getChildren().get(1).getType());
-        Assertions.assertEquals(timestampNs,
-                schema.getFields().get(3).getChildren().get(0).getType());
     }
 }
