@@ -7015,20 +7015,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowCatalog(DorisParser.ShowCatalogContext ctx) {
-        return new ShowCatalogCommand(ctx.identifier().getText(), null);
+        return new ShowCatalogCommand(ctx.identifier().getText(), null, null);
     }
 
     @Override
     public LogicalPlan visitShowCatalogs(DorisParser.ShowCatalogsContext ctx) {
-        String wild = null;
+        String likePattern = null;
+        Expression whereClause = null;
         if (ctx.wildWhere() != null) {
             if (ctx.wildWhere().LIKE() != null) {
-                wild = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
+                likePattern = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
             } else if (ctx.wildWhere().WHERE() != null) {
-                wild = ctx.wildWhere().expression().getText();
+                // LIKE patterns and WHERE expressions must stay separate because they use
+                // different evaluators and accept different character sets.
+                whereClause = getExpression(ctx.wildWhere().expression());
             }
         }
-        return new ShowCatalogCommand(null, wild);
+        return new ShowCatalogCommand(null, likePattern, whereClause);
     }
 
     @Override
