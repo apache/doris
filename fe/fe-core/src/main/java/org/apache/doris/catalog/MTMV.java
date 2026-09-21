@@ -818,12 +818,16 @@ public class MTMV extends OlapTable {
                     calculatePartitionMappings(Maps.newHashMap());
             Set<String> res = Sets.newHashSet();
             boolean pctTableMapped = false;
+            // Every base partition this table's part of the mapping describes, which is what the selection
+            // below is only allowed to trust when it covers the whole change.
+            Set<String> mappedBasePartitions = Sets.newHashSet();
             for (Entry<String, Map<MTMVRelatedTableIf, Set<String>>> mapping : partitionMappings.entrySet()) {
                 for (Entry<MTMVRelatedTableIf, Set<String>> tableMapping : mapping.getValue().entrySet()) {
                     if (!tableMapping.getKey().equals(pctTable)) {
                         continue;
                     }
                     pctTableMapped = true;
+                    mappedBasePartitions.addAll(tableMapping.getValue());
                     if (!Collections.disjoint(tableMapping.getValue(), changedBasePartitions.keySet())) {
                         res.add(mapping.getKey());
                     }
@@ -843,16 +847,22 @@ public class MTMV extends OlapTable {
                         + "baseTable={}, mv={}", baseTableInfo, name);
                 return Optional.empty();
             }
-            // An empty selection is only trustworthy while the mapping covers every base partition. With a
-            // partition_sync_limit in effect it does not: the window leaves out the partitions it dropped,
-            // and one of those can still have its rows in an MV partition -- shrinking the window does not
-            // touch the MV's own partitions, and widening it again makes partition sync keep them. Those
-            // two readings cannot be told apart here, so the whole MV is rebuilt instead; without a limit
-            // the mapping is complete, and an empty selection really does mean no MV partition holds them.
-            if (res.isEmpty() && MTMVPartitionUtil.isPartitionSyncLimitActive(mvProperties)) {
+            // A selection is only trustworthy while the mapping describes every base partition that
+            // changed. With a partition_sync_limit in effect it does not: the window leaves out the
+            // partitions it dropped, and one of those can still have its rows in an MV partition --
+            // shrinking the window does not touch the MV's own partitions, and widening it again makes
+            // partition sync keep them. A name the mapping leaves out cannot be told apart from a
+            // partition no MV partition reads, so the whole MV is rebuilt instead. Requiring the whole
+            // change to be described, rather than only a non-empty selection, is what covers a change
+            // that mixes a partition inside the window with one outside it: the inside half would
+            // otherwise fill the selection and hide the missing half. Without a limit the mapping is
+            // complete, and a partition it leaves out really is one no MV partition reads.
+            if (MTMVPartitionUtil.isPartitionSyncLimitActive(mvProperties)
+                    && !mappedBasePartitions.containsAll(changedBasePartitions.keySet())) {
                 LOG.info("Changed base partitions are outside the partition_sync_limit window and the MV may "
                         + "still hold their rows, rebuild the whole MV. baseTable={}, changedPartitions={}, "
-                        + "mv={}", baseTableInfo, changedBasePartitions.keySet(), name);
+                        + "undescribed={}, mv={}", baseTableInfo, changedBasePartitions.keySet(),
+                        Sets.difference(changedBasePartitions.keySet(), mappedBasePartitions), name);
                 return Optional.empty();
             }
             return Optional.of(res);

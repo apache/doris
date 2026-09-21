@@ -213,6 +213,50 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     /**
+     * The same window, with a change that touches a partition inside it and one outside it at once: the
+     * partition inside fills the selection, and the one outside contributes nothing because the window
+     * left it out of the mapping. Judging the change by "was anything selected" would mark only the MV
+     * partition backed by the inside half, and the rows of the outside half -- which the MV partition for
+     * it still holds -- would never be rebuilt.
+     */
+    @Test
+    public void testChangeThatMixesInWindowAndOutOfWindowPartitionsRebuildsTheWholeMv() throws Exception {
+        String db = "ivm_baseline_sync_window_mixed";
+        String thisYear = LocalDate.now().withDayOfYear(1).toString();
+        String nextYear = LocalDate.now().withDayOfYear(1).plusYears(1).toString();
+        createDatabaseAndUse(db);
+        createTable("CREATE TABLE " + db + ".ivm_base (\n"
+                + "  dt date NOT NULL,\n"
+                + "  k1 int,\n"
+                + "  v1 int\n"
+                + ")\n"
+                + "DUPLICATE KEY(dt, k1)\n"
+                + "PARTITION BY RANGE(dt) (\n"
+                + "  PARTITION p202001 VALUES [('2020-01-01'), ('2020-02-01')),\n"
+                + "  PARTITION p202002 VALUES [('2020-02-01'), ('2020-03-01')),\n"
+                + "  PARTITION pThisYear VALUES [('" + thisYear + "'), ('" + nextYear + "'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_mv\n"
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "PARTITION BY(dt)\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT dt, k1, v1 FROM ivm_base");
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertEquals(3, mtmv.getPartitionNames().size());
+
+        executeSql("ALTER MATERIALIZED VIEW ivm_mv SET ('partition_sync_limit' = '1',"
+                + " 'partition_sync_time_unit' = 'YEAR')");
+        // One statement, so the marker sees both partitions together: pThisYear is inside the window while
+        // p202001 is not, which is exactly the mix a non-empty selection must not be allowed to hide.
+        executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001, pThisYear)");
+
+        Assertions.assertTrue(mtmv.getIvmInfo().requiresCompleteBaselineRebuild());
+    }
+
+    /**
      * The partition mapping is built from the MV's PCT tables only. A changed partition of a joined table
      * the MV's partition column does not reach is invisible to it, and missing such a change leaves rows
      * of the dropped partition in the MV forever, so the whole MV has to be rebuilt.
