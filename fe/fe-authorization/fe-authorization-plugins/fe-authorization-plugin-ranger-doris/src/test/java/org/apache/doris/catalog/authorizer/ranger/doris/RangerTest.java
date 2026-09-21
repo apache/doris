@@ -440,6 +440,11 @@ public class RangerTest {
             getConfig().set("ranger.plugin.test.policy.rest.url", "http://ranger.invalid:6080");
         }
 
+        /** Left alone: a singleton of the JVM, and a load that never polls has no audit to write. */
+        @Override
+        protected void initializeAudit(boolean again) {
+        }
+
         @Override
         protected void firstLoad() {
             loadStarted.countDown();

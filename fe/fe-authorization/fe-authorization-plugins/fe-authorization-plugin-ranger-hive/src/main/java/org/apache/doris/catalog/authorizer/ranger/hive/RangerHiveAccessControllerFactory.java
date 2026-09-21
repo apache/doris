@@ -26,10 +26,12 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
@@ -85,6 +87,12 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
      */
     private static final Map<String, Shared> STACKS_BY_SERVICE = new HashMap<>();
     private static final Map<Map<String, String>, Held> BY_CONFIGURATION = new LinkedHashMap<>();
+    /**
+     * The controllers let go of with a failed stack while bindings still hold them: handed out to nobody,
+     * released like the others, so that it is the last binding letting go that fences a controller - as it
+     * would have been had the stack not failed - and not the first.
+     */
+    private static final List<Held> RETIRED = new ArrayList<>();
 
     /** One audit stack, and the stop scheduled for it while nothing reads it. */
     private static final class Shared {
@@ -213,9 +221,9 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
      * {@code ALTER CATALOG} that detaches and re-attaches a catalog bound to the failed one - which is why a
      * failed stack is kept for nobody, not even for the grace period, which is for a stack a re-attach is
      * about to ask for again. Its controllers go with it, because a re-attach that found one in
-     * {@link #BY_CONFIGURATION} would be handed the failed stack again. The bindings still holding them go on
-     * refusing, as they have since the load failed, and when they let go {@link #release} has nothing here to
-     * account for - and nothing of theirs to stop, since none of them owns the stack.
+     * {@link #BY_CONFIGURATION} would be handed the failed stack again; the bindings still holding them go on
+     * refusing, as they have since the load failed, and are accounted for in {@link #RETIRED} until the last
+     * of them lets go - with nothing of theirs to stop then, since none of them owns the stack.
      *
      * <p>Caller holds {@link #LOCK}.
      */
@@ -227,11 +235,12 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
         cancelPendingStop(shared);
         STACKS_BY_SERVICE.remove(serviceName);
         int letGo = 0;
-        for (Iterator<Map<String, String>> configurations = BY_CONFIGURATION.keySet().iterator();
-                configurations.hasNext();) {
-            if (Objects.equals(serviceName,
-                    configurations.next().get(RangerHiveAccessController.SERVICE_NAME_PROPERTY))) {
-                configurations.remove();
+        for (Iterator<Map.Entry<Map<String, String>, Held>> entries = BY_CONFIGURATION.entrySet().iterator();
+                entries.hasNext();) {
+            Map.Entry<Map<String, String>, Held> entry = entries.next();
+            if (Objects.equals(serviceName, entry.getKey().get(RangerHiveAccessController.SERVICE_NAME_PROPERTY))) {
+                RETIRED.add(entry.getValue());
+                entries.remove();
                 letGo++;
             }
         }
@@ -249,9 +258,8 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
      * see {@link #STACKS_BY_SERVICE}, where a stop is scheduled instead. What has to stop here is this
      * controller: a query may still be holding it, and from here it must refuse rather than answer.
      *
-     * @return whether this factory owned {@code controller}; false means it was built some other way, or the
-     *         factory has let go of it with the failed stack it is over, and its caller has to stop it
-     *         itself.
+     * @return whether this factory owned {@code controller}; false means it was built some other way and its
+     *         caller has to stop it itself.
      */
     static boolean release(RangerHiveAccessController controller) {
         if (controller == null) {
@@ -259,18 +267,24 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
         }
         synchronized (LOCK) {
             Map<String, String> configuration = configurationOf(controller);
-            if (configuration == null) {
+            Held held = configuration != null ? BY_CONFIGURATION.get(configuration) : retiredHoldOf(controller);
+            if (held == null) {
                 return false;
             }
-            Held held = BY_CONFIGURATION.get(configuration);
             if (--held.holders > 0) {
                 return true;
             }
-            BY_CONFIGURATION.remove(configuration);
-            LOG.info("Last binding of configuration {} of {} released; {} configuration(s) of this source"
-                            + " still in use.", describe(configuration), RangerHiveAccessController.NAME,
-                    BY_CONFIGURATION.size());
-            stopUnlessStillRead(configuration.get(RangerHiveAccessController.SERVICE_NAME_PROPERTY));
+            if (configuration == null) {
+                // Over a stack the factory has already let go of and stopped; nothing reads it, so there is
+                // no stop to schedule.
+                RETIRED.remove(held);
+            } else {
+                BY_CONFIGURATION.remove(configuration);
+                LOG.info("Last binding of configuration {} of {} released; {} configuration(s) of this source"
+                                + " still in use.", describe(configuration), RangerHiveAccessController.NAME,
+                        BY_CONFIGURATION.size());
+                stopUnlessStillRead(configuration.get(RangerHiveAccessController.SERVICE_NAME_PROPERTY));
+            }
         }
         // Fence with no lock held: from here nothing reaches the plugin through this controller. A query that
         // is still holding it is refused rather than answered by a controller nothing is bound to.
@@ -343,6 +357,16 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
             shared.pendingStop.cancel(false);
             shared.pendingStop = null;
         }
+    }
+
+    /** The hold on {@code controller} among the ones let go of with a failed stack, or null. */
+    private static Held retiredHoldOf(RangerHiveAccessController controller) {
+        for (Held held : RETIRED) {
+            if (held.controller == controller) {
+                return held;
+            }
+        }
+        return null;
     }
 
     /** The configuration {@code controller} was built for, or null when this factory did not build it. */

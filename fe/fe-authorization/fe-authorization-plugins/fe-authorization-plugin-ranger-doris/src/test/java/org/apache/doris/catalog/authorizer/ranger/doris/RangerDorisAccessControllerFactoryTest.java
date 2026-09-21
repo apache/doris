@@ -34,6 +34,7 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 public class RangerDorisAccessControllerFactoryTest {
@@ -48,6 +49,7 @@ public class RangerDorisAccessControllerFactoryTest {
     public void forgetPreviouslyCreatedControllers() throws Exception {
         setStatic("sharedPlugin", null);
         ((Map<Object, Object>) readStatic("byConfiguration")).clear();
+        ((List<Object>) readStatic("retired")).clear();
     }
 
     private static void setStatic(String name, Object value) throws Exception {
@@ -195,11 +197,13 @@ public class RangerDorisAccessControllerFactoryTest {
     /**
      * A plugin whose first load threw is handed to nobody else: the next binding - the same configuration,
      * which would otherwise have been served the controller already over it - gets a plugin built afresh,
-     * which is how a configuration fixed in fe/conf reaches this source without an FE restart.
+     * which is how a configuration fixed in fe/conf reaches this source without an FE restart. Every
+     * configuration over the failed plugin goes with it, not only the one being bound: a re-attach of a
+     * catalog configured differently would otherwise find its controller and be handed the failed plugin
+     * through it.
      *
-     * <p>The factory stops what it lets go of, and so does the binding still over the failed plugin when it
-     * lets go the way one built outside the factory does - there is nothing left here to account for. Both
-     * are no-ops on a plugin that stopped itself when its load threw, which is what a failed one has done.
+     * <p>The factory stops what it lets go of - a no-op on a plugin that stopped itself when its load threw,
+     * which is what a failed one has done.
      */
     @Test
     public void testAPluginWhoseLoadFailedIsReplacedByTheNextBinding() {
@@ -208,6 +212,8 @@ public class RangerDorisAccessControllerFactoryTest {
                 Mockito.mockConstruction(RangerDorisPlugin.class)) {
             AuthorizationPlugin overTheFailed = new RangerDorisAccessControllerFactory()
                     .create(Collections.emptyMap(), context);
+            AuthorizationPlugin strictOverTheFailed = new RangerDorisAccessControllerFactory()
+                    .create(STRICT, context);
             RangerDorisPlugin failed = construction.constructed().get(0);
             Mockito.when(failed.isFailed()).thenReturn(true);
 
@@ -218,15 +224,56 @@ public class RangerDorisAccessControllerFactoryTest {
             Assertions.assertNotSame(overTheFailed, replacement,
                     "the controller over the failed plugin was handed out again");
             Mockito.verify(failed).cleanup();
-            // And the one built afresh is what the binding after that shares.
+            // And the one built afresh is what the bindings after that share - whatever they configure.
             Assertions.assertSame(replacement,
                     new RangerDorisAccessControllerFactory().create(Collections.emptyMap(), context));
-            Assertions.assertEquals(2, construction.constructed().size());
+            AuthorizationPlugin strictReplacement = new RangerDorisAccessControllerFactory().create(STRICT, context);
+            Assertions.assertNotSame(strictOverTheFailed, strictReplacement,
+                    "a differently configured binding was handed its controller over the failed plugin again");
+            Assertions.assertEquals(2, construction.constructed().size(), "a third plugin was built");
 
             overTheFailed.close();
-            Mockito.verify(failed, Mockito.times(2)).cleanup();
+            strictOverTheFailed.close();
+            Mockito.verify(failed).cleanup();
             replacement.close();
+            strictReplacement.close();
             Mockito.verify(construction.constructed().get(1), Mockito.never()).cleanup();
+        }
+    }
+
+    /**
+     * A controller let go of with the failed plugin is still one controller shared by every binding configured
+     * alike, and the last of them letting go is the one that fences it - not the first, as it would be if
+     * letting go of the plugin had also dropped the count. Fenced early, the catalog still bound to it would
+     * refuse as "closed", hiding the cause its refusals carry.
+     */
+    @Test
+    public void testTheLastBindingOverAFailedPluginIsTheOneThatFencesTheController() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        AuthorizedResource.Table table = AuthorizedResource.table("ctl", "db", "tbl");
+        try (MockedConstruction<RangerDorisPlugin> construction =
+                Mockito.mockConstruction(RangerDorisPlugin.class)) {
+            AuthorizationPlugin first = new RangerDorisAccessControllerFactory()
+                    .create(Collections.emptyMap(), context);
+            AuthorizationPlugin second = new RangerDorisAccessControllerFactory()
+                    .create(Collections.emptyMap(), context);
+            Assertions.assertSame(first, second);
+            Mockito.when(construction.constructed().get(0).isFailed()).thenReturn(true);
+            new RangerDorisAccessControllerFactory().create(Collections.emptyMap(), context).close();
+            Assertions.assertEquals(2, construction.constructed().size());
+
+            first.close();
+            // Still held by the second binding: refused for what it is - a plugin with no answer - not as closed.
+            IllegalStateException refused = Assertions.assertThrows(IllegalStateException.class,
+                    () -> second.getRowFilters(SUBJECT, table, AccessContext.NONE));
+            Assertions.assertTrue(refused.getMessage().contains("has no answer"), refused.getMessage());
+
+            second.close();
+            refused = Assertions.assertThrows(IllegalStateException.class,
+                    () -> second.getRowFilters(SUBJECT, table, AccessContext.NONE));
+            Assertions.assertTrue(refused.getMessage().contains("has been closed"), refused.getMessage());
+            // The factory stopped the failed plugin once, on letting go of it; the bindings stop nothing.
+            Mockito.verify(construction.constructed().get(0)).cleanup();
         }
     }
 

@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog.authorizer.ranger.hive;
 
+import org.apache.doris.authorization.AccessContext;
+import org.apache.doris.authorization.AuthorizedResource;
+import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 
@@ -31,6 +34,7 @@ import java.util.Map;
 
 public class RangerHiveAccessControllerFactoryTest {
 
+    private static final AuthorizedSubject SUBJECT = AuthorizedSubject.of("user1", "%");
     private static final long PRODUCTION_GRACE_SECONDS =
             RangerHiveAccessControllerFactory.idleStackGraceSeconds;
 
@@ -166,42 +170,128 @@ public class RangerHiveAccessControllerFactoryTest {
      * A stack whose plugin failed its first load is kept for nobody: the next binding on its service - the
      * same configuration, which would otherwise have been served the controller already over it - stops it
      * and gets a stack built afresh, which is how a configuration fixed in fe/conf reaches this source
-     * without an FE restart. Stopped on the spot rather than after the grace period, because that period is
+     * without an FE restart. Every configuration on that service goes with it, and nothing on any other
+     * service is touched. Stopped on the spot rather than after the grace period, because that period is
      * for a stack a re-attach is about to ask for again, and nothing will ask for this one.
      */
     @Test
     public void testAStackWhosePluginFailedIsReplacedByTheNextBinding() {
         AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
-        Map<String, String> properties = ImmutableMap.of("ranger.service.name", "failed_load");
+        Map<String, String> deferring = ImmutableMap.of("ranger.service.name", "failed_load");
+        Map<String, String> strict = ImmutableMap.of("ranger.service.name", "failed_load",
+                "ranger.defer_to_global_scope_authority", "false");
+        Map<String, String> healthy = ImmutableMap.of("ranger.service.name", "healthy");
         RangerHiveAccessControllerFactory.idleStackGraceSeconds = 3600;
 
         try (MockedConstruction<RangerHivePlugin> plugins = Mockito.mockConstruction(RangerHivePlugin.class);
                 MockedConstruction<RangerHiveAuditHandler> handlers =
                         Mockito.mockConstruction(RangerHiveAuditHandler.class)) {
-            AuthorizationPlugin overTheFailed = new RangerHiveAccessControllerFactory().create(properties, context);
+            AuthorizationPlugin overTheFailed = new RangerHiveAccessControllerFactory().create(deferring, context);
+            AuthorizationPlugin strictOverTheFailed = new RangerHiveAccessControllerFactory().create(strict, context);
+            AuthorizationPlugin overTheHealthy = new RangerHiveAccessControllerFactory().create(healthy, context);
             RangerHivePlugin failed = plugins.constructed().get(0);
             Mockito.when(failed.isFailed()).thenReturn(true);
 
-            AuthorizationPlugin replacement = new RangerHiveAccessControllerFactory().create(properties, context);
+            AuthorizationPlugin replacement = new RangerHiveAccessControllerFactory().create(deferring, context);
 
-            Assertions.assertEquals(2, plugins.constructed().size(), "the failed plugin was handed out again");
+            Assertions.assertEquals(3, plugins.constructed().size(), "the failed plugin was handed out again");
             Assertions.assertNotSame(overTheFailed, replacement,
                     "the controller over the failed stack was handed out again");
-            Assertions.assertEquals(1, RangerHiveAccessControllerFactory.polledServiceCount());
+            Assertions.assertEquals(2, RangerHiveAccessControllerFactory.polledServiceCount());
             // What is left of the failed stack is stopped on the way: its audit flushed, its plugin's stop
             // asked for - a no-op on one that stopped itself, and the same call for a mock.
             Mockito.verify(failed).cleanup();
             Mockito.verify(handlers.constructed().get(0)).flushAudit();
             Mockito.verify(plugins.constructed().get(1), Mockito.never()).cleanup();
+            Mockito.verify(plugins.constructed().get(2), Mockito.never()).cleanup();
+            // The other configuration on that service is over the new stack from here on too, and the other
+            // service was never touched.
+            AuthorizationPlugin strictReplacement = new RangerHiveAccessControllerFactory().create(strict, context);
+            Assertions.assertNotSame(strictOverTheFailed, strictReplacement,
+                    "a differently configured binding was handed its controller over the failed stack again");
+            Assertions.assertSame(overTheHealthy, new RangerHiveAccessControllerFactory().create(healthy, context));
+            Assertions.assertEquals(3, plugins.constructed().size(), "a fourth plugin was built");
 
-            // The binding still over the failed stack lets go with nothing left here to account for, and
-            // nothing of its own to stop.
+            // The bindings still over the failed stack let go with nothing of their own to stop, and without
+            // touching what replaced it.
             overTheFailed.close();
+            strictOverTheFailed.close();
             Mockito.verify(failed, Mockito.times(1)).cleanup();
+            Assertions.assertEquals(2, RangerHiveAccessControllerFactory.polledServiceCount(),
+                    "letting go of a controller the factory had already let go of stopped a stack");
+
+            stopPolling(replacement, strictReplacement, overTheHealthy, overTheHealthy);
+        }
+    }
+
+    /**
+     * A failed stack nothing reads any more - released before its load ended, a stop scheduled for it - is
+     * stopped by the binding that lets go of it, once, and the scheduled stop is cancelled rather than left
+     * to stop it a second time.
+     */
+    @Test
+    public void testAFailedStackAwaitingItsScheduledStopIsStoppedOnceByTheNextBinding() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        Map<String, String> properties = ImmutableMap.of("ranger.service.name", "failed_then_idle");
+        RangerHiveAccessControllerFactory.idleStackGraceSeconds = 3600;
+
+        try (MockedConstruction<RangerHivePlugin> plugins = Mockito.mockConstruction(RangerHivePlugin.class);
+                MockedConstruction<RangerHiveAuditHandler> handlers =
+                        Mockito.mockConstruction(RangerHiveAuditHandler.class)) {
+            new RangerHiveAccessControllerFactory().create(properties, context).close();
+            RangerHivePlugin failed = plugins.constructed().get(0);
             Assertions.assertEquals(1, RangerHiveAccessControllerFactory.polledServiceCount(),
-                    "letting go of a controller the factory had already let go of stopped the new stack");
+                    "the stack was stopped inside the grace period");
+            Mockito.when(failed.isFailed()).thenReturn(true);
+
+            AuthorizationPlugin replacement = new RangerHiveAccessControllerFactory().create(properties, context);
+
+            Assertions.assertEquals(2, plugins.constructed().size(), "the failed plugin was handed out again");
+            Mockito.verify(failed).cleanup();
+            Mockito.verify(handlers.constructed().get(0)).flushAudit();
+            Assertions.assertEquals(1, RangerHiveAccessControllerFactory.polledServiceCount());
 
             stopPolling(replacement);
+            Mockito.verify(failed, Mockito.times(1)).cleanup();
+        }
+    }
+
+    /**
+     * A controller let go of with the failed stack is still one controller shared by every binding configured
+     * alike, and the last of them letting go is the one that fences it - not the first, as it would be if
+     * letting go of the stack had also dropped the count. Fenced early, the catalog still bound to it would
+     * refuse as "closed", hiding the cause its refusals carry.
+     */
+    @Test
+    public void testTheLastBindingOverAFailedStackIsTheOneThatFencesTheController() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        Map<String, String> properties = ImmutableMap.of("ranger.service.name", "failed_shared");
+        AuthorizedResource.Table table = AuthorizedResource.table("ctl", "db", "tbl");
+        RangerHiveAccessControllerFactory.idleStackGraceSeconds = 3600;
+
+        try (MockedConstruction<RangerHivePlugin> plugins = Mockito.mockConstruction(RangerHivePlugin.class);
+                MockedConstruction<RangerHiveAuditHandler> handlers =
+                        Mockito.mockConstruction(RangerHiveAuditHandler.class)) {
+            AuthorizationPlugin first = new RangerHiveAccessControllerFactory().create(properties, context);
+            AuthorizationPlugin second = new RangerHiveAccessControllerFactory().create(properties, context);
+            Assertions.assertSame(first, second);
+            Mockito.when(plugins.constructed().get(0).isFailed()).thenReturn(true);
+            AuthorizationPlugin replacement = new RangerHiveAccessControllerFactory().create(properties, context);
+            Assertions.assertEquals(2, plugins.constructed().size());
+
+            first.close();
+            // Still held by the second binding: refused for what it is - a plugin with no answer - not as closed.
+            IllegalStateException refused = Assertions.assertThrows(IllegalStateException.class,
+                    () -> second.getRowFilters(SUBJECT, table, AccessContext.NONE));
+            Assertions.assertTrue(refused.getMessage().contains("has no answer"), refused.getMessage());
+
+            second.close();
+            refused = Assertions.assertThrows(IllegalStateException.class,
+                    () -> second.getRowFilters(SUBJECT, table, AccessContext.NONE));
+            Assertions.assertTrue(refused.getMessage().contains("has been closed"), refused.getMessage());
+
+            stopPolling(replacement);
+            Mockito.verify(plugins.constructed().get(0), Mockito.times(1)).cleanup();
         }
     }
 

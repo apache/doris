@@ -44,7 +44,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class BackgroundLoadedRangerPluginTest {
 
-    /** Where the admin would be. Never dialed: the load below never polls, and the preflight only builds a client. */
+    /**
+     * Where the admin would be. Never dialed: the load below never polls, and of the preflight only the admin
+     * client and the configuration reads run for real here - the audit subsystem is a singleton of the JVM
+     * and the doubles leave it alone, see {@link Loading#initializeAudit}.
+     */
     private static final String ADMIN_URL_PROPERTY = "ranger.plugin.test.policy.rest.url";
     private static final String ADMIN_URL = "http://ranger.invalid:6080";
 
@@ -73,7 +77,8 @@ public class BackgroundLoadedRangerPluginTest {
         private Loading(boolean clearsStateFirst, RangerUserStore userStore, boolean publishesThenThrows) {
             // Service type "test" reads ranger-test-*.xml, none of which exist here. The one thing init()
             // insists on knowing about the admin before it starts the load is where it is - the client it
-            // builds for the load refuses to exist without a URL - and with that, the real preflight runs.
+            // builds for the load refuses to exist without a URL - and with that, the preflight runs for
+            // real, but for the audit subsystem.
             super("test", "test", null);
             getConfig().set(ADMIN_URL_PROPERTY, ADMIN_URL);
             this.clearsStateFirst = clearsStateFirst;
@@ -83,6 +88,15 @@ public class BackgroundLoadedRangerPluginTest {
                 // The engine built below would otherwise ask a Ranger admin for the user store; there is none.
                 getConfig().set("ranger.plugin.test.use.rangerGroups", "false");
             }
+        }
+
+        /**
+         * Left alone: Ranger's audit subsystem is a singleton of the JVM, initialized once and for good, so a
+         * double that initialized it would decide, for every test after it, what the audit configuration of
+         * the process is. What the preflight does about it is exercised through {@link AuditFailing}.
+         */
+        @Override
+        protected void initializeAudit(boolean again) {
         }
 
         @Override
@@ -123,7 +137,42 @@ public class BackgroundLoadedRangerPluginTest {
         }
     }
 
+    /**
+     * A plugin whose audit subsystem refuses to initialize a given number of times - what a
+     * {@code ranger-<type>-audit.xml} naming a destination Doris does not ship does, through Ranger's
+     * {@code AuditProviderFactory} - and records whether it was asked to try again after an earlier failure.
+     */
+    private static final class AuditFailing extends BackgroundLoadedRangerPlugin {
+        private int failuresLeft;
+        private Boolean askedToTryAgain;
+        private final AtomicBoolean loadRan = new AtomicBoolean();
+
+        private AuditFailing(int failures) {
+            super("test", "test", null);
+            getConfig().set(ADMIN_URL_PROPERTY, ADMIN_URL);
+            this.failuresLeft = failures;
+        }
+
+        @Override
+        protected void initializeAudit(boolean again) {
+            askedToTryAgain = again;
+            if (failuresLeft-- > 0) {
+                throw new RuntimeException("Failed to create AuditDestination for class: solr");
+            }
+        }
+
+        @Override
+        protected void firstLoad() {
+            loadRan.set(true);
+        }
+    }
+
     private Loading plugin;
+
+    @AfterEach
+    public void forgetAnyAuditFailure() {
+        BackgroundLoadedRangerPlugin.forgetAuditInitFailure();
+    }
 
     private Loading loading() {
         return loading(false, null);
@@ -173,12 +222,56 @@ public class BackgroundLoadedRangerPluginTest {
         malformedTimeout.getConfig().set("ranger.plugin.test.policy.rest.client.read.timeoutMs", "soon");
         Assertions.assertThrows(NumberFormatException.class, malformedTimeout::init);
 
-        for (Loading plugin : new Loading[] {noAdminUrl, malformedTimeout}) {
+        Loading malformedPollInterval = loading();
+        malformedPollInterval.getConfig().set("ranger.plugin.test.policy.pollIntervalMs", "often");
+        Assertions.assertThrows(NumberFormatException.class, malformedPollInterval::init);
+
+        for (Loading plugin : new Loading[] {noAdminUrl, malformedTimeout, malformedPollInterval}) {
             Assertions.assertFalse(plugin.loadRan.get(), "the load was started for a refused configuration");
             Assertions.assertFalse(plugin.isLoaded());
             // Nothing was started, so there is nothing to wait for.
             within(CompletableFuture.runAsync(plugin::awaitLoaded), 10);
         }
+
+        // As it was before the refused call: with the configuration fixed, the same plugin starts its load.
+        noAdminUrl.getConfig().set(ADMIN_URL_PROPERTY, ADMIN_URL);
+        noAdminUrl.init();
+        Assertions.assertTrue(noAdminUrl.loadStarted.await(10, TimeUnit.SECONDS));
+        noAdminUrl.letTheLoadEnd();
+        noAdminUrl.awaitLoaded();
+        Assertions.assertTrue(noAdminUrl.isLoaded());
+    }
+
+    /**
+     * An audit subsystem that cannot be initialized refuses the plugin with the cause, before the load and
+     * without the admin client's errors having been able to hide it - and, because Ranger marks the subsystem
+     * done before it does the work, the next plugin built tries again rather than running without audit.
+     */
+    @Test
+    public void testAnAuditSubsystemThatCannotBeInitializedIsRefusedAndTriedAgain() {
+        AuditFailing first = new AuditFailing(1);
+        IllegalStateException refused = Assertions.assertThrows(IllegalStateException.class, first::init);
+        Assertions.assertTrue(refused.getMessage().contains("ranger-test-audit.xml"), refused.getMessage());
+        Assertions.assertTrue(refused.getMessage().contains("AuditDestination"), refused.getMessage());
+        Assertions.assertEquals(Boolean.FALSE, first.askedToTryAgain);
+        Assertions.assertFalse(first.loadRan.get(), "the load was started for a refused configuration");
+
+        // Still broken: refused again, and asked as a retry - Ranger would otherwise say it is done.
+        AuditFailing second = new AuditFailing(1);
+        Assertions.assertThrows(IllegalStateException.class, second::init);
+        Assertions.assertEquals(Boolean.TRUE, second.askedToTryAgain);
+        Assertions.assertFalse(second.loadRan.get());
+
+        // Fixed: the retry succeeds and the load starts; the one after it is not a retry any more.
+        AuditFailing fixed = new AuditFailing(0);
+        fixed.init();
+        Assertions.assertEquals(Boolean.TRUE, fixed.askedToTryAgain);
+        fixed.awaitLoaded();
+        Assertions.assertTrue(fixed.loadRan.get());
+        AuditFailing next = new AuditFailing(0);
+        next.init();
+        Assertions.assertEquals(Boolean.FALSE, next.askedToTryAgain);
+        next.awaitLoaded();
     }
 
     /**

@@ -56,23 +56,24 @@ import java.util.function.BooleanSupplier;
  * <em>ended</em> - with the policies from the admin, or from the local cache when the admin could not be
  * reached, or with nothing at all, in which case the engine is null and {@code RangerAccessController}
  * refuses, as it always has. What the load could not have got anywhere with is not left to it: before the
- * load starts, {@link #init()} does the part of it that needs no admin on the calling thread - the audit
- * subsystem and the admin client, see {@link #preflight()} - so a configuration that fails there (no
- * {@code policy.rest.url}, a REST timeout that is not a number, an audit destination Doris does not ship)
- * fails the constructor with its cause, as it did before the load had a thread of its own; that is what a
- * {@code CREATE CATALOG} dry run and an FE start refuse. A load that <em>threw</em> past that ends like the
- * others, whatever it had installed by then: what {@code RangerBasePlugin.init()} does about an admin it
- * cannot reach is logged and survived inside it, so such a throw is something else - a chained plugin that
- * could not start, a refresher setting only the refresher reads - and this plugin stops what the load did
- * publish, refuses every check, and says so through {@link #isFailed()}, see {@link #load()}. How long that
- * lasts is up to whoever holds the plugin: the factories hand a failed one to no further binding and build a
- * new one in its place, so a catalog bound to it recovers on the next {@code ALTER CATALOG} once the cause
- * is fixed, while the instance-scope source, bound once at start, recovers when the FE is restarted. The
- * wait is not shortened by a timeout of its own: the load is bounded by the REST timeouts the operator
- * already tunes, and answering out of an empty engine before it has ended would be refusing checks the
- * policies are about to allow - and, worse, passing ones a policy written against a group is about to deny.
- * What does cut it short is the caller having no use for the answer any more: a controller closed while
- * its check waits refuses, and {@link #awaitLoaded(BooleanSupplier)} is how it stops waiting.
+ * load starts, {@link #init()} does the part of it that needs no admin on the calling thread - the admin
+ * client, the refresher's polling interval, the audit subsystem, see {@link #preflight()} - so a
+ * configuration that fails there (no {@code policy.rest.url}, a REST timeout or a polling interval that is
+ * not a number, an audit destination Doris does not ship) fails the constructor with its cause, as it did
+ * before the load had a thread of its own; that is what a {@code CREATE CATALOG} dry run and an FE start
+ * refuse. A load that <em>threw</em> past that ends like the others, whatever it had installed by then:
+ * what {@code RangerBasePlugin.init()} does about an admin it cannot reach is logged and survived inside
+ * it, so such a throw is something else - a chained plugin that could not start - and this plugin stops
+ * what the load did publish, refuses every check, and says so through {@link #isFailed()}, see
+ * {@link #load()}. How long that lasts is up to whoever holds the plugin: the factories hand a failed one
+ * to no further binding and build a new one in its place, so a catalog bound to it recovers on the next
+ * {@code ALTER CATALOG} once the cause is fixed, while the instance-scope source, bound once at start,
+ * recovers when the FE is restarted. The wait is not shortened by a timeout of its own: the load is bounded
+ * by the REST timeouts the operator already tunes, and answering out of an empty engine before it has ended
+ * would be refusing checks the policies are about to allow - and, worse, passing ones a policy written
+ * against a group is about to deny. What does cut it short is the caller having no use for the answer any
+ * more: a controller closed while its check waits refuses, and {@link #awaitLoaded(BooleanSupplier)} is how
+ * it stops waiting.
  *
  * <p>Stopping it is {@link #cleanup()}, as before. Stopped while still loading - a {@code CREATE CATALOG}
  * dry run, the loser of a race in a factory - it finishes the load first and stops itself then, on the
@@ -90,6 +91,18 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
     private static final Logger LOG = LogManager.getLogger(BackgroundLoadedRangerPlugin.class);
     /** How often {@link #awaitLoaded(BooleanSupplier)} asks whether to give up. */
     private static final long GIVE_UP_CHECK_MS = 100;
+    /**
+     * Guards the audit initialization, so that two plugins built at once do not both perform it - Ranger's
+     * own check-then-init is not atomic, and the loser would initialize the subsystem a second time over the
+     * first one's queue. Static like the subsystem it guards: one per classloader, which is one per plugin
+     * directory.
+     */
+    private static final Object AUDIT_INIT_LOCK = new Object();
+    /**
+     * Why the audit initialization threw the last time it was tried, or null; the next plugin built tries
+     * again, see {@link #preflight()}. Guarded by {@link #AUDIT_INIT_LOCK}.
+     */
+    private static Throwable auditInitFailure;
 
     /** Released once the first load has ended, however it ended. */
     private final CountDownLatch loaded = new CountDownLatch(1);
@@ -112,7 +125,8 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
      *
      * <p>Not before {@link #preflight()} has passed, on this thread: a configuration the load could not have
      * got anywhere with fails this call with its cause instead of failing the load, and a call this refuses
-     * has started nothing - the plugin is as it was before it.
+     * has started no load - the plugin is as it was before it, and what the preflight did to the process
+     * (the audit subsystem, see there) the next plugin built takes into account.
      */
     @Override
     public void init() {
@@ -125,7 +139,7 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
         try {
             preflight();
         } catch (RuntimeException | Error e) {
-            // Nothing has been started, so nothing is waited for: a plugin this leaves behind - none in
+            // No load has been started, so nothing is waited for: a plugin this leaves behind - none in
             // production, where the constructor throws it away with the exception - has no load to end.
             loader.set(null);
             throw e;
@@ -164,8 +178,8 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
         } catch (Throwable e) {
             // Everything RangerBasePlugin.init() does about an admin it cannot reach is logged and survived
             // inside it, and what the load could not have got anywhere with the preflight refused before it
-            // started, so this is something else - a chained plugin that could not start, a refresher
-            // setting only the refresher reads. It used to fail the FE's start, or the CREATE CATALOG; now
+            // started, so this is something else - a chained plugin that could not start. It used to fail
+            // the FE's start, or the CREATE CATALOG; now
             // it fails every check against this plugin, which RangerAccessController reports on each one as
             // an engine that is not initialized, for as long as the plugin is held: the factories build a
             // new one for the next binding of a source whose plugin has failed (isFailed), which is how a
@@ -198,24 +212,67 @@ public abstract class BackgroundLoadedRangerPlugin extends RangerBasePlugin {
 
     /**
      * The part of the load that needs no Ranger admin, done on the thread calling {@link #init()} before the
-     * load starts: the audit subsystem, when this is the first plugin in the process to need it, and the
-     * admin client the load goes on to poll through. Both are what {@code RangerBasePlugin.init()} does
-     * first and would otherwise do on the loader, and both fail on configuration alone - the client refuses
-     * an empty {@code policy.rest.url} and a {@code policy.rest.client.*} setting that is not a number, the
-     * audit factory a destination Doris does not ship - so done here they fail whoever is building the
-     * plugin, with the cause, the way the constructor did before the load had a thread of its own. Neither
-     * dials anything: the client opens its connection on first use, and it is kept in the plugin context,
-     * where the refresher the load creates finds it rather than building a second one.
+     * load starts: the admin client the load goes on to poll through, the one refresher setting the refresher
+     * does not read leniently, and the audit subsystem, when this is the first plugin in the process to need
+     * it. All of it is what {@code RangerBasePlugin.init()} does first and would otherwise do on the loader,
+     * and all of it fails on configuration alone - the client refuses an empty {@code policy.rest.url} and a
+     * {@code policy.rest.client.*} setting that is not a number, the audit factory a destination Doris does
+     * not ship - so done here it fails whoever is building the plugin, with the cause, the way the constructor
+     * did before the load had a thread of its own. Nothing here dials the admin: the client opens its
+     * connection on first use, and it is kept in the plugin context, where the refresher and the user store
+     * retriever the load creates find it rather than building a second one.
+     *
+     * <p>In this order on purpose. The client's errors are the common first-deployment mistakes, and they are
+     * retryable: refused here, the operator fixes {@code fe/conf} and builds the plugin again. The audit
+     * subsystem is initialized once per process - Ranger reads the audit configuration of the first plugin
+     * that needs it and marks the subsystem done before it does the work - so it must not be initialized from
+     * a configuration that is about to be refused for its URL, or the retry would run without the audit the
+     * corrected files configure. What Ranger marks done although it threw, {@link #initializeAudit} is asked
+     * to do again by the next plugin built, so that family is retryable too. What stays with Ranger: a
+     * subsystem initialized with no audit configuration at all is not initialized again by a plugin that has
+     * one - that takes an FE restart, as it always has.
      *
      * <p>A test plugin standing in for the admin, whose {@link #firstLoad()} never polls, needs a URL for
-     * this all the same, or overrides it.
+     * the client all the same, and overrides {@link #initializeAudit}.
      */
     protected void preflight() {
+        getPluginContext().createAdminClient(getConfig());
+        // What PolicyRefresher reads of the configuration before it polls (ranger-plugins-common 2.8.0,
+        // PolicyRefresher's constructor), and the one thing it does not read leniently.
+        getConfig().getLong(getConfig().getPropertyPrefix() + ".policy.pollIntervalMs", 30 * 1000L);
+        synchronized (AUDIT_INIT_LOCK) {
+            try {
+                initializeAudit(auditInitFailure != null);
+                auditInitFailure = null;
+            } catch (RuntimeException | Error e) {
+                auditInitFailure = e;
+                throw new IllegalStateException("the Ranger audit subsystem could not be initialized from"
+                        + " ranger-" + getServiceType() + "-audit.xml; fix it and try again: " + e.getMessage(),
+                        e);
+            }
+        }
+    }
+
+    /**
+     * Initializes Ranger's audit subsystem from this plugin's configuration, unless a plugin built earlier in
+     * this process has done it - or, when {@code again}, although one has tried and failed; see
+     * {@link #preflight()} for why that is retried. Exactly the initialization {@code RangerBasePlugin.init()}
+     * performs, moved onto the calling thread. A test's plugin overrides this: the subsystem is a singleton
+     * of the JVM, and a load that never polls has no audit to write.
+     */
+    protected void initializeAudit(boolean again) {
         AuditProviderFactory auditProviderFactory = AuditProviderFactory.getInstance();
-        if (!auditProviderFactory.isInitDone() && getConfig().getProperties() != null) {
+        if ((again || !auditProviderFactory.isInitDone()) && getConfig().getProperties() != null) {
             auditProviderFactory.init(getConfig().getProperties(), getAppId());
         }
-        getPluginContext().createAdminClient(getConfig());
+    }
+
+    /** Forgets an audit initialization failure {@link #preflight()} remembered, for a test that caused one. */
+    @VisibleForTesting
+    static void forgetAuditInitFailure() {
+        synchronized (AUDIT_INIT_LOCK) {
+            auditInitFailure = null;
+        }
     }
 
     /**

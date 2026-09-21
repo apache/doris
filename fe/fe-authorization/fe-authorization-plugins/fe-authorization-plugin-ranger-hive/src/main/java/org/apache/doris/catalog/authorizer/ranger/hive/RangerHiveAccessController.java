@@ -173,8 +173,7 @@ public class RangerHiveAccessController extends RangerAccessController {
             return;
         }
         // Built directly rather than through the factory - a test, or an embedding that owns its own stack -
-        // so there is nobody else to account for and the stack is ours to stop. Or the factory has let go of
-        // this controller with the failed stack it is over, and there is nothing of ours to stop either.
+        // so there is nobody else to account for and the stack is ours to stop.
         if (!markClosed()) {
             return;
         }

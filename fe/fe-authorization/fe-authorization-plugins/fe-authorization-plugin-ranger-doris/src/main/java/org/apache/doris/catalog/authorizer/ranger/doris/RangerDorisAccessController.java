@@ -131,9 +131,7 @@ public class RangerDorisAccessController extends RangerAccessController {
             return;
         }
         // Built directly rather than through the factory - a test, or an embedding that owns its own plugin -
-        // so there is nobody else to account for and the plugin is ours to stop. Or the factory has let go of
-        // this controller with the failed plugin it is over, which has stopped itself and takes this as a
-        // no-op.
+        // so there is nobody else to account for and the plugin is ours to stop.
         if (markClosed()) {
             stopPlugin();
         }
