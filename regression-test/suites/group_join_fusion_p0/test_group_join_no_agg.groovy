@@ -28,9 +28,8 @@ suite("test_group_join_no_agg") {
     sql "SET query_cache_force_refresh=true"
     sql "SET enable_bucket_shuffle_join=false"
     sql "SET enable_runtime_filter_prune=false"
-    // Spill disables GroupJoin fusion by design (the fused operator cannot spill) and the
-    // P0 pipeline runs every session with fuzzy session variables, where enable_spill is
-    // randomized, so pin it to keep the fused plan deterministic.
+    // Keep spill deterministic while verifying that no-aggregate queries are ineligible for
+    // GroupJoin independently of session settings.
     sql "SET enable_spill=false"
     def query = """SELECT l.k FROM gj_no_agg_left l
         JOIN [shuffle] gj_no_agg_right r ON l.k=r.k GROUP BY l.k ORDER BY l.k"""
@@ -43,7 +42,9 @@ suite("test_group_join_no_agg") {
             sql "SET experimental_enable_group_join_fusion=true"
             explain {
                 sql query
-                contains "VGROUP JOIN"
+                contains "VHASH JOIN"
+                contains "VAGGREGATE"
+                notContains "VGROUP JOIN"
             }
             for (i in 0..<5) {
                 assertEquals(reference, sql(query))
@@ -68,7 +69,9 @@ suite("test_group_join_no_agg") {
     sql "SET experimental_enable_group_join_fusion=true"
     explain {
         sql query
-        contains "VGROUP JOIN"
+        contains "VHASH JOIN"
+        contains "VAGGREGATE"
+        notContains "VGROUP JOIN"
     }
     assertEquals(reference, sql(query))
     // Empty build and empty probe must both produce no groups.
