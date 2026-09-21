@@ -39,6 +39,8 @@ import org.lance.namespace.model.ListTablesRequest;
 import org.lance.namespace.model.ListTablesResponse;
 import org.lance.namespace.model.TableExistsRequest;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,7 +51,6 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.function.LongSupplier;
 
 /**
  * Namespace requests and table access resolution. The catalog client owns the native resources
@@ -68,19 +69,18 @@ final class LanceNamespaceClient {
     private final Object namespaceLock = new Object();
     private final long tableAccessTtlNanos;
     private final Ticker ticker;
-    private final LongSupplier currentTimeMillis;
     private volatile Cache<List<String>, CachedTableAccess> tableAccessCache;
 
     LanceNamespaceClient(LanceNamespace namespace, String catalogType, String rootDatabase,
             List<String> parentNamespace, List<StorageProperties> storageProperties) {
         this(namespace, catalogType, rootDatabase, parentNamespace, storageProperties,
                 AbstractLanceProperties.DEFAULT_TABLE_ACCESS_CACHE_TTL_SECONDS,
-                Ticker.systemTicker(), System::currentTimeMillis);
+                Ticker.systemTicker());
     }
 
     LanceNamespaceClient(LanceNamespace namespace, String catalogType, String rootDatabase,
             List<String> parentNamespace, List<StorageProperties> storageProperties,
-            long tableAccessTtlSeconds, Ticker ticker, LongSupplier currentTimeMillis) {
+            long tableAccessTtlSeconds, Ticker ticker) {
         this.namespace = namespace;
         this.catalogType = catalogType;
         this.rootDatabase = rootDatabase;
@@ -88,7 +88,6 @@ final class LanceNamespaceClient {
         this.storageProperties = Collections.unmodifiableList(new ArrayList<>(storageProperties));
         this.tableAccessTtlNanos = TimeUnit.SECONDS.toNanos(tableAccessTtlSeconds);
         this.ticker = ticker;
-        this.currentTimeMillis = currentTimeMillis;
         this.tableAccessCache = newTableAccessCache();
     }
 
@@ -243,28 +242,27 @@ final class LanceNamespaceClient {
         Map<String, String> storageOptions = LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri,
                 storageProperties, table.getStorageOptions());
         return new CachedTableAccess(new LanceTableAccess(datasetUri, storageOptions),
-                tableAccessTtlNanos(table.getStorageOptions()));
+                tableAccessTtlNanos(datasetUri, table.getStorageOptions()));
     }
 
-    private long tableAccessTtlNanos(Map<String, String> vendedOptions) {
-        if (vendedOptions == null || vendedOptions.isEmpty()) {
-            return tableAccessTtlNanos;
-        }
-        // Vended options can contain temporary credentials. Never assume they are permanent
-        // when expiry is absent, and reserve time for planning and dispatch to the BE.
-        String expiry = vendedOptions.get("expires_at_millis");
-        if (expiry == null) {
+    private long tableAccessTtlNanos(String datasetUri, Map<String, String> vendedOptions) {
+        // The BE cannot renew credentials during a scan. A fixed expiry margin cannot cover
+        // arbitrary query durations, so preserve per-read vending even with a reported deadline.
+        if (vendedOptions != null && !vendedOptions.isEmpty()) {
             return 0;
         }
         try {
-            long expiresAtMillis = Long.parseLong(expiry);
-            long now = currentTimeMillis.getAsLong();
-            if (expiresAtMillis <= now) {
+            URI uri = new URI(datasetUri.trim());
+            // Presigned/SAS credentials may live in the URI even when storage_options is empty.
+            // Also check registry-based authorities, for which URI.getRawUserInfo() returns null.
+            if (uri.isOpaque() || uri.getRawUserInfo() != null || uri.getRawQuery() != null
+                    || uri.getRawFragment() != null
+                    || (uri.getRawAuthority() != null && uri.getRawAuthority().contains("@"))) {
                 return 0;
             }
-            long remainingMillis = Math.max(0, expiresAtMillis - now - TimeUnit.SECONDS.toMillis(30));
-            return Math.min(tableAccessTtlNanos, TimeUnit.MILLISECONDS.toNanos(remainingMillis));
-        } catch (NumberFormatException e) {
+            return tableAccessTtlNanos;
+        } catch (URISyntaxException e) {
+            // Unclassified locators remain usable but must not be assumed credential-free.
             return 0;
         }
     }

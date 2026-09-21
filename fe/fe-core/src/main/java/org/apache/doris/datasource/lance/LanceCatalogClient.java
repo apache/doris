@@ -120,7 +120,7 @@ final class LanceCatalogClient implements AutoCloseable {
         this.session = session;
         this.namespaceClient = new LanceNamespaceClient(
                 namespace, catalogType, rootDatabase, parentNamespace, storageProperties,
-                tableAccessCacheTtlSeconds, Ticker.systemTicker(), System::currentTimeMillis);
+                tableAccessCacheTtlSeconds, Ticker.systemTicker());
         this.namespaceStorageOptions = Collections.unmodifiableMap(new HashMap<>(namespaceStorageOptions));
     }
 

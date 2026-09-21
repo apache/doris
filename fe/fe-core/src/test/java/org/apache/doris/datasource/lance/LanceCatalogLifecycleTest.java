@@ -18,10 +18,13 @@
 package org.apache.doris.datasource.lance;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
+import org.apache.doris.persist.EditLog;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.junit.jupiter.api.Assertions;
@@ -37,6 +40,7 @@ import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -208,7 +212,7 @@ public class LanceCatalogLifecycleTest {
             caches.invalidateTable(catalog.getId(), "mapped_db", "mapped_table");
             caches.invalidateDb(catalog.getId(), "mapped_db");
             caches.invalidateCatalog(catalog.getId());
-            Mockito.verify(client, Mockito.times(3)).invalidateTableAccessCache();
+            Mockito.verify(client, Mockito.times(2)).invalidateTableAccessCache();
             Mockito.verify(session, Mockito.never()).close();
             Mockito.verify(catalog, Mockito.never()).createClient();
         } finally {
@@ -232,6 +236,123 @@ public class LanceCatalogLifecycleTest {
             Assertions.assertEquals(LanceIndexDatasetLocator.normalize("file:///warehouse/replacement.lance"),
                     client.resolveCurrentIndexJobLocator("default", "items"));
             Mockito.verify(namespace, Mockito.times(2)).describeTable(Mockito.any());
+        }
+    }
+
+    @Test
+    public void testRoutineDatabaseObjectCleanupPreservesHotAccess() throws Exception {
+        try (AccessFixture fixture = new AccessFixture()) {
+            LanceNamespaceClient access = fixture.access();
+            access.resolveTableAccess("default", "items");
+            new LanceExternalDatabase(fixture.catalog, 1, "cold_db", "cold_db").resetMetaToUninitialized();
+            access.resolveTableAccess("default", "items");
+            Mockito.verify(fixture.namespace).describeTable(Mockito.any());
+        }
+    }
+
+    @Test
+    public void testRefreshReplayInvalidatesAccessWithMissingObjects() throws Exception {
+        for (boolean missingDatabase : new boolean[] {false, true}) {
+            for (boolean legacyIds : new boolean[] {false, true}) {
+                try (AccessFixture fixture = new AccessFixture()) {
+                    LanceNamespaceClient access = fixture.access();
+                    access.resolveTableAccess("default", "items");
+                    LanceExternalDatabase database = Mockito.mock(LanceExternalDatabase.class);
+                    Mockito.doReturn(missingDatabase ? Optional.empty() : Optional.of(database))
+                            .when(fixture.catalog).getDbForReplay("mapped_db");
+                    Mockito.doReturn(missingDatabase ? Optional.empty() : Optional.of(database))
+                            .when(fixture.catalog).getDbForReplay(1L);
+                    ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(
+                            fixture.catalog.getId(), "mapped_db", "mapped_table", 0);
+                    if (legacyIds) {
+                        log.setDbName(null);
+                        log.setTableName(null);
+                        log.setDbId(1L);
+                        log.setTableId(2L);
+                    }
+                    // Access entries can survive eviction of the smaller database/table object caches.
+                    new RefreshManager().replayRefreshTable(log);
+                    access.resolveTableAccess("default", "items");
+                    Mockito.verify(fixture.namespace, Mockito.times(2)).describeTable(Mockito.any());
+                    Mockito.verify(fixture.catalog, Mockito.never()).createClient();
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testDatabaseRefreshReplayWithoutDatabaseObject() throws Exception {
+        try (AccessFixture fixture = new AccessFixture()) {
+            LanceNamespaceClient access = fixture.access();
+            access.resolveTableAccess("default", "items");
+            Mockito.doReturn(Optional.empty()).when(fixture.catalog).getDbForReplay("mapped_db");
+            new RefreshManager().replayRefreshDb(
+                    ExternalObjectLog.createForRefreshDb(fixture.catalog.getId(), "mapped_db"));
+            access.resolveTableAccess("default", "items");
+            Mockito.verify(fixture.namespace, Mockito.times(2)).describeTable(Mockito.any());
+        }
+    }
+
+    @Test
+    public void testExplicitDatabaseRefreshInvalidatesAccess() throws Exception {
+        try (AccessFixture fixture = new AccessFixture()) {
+            LanceNamespaceClient access = fixture.access();
+            access.resolveTableAccess("default", "items");
+            LanceExternalDatabase database = new LanceExternalDatabase(fixture.catalog, 1, "mapped_db", "default");
+            Mockito.doReturn(database).when(fixture.catalog).getDbOrDdlException("mapped_db");
+            new RefreshManager().handleRefreshDb("lifecycle", "mapped_db");
+            access.resolveTableAccess("default", "items");
+            Mockito.verify(fixture.namespace, Mockito.times(2)).describeTable(Mockito.any());
+        }
+    }
+
+    @Test
+    public void testNamespaceRemovalInvalidatesAccessWithoutDatabaseObjects() throws Exception {
+        try (AccessFixture fixture = new AccessFixture()) {
+            LanceNamespaceClient access = fixture.access();
+            access.resolveTableAccess("default", "items");
+            setField(ExternalCatalog.class, fixture.catalog, "initialized", false);
+            fixture.catalog.unregisterDatabase("mapped_db");
+            access.resolveTableAccess("default", "items");
+            Mockito.verify(fixture.namespace, Mockito.times(2)).describeTable(Mockito.any());
+            Mockito.verify(fixture.catalog, Mockito.never()).createClient();
+        }
+    }
+
+    private static final class AccessFixture implements AutoCloseable {
+        private final LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        private final LanceCatalogClient client = new LanceCatalogClient(namespace,
+                Mockito.mock(BufferAllocator.class), Mockito.mock(Session.class), "filesystem", "default",
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), Collections.emptyList());
+        private final LanceExternalCatalog catalog = catalog(client);
+        private final MockedStatic<Env> currentEnv;
+
+        private AccessFixture() throws Exception {
+            Mockito.when(namespace.describeTable(Mockito.any())).thenReturn(
+                    new DescribeTableResponse().tableUri("file:///warehouse/items.lance"));
+            ExternalMetaCacheMgr caches = Env.getCurrentEnv().getExtMetaCacheMgr();
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogs = Mockito.mock(CatalogMgr.class);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogs);
+            Mockito.when(env.getExtMetaCacheMgr()).thenReturn(caches);
+            Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+            Mockito.doReturn(catalog).when(catalogs).getCatalog("lifecycle");
+            long catalogId = catalog.getId();
+            Mockito.doReturn(catalog).when(catalogs).getCatalog(catalogId);
+            currentEnv = Mockito.mockStatic(Env.class);
+            currentEnv.when(Env::getCurrentEnv).thenReturn(env);
+        }
+
+        private LanceNamespaceClient access() throws Exception {
+            Field field = LanceCatalogClient.class.getDeclaredField("namespaceClient");
+            field.setAccessible(true);
+            return (LanceNamespaceClient) field.get(client);
+        }
+
+        @Override
+        public void close() {
+            currentEnv.close();
+            catalog.onClose();
         }
     }
 

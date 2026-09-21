@@ -87,7 +87,7 @@ public class LanceTableAccessCacheTest {
     }
 
     @Test
-    public void testVendedCredentialsExpireBeforeTheirDeadline() {
+    public void testVendedCredentialsAreResolvedForEveryRead() {
         LanceNamespace namespace = namespace();
         AtomicLong millis = new AtomicLong(1_000_000);
         Map<String, String> options = new HashMap<>();
@@ -100,11 +100,27 @@ public class LanceTableAccessCacheTest {
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> first.getStorageOptions().put("aws_session_token", "modified"));
         millis.addAndGet(9_000);
-        Assertions.assertSame(first, client.resolveTableAccess("default", "items"));
-        Mockito.verify(namespace).describeTable(Mockito.any());
-        millis.addAndGet(1_000);
-        client.resolveTableAccess("default", "items");
+        // A new scan may outlive the remaining credential lifetime, regardless of the cache TTL.
+        Assertions.assertNotSame(first, client.resolveTableAccess("default", "items"));
         Mockito.verify(namespace, Mockito.times(2)).describeTable(Mockito.any());
+    }
+
+    @Test
+    public void testSignedUrisWithoutStorageOptionsAreNotCached() {
+        for (String uri : new String[] {
+                "s3://example-bucket/items.lance?X-Amz-Signature=example",
+                "az://container/items.lance?sig=example&se=example",
+                "s3://example:password@example-bucket/items.lance",
+                "s3://example@example_bucket/items.lance",
+                "s3://example-bucket/items.lance#example"}) {
+            LanceNamespace namespace = namespace();
+            Mockito.when(namespace.describeTable(Mockito.any())).thenReturn(
+                    new DescribeTableResponse().tableUri(uri));
+            LanceNamespaceClient client = client(namespace, "rest", 60, new AtomicLong(1_000_000));
+            client.resolveTableAccess("default", "items");
+            client.resolveTableAccess("default", "items");
+            Mockito.verify(namespace, Mockito.times(2)).describeTable(Mockito.any());
+        }
     }
 
     @Test
@@ -258,6 +274,6 @@ public class LanceTableAccessCacheTest {
 
     private static LanceNamespaceClient client(LanceNamespace namespace, String type, int ttl, AtomicLong millis) {
         return new LanceNamespaceClient(namespace, type, "default", Collections.emptyList(), Collections.emptyList(),
-                ttl, () -> TimeUnit.MILLISECONDS.toNanos(millis.get()), millis::get);
+                ttl, () -> TimeUnit.MILLISECONDS.toNanos(millis.get()));
     }
 }

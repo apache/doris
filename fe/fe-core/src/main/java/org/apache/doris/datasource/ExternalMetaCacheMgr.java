@@ -486,7 +486,6 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateDb(long catalogId, String dbName) {
-        invalidateLanceTableAccess(catalogId);
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
     }

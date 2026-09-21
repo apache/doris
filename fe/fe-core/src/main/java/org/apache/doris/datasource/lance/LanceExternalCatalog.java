@@ -277,6 +277,13 @@ public class LanceExternalCatalog extends ExternalCatalog {
         return client.acquire();
     }
 
+    @Override
+    public void unregisterDatabase(String dbName) {
+        // Dropping a namespace is a semantic change, unlike routine local DB-object eviction.
+        invalidateTableAccessCache();
+        super.unregisterDatabase(dbName);
+    }
+
     public synchronized void invalidateTableAccessCache() {
         // Invalidation must not initialize JNI resources or wait for an in-flight namespace call.
         if (client != null) {
