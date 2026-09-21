@@ -526,17 +526,18 @@ public abstract class JdbcClient {
         Set<String> filterInternalDatabases = getFilterInternalDatabases();
         List<String> filteredDatabaseNames = Lists.newArrayList();
         for (String databaseName : remoteDbNames) {
+            String normalizedDatabaseName = databaseName.toLowerCase(Locale.ROOT);
+            boolean explicitlyIncludedInternal = includeInternalDatabaseMap.containsKey(normalizedDatabaseName);
             if (isOnlySpecifiedDatabase) {
                 if (!excludeDatabaseMap.isEmpty() && excludeDatabaseMap.containsKey(databaseName)) {
                     continue;
                 }
-                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(databaseName)) {
+                if (!includeDatabaseMap.isEmpty() && !includeDatabaseMap.containsKey(databaseName)
+                        && !explicitlyIncludedInternal) {
                     continue;
                 }
             }
-            String normalizedDatabaseName = databaseName.toLowerCase(Locale.ROOT);
-            if (filterInternalDatabases.contains(normalizedDatabaseName)
-                    && !includeInternalDatabaseMap.containsKey(normalizedDatabaseName)) {
+            if (filterInternalDatabases.contains(normalizedDatabaseName) && !explicitlyIncludedInternal) {
                 continue;
             }
             filteredDatabaseNames.add(databaseName);

@@ -40,10 +40,35 @@ public class JdbcClientTest {
         client.isOnlySpecifiedDatabase = false;
         client.includeDatabaseMap = Collections.emptyMap();
         client.excludeDatabaseMap = Collections.emptyMap();
-        client.includeInternalDatabaseMap = Collections.singletonMap("mysql", true);
+        client.includeInternalDatabaseMap = Collections.singletonMap("performance_schema", true);
 
-        Assert.assertEquals(Arrays.asList("MYSQL", "application"),
-                client.filterDatabaseNames(Arrays.asList("information_schema", "MYSQL", "application")));
+        Assert.assertEquals(Arrays.asList("PERFORMANCE_SCHEMA", "application"),
+                client.filterDatabaseNames(
+                        Arrays.asList("information_schema", "PERFORMANCE_SCHEMA", "application")));
+    }
+
+    @Test
+    public void testFilterDatabaseNamesAllowsInternalOptInWithOrdinaryInclude() {
+        JdbcClient client = Mockito.mock(JdbcClient.class, Mockito.CALLS_REAL_METHODS);
+        client.isOnlySpecifiedDatabase = true;
+        client.includeDatabaseMap = Collections.singletonMap("application", true);
+        client.excludeDatabaseMap = Collections.emptyMap();
+        client.includeInternalDatabaseMap = Collections.singletonMap("performance_schema", true);
+
+        Assert.assertEquals(Arrays.asList("application", "performance_schema"),
+                client.filterDatabaseNames(Arrays.asList("application", "performance_schema", "other")));
+    }
+
+    @Test
+    public void testFilterDatabaseNamesExcludeTakesPrecedenceOverInternalOptIn() {
+        JdbcClient client = Mockito.mock(JdbcClient.class, Mockito.CALLS_REAL_METHODS);
+        client.isOnlySpecifiedDatabase = true;
+        client.includeDatabaseMap = Collections.emptyMap();
+        client.excludeDatabaseMap = Collections.singletonMap("performance_schema", true);
+        client.includeInternalDatabaseMap = Collections.singletonMap("performance_schema", true);
+
+        Assert.assertEquals(Collections.singletonList("application"),
+                client.filterDatabaseNames(Arrays.asList("application", "performance_schema")));
     }
 
     @Test
