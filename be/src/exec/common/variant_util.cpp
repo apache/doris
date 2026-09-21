@@ -97,7 +97,6 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/client_cache.h"
 #include "util/defer_op.h"
-#include "util/json/json_parser.h"
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
 #include "util/jsonb_utils.h"
