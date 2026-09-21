@@ -2788,6 +2788,15 @@ public class Coordinator implements CoordInterface {
         boolean accepted = false;
         try {
             Status status = new Status(params.status);
+            // Publish load diagnostics before an error status can release the completion latch.
+            if (params.isSetTrackingUrl()) {
+                LOG.info("query_id={} tracking_url: {}", DebugUtil.printId(queryId), params.getTrackingUrl());
+                trackingUrl = params.getTrackingUrl();
+            }
+            if (params.isSetFirstErrorMsg()) {
+                LOG.info("query_id={} first_error_msg: {}", DebugUtil.printId(queryId), params.getFirstErrorMsg());
+                firstErrorMsg = params.getFirstErrorMsg();
+            }
             // for now, abort the query if we see any error except if the error is cancelled
             // and returned_all_results_ is true.
             // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
@@ -2813,14 +2822,6 @@ public class Coordinator implements CoordInterface {
             }
             if (params.isSetLoadCounters() && loadCounters != null) {
                 updateLoadCounters(params.getLoadCounters());
-            }
-            if (params.isSetTrackingUrl()) {
-                LOG.info("query_id={} tracking_url: {}", DebugUtil.printId(queryId), params.getTrackingUrl());
-                trackingUrl = params.getTrackingUrl();
-            }
-            if (params.isSetFirstErrorMsg()) {
-                LOG.info("query_id={} first_error_msg: {}", DebugUtil.printId(queryId), params.getFirstErrorMsg());
-                firstErrorMsg = params.getFirstErrorMsg();
             }
             // Keep this report's identity local so another report cannot redirect its commit data.
             long reportTxnId = params.isSetTxnId() ? params.getTxnId() : txnId;
