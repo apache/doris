@@ -38,6 +38,7 @@ import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mtmv.MTMVPartitionExpander;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionState;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVPropertyUtil;
@@ -69,6 +70,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -103,6 +105,21 @@ public class MTMV extends OlapTable {
     private MTMVRefreshSnapshot refreshSnapshot;
     @SerializedName("ii")
     private IvmInfo ivmInfo;
+    /**
+     * The refresh epoch of every MV partition, keyed by MV partition name.
+     *
+     * <p>Deliberately on MTMV rather than inside {@link IvmInfo}: the field is shared, the behaviour is
+     * not. Both kinds of MV carry it, but only an IVM MV ever populates it -- alignment, invalidation,
+     * the ADD_TASK payload and ALTER_PARTITION_STATES are all no-ops for a non-IVM MV, so for one an
+     * empty map is the complete answer.
+     *
+     * <p>Null means the same thing -- no state -- and has three causes: an image written before the
+     * field existed, a non-IVM MV, and a live MV that has not been aligned yet. Only
+     * {@link #gsonPostProcess()} turns it into an empty map, on load; nothing else needs to, because a
+     * reader treats the two the same.
+     */
+    @SerializedName("pst")
+    private Map<String, MTMVPartitionState> partitionStates;
     // Should update after every fresh, not persist
     // Cache with SessionVarGuardExpr: used when query session variables differ from MV creation variables
     private MTMVCache cacheWithGuard;
@@ -290,6 +307,11 @@ public class MTMV extends OlapTable {
                 // Replay the final IVM state; ADD_TASK does not change schemaChangeVersion.
                 ivmInfo = new IvmInfo(alterMTMV.getIvmInfo());
             }
+            if (isReplay && alterMTMV.getPartitionStates() != null) {
+                // A journal written before the field existed carries no state at all: leave the
+                // partition states alone rather than clearing them.
+                partitionStates = MTMVPartitionState.copyOf(alterMTMV.getPartitionStates());
+            }
             if (task.getStatus() == TaskStatus.SUCCESS) {
                 this.status.setState(MTMVState.NORMAL);
                 this.status.setSchemaChangeDetail(null);
@@ -323,6 +345,10 @@ public class MTMV extends OlapTable {
             }
             if (ivmInfo.isEnableIvm()) {
                 alterMTMV.setIvmInfo(ivmInfo);
+                // Same condition as ivmInfo, so the journal of a non-IVM MV stays byte-for-byte what it
+                // was. The map is null until the states are first aligned, and a payload without the
+                // member means the same as one carrying an empty map.
+                alterMTMV.setPartitionStates(partitionStates);
             }
             editLogItem = submitAlterLog(alterMTMV);
         } finally {
@@ -593,6 +619,46 @@ public class MTMV extends OlapTable {
         writeMvLock();
         try {
             this.ivmInfo = new IvmInfo(ivmInfo);
+        } finally {
+            writeMvUnlock();
+        }
+    }
+
+    /**
+     * A snapshot of the partition states, taken under the MV read lock.
+     *
+     * <p>The caller gets its own map and its own state objects, not the ones the MV owns: handing those
+     * out would let a caller add or change an entry while {@link #addTaskResult} copies the same map
+     * into the journal, and a replay that replaces the field would leave the caller's reference
+     * pointing at state that is no longer the MV's. Changing the states is the MV's own job, under its
+     * write lock.
+     *
+     * <p>A missing map -- an image written before the field existed, or a non-IVM MV -- reads as empty.
+     */
+    public Map<String, MTMVPartitionState> getPartitionStates() {
+        readMvLock();
+        try {
+            if (partitionStates == null) {
+                return Collections.emptyMap();
+            }
+            return Collections.unmodifiableMap(MTMVPartitionState.copyOf(partitionStates));
+        } finally {
+            readMvUnlock();
+        }
+    }
+
+    // ALTER_PARTITION_STATES replay applies a detached snapshot here, mirroring alterIvmInfo(). Live
+    // invalidation changes submit their journal from the mutating method instead.
+    //
+    // A payload without the member carries no state at all, which is not the same as an empty map that
+    // says the states are now empty: leaving them alone is the only answer that cannot lose state.
+    public void alterPartitionStates(Map<String, MTMVPartitionState> partitionStates) {
+        if (partitionStates == null) {
+            return;
+        }
+        writeMvLock();
+        try {
+            this.partitionStates = MTMVPartitionState.copyOf(partitionStates);
         } finally {
             writeMvUnlock();
         }
@@ -996,6 +1062,11 @@ public class MTMV extends OlapTable {
         }
         if (ivmInfo == null) {
             ivmInfo = new IvmInfo();
+        }
+        if (partitionStates == null) {
+            // An image written before the field existed deserializes it as null, and so does a non-IVM MV.
+            // Both mean "no state", so an empty map is the whole answer.
+            partitionStates = Maps.newLinkedHashMap();
         }
         if (refreshInfo != null && refreshInfo.getRefreshMethod() == null) {
             LOG.warn("MTMV {} has unknown refresh method, marking as schema change", name);
