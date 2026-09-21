@@ -42,6 +42,7 @@ import com.google.common.collect.Sets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Shared eligibility and ordering rules for GroupJoin fusion
@@ -76,11 +77,11 @@ public final class GroupJoinFusionUtils {
      * (AlignGroupJoinConjunctOrder) or to require it already (the translator).
      * <p>
      * Returns null when the shape is not eligible (not an INNER/CROSS hash join, mark join,
-     * broadcast join, residual non-equi conjuncts, null-safe equal conjuncts, aggregates
-     * reading both sides, aggregates with an internal ORDER BY, an aggregate that is not the
-     * final one-phase node (GLOBAL + INPUT_TO_RESULT, per function and node), an intermediate
-     * Project that computes columns, or intermediate project slots) or when the group-by keys
-     * cannot be mapped one-to-one onto the conjuncts. Session-level gates
+     * broadcast join, residual non-equi conjuncts, null-safe equal conjuncts, no aggregate
+     * functions, aggregates reading both sides, aggregates with an internal ORDER BY, an aggregate
+     * that is not the final one-phase node (GLOBAL + INPUT_TO_RESULT, per function and node), an
+     * intermediate Project that computes columns, or intermediate project slots) or when the
+     * group-by keys cannot be mapped one-to-one onto the conjuncts. Session-level gates
      * (enable_group_join_fusion, enable_spill) are checked by the callers, not here.
      *
      * @param project the Project between the aggregate and the join, or null when the aggregate
@@ -111,6 +112,15 @@ public final class GroupJoinFusionUtils {
                 || groupByExprs.size() != hashJoinConjuncts.size()) {
             return null;
         }
+        List<AggregateExpression> aggregateExpressions = aggregate.getOutputExpressions().stream()
+                .flatMap(outputExpr -> outputExpr.collect(AggregateExpression.class::isInstance).stream())
+                .map(AggregateExpression.class::cast)
+                .collect(Collectors.toList());
+        // Pure GROUP BY and DISTINCT keep the regular HashJoin + Aggregate plan. The current
+        // GroupJoin execution path is designed around maintaining at least one aggregate state.
+        if (aggregateExpressions.isEmpty()) {
+            return null;
+        }
         // Phase gate: only the final one-phase aggregate is fusable. The fused GroupJoin node
         // materializes FINAL_RESULT and finalizes per-key aggregate state directly, so an
         // aggregate that is a partial/LOCAL buffer producer or a DISTINCT/multi-phase
@@ -131,15 +141,10 @@ public final class GroupJoinFusionUtils {
         if (nodeParam.aggPhase != AggPhase.GLOBAL || nodeParam.aggMode != AggMode.INPUT_TO_RESULT) {
             return null;
         }
-        for (Expression outputExpr : aggregate.getOutputExpressions()) {
-            for (AggregateExpression aggExpr : outputExpr
-                    .collect(AggregateExpression.class::isInstance).stream()
-                    .map(AggregateExpression.class::cast)
-                    .collect(java.util.stream.Collectors.toList())) {
-                AggregateParam perFunctionParam = aggExpr.getAggregateParam();
-                if (!perFunctionParam.equals(nodeParam)) {
-                    return null;
-                }
+        for (AggregateExpression aggExpr : aggregateExpressions) {
+            AggregateParam perFunctionParam = aggExpr.getAggregateParam();
+            if (!perFunctionParam.equals(nodeParam)) {
+                return null;
             }
         }
         // The fused operator evaluates aggregates over the probe/build rows of the join
@@ -187,24 +192,19 @@ public final class GroupJoinFusionUtils {
         }
         // Aggregate functions must not reference columns from both join sides: the per-side
         // aggregation state is maintained by the corresponding probe/build operator.
-        for (Expression outputExpr : aggregate.getOutputExpressions()) {
-            for (AggregateExpression aggExpr : outputExpr
-                    .collect(AggregateExpression.class::isInstance).stream()
-                    .map(AggregateExpression.class::cast)
-                    .collect(java.util.stream.Collectors.toList())) {
-                Set<Slot> inputSlots = aggExpr.getInputSlots();
-                boolean hasLeft = false;
-                boolean hasRight = false;
-                for (Slot slot : inputSlots) {
-                    if (leftOutput.contains(slot)) {
-                        hasLeft = true;
-                    } else if (rightOutput.contains(slot)) {
-                        hasRight = true;
-                    }
+        for (AggregateExpression aggExpr : aggregateExpressions) {
+            Set<Slot> inputSlots = aggExpr.getInputSlots();
+            boolean hasLeft = false;
+            boolean hasRight = false;
+            for (Slot slot : inputSlots) {
+                if (leftOutput.contains(slot)) {
+                    hasLeft = true;
+                } else if (rightOutput.contains(slot)) {
+                    hasRight = true;
                 }
-                if (hasLeft && hasRight) {
-                    return null;
-                }
+            }
+            if (hasLeft && hasRight) {
+                return null;
             }
         }
         // Each conjunct operand must live entirely on one join child, on opposite children,
@@ -260,18 +260,18 @@ public final class GroupJoinFusionUtils {
             conjunctUsed[matched] = true;
             alignedConjuncts.add(equalConjuncts.get(matched));
         }
-        if (!doesNotWasteBuildAggregation(aggregate, join, alignedConjuncts)) {
+        if (!doesNotWasteBuildAggregation(
+                aggregate, join, alignedConjuncts, aggregateExpressions)) {
             return null;
         }
         return alignedConjuncts;
     }
 
     private static boolean doesNotWasteBuildAggregation(
-            Aggregate<?> aggregate, PhysicalHashJoin<?, ?> join, List<Expression> alignedConjuncts) {
+            Aggregate<?> aggregate, PhysicalHashJoin<?, ?> join, List<Expression> alignedConjuncts,
+            List<AggregateExpression> aggregateExpressions) {
         Set<Slot> buildOutput = join.right().getOutputSet();
-        boolean hasBuildSideAggregate = aggregate.getOutputExpressions().stream()
-                .flatMap(output -> output.collect(AggregateExpression.class::isInstance).stream())
-                .map(AggregateExpression.class::cast)
+        boolean hasBuildSideAggregate = aggregateExpressions.stream()
                 .anyMatch(agg -> agg.getInputSlots().stream().anyMatch(buildOutput::contains));
         if (!hasBuildSideAggregate) {
             return true;
