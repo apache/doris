@@ -18,7 +18,6 @@
 #include <gtest/gtest.h>
 
 #include <functional>
-#include <future>
 #include <memory>
 #include <string>
 #include <vector>
@@ -41,7 +40,7 @@ void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, siz
                    TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
                    std::shared_ptr<Segment>* res, std::string segment_dir);
 
-class SegmentPrimaryKeyLookupTest : public testing::Test {
+class SegmentPrimaryKeyCacheTest : public testing::Test {
 protected:
     void SetUp() override {
         auto fs = io::global_local_filesystem();
@@ -66,7 +65,7 @@ protected:
         };
         build_segment(opts, _schema, 0, _schema, 8, generator, &_segment, _dir);
         ASSERT_NE(_segment, nullptr);
-        ASSERT_NE(_segment->_pk_index_reader, nullptr);
+        ASSERT_EQ(_segment->_pk_index_reader, nullptr);
         ASSERT_FALSE(_segment->_load_index_once.has_called());
         ASSERT_FALSE(_segment->_load_pk_bf_once.has_called());
         ASSERT_FALSE(_segment->_pk_index_meta->primary_key_index()
@@ -99,14 +98,14 @@ protected:
         return _segment->lookup_row_key(Slice(key), _schema.get(), false, false, location, nullptr);
     }
 
-    const std::string _dir = "./ut_dir/segment_primary_key_lookup_test";
+    const std::string _dir = "./ut_dir/segment_primary_key_cache_test";
     TabletSchemaSPtr _schema;
     std::shared_ptr<segment_v2::Segment> _segment;
     std::string _present_key;
     std::string _missing_key;
 };
 
-TEST_F(SegmentPrimaryKeyLookupTest, CachedRootPagesIncreaseChargeOnlyOnce) {
+TEST_F(SegmentPrimaryKeyCacheTest, CachedRootPagesIncreaseChargeOnlyOnce) {
     SegmentCache cache(1024 * 1024 * 1024, 10000);
     SegmentCacheHandle handle;
     const SegmentCache::CacheKey key(_segment->rowset_id(), _segment->id());
@@ -115,17 +114,17 @@ TEST_F(SegmentPrimaryKeyLookupTest, CachedRootPagesIncreaseChargeOnlyOnce) {
     const auto tracked = cache.mem_consumption();
     RowLocation location;
     ASSERT_TRUE(lookup(_missing_key, &location).is<ErrorCode::KEY_NOT_FOUND>());
-    EXPECT_EQ(cache.get_usage(), usage);
-    ASSERT_TRUE(lookup(_present_key, &location).ok());
+    // Keep the original index-first lookup: even a definite BF miss loads the roots.
     const auto roots = _segment->_pk_index_reader->get_memory_size();
     EXPECT_GT(roots, 300000);
     EXPECT_EQ(cache.get_usage(), usage + roots);
     EXPECT_EQ(cache.mem_consumption(), tracked);
+    ASSERT_TRUE(lookup(_present_key, &location).ok());
     ASSERT_TRUE(_segment->load_index(nullptr).ok());
     EXPECT_EQ(cache.get_usage(), usage + roots);
 }
 
-TEST_F(SegmentPrimaryKeyLookupTest, LazyRootLoadingEvictsOversizedSegment) {
+TEST_F(SegmentPrimaryKeyCacheTest, LazyRootLoadingEvictsOversizedSegment) {
     // SegmentCache has 64 shards. Metadata fits; the large PK roots do not.
     SegmentCache cache((_segment->cache_charge() + 65536) * 64, 10000);
     SegmentCacheHandle handle;
@@ -141,7 +140,7 @@ TEST_F(SegmentPrimaryKeyLookupTest, LazyRootLoadingEvictsOversizedSegment) {
     EXPECT_EQ(location.row_id, 0);
 }
 
-TEST_F(SegmentPrimaryKeyLookupTest, EagerRootLoadingChargesOnInsert) {
+TEST_F(SegmentPrimaryKeyCacheTest, EagerRootLoadingChargesOnInsert) {
     const auto capacity = (_segment->cache_charge() + 65536) * 64;
     ASSERT_TRUE(_segment->load_index(nullptr).ok());
     SegmentCache cache(capacity, 10000);
@@ -153,7 +152,7 @@ TEST_F(SegmentPrimaryKeyLookupTest, EagerRootLoadingChargesOnInsert) {
     EXPECT_EQ(handle.get_segments().front(), _segment);
 }
 
-TEST_F(SegmentPrimaryKeyLookupTest, OldSegmentDoesNotChargeItsReplacement) {
+TEST_F(SegmentPrimaryKeyCacheTest, OldSegmentDoesNotChargeItsReplacement) {
     SegmentCache cache(1024 * 1024 * 1024, 10000);
     const SegmentCache::CacheKey key(_segment->rowset_id(), _segment->id());
     SegmentCacheHandle old_handle, new_handle;
@@ -167,7 +166,7 @@ TEST_F(SegmentPrimaryKeyLookupTest, OldSegmentDoesNotChargeItsReplacement) {
     EXPECT_EQ(cache.get_element_count(), 1);
 }
 
-TEST_F(SegmentPrimaryKeyLookupTest, SegmentCanOutliveCache) {
+TEST_F(SegmentPrimaryKeyCacheTest, SegmentCanOutliveCache) {
     {
         SegmentCache cache(1024 * 1024 * 1024, 10000);
         SegmentCacheHandle handle;
@@ -179,143 +178,13 @@ TEST_F(SegmentPrimaryKeyLookupTest, SegmentCanOutliveCache) {
     ASSERT_TRUE(lookup(_present_key, &location).ok());
 }
 
-TEST_F(SegmentPrimaryKeyLookupTest, FailedIndexLoadDoesNotPinPartialRoots) {
+TEST_F(SegmentPrimaryKeyCacheTest, FailedIndexLoadDoesNotPinPartialRoots) {
     auto meta = *_segment->_pk_index_meta;
     meta.mutable_primary_key_index()->mutable_value_index_meta()->mutable_root_page()->set_offset(
             uint64_t {1} << 50);
     PrimaryKeyIndexReader reader;
     EXPECT_FALSE(reader.parse_index(_segment->file_reader(), meta, nullptr).ok());
     EXPECT_EQ(reader._index_reader, nullptr);
-}
-
-TEST_F(SegmentPrimaryKeyLookupTest, BloomFilterMissDoesNotLoadIndex) {
-    RowLocation location;
-    for (int i = 0; i < 3; ++i) {
-        auto st = lookup(_missing_key, &location);
-        EXPECT_TRUE(st.is<ErrorCode::KEY_NOT_FOUND>()) << st;
-        EXPECT_TRUE(_segment->_load_pk_bf_once.has_called());
-        EXPECT_FALSE(_segment->_load_index_once.has_called());
-        EXPECT_EQ(_segment->_pk_index_reader->_index_reader, nullptr);
-        EXPECT_TRUE(_segment->healthy_status().ok());
-    }
-}
-
-TEST_F(SegmentPrimaryKeyLookupTest, HitAfterMissPreservesBloomFilter) {
-    RowLocation location;
-    ASSERT_TRUE(lookup(_missing_key, &location).is<ErrorCode::KEY_NOT_FOUND>());
-    auto* reader = _segment->_pk_index_reader.get();
-    auto* bf = reader->_bf.get();
-    ASSERT_FALSE(_segment->_load_index_once.has_called());
-
-    ASSERT_TRUE(lookup(_present_key, &location).ok());
-    EXPECT_EQ(location.segment_id, _segment->id());
-    EXPECT_EQ(location.row_id, 0);
-    EXPECT_TRUE(_segment->_load_index_once.has_called());
-    EXPECT_EQ(_segment->_pk_index_reader.get(), reader);
-    EXPECT_EQ(reader->_bf.get(), bf);
-    auto* index = reader->_index_reader.get();
-    ASSERT_NE(index, nullptr);
-
-    ASSERT_TRUE(lookup(_present_key, &location).ok());
-    EXPECT_EQ(reader->_index_reader.get(), index);
-    EXPECT_EQ(reader->_bf.get(), bf);
-    EXPECT_TRUE(lookup(_missing_key, &location).is<ErrorCode::KEY_NOT_FOUND>());
-}
-
-TEST_F(SegmentPrimaryKeyLookupTest, BloomFilterPositiveStillChecksExactKey) {
-    ASSERT_TRUE(_segment->_load_pk_bloom_filter(nullptr).ok());
-    // Deliberately make the BF positive for an absent key to exercise the false-positive path.
-    _segment->_pk_index_reader->_bf->add_bytes(_missing_key.data(), _missing_key.size());
-    ASSERT_TRUE(_segment->_pk_index_reader->check_present(Slice(_missing_key)));
-    RowLocation location;
-    auto st = lookup(_missing_key, &location);
-    EXPECT_TRUE(st.is<ErrorCode::KEY_NOT_FOUND>()) << st;
-    EXPECT_TRUE(_segment->_load_index_once.has_called());
-}
-
-TEST_F(SegmentPrimaryKeyLookupTest, EagerLoadThenLookupReusesReader) {
-    auto* reader = _segment->_pk_index_reader.get();
-    ASSERT_TRUE(_segment->load_pk_index_and_bf(nullptr).ok());
-    auto* index = reader->_index_reader.get();
-    auto* bf = reader->_bf.get();
-    RowLocation location;
-    ASSERT_TRUE(lookup(_present_key, &location).ok());
-    EXPECT_EQ(location.row_id, 0);
-    EXPECT_TRUE(lookup(_missing_key, &location).is<ErrorCode::KEY_NOT_FOUND>());
-    EXPECT_EQ(_segment->_pk_index_reader.get(), reader);
-    EXPECT_EQ(reader->_index_reader.get(), index);
-    EXPECT_EQ(reader->_bf.get(), bf);
-}
-
-TEST_F(SegmentPrimaryKeyLookupTest, AddedSequenceColumnUsesUnsuffixedBloomKey) {
-    TabletSchema latest_schema;
-    latest_schema.copy_from(*_schema);
-    latest_schema._sequence_col_idx = 1;
-    std::string sequence_suffix(latest_schema.column(1).length() + 1, '\0');
-    RowLocation location;
-    auto missing = _missing_key + sequence_suffix;
-    auto st = _segment->lookup_row_key(Slice(missing), &latest_schema, true, false, &location,
-                                       nullptr);
-    ASSERT_TRUE(st.is<ErrorCode::KEY_NOT_FOUND>()) << st;
-    EXPECT_FALSE(_segment->_load_index_once.has_called());
-
-    auto present = _present_key + sequence_suffix;
-    std::string encoded_sequence = "not cleared";
-    st = _segment->lookup_row_key(Slice(present), &latest_schema, true, false, &location, nullptr,
-                                  &encoded_sequence);
-    ASSERT_TRUE(st.ok()) << st;
-    EXPECT_EQ(location.row_id, 0);
-    EXPECT_TRUE(encoded_sequence.empty()); // The original segment has no sequence column.
-}
-
-TEST_F(SegmentPrimaryKeyLookupTest, BloomMissStripsSequenceAndRowIdSuffixes) {
-    TabletSchema latest_schema;
-    latest_schema.copy_from(*_schema);
-    latest_schema._sequence_col_idx = 1;
-    latest_schema._cluster_key_uids = {0};
-    auto missing = _missing_key + std::string(latest_schema.column(1).length() + 1 +
-                                                      PrimaryKeyIndexReader::ROW_ID_LENGTH,
-                                              '\0');
-    RowLocation location;
-    auto st = _segment->lookup_row_key(Slice(missing), &latest_schema, true, true, &location,
-                                       nullptr);
-    EXPECT_TRUE(st.is<ErrorCode::KEY_NOT_FOUND>()) << st;
-    EXPECT_FALSE(_segment->_load_index_once.has_called());
-}
-
-TEST_F(SegmentPrimaryKeyLookupTest, ConcurrentIndexAndBloomFilterInitialization) {
-    std::promise<void> start;
-    auto ready = start.get_future().share();
-    std::vector<std::future<Status>> tasks;
-    for (int i = 0; i < 12; ++i) {
-        tasks.emplace_back(std::async(std::launch::async, [&, ready, i] {
-            ready.wait();
-            if (i % 3 == 0) {
-                // This path need not initialize BF, and can race with BF-only lookup misses.
-                return _segment->load_index(nullptr);
-            }
-            RowLocation location;
-            auto st = lookup(i % 3 == 1 ? _present_key : _missing_key, &location);
-            if (i % 3 == 2) {
-                if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
-                    return Status::OK();
-                }
-                return st.ok() ? Status::InternalError("Expected a bloom-filter miss") : st;
-            }
-            if (st.ok() && location.row_id != 0) {
-                return Status::InternalError("Unexpected primary key row id");
-            }
-            return st;
-        }));
-    }
-    start.set_value();
-    for (auto& task : tasks) {
-        auto st = task.get();
-        EXPECT_TRUE(st.ok()) << st;
-    }
-    EXPECT_TRUE(_segment->_load_index_once.has_called());
-    EXPECT_TRUE(_segment->_load_pk_bf_once.has_called());
-    EXPECT_TRUE(_segment->healthy_status().ok());
 }
 
 } // namespace doris

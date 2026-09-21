@@ -530,11 +530,8 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
 
         if (UNLIKELY(segment_caches[i] == nullptr)) {
             segment_caches[i] = std::make_unique<SegmentCacheHandle>();
-            // Keep segment handles for reuse, but load PK indexes and bloom filters only
-            // when lookup_row_key visits a picked segment. Eagerly loading the whole rowset
-            // can retain large PK index pages even for segments excluded by key bounds.
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, false,
+                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, true,
                     stats, io_ctx));
         }
         auto& segments = segment_caches[i]->get_segments();

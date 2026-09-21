@@ -383,11 +383,6 @@ Status Segment::_open(OlapReaderStatistics* stats, const io::IOContext* source_i
             footer_pb_shared->has_primary_key_index_meta()
                     ? new PrimaryKeyIndexMetaPB(footer_pb_shared->primary_key_index_meta())
                     : nullptr);
-    if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
-        // Create the shared reader before publishing the segment. Its index and bloom filter
-        // can then be initialized independently without replacing each other's state.
-        _pk_index_reader = std::make_unique<PrimaryKeyIndexReader>();
-    }
     // delete_bitmap_calculator_test.cpp
     // DCHECK(footer.has_short_key_index_page());
     _sk_index_page = footer_pb_shared->short_key_index_page();
@@ -785,7 +780,7 @@ Status Segment::load_pk_index_and_bf(OlapReaderStatistics* index_load_stats,
 Status Segment::load_index(OlapReaderStatistics* stats, const io::IOContext* source_io_ctx) {
     return _load_index_once.call([this, stats, source_io_ctx] {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
-            DCHECK(_pk_index_reader != nullptr);
+            _pk_index_reader = std::make_unique<PrimaryKeyIndexReader>();
             RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta, stats,
                                                           source_io_ctx));
             _pk_index_cache_bytes.store(_pk_index_reader->get_memory_size(),
@@ -1164,6 +1159,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
                                bool with_seq_col, bool with_rowid, RowLocation* row_location,
                                OlapReaderStatistics* stats, std::string* encoded_seq_value,
                                const io::IOContext* io_ctx) {
+    RETURN_IF_ERROR(load_pk_index_and_bf(stats, io_ctx));
     bool has_seq_col = latest_schema->has_sequence_col();
     bool has_rowid = !latest_schema->cluster_key_uids().empty();
     size_t seq_col_length = 0;
@@ -1176,16 +1172,10 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
             Slice(key.get_data(), key.get_size() - (with_seq_col ? seq_col_length : 0) -
                                           (with_rowid ? rowid_length : 0));
 
-    // A bloom-filter miss must not load the potentially large PK index root pages.
-    // Preserve the exception boundary of load_pk_index_and_bf: DorisCallOnce can rethrow
-    // an initialization exception on a later call as well as on the first call.
-    RETURN_IF_CATCH_EXCEPTION({
-        RETURN_IF_ERROR(_load_pk_bloom_filter(stats, io_ctx));
-        if (!_pk_index_reader->check_present(key_without_seq)) {
-            return (Status::Error<ErrorCode::KEY_NOT_FOUND, false>(""));
-        }
-        RETURN_IF_ERROR(load_index(stats, io_ctx));
-    });
+    DCHECK(_pk_index_reader != nullptr);
+    if (!_pk_index_reader->check_present(key_without_seq)) {
+        return Status::Error<ErrorCode::KEY_NOT_FOUND, false>("");
+    }
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
     RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator, stats, io_ctx));
