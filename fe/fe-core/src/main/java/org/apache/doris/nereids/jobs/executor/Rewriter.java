@@ -716,6 +716,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.PULL_UP_PROJECT_EXPR_UNDER_TOPN,
                                 PullUpProjectExprUnderTopN::new)
                 ),
+                // Check before PRUNE_EMPTY_PARTITION replaces an empty table scan with LogicalEmptyRelation.
+                topic("check score table type",
+                        topDown(CheckScoreUsage.tableTypeOnly())),
                 // TODO: these rules should be implementation rules, and generate alternative physical plans.
                 topic("Table/Physical optimization",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalCatalogRelation.class),

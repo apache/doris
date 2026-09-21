@@ -42,17 +42,34 @@ import java.util.List;
  */
 public class CheckScoreUsage implements RewriteRuleFactory {
     private static final Logger LOG = LogManager.getLogger(CheckScoreUsage.class);
+    private final boolean tableTypeOnly;
+
+    public CheckScoreUsage() {
+        this(false);
+    }
+
+    private CheckScoreUsage(boolean tableTypeOnly) {
+        this.tableTypeOnly = tableTypeOnly;
+    }
+
+    public static CheckScoreUsage tableTypeOnly() {
+        return new CheckScoreUsage(true);
+    }
 
     @Override
     public List<Rule> buildRules() {
-        return ImmutableList.of(
-            logicalProject(any())
+        Rule tableTypeCheck = logicalProject(any())
                 .when(this::hasScoreOnUnsupportedTable)
                 .then(project -> {
                     throw new AnalysisException(
                             "score() function is not supported on AGG_KEYS table or merge-on-read UNIQUE_KEYS table");
-                }).toRule(RuleType.CHECK_SCORE_USAGE),
+                }).toRule(RuleType.CHECK_SCORE_USAGE);
+        if (tableTypeOnly) {
+            return ImmutableList.of(tableTypeCheck);
+        }
 
+        return ImmutableList.of(
+            tableTypeCheck,
             logicalProject(any())
                 .when(project -> {
                     boolean hasScore = hasScoreFunction(project);
