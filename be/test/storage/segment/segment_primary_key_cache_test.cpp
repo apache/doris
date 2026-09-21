@@ -28,7 +28,7 @@
 #include "storage/index/primary_key_index.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_loader.h"
-#include "storage/segment/segment_writer.h"
+#include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema_helper.h"
 
@@ -36,9 +36,9 @@ namespace doris {
 
 TabletSchemaSPtr create_schema(const std::vector<TabletColumnPtr>& columns, KeysType keys_type);
 using Generator = std::function<void(size_t rid, int cid, Field& field)>;
-void build_segment(SegmentWriterOptions opts, TabletSchemaSPtr build_schema, size_t segment_id,
-                   TabletSchemaSPtr query_schema, size_t nrows, Generator generator,
-                   std::shared_ptr<Segment>* res, std::string segment_dir);
+void build_segment(VerticalSegmentWriterOptions opts, TabletSchemaSPtr build_schema,
+                   size_t segment_id, TabletSchemaSPtr query_schema, size_t nrows,
+                   Generator generator, std::shared_ptr<Segment>* res, std::string segment_dir);
 
 class SegmentPrimaryKeyCacheTest : public testing::Test {
 protected:
@@ -53,7 +53,7 @@ protected:
                  create_int_value(1, FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE,
                                   false)},
                 UNIQUE_KEYS);
-        SegmentWriterOptions opts;
+        VerticalSegmentWriterOptions opts;
         opts.enable_unique_key_merge_on_write = true;
         auto generator = [](size_t rid, int cid, Field& field) {
             if (cid == 0) {

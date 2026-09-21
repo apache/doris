@@ -349,6 +349,15 @@ void LRUCache::update_charge(Cache::Handle* handle, size_t charge) {
         e->charge = charge;
         e->total_size += delta;
         _usage += delta;
+        if (e->total_size > _capacity) {
+            // This entry cannot fit even after evicting every other entry. Drop
+            // cache ownership now, while outstanding handles keep it alive.
+            bool removed = _table.remove(e);
+            DCHECK(removed);
+            e->in_cache = false;
+            _unref(e);
+            _usage -= e->total_size;
+        }
         if (_cache_value_check_timestamp) {
             _evict_from_lru_with_time(0, &to_remove_head);
         } else {
@@ -361,8 +370,6 @@ void LRUCache::update_charge(Cache::Handle* handle, size_t charge) {
         to_remove_head->free();
         to_remove_head = next;
     }
-    // If the updated entry itself exceeds capacity, release() evicts it after the
-    // last outstanding cache handle is released.
 }
 
 void LRUCache::release(Cache::Handle* handle) {
