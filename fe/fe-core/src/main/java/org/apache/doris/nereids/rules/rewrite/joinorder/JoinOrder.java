@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -203,6 +204,8 @@ public abstract class JoinOrder {
 
     protected void computeCost(PlanInfo planInfo) {
         double cost = planInfo.plan.getStats().getRowCount();
+        Preconditions.checkState(Double.isFinite(cost),
+                "Greedy join reorder non-finite row count %s for %s", cost, planInfo.plan.treeString());
         planInfo.rowCount = cost;
         if (planInfo.leftChild != null) {
             cost = cost > (MAXIMUM_COST - planInfo.leftChild.bestPlanInfo.cost)
