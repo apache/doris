@@ -882,6 +882,35 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
     return Status::OK();
 }
 
+std::vector<FileBlock::Range> BlockFileCache::downloaded_ranges(const UInt128Wrapper& hash,
+                                                                size_t offset, size_t size) {
+    DORIS_CHECK(size > 0);
+    const size_t end = offset + size;
+    DORIS_CHECK(end > offset);
+    std::vector<FileBlock::Range> ranges;
+    std::lock_guard lock(_mutex);
+    const auto file = _files.find(hash);
+    if (file == _files.end()) {
+        return ranges;
+    }
+    const auto& blocks = file->second;
+    auto iterator = blocks.lower_bound(offset);
+    if (iterator != blocks.begin()) {
+        --iterator;
+    }
+    for (; iterator != blocks.end(); ++iterator) {
+        const auto& block = iterator->second.file_block;
+        const auto& range = block->range();
+        if (range.left >= end) {
+            break;
+        }
+        if (range.right >= offset && block->state() == FileBlock::State::DOWNLOADED) {
+            ranges.emplace_back(std::max(offset, range.left), std::min(end - 1, range.right));
+        }
+    }
+    return ranges;
+}
+
 FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t offset, size_t size,
                                             const CacheContext& context) {
     DORIS_CHECK(size > 0);
