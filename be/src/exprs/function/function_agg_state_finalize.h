@@ -57,16 +57,18 @@ public:
         const auto& states = nullable ? nullable->get_nested_column() : *input;
         auto output = _agg_function->get_return_type()->create_column();
         _agg_function->check_result_column_type(*output);
+        output->reserve(input_rows_count);
+        // Keep the reusable state storage separate from its per-row variable-length data.
+        Arena state_arena;
+        auto* place = state_arena.aligned_alloc(_agg_function->size_of_data(),
+                                                _agg_function->align_of_data());
         Arena arena;
-        const auto state_size = _agg_function->size_of_data();
-        const auto state_alignment = _agg_function->align_of_data();
         for (size_t row = 0; row < input_rows_count; ++row) {
             if (nullable && nullable->is_null_at(row)) {
                 output->insert_default();
                 continue;
             }
             {
-                auto* place = arena.aligned_alloc(state_size, state_alignment);
                 _agg_function->create(place);
                 DEFER(_agg_function->destroy(place));
                 // The serialized column can be numeric, fixed-length, string or a complex column.
