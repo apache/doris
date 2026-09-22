@@ -707,6 +707,97 @@ TEST(FunctionLikeTest, regexp_replace_one) {
     }
 }
 
+// An invalid pattern read from a column must fail the whole call with the same
+// InvalidArgument error a constant pattern raises in open(), instead of turning
+// the offending row into NULL.
+// NOLINTNEXTLINE(readability-function-size) -- one driver covers every regexp function family.
+TEST(FunctionLikeTest, regexp_invalid_column_pattern_fails) {
+    auto str_type = std::make_shared<DataTypeString>();
+    auto int_type = std::make_shared<DataTypeInt64>();
+
+    auto make_str_col = [](const std::vector<std::string>& values) {
+        auto col = ColumnString::create();
+        for (const auto& value : values) {
+            col->insert_data(value.data(), value.size());
+        }
+        return col;
+    };
+    auto make_int_col = [](const std::vector<int64_t>& values) {
+        auto col = ColumnInt64::create();
+        for (auto value : values) {
+            col->insert_value(value);
+        }
+        return col;
+    };
+
+    // The first row compiles, only the second row carries an invalid pattern.
+    const std::vector<std::string> strs = {"abc", "abc"};
+    const std::vector<std::string> patterns = {"(b)", "["};
+
+    auto run_case = [&](const std::string& func_name, ColumnsWithTypeAndName arg_cols,
+                        const DataTypePtr& return_type, const std::string& expected_error) {
+        Block block;
+        ColumnNumbers arguments;
+        std::vector<DataTypePtr> arg_types;
+        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+        for (auto& arg : arg_cols) {
+            arguments.push_back(static_cast<unsigned int>(block.columns()));
+            arg_types.push_back(arg.type);
+            constant_cols.push_back(nullptr);
+            block.insert(std::move(arg));
+        }
+        auto func = SimpleFunctionFactory::instance().get_function(
+                func_name, block.get_columns_with_type_and_name(), return_type);
+        ASSERT_TRUE(func != nullptr) << func_name;
+
+        auto result = block.columns();
+        block.insert({nullptr, return_type, "result"});
+
+        FunctionUtils fn_utils({}, arg_types, false);
+        auto* fn_ctx = fn_utils.get_fn_ctx();
+        fn_ctx->set_constant_cols(constant_cols);
+
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+        ASSERT_EQ(Status::OK(), func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+
+        auto st = func->execute(fn_ctx, block, arguments, result, strs.size());
+        EXPECT_TRUE(st.is<ErrorCode::INVALID_ARGUMENT>()) << func_name << ": " << st;
+        EXPECT_NE(st.to_string().find(expected_error), std::string::npos)
+                << func_name << ": " << st;
+
+        static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
+        static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    };
+
+    auto nullable_str = make_nullable(str_type);
+    const std::string extract_error = "Invalid regex pattern";
+    const std::string re2_error = "Could not compile regexp pattern";
+
+    for (const char* func_name : {"regexp_extract", "regexp_extract_or_null"}) {
+        run_case(func_name,
+                 {{make_str_col(strs), str_type, "str"},
+                  {make_str_col(patterns), str_type, "pattern"},
+                  {make_int_col({1, 1}), int_type, "idx"}},
+                 nullable_str, extract_error);
+    }
+    run_case("regexp_extract_all",
+             {{make_str_col(strs), str_type, "str"}, {make_str_col(patterns), str_type, "pattern"}},
+             nullable_str, extract_error);
+    run_case("regexp_extract_all_array",
+             {{make_str_col(strs), str_type, "str"}, {make_str_col(patterns), str_type, "pattern"}},
+             make_nullable(std::make_shared<DataTypeArray>(nullable_str)), extract_error);
+    for (const char* func_name : {"regexp_replace", "regexp_replace_one"}) {
+        run_case(func_name,
+                 {{make_str_col(strs), str_type, "str"},
+                  {make_str_col(patterns), str_type, "pattern"},
+                  {make_str_col({"x", "x"}), str_type, "repl"}},
+                 nullable_str, re2_error);
+    }
+    run_case("regexp_count",
+             {{make_str_col(strs), str_type, "str"}, {make_str_col(patterns), str_type, "pattern"}},
+             std::make_shared<DataTypeInt32>(), re2_error);
+}
+
 // Enhanced tests for better coverage
 
 TEST(FunctionLikeTest, pattern_optimization_allpass) {
