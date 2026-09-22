@@ -244,6 +244,21 @@ suite("correlated_in_scalar_aggregate") {
         SELECT o.k, o.k IN (SELECT max(c) FROM (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x) AS v
         FROM cisa_o o ORDER BY o.k
     """
+    // The aggregation above the aggregation of the derived table may be aggregated by yet another
+    // derived table: the marker which the rewrite exposes to tell the row of an empty domain apart
+    // from the rows of a non empty one is read by the aggregations of every level above the domain,
+    // so every aggregation which is built between them has to expose that marker as well
+    order_qt_not_in_three_aggregations """
+        SELECT o.k FROM cisa_o o
+        WHERE o.k NOT IN (SELECT max(m) FROM (SELECT max(c) AS m FROM
+            (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x) y)
+        ORDER BY o.k
+    """
+    order_qt_in_three_aggregations_as_value """
+        SELECT o.k, o.k IN (SELECT max(m) FROM (SELECT max(c) AS m FROM
+            (SELECT count(*) AS c FROM cisa_i i WHERE i.k = o.k GROUP BY i.g) x) y) AS v
+        FROM cisa_o o ORDER BY o.k
+    """
     // The group by of the aggregation of the derived table may read a column which is declared not
     // null: the left outer join of the rewrite (it keeps the row of an empty correlated domain)
     // reports that column as nullable, so the group by of the new aggregation and the group by of
@@ -265,6 +280,15 @@ suite("correlated_in_scalar_aggregate") {
     order_qt_not_in_nested_aggregation_not_null_group_key """
         SELECT o.k FROM cisa_o o
         WHERE o.k NOT IN (SELECT max(c) FROM (SELECT count(*) AS c FROM cisa_nn i WHERE i.k = o.k GROUP BY i.g) x)
+        ORDER BY o.k
+    """
+    // A HAVING clause above the aggregation of the domain which reads the not null group key keeps
+    // the same column in the filter which the rewrite retains: that filter has to read the nullable
+    // version of the column as well, the same one which the group by of the aggregation reads
+    order_qt_not_in_nested_aggregation_having_reads_the_not_null_group_key """
+        SELECT o.k FROM cisa_o o
+        WHERE o.k NOT IN (SELECT max(c) FROM (SELECT count(*) AS c FROM cisa_nn i
+            WHERE i.k = o.k GROUP BY i.g HAVING i.g + count(*) > 0) x)
         ORDER BY o.k
     """
     sql "set fe_debug = false"

@@ -187,7 +187,20 @@
 2	false
 7	\N
 
+-- !not_in_three_aggregations --
+2
+
+-- !in_three_aggregations_as_value --
+\N	\N
+-1	\N
+1	true
+2	false
+7	\N
+
 -- !not_in_nested_aggregation_not_null_group_key --
+2
+
+-- !not_in_nested_aggregation_having_reads_the_not_null_group_key --
 2
 
 -- !in_window_below_the_correlated_predicate --

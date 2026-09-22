@@ -749,7 +749,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 ExpressionUtils.optionalAnd(newCorrelationFilter), apply.getMarkJoinSlotReference(),
                 apply.isNeedAddSubOutputToProjects(), apply.isMarkJoinSlotNotNull(), apply.left(),
                 rebuildTheAggregationChain(apply.right(), aggregation, newAggregations, keysToExpose,
-                        outputsOfTheTopAggregation, null, ImmutableSet.of(), false));
+                        outputsOfTheTopAggregation, null, ImmutableSet.of(), false, Maps.newHashMap()));
     }
 
     /**
@@ -820,6 +820,14 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             }
         }
         keys.forEach(key -> outputs.add((NamedExpression) key));
+        if (matchMarkerOfTheEmptyDomain != null && exposesTheMatchMarker
+                && !outputs.contains(matchMarkerOfTheEmptyDomain)) {
+            // The aggregates above this one and the filters between them read the marker from their
+            // own input, and the outputs of an aggregate decide on the rows which it produces: the
+            // marker is a group key of this aggregate (see above), so it has to be one of its outputs
+            // as well, otherwise the nodes above it cannot read it.
+            outputs.add(matchMarkerOfTheEmptyDomain);
+        }
         return new LogicalAggregate<>(groupBy, outputs, aggregate.child(0));
     }
 
@@ -942,7 +950,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             TheAggregation aggregation, CorrelatedAggregatePredicates predicates) {
         List<LogicalAggregate<?>> chain = aggregation.aggregationChain();
         if (chain.get(chain.size() - 1).getGroupByExpressions().isEmpty()
-                && theFiltersBetweenTheAggregationOfTheDomainAndTheOneAboveIt(aggregation).isEmpty()) {
+                && theFiltersBetweenTheAggregations(aggregation).isEmpty()) {
             // the aggregation of the domain returns a row for every correlation key, so no
             // aggregate above it can observe an empty input (a filter between those aggregations is
             // the HAVING clause of the aggregation of the domain: it decides on the row of the empty
@@ -1035,13 +1043,14 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     }
 
     /**
-     * The filters which sit between the aggregation of the domain and the aggregation above it: they
-     * decide on the rows which the aggregation of the domain produces (they are the HAVING clauses of
-     * the aggregation below them), so they are not evaluated for a correlation key whose rows below
-     * that aggregation are missing (see keepsTheRowOfAnEmptyDomain).
+     * The filters which sit between two aggregations of the chain: they decide on the rows which the
+     * aggregation below them produces (the filters directly above an aggregation are its HAVING
+     * clauses), so they are not evaluated for a correlation key whose rows below that aggregation are
+     * missing (see keepsTheRowOfAnEmptyDomain). Every interval between the aggregation of the domain
+     * and the top aggregation may carry such a filter: the HAVING clause of the aggregation of the
+     * domain is the deepest one, and an aggregation above it may have a HAVING clause of its own.
      */
-    private static Set<LogicalFilter> theFiltersBetweenTheAggregationOfTheDomainAndTheOneAboveIt(
-            TheAggregation aggregation) {
+    private static Set<LogicalFilter> theFiltersBetweenTheAggregations(TheAggregation aggregation) {
         if (aggregation.topAggregation() == aggregation.domainAggregation()) {
             // the aggregation of the domain is the only aggregation of the subquery, so there is no
             // aggregation above it and no filter between such aggregations either (the filter of the
@@ -1049,13 +1058,17 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             return ImmutableSet.of();
         }
         List<LogicalAggregate<?>> chain = aggregation.aggregationChain();
-        Plan below = chain.get(chain.size() - 2).child(0);
         Set<LogicalFilter> filters = Sets.newLinkedHashSet();
-        while (below != aggregation.domainAggregation()) {
-            if (below instanceof LogicalFilter) {
-                filters.add((LogicalFilter) below);
+        for (int i = chain.size() - 2; i >= 0; i--) {
+            // the nodes between the aggregate at the index i and the one below it, which the chain
+            // keeps at the index i + 1
+            Plan below = chain.get(i).child(0);
+            while (below != chain.get(i + 1)) {
+                if (below instanceof LogicalFilter) {
+                    filters.add((LogicalFilter) below);
+                }
+                below = below.child(0);
             }
-            below = below.child(0);
         }
         return filters;
     }
@@ -1151,7 +1164,8 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
     private static Plan rebuildTheAggregationChain(Plan plan, TheAggregation aggregation,
             Map<LogicalAggregate<?>, Plan> newAggregations, Set<Slot> keysToExpose,
             Set<Slot> outputsOfTheTopAggregation, Slot matchMarkerOfTheEmptyDomain,
-            Set<LogicalFilter> filtersWhichKeepTheRowOfAnEmptyDomain, boolean belowTheTopAggregate) {
+            Set<LogicalFilter> filtersWhichKeepTheRowOfAnEmptyDomain, boolean belowTheTopAggregate,
+            Map<Expression, Expression> nullableInnerSlots) {
         Plan replacement = newAggregations.get(plan);
         if (plan == aggregation.domainAggregation()) {
             return replacement;
@@ -1160,7 +1174,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
         Plan child = rebuildTheAggregationChain(plan.child(0), aggregation, newAggregations, keysToExpose,
                 plan == aggregation.topAggregation() ? ImmutableSet.of() : outputsOfTheTopAggregation,
                 matchMarkerOfTheEmptyDomain, filtersWhichKeepTheRowOfAnEmptyDomain,
-                belowTheTopAggregate || plan == aggregation.topAggregation());
+                belowTheTopAggregate || plan == aggregation.topAggregation(), nullableInnerSlots);
         if (replacement != null) {
             return replacement.withChildren(child);
         }
@@ -1171,20 +1185,29 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // so that the aggregates above it return the values of an empty input for the key (see
             // keepsTheRowOfAnEmptyDomain). Without the relaxation the filter would remove the row which
             // the rewrite keeps for the key, and the aggregates above it (which the rewrite grouped by
-            // the correlation key) would produce no row at all for the key.
+            // the correlation key) would produce no row at all for the key. The predicates of the
+            // filter are rebuilt as well: they may read the columns of the inner side, which the left
+            // outer join of the domain reports as nullable (see nullableInnerSlots).
             List<Expression> conjuncts = Lists.newArrayList();
             for (Expression conjunct : ((LogicalFilter<Plan>) plan).getConjuncts()) {
-                conjuncts.add(ExpressionUtils.or(conjunct, new IsNull(matchMarkerOfTheEmptyDomain)));
+                conjuncts.add(ExpressionUtils.or(
+                        ExpressionUtils.replace(conjunct, nullableInnerSlots),
+                        new IsNull(matchMarkerOfTheEmptyDomain)));
             }
             return new LogicalFilter<>(Sets.newLinkedHashSet(conjuncts), child);
         }
         if (plan instanceof LogicalProject) {
             // the projections between the aggregates carry the columns which the aggregates above
-            // them need, the keys of the correlation included
+            // them need, the keys of the correlation included, and they read the columns of the inner
+            // side through the nullable slots of the left outer join of the domain
             LogicalProject<?> project = (LogicalProject<?>) plan;
-            Set<Slot> exposed = project.getProjects().stream()
+            List<NamedExpression> projects = Lists.newArrayList();
+            for (NamedExpression projectExpression : project.getProjects()) {
+                projects.add((NamedExpression) ExpressionUtils.replace(
+                        projectExpression, nullableInnerSlots));
+            }
+            Set<Slot> exposed = projects.stream()
                     .map(NamedExpression::toSlot).collect(ImmutableSet.toImmutableSet());
-            List<NamedExpression> projects = Lists.newArrayList(project.getProjects());
             boolean added = false;
             for (Slot key : keysToExpose) {
                 if (!exposed.contains(key)) {
@@ -1207,7 +1230,7 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
                 projects.add(matchMarkerOfTheEmptyDomain);
                 added = true;
             }
-            if (added) {
+            if (added || !projects.equals(project.getProjects())) {
                 return new LogicalProject<>(projects, project.isDistinct(), project.getAsteriskOutputs(), child);
             }
         }
@@ -2147,14 +2170,14 @@ public class UnCorrelatedApplyAggregateFilter implements RewriteRuleFactory {
             // with it, while the projections above the top aggregation are not read by a node which
             // needs the marker (the marker is not an output of the subquery).
             filtersWhichKeepTheRowOfAnEmptyDomain =
-                    theFiltersBetweenTheAggregationOfTheDomainAndTheOneAboveIt(aggregation);
+                    theFiltersBetweenTheAggregations(aggregation);
         }
         // the predicates of the apply are evaluated on the nodes above the aggregation of the
         // subquery, which produce the outputs of that aggregation themselves, so no output of it has
         // to be appended to the projections below them
         Plan newRight = rebuildTheAggregationChain(apply.right(), aggregation, newAggregations, keysToExpose,
                 ImmutableSet.of(), keepsTheRowOfAnEmptyDomain ? matchMarker : null,
-                filtersWhichKeepTheRowOfAnEmptyDomain, false);
+                filtersWhichKeepTheRowOfAnEmptyDomain, false, nullableInnerSlots);
         if (!movedPredicates.isEmpty() && !aggregation.onlyTheAggregationOfTheDomain()) {
             newRight = new LogicalFilter<>(movedPredicates, newRight);
         }
