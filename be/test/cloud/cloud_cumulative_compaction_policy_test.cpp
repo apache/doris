@@ -345,8 +345,8 @@ TEST_F(TestCloudSizeBasedCumulativeCompactionPolicy,
         std::vector<RowsetSharedPtr> input_rowsets;
         Version last_delete_version {-1, -1};
         size_t compaction_score = 0;
-        policy.pick_input_rowsets(&tablet, {rowset}, 1000, 2, &input_rowsets,
-                                  &last_delete_version, &compaction_score, true);
+        policy.pick_input_rowsets(&tablet, {rowset}, 1000, 2, &input_rowsets, &last_delete_version,
+                                  &compaction_score, true);
         if (overlap == NONOVERLAPPING) {
             EXPECT_TRUE(input_rowsets.empty());
             EXPECT_EQ(0, compaction_score);
