@@ -18,11 +18,14 @@
 #pragma once
 
 #include <unicode/utext.h>
+#include <unicode/utf8.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <span>
 #include <string_view>
+#include <utility>
 
 #include "CLucene.h"
 #include "CLucene/analysis/AnalysisHeader.h"
@@ -41,6 +44,24 @@ using TokenStreamPtr = std::shared_ptr<TokenStream>;
 // Reused analyzers keep ordinary scratch across values; one oversized value must not pin its
 // capacity for the rest of the writer lifetime.
 constexpr size_t ANALYZER_SCRATCH_HIGH_WATER_BYTES = 64 * 1024;
+
+// Longest prefix of text that fits in max_bytes without splitting a rune, and its rune count.
+inline std::pair<size_t, size_t> utf8_prefix_at_most(std::string_view text, size_t max_bytes) {
+    const auto length = static_cast<int32_t>(text.size());
+    const auto limit = static_cast<int32_t>(std::min(text.size(), max_bytes));
+    int32_t offset = 0;
+    size_t rune_count = 0;
+    while (offset < length) {
+        int32_t next = offset;
+        U8_FWD_1(text, next, length);
+        if (next > limit) {
+            break;
+        }
+        offset = next;
+        ++rune_count;
+    }
+    return {static_cast<size_t>(offset), rune_count};
+}
 
 template <typename Container>
 void release_oversized_scratch(Container& container) {

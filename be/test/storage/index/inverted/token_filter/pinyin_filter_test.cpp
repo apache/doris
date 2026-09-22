@@ -1092,6 +1092,49 @@ TEST_F(PinyinFilterTest, TestCaseAndFoldingFiltersCountRunesOnlyForOffsets) {
     }
 }
 
+TEST_F(PinyinFilterTest, TestPinyinTokenizerClipsOriginalCandidateProvenance) {
+    Settings settings;
+    settings.set("keep_first_letter", "false");
+    settings.set("keep_full_pinyin", "false");
+    settings.set("keep_none_chinese", "false");
+    settings.set("keep_original", "true");
+    settings.set("ignore_pinyin_offset", "false");
+    PinyinTokenizerFactory factory;
+    factory.initialize(settings);
+
+    // An over-cap original candidate publishes only its prefix, so it owns only that source.
+    const std::string ascii(300, 'a');
+    auto ascii_reader = std::make_shared<lucene::util::SStringReader<char>>();
+    ascii_reader->init(ascii.data(), static_cast<int32_t>(ascii.size()), false);
+    auto tokenizer = factory.create();
+    tokenizer->set_reader(ascii_reader);
+    tokenizer->set_source_byte_offsets_enabled(true);
+    tokenizer->reset();
+
+    Token token;
+    ASSERT_NE(tokenizer->next(&token), nullptr);
+    EXPECT_EQ(token.termLength<char>(), 255);
+    EXPECT_EQ(token.startOffset(), 0);
+    EXPECT_EQ(token.endOffset(), 255);
+    EXPECT_EQ(tokenizer->get_source_byte_offsets().size(), 256);
+    EXPECT_EQ(tokenizer->get_source_byte_offsets().back(), 255);
+
+    // A cap that falls inside a rune clips to the rune boundary before it (2-byte runes here,
+    // so the 255-byte cap would split the 128th one).
+    std::string latin;
+    for (int i = 0; i < 200; ++i) {
+        latin += "\xC3\xA9"; // U+00E9
+    }
+    auto latin_reader = std::make_shared<lucene::util::SStringReader<char>>();
+    latin_reader->init(latin.data(), static_cast<int32_t>(latin.size()), false);
+    tokenizer->set_reader(latin_reader);
+    tokenizer->reset();
+    ASSERT_NE(tokenizer->next(&token), nullptr);
+    EXPECT_EQ(token.termLength<char>(), 254);
+    EXPECT_EQ(token.endOffset(), 254);
+    EXPECT_EQ(tokenizer->get_source_byte_offsets().size(), 128);
+}
+
 TEST_F(PinyinFilterTest, TestOffsetTrackingReusesTokenizerScratchAcrossTokens) {
     for (const std::string tokenizer_type : {"standard", "ik_max_word"}) {
         SCOPED_TRACE(tokenizer_type);

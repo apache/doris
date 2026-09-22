@@ -217,7 +217,9 @@ Token* PinyinTokenizer::next(Token* token) {
         candidate_offset_++;
 
         const std::string& text = item.term;
-        size_t size = std::min(text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
+        // Clip on a rune boundary so a split rune is never published.
+        const size_t size =
+                utf8_prefix_at_most(text, static_cast<size_t>(LUCENE_MAX_WORD_LEN)).first;
         token->setNoCopy(text.data(), 0, static_cast<int32_t>(size));
 
         int32_t start = item.start_offset;
@@ -225,6 +227,16 @@ Token* PinyinTokenizer::next(Token* token) {
         if (config_->ignorePinyinOffset) {
             start = 0;
             end = runes_.empty() ? 0 : runes_.back().byte_end;
+        } else if (size < text.size()) {
+            // A clipped candidate must not claim the source of what it did not emit; when the
+            // candidate is the source slice itself, that source is its own prefix.
+            const int32_t clipped_start = std::clamp(start, 0, _char_length);
+            const int32_t clipped_end = std::clamp(end, clipped_start, _char_length);
+            if (std::string_view(_char_buffer + clipped_start, clipped_end - clipped_start) ==
+                text) {
+                start = clipped_start;
+                end = clipped_start + static_cast<int32_t>(size);
+            }
         }
         token->setStartOffset(correct_source_start_offset(start));
         token->setEndOffset(correct_source_offset(end));

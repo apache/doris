@@ -41,7 +41,7 @@ using namespace segment_v2;
 
 namespace {
 
-InvertedIndexAnalyzerCtx analyzer_context_from_properties(
+InvertedIndexAnalyzerCtx build_analyzer_context(
         const std::map<std::string, std::string>& properties) {
     InvertedIndexAnalyzerConfig config;
     config.analyzer_name = get_analyzer_name_from_properties(properties);
@@ -60,6 +60,24 @@ InvertedIndexAnalyzerCtx analyzer_context_from_properties(
             inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(&config);
     return analyzer_ctx;
 }
+
+} // namespace
+
+Result<InvertedIndexAnalyzerCtx> analyzer_context_from_properties(
+        const std::map<std::string, std::string>& properties) {
+    // Replayed components can collide across policy families, so building the provider throws.
+    try {
+        return build_analyzer_context(properties);
+    } catch (const CLuceneError& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build scoring analyzer failed: {}", error.what()));
+    } catch (const Exception& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build scoring analyzer failed: {}", error.what()));
+    }
+}
+
+namespace {
 
 Result<std::vector<TermInfo>> analyze_plain_query(const std::string& value,
                                                   const InvertedIndexAnalyzerCtx& analyzer_ctx) {
@@ -527,7 +545,11 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
     std::vector<TermInfo> term_infos;
     std::optional<InvertedIndexAnalyzerCtx> analyzer_ctx;
     if (InvertedIndexAnalyzer::should_analyzer(analysis_properties)) {
-        analyzer_ctx.emplace(analyzer_context_from_properties(analysis_properties));
+        auto built_ctx = analyzer_context_from_properties(analysis_properties);
+        if (!built_ctx.has_value()) {
+            return built_ctx.error();
+        }
+        analyzer_ctx.emplace(std::move(built_ctx.value()));
     }
 
     if (clause_type == "MATCH") {

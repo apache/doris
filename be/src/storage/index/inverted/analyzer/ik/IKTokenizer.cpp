@@ -61,23 +61,6 @@ void regularize_with_source_byte_offsets(std::string& token, bool lowercase,
     token = std::move(normalized);
 }
 
-std::pair<size_t, size_t> utf8_prefix_at_most(std::string_view text, size_t max_bytes) {
-    const auto length = static_cast<int32_t>(text.size());
-    const auto limit = static_cast<int32_t>(std::min(text.size(), max_bytes));
-    int32_t offset = 0;
-    size_t rune_count = 0;
-    while (offset < length) {
-        int32_t next = offset;
-        U8_FWD_1(text, next, length);
-        if (next > limit) {
-            break;
-        }
-        offset = next;
-        ++rune_count;
-    }
-    return {static_cast<size_t>(offset), rune_count};
-}
-
 } // namespace
 
 IKTokenizer::IKTokenizer(std::shared_ptr<Configuration> config, bool lower_case, bool own_reader) {

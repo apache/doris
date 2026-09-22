@@ -47,6 +47,7 @@
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/similarity/predicate_collector.h"
 #include "storage/index/inverted/util/string_helper.h"
 #include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/query/bm25_scorer.h"
@@ -2693,6 +2694,36 @@ TEST_F(CollectionStatisticsTest, BuildFieldNameWithSuffix) {
 TEST_F(CollectionStatisticsTest, BuildFieldNameWithoutSuffix) {
     TestablePredicateCollector collector;
     EXPECT_EQ(collector.build_field_name(42, ""), "42");
+}
+
+TEST_F(CollectionStatisticsTest, ScoringAnalyzerContextReportsWrongFamilyComponentAsStatus) {
+    IndexPolicyMgr policy_mgr;
+    auto* exec_env = ExecEnv::GetInstance();
+    auto* original_policy_mgr = exec_env->index_policy_mgr();
+    exec_env->_index_policy_mgr = &policy_mgr;
+    Defer restore_policy_mgr([&] { exec_env->_index_policy_mgr = original_policy_mgr; });
+
+    // Replay can keep a component whose family no longer matches how the analyzer uses it.
+    TIndexPolicy char_filter;
+    char_filter.id = 200;
+    char_filter.name = "Wrong";
+    char_filter.type = TIndexPolicyType::CHAR_FILTER;
+    char_filter.properties["type"] = "char_replace";
+    TIndexPolicy analyzer;
+    analyzer.id = 201;
+    analyzer.name = "wrong_family_analyzer";
+    analyzer.type = TIndexPolicyType::ANALYZER;
+    analyzer.properties["tokenizer"] = "keyword";
+    analyzer.properties["token_filter"] = "Wrong";
+    policy_mgr.apply_policy_changes({char_filter, analyzer}, {});
+
+    const std::map<std::string, std::string> properties = {{"analyzer", "wrong_family_analyzer"}};
+    auto analyzer_ctx = analyzer_context_from_properties(properties);
+    ASSERT_FALSE(analyzer_ctx.has_value());
+    EXPECT_EQ(analyzer_ctx.error().code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+
+    const std::map<std::string, std::string> valid = {{"parser", "english"}};
+    EXPECT_TRUE(analyzer_context_from_properties(valid).has_value());
 }
 
 } // namespace doris
