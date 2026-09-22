@@ -248,6 +248,33 @@ public class MTMVPropertyUtil {
     }
 
     /**
+     * Whether the change from {@code oldWindowProperties} to {@code newWindowProperties} can bring base
+     * partitions back into the window the MV maintains: a limit that is removed, or a wider one. Those
+     * partitions' deltas were skipped while they were outside, so nothing incremental can repair them.
+     *
+     * <p>A window that starts applying is not such a change -- it only takes partitions out of what the MV
+     * maintains, and partition sync drops those before the refresh plans -- and neither is a narrower one.
+     * Windows in different units or date formats are not comparable without a clock, so a change to either
+     * is treated as one that may widen.
+     */
+    public static boolean partitionSyncWindowWidens(Map<String, String> oldWindowProperties,
+            Map<String, String> newWindowProperties) {
+        MTMVPartitionSyncConfig oldWindow = MTMVRelatedPartitionDescSyncLimitGenerator
+                .generateMTMVPartitionSyncConfigByProperties(oldWindowProperties);
+        if (oldWindow.getSyncLimit() <= 0) {
+            return false;
+        }
+        MTMVPartitionSyncConfig newWindow = MTMVRelatedPartitionDescSyncLimitGenerator
+                .generateMTMVPartitionSyncConfigByProperties(newWindowProperties);
+        if (newWindow.getSyncLimit() <= 0) {
+            return true;
+        }
+        return !oldWindow.getTimeUnit().equals(newWindow.getTimeUnit())
+                || !oldWindow.getDateFormat().equals(newWindow.getDateFormat())
+                || newWindow.getSyncLimit() > oldWindow.getSyncLimit();
+    }
+
+    /**
      * The window the given properties describe, for comparing it across an ALTER. Only the properties the
      * window is built from are read, and the values are compared as they are stored: setting the same
      * window again changes nothing about which rows the MV owes and must not force a rebuild.
