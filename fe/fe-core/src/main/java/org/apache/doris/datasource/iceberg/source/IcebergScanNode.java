@@ -2531,7 +2531,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
         List<String> partitionValues = IcebergUtils.getPartitionValues(
-                partitionData, partitionSpec, sessionVariable.getTimeZone());
+                partitionData, partitionSpec, sessionVariable.getTimeZone(), getEnableMappingTimestampTz());
         Map<Integer, Object> partitionValueByFieldId = new HashMap<>();
         List<PartitionField> fields = partitionSpec.fields();
         for (int i = 0; i < fields.size(); i++) {

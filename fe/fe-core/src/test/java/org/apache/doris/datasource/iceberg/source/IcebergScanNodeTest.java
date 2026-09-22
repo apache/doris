@@ -3579,6 +3579,25 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testPartitionDataJsonPreservesTimestampTzInstantWhenMapped() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setTimeZone("Asia/Shanghai");
+        TestIcebergScanNode node = new TestIcebergScanNode(sv, false, true, false);
+
+        Schema schema = new Schema(Types.NestedField.required(1, "p", Types.TimestampType.withZone()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        PartitionData partitionData = new PartitionData(spec.partitionType());
+        partitionData.set(0, -1L);
+
+        Method method = IcebergScanNode.class.getDeclaredMethod("getPartitionDataObjectJson",
+                PartitionData.class, PartitionSpec.class, List.class);
+        method.setAccessible(true);
+
+        Assert.assertEquals("{\"p\":\"1969-12-31T23:59:59.999999Z\"}",
+                method.invoke(node, partitionData, spec, spec.partitionType().fields()));
+    }
+
+    @Test
     public void testRejectBinaryPartitionValueWithoutBinarySafeTransport() throws Exception {
         assertUnsupportedPositionDeletesPartitionValue(
                 Types.BinaryType.get(), ByteBuffer.wrap(new byte[] {0, (byte) 0xff}), false, "binary");

@@ -1054,6 +1054,11 @@ public class IcebergUtils {
 
     public static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec,
             String timeZone) {
+        return getPartitionValues(partitionData, partitionSpec, timeZone, false);
+    }
+
+    public static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec,
+            String timeZone, boolean preserveTimestampTzInstant) {
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
         Preconditions.checkArgument(fields.size() == partitionSpec.fields().size(),
                 "PartitionData fields size does not match PartitionSpec fields size");
@@ -1063,7 +1068,8 @@ public class IcebergUtils {
             NestedField field = fields.get(i);
             Object value = partitionData.get(i);
             try {
-                partitionValues.add(serializePartitionValue(field.type(), value, timeZone));
+                partitionValues.add(serializePartitionValue(
+                        field.type(), value, timeZone, preserveTimestampTzInstant));
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize Iceberg partition value for field {}: {}", field.name(),
                         e.getMessage());
@@ -1093,6 +1099,11 @@ public class IcebergUtils {
     }
 
     private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
+        return serializePartitionValue(type, value, timeZone, false);
+    }
+
+    private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone,
+            boolean preserveTimestampTzInstant) {
         switch (type.typeId()) {
             case BOOLEAN:
             case INTEGER:
@@ -1131,6 +1142,11 @@ public class IcebergUtils {
                 // (1970-01-01T00:00:00)
                 long timestampMicros = (Long) value;
                 TimestampType timestampType = (TimestampType) type;
+                if (preserveTimestampTzInstant && timestampType.shouldAdjustToUTC()) {
+                    return DateTimeFormatter.ISO_INSTANT.format(Instant.ofEpochSecond(
+                            Math.floorDiv(timestampMicros, 1_000_000L),
+                            Math.toIntExact(Math.floorMod(timestampMicros, 1_000_000L) * 1_000L)));
+                }
                 LocalDateTime timestamp = LocalDateTime.ofEpochSecond(
                         Math.floorDiv(timestampMicros, 1_000_000L),
                         Math.toIntExact(Math.floorMod(timestampMicros, 1_000_000L) * 1_000L),
