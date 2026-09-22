@@ -53,6 +53,7 @@
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/read_io_trace.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -1172,6 +1173,50 @@ bool CachedRemoteFileReader::_try_read_from_inflight_buffers(size_t offset, Slic
     return true;
 }
 
+void CachedRemoteFileReader::_trace_remote_miss(size_t offset, size_t bytes_req,
+                                                const IOContext* io_ctx) {
+    const size_t block_size = static_cast<size_t>(config::file_cache_each_block_size);
+    const size_t aligned_start = offset / block_size * block_size;
+    const size_t request_end = offset + bytes_req;
+    auto available = _cache->downloaded_ranges(_cache_hash, offset, bytes_req);
+    ReadIOTraceEvent event {.event = "remote_miss_coverage",
+                            .context = io_ctx,
+                            .file = path().native(),
+                            .id = io_ctx->read_trace_id,
+                            .offset = offset,
+                            .size = bytes_req};
+    for (const auto& range : available) {
+        event.disk_bytes += range.size();
+    }
+    if (config::enable_async_file_cache_write_inflight_write_buffer_index) {
+        auto* inflight_index = _cache->inflight_write_buffer_index();
+        for (size_t block_offset = aligned_start; block_offset < request_end;
+             block_offset += block_size) {
+            const auto entry = inflight_index->lookup(_cache_hash, block_offset);
+            if (entry != nullptr) {
+                const size_t left = std::max(offset, entry->buffer_offset);
+                const size_t covered_end =
+                        std::min(request_end, entry->buffer_offset + entry->buffer_size);
+                if (covered_end > left) {
+                    event.inflight_bytes += covered_end - left;
+                    available.emplace_back(left, covered_end - 1);
+                }
+            }
+        }
+    }
+    std::sort(available.begin(), available.end(),
+              [](const auto& left, const auto& right) { return left.left < right.left; });
+    size_t covered_end = offset;
+    for (const auto& range : available) {
+        const size_t end = range.right + 1;
+        if (end > covered_end) {
+            event.available_bytes += end - std::max(range.left, covered_end);
+            covered_end = end;
+        }
+    }
+    ReadIOTrace::record(event);
+}
+
 Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
         size_t offset, Slice result, size_t bytes_req, bool is_dryrun, size_t* bytes_read,
         ReadStatistics& stats, SourceReadBreakdown& source_read_breakdown,
@@ -1188,6 +1233,9 @@ Status CachedRemoteFileReader::_read_remote_only_on_cache_miss(
             return Status::OK();
         }
 
+        if (ReadIOTrace::enabled()) {
+            _trace_remote_miss(offset, bytes_req, io_ctx);
+        }
         size_t remote_bytes_read = bytes_req;
         SCOPED_RAW_TIMER(&stats.remote_read_timer);
         RETURN_IF_ERROR(_remote_file_reader->read_at(offset, Slice(result.data, bytes_req),

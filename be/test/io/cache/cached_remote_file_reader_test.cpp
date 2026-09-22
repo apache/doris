@@ -22,6 +22,7 @@
 #include "cloud/config.h"
 #include "io/cache/async_cache_write_manager_metrics.h"
 #include "io/cache/inflight_write_buffer_index.h"
+#include "io/fs/read_io_trace_test_util.h"
 #include "util/time.h"
 
 namespace doris::io {
@@ -1017,6 +1018,7 @@ TEST_F(AsyncCachedRemoteFileReaderTest, exact_no_write_cold_miss_reads_only_the_
 
 TEST_F(AsyncCachedRemoteFileReaderTest,
        exact_no_write_reuses_only_complete_multiblock_inflight_coverage) {
+    ReadIOTraceCapture trace;
     create_cache("cached_remote_reader_exact_inflight_coverage");
     auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
     auto reader = create_reader(counting_reader);
@@ -1081,10 +1083,16 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_EQ(partially_covered_stats.bytes_read_from_remote, partial_size);
     EXPECT_EQ(partially_covered_stats.inflight_write_buffer_index_hit, 1);
     EXPECT_EQ(partially_covered_stats.inflight_write_buffer_index_miss, 1);
+    const auto coverage = trace.events("remote_miss_coverage");
+    ASSERT_EQ(coverage.size(), 1);
+    EXPECT_EQ(coverage[0]["inflight_bytes"].GetUint64(), 64_kb);
+    EXPECT_EQ(coverage[0]["disk_bytes"].GetUint64(), 0);
+    EXPECT_EQ(coverage[0]["available_bytes"].GetUint64(), 64_kb);
 }
 
 TEST_F(AsyncCachedRemoteFileReaderTest,
        exact_no_write_partial_cache_coverage_uses_one_remote_read) {
+    ReadIOTraceCapture trace;
     create_cache("cached_remote_reader_exact_partial_hit");
     auto counting_reader = std::make_shared<CountingFileReader>(open_remote_file());
     auto reader = create_reader(counting_reader);
@@ -1132,6 +1140,42 @@ TEST_F(AsyncCachedRemoteFileReaderTest,
     EXPECT_EQ(probe_result.file_blocks[0], nullptr);
     EXPECT_EQ(probe_result.file_blocks[1], cached_block);
     EXPECT_EQ(probe_result.file_blocks[2], nullptr);
+    const auto coverage = trace.events("remote_miss_coverage");
+    ASSERT_EQ(coverage.size(), 1);
+    EXPECT_EQ(coverage[0]["disk_bytes"].GetUint64(), 1_mb);
+    EXPECT_EQ(coverage[0]["available_bytes"].GetUint64(), 1_mb);
+}
+
+TEST_F(AsyncCachedRemoteFileReaderTest, trace_coverage_unions_irregular_cache_and_inflight_ranges) {
+    ReadIOTraceCapture trace;
+    create_cache("cached_remote_reader_trace_irregular_coverage");
+    auto reader = create_reader(open_remote_file());
+    ReadStatistics stats;
+    CacheContext cache_context;
+    cache_context.stats = &stats;
+    auto holder = cache()->get_or_set(reader->_cache_hash, 64_kb, 128_kb, cache_context);
+    ASSERT_EQ(holder.file_blocks.size(), 1);
+    const auto& block = holder.file_blocks.front();
+    ASSERT_EQ(block->get_or_set_downloader(), FileBlock::get_caller_id());
+    std::string content(128_kb, 'x');
+    ASSERT_TRUE(block->append(Slice(content)).ok());
+    ASSERT_TRUE(block->finalize().ok());
+
+    auto* index = cache()->inflight_write_buffer_index();
+    AsyncCacheWriteBufferPtr buffer;
+    ASSERT_TRUE(cache()->async_write_manager()->allocate_tracked_buffer(1_mb, &buffer).ok());
+    auto entry = std::make_shared<InflightWriteBufferEntry>(buffer, 0, 1_mb, MonotonicMicros());
+    ASSERT_EQ(index->insert_if_absent(reader->_cache_hash, 0, entry), nullptr);
+    Defer remove {[&]() { index->remove_if(reader->_cache_hash, 0, entry); }};
+    IOContext context;
+    reader->_trace_remote_miss(128_kb, 1_mb, &context);
+    const auto coverage = trace.events("remote_miss_coverage");
+    ASSERT_EQ(coverage.size(), 1);
+    EXPECT_EQ(coverage[0]["disk_bytes"].GetUint64(), 64_kb);
+    EXPECT_EQ(coverage[0]["inflight_bytes"].GetUint64(), 1_mb - 128_kb);
+    EXPECT_EQ(coverage[0]["available_bytes"].GetUint64(), 1_mb - 128_kb);
+    EXPECT_TRUE(cache()->downloaded_ranges(reader->_cache_hash, 2_mb, 1_mb).empty());
+    EXPECT_EQ(cache()->downloaded_ranges(reader->_cache_hash, 0, 3_mb).size(), 1);
 }
 
 TEST_F(BlockFileCacheTest,

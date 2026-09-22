@@ -26,6 +26,7 @@
 #include "core/allocator.h"
 #include "cpp/sync_point.h"
 #include "io/fs/read_ahead_metrics.h"
+#include "io/fs/read_io_trace.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
@@ -159,6 +160,7 @@ FileRangeRead::FileRangeRead(FileRange range, std::shared_ptr<MemTrackerLimiter>
                              FileRangeReadReservation reservation,
                              std::shared_ptr<ReadAheadStatistics> statistics)
         : _range(range),
+          _trace_id(ReadIOTrace::next_id()),
           _tracker(std::move(tracker)),
           _reservation(std::move(reservation)),
           _statistics(std::move(statistics)) {
@@ -590,6 +592,8 @@ void FileRangeReadScheduler::_run_task(ReadTask task) const {
     }
     task.io_context.io_context.file_cache_stats = &stats.file_cache;
     task.io_context.io_context.file_reader_stats = &stats.file_reader;
+    task.io_context.io_context.read_trace_source = FileReadTraceSource::READ_AHEAD;
+    task.io_context.io_context.read_trace_id = task.read->trace_id();
     Status status;
     const int64_t read_start_ns = MonotonicNanos();
     try {
@@ -606,6 +610,19 @@ void FileRangeReadScheduler::_run_task(ReadTask task) const {
     stats.read_ns = MonotonicNanos() - read_start_ns;
     if (status.ok() && stats.bytes_read == task.read->range().size) {
         stats.successful_source_bytes = stats.bytes_read;
+    }
+
+    if (ReadIOTrace::enabled()) {
+        ReadIOTrace::record({.event = "range_read_done",
+                             .context = &task.io_context.io_context,
+                             .file = task.reader->path().native(),
+                             .id = task.read->trace_id(),
+                             .offset = task.read->range().offset,
+                             .size = task.read->range().size,
+                             .start_ns = read_start_ns,
+                             .bytes = stats.bytes_read,
+                             .status = status.code(),
+                             .remote_bytes = stats.file_cache.bytes_read_from_remote});
     }
 
     if (task.context->cancelled() || task.read->_is_cancel_requested() || !accepting()) {

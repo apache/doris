@@ -65,6 +65,7 @@
 #include "io/fs/file_range_read_scheduler.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_reader.h"
+#include "io/fs/read_io_trace.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
 #include "load/group_commit/group_commit_mgr.h"
@@ -934,6 +935,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
     SAFE_SHUTDOWN(_s3_file_system_thread_pool);
     SAFE_SHUTDOWN(_peer_race_s3_thread_pool);
+    io::ReadIOTrace::shutdown();
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     SAFE_SHUTDOWN(_udf_close_workers_thread_pool);
     SAFE_SHUTDOWN(_send_table_stats_thread_pool);
