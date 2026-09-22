@@ -30,20 +30,6 @@
 
 namespace doris::segment_v2::inverted_index {
 
-namespace {
-
-constexpr size_t PINYIN_SCRATCH_HIGH_WATER_BYTES = 64 * 1024;
-
-template <typename Container>
-void release_oversized_scratch(Container& container) {
-    if (container.capacity() * sizeof(typename Container::value_type) >
-        PINYIN_SCRATCH_HIGH_WATER_BYTES) {
-        Container().swap(container);
-    }
-}
-
-} // namespace
-
 PinyinFilter::PinyinFilter(const TokenStreamPtr& in, std::shared_ptr<PinyinConfig> config)
         : DorisTokenFilter(in),
           config_(std::move(config)),

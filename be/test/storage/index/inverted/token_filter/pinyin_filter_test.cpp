@@ -612,6 +612,72 @@ TEST_F(PinyinFilterTest, TestResetRetainsOrdinaryScratchAndReleasesOversizedScra
               64 * 1024);
 }
 
+TEST_F(PinyinFilterTest, TestResetReleasesOversizedUpstreamProvenanceScratch) {
+    Settings settings;
+    settings.set("keep_first_letter", "false");
+    settings.set("keep_full_pinyin", "false");
+    settings.set("keep_original", "true");
+    settings.set("keep_none_chinese", "true");
+    settings.set("none_chinese_pinyin_tokenize", "false");
+    settings.set("ignore_pinyin_offset", "false");
+    PinyinFilterFactory pinyin_factory;
+    pinyin_factory.initialize(settings);
+    WordDelimiterFilterFactory delimiter_factory;
+    delimiter_factory.initialize({});
+
+    const std::string ordinary(256, 'a');
+    const std::string oversized(96 * 1024, 'b');
+    const std::string empty;
+    auto tokenizer = createTokenizer("empty", ordinary);
+    auto delimiter =
+            std::dynamic_pointer_cast<WordDelimiterFilter>(delimiter_factory.create(tokenizer));
+    ASSERT_NE(delimiter, nullptr);
+    auto filter = pinyin_factory.create(delimiter);
+
+    auto reset_to = [&](const std::string& text) {
+        auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+        reader->init(text.data(), static_cast<int32_t>(text.size()), false);
+        tokenizer->set_reader(reader);
+        filter->reset();
+    };
+    auto collect = [&]() {
+        std::vector<std::tuple<std::string, int32_t, int32_t>> tokens;
+        Token token;
+        while (filter->next(&token) != nullptr) {
+            tokens.emplace_back(std::string(token.termBuffer<char>(), token.termLength<char>()),
+                                token.startOffset(), token.endOffset());
+        }
+        return tokens;
+    };
+    auto tokenizer_bytes = [&]() {
+        return tokenizer->source_byte_offsets_capacity_for_test() * sizeof(int32_t);
+    };
+
+    reset_to(ordinary);
+    const auto ordinary_tokens = collect();
+    ASSERT_FALSE(ordinary_tokens.empty());
+    const size_t ordinary_tokenizer_bytes = tokenizer_bytes();
+    const size_t ordinary_delimiter_bytes = delimiter->scratch_capacity_bytes_for_test();
+    ASSERT_GT(ordinary_tokenizer_bytes, 0);
+    reset_to(ordinary);
+    EXPECT_EQ(tokenizer_bytes(), ordinary_tokenizer_bytes);
+    EXPECT_EQ(delimiter->scratch_capacity_bytes_for_test(), ordinary_delimiter_bytes);
+    EXPECT_EQ(collect(), ordinary_tokens);
+
+    reset_to(oversized);
+    ASSERT_FALSE(collect().empty());
+    ASSERT_GT(tokenizer_bytes(), 64 * 1024);
+    ASSERT_GT(delimiter->scratch_capacity_bytes_for_test(), 64 * 1024);
+
+    reset_to(empty);
+    EXPECT_LE(tokenizer_bytes(), 64 * 1024);
+    EXPECT_LE(delimiter->scratch_capacity_bytes_for_test(), 64 * 1024);
+    EXPECT_TRUE(collect().empty());
+
+    reset_to(ordinary);
+    EXPECT_EQ(collect(), ordinary_tokens);
+}
+
 TEST_F(PinyinFilterTest, TestPinyinTrimmedKeywordOffsetsPreserveSourceBoundariesAndReset) {
     Settings settings;
     settings.set("keep_first_letter", "false");

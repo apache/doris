@@ -19,6 +19,7 @@
 
 #include <unicode/utext.h>
 
+#include <cstddef>
 #include <memory>
 #include <span>
 #include <string_view>
@@ -36,6 +37,18 @@ class DorisTokenizer;
 using TokenizerPtr = std::shared_ptr<DorisTokenizer>;
 
 using TokenStreamPtr = std::shared_ptr<TokenStream>;
+
+// Reused analyzers keep ordinary scratch across values; one oversized value must not pin its
+// capacity for the rest of the writer lifetime.
+constexpr size_t ANALYZER_SCRATCH_HIGH_WATER_BYTES = 64 * 1024;
+
+template <typename Container>
+void release_oversized_scratch(Container& container) {
+    if (container.capacity() * sizeof(typename Container::value_type) >
+        ANALYZER_SCRATCH_HIGH_WATER_BYTES) {
+        Container().swap(container);
+    }
+}
 
 /**
  * All custom tokenizers and token_filters must use the following functions 

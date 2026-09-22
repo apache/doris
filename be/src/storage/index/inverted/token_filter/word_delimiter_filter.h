@@ -43,6 +43,8 @@ public:
         return _current_source_byte_end_offsets;
     }
 
+    size_t scratch_capacity_bytes_for_test() const;
+
     static bool is_alpha(int32_t type) { return (type & ALPHA) != 0; }
     static bool is_digit(int32_t type) { return (type & DIGIT) != 0; }
 
@@ -114,6 +116,7 @@ private:
     bool _has_output_token = false;
     bool _has_output_following_original = false;
 
+    static constexpr size_t INITIAL_BUFFERED_STATES = 8;
     std::vector<Attribute> _states;
     int32_t _buffered_len = 0;
     int32_t _buffered_pos = 0;
@@ -166,6 +169,18 @@ public:
     void write_and_clear() {
         write();
         clear();
+    }
+
+    void release_oversized_buffers() {
+        inverted_index::release_oversized_scratch(_buffer);
+        inverted_index::release_oversized_scratch(_source_byte_offsets);
+        inverted_index::release_oversized_scratch(_source_byte_end_offsets);
+    }
+
+    size_t scratch_capacity_bytes() const {
+        return _buffer.capacity() +
+               (_source_byte_offsets.capacity() + _source_byte_end_offsets.capacity()) *
+                       sizeof(int32_t);
     }
 
     int32_t _subword_count = 0;

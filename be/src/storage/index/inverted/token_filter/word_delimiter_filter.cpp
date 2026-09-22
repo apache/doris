@@ -35,7 +35,7 @@ WordDelimiterFilter::WordDelimiterFilter(const TokenStreamPtr& in,
         : DorisTokenFilter(in),
           _flags(configuration_flags),
           _prot_words(std::move(prot_words)),
-          _states(8) {
+          _states(INITIAL_BUFFERED_STATES) {
     _iterator = std::make_unique<WordDelimiterIterator>(char_type_table, has(SPLIT_ON_CASE_CHANGE),
                                                         has(SPLIT_ON_NUMERICS),
                                                         has(STEM_ENGLISH_POSSESSIVE));
@@ -200,6 +200,45 @@ void WordDelimiterFilter::reset() {
     _saved_token_byte_offsets.clear();
     _current_source_byte_offsets.clear();
     _current_source_byte_end_offsets.clear();
+    release_oversized_scratch(_saved_source_byte_offsets);
+    release_oversized_scratch(_saved_source_byte_end_offsets);
+    release_oversized_scratch(_saved_token_byte_offsets);
+    release_oversized_scratch(_current_source_byte_offsets);
+    release_oversized_scratch(_current_source_byte_end_offsets);
+    _concat->release_oversized_buffers();
+    _concat_all->release_oversized_buffers();
+    auto release_attribute = [](Attribute& attribute) {
+        release_oversized_scratch(attribute.buffered);
+        release_oversized_scratch(attribute.source_byte_offsets);
+        release_oversized_scratch(attribute.source_byte_end_offsets);
+    };
+    release_attribute(_attribute);
+    if (_states.capacity() * sizeof(Attribute) > ANALYZER_SCRATCH_HIGH_WATER_BYTES) {
+        std::vector<Attribute>(INITIAL_BUFFERED_STATES).swap(_states);
+    } else {
+        std::ranges::for_each(_states, release_attribute);
+    }
+}
+
+size_t WordDelimiterFilter::scratch_capacity_bytes_for_test() const {
+    auto offsets_bytes = [](const std::vector<int32_t>& offsets) {
+        return offsets.capacity() * sizeof(int32_t);
+    };
+    auto attribute_bytes = [&](const Attribute& attribute) {
+        return attribute.buffered.capacity() + offsets_bytes(attribute.source_byte_offsets) +
+               offsets_bytes(attribute.source_byte_end_offsets);
+    };
+    size_t bytes = offsets_bytes(_saved_source_byte_offsets) +
+                   offsets_bytes(_saved_source_byte_end_offsets) +
+                   offsets_bytes(_saved_token_byte_offsets) +
+                   offsets_bytes(_current_source_byte_offsets) +
+                   offsets_bytes(_current_source_byte_end_offsets) + attribute_bytes(_attribute) +
+                   _concat->scratch_capacity_bytes() + _concat_all->scratch_capacity_bytes() +
+                   _states.capacity() * sizeof(Attribute);
+    for (const auto& state : _states) {
+        bytes += attribute_bytes(state);
+    }
+    return bytes;
 }
 
 void WordDelimiterFilter::save_state(const std::string_view& term) {

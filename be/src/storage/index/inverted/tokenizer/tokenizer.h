@@ -49,6 +49,8 @@ public:
         _in = _in_pending;
         _source_byte_offsets.clear();
         _source_byte_end_offsets.clear();
+        release_oversized_scratch(_source_byte_offsets);
+        release_oversized_scratch(_source_byte_end_offsets);
     };
 
     std::span<const int32_t> get_source_byte_offsets() const override {
@@ -63,6 +65,10 @@ public:
 
     void set_source_byte_offsets_enabled(bool enabled) override {
         _source_byte_offsets_enabled = enabled;
+    }
+
+    size_t source_byte_offsets_capacity_for_test() const {
+        return _source_byte_offsets.capacity() + _source_byte_end_offsets.capacity();
     }
 
 protected:
