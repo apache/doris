@@ -1076,15 +1076,6 @@ Status VExpr::execute_column(VExprContext* context, const Block* block, const Se
         if (result_type != nullptr) {
             Status st = result_type->check_column(*result_column);
             if (!st.ok()) {
-                // Nullable(T) may legitimately produce a non-nullable T column when all rows are
-                // non-null (use_default_implementation_for_nulls optimization). Allow this.
-                const auto* nullable_type =
-                        check_and_get_data_type<DataTypeNullable>(result_type.get());
-                if (nullable_type && !check_and_get_column<ColumnNullable>(result_column.get())) {
-                    st = nullable_type->get_nested_type()->check_column(*result_column);
-                }
-            }
-            if (!st.ok()) {
                 return Status::InternalError(
                         "Expr {} return column type mismatch: declared={}, actual={}", expr_name(),
                         result_type->get_name(), result_column->get_name());
