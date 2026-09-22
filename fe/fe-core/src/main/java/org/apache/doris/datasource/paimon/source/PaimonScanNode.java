@@ -68,6 +68,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
@@ -83,12 +84,14 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
+import org.apache.paimon.types.DataTypeRoot;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -96,6 +99,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -125,11 +129,21 @@ public class PaimonScanNode extends FileQueryScanNode {
             "doris.scan.manifest.parallelism-cap";
     private static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
     private static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
+    // Same key as the rust CoreOptions DELETION_VECTORS_MERGE_ON_READ_OPTION: paimon
+    // 1.4 exposes no Java accessor for it, so the raw TableSchema option is read.
+    private static final String DELETION_VECTORS_MERGE_ON_READ = "deletion-vectors.merge-on-read";
     private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
             DORIS_ENABLE_JNI_IO_MANAGER,
             DORIS_JNI_IO_MANAGER_TMP_DIR,
             DORIS_JNI_IO_MANAGER_IMPL_CLASS,
             DORIS_ENABLE_FILE_READER_ASYNC);
+    // The table-location URI schemes whose property translation into the
+    // paimon-rust FileIO key families is implemented (BE bridge) and open
+    // tested: s3 / s3a -> the s3.* family, oss -> the fs.oss.* family, plus
+    // the credential-free hdfs and local-filesystem parsers (hadoop conf and
+    // local paths pass through untouched). See isRustVerifiedLocationScheme.
+    private static final Set<String> RUST_VERIFIED_LOCATION_SCHEMES =
+            new HashSet<>(Arrays.asList("s3", "s3a", "oss", "hdfs", "file"));
 
     private enum SplitReadType {
         JNI,
@@ -335,6 +349,52 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
     }
 
+    /**
+     * Whether the table location's URI scheme is served by a paimon-rust FileIO parser whose
+     * property translation the FE/BE bridge implements (the s3.* / fs.oss.* key families for
+     * s3 / s3a / oss) or that needs no credentials at all (hdfs hadoop conf and local
+     * filesystem paths). Every other scheme the pinned crate dispatches to its own parser
+     * (cosn / obs / gs / abfs and friends) must fall back to the JNI reader because Doris
+     * delivers those credentials only as AWS_* aliases that those parsers do not read.
+     * A null location cannot be verified (and cannot ship paimon_table either), so it is
+     * not rust-eligible.
+     */
+    @VisibleForTesting
+    static boolean isRustVerifiedLocationScheme(String location) {
+        if (location == null) {
+            return false;
+        }
+        int sep = location.indexOf("://");
+        if (sep <= 0) {
+            // No URI scheme: a plain local path reads through the crate's local-filesystem
+            // parser, which needs no credentials.
+            return true;
+        }
+        return RUST_VERIFIED_LOCATION_SCHEMES.contains(
+                location.substring(0, sep).toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Mirrors the pinned paimon-rust {@code DataSplit::is_fully_materialized_pk_dv}: a
+     * primary-key split is safe to read raw under deletion vectors only when scan planning
+     * marked it raw convertible AND every data file is compacted (level != 0) and known to
+     * carry no retract rows (delete_row_count == Some(0)). The rust read_pk path requires
+     * this for partial-update / aggregation DV tables; anything weaker must stay on JNI.
+     */
+    @VisibleForTesting
+    static boolean isFullyMaterializedPkDvSplit(DataSplit dataSplit) {
+        if (!dataSplit.rawConvertible()) {
+            return false;
+        }
+        for (DataFileMeta fileMeta : dataSplit.dataFiles()) {
+            Optional<Long> deleteRowCount = fileMeta.deleteRowCount();
+            if (fileMeta.level() == 0 || !deleteRowCount.isPresent() || deleteRowCount.get() != 0L) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private List<String> getOrderedPathPartitionKeys() {
         if (source == null) {
             return Collections.emptyList();
@@ -454,13 +514,49 @@ public class PaimonScanNode extends FileQueryScanNode {
             // Until the authorization result can be transported and enforced by
             // the rust ABI, these tables route to JNI.
             boolean queryAuthTable = false;
+            // Partial-update / aggregation tables with deletion vectors only pass
+            // the rust reader in the fully materialized shape: the pinned rust
+            // read_pk rejects merge-engine=partial-update/aggregation with
+            // deletion-vectors.merge-on-read=true outright, and otherwise requires
+            // every split to be compacted and known free of retract rows
+            // (DataSplit::is_fully_materialized_pk_dv). Their ordinary DataSplits
+            // sail through the compound gate above, so without this check a valid
+            // Java/JNI scan reaches BE and the rust open fails. Deduplicate stays
+            // rust-eligible: its read_pk routes uncompacted splits to the KV
+            // reader, which applies the attached per-file DVs. merge-on-read=true
+            // is a table option, so the whole table routes to JNI;
+            // non-materialized splits are gated per split below.
+            boolean puAggDeletionVectors = false;
+            boolean dvMergeOnRead = false;
             if (paimonFileStoreTable != null) {
-                CoreOptions queryAuthOptions = paimonFileStoreTable.coreOptions();
+                CoreOptions resolvedCoreOptions = paimonFileStoreTable.coreOptions();
                 // Null-safe: a table handle whose CoreOptions is not resolved
                 // (e.g. some wrapper shapes) stays rust-eligible rather than
                 // failing the scan here — the rust open itself rejects such a
                 // table if the option is really set.
-                queryAuthTable = queryAuthOptions != null && queryAuthOptions.queryAuthEnabled();
+                if (resolvedCoreOptions != null) {
+                    queryAuthTable = resolvedCoreOptions.queryAuthEnabled();
+                    CoreOptions.MergeEngine mergeEngine = resolvedCoreOptions.mergeEngine();
+                    if (resolvedCoreOptions.deletionVectorsEnabled()
+                            && (mergeEngine == CoreOptions.MergeEngine.PARTIAL_UPDATE
+                                    || mergeEngine == CoreOptions.MergeEngine.AGGREGATE)) {
+                        puAggDeletionVectors = true;
+                        // The merge-engine and deletion-vectors.enabled checks
+                        // above resolve through the Java CoreOptions accessors,
+                        // which the table builds from this same schema options
+                        // map — the one the BE rust reader deserializes from
+                        // the shipped schema JSON — so they cannot diverge from
+                        // what BE sees. merge-on-read has no Java accessor in
+                        // paimon 1.4, so it is read raw from the map, with the
+                        // rust parsing semantics (any case-insensitive "true"
+                        // is on, default false).
+                        TableSchema dvSchema = paimonFileStoreTable.schema();
+                        Map<String, String> dvOptions = dvSchema == null ? null : dvSchema.options();
+                        String mergeOnRead = dvOptions == null
+                                ? null : dvOptions.get(DELETION_VECTORS_MERGE_ON_READ);
+                        dvMergeOnRead = "true".equalsIgnoreCase(mergeOnRead);
+                    }
+                }
             }
             // paimon-rust additionally requires (a) FileScannerV2: the V1 FileScanner
             // explicitly rejects PAIMON_RUST, so with enable_file_scanner_v2 disabled
@@ -509,10 +605,54 @@ public class PaimonScanNode extends FileQueryScanNode {
             // rust reader cannot express any of these.
             TableScanParams incrementalParams = getScanParams();
             boolean isIncremental = incrementalParams != null && incrementalParams.incrementalRead();
+            // ORC TIMESTAMP_WITH_LOCAL_TIME_ZONE schemas stay on JNI: the pinned
+            // paimon-rust ORC decoder materializes LTZ instants shifted by the
+            // writer timezone (an upstream crate limitation), so a logical ORC
+            // DataSplit that selects rust (e.g. with force_jni_scanner=true or
+            // when raw conversion is unavailable) returns a different instant
+            // than JNI — applying the session timezone in BE cannot repair an
+            // epoch already shifted during decode. fileFormat is resolved per
+            // split above; a bucket-directory split without a file suffix falls
+            // back to the table-level 'file.format' option, which matches the
+            // files Paimon writes for that table. Parquet LTZ is unaffected.
+            boolean orcLtzSchema = paimonFileStoreTable != null
+                    && "orc".equals(fileFormat.toLowerCase(Locale.ROOT))
+                    && paimonFileStoreTable.schema().fields().stream().anyMatch(field ->
+                            field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE);
+            // Scheme capability gate: the pinned paimon-rust storage
+            // dispatcher (io/storage.rs) selects the FileIO parser from the
+            // table location's URI scheme, and libpaimon_c.a compiles in
+            // separate COS, OBS, GCS and Azdls parsers besides the OSS and S3
+            // ones. Doris normalizes every object store's credentials into
+            // the AWS_* / use_path_style aliases (see the *Properties storage
+            // classes), which the BE rust bridge translates only into the
+            // fs.oss.* and s3.* key families — a cosn:// / obs:// / gs:// /
+            // abfs:// warehouse would reach its scheme's parser without the
+            // key family it reads (fs.cosn.userinfo.*, fs.obs.*, gcs.*,
+            // azure.*) and fail the open instead of using JNI. Only the
+            // schemes whose property translation is implemented and
+            // open-tested (s3 / s3a / oss, via RUST_VERIFIED_LOCATION_SCHEMES)
+            // plus the credential-free hdfs and local-filesystem parsers stay
+            // rust-eligible; every other scheme falls back to JNI. A null
+            // location also routes to JNI: the rust path needs the
+            // paimon_table that only a real location can provide (BE rejects
+            // a split without it).
+            boolean schemeCapabilityVerified = isRustVerifiedLocationScheme(source.getTableLocation());
+            // With merge-on-read=true the whole table already routes to JNI (dvMergeOnRead);
+            // for the remaining partial-update/aggregation DV tables, a split that is
+            // not fully materialized (uncompacted level-0 data, or retractions not
+            // known to be applied — even a split with no deletion file attached yet)
+            // fails the rust is_fully_materialized_pk_dv guard, so it falls back per
+            // split instead of turning into a BE-open failure. nativeSplit and
+            // !fallbackRead only guard the cast — those splits already route to JNI.
+            boolean splitDvNotMaterialized = puAggDeletionVectors && !dvMergeOnRead
+                    && nativeSplit && !fallbackRead
+                    && !isFullyMaterializedPkDvSplit((DataSplit) split);
             boolean canUseRust = sessionVariable.isEnablePaimonRustReader()
                     && sessionVariable.enableFileScannerV2 && nativeSplit && !fallbackRead
                     && !isIncremental && providerModeTranslatable && !queryAuthTable
-                    && paimonFileStoreTable != null;
+                    && !dvMergeOnRead && !splitDvNotMaterialized
+                    && !orcLtzSchema && schemeCapabilityVerified && paimonFileStoreTable != null;
             if (canUseRust) {
                 fileDesc.setReaderType(TPaimonReaderType.PAIMON_RUST);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
@@ -536,8 +676,17 @@ public class PaimonScanNode extends FileQueryScanNode {
                 // No catalog / warehouse needed. FE ships the resolved TableSchema JSON
                 // and the branch (null-if-main; matches upstream paimon commit 742da63)
                 // so BE can skip a schema-file round trip. The FileStoreTable cast is
-                // safe here because canUseRust gates on it above.
-                TableSchema tableSchema = ((FileStoreTable) paimonTable).schema();
+                // safe here because canUseRust gates on it above. The fence's time-travel
+                // selector is stripped before transport: the rust reader pins data via
+                // the serialized DataSplit, and a shipped selector (scan.snapshot-id) is
+                // re-resolved by paimon-rust's copy_with_time_travel, which would swap
+                // these resolved fields for the pinned snapshot's older schema — a
+                // column added after the last data commit would then fail projection
+                // before per-file schema evolution could fill it (JNI keeps the resolved
+                // schema, so stripping restores rust/JNI parity).
+                TableSchema tableSchema =
+                        PaimonScanParams.withoutTimeTravelSelectors(
+                                ((FileStoreTable) paimonTable).schema());
                 fileDesc.setPaimonTableSchemaJson(PaimonUtil.encodeTableSchemaToJson(tableSchema));
 
                 String branch = CoreOptions.branch(tableSchema.options());

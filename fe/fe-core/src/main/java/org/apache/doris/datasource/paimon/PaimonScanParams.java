@@ -24,6 +24,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.options.FallbackKey;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.snapshot.FullCompactedStartingScanner;
@@ -73,6 +74,28 @@ public final class PaimonScanParams {
             CoreOptions.SCAN_VERSION.key());
 
     private static final Set<String> INHERITED_READ_STATE_KEYS = inheritedReadStateKeys();
+
+    // The selectors the pinned paimon-rust reader re-resolves in copy_with_time_travel; the
+    // inverse of isolateSnapshotRead for schema transport (see withoutTimeTravelSelectors).
+    private static final Set<String> TIME_TRAVEL_SELECTOR_KEYS = ImmutableSet.of(
+            CoreOptions.SCAN_TIMESTAMP_MILLIS.key(),
+            CoreOptions.SCAN_WATERMARK.key(),
+            CoreOptions.SCAN_VERSION.key(),
+            CoreOptions.SCAN_SNAPSHOT_ID.key(),
+            CoreOptions.SCAN_TAG_NAME.key());
+
+    // Paimon's copyInternal materializes the derived scan mode into the copied schema's
+    // options when the merged options carry a selector — a statement fence pinning
+    // scan.snapshot-id leaves a bare "scan.mode=from-snapshot" in schema.options(). Each
+    // of these modes requires a selector (the rust ReadBuilder rejects them otherwise),
+    // so withoutTimeTravelSelectors drops them together with the selector they describe.
+    private static final Set<String> SELECTOR_DEPENDENT_SCAN_MODES = ImmutableSet.of(
+            "from-snapshot",
+            "from-snapshot-full",
+            "from-timestamp",
+            "from-timestamp-full",
+            "from-file-creation-time",
+            "from-creation-timestamp");
 
     // FilesScan enumerates the latest partitions before applying its range-aware per-partition scan,
     // so it cannot safely read a range when a partition in that range has since been dropped.
@@ -401,6 +424,34 @@ public final class PaimonScanParams {
         INHERITED_READ_STATE_KEYS.forEach(key -> isolatedOptions.put(key, null));
         isolatedOptions.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshotId));
         return isolatedOptions;
+    }
+
+    /**
+     * Strips the time-travel planning selectors — and any derived scan mode Paimon
+     * materialized for them — from a resolved schema's options, keeping every
+     * field and every other option intact. This is the transport-side inverse of
+     * {@link #isolateSnapshotRead(long)}: a statement fence pins the data snapshot by merging
+     * {@code scan.snapshot-id} into the schema options, but the pinned paimon-rust reader
+     * re-resolves a transported selector inside {@code copy_with_time_travel} and swaps the
+     * shipped fields for the pinned snapshot's older schema — a column added after the last
+     * data commit then fails projection before per-file schema evolution can fill it. The rust
+     * reader instead pins data through the serialized DataSplit, so these selectors are
+     * planning-only state and must not be transported.
+     */
+    public static TableSchema withoutTimeTravelSelectors(TableSchema schema) {
+        if (TIME_TRAVEL_SELECTOR_KEYS.stream().noneMatch(schema.options()::containsKey)) {
+            return schema;
+        }
+        Map<String, String> options = new HashMap<>(schema.options());
+        TIME_TRAVEL_SELECTOR_KEYS.forEach(options.keySet()::remove);
+        // Paimon's copyInternal may have materialized the derived scan mode for the
+        // stripped selector; without the selector the rust ReadBuilder validation
+        // ("from-snapshot requires one of scan.snapshot-id, ... to be set") rejects
+        // the open. The reader instead pins data through the serialized DataSplit.
+        if (SELECTOR_DEPENDENT_SCAN_MODES.contains(options.get(CoreOptions.SCAN_MODE.key()))) {
+            options.remove(CoreOptions.SCAN_MODE.key());
+        }
+        return schema.copy(options);
     }
 
     private static boolean isCompatibleStartupMode(String position, String mode) {

@@ -2104,8 +2104,14 @@ build_pugixml() {
 # Compare the exact rustc identity (-vV: version, commit-hash, host) across
 # both builds and fail early in the second one, stamping the identity so the
 # invariant also holds across separate build-thirdparty.sh invocations
-# (--continue / package lists).
-ensure_same_rust_toolchain() {
+# (--continue / package lists). The stamp is only committed AFTER a package's
+# archive is successfully installed (commit_rust_toolchain_identity), so it
+# always describes an installed library; a failed build must not leave an
+# identity behind that a corrected retry would be rejected against. Switching
+# toolchains requires a paired rebuild: run this script with both lance_c and
+# paimon_rust on the command line, which drops the installed Rust archives and
+# the stamp first (see the all-Rust rebuild block before the package loop).
+check_rust_toolchain_identity() {
     # Portable array passing (bash 3.2 / macOS safe): the caller spreads its
     # cargo_env entries as trailing arguments; at the call sites they are all
     # space-free KEY=VALUE pairs (CFLAGS is appended only afterwards).
@@ -2139,13 +2145,36 @@ ensure_same_rust_toolchain() {
             echo "liblance_c.a and libpaimon_c.a must be built with the SAME rustc"
             echo "(different std hashes pull two std copies into the BE link and collide"
             echo "on the unmangled rust_eh_personality symbol). Point LANCE_C_CARGO and"
-            echo "PAIMON_RUST_CARGO at one toolchain, or rebuild all Rust packages."
+            echo "PAIMON_RUST_CARGO at one toolchain, or do a paired rebuild:"
+            echo "    ./build-thirdparty.sh lance_c paimon_rust"
+            echo "(rebuilding all Rust packages removes the installed Rust archives and"
+            echo "the toolchain stamp first, so the new toolchain is accepted)."
             exit 1
         fi
-    else
-        printf '%s\n' "${identity}" > "${stamp}"
     fi
+    # Hand the identity to commit_rust_toolchain_identity via a global: the
+    # package build functions run in a subshell, and check/commit happen in
+    # the same one.
+    RUST_TOOLCHAIN_IDENTITY="${identity}"
     echo "${pkg}: rustc identity matches the shared toolchain stamp."
+}
+
+commit_rust_toolchain_identity() {
+    # Record the identity checked by check_rust_toolchain_identity, but only
+    # from the point where the package's archive actually sits in
+    # TP_INSTALL_DIR (callers invoke this right after the archive copy /
+    # strip). Write atomically (tmp + mv) so an interrupted write cannot leave
+    # a truncated stamp that a later build would diff against.
+    local pkg="$1"
+    if [[ -z "${RUST_TOOLCHAIN_IDENTITY}" ]]; then
+        echo "internal error: no rustc identity recorded for ${pkg}"
+        echo "(check_rust_toolchain_identity must run first)."
+        exit 1
+    fi
+    local stamp="${TP_INSTALL_DIR}/.doris-rust-toolchain-id"
+    printf '%s\n' "${RUST_TOOLCHAIN_IDENTITY}" > "${stamp}.tmp"
+    mv -f "${stamp}.tmp" "${stamp}"
+    echo "${pkg}: committed the shared rustc toolchain stamp."
 }
 
 build_lance_c() {
@@ -2203,7 +2232,7 @@ build_lance_c() {
         exit 1
     fi
 
-    ensure_same_rust_toolchain lance_c "${cargo_bin}" "${cargo_env[@]}"
+    check_rust_toolchain_identity lance_c "${cargo_bin}" "${cargo_env[@]}"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
@@ -2223,6 +2252,10 @@ build_lance_c() {
     if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
         strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/liblance_c.a"
     fi
+
+    # Only now (archive installed) is it safe to record the rustc identity
+    # this library was built with; see check_rust_toolchain_identity.
+    commit_rust_toolchain_identity lance_c
 }
 
 # paimon-rust
@@ -2282,7 +2315,7 @@ build_paimon_rust() {
         exit 1
     fi
 
-    ensure_same_rust_toolchain paimon_rust "${cargo_bin}" "${cargo_env[@]}"
+    check_rust_toolchain_identity paimon_rust "${cargo_bin}" "${cargo_env[@]}"
 
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         cargo_env+=("CFLAGS=${CFLAGS:-} -std=gnu17")
@@ -2460,6 +2493,10 @@ EOF
     if [[ "${STRIP_TP_LIB}" = "ON" && "${KERNEL}" != 'Darwin' ]]; then
         strip --strip-debug --strip-unneeded "${TP_INSTALL_DIR}/lib64/libpaimon_c.a"
     fi
+
+    # Only now (archive installed) is it safe to record the rustc identity
+    # this library was built with; see check_rust_toolchain_identity.
+    commit_rust_toolchain_identity paimon_rust
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then
@@ -2666,6 +2703,40 @@ cleanup_package_source() {
         rm -rf "${TP_SOURCE_DIR}/${src_dir}"
     fi
 }
+
+# All-Rust rebuild: when the selected package list rebuilds BOTH Rust
+# packages (explicitly or via the default full list / --continue from an
+# earlier package), drop the installed Rust archives and the shared rustc
+# toolchain stamp before the loop, so a toolchain switch can actually start
+# -- otherwise the first Rust package would be rejected against the stamp
+# recorded for the old pair. A partial rebuild (one Rust package alone)
+# keeps the check strict on purpose: mixing a new-toolchain archive with the
+# installed old-toolchain one is exactly what must not land in
+# TP_INSTALL_DIR. If the paired rebuild fails midway, TP_INSTALL_DIR is left
+# without the removed Rust archives (a BE link then fails on the missing
+# lib rather than linking mismatched std copies), which is recoverable by
+# rerunning the same paired rebuild.
+rust_rebuild_lance=0
+rust_rebuild_paimon=0
+for package in "${packages[@]}"; do
+    case "${package}" in
+        lance_c) rust_rebuild_lance=1 ;;
+        paimon_rust) rust_rebuild_paimon=1 ;;
+    esac
+done
+if [[ "${rust_rebuild_lance}" -eq 1 && "${rust_rebuild_paimon}" -eq 1 ]]; then
+    if [[ -f "${TP_INSTALL_DIR}/.doris-rust-toolchain-id" ]] \
+        || [[ -f "${TP_INSTALL_DIR}/lib64/liblance_c.a" ]] \
+        || [[ -f "${TP_INSTALL_DIR}/lib64/libpaimon_c.a" ]]; then
+        echo "All-Rust rebuild (lance_c + paimon_rust): removing the installed"
+        echo "Rust archives and the rustc toolchain stamp so the new pair is"
+        echo "built with one toolchain from a clean slate:"
+        rm -f "${TP_INSTALL_DIR}/.doris-rust-toolchain-id" \
+            "${TP_INSTALL_DIR}/.doris-rust-toolchain-id.tmp" \
+            "${TP_INSTALL_DIR}/lib64/liblance_c.a" \
+            "${TP_INSTALL_DIR}/lib64/libpaimon_c.a"
+    fi
+fi
 
 for package in "${packages[@]}"; do
     if [[ "${package}" == "${start_package}" ]]; then

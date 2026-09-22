@@ -767,21 +767,33 @@ std::map<std::string, std::string> PaimonRustTableReader::_build_options() const
         }
     };
 
-    // The pinned paimon-rust storage dispatcher selects the parser from the
-    // table path's URI scheme (io/storage.rs): `oss://` tables read the OSS
-    // parser, which requires fs.oss.endpoint / fs.oss.accessKeyId /
-    // fs.oss.accessKeySecret (plus optional fs.oss.securityToken for STS);
-    // `s3://` tables read the S3 parser, whose family is paimon-java's
-    // s3.* keys (s3.access-key, s3.secret-key, s3.session.token, s3.endpoint,
-    // s3.region, s3.path-style-access, normalized from the fs.s3a. / s3a. /
-    // s3. prefixes). The FE's storage-properties channel delivers both
-    // protocols' credentials under the AWS_* / use_path_style aliases, so map
-    // them to the key family the table's scheme actually dispatches to —
-    // mapping everything to s3.* would leave OSS catalogs failing to open
-    // ("Missing required OSS config: fs.oss.endpoint").
+    // The pinned paimon-rust storage dispatcher (io/storage.rs) selects the
+    // FileIO parser from the table path's URI scheme, and libpaimon_c.a
+    // compiles in separate COS, OBS, GCS and Azdls parsers besides the OSS
+    // and S3 ones. Doris's FE normalizes every object store's credentials
+    // into the AWS_* / use_path_style aliases, which this bridge can only
+    // translate into the two key families those two parsers read:
+    //   oss://        -> fs.oss.endpoint / fs.oss.accessKeyId /
+    //                    fs.oss.accessKeySecret (+ fs.oss.securityToken STS)
+    //   s3:// / s3a:// -> paimon-java's s3.* family (access-key, secret-key,
+    //                    session.token, endpoint, region, path-style-access,
+    //                    normalized from the fs.s3a. / s3a. / s3. prefixes)
+    // The FE therefore gates the rust reader to exactly these schemes
+    // (PaimonScanNode: cosn:// / obs:// / gs:// / abfs:// warehouses fall
+    // back to JNI before the split is encoded — their parsers read the
+    // fs.cosn.userinfo.* / fs.obs.* / gcs.* / azure.* families the AWS_*
+    // aliases cannot express). The mapping here is scoped the same way so a
+    // version-skewed FE cannot smuggle AWS_* aliases into another parser's
+    // property map: a cosn:// table reaching this bridge with synthesized
+    // s3.* keys would hit the COS parser without
+    // fs.cosn.userinfo.secretId / secretKey and fail the open with a
+    // misleading auth error instead of the JNI fallback.
     const std::string table_path = _resolve_table_path(_current_range).value_or("");
-    const bool is_oss = table_path.rfind("oss://", 0) == 0;
-    if (is_oss) {
+    std::string scheme;
+    if (const auto sep = table_path.find("://"); sep != std::string::npos) {
+        scheme = to_lower(table_path.substr(0, sep));
+    }
+    if (scheme == "oss") {
         // The OSS parser reads only the four fs.oss.* keys (and retry
         // settings); native fs.oss.* options pass through untouched. It has
         // no region / anonymous / assume-role handling, so nothing else is
@@ -792,38 +804,44 @@ std::map<std::string, std::string> PaimonRustTableReader::_build_options() const
         copy_if_missing("AWS_TOKEN", "fs.oss.securityToken");
         return options;
     }
-    copy_if_missing("AWS_ACCESS_KEY", "s3.access-key");
-    copy_if_missing("AWS_SECRET_KEY", "s3.secret-key");
-    copy_if_missing("AWS_TOKEN", "s3.session.token");
-    copy_if_missing("AWS_ENDPOINT", "s3.endpoint");
-    copy_if_missing("AWS_REGION", "s3.region");
-    copy_if_missing("use_path_style", "s3.path-style-access");
-    // Authentication modes: the FE storage-properties channel marks anonymous
-    // access with AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS (emitted when no
-    // static credentials are configured) and assume-role with
-    // AWS_ROLE_ARN / AWS_EXTERNAL_ID (from the s3.role_arn / s3.external_id
-    // catalog properties). The crate reads s3.anonymous (skip_signature) and
-    // the s3.assumed.role.* family, so map both; without these, anonymous
-    // catalogs would consult the ambient credential chain and role-only
-    // catalogs would never assume the requested role. The remaining provider
-    // modes are ambient JVM credential chains (ENV, SYSTEM_PROPERTIES,
-    // WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) with no paimon-rust
-    // equivalent — the FE gates those away from the rust reader before the
-    // split is encoded.
-    if (options.contains("AWS_CREDENTIALS_PROVIDER_TYPE") &&
-        options.at("AWS_CREDENTIALS_PROVIDER_TYPE") == "ANONYMOUS") {
-        options["s3.anonymous"] = "true";
+    if (scheme == "s3" || scheme == "s3a") {
+        copy_if_missing("AWS_ACCESS_KEY", "s3.access-key");
+        copy_if_missing("AWS_SECRET_KEY", "s3.secret-key");
+        copy_if_missing("AWS_TOKEN", "s3.session.token");
+        copy_if_missing("AWS_ENDPOINT", "s3.endpoint");
+        copy_if_missing("AWS_REGION", "s3.region");
+        copy_if_missing("use_path_style", "s3.path-style-access");
+        // Authentication modes: the FE storage-properties channel marks anonymous
+        // access with AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS (emitted when no
+        // static credentials are configured) and assume-role with
+        // AWS_ROLE_ARN / AWS_EXTERNAL_ID (from the s3.role_arn / s3.external_id
+        // catalog properties). The crate reads s3.anonymous (skip_signature) and
+        // the s3.assumed.role.* family, so map both; without these, anonymous
+        // catalogs would consult the ambient credential chain and role-only
+        // catalogs would never assume the requested role. The remaining provider
+        // modes are ambient JVM credential chains (ENV, SYSTEM_PROPERTIES,
+        // WEB_IDENTITY, CONTAINER, INSTANCE_PROFILE) with no paimon-rust
+        // equivalent — the FE gates those away from the rust reader before the
+        // split is encoded.
+        if (options.contains("AWS_CREDENTIALS_PROVIDER_TYPE") &&
+            options.at("AWS_CREDENTIALS_PROVIDER_TYPE") == "ANONYMOUS") {
+            options["s3.anonymous"] = "true";
+        }
+        copy_if_missing("AWS_ROLE_ARN", "s3.assumed.role.arn");
+        copy_if_missing("AWS_EXTERNAL_ID", "s3.assumed.role.externalId");
+        // OSS-shaped options on an S3 warehouse (cross-protocol alias): map them
+        // to the s3.* family as well.
+        copy_if_missing("fs.oss.accessKeyId", "s3.access-key");
+        copy_if_missing("fs.oss.accessKeySecret", "s3.secret-key");
+        copy_if_missing("fs.oss.sessionToken", "s3.session.token");
+        copy_if_missing("fs.oss.endpoint", "s3.endpoint");
+        copy_if_missing("fs.oss.region", "s3.region");
     }
-    copy_if_missing("AWS_ROLE_ARN", "s3.assumed.role.arn");
-    copy_if_missing("AWS_EXTERNAL_ID", "s3.assumed.role.externalId");
-    // OSS-shaped options on an S3 warehouse (cross-protocol alias): map them
-    // to the s3.* family as well.
-    copy_if_missing("fs.oss.accessKeyId", "s3.access-key");
-    copy_if_missing("fs.oss.accessKeySecret", "s3.secret-key");
-    copy_if_missing("fs.oss.sessionToken", "s3.session.token");
-    copy_if_missing("fs.oss.endpoint", "s3.endpoint");
-    copy_if_missing("fs.oss.region", "s3.region");
-
+    // Every other scheme passes through untouched: hdfs:// tables read their
+    // hadoop conf as delivered, scheme-less / file:// paths need no
+    // credentials, and the COS / OBS / GCS / Azdls families are gated to JNI
+    // on the FE — synthesizing s3.* keys for any of them would be dead
+    // weight at best and a silent misconfiguration at worst.
     return options;
 }
 

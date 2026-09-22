@@ -70,6 +70,15 @@ TFileRangeDesc make_rust_range() {
     return range;
 }
 
+// A range whose table path carries the given URI scheme — the production
+// shape FE ships in paimon_table (PaimonScanNode sets it from the catalog's
+// table location).
+TFileRangeDesc make_rust_range_with_table_path(const std::string& table_path) {
+    auto range = make_rust_range();
+    range.table_format_params.paimon_params.__set_paimon_table(table_path);
+    return range;
+}
+
 } // namespace
 
 class PaimonRustTableReaderTest : public testing::Test {
@@ -316,7 +325,8 @@ TEST_F(PaimonRustTableReaderTest, MapsAnonymousAndAssumeRoleProviderModes) {
     params.__isset.properties = true;
 
     PaimonRustTableReader reader;
-    const auto options = reader.TEST_build_options(&params, TFileRangeDesc {});
+    const auto options = reader.TEST_build_options(
+            &params, make_rust_range_with_table_path("s3://bucket/wh/db.db/t"));
     EXPECT_EQ(options.at("s3.anonymous"), "true");
     EXPECT_EQ(options.at("s3.assumed.role.arn"), "arn:aws:iam::123:role/reader");
     EXPECT_EQ(options.at("s3.assumed.role.externalId"), "external-123");
@@ -337,7 +347,8 @@ TEST_F(PaimonRustTableReaderTest, StaticCredentialsMapWithoutProviderMode) {
     params.__isset.properties = true;
 
     PaimonRustTableReader reader;
-    const auto options = reader.TEST_build_options(&params, TFileRangeDesc {});
+    const auto options = reader.TEST_build_options(
+            &params, make_rust_range_with_table_path("s3://bucket/wh/db.db/t"));
     EXPECT_EQ(options.at("s3.access-key"), "admin");
     EXPECT_EQ(options.at("s3.secret-key"), "password");
     EXPECT_EQ(options.count("s3.anonymous"), 0);
@@ -404,6 +415,96 @@ TEST_F(PaimonRustTableReaderTest, OssSchemeKeepsNativeFsOssKeysUnmapped) {
     EXPECT_EQ(options.at("fs.oss.accessKeyId"), "oss-admin");
     EXPECT_EQ(options.at("fs.oss.accessKeySecret"), "oss-password");
     EXPECT_EQ(options.count("s3.access-key"), 0);
+}
+
+TEST_F(PaimonRustTableReaderTest, S3aSchemeMapsToS3FileIOKeys) {
+    // The crate dispatches both s3:// and s3a:// to the S3 parser, so the
+    // legacy Hadoop-style spelling must translate to the s3.* family too.
+    TFileScanRangeParams params;
+    params.properties["AWS_ACCESS_KEY"] = "admin";
+    params.properties["AWS_SECRET_KEY"] = "password";
+    params.properties["AWS_ENDPOINT"] = "http://127.0.0.1:19001";
+    params.__isset.properties = true;
+
+    PaimonRustTableReader reader;
+    const auto options = reader.TEST_build_options(
+            &params, make_rust_range_with_table_path("s3a://bucket/wh/db.db/t"));
+    EXPECT_EQ(options.at("s3.access-key"), "admin");
+    EXPECT_EQ(options.at("s3.secret-key"), "password");
+    EXPECT_EQ(options.at("s3.endpoint"), "http://127.0.0.1:19001");
+}
+
+TEST_F(PaimonRustTableReaderTest, UnverifiedSchemesPassThroughWithoutS3Aliases) {
+    // libpaimon_c.a compiles in separate COS, OBS, GCS and Azdls parsers,
+    // each reading its own key family (fs.cosn.userinfo.* / fs.obs.* /
+    // gcs.* / azure.*), while Doris's FE normalizes those object stores'
+    // credentials into the AWS_* aliases (the *Properties storage classes).
+    // The bridge only implements the s3.* / fs.oss.* translations, and the
+    // FE gates every other scheme to JNI before the split is encoded — so
+    // here nothing may be synthesized for them: a production-shaped AWS_*
+    // map must pass through untouched instead of being silently translated
+    // into s3.* keys its scheme's parser ignores (which would fail the open
+    // with a misleading auth error, e.g. "Missing required COS config").
+    const std::vector<std::string> gated_schemes {
+            "cosn://bucket/wh/db.db/t", "cos://bucket/wh/db.db/t",
+            "obs://bucket/wh/db.db/t",   "gs://bucket/wh/db.db/t",
+            "gcs://bucket/wh/db.db/t",   "abfs://bucket/wh/db.db/t",
+            "abfss://bucket/wh/db.db/t", "az://bucket/wh/db.db/t",
+            "azure://bucket/wh/db.db/t"};
+    for (const auto& table_path : gated_schemes) {
+        TFileScanRangeParams params;
+        params.properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = "DEFAULT";
+        params.properties["AWS_ACCESS_KEY"] = "admin";
+        params.properties["AWS_SECRET_KEY"] = "password";
+        params.properties["AWS_ENDPOINT"] = "http://127.0.0.1:19001";
+        params.properties["AWS_REGION"] = "us-east-1";
+        params.properties["AWS_TOKEN"] = "sts-token";
+        params.properties["use_path_style"] = "true";
+        params.__isset.properties = true;
+
+        PaimonRustTableReader reader;
+        const auto options =
+                reader.TEST_build_options(&params, make_rust_range_with_table_path(table_path));
+        // No key of the s3.* / fs.oss.* families is synthesized for a scheme
+        // whose parser reads neither.
+        for (const char* key : {"s3.access-key", "s3.secret-key", "s3.session.token",
+                                "s3.endpoint", "s3.region", "s3.path-style-access",
+                                "s3.anonymous", "s3.assumed.role.arn",
+                                "s3.assumed.role.externalId", "fs.oss.endpoint",
+                                "fs.oss.accessKeyId", "fs.oss.accessKeySecret"}) {
+            EXPECT_EQ(options.count(key), 0)
+                    << "scheme " << table_path << " synthesized " << key;
+        }
+        // The FE-supplied property map passes through untouched.
+        EXPECT_EQ(options.at("AWS_ACCESS_KEY"), "admin");
+        EXPECT_EQ(options.at("AWS_SECRET_KEY"), "password");
+        EXPECT_EQ(options.at("AWS_ENDPOINT"), "http://127.0.0.1:19001");
+    }
+}
+
+TEST_F(PaimonRustTableReaderTest, HdfsAndLocalSchemesPassThroughHadoopConf) {
+    // hdfs:// tables read their hadoop conf as delivered (the native HDFS
+    // parser has its own config keys) and credential-free local paths need
+    // nothing at all: no AWS_* -> s3.* aliasing may be synthesized for
+    // either, even if an S3-shaped property map is present.
+    const std::vector<std::string> passthrough_schemes {"hdfs://nn/wh/db.db/t",
+                                                        "/paimon/warehouse/db.db/t"};
+    for (const auto& table_path : passthrough_schemes) {
+        TFileScanRangeParams params;
+        params.properties["AWS_ACCESS_KEY"] = "admin";
+        params.properties["AWS_SECRET_KEY"] = "password";
+        params.properties["AWS_ENDPOINT"] = "http://127.0.0.1:19001";
+        params.__isset.properties = true;
+
+        PaimonRustTableReader reader;
+        const auto options =
+                reader.TEST_build_options(&params, make_rust_range_with_table_path(table_path));
+        EXPECT_EQ(options.count("s3.access-key"), 0) << table_path;
+        EXPECT_EQ(options.count("s3.secret-key"), 0) << table_path;
+        EXPECT_EQ(options.count("s3.endpoint"), 0) << table_path;
+        EXPECT_EQ(options.count("fs.oss.accessKeyId"), 0) << table_path;
+        EXPECT_EQ(options.at("AWS_ACCESS_KEY"), "admin");
+    }
 }
 
 } // namespace doris::format::paimon

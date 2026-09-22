@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
@@ -40,6 +41,7 @@
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "exprs/vectorized_fn_call.h"
 
 namespace doris {
 namespace {
@@ -153,6 +155,34 @@ VExprSPtr int_literal(int32_t value) {
                                    Field::create_field<TYPE_INT>(value));
 }
 
+// A STRING column type.
+const DataTypePtr& string_type() {
+    static const auto type = make_nullable(std::make_shared<DataTypeString>());
+    return type;
+}
+
+VExprSPtr string_literal(std::string value) {
+    return VLiteral::create_shared(std::make_shared<DataTypeString>(),
+                                   Field::create_field<TYPE_STRING>(std::move(value)));
+}
+
+// A like(col, pattern[, escape]) function call. The converter only inspects
+// function_name() and the children, never executes the expr.
+VExprSPtr like_call(std::vector<VExprSPtr> children) {
+    TExprNode node;
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+    node.__set_fn(TFunction());
+    node.fn.__set_name(TFunctionName());
+    node.fn.name.function_name = "like";
+    node.__set_is_nullable(false);
+    auto call = VectorizedFnCall::create_shared(node);
+    for (auto& child : children) {
+        call->add_child(std::move(child));
+    }
+    return call;
+}
+
 // An IN / NOT IN predicate over the given children (built through the
 // TExprNode path like VDirectInPredicate::get_slot_in_expr does, so
 // is_not_in() is initialized). The converter only inspects node_type(),
@@ -224,8 +254,9 @@ protected:
                 R"json({"id":1,"name":"b","type":"INT"},{"id":2,"name":"ts",)json"
                 R"json("type":"TIMESTAMP(6)"},{"id":3,"name":"amount",)json"
                 R"json("type":"DECIMAL(10, 2)"},{"id":4,"name":"d",)json"
-                R"json("type":"DOUBLE"}],"highestFieldId":4,)json"
-                R"json("partitionKeys":[],"primaryKeys":[],"options":{},"timeMillis":0})json";
+                R"json("type":"DOUBLE"},{"id":5,"name":"s","type":"STRING"}],)json"
+                R"json("highestFieldId":5,"partitionKeys":[],"primaryKeys":[],)json"
+                R"json("options":{},"timeMillis":0})json";
         auto result = paimon_table_from_schema_json("/tmp/paimon_rust_predicate_converter_test",
                                                     kSchemaJson, "db", "t", "main", nullptr, 0);
         if (result.error != nullptr) {
@@ -240,10 +271,10 @@ protected:
         }
         _table.reset(result.table);
 
-        _column_names = {"a", "b", "ts", "amount", "d"};
+        _column_names = {"a", "b", "ts", "amount", "d", "s"};
         _column_types = {make_nullable(std::make_shared<DataTypeInt32>()),
                          make_nullable(std::make_shared<DataTypeInt32>()), datetimev2_type(),
-                         decimal_type(), double_type()};
+                         decimal_type(), double_type(), string_type()};
     }
 
     // Runs one conjunct through a fresh converter; a null return means the
@@ -363,14 +394,14 @@ TEST_F(PaimonRustPredicateConverterTest, InListIsPushed) {
 }
 
 TEST_F(PaimonRustPredicateConverterTest, CastedInListValueIsNotPushed) {
-    // The review's P1 case: with debug_skip_fold_constant=true, a cast in
-    // the IN list reaches the BE un-folded. Unwrapping it (the one-level
-    // cast rule from _convert_literal) would push the pre-cast value, but
-    // Doris compares against the cast result — `amount IN
+    // The review's P1 case (IN form): with debug_skip_fold_constant=true, a
+    // cast in the IN list reaches the BE un-folded. Unwrapping it (the old
+    // one-level cast rule from _convert_literal) would push the pre-cast
+    // value, but Doris compares against the cast result — `amount IN
     // (CAST(1.24 AS DECIMAL(10,1)))` must compare against 1.2, and the
-    // unwrapped 1.24 push would permanently remove the 1.2 rows. FE's
-    // doInPredicate only accepts bare LiteralExpr children, so the whole
-    // predicate is rejected here as well.
+    // unwrapped 1.24 push would permanently remove the 1.2 rows. _convert_literal
+    // rejects the casted value, which rejects the whole predicate; the
+    // residual applies the cast correctly.
     auto casted = std::make_shared<TestCastExpr>(make_nullable(std::make_shared<DataTypeInt64>()),
                                                  int_literal(1));
     EXPECT_EQ(push_expr(in_predicate(false, {slot_ref("a"), int_literal(1), std::move(casted)}))
@@ -461,24 +492,101 @@ TEST_F(PaimonRustPredicateConverterTest, DecimalLiteralEqIsPushed) {
     EXPECT_NE(predicate.get(), nullptr);
 }
 
-TEST_F(PaimonRustPredicateConverterTest, SingleCastLiteralIsStillPushed) {
-    // FE parity (convertDorisExprToLiteralExpr): a single cast wrapping a
-    // direct literal is unwrapped and the pre-cast literal value converts
-    // against the column type.
+TEST_F(PaimonRustPredicateConverterTest, SingleCastLiteralRhsIsNotPushed) {
+    // The review's P1 case (binary form): a single cast wrapping a literal on
+    // the RHS must stay in the residual. Unwrapping it (the old one-level cast
+    // rule from _convert_literal) pushed the pre-cast value, but Doris compares
+    // against the cast result, so with debug_skip_fold_constant=true the rust
+    // filter and the residual disagree on lossy casts. The cast is not
+    // evaluated here, so the predicate cannot be built from the raw literal.
     auto casted = std::make_shared<TestCastExpr>(make_nullable(std::make_shared<DataTypeInt64>()),
                                                  int_literal(1));
-    EXPECT_NE(push(TExprOpcode::EQ, slot_ref("a"), std::move(casted)).get(), nullptr);
+    EXPECT_EQ(push(TExprOpcode::EQ, slot_ref("a"), std::move(casted)).get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, DecimalScaleCastLiteralRhsIsNotPushed) {
+    // The differential case: `amount = CAST(1.24 AS DECIMAL(10,1))` on a
+    // DECIMAL(10,2) column. The cast evaluates to 1.2, so Doris's residual
+    // keeps a stored 1.20 row; the unwrapped literal 1.24 pushed against the
+    // raw column would prune it before the residual runs, and pruned rows
+    // cannot be recovered. The rust filter does not reject this as a type
+    // mismatch either — it accepts decimals of different scales and compares
+    // their mathematical values (1.24 != 1.20) — so the only safe conversion
+    // is none: the conjunct stays in the residual.
+    auto casted = std::make_shared<TestCastExpr>(
+            make_nullable(std::make_shared<DataTypeDecimal64>(10, 1)), decimal_literal(1, 24));
+    EXPECT_EQ(push(TExprOpcode::EQ, slot_ref("amount", decimal_type()), std::move(casted)).get(),
+              nullptr);
 }
 
 TEST_F(PaimonRustPredicateConverterTest, NestedCastLiteralIsNotPushed) {
-    // `CAST(CAST(1 AS BIGINT) AS DOUBLE)`: deeper cast trees are rejected,
-    // mirroring FE (its instanceof check only unwraps one CastExpr around a
-    // direct LiteralExpr). The old code stripped all cast levels.
+    // `CAST(CAST(1 AS BIGINT) AS DOUBLE)`: cast trees are rejected at the
+    // outer level now — the old code stripped all cast levels, and the
+    // interim code unwrapped exactly one.
     auto inner = std::make_shared<TestCastExpr>(make_nullable(std::make_shared<DataTypeInt64>()),
                                                 int_literal(1));
     auto outer = std::make_shared<TestCastExpr>(make_nullable(std::make_shared<DataTypeFloat64>()),
                                                 std::move(inner));
     EXPECT_EQ(push(TExprOpcode::EQ, slot_ref("a"), std::move(outer)).get(), nullptr);
+}
+
+// ---- LIKE patterns must be bare literals ----
+
+TEST_F(PaimonRustPredicateConverterTest, LikeIsPushed) {
+    // Sanity: a plain `s LIKE 'abc%'` converts, so the rejections below come
+    // from the pattern / escape handling, not from LIKE support itself.
+    auto predicate = push_expr(
+            like_call({slot_ref("s", string_type()), string_literal("abc%")}));
+    EXPECT_NE(predicate.get(), nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, CastedLikePatternIsNotPushed) {
+    // A cast wrapping the pattern must stay in the residual: _extract_string_
+    // literal does not execute the cast, so the pushed pattern would be the
+    // pre-cast value while the Doris residual matches the cast result (a
+    // truncating cast like CAST('abc%' AS CHAR(2)) changes the prefix). Same
+    // rule as _convert_literal for the binary RHS and IN-list values.
+    auto casted = std::make_shared<TestCastExpr>(make_nullable(std::make_shared<DataTypeString>()),
+                                                 string_literal("abc%"));
+    EXPECT_EQ(push_expr(like_call({slot_ref("s", string_type()), std::move(casted)})).get(),
+              nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, LikeWithDivergentEscapeIsNotPushed) {
+    // A backslash before an ordinary character diverges between Doris and the
+    // pinned rust like (Doris keeps both characters, rust consumes the
+    // backslash), so such patterns stay in the residual. Escapes before %, _
+    // and \\ (and a trailing backslash) have identical semantics on both
+    // sides and still convert.
+    EXPECT_EQ(push_expr(like_call({slot_ref("s", string_type()), string_literal("a\\qb%")}))
+                      .get(),
+              nullptr);
+    EXPECT_NE(push_expr(like_call({slot_ref("s", string_type()), string_literal("a\\%b")}))
+                      .get(),
+              nullptr);
+    EXPECT_NE(push_expr(like_call({slot_ref("s", string_type()), string_literal("a\\\\b_")}))
+                      .get(),
+              nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, LikeWithNonDefaultEscapeIsNotPushed) {
+    // The 3-arg like(col, pattern, escape) form only converts for the Doris
+    // default escape '\'; the rust predicate builder rejects anything else.
+    EXPECT_NE(push_expr(like_call({slot_ref("s", string_type()), string_literal("abc%"),
+                                   string_literal("\\")}))
+                      .get(),
+              nullptr);
+    EXPECT_EQ(push_expr(like_call({slot_ref("s", string_type()), string_literal("a!b"),
+                                   string_literal("!")}))
+                      .get(),
+              nullptr);
+    // A casted escape char is rejected like a casted pattern.
+    auto casted_escape = std::make_shared<TestCastExpr>(
+            make_nullable(std::make_shared<DataTypeString>()), string_literal("\\"));
+    EXPECT_EQ(push_expr(like_call({slot_ref("s", string_type()), string_literal("abc%"),
+                                   std::move(casted_escape)}))
+                      .get(),
+              nullptr);
 }
 
 } // namespace doris

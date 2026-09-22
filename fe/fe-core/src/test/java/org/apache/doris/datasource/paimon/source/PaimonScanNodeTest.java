@@ -92,7 +92,9 @@ import org.apache.paimon.table.source.snapshot.SnapshotReader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.After;
 import org.junit.Assert;
@@ -118,6 +120,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 @RunWith(MockitoJUnitRunner.class)
 public class PaimonScanNodeTest {
@@ -1767,6 +1770,7 @@ public class PaimonScanNodeTest {
                     Collections.emptyMap(), null));
             PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
             Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+            Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
             Mockito.when(externalTable.getDbName()).thenReturn("db");
             Mockito.when(externalTable.getName()).thenReturn("t");
             node.setSource(source);
@@ -1811,6 +1815,7 @@ public class PaimonScanNodeTest {
         PaimonSource source = Mockito.mock(PaimonSource.class);
         PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
         Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
         Mockito.when(externalTable.getDbName()).thenReturn("db");
         Mockito.when(externalTable.getName()).thenReturn("t");
         node.setSource(source);
@@ -1828,6 +1833,72 @@ public class PaimonScanNodeTest {
         TableSchema shipped = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
                 fileDesc.getPaimonTableSchemaJson(), TableSchema.class);
         Assert.assertEquals("1", shipped.options().get("read.batch-size"));
+    }
+
+    @Test
+    public void testRustSchemaJsonStripsTimeTravelSelectors() throws Exception {
+        // A statement fence pins the data snapshot by merging scan.snapshot-id into the
+        // schema options (isolateSnapshotRead) while the fields keep the latest schema —
+        // a schema-only ALTER after the last data commit must stay visible. The rust
+        // reader pins data via the serialized DataSplit and re-resolves a shipped
+        // selector in copy_with_time_travel, swapping the fields back to the pinned
+        // snapshot's older schema; the shipped JSON must therefore carry the resolved
+        // fields without the planning selectors, keeping every other option.
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+
+        // Resolved (latest) schema: the column added after the last data commit is a
+        // field, and the fence snapshot id is only planning state in the options.
+        FileStoreTable processed = Mockito.mock(FileStoreTable.class);
+        Mockito.when(processed.schema()).thenReturn(new TableSchema(
+                1, Arrays.asList(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "added_after", DataTypes.STRING())),
+                1, Collections.emptyList(), Collections.emptyList(),
+                ImmutableMap.of(
+                        "scan.snapshot-id", "3",
+                        "scan.tag-name", "stale-tag",
+                        // Paimon's copyInternal materializes the derived scan mode for the
+                        // merged selector; it dangles once the selector is stripped.
+                        "scan.mode", "from-snapshot",
+                        "read.batch-size", "1"),
+                null));
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+        Mockito.when(externalTable.getDbName()).thenReturn("db");
+        Mockito.when(externalTable.getName()).thenReturn("t");
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "processedTable", processed);
+        setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(createDataSplit("strip_selectors.parquet")));
+
+        org.apache.doris.thrift.TPaimonFileDesc fileDesc =
+                rangeDesc.getTableFormatParams().getPaimonParams();
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST, fileDesc.getReaderType());
+        TableSchema shipped = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                fileDesc.getPaimonTableSchemaJson(), TableSchema.class);
+        Assert.assertNull(shipped.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key()));
+        Assert.assertNull(shipped.options().get(CoreOptions.SCAN_TAG_NAME.key()));
+        // The fence-materialized "from-snapshot" would otherwise dangle: the rust
+        // ReadBuilder requires a selector for it and rejects the open.
+        Assert.assertNull(shipped.options().get(CoreOptions.SCAN_MODE.key()));
+        Assert.assertEquals("1", shipped.options().get("read.batch-size"));
+        // The resolved fields are transported untouched, including the column added
+        // after the last data commit.
+        Assert.assertEquals(
+                Arrays.asList("id", "added_after"),
+                shipped.fields().stream().map(DataField::name).collect(Collectors.toList()));
     }
 
     @Test
@@ -2147,6 +2218,7 @@ public class PaimonScanNodeTest {
         Mockito.when(okOptions.queryAuthEnabled()).thenReturn(false);
         PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
         Mockito.when(okSource.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(okSource.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
         Mockito.when(externalTable.getDbName()).thenReturn("db");
         Mockito.when(externalTable.getName()).thenReturn("t");
         okNode.setSource(okSource);
@@ -2158,6 +2230,201 @@ public class PaimonScanNodeTest {
                 okRange, new PaimonSplit(createDataSplit("query_auth_off.parquet")));
         Assert.assertEquals(TPaimonReaderType.PAIMON_RUST,
                 okRange.getTableFormatParams().getPaimonParams().getReaderType());
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsUnsupportedPkDvModes() throws Exception {
+        // The pinned rust read_pk supports partial-update / aggregation tables
+        // with deletion vectors only in the fully materialized shape: it rejects
+        // deletion-vectors.merge-on-read=true outright, and otherwise requires
+        // every split to be compacted (level != 0) and known free of retract rows
+        // (DataSplit::is_fully_materialized_pk_dv). All other shapes are valid
+        // Java/JNI scans, so they must fall back here instead of failing the
+        // BE open. Deduplicate stays rust-eligible: its read_pk routes
+        // uncompacted DV splits to the KV reader, which applies the DVs.
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+
+        // createDataSplit builds a level-0 file — the ordinary uncompacted shape.
+        DataSplit levelZeroSplit = createDataSplit("dv_level0.parquet");
+        DataSplit unknownDeleteCountSplit = dvSplitOverFiles(
+                dvCompactedFile("dv_unknown.parquet", null));
+        DataSplit retractsSplit = dvSplitOverFiles(
+                dvCompactedFile("dv_retracts.parquet", 1L));
+        DataSplit materializedSplit = dvSplitOverFiles(
+                dvCompactedFile("dv_materialized.parquet", 0L));
+
+        for (CoreOptions.MergeEngine engine : Arrays.asList(
+                CoreOptions.MergeEngine.PARTIAL_UPDATE, CoreOptions.MergeEngine.AGGREGATE)) {
+            // deletion-vectors.merge-on-read=true: rejected table-wide.
+            Assert.assertEquals("merge-on-read " + engine, TPaimonReaderType.PAIMON_JNI,
+                    dvReaderTypeOf(vars, engine, true,
+                            ImmutableMap.of("deletion-vectors.merge-on-read", "true"),
+                            materializedSplit));
+            // merge-on-read=false but the split still needs per-key merge work:
+            // level-0 data, unknown delete count, or known retracts — all fall
+            // back per split.
+            Assert.assertEquals("level-0 " + engine, TPaimonReaderType.PAIMON_JNI,
+                    dvReaderTypeOf(vars, engine, true, Collections.emptyMap(), levelZeroSplit));
+            Assert.assertEquals("unknown delete count " + engine, TPaimonReaderType.PAIMON_JNI,
+                    dvReaderTypeOf(vars, engine, true, Collections.emptyMap(), unknownDeleteCountSplit));
+            Assert.assertEquals("retracts " + engine, TPaimonReaderType.PAIMON_JNI,
+                    dvReaderTypeOf(vars, engine, true, Collections.emptyMap(), retractsSplit));
+            // A fully materialized compacted split reads raw on rust, and without
+            // deletion vectors the KV reader handles any split.
+            Assert.assertEquals("materialized " + engine, TPaimonReaderType.PAIMON_RUST,
+                    dvReaderTypeOf(vars, engine, true, Collections.emptyMap(), materializedSplit));
+            Assert.assertEquals("no dv " + engine, TPaimonReaderType.PAIMON_RUST,
+                    dvReaderTypeOf(vars, engine, false, Collections.emptyMap(), levelZeroSplit));
+        }
+
+        // Deduplicate keeps rust eligibility for uncompacted DV splits and for
+        // merge-on-read=true: the KV reader applies the attached per-file DVs.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST,
+                dvReaderTypeOf(vars, CoreOptions.MergeEngine.DEDUPLICATE, true,
+                        ImmutableMap.of("deletion-vectors.merge-on-read", "true"), levelZeroSplit));
+    }
+
+    // Builds a node whose processed table is a primary-key table with the given
+    // merge engine and deletion-vector options (all other gates open: no
+    // query-auth, v2 on, ordinary DataSplit) and returns the reader type chosen
+    // for the given split.
+    private TPaimonReaderType dvReaderTypeOf(SessionVariable vars, CoreOptions.MergeEngine mergeEngine,
+            boolean deletionVectorsEnabled, Map<String, String> schemaOptions, DataSplit split)
+            throws Exception {
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+        // lenient: the schema / external-table stubs are only consumed when the
+        // split stays rust-eligible.
+        Mockito.lenient().when(paimonTable.schema()).thenReturn(new TableSchema(
+                0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                0, Collections.emptyList(), Collections.emptyList(), schemaOptions, null));
+        CoreOptions options = Mockito.mock(CoreOptions.class);
+        Mockito.when(paimonTable.coreOptions()).thenReturn(options);
+        Mockito.when(options.queryAuthEnabled()).thenReturn(false);
+        Mockito.when(options.mergeEngine()).thenReturn(mergeEngine);
+        Mockito.when(options.deletionVectorsEnabled()).thenReturn(deletionVectorsEnabled);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.lenient().when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+        Mockito.lenient().when(externalTable.getDbName()).thenReturn("db");
+        Mockito.lenient().when(externalTable.getName()).thenReturn("t");
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(split));
+        return rangeDesc.getTableFormatParams().getPaimonParams().getReaderType();
+    }
+
+    // A compacted (level != 0) data file with an explicit retract-row count:
+    // null = unknown, 0 = fully materialized, >0 = rows still to retract.
+    private static DataFileMeta dvCompactedFile(String fileName, Long deleteRowCount) {
+        return DataFileMeta.create(fileName, 64L * 1024 * 1024, 1L,
+                DataFileMeta.EMPTY_MIN_KEY, DataFileMeta.EMPTY_MAX_KEY,
+                SimpleStats.EMPTY_STATS, SimpleStats.EMPTY_STATS,
+                1L, 1L, 1L, 5, deleteRowCount, null,
+                FileSource.APPEND, Collections.emptyList(), null, Collections.emptyList());
+    }
+
+    private static DataSplit dvSplitOverFiles(DataFileMeta... files) {
+        return DataSplit.builder()
+                .rawConvertible(true)
+                .withPartition(BinaryRow.singleColumn(1))
+                .withBucket(1)
+                .withBucketPath("file://b1")
+                .withDataFiles(Arrays.asList(files))
+                .build();
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsOrcTimestampLtzSchemas() throws Exception {
+        // ORC TIMESTAMP_WITH_LOCAL_TIME_ZONE schemas stay on JNI: the pinned
+        // paimon-rust ORC decoder materializes LTZ instants shifted by the
+        // writer timezone (an upstream crate limitation), so a logical ORC
+        // DataSplit routed to rust (force_jni_scanner=true, or when raw
+        // conversion is unavailable) would return a different instant than
+        // JNI, and applying the session timezone in BE cannot repair an epoch
+        // already shifted during decode. The gate is format-specific: parquet
+        // LTZ and ORC without LTZ stay rust-eligible.
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+        Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                0, Arrays.asList(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "ts_ltz", new LocalZonedTimestampType(6))),
+                0, Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyMap(), null));
+        CoreOptions options = Mockito.mock(CoreOptions.class);
+        Mockito.when(paimonTable.coreOptions()).thenReturn(options);
+        Mockito.when(options.queryAuthEnabled()).thenReturn(false);
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+
+        // ORC + LTZ: falls back to JNI even though every other gate passes.
+        TFileRangeDesc orcLtzRange = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                orcLtzRange, new PaimonSplit(createDataSplit("orc_ltz.orc")));
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                orcLtzRange.getTableFormatParams().getPaimonParams().getReaderType());
+
+        // Parquet + LTZ: the rust parquet decoder materializes LTZ in the
+        // session timezone like JNI, so it stays rust-eligible.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST,
+                readerTypeOf(vars, Arrays.asList(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "ts_ltz", new LocalZonedTimestampType(6))),
+                        "ltz.parquet"));
+
+        // ORC without LTZ: the rust ORC decoder is only divergent for LTZ
+        // values, so an ORC schema with none stays rust-eligible.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST,
+                readerTypeOf(vars, Arrays.asList(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "ts", new TimestampType(6))),
+                        "orc_ntz.orc"));
+    }
+
+    // Builds a node whose processed table carries the given row-type fields
+    // (all other gates open: no query-auth, v2 on, ordinary DataSplit) and
+    // returns the reader type chosen for a split over the given file name.
+    private TPaimonReaderType readerTypeOf(SessionVariable vars, List<DataField> fields,
+            String fileName) throws Exception {
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+        Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                0, fields, 0, Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyMap(), null));
+        CoreOptions options = Mockito.mock(CoreOptions.class);
+        Mockito.when(paimonTable.coreOptions()).thenReturn(options);
+        Mockito.when(options.queryAuthEnabled()).thenReturn(false);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+        Mockito.when(externalTable.getDbName()).thenReturn("db");
+        Mockito.when(externalTable.getName()).thenReturn("t");
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(createDataSplit(fileName)));
+        return rangeDesc.getTableFormatParams().getPaimonParams().getReaderType();
     }
 
     @Test
@@ -2278,5 +2545,101 @@ public class PaimonScanNodeTest {
             Assert.assertEquals("mode " + mode + " on " + location, expected,
                     rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
         }
+    }
+
+    @Test
+    public void testRustReaderSelectionGatesUnverifiedLocationSchemes() throws Exception {
+        // The pinned paimon-rust storage dispatcher (io/storage.rs) selects the
+        // FileIO parser from the table location's URI scheme, and libpaimon_c.a
+        // compiles in separate COS, OBS, GCS and Azdls parsers besides OSS and
+        // S3. Doris normalizes those object stores' credentials into the AWS_*
+        // aliases, which the BE rust bridge translates only into the s3.* /
+        // fs.oss.* key families — a cosn:// / obs:// / gs:// / abfs:// table
+        // would reach its scheme's parser without the key family it reads
+        // (fs.cosn.userinfo.*, fs.obs.*, gcs.*, azure.*) and fail the open.
+        // Those schemes must fall back to JNI before the split is encoded;
+        // the verified schemes (s3 / s3a / oss, plus credential-free hdfs and
+        // local paths) stay rust-eligible.
+        for (String[] shape : new String[][] {
+                // Unverified object-store schemes -> JNI (property translation
+                // not implemented; Doris sends these as AWS_* aliases).
+                {"cosn://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"obs://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"gs://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"abfs://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"abfss://bucket@account/wh/db.db/t", "PAIMON_JNI"},
+                {"az://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"azure://bucket/wh/db.db/t", "PAIMON_JNI"},
+                // A null location cannot be verified (and cannot ship
+                // paimon_table for the rust reader) -> JNI.
+                {null, "PAIMON_JNI"},
+                // Verified schemes with implemented property translation or
+                // credential-free parsers -> rust.
+                {"s3://bucket/wh/db.db/t", "PAIMON_RUST"},
+                {"s3a://bucket/wh/db.db/t", "PAIMON_RUST"},
+                {"oss://bucket/wh/db.db/t", "PAIMON_RUST"},
+                {"hdfs://nn/wh/db.db/t", "PAIMON_RUST"},
+                {"file:///paimon/wh/db.db/t", "PAIMON_RUST"},
+                {"/paimon/wh/db.db/t", "PAIMON_RUST"}}) {
+            String location = shape[0];
+            TPaimonReaderType expected = TPaimonReaderType.valueOf(shape[1]);
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            if (location != null) {
+                Mockito.when(source.getTableLocation()).thenReturn(location);
+            }
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            if (expected == TPaimonReaderType.PAIMON_RUST) {
+                // Only the rust path serializes the schema and the table
+                // identity; the JNI iterations must not leave unused stubs.
+                Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+                Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                        0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0, Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyMap(), null));
+                Mockito.when(externalTable.getDbName()).thenReturn("db");
+                Mockito.when(externalTable.getName()).thenReturn("t");
+            }
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            // Production-shaped COS/OBS/GCS/Azure map: static credentials
+            // normalized to the AWS_* aliases (plus the S3-compatible
+            // connection settings).
+            setField(PaimonScanNode.class, node, "backendStorageProperties", ImmutableMap.of(
+                    "AWS_CREDENTIALS_PROVIDER_TYPE", "DEFAULT",
+                    "AWS_ACCESS_KEY", "ak",
+                    "AWS_SECRET_KEY", "sk",
+                    "AWS_ENDPOINT", "http://127.0.0.1:19001",
+                    "AWS_REGION", "us-east-1"));
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("scheme_gate.parquet")));
+            Assert.assertEquals("location " + location, expected,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testIsRustVerifiedLocationSchemeClassification() {
+        // The scheme extraction must be case-insensitive (URI schemes are)
+        // and must treat a plain path without a URI scheme as a local
+        // filesystem location, which reads through the crate's LocalFs
+        // parser and needs no credentials.
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedLocationScheme("s3://bucket/wh"));
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedLocationScheme("S3://bucket/wh"));
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedLocationScheme("OSS://bucket/wh"));
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedLocationScheme("/local/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("cosn://bucket/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("COSN://bucket/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("viewfs://cluster/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme(null));
     }
 }
