@@ -373,9 +373,23 @@ class ReviewAuthQuarantineTest(unittest.TestCase):
             {"type": "turn.failed", "error": {"message": "Request timed out"}},
         ], expected_invalid=False)
 
+    def test_zero_exit_auth_failure_still_reaches_quarantine(self):
+        _, outputs = self.fail_review(FAKE_CODEX_STATUS="0")
+        self.assertIn(REUSED_MESSAGE, outputs)
+        self.assertNotIn("no new pull request review", outputs)
+
+    def test_zero_exit_without_terminal_event_does_not_pass_with_a_review(self):
+        _, outputs = self.fail_review(
+            events=[], expected_invalid=False, FAKE_CODEX_STATUS="0"
+        )
+        # The fake GitHub API reports a review, but an incomplete attempt must
+        # still fail rather than borrowing that review as proof of completion.
+        self.assertIn("without a terminal turn event", outputs)
+
     def test_success_is_not_quarantined_even_with_earlier_stderr_error(self):
         _, outputs = self.run_step(
             "Run automated code review", FAKE_CODEX_STATUS="0",
+            FAKE_CODEX_EVENTS=json.dumps({"type": "turn.completed", "usage": {}}),
             FAKE_CODEX_STDERR='{"code":"refresh_token_reused"}',
         )
         self.assertNotIn("auth_invalid_reason", outputs)
